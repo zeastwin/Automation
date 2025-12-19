@@ -93,7 +93,7 @@ namespace Automation
         }
         private void OperationType_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (OperationType.SelectedIndex != -1 && SF.isModify == 1)
+            if (OperationType.SelectedIndex != -1 && SF.isModify == ModifyKind.Operation)
             {
                 // temp = DeepCopy((OperationType)OperationType.SelectedItem);
                 SF.frmDataGrid.OperationTemp = (OperationType)((OperationType)OperationType.SelectedItem).Clone();

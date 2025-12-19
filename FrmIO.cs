@@ -105,7 +105,7 @@ namespace Automation
 
         public void WriteIODgv(int inputCount, int outputCount, List<IO> cacheIOs)
         {
-            if (SF.isModify != 5)
+            if (SF.isModify != ModifyKind.IO)
                 dgvIO.Rows.Clear();
             if (inputCount >= cacheIOs.Count)
                 return;
@@ -115,7 +115,7 @@ namespace Automation
                 cacheIO = cacheIOs[i];
                 if (cacheIO != null)
                 {
-                    if (SF.isModify != 5)
+                    if (SF.isModify != ModifyKind.IO)
                         dgvIO.Rows.Add();
                     dgvIO.Rows[i].Cells[0].Value = cacheIO.Index;
                     //dgvIO.Rows[i].Cells[1].Value = cacheIO.Status ? "|运行" : "|就绪"; ;
@@ -136,7 +136,7 @@ namespace Automation
                 cacheIO = cacheIOs[i];
                 if (cacheIO != null)
                 {
-                    if (SF.isModify != 5)
+                    if (SF.isModify != ModifyKind.IO)
                         dgvIO.Rows.Add();
                     dgvIO.Rows[i].Cells[0].Value = cacheIO.Index;
                     dgvIO.Rows[i].Cells[1].Value = invalidImage;
@@ -230,10 +230,7 @@ namespace Automation
         {
             if (iSelectedIORow != -1)
             {
-                SF.isModify = 5;
-                SF.frmPropertyGrid.Enabled = true;
-                SF.frmToolBar.btnSave.Enabled = true;
-                SF.frmToolBar.btnCancel.Enabled = true;
+                SF.BeginEdit(ModifyKind.IO);
             }
           
         }
@@ -273,7 +270,7 @@ namespace Automation
             {
                 bool debugTemp = debug;
                 debug = value;
-                if (SF.isModify == 5)
+                if (SF.isModify == ModifyKind.IO)
                 {
                     if (Name == "")
                     {

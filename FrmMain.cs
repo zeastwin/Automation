@@ -166,7 +166,7 @@ namespace Automation
                 {
                     try
                     {
-                        if (SF.isModify != 2 && !SF.frmCard.IsNewCard)
+                        if (SF.isModify != ModifyKind.ControlCard && !SF.frmCard.IsNewCard)
                         {
                             //for (int i = 0; i < SF.frmCard.card.controlCards.Count; i++)
                             //{

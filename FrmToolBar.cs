@@ -78,20 +78,24 @@ namespace Automation
                    
 
                 }
-                if (SF.isModify != -1)
+                if (SF.isModify == ModifyKind.Operation)
                 {
                     SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[SF.frmDataGrid.iSelectedRow] = SF.frmDataGrid.OperationTemp;
                     SF.frmDataGrid.SaveSingleProc(SF.frmProc.SelectedProcNum);
                     SF.frmProc.bindingSource.ResetBindings(true);
-                    if (SF.isModify == 2)
-                        SF.frmProc.Refresh();
+                }
+                else if (SF.isModify == ModifyKind.Proc)
+                {
+                    SF.frmDataGrid.SaveSingleProc(SF.frmProc.SelectedProcNum);
+                    SF.frmProc.bindingSource.ResetBindings(true);
+                    SF.frmProc.Refresh();
                 }
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", SF.frmValue.dicValues);
 
 
                 SF.frmProc.NewStepNum = -1;
                 SF.frmProc.NewProcNum = -1;
-                SF.isModify = -1;
+                SF.isModify = ModifyKind.None;
                 SF.isAddOps = false;
 
             }
@@ -154,7 +158,7 @@ namespace Automation
                    
                     SF.frmCard.EndNewCard();
                 }
-                if (SF.isModify == 2)
+                if (SF.isModify == ModifyKind.ControlCard)
                 {
                     if (SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
                     {
@@ -170,32 +174,32 @@ namespace Automation
                         SF.frmCard.RefreshCardTree();
                         SF.mainfrm.ReflshDgv();
                       
-                        SF.isModify = -1;
+                        SF.isModify = ModifyKind.None;
                     }
                    
                 }
-                if (SF.isModify == 3)
+                if (SF.isModify == ModifyKind.Axis)
                 {
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
                     SF.frmCard.RefreshCardList();
                     SF.frmCard.RefreshCardTree();
                     SF.motion.SetAllAxisEquiv();
-                    SF.isModify = -1;
+                    SF.isModify = ModifyKind.None;
                 }
-                if (SF.isModify == 4)
+                if (SF.isModify == ModifyKind.Station)
                 {
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
                     SF.frmCard.RefreshStationList();
                     SF.frmCard.RefreshStationTree();
                //     SF.frmStation.SetAxisMotionParam();
-                    SF.isModify = -1;
+                    SF.isModify = ModifyKind.None;
                 }
-                if (SF.isModify == 5)
+                if (SF.isModify == ModifyKind.IO)
                 {
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", SF.frmIO.IOMap);
                     SF.frmIO.RefreshIODgv();
                    // SF.frmIO.FreshFrmIO();
-                    SF.isModify = -1;
+                    SF.isModify = ModifyKind.None;
 
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
                     SF.frmIODebug.RefreshIODebugMapFrm();
@@ -211,9 +215,7 @@ namespace Automation
                 }
               
             }
-            SF.frmPropertyGrid.Enabled = false;
-            SF.frmToolBar.btnSave.Enabled = false;
-            SF.frmToolBar.btnCancel.Enabled = false;
+            SF.EndEdit();
             SF.frmDataGrid.dataGridView1.Enabled = true;
             SF.frmProc.Enabled = true;
         }
@@ -224,15 +226,13 @@ namespace Automation
             SF.frmProc.NewProcNum = -1;
             SF.frmCard.EndNewCard();
 
-            SF.isModify = -1;
+            SF.isModify = ModifyKind.None;
             SF.isAddOps = false;
 
             SF.frmDataGrid.OperationTemp = null;
             SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
 
-            SF.frmPropertyGrid.Enabled = false;
-            SF.frmToolBar.btnSave.Enabled = false;
-            SF.frmToolBar.btnCancel.Enabled = false;
+            SF.EndEdit();
             SF.frmDataGrid.dataGridView1.Enabled = true;
             SF.frmProc.Enabled = true;
         }

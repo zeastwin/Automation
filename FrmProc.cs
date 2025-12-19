@@ -162,10 +162,7 @@ namespace Automation
             HeadTemp = new ProcHead();
 
             SF.frmPropertyGrid.propertyGrid1.SelectedObject = HeadTemp;
-            SF.frmPropertyGrid.Enabled = true;
-
-            SF.frmToolBar.btnSave.Enabled = true;
-            SF.frmToolBar.btnCancel.Enabled = true;
+            SF.BeginEdit(ModifyKind.None);
         }
 
         private void AddStep_Click(object sender, EventArgs e)
@@ -179,10 +176,7 @@ namespace Automation
                 StepTemp = new Step();
 
                 SF.frmPropertyGrid.propertyGrid1.SelectedObject = StepTemp;
-                SF.frmPropertyGrid.Enabled = true;
-
-                SF.frmToolBar.btnSave.Enabled = true;
-                SF.frmToolBar.btnCancel.Enabled = true;
+                SF.BeginEdit(ModifyKind.None);
             }
             else
             {
@@ -287,10 +281,7 @@ namespace Automation
 
         private void Modify_Click(object sender, EventArgs e)
         {
-            SF.isModify = 2;
-            SF.frmPropertyGrid.Enabled = true;
-            SF.frmToolBar.btnSave.Enabled = true;
-            SF.frmToolBar.btnCancel.Enabled = true;
+            SF.BeginEdit(ModifyKind.Proc);
         }
 
         private void FrmProc_Load(object sender, EventArgs e)

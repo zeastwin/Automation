@@ -299,10 +299,7 @@ namespace Automation
                 controlCardTemp = new ControlCard();
                 SF.frmPropertyGrid.propertyGrid1.SelectedObject = controlCardTemp.cardHead;
                 editKey.IsNewCard = true;
-                SF.frmPropertyGrid.Enabled = true;
-
-                SF.frmToolBar.btnSave.Enabled = true;
-                SF.frmToolBar.btnCancel.Enabled = true;
+                SF.BeginEdit(ModifyKind.None);
             }
         }
         private int GetNodeLevel(TreeNode node)
@@ -373,15 +370,12 @@ namespace Automation
         {
             if (TryGetSelectedAxisIndex(out _, out _))
             {
-                SF.isModify = 3;
+                SF.BeginEdit(ModifyKind.Axis);
             }
             else if (TryGetSelectedCardIndex(out _))
             {
-                SF.isModify = 2;
+                SF.BeginEdit(ModifyKind.ControlCard);
             }
-            SF.frmPropertyGrid.Enabled = true;
-            SF.frmToolBar.btnSave.Enabled = true;
-            SF.frmToolBar.btnCancel.Enabled = true;
         }
         public void RefreshStationList()
         {
@@ -447,20 +441,14 @@ namespace Automation
             SF.frmPropertyGrid.propertyGrid1.SelectedObject = dataStationTemp;
             SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
             editKey.IsNewStation = true;
-            SF.frmPropertyGrid.Enabled = true;
-
-            SF.frmToolBar.btnSave.Enabled = true;
-            SF.frmToolBar.btnCancel.Enabled = true;
+            SF.BeginEdit(ModifyKind.None);
         }
 
         private void ModifyStation_Click(object sender, EventArgs e)
         {
             if (TryGetSelectedStationIndex(out int stationIndex))
             {
-                SF.isModify = 4;
-                SF.frmPropertyGrid.Enabled = true;
-                SF.frmToolBar.btnSave.Enabled = true;
-                SF.frmToolBar.btnCancel.Enabled = true;
+                SF.BeginEdit(ModifyKind.Station);
 
                 dataStation[stationIndex].dataAxis.axisConfigs[0] = dataStation[stationIndex].dataAxis.axisConfig1;
                 dataStation[stationIndex].dataAxis.axisConfigs[1] = dataStation[stationIndex].dataAxis.axisConfig2;
@@ -778,7 +766,7 @@ namespace Automation
             set
             {
                 cardNum = value;
-                if ((SF.isModify == 4 || CardNum != null) && value != "-1")
+                if ((SF.isModify == ModifyKind.Station || CardNum != null) && value != "-1")
                 {
                     int num = int.Parse(cardNum);
                     if (CardNum != null && SF.frmCard.card.controlCards.Count > num)
@@ -804,7 +792,7 @@ namespace Automation
             set
             {
                 axisName = value;
-                if ((SF.isModify == 4|| SF.frmCard.IsNewStation) && value != "-1")
+                if ((SF.isModify == ModifyKind.Station || SF.frmCard.IsNewStation) && value != "-1")
                 {
                     Axis axis =SF.frmCard.card.controlCards[int.Parse(CardNum)].axis.FirstOrDefault(sc=>sc.AxisName==value);
                     if (axis != null)

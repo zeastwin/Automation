@@ -188,9 +188,7 @@ namespace Automation
             OperationTemp.RefleshPropertyAlarm();
             SF.frmPropertyGrid.propertyGrid1.SelectedObject = OperationTemp;
             SF.isAddOps = true;
-            SF.frmPropertyGrid.Enabled = true;
-            SF.frmToolBar.btnSave.Enabled = true;
-            SF.frmToolBar.btnCancel.Enabled = true;
+            SF.BeginEdit(ModifyKind.None);
             SF.frmDataGrid.dataGridView1.Enabled = false;
         }
 
@@ -276,10 +274,7 @@ namespace Automation
 
         private void Modify_Click(object sender, EventArgs e)
         {
-            SF.isModify = 1;
-            SF.frmPropertyGrid.Enabled = true;
-            SF.frmToolBar.btnSave.Enabled = true;
-            SF.frmToolBar.btnCancel.Enabled = true;
+            SF.BeginEdit(ModifyKind.Operation);
             SF.frmDataGrid.dataGridView1.Enabled = false;
             SF.frmProc.Enabled = false;
         }
@@ -515,10 +510,7 @@ namespace Automation
         {
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
             {
-                SF.isModify = 1;
-                SF.frmPropertyGrid.Enabled = true;
-                SF.frmToolBar.btnSave.Enabled = true;
-                SF.frmToolBar.btnCancel.Enabled = true;
+                SF.BeginEdit(ModifyKind.Operation);
                 SF.frmDataGrid.dataGridView1.Enabled = false;
                 SF.frmProc.Enabled = false;
             }

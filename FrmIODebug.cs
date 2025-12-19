@@ -70,7 +70,7 @@ namespace Automation
             {
                 while (true)
                 {
-                    if (CheckFormIsOpen(SF.frmIODebug)&&SF.isModify != 5)
+                    if (CheckFormIsOpen(SF.frmIODebug) && SF.isModify != ModifyKind.IO)
                     {
                         Invoke(new Action(() =>
                         {

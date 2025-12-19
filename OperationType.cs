@@ -111,7 +111,7 @@ namespace Automation
                 if (alarmType != value)
                 {
                     alarmType = value;
-                    if (SF.isModify == 1 || SF.isAddOps)
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                     {
                         RefleshPropertyAlarm();
                     }
@@ -247,7 +247,7 @@ namespace Automation
             set
             {
                 iOCount = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(IOCount);
                     ((IoOperate)SF.frmDataGrid.OperationTemp).IoParams = new CustomList<IoOutParam>();
@@ -312,7 +312,7 @@ namespace Automation
             set
             {
                 iOCount = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(IOCount);
                     ((IoCheck)SF.frmDataGrid.OperationTemp).IoParams = new CustomList<IoCheckParam>();
@@ -377,7 +377,7 @@ namespace Automation
             set
             {
                 procCount = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(procCount);
                     ((ProcOps)SF.frmDataGrid.OperationTemp).procParams = new CustomList<procParam>();
@@ -437,7 +437,7 @@ namespace Automation
             set
             {
                 procCount = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(procCount);
                     ((WaitProc)SF.frmDataGrid.OperationTemp).Params = new CustomList<WaitProcParam>();
@@ -512,7 +512,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((Goto)SF.frmDataGrid.OperationTemp).Params = new CustomList<GotoParam>();
@@ -584,7 +584,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((ParamGoto)SF.frmDataGrid.OperationTemp).Params = new CustomList<ParamGotoParam>();
@@ -675,7 +675,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((GetValue)SF.frmDataGrid.OperationTemp).Params = new CustomList<GetValueParam>();
@@ -820,7 +820,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((StringFormat)SF.frmDataGrid.OperationTemp).Params = new CustomList<StringFormatParam>();
@@ -932,7 +932,7 @@ namespace Automation
                 if (replaceType != value)
                 {
                     replaceType = value;
-                    if (SF.isModify == 1 || SF.isAddOps)
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                     {
                         RefleshProperty();
                     }
@@ -996,7 +996,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((SetDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<SetDataStructItemParam>();
@@ -1061,7 +1061,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((GetDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<GetDataStructItemParam>();
@@ -1139,7 +1139,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((CopyDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<CopyDataStructItemParam>();
@@ -1203,7 +1203,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((InsertDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<InsertDataStructItemParam>();
@@ -1320,7 +1320,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((TcpOps)SF.frmDataGrid.OperationTemp).Params = new CustomList<TcpOpsParam>();
@@ -1374,7 +1374,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((WaitTcp)SF.frmDataGrid.OperationTemp).Params = new CustomList<WaitTcpParam>();
@@ -1474,7 +1474,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((SerialPortOps)SF.frmDataGrid.OperationTemp).Params = new CustomList<SerialPortOpsParam>();
@@ -1528,7 +1528,7 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == 1 || SF.isAddOps)
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                 {
                     int num = int.Parse(count);
                     ((WaitSerialPort)SF.frmDataGrid.OperationTemp).Params = new CustomList<WaitSerialPortParam>();
@@ -1679,7 +1679,7 @@ namespace Automation
                 if (isDisableAxis != value)
                 {
                     isDisableAxis = value;
-                    if (SF.isModify == 1 || SF.isAddOps)
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                     {
                         RefleshPropertyName();
                     }
@@ -1729,7 +1729,7 @@ namespace Automation
                 if (changeVel != value)
                 {
                     changeVel = value;
-                    if (SF.isModify == 1 || SF.isAddOps)
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                     {
                         RefleshPropertyVel();
                     }
@@ -1874,7 +1874,7 @@ namespace Automation
                 if (stationName != value)
                 {
                     stationName = value;
-                    if (SF.isModify == 1 || SF.isAddOps)
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                     {
                         RefleshPropertyName();
                     }
@@ -1966,7 +1966,7 @@ namespace Automation
                 if (changeVel != value)
                 {
                     changeVel = value;
-                    if (SF.isModify == 1 || SF.isAddOps)
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                     {
                         RefleshPropertyVel();
                     }
@@ -2172,7 +2172,7 @@ namespace Automation
                 if (stationName != value)
                 {
                     stationName = value;
-                    if (SF.isModify == 1 || SF.isAddOps)
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
                     {
                         RefleshPropertyName();
                     }

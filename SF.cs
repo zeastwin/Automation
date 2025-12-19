@@ -13,6 +13,17 @@ using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
 
 namespace Automation
 {
+    public enum ModifyKind
+    {
+        None = -1,
+        Proc = 0,
+        Operation = 1,
+        ControlCard = 2,
+        Axis = 3,
+        Station = 4,
+        IO = 5
+    }
+
     public static class SF
     {
         public static FrmMenu frmMenu;
@@ -39,14 +50,8 @@ namespace Automation
         public static FrmInfo frmInfo;
         public static FrmTest frmTest;
 
-        /*0 修改proc
-          1 修改ops
-          2 修改controlCard
-          3 修改轴
-          4 修改工站
-          5 修改IO
-         */
-        public static int isModify = -1;
+        //编辑状态
+        public static ModifyKind isModify = ModifyKind.None;
 
         /*
        * 0 停止
@@ -100,6 +105,34 @@ namespace Automation
             while (Math.Abs(Environment.TickCount - start) < milliSecond)//毫秒
             {
                 Application.DoEvents();
+            }
+        }
+
+        public static void BeginEdit(ModifyKind kind)
+        {
+            isModify = kind;
+            if (frmPropertyGrid != null)
+            {
+                frmPropertyGrid.Enabled = true;
+            }
+            if (frmToolBar != null)
+            {
+                frmToolBar.btnSave.Enabled = true;
+                frmToolBar.btnCancel.Enabled = true;
+            }
+        }
+
+        public static void EndEdit()
+        {
+            isModify = ModifyKind.None;
+            if (frmPropertyGrid != null)
+            {
+                frmPropertyGrid.Enabled = false;
+            }
+            if (frmToolBar != null)
+            {
+                frmToolBar.btnSave.Enabled = false;
+                frmToolBar.btnCancel.Enabled = false;
             }
         }
         //public static async Task Delay(int milliSecond)
