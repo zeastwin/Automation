@@ -32,7 +32,6 @@
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle1 = new System.Windows.Forms.DataGridViewCellStyle();
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle2 = new System.Windows.Forms.DataGridViewCellStyle();
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle3 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle4 = new System.Windows.Forms.DataGridViewCellStyle();
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle5 = new System.Windows.Forms.DataGridViewCellStyle();
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle6 = new System.Windows.Forms.DataGridViewCellStyle();
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle7 = new System.Windows.Forms.DataGridViewCellStyle();
@@ -44,7 +43,6 @@
             this.status = new System.Windows.Forms.DataGridViewImageColumn();
             this.name = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.cardNum = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.type = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.moduleNum = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.IOIndex = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.value = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -71,7 +69,6 @@
             this.status,
             this.name,
             this.cardNum,
-            this.type,
             this.moduleNum,
             this.IOIndex,
             this.value,
@@ -139,19 +136,6 @@
             this.cardNum.Name = "cardNum";
             this.cardNum.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
             this.cardNum.Width = 40;
-            // 
-            // type
-            // 
-            this.type.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.None;
-            dataGridViewCellStyle4.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.type.DefaultCellStyle = dataGridViewCellStyle4;
-            this.type.FillWeight = 3F;
-            this.type.HeaderText = "卡类型";
-            this.type.MinimumWidth = 6;
-            this.type.Name = "type";
-            this.type.Resizable = System.Windows.Forms.DataGridViewTriState.True;
-            this.type.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
-            this.type.Width = 60;
             // 
             // moduleNum
             // 
@@ -273,7 +257,6 @@
         private System.Windows.Forms.DataGridViewImageColumn status;
         private System.Windows.Forms.DataGridViewTextBoxColumn name;
         private System.Windows.Forms.DataGridViewTextBoxColumn cardNum;
-        private System.Windows.Forms.DataGridViewTextBoxColumn type;
         private System.Windows.Forms.DataGridViewTextBoxColumn moduleNum;
         private System.Windows.Forms.DataGridViewTextBoxColumn IOIndex;
         private System.Windows.Forms.DataGridViewTextBoxColumn value;

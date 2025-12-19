@@ -68,26 +68,6 @@ namespace Automation
                 }
             }
 
-            foreach (IOCard iocardEx in SF.frmCard.card.iOCards)
-            {
-                foreach (IO item in iocardEx.IOMapEx)
-                {
-
-                    if (item.Name != null && item.Name != "")
-                    {
-                        DicIO.Add(item.Name, item);
-                        if (item.IOType == "通用输出")
-                        {
-                            IoOutItems.Add(item.Name);
-                        }
-                        if (item.IOType == "通用输入")
-                        {
-                            IoInItems.Add(item.Name);
-                        }
-                        IoItems.Add(item.Name);
-                    }
-                }
-            }
         }
         //从文件更新表
         public void RefreshIOMap()
@@ -121,17 +101,6 @@ namespace Automation
                     WriteIODgv(inputCount, outputCount, cacheIOs);
                 }
             }
-            else if(SF.frmCard.selectCardType == 1)
-            {
-                if (SF.frmCard.selectCardIndex != -1 && SF.frmCard.card.iOCards.Count != 0 && SF.frmCard.card.iOCards.Count > SF.frmCard.selectCardIndex)
-                {
-                    int Count = SF.frmCard.card.iOCards[SF.frmCard.selectCardIndex].iOCardHead.IOCount;
-
-                    List<IO> cacheIOs = SF.frmCard.card.iOCards[SF.frmCard.selectCardIndex].IOMapEx;
-
-                    WriteIODgv(Count, Count, cacheIOs);
-                }
-            }
         }
 
         public void WriteIODgv(int inputCount, int outputCount, List<IO> cacheIOs)
@@ -153,14 +122,13 @@ namespace Automation
                     dgvIO.Rows[i].Cells[1].Value = invalidImage;
                     dgvIO.Rows[i].Cells[2].Value = cacheIO.Name;
                     dgvIO.Rows[i].Cells[3].Value = cacheIO.CardNum;
-                    dgvIO.Rows[i].Cells[4].Value = cacheIO.CardTypeString;
-                    dgvIO.Rows[i].Cells[5].Value = cacheIO.Module;
-                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOIndex;
-                    dgvIO.Rows[i].Cells[7].Value = cacheIO.IOType;
-                    dgvIO.Rows[i].Cells[8].Value = cacheIO.UsedType;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Debug;
-                    dgvIO.Rows[i].Cells[11].Value = cacheIO.Note;
+                    dgvIO.Rows[i].Cells[4].Value = cacheIO.Module;
+                    dgvIO.Rows[i].Cells[5].Value = cacheIO.IOIndex;
+                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
+                    dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
+                    dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
+                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Debug;
+                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Note;
                 }
             }
             for (int i = inputCount; i < inputCount + outputCount; i++)
@@ -174,14 +142,13 @@ namespace Automation
                     dgvIO.Rows[i].Cells[1].Value = invalidImage;
                     dgvIO.Rows[i].Cells[2].Value = cacheIO.Name;
                     dgvIO.Rows[i].Cells[3].Value = cacheIO.CardNum;
-                    dgvIO.Rows[i].Cells[4].Value = cacheIO.CardTypeString;
-                    dgvIO.Rows[i].Cells[5].Value = cacheIO.Module;
-                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOIndex;
-                    dgvIO.Rows[i].Cells[7].Value = cacheIO.IOType;
-                    dgvIO.Rows[i].Cells[8].Value = cacheIO.UsedType;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Debug;
-                    dgvIO.Rows[i].Cells[11].Value = cacheIO.Note;
+                    dgvIO.Rows[i].Cells[4].Value = cacheIO.Module;
+                    dgvIO.Rows[i].Cells[5].Value = cacheIO.IOIndex;
+                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
+                    dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
+                    dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
+                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Debug;
+                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Note;
                 }
             }
         }
@@ -204,14 +171,13 @@ namespace Automation
                     dgvIO.Rows[i].Cells[1].Value = invalidImage;
                     dgvIO.Rows[i].Cells[2].Value = cacheIO.Name;
                     dgvIO.Rows[i].Cells[3].Value = cacheIO.CardNum;
-                    dgvIO.Rows[i].Cells[4].Value = cacheIO.CardTypeString;
-                    dgvIO.Rows[i].Cells[5].Value = cacheIO.Module;
-                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOIndex;
-                    dgvIO.Rows[i].Cells[7].Value = cacheIO.IOType;
-                    dgvIO.Rows[i].Cells[8].Value = cacheIO.UsedType;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Debug;
-                    dgvIO.Rows[i].Cells[11].Value = cacheIO.Note;
+                    dgvIO.Rows[i].Cells[4].Value = cacheIO.Module;
+                    dgvIO.Rows[i].Cells[5].Value = cacheIO.IOIndex;
+                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
+                    dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
+                    dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
+                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Debug;
+                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Note;
 
                 }
             }
@@ -224,14 +190,13 @@ namespace Automation
                     dgvIO.Rows[i].Cells[1].Value = invalidImage;
                     dgvIO.Rows[i].Cells[2].Value = cacheIO.Name;
                     dgvIO.Rows[i].Cells[3].Value = cacheIO.CardNum;
-                    dgvIO.Rows[i].Cells[4].Value = cacheIO.CardTypeString;
-                    dgvIO.Rows[i].Cells[5].Value = cacheIO.Module;
-                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOIndex;
-                    dgvIO.Rows[i].Cells[7].Value = cacheIO.IOType;
-                    dgvIO.Rows[i].Cells[8].Value = cacheIO.UsedType;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Debug;
-                    dgvIO.Rows[i].Cells[11].Value = cacheIO.Note;
+                    dgvIO.Rows[i].Cells[4].Value = cacheIO.Module;
+                    dgvIO.Rows[i].Cells[5].Value = cacheIO.IOIndex;
+                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
+                    dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
+                    dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
+                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Debug;
+                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Note;
                 }
             }
         }
@@ -256,8 +221,6 @@ namespace Automation
 
                 if(SF.frmCard.selectCardType == 0 && SF.frmCard.selectCardIndex!=-1)
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject = IOMap[SF.frmCard.selectCardIndex][e.RowIndex];
-                if (SF.frmCard.selectCardType == 1 && SF.frmCard.selectCardIndex != -1)
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmCard.card.iOCards[SF.frmCard.selectCardIndex].IOMapEx[e.RowIndex];
             }
 
             iSelectedIORow = e.RowIndex;
@@ -288,12 +251,6 @@ namespace Automation
         public string Name { get; set; }
         [DisplayName("卡号"), Category("常规"), Description(""), ReadOnly(true), Browsable(true)]
         public int CardNum { get; set; }
-        [Browsable(false)]
-        public int CardType { get; set; }
-        [DisplayName("卡类型"), Category("常规"), Description(""), ReadOnly(true), Browsable(true)]
-        public string CardTypeString { get; set; }
-        [DisplayName("拓展IO类型"), Category("设置"), Description(""), ReadOnly(false), Browsable(true)]
-        public string CardModelType { get; set; }
         [DisplayName("模块(从站)号"), Category("设置"), Description(""), ReadOnly(false), Browsable(true)]
         public int  Module { get; set; }
         [DisplayName("IO编号"), Category("常规"), Description(""), ReadOnly(true), Browsable(true)]
@@ -324,15 +281,7 @@ namespace Automation
                         debug = debugTemp;
                         return;
                     }
-                    List<IO> cacheIOs;
-                    if (CardType == 0)
-                    {
-                        cacheIOs = SF.frmIO.IOMap[SF.frmCard.selectCardIndex];
-                    }
-                    else
-                    {
-                        cacheIOs = SF.frmCard.card.iOCards[SF.frmCard.selectCardIndex].IOMapEx;
-                    }
+                    List<IO> cacheIOs = SF.frmIO.IOMap[SF.frmCard.selectCardIndex];
                     if (value == true)
                     {
                         if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输入")

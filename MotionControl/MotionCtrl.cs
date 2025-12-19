@@ -1,5 +1,4 @@
-﻿using Automation.IOControl;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -11,7 +10,6 @@ namespace Automation.MotionControl
     public class MotionCtrl
     {
         public LS ls;
-        public IOC0640 IOC0640;
 
         public delegate ushort InitCardHandler();
         public delegate bool SetIOHandler(IO io, bool isOpen);
@@ -35,9 +33,6 @@ namespace Automation.MotionControl
         public delegate void SetAllAxisEquivHandler();
         public delegate void CleanAlarmHandler();
         public delegate double GetAxisCurSpeedHandler(ushort card, ushort axis);
-        public delegate bool SetIOEXHandler(IO io, bool isOpen);
-        public delegate bool GetOutIOEXHandler(IO io, ref bool value);
-        public delegate bool GetInIOEXHandler(IO io, ref bool value);
 
         public event InitCardHandler initCard;
         public event SetIOHandler setIO;
@@ -61,9 +56,6 @@ namespace Automation.MotionControl
         public event SetAllAxisEquivHandler setAllAxisEquiv;
         public event CleanAlarmHandler cleanAlarm;
         public event GetAxisCurSpeedHandler getAxisCurSpeed;
-        public event SetIOEXHandler setIOEx;
-        public event GetOutIOEXHandler getOutIOEx;
-        public event GetInIOEXHandler getInIOEx;
 
         public void InitCard()
         {
@@ -71,24 +63,15 @@ namespace Automation.MotionControl
         }
         public bool SetIO(IO io, bool isOpen)
         {
-            if (io.CardType == 0)
-                return (bool)setIO?.Invoke(io, isOpen);
-            else
-                return (bool)setIOEx?.Invoke(io, isOpen);
+            return (bool)setIO?.Invoke(io, isOpen);
         }
         public bool GetOutIO(IO io, ref bool value)
         {
-            if (io.CardType == 0)
-                return (bool)getOutIO?.Invoke(io, ref value);
-            else
-                return (bool)getOutIOEx?.Invoke(io, ref value);
+            return (bool)getOutIO?.Invoke(io, ref value);
         }
         public bool GetInIO(IO io, ref bool value)
         {
-            if (io.CardType == 0)
-                return (bool)getInIO?.Invoke(io, ref value);
-            else
-                return (bool)getInIOEx?.Invoke(io, ref value);
+            return (bool)getInIO?.Invoke(io, ref value);
         }
         public void SettHomeParam(ushort card,ushort axis, ushort dir, ushort speed, ushort homeMode)
         {
@@ -165,7 +148,6 @@ namespace Automation.MotionControl
         public void InitCardType()
         {
             ls = new LS();
-            IOC0640 = new IOC0640();
             initCard = ls.InitCard;
             setIO = ls.SetIO;
             getInIO = ls.GetInIO;
@@ -189,10 +171,6 @@ namespace Automation.MotionControl
             setAllAxisEquiv = ls.SetAllAxisEquiv;
             cleanAlarm = ls.CleanAlarm;
             getAxisCurSpeed = ls.GetAxisCurSpeed;
-
-            setIOEx = IOC0640.SetIO;
-            getInIOEx = IOC0640.GetInIO;
-            getOutIOEx = IOC0640.GetOutIO;
         }
 
     }

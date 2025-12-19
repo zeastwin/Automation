@@ -28,8 +28,6 @@ namespace Automation
         public Card card =  new Card();
         //存放临时控制卡信息
         public ControlCard controlCardTemp;
-        //存放临时IO拓展卡信息
-        public IOCard IOCardTemp;
         //存放临时轴信息
         public Axis axisTemp;
         public int selectCardType;
@@ -37,7 +35,6 @@ namespace Automation
         public int selectCardChildIndex;
 
         public int NewCardNum;
-        public int NewIOCardNum;
         public int NewStationNum;
 
         public static List<string> axisItme = new List<string>();
@@ -58,7 +55,6 @@ namespace Automation
             selectStationIndex = -1; 
             NewCardNum = -1;
             NewStationNum = -1;
-            NewIOCardNum = -1;
             this.treeView1.HideSelection = false;
             this.treeView2.HideSelection = false;
 
@@ -81,8 +77,6 @@ namespace Automation
         {
             TreeNode treeNode = new TreeNode("控制卡");
             treeView1.Nodes.Add(treeNode);
-            treeNode = new TreeNode("IO卡");
-            treeView1.Nodes.Add(treeNode);
             if (card == null)
             {
                 return;
@@ -98,13 +92,6 @@ namespace Automation
                 }
             }
 
-            for (int i = 0; i < card.iOCards.Count; i++)
-            {
-                TreeNode chnode = new TreeNode(i + "号拓展卡：");
-                treeView1.Nodes[1].Nodes.Add(chnode);
-            }
-
-
             treeView1.ExpandAll();
         }
 
@@ -113,18 +100,6 @@ namespace Automation
         public class Card
         {
             public List<ControlCard> controlCards = new List<ControlCard>();
-            public List<IOCard> iOCards = new List<IOCard>();  
-        }
-        public class IOCardHead
-        {
-            [DisplayName("拓展IO类型"), Category("拓展IO参数"), Description(""), ReadOnly(false), TypeConverter(typeof(IOCardExTypeItem))]
-            public string CardType { get; set; }
-            [DisplayName("卡编号"), Category("拓展IO参数"), Description(""), ReadOnly(true)]
-            public int CardNum { get; set; }
-            [DisplayName("模块(从站)号"), Category("拓展IO参数"), Description(""), ReadOnly(false)]
-            public int Module { get; set; }
-            [DisplayName("IO数量"), Category("拓展IO参数"), Description(""), ReadOnly(false)]
-            public int IOCount { get; set; }
         }
         public class ControlCard
         {
@@ -229,12 +204,6 @@ namespace Automation
                 return allValues;
             }
         }
-        public class IOCard
-        {
-            public IOCardHead iOCardHead = new IOCardHead();
-            public List<IO> IOMapEx = new List<IO>();
-        }
-
         private void FrmCard_Load(object sender, EventArgs e)
         {
             RefreshCardTree();
@@ -259,17 +228,6 @@ namespace Automation
                 controlCardTemp = new ControlCard();
                 SF.frmPropertyGrid.propertyGrid1.SelectedObject = controlCardTemp.cardHead;
                 NewCardNum = 0;
-                SF.frmPropertyGrid.Enabled = true;
-
-                SF.frmToolBar.btnSave.Enabled = true;
-                SF.frmToolBar.btnCancel.Enabled = true;
-            }
-            //新建IO拓展卡
-            if (selectCardType == 1 && selectCardIndex == -1)
-            {
-                IOCardTemp = new IOCard();
-                SF.frmPropertyGrid.propertyGrid1.SelectedObject = IOCardTemp.iOCardHead;
-                NewIOCardNum = 0;
                 SF.frmPropertyGrid.Enabled = true;
 
                 SF.frmToolBar.btnSave.Enabled = true;
@@ -311,10 +269,6 @@ namespace Automation
                     if(selectCardType == 0)
 
                          SF.frmPropertyGrid.propertyGrid1.SelectedObject = card.controlCards[selectCardIndex].cardHead;
-
-                    if(selectCardType == 1)
-
-                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = card.iOCards[selectCardIndex].iOCardHead;
 
                     SF.frmIO.RefreshIODgv();
                 }
@@ -371,10 +325,6 @@ namespace Automation
             {
                 SF.isModify = 3;
             }
-            else if (selectCardIndex != -1 && selectCardType == 1 && selectCardChildIndex == -1)
-            {
-                SF.isModify = 2;
-            }
             SF.frmPropertyGrid.Enabled = true;
             SF.frmToolBar.btnSave.Enabled = true;
             SF.frmToolBar.btnCancel.Enabled = true;
@@ -424,18 +374,6 @@ namespace Automation
                         }
                     }
                 }         
-                if (selectCardType == 1)
-                {
-                    card.iOCards.RemoveAt(selectCardIndex);
-                    for (int i = 0; i < card.iOCards.Count; i++)
-                    {
-                        card.iOCards[i].iOCardHead.CardNum = i;
-                        for (int j = 0; j < card.iOCards[i].IOMapEx.Count; j++)
-                        {
-                            card.iOCards[i].IOMapEx[j].CardNum = i;
-                        }
-                    }
-                }
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
                 SF.frmCard.RefreshCardList();
                 SF.frmCard.RefreshCardTree();
@@ -574,22 +512,6 @@ namespace Automation
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
         {
             return new StandardValuesCollection(new List<string>() { "从正限位回零", "从负限位回零", "从当前位回零" });
-        }
-        public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
-        {
-            return true;
-        }
-    }
-    public class IOCardExTypeItem : StringConverter
-    {
-        public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
-        {
-            return true;
-        }
-
-        public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
-        {
-            return new StandardValuesCollection(new List<string>() { "0640"});
         }
         public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
         {

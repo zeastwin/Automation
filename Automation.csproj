@@ -212,7 +212,6 @@
     <Compile Include="FrmValue.Designer.cs">
       <DependentUpon>FrmValue.cs</DependentUpon>
     </Compile>
-    <Compile Include="IOControl\0640.cs" />
     <Compile Include="MotionControl\LeiSei3000.cs" />
     <Compile Include="MotionControl\LTDMC.cs" />
     <Compile Include="MotionControl\MotionCtrl.cs" />

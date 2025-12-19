@@ -27,10 +27,10 @@
 - 运动：`HomeRun`、`StationRunPos`、`StationRunRel`、`SetStationVel`、`StationStop`、`WaitStationStop`（回零、绝对/相对运动、速度覆盖、停止与等待到位）。
 
 ## 硬件与 IO
-- **卡与轴**：`FrmCard` 编辑运动控制卡（`ControlCard`）与 IO 拓展卡（`IOCard`），轴记录回零模式、脉冲当量、速度/加减速限制等，保存到 `card.json`。
+- **卡与轴**：`FrmCard` 编辑运动控制卡（`ControlCard`），轴记录回零模式、脉冲当量、速度/加减速限制等，保存到 `card.json`。
 - **工站模型**：`DataStation` 将轴编组为工站，带点位与运动参数，存于 `DataStation.json`，供站类操作引用。
 - **IO 映射**：`FrmIO` 将物理 IO 映射为命名 IO（`IOMap.json`），维护输入/输出下拉列表，`FrmIODebug` 支持调试映射。
-- **运动控制**：`MotionCtrl` 统一封装卡类型；`InitCardType` 绑定 `ls`（LTDMC）与 `IOC0640` 实现；`FrmMain_Load` 完成卡初始化、配置下载、使能伺服、设定当量。
+- **运动控制**：`MotionCtrl` 统一封装卡类型；`InitCardType` 绑定 `ls`（LTDMC）实现；`FrmMain_Load` 完成卡初始化、配置下载、使能伺服、设定当量。
 
 ## 通讯界面
 - `FrmComunication` 管理 TCP（`SocketInfo`/`Socketer`）与串口（`SerialPortInfo`/`SerialPorter`），支持连/断、异步接收日志、十六进制视图与发送；流程操作按名称引用。
@@ -65,6 +65,5 @@
 
 ## 依赖与驱动
 - `MotionControl/LTDMC.cs` P/Invoke `LTDMC.dll`，`MotionControl/LeiSei3000.cs` 实现 LS 运动与 IO。
-- `IOControl/0640.cs` 实现扩展 IO 卡读写逻辑。
 - `packages.config` 使用 `Newtonsoft.Json`、`OxyPlot`、`S7.Net`、`System.Drawing.Common` 等依赖。
 - 运行时会读取 `Config/card_0.ini` 等 ini 做运动卡参数下载。

@@ -121,8 +121,6 @@ namespace Automation
                             Status = false,
                             Name = "",
                             CardNum = SF.frmCard.card.controlCards.Count-1,
-                            CardTypeString = "本卡IO",
-                            CardType = 0,
                             Module = 0,
                             IOIndex = i.ToString(),
                             IOType = "通用输入",
@@ -139,8 +137,6 @@ namespace Automation
                             Status = false,
                             Name = "",
                             CardNum = SF.frmCard.card.controlCards.Count-1,
-                            CardTypeString = "本卡IO",
-                            CardType = 0,
                             Module = 0,
                             IOIndex = i.ToString(),
                             IOType = "通用输出",
@@ -157,61 +153,6 @@ namespace Automation
                     SF.mainfrm.ReflshDgv();
                    
                     SF.frmCard.NewCardNum = -1;
-                }
-                if (SF.frmCard.NewIOCardNum != -1)
-                {
-                    
-                    List<IO> iOs = new List<IO>();
-
-                    for (int i = 0; i < SF.frmCard.IOCardTemp.iOCardHead.IOCount; i++)
-                    {
-                        IO io = new IO()
-                        {
-                            Index = i,
-                            Status = false,
-                            Name = "",
-                            CardNum = SF.frmCard.card.iOCards.Count,
-                            CardTypeString = "拓展IO",
-                            CardType = 0,
-                            Module = SF.frmCard.IOCardTemp.iOCardHead.Module,
-                            IOIndex = i.ToString(),
-                            IOType = "通用输入",
-                            UsedType = "通用",
-                            EffectLevel = "正常",
-                            CardModelType = SF.frmCard.IOCardTemp.iOCardHead.CardType
-                        };
-                        iOs.Add(io);
-                    }
-                    for (int i = 0; i < SF.frmCard.IOCardTemp.iOCardHead.IOCount; i++)
-                    {
-                        IO io2 = new IO()
-                        {
-                            Index = i + SF.frmCard.card.controlCards.Count,
-                            Status = false,
-                            Name = "",
-                            CardNum = SF.frmCard.card.iOCards.Count,
-                            CardTypeString = "拓展IO",
-                            CardType = 0,
-                            Module = 0,
-                            IOIndex = i.ToString(),
-                            IOType = "通用输出",
-                            UsedType = "通用",
-                            EffectLevel = "正常",
-                            CardModelType = SF.frmCard.IOCardTemp.iOCardHead.CardType
-                        };
-                        iOs.Add(io2);
-                    }
-                    SF.frmCard.IOCardTemp.iOCardHead.CardNum = SF.frmCard.card.iOCards.Count;
-                    SF.frmCard.IOCardTemp.IOMapEx = iOs;
-                    SF.frmCard.card.iOCards.Add(SF.frmCard.IOCardTemp);
-                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", SF.frmIO.IOMap);
-                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
-                    SF.frmCard.RefreshCardList();
-                    SF.frmCard.RefreshCardTree();
-                    SF.frmIO.RefreshIOMap();
-                    SF.mainfrm.ReflshDgv();
-
-                    SF.frmCard.NewIOCardNum = -1;
                 }
                 if (SF.isModify == 2)
                 {
