@@ -22,6 +22,29 @@ using Newtonsoft.Json;
 
 namespace Automation
 {
+    public enum EditKind
+    {
+        None,
+        CardRoot,
+        Card,
+        Axis
+    }
+
+    public struct EditKey
+    {
+        public EditKind Kind { get; set; }
+        public int? CardIndex { get; set; }
+        public int? AxisIndex { get; set; }
+        public int? StationIndex { get; set; }
+        public bool IsNewCard { get; set; }
+        public bool IsNewStation { get; set; }
+
+        public static EditKey None => new EditKey { Kind = EditKind.None };
+        public static EditKey CardRoot => new EditKey { Kind = EditKind.CardRoot };
+        public static EditKey Card(int cardIndex) => new EditKey { Kind = EditKind.Card, CardIndex = cardIndex };
+        public static EditKey Axis(int cardIndex, int axisIndex) => new EditKey { Kind = EditKind.Axis, CardIndex = cardIndex, AxisIndex = axisIndex };
+    }
+
     public partial class FrmCard : Form
     {
         //存放所有轴卡信息 
@@ -30,12 +53,7 @@ namespace Automation
         public ControlCard controlCardTemp;
         //存放临时轴信息
         public Axis axisTemp;
-        public int selectCardType;
-        public int selectCardIndex;
-        public int selectCardChildIndex;
-
-        public int NewCardNum;
-        public int NewStationNum;
+        public EditKey editKey = EditKey.None;
 
         public static List<string> axisItme = new List<string>();
       
@@ -44,20 +62,73 @@ namespace Automation
         //存放临时工站信息
         public DataStation dataStationTemp;
 
-        public int selectStationIndex;
-
         public FrmCard()
         {
             InitializeComponent();
-            selectCardType = -1;
-            selectCardIndex = -1;
-            selectCardChildIndex = -1;
-            selectStationIndex = -1; 
-            NewCardNum = -1;
-            NewStationNum = -1;
+            editKey = EditKey.None;
             this.treeView1.HideSelection = false;
             this.treeView2.HideSelection = false;
 
+        }
+        public bool IsNewCard => editKey.IsNewCard;
+        public bool IsNewStation => editKey.IsNewStation;
+        public bool IsCardRootSelected => editKey.Kind == EditKind.CardRoot;
+
+        public bool TryGetSelectedCardIndex(out int cardIndex)
+        {
+            if (editKey.CardIndex.HasValue)
+            {
+                cardIndex = editKey.CardIndex.Value;
+                return true;
+            }
+            cardIndex = -1;
+            return false;
+        }
+
+        public bool TryGetSelectedAxisIndex(out int cardIndex, out int axisIndex)
+        {
+            if (editKey.CardIndex.HasValue && editKey.AxisIndex.HasValue)
+            {
+                cardIndex = editKey.CardIndex.Value;
+                axisIndex = editKey.AxisIndex.Value;
+                return true;
+            }
+            cardIndex = -1;
+            axisIndex = -1;
+            return false;
+        }
+
+        public bool TryGetSelectedStationIndex(out int stationIndex)
+        {
+            if (editKey.StationIndex.HasValue)
+            {
+                stationIndex = editKey.StationIndex.Value;
+                return true;
+            }
+            stationIndex = -1;
+            return false;
+        }
+
+        private void ClearCardSelection()
+        {
+            editKey.CardIndex = null;
+            editKey.AxisIndex = null;
+            editKey.Kind = EditKind.None;
+        }
+
+        private void ClearStationSelection()
+        {
+            editKey.StationIndex = null;
+        }
+
+        public void EndNewCard()
+        {
+            editKey.IsNewCard = false;
+        }
+
+        public void EndNewStation()
+        {
+            editKey.IsNewStation = false;
         }
         public void RefreshCardList()
         {
@@ -223,11 +294,11 @@ namespace Automation
         private void AddCard_Click(object sender, EventArgs e)
         {
             //新建控制卡
-            if (selectCardType == 0&&selectCardIndex==-1)
+            if (IsCardRootSelected)
             {
                 controlCardTemp = new ControlCard();
                 SF.frmPropertyGrid.propertyGrid1.SelectedObject = controlCardTemp.cardHead;
-                NewCardNum = 0;
+                editKey.IsNewCard = true;
                 SF.frmPropertyGrid.Enabled = true;
 
                 SF.frmToolBar.btnSave.Enabled = true;
@@ -251,40 +322,28 @@ namespace Automation
                 int level = GetNodeLevel(treeView1.SelectedNode);
                 if (level == 1)
                 {
-                    selectCardType = treeView1.SelectedNode.Index;
-
-                    selectCardIndex = -1;
-
-                    selectCardChildIndex = -1;
+                    editKey.Kind = EditKind.CardRoot;
+                    editKey.CardIndex = null;
+                    editKey.AxisIndex = null;
                 }
                 else if(level == 2)
                 {
+                    editKey.Kind = EditKind.Card;
+                    editKey.CardIndex = treeView1.SelectedNode.Index;
+                    editKey.AxisIndex = null;
 
-                    selectCardType = treeView1.SelectedNode.Parent.Index;
-
-                    selectCardIndex = treeView1.SelectedNode.Index;
-
-                    selectCardChildIndex = -1;
-
-                    if(selectCardType == 0)
-
-                         SF.frmPropertyGrid.propertyGrid1.SelectedObject = card.controlCards[selectCardIndex].cardHead;
+                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = card.controlCards[editKey.CardIndex.Value].cardHead;
 
                     SF.frmIO.RefreshIODgv();
                 }
                 else if(level == 3)
                 {
-                    selectCardType = treeView1.SelectedNode.Parent.Parent.Index;
+                    editKey.Kind = EditKind.Axis;
+                    editKey.CardIndex = treeView1.SelectedNode.Parent.Index;
+                    editKey.AxisIndex = treeView1.SelectedNode.Index;
 
-                    selectCardIndex = treeView1.SelectedNode.Parent.Index;
-
-                    selectCardChildIndex = treeView1.SelectedNode.Index;
-
-                    if (selectCardType == 0)
-                    {
-                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = card.controlCards[selectCardIndex].axis[selectCardChildIndex];
-                        SF.frmIO.RefreshIODgv();
-                    }
+                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = card.controlCards[editKey.CardIndex.Value].axis[editKey.AxisIndex.Value];
+                    SF.frmIO.RefreshIODgv();
                 }
                 treeView2.SelectedNode = null;
             }
@@ -300,12 +359,7 @@ namespace Automation
                 if (clickedNode == null) // 点击的是空白区域
                 {
                     treeView.SelectedNode = null; // 取消当前节点选择
-
-                    selectCardType = -1;
-
-                    selectCardIndex = -1;
-
-                    selectCardChildIndex = -1;
+                    ClearCardSelection();
                 }
                 if (clickedNode != null)
                 {
@@ -317,13 +371,13 @@ namespace Automation
 
         private void Modify_Click(object sender, EventArgs e)
         {
-            if (selectCardIndex != -1&&selectCardType!=-1&&selectCardChildIndex==-1)
-            {
-                SF.isModify = 2;            
-            }
-            else if(selectCardChildIndex!=-1)
+            if (TryGetSelectedAxisIndex(out _, out _))
             {
                 SF.isModify = 3;
+            }
+            else if (TryGetSelectedCardIndex(out _))
+            {
+                SF.isModify = 2;
             }
             SF.frmPropertyGrid.Enabled = true;
             SF.frmToolBar.btnSave.Enabled = true;
@@ -360,12 +414,10 @@ namespace Automation
         }
         private void Remove_Click(object sender, EventArgs e)
         {
-            if (selectCardIndex != -1)
+            if (TryGetSelectedCardIndex(out int cardIndex))
             {
-                if(selectCardType == 0)
-                {
-                    card.controlCards.RemoveAt(selectCardIndex);
-                    SF.frmIO.IOMap.RemoveAt(selectCardIndex);
+                card.controlCards.RemoveAt(cardIndex);
+                SF.frmIO.IOMap.RemoveAt(cardIndex);
                     for (int i = 0;i < SF.frmIO.IOMap.Count; i++)
                     {
                         for (int j = 0; j < SF.frmIO.IOMap[i].Count; j++)
@@ -373,7 +425,6 @@ namespace Automation
                             SF.frmIO.IOMap[i][j].CardNum = i;
                         }
                     }
-                }         
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
                 SF.frmCard.RefreshCardList();
                 SF.frmCard.RefreshCardTree();
@@ -395,7 +446,7 @@ namespace Automation
             dataStation.Add(dataStationTemp);
             SF.frmPropertyGrid.propertyGrid1.SelectedObject = dataStationTemp;
             SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-            NewStationNum = 0;
+            editKey.IsNewStation = true;
             SF.frmPropertyGrid.Enabled = true;
 
             SF.frmToolBar.btnSave.Enabled = true;
@@ -404,26 +455,26 @@ namespace Automation
 
         private void ModifyStation_Click(object sender, EventArgs e)
         {
-            if (selectStationIndex != -1)
+            if (TryGetSelectedStationIndex(out int stationIndex))
             {
                 SF.isModify = 4;
                 SF.frmPropertyGrid.Enabled = true;
                 SF.frmToolBar.btnSave.Enabled = true;
                 SF.frmToolBar.btnCancel.Enabled = true;
 
-                dataStation[selectStationIndex].dataAxis.axisConfigs[0] = dataStation[selectStationIndex].dataAxis.axisConfig1;
-                dataStation[selectStationIndex].dataAxis.axisConfigs[1] = dataStation[selectStationIndex].dataAxis.axisConfig2;
-                dataStation[selectStationIndex].dataAxis.axisConfigs[2] = dataStation[selectStationIndex].dataAxis.axisConfig3;
-                dataStation[selectStationIndex].dataAxis.axisConfigs[3] = dataStation[selectStationIndex].dataAxis.axisConfig4;
-                dataStation[selectStationIndex].dataAxis.axisConfigs[4] = dataStation[selectStationIndex].dataAxis.axisConfig5;
-                dataStation[selectStationIndex].dataAxis.axisConfigs[5] = dataStation[selectStationIndex].dataAxis.axisConfig6;
+                dataStation[stationIndex].dataAxis.axisConfigs[0] = dataStation[stationIndex].dataAxis.axisConfig1;
+                dataStation[stationIndex].dataAxis.axisConfigs[1] = dataStation[stationIndex].dataAxis.axisConfig2;
+                dataStation[stationIndex].dataAxis.axisConfigs[2] = dataStation[stationIndex].dataAxis.axisConfig3;
+                dataStation[stationIndex].dataAxis.axisConfigs[3] = dataStation[stationIndex].dataAxis.axisConfig4;
+                dataStation[stationIndex].dataAxis.axisConfigs[4] = dataStation[stationIndex].dataAxis.axisConfig5;
+                dataStation[stationIndex].dataAxis.axisConfigs[5] = dataStation[stationIndex].dataAxis.axisConfig6;
 
-                dataStation[selectStationIndex].homeSeq.axisSeq[0] = dataStation[selectStationIndex].homeSeq.AxisName1;
-                dataStation[selectStationIndex].homeSeq.axisSeq[1] = dataStation[selectStationIndex].homeSeq.AxisName2;
-                dataStation[selectStationIndex].homeSeq.axisSeq[2] = dataStation[selectStationIndex].homeSeq.AxisName3;
-                dataStation[selectStationIndex].homeSeq.axisSeq[3] = dataStation[selectStationIndex].homeSeq.AxisName4;
-                dataStation[selectStationIndex].homeSeq.axisSeq[4] = dataStation[selectStationIndex].homeSeq.AxisName5;
-                dataStation[selectStationIndex].homeSeq.axisSeq[5] = dataStation[selectStationIndex].homeSeq.AxisName6;
+                dataStation[stationIndex].homeSeq.axisSeq[0] = dataStation[stationIndex].homeSeq.AxisName1;
+                dataStation[stationIndex].homeSeq.axisSeq[1] = dataStation[stationIndex].homeSeq.AxisName2;
+                dataStation[stationIndex].homeSeq.axisSeq[2] = dataStation[stationIndex].homeSeq.AxisName3;
+                dataStation[stationIndex].homeSeq.axisSeq[3] = dataStation[stationIndex].homeSeq.AxisName4;
+                dataStation[stationIndex].homeSeq.axisSeq[4] = dataStation[stationIndex].homeSeq.AxisName5;
+                dataStation[stationIndex].homeSeq.axisSeq[5] = dataStation[stationIndex].homeSeq.AxisName6;
             }
            
            
@@ -431,9 +482,9 @@ namespace Automation
 
         private void RemoveStation_Click(object sender, EventArgs e)
         {
-            if (selectStationIndex != -1)
+            if (TryGetSelectedStationIndex(out int stationIndex))
             {
-                dataStation.RemoveAt(selectStationIndex);
+                dataStation.RemoveAt(stationIndex);
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", dataStation);
 
                 SF.frmCard.RefreshStationList();
@@ -443,8 +494,8 @@ namespace Automation
 
         private void treeView2_AfterSelect(object sender, TreeViewEventArgs e)
         {
-            selectStationIndex = treeView2.SelectedNode.Index;
-            SF.frmPropertyGrid.propertyGrid1.SelectedObject = dataStation[selectStationIndex];
+            editKey.StationIndex = treeView2.SelectedNode.Index;
+            SF.frmPropertyGrid.propertyGrid1.SelectedObject = dataStation[editKey.StationIndex.Value];
             SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
           
         }
@@ -459,7 +510,7 @@ namespace Automation
                 if (clickedNode == null) // 点击的是空白区域
                 {
                     treeView.SelectedNode = null; // 取消当前节点选择
-                    selectStationIndex = -1;
+                    ClearStationSelection();
                 }
                 if (clickedNode != null)
                 {
@@ -753,7 +804,7 @@ namespace Automation
             set
             {
                 axisName = value;
-                if ((SF.isModify == 4|| SF.frmCard.NewStationNum==0) && value != "-1")
+                if ((SF.isModify == 4|| SF.frmCard.IsNewStation) && value != "-1")
                 {
                     Axis axis =SF.frmCard.card.controlCards[int.Parse(CardNum)].axis.FirstOrDefault(sc=>sc.AxisName==value);
                     if (axis != null)

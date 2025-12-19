@@ -89,14 +89,14 @@ namespace Automation
         public void RefreshIODgv()
         {
             RefleshIODic();
-            if (SF.frmCard.selectCardType == 0)
+            if (SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
             {
-                if (SF.frmCard.selectCardIndex != -1 && SF.frmCard.card.controlCards.Count != 0 && SF.frmCard.card.controlCards.Count > SF.frmCard.selectCardIndex)
+                if (SF.frmCard.card.controlCards.Count != 0 && SF.frmCard.card.controlCards.Count > cardIndex)
                 {
-                    int inputCount = SF.frmCard.card.controlCards[SF.frmCard.selectCardIndex].cardHead.InputCount;
-                    int outputCount = SF.frmCard.card.controlCards[SF.frmCard.selectCardIndex].cardHead.OutputCount;
+                    int inputCount = SF.frmCard.card.controlCards[cardIndex].cardHead.InputCount;
+                    int outputCount = SF.frmCard.card.controlCards[cardIndex].cardHead.OutputCount;
 
-                    List<IO> cacheIOs = IOMap[SF.frmCard.selectCardIndex];
+                    List<IO> cacheIOs = IOMap[cardIndex];
 
                     WriteIODgv(inputCount, outputCount, cacheIOs);
                 }
@@ -155,12 +155,12 @@ namespace Automation
         //刷新IO界面
         public void FreshFrmIO()
         {
-            if (SF.frmCard.selectCardIndex == -1)
+            if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
                 return;
-            int inputCount = SF.frmCard.card.controlCards[SF.frmCard.selectCardIndex].cardHead.InputCount;
-            int outputCount = SF.frmCard.card.controlCards[SF.frmCard.selectCardIndex].cardHead.OutputCount;
+            int inputCount = SF.frmCard.card.controlCards[cardIndex].cardHead.InputCount;
+            int outputCount = SF.frmCard.card.controlCards[cardIndex].cardHead.OutputCount;
 
-            List<IO> cacheIOs = IOMap[SF.frmCard.selectCardIndex];
+            List<IO> cacheIOs = IOMap[cardIndex];
             IO cacheIO;
             for (int i = 0; i < inputCount; i++)
             {
@@ -219,8 +219,8 @@ namespace Automation
                 dgvIO.ClearSelection();
                 dgvIO.Rows[e.RowIndex].Selected = true;
 
-                if(SF.frmCard.selectCardType == 0 && SF.frmCard.selectCardIndex!=-1)
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = IOMap[SF.frmCard.selectCardIndex][e.RowIndex];
+                if (SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
+                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = IOMap[cardIndex][e.RowIndex];
             }
 
             iSelectedIORow = e.RowIndex;
@@ -281,7 +281,11 @@ namespace Automation
                         debug = debugTemp;
                         return;
                     }
-                    List<IO> cacheIOs = SF.frmIO.IOMap[SF.frmCard.selectCardIndex];
+                    if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
+                    {
+                        return;
+                    }
+                    List<IO> cacheIOs = SF.frmIO.IOMap[cardIndex];
                     if (value == true)
                     {
                         if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输入")

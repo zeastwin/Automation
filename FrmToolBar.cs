@@ -97,7 +97,7 @@ namespace Automation
             }
             if (SF.curPage == 5)
             {
-                if (SF.frmCard.NewCardNum != -1)
+                if (SF.frmCard.IsNewCard)
                 {
                     SF.frmCard.card.controlCards.Add(SF.frmCard.controlCardTemp);
                     int AxisCount =SF.frmCard.controlCardTemp.cardHead.AxisCount;
@@ -152,18 +152,18 @@ namespace Automation
                     SF.frmIO.RefreshIOMap();
                     SF.mainfrm.ReflshDgv();
                    
-                    SF.frmCard.NewCardNum = -1;
+                    SF.frmCard.EndNewCard();
                 }
                 if (SF.isModify == 2)
                 {
-                    if(SF.frmCard.selectCardIndex != -1)
+                    if (SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
                     {
-                        int AxisCount = SF.frmCard.card.controlCards[SF.frmCard.selectCardIndex].cardHead.AxisCount;
-                        SF.frmCard.card.controlCards[SF.frmCard.selectCardIndex].axis.Clear();
+                        int AxisCount = SF.frmCard.card.controlCards[cardIndex].cardHead.AxisCount;
+                        SF.frmCard.card.controlCards[cardIndex].axis.Clear();
                         for (int i = 0; i < AxisCount; i++)
                         {
                             Axis axis = new Axis() { AxisName = $"Axis{i}" };
-                            SF.frmCard.card.controlCards[SF.frmCard.selectCardIndex].axis.Add(axis);
+                            SF.frmCard.card.controlCards[cardIndex].axis.Add(axis);
                         }
                         SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
                         SF.frmCard.RefreshCardList();
@@ -202,12 +202,12 @@ namespace Automation
 
                 }
 
-                if (SF.frmCard.NewStationNum != -1)
+                if (SF.frmCard.IsNewStation)
                 {
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
                     SF.frmCard.RefreshStationList();
                     SF.frmCard.RefreshStationTree();
-                    SF.frmCard.NewStationNum = -1;
+                    SF.frmCard.EndNewStation();
                 }
               
             }
@@ -222,7 +222,7 @@ namespace Automation
         {
             SF.frmProc.NewStepNum = -1;
             SF.frmProc.NewProcNum = -1;
-            SF.frmCard.NewCardNum = -1;
+            SF.frmCard.EndNewCard();
 
             SF.isModify = -1;
             SF.isAddOps = false;

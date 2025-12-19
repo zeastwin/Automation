@@ -45,7 +45,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(1065, 27);
+            this.ClientSize = new System.Drawing.Size(1065, 22);
             this.Controls.Add(this.SysInfo);
             this.Name = "FrmState";
             this.Text = "FrmState";
