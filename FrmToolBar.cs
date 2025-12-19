@@ -1,0 +1,468 @@
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Net.Http.Headers;
+using System.Net.Sockets;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.Xml.Linq;
+using static Automation.FrmCard;
+using static Automation.OperationTypePartial;
+using static System.Collections.Specialized.BitVector32;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
+
+namespace Automation
+{
+    public partial class FrmToolBar : Form
+    {
+        public FrmToolBar()
+        {
+            InitializeComponent();
+            btnSave.Enabled = false;
+            btnCancel.Enabled = false;
+
+        }
+      
+        private void btnSave_Click(object sender, EventArgs e)
+        {
+            if(SF.curPage == 0)
+            {
+                if (SF.frmProc.NewProcNum != -1)
+                {
+                    SF.frmProc.NewProcSave();
+                    SF.frmProc.Refresh();
+                }
+
+                if (SF.frmProc.NewStepNum != -1)
+                {
+                    SF.frmProc.NewStepSave();
+                    SF.frmProc.Refresh();
+                }
+
+                if (SF.isAddOps == true && SF.frmProc.SelectedStepNum != -1)
+                {
+                    if (SF.frmDataGrid.iSelectedRow == -1)
+                    {
+                        SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Add(SF.frmDataGrid.OperationTemp);
+
+                    }
+                    else
+                    {
+                        SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Insert(SF.frmDataGrid.iSelectedRow + 1, SF.frmDataGrid.OperationTemp);
+
+                        SF.frmProc.RefleshGoto();
+                        for (int i = SF.frmDataGrid.iSelectedRow + 2; i < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count; i++)
+                        {
+
+                            OperationType obj = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[i];
+
+                            obj.Num += 1;
+                        }
+
+                    }
+
+                    SF.frmDataGrid.SaveSingleProc(SF.frmProc.SelectedProcNum);
+                    SF.frmProc.bindingSource.ResetBindings(true);
+                   
+
+                }
+                if (SF.isModify != -1)
+                {
+                    SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[SF.frmDataGrid.iSelectedRow] = SF.frmDataGrid.OperationTemp;
+                    SF.frmDataGrid.SaveSingleProc(SF.frmProc.SelectedProcNum);
+                    SF.frmProc.bindingSource.ResetBindings(true);
+                    if (SF.isModify == 2)
+                        SF.frmProc.Refresh();
+                }
+                SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", SF.frmValue.dicValues);
+
+
+                SF.frmProc.NewStepNum = -1;
+                SF.frmProc.NewProcNum = -1;
+                SF.isModify = -1;
+                SF.isAddOps = false;
+
+            }
+            if (SF.curPage == 5)
+            {
+                if (SF.frmCard.NewCardNum != -1)
+                {
+                    SF.frmCard.card.controlCards.Add(SF.frmCard.controlCardTemp);
+                    int AxisCount =SF.frmCard.controlCardTemp.cardHead.AxisCount;
+                    for (int i = 0; i < AxisCount; i++)
+                    {
+                        Axis axis = new Axis() { AxisName = $"Axis{i}" ,AxisNum = i};
+                        SF.frmCard.controlCardTemp.axis.Add(axis);
+                    }
+                  
+
+                    int inputCount = SF.frmCard.controlCardTemp.cardHead.InputCount;
+                    int outputCount = SF.frmCard.controlCardTemp.cardHead.OutputCount;
+                    List<IO> iOs = new List<IO>();
+                    SF.frmIO.IOMap.Add(iOs);
+
+                    for (int i = 0; i < inputCount; i++)
+                    {
+                        IO io = new IO()
+                        {
+                            Index = i,
+                            Status = false,
+                            Name = "",
+                            CardNum = SF.frmCard.card.controlCards.Count-1,
+                            CardTypeString = "本卡IO",
+                            CardType = 0,
+                            Module = 0,
+                            IOIndex = i.ToString(),
+                            IOType = "通用输入",
+                            UsedType = "通用",
+                            EffectLevel = "正常"
+                        };
+                        SF.frmIO.IOMap[SF.frmCard.card.controlCards.Count-1].Add(io);
+                    }
+                    for (int i = 0; i < outputCount; i++)
+                    {
+                        IO io = new IO()
+                        {
+                            Index = i+ outputCount,
+                            Status = false,
+                            Name = "",
+                            CardNum = SF.frmCard.card.controlCards.Count-1,
+                            CardTypeString = "本卡IO",
+                            CardType = 0,
+                            Module = 0,
+                            IOIndex = i.ToString(),
+                            IOType = "通用输出",
+                            UsedType = "通用",
+                            EffectLevel = "正常"
+                        };
+                        SF.frmIO.IOMap[SF.frmCard.card.controlCards.Count-1].Add(io);
+                    }
+                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", SF.frmIO.IOMap);
+                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
+                    SF.frmCard.RefreshCardList();
+                    SF.frmCard.RefreshCardTree(); 
+                    SF.frmIO.RefreshIOMap();
+                    SF.mainfrm.ReflshDgv();
+                   
+                    SF.frmCard.NewCardNum = -1;
+                }
+                if (SF.frmCard.NewIOCardNum != -1)
+                {
+                    
+                    List<IO> iOs = new List<IO>();
+
+                    for (int i = 0; i < SF.frmCard.IOCardTemp.iOCardHead.IOCount; i++)
+                    {
+                        IO io = new IO()
+                        {
+                            Index = i,
+                            Status = false,
+                            Name = "",
+                            CardNum = SF.frmCard.card.iOCards.Count,
+                            CardTypeString = "拓展IO",
+                            CardType = 0,
+                            Module = SF.frmCard.IOCardTemp.iOCardHead.Module,
+                            IOIndex = i.ToString(),
+                            IOType = "通用输入",
+                            UsedType = "通用",
+                            EffectLevel = "正常",
+                            CardModelType = SF.frmCard.IOCardTemp.iOCardHead.CardType
+                        };
+                        iOs.Add(io);
+                    }
+                    for (int i = 0; i < SF.frmCard.IOCardTemp.iOCardHead.IOCount; i++)
+                    {
+                        IO io2 = new IO()
+                        {
+                            Index = i + SF.frmCard.card.controlCards.Count,
+                            Status = false,
+                            Name = "",
+                            CardNum = SF.frmCard.card.iOCards.Count,
+                            CardTypeString = "拓展IO",
+                            CardType = 0,
+                            Module = 0,
+                            IOIndex = i.ToString(),
+                            IOType = "通用输出",
+                            UsedType = "通用",
+                            EffectLevel = "正常",
+                            CardModelType = SF.frmCard.IOCardTemp.iOCardHead.CardType
+                        };
+                        iOs.Add(io2);
+                    }
+                    SF.frmCard.IOCardTemp.iOCardHead.CardNum = SF.frmCard.card.iOCards.Count;
+                    SF.frmCard.IOCardTemp.IOMapEx = iOs;
+                    SF.frmCard.card.iOCards.Add(SF.frmCard.IOCardTemp);
+                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", SF.frmIO.IOMap);
+                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
+                    SF.frmCard.RefreshCardList();
+                    SF.frmCard.RefreshCardTree();
+                    SF.frmIO.RefreshIOMap();
+                    SF.mainfrm.ReflshDgv();
+
+                    SF.frmCard.NewIOCardNum = -1;
+                }
+                if (SF.isModify == 2)
+                {
+                    if(SF.frmCard.selectCardIndex != -1)
+                    {
+                        int AxisCount = SF.frmCard.card.controlCards[SF.frmCard.selectCardIndex].cardHead.AxisCount;
+                        SF.frmCard.card.controlCards[SF.frmCard.selectCardIndex].axis.Clear();
+                        for (int i = 0; i < AxisCount; i++)
+                        {
+                            Axis axis = new Axis() { AxisName = $"Axis{i}" };
+                            SF.frmCard.card.controlCards[SF.frmCard.selectCardIndex].axis.Add(axis);
+                        }
+                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
+                        SF.frmCard.RefreshCardList();
+                        SF.frmCard.RefreshCardTree();
+                        SF.mainfrm.ReflshDgv();
+                      
+                        SF.isModify = -1;
+                    }
+                   
+                }
+                if (SF.isModify == 3)
+                {
+                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
+                    SF.frmCard.RefreshCardList();
+                    SF.frmCard.RefreshCardTree();
+                    SF.motion.SetAllAxisEquiv();
+                    SF.isModify = -1;
+                }
+                if (SF.isModify == 4)
+                {
+                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
+                    SF.frmCard.RefreshStationList();
+                    SF.frmCard.RefreshStationTree();
+               //     SF.frmStation.SetAxisMotionParam();
+                    SF.isModify = -1;
+                }
+                if (SF.isModify == 5)
+                {
+                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", SF.frmIO.IOMap);
+                    SF.frmIO.RefreshIODgv();
+                   // SF.frmIO.FreshFrmIO();
+                    SF.isModify = -1;
+
+                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                    SF.frmIODebug.RefreshIODebugMapFrm();
+
+                }
+
+                if (SF.frmCard.NewStationNum != -1)
+                {
+                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
+                    SF.frmCard.RefreshStationList();
+                    SF.frmCard.RefreshStationTree();
+                    SF.frmCard.NewStationNum = -1;
+                }
+              
+            }
+            SF.frmPropertyGrid.Enabled = false;
+            SF.frmToolBar.btnSave.Enabled = false;
+            SF.frmToolBar.btnCancel.Enabled = false;
+            SF.frmDataGrid.dataGridView1.Enabled = true;
+            SF.frmProc.Enabled = true;
+        }
+ 
+        private void btnCancel_Click(object sender, EventArgs e)
+        {
+            SF.frmProc.NewStepNum = -1;
+            SF.frmProc.NewProcNum = -1;
+            SF.frmCard.NewCardNum = -1;
+
+            SF.isModify = -1;
+            SF.isAddOps = false;
+
+            SF.frmDataGrid.OperationTemp = null;
+            SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
+
+            SF.frmPropertyGrid.Enabled = false;
+            SF.frmToolBar.btnSave.Enabled = false;
+            SF.frmToolBar.btnCancel.Enabled = false;
+            SF.frmDataGrid.dataGridView1.Enabled = true;
+            SF.frmProc.Enabled = true;
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            string path = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) + "\\Config";
+            System.Diagnostics.Process.Start("explorer.exe", path);
+
+        }
+        
+        private void btnSearch_Click(object sender, EventArgs e)
+        {
+            SF.frmSearch.StartPosition = FormStartPosition.CenterScreen;
+            SF.frmSearch.Show();
+            SF.frmSearch.BringToFront();
+            SF.frmSearch.WindowState = FormWindowState.Normal;
+            SF.frmSearch.textBox1.Focus();
+        }
+
+        private void btnPause_Click(object sender, EventArgs e)
+        {
+            if (SF.frmProc.SelectedProcNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun == 2)
+            {
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Reset();
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Reset();
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
+
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun = 1;
+
+                btnPause.Text = "继续";
+            }
+            else if(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun == 1)
+            {
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
+
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun = 2;
+
+                btnPause.Text = "暂停";
+            }
+        }
+
+        private void SingleRun_Click(object sender, EventArgs e)
+        {
+            if (SF.frmProc.SelectedProcNum!= -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
+            {
+                if (SF.frmProc.SelectedStepNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun == 1)
+                {
+                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
+                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Reset();
+                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
+                    SF.Delay(10);
+                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Reset();
+                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
+                }
+            }
+                
+        }
+        private void btnTrack_Click(object sender, EventArgs e)
+        {
+            if(SF.isTrack==false)
+            {
+                SF.frmDataGrid.m_evtTrack.Set();
+                btnTrack.BackColor = Color.Green;
+            }
+            else
+            {
+                SF.frmDataGrid.m_evtTrack.Reset();
+                btnTrack.BackColor = Color.White;
+            }
+            SF.isTrack = !SF.isTrack;
+        }
+
+        private void btnStop_Click(object sender, EventArgs e)
+        {
+            if(SF.frmProc.SelectedProcNum >=0&& SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
+            {
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isThStop = true;
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun = 0;
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
+            }
+
+        }
+        private void btnMonitor_Click(object sender, EventArgs e)
+        {
+            Task.Run(() =>
+            {
+                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == "aaa");
+                while (true)
+                {
+                    Console.WriteLine(SF.motion.HomeStatus(0, 0));
+                    Console.WriteLine(SF.frmCard.card.controlCards[int.Parse(station.dataAxis.axisConfigs[0].CardNum)].axis[0].State);
+                    Thread.Sleep(500);
+                }
+            });
+        }
+
+        private void btnAlarm_Click(object sender, EventArgs e)
+        {
+            SF.frmAlarmConfig.StartPosition = FormStartPosition.CenterScreen;
+            SF.frmAlarmConfig.Show();
+            SF.frmAlarmConfig.BringToFront();
+            SF.frmAlarmConfig.WindowState = FormWindowState.Normal;
+        }
+      
+        private void button2_Click(object sender, EventArgs e)
+        {
+            //SF.frmPropertyGrid.propertyGrid1.SelectedObject = button2;
+            //new FrmMessage("1", new EventHandler1(() => { MessageBox.Show("1234567"); }), "是");
+            // new Message("请注意，有些控件可能不允许失去焦点，例如Form或某些特殊的控件。在某些情况下，即使尝试设置焦点到其他控件，焦点可能仍然会回到某些特定控件上。这可能是由于控件属性、焦点顺序或事件处理等因素导致的。\r\n\r\n使用上述方法之一通常可以成功地从控件中移除焦点，但具体效果取决于您的应用程序的布局注意，有些控件可能不允许失去焦点，例如Form或某些特殊的控件。在某些情况下，即使尝试设置焦点到其他控件，焦点可能仍然会回到某些特定控件上。这可能是由于控件属性、焦点顺序或事件处理等因素导致的。\r\n\r\n使用上述方法之一通常可以成功地从控件中移除焦点，但具体效果取决于您的应用程序的布局和控和控件交互。", dd, dd2,dd2, "是", "否","dd",true);
+            //    new Message("请注意，有些控件可能不允许失去焦点，", dd, dd2, dd2, "是", "否", "dd", false);
+
+            // Console.WriteLine(1);
+            //   new FrmMessage("请注意。", 5000);
+            // Console.WriteLine(55);
+            //  SF.frmProc.RefleshGoto();
+
+            // SetDisplayName(typeof(StationRunPos), "StationName","111");
+        }
+
+        private void btnLocate_Click(object sender, EventArgs e)
+        {
+            SF.frmDataGrid.SelectChildNode(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].procNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].stepNum);
+            SF.frmDataGrid.ScrollRowToCenter(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum);
+            SF.frmDataGrid.SetRowColor(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum, Color.LightBlue);
+        }
+
+        public class MarkPoint
+        {
+            public int procNum =-1;
+            public int stepNum =-1;
+            public int opsNum = -1;
+        }
+
+        public List<MarkPoint> markPoints;
+        public void RefleshMark()
+        {
+            if (!Directory.Exists(SF.ConfigPath))
+            {
+                Directory.CreateDirectory(SF.ConfigPath);
+            }
+            if (!File.Exists(SF.ConfigPath + "MarkPoints.json"))
+            {
+                markPoints = new List<MarkPoint>();
+                SF.mainfrm.SaveAsJson(SF.ConfigPath, "MarkPoints", markPoints);
+            }
+            markPoints = SF.mainfrm.ReadJson<List<MarkPoint>>(SF.ConfigPath, "MarkPoints");
+        }
+
+        private void Mark_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void LastMark_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void NextMark_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void CleanAllMark_Click(object sender, EventArgs e)
+        {
+
+        }
+    }
+}
