@@ -280,6 +280,11 @@ namespace Automation
             {
                 return;
             }
+            if (IODebugMaps.iOConnects.Any(item => item != null && item.Output != null && item.Output.Name == cacheIO.Name))
+            {
+                MessageBox.Show("调试列表已存在同名输出连接，已沿用现有配置。");
+                return;
+            }
             IODebugMaps.iOConnects.Add(new IOConnect() { Output = cacheIO.CloneForDebug() });
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
@@ -474,6 +479,13 @@ namespace Automation
             {
                 Directory.CreateDirectory(SF.ConfigPath);
             }
+            string filePath = Path.Combine(SF.ConfigPath, "IODebugMap.json");
+            if (!File.Exists(filePath))
+            {
+                BuildIODebugMapFromIOMap();
+                SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", IODebugMaps);
+                return;
+            }
             try
             {
                 IODebugMap IODebugMapTemp = SF.mainfrm.ReadJson<IODebugMap>(SF.ConfigPath, "IODebugMap");
@@ -485,6 +497,42 @@ namespace Automation
                 //Console.WriteLine(ex.Message);
 
             }
+        }
+        private void BuildIODebugMapFromIOMap()
+        {
+            IODebugMap result = new IODebugMap();
+            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+            if (cacheIOs == null)
+            {
+                IODebugMaps = result;
+                return;
+            }
+            foreach (IO io in cacheIOs)
+            {
+                if (io == null || !io.Debug)
+                {
+                    continue;
+                }
+                if (string.IsNullOrWhiteSpace(io.Name))
+                {
+                    continue;
+                }
+                if (io.IOType == "通用输入")
+                {
+                    if (!result.inputs.Any(item => item != null && item.Name == io.Name))
+                    {
+                        result.inputs.Add(io.CloneForDebug());
+                    }
+                }
+                else if (io.IOType == "通用输出")
+                {
+                    if (!result.outputs.Any(item => item != null && item.Name == io.Name))
+                    {
+                        result.outputs.Add(io.CloneForDebug());
+                    }
+                }
+            }
+            IODebugMaps = result;
         }
         private void EnsureInputTempSize(int count)
         {
@@ -524,8 +572,13 @@ namespace Automation
             {
                 return false;
             }
-            io = cacheIOs.FirstOrDefault(item => item != null && item.IOType == ioType && item.Name == name);
-            return io != null;
+            List<IO> matches = cacheIOs.Where(item => item != null && item.IOType == ioType && item.Name == name).ToList();
+            if (matches.Count == 1)
+            {
+                io = matches[0];
+                return true;
+            }
+            return false;
         }
         private ListViewItem sourceItem;
         private ListViewItem targetItem;

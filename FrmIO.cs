@@ -291,10 +291,22 @@ namespace Automation
                     {
                         if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输入")
                         {
+                            string name = cacheIOs[SF.frmIO.iSelectedIORow].Name;
+                            if (SF.frmIODebug.IODebugMaps.inputs.Any(item => item != null && item.Name == name))
+                            {
+                                MessageBox.Show("调试列表已存在同名输入，已沿用现有配置。");
+                                return;
+                            }
                             SF.frmIODebug.IODebugMaps.inputs.Add(cacheIOs[SF.frmIO.iSelectedIORow].CloneForDebug());
                         }
                         else if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输出")
                         {
+                            string name = cacheIOs[SF.frmIO.iSelectedIORow].Name;
+                            if (SF.frmIODebug.IODebugMaps.outputs.Any(item => item != null && item.Name == name))
+                            {
+                                MessageBox.Show("调试列表已存在同名输出，已沿用现有配置。");
+                                return;
+                            }
                             SF.frmIODebug.IODebugMaps.outputs.Add(cacheIOs[SF.frmIO.iSelectedIORow].CloneForDebug());
                         }
 
