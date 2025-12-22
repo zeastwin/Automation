@@ -48,7 +48,6 @@
             this.value = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.UsedType = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.EffectLevel = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.Debug = new System.Windows.Forms.DataGridViewCheckBoxColumn();
             this.Note = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.contextMenuStrip1 = new System.Windows.Forms.ContextMenuStrip(this.components);
             this.Modify = new System.Windows.Forms.ToolStripMenuItem();
@@ -74,7 +73,6 @@
             this.value,
             this.UsedType,
             this.EffectLevel,
-            this.Debug,
             this.Note});
             this.dgvIO.Dock = System.Windows.Forms.DockStyle.Fill;
             this.dgvIO.Location = new System.Drawing.Point(0, 0);
@@ -197,15 +195,6 @@
             this.EffectLevel.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
             this.EffectLevel.Width = 60;
             // 
-            // Debug
-            // 
-            this.Debug.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.None;
-            this.Debug.FillWeight = 1F;
-            this.Debug.HeaderText = "调试";
-            this.Debug.MinimumWidth = 6;
-            this.Debug.Name = "Debug";
-            this.Debug.Width = 40;
-            // 
             // Note
             // 
             this.Note.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
@@ -262,7 +251,6 @@
         private System.Windows.Forms.DataGridViewTextBoxColumn value;
         private System.Windows.Forms.DataGridViewTextBoxColumn UsedType;
         private System.Windows.Forms.DataGridViewTextBoxColumn EffectLevel;
-        private System.Windows.Forms.DataGridViewCheckBoxColumn Debug;
         private System.Windows.Forms.DataGridViewTextBoxColumn Note;
     }
 }

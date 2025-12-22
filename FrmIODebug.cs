@@ -54,6 +54,16 @@ namespace Automation
             listView3.Width = 170;
             listView5.Width = 170;
             listView4.Width = 170;
+            ContextMenuStrip inputMenu = new ContextMenuStrip();
+            ToolStripMenuItem inputConfigItem = new ToolStripMenuItem("配置显示");
+            inputConfigItem.Click += InputConfigItem_Click;
+            inputMenu.Items.Add(inputConfigItem);
+            listView1.ContextMenuStrip = inputMenu;
+            ContextMenuStrip outputMenu = new ContextMenuStrip();
+            ToolStripMenuItem outputConfigItem = new ToolStripMenuItem("配置显示");
+            outputConfigItem.Click += OutputConfigItem_Click;
+            outputMenu.Items.Add(outputConfigItem);
+            listView2.ContextMenuStrip = outputMenu;
             this.VisibleChanged += FrmIODebug_VisibleChanged;
         }
         public bool CheckFormIsOpen(Form form)
@@ -560,7 +570,7 @@ namespace Automation
             }
             foreach (IO io in cacheIOs)
             {
-                if (io == null || !io.Debug)
+                if (io == null)
                 {
                     continue;
                 }
@@ -584,6 +594,108 @@ namespace Automation
                 }
             }
             IODebugMaps = result;
+        }
+        private void InputConfigItem_Click(object sender, EventArgs e)
+        {
+            OpenDebugConfig("通用输入");
+        }
+        private void OutputConfigItem_Click(object sender, EventArgs e)
+        {
+            OpenDebugConfig("通用输出");
+        }
+        private void OpenDebugConfig(string ioType)
+        {
+            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+            if (cacheIOs == null)
+            {
+                MessageBox.Show("轴卡未配置");
+                return;
+            }
+            List<string> allNames = new List<string>();
+            foreach (IO io in cacheIOs)
+            {
+                if (io == null || io.IOType != ioType || string.IsNullOrWhiteSpace(io.Name))
+                {
+                    continue;
+                }
+                if (!allNames.Contains(io.Name))
+                {
+                    allNames.Add(io.Name);
+                }
+            }
+            HashSet<string> selectedNames = new HashSet<string>();
+            List<IO> currentList = ioType == "通用输入" ? IODebugMaps.inputs : IODebugMaps.outputs;
+            foreach (IO io in currentList)
+            {
+                if (io != null && !string.IsNullOrWhiteSpace(io.Name))
+                {
+                    selectedNames.Add(io.Name);
+                }
+            }
+            using (FrmIODebugConfig frm = new FrmIODebugConfig($"{ioType}显示配置", allNames, selectedNames))
+            {
+                if (frm.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+                ApplyDebugSelection(ioType, frm.SelectedNames, cacheIOs);
+            }
+        }
+        private void ApplyDebugSelection(string ioType, List<string> selectedNames, List<IO> cacheIOs)
+        {
+            Dictionary<string, IO> ioByName = new Dictionary<string, IO>();
+            foreach (IO io in cacheIOs)
+            {
+                if (io == null || io.IOType != ioType || string.IsNullOrWhiteSpace(io.Name))
+                {
+                    continue;
+                }
+                if (!ioByName.ContainsKey(io.Name))
+                {
+                    ioByName.Add(io.Name, io);
+                }
+            }
+            HashSet<string> selectedSet = new HashSet<string>(selectedNames);
+            List<IO> currentList = ioType == "通用输入" ? IODebugMaps.inputs : IODebugMaps.outputs;
+            List<IO> newList = new List<IO>();
+            foreach (IO io in currentList)
+            {
+                if (io == null || string.IsNullOrWhiteSpace(io.Name))
+                {
+                    continue;
+                }
+                if (!selectedSet.Contains(io.Name))
+                {
+                    continue;
+                }
+                if (ioByName.TryGetValue(io.Name, out IO sourceIo))
+                {
+                    newList.Add(sourceIo.CloneForDebug());
+                    selectedSet.Remove(io.Name);
+                }
+            }
+            foreach (string name in selectedNames)
+            {
+                if (!selectedSet.Contains(name))
+                {
+                    continue;
+                }
+                if (ioByName.TryGetValue(name, out IO sourceIo))
+                {
+                    newList.Add(sourceIo.CloneForDebug());
+                    selectedSet.Remove(name);
+                }
+            }
+            if (ioType == "通用输入")
+            {
+                IODebugMaps.inputs = newList;
+            }
+            else
+            {
+                IODebugMaps.outputs = newList;
+            }
+            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            RefreshIODebugMapFrm();
         }
         private void EnsureInputTempSize(int count)
         {

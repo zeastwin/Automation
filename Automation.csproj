@@ -147,6 +147,9 @@
     <Compile Include="FrmIODebug.Designer.cs">
       <DependentUpon>FrmIODebug.cs</DependentUpon>
     </Compile>
+    <Compile Include="FrmIODebugConfig.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="FrmMain.cs">
       <SubType>Form</SubType>
     </Compile>

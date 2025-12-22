@@ -127,8 +127,7 @@ namespace Automation
                     dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
                     dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
                     dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Debug;
-                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Note;
+                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Note;
                 }
             }
             for (int i = inputCount; i < inputCount + outputCount; i++)
@@ -147,8 +146,7 @@ namespace Automation
                     dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
                     dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
                     dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Debug;
-                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Note;
+                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Note;
                 }
             }
         }
@@ -180,8 +178,7 @@ namespace Automation
                     dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
                     dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
                     dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Debug;
-                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Note;
+                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Note;
 
                 }
             }
@@ -199,8 +196,7 @@ namespace Automation
                     dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
                     dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
                     dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Debug;
-                    dgvIO.Rows[i].Cells[10].Value = cacheIO.Note;
+                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Note;
                 }
             }
         }
@@ -265,69 +261,6 @@ namespace Automation
         [DisplayName("备注"), Category("设置"), Description(""), ReadOnly(false), Browsable(true)]
         public string Note { get; set; }
        
-        private bool debug;
-        [DisplayName("调试"), Category("设置"), Description(""), ReadOnly(false), Browsable(true)]
-        public bool Debug
-        {
-            get { return debug; }
-            set
-            {
-                bool debugTemp = debug;
-                debug = value;
-                if (SF.isModify == ModifyKind.IO)
-                {
-                    if (Name == "")
-                    {
-                        MessageBox.Show("名称为空");
-                        debug = debugTemp;
-                        return;
-                    }
-                    if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
-                    {
-                        return;
-                    }
-                    List<IO> cacheIOs = SF.frmIO.IOMap[cardIndex];
-                    if (value == true)
-                    {
-                        if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输入")
-                        {
-                            string name = cacheIOs[SF.frmIO.iSelectedIORow].Name;
-                            if (SF.frmIODebug.IODebugMaps.inputs.Any(item => item != null && item.Name == name))
-                            {
-                                MessageBox.Show("调试列表已存在同名输入，已沿用现有配置。");
-                                return;
-                            }
-                            SF.frmIODebug.IODebugMaps.inputs.Add(cacheIOs[SF.frmIO.iSelectedIORow].CloneForDebug());
-                        }
-                        else if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输出")
-                        {
-                            string name = cacheIOs[SF.frmIO.iSelectedIORow].Name;
-                            if (SF.frmIODebug.IODebugMaps.outputs.Any(item => item != null && item.Name == name))
-                            {
-                                MessageBox.Show("调试列表已存在同名输出，已沿用现有配置。");
-                                return;
-                            }
-                            SF.frmIODebug.IODebugMaps.outputs.Add(cacheIOs[SF.frmIO.iSelectedIORow].CloneForDebug());
-                        }
-
-                    }
-                    else
-                    {  
-                        if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输入")
-                        {
-                            string name = cacheIOs[SF.frmIO.iSelectedIORow].Name;
-                            SF.frmIODebug.IODebugMaps.inputs.RemoveAll(item => item != null && item.Name == name);
-                        }
-                        else if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输出")
-                        {
-                            string name = cacheIOs[SF.frmIO.iSelectedIORow].Name;
-                            SF.frmIODebug.IODebugMaps.outputs.RemoveAll(item => item != null && item.Name == name);
-                        }
-                    }
-
-                }
-            }
-        }
         public IO()
         {
             Name = "";
