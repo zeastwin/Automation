@@ -47,10 +47,14 @@ namespace Automation
             listView6.Name = "listView6";
             listView6.UseCompatibleStateImageBehavior = false;
             listView6.View = View.Details;
-            listView6.Dock = DockStyle.Right;
+            listView6.Dock = DockStyle.Left;
             listView6.Width = 170;
             listView6.ItemChecked += listView6_ItemChecked;
             groupBox1.Controls.Add(listView6);
+            groupBox1.Controls.SetChildIndex(listView4, 0);
+            groupBox1.Controls.SetChildIndex(listView6, 1);
+            groupBox1.Controls.SetChildIndex(listView3, 2);
+            groupBox1.Controls.SetChildIndex(listView5, 3);
             listView3.Width = 170;
             listView5.Width = 170;
             listView4.Width = 170;
@@ -292,6 +296,8 @@ namespace Automation
             remarkItem.Click += ConnectRemarkItem_Click;
             contextMenu.Items.Add(configItem);
             contextMenu.Items.Add(remarkItem);
+            listView3.Clear();
+            listView3.Columns.Add("通用输出1", 220);
             listView4.Clear();
             listView4.Items.Clear();
             listView5.Clear();
@@ -368,7 +374,7 @@ namespace Automation
         public void RefleshConnecdt()
         {
             listView3.Clear();
-            listView3.Columns.Add("通用输出", 220);
+            listView3.Columns.Add("通用输出1", 220);
             List<IOConnect> IOConnects = IODebugMaps.iOConnects;
             IOConnect iOConnect = null;
             for (int j = 0; j < IOConnects.Count; j++)
