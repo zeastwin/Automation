@@ -406,14 +406,28 @@ namespace Automation
             try
             {
                 bool refreshed = false;
-                for (int i = 0; i < dataStructHandles.Count; i++)
+                for (int i = dataStructHandles.Count - 1; i >= 0; i--)
                 {
                     DataStructHandle handle = dataStructHandles[i];
+                    if (handle == null || handle.form == null || handle.form.IsDisposed)
+                    {
+                        dataStructHandles.RemoveAt(i);
+                        continue;
+                    }
                     if (!IsHandleVisibleInPanel(handle))
                     {
                         continue;
                     }
+                    if (!SF.dataStructStore.TryGetStructVersionByName(handle.Name, out int structVersion))
+                    {
+                        continue;
+                    }
+                    if (structVersion == handle.LastVersion)
+                    {
+                        continue;
+                    }
                     RefreshDataStructFrm(handle);
+                    handle.LastVersion = structVersion;
                     refreshed = true;
                 }
                 if (refreshed)
@@ -461,6 +475,10 @@ namespace Automation
             {
                 lastStoreVersion = -1;
                 lastRefreshTick = 0;
+                for (int i = 0; i < dataStructHandles.Count; i++)
+                {
+                    dataStructHandles[i].LastVersion = -1;
+                }
                 trackTimer.Start();
                 btnTrack.BackColor = Color.Green;
             }
@@ -509,7 +527,7 @@ namespace Automation
                     form.Text = structName;
                     form.FormClosed += Form_Closing;
                     loadFillForm(panel1, form);
-                    dataStructHandles.Add(new DataStructHandle() { form = form, Name = structName });
+                    dataStructHandles.Add(new DataStructHandle() { form = form, Name = structName, LastVersion = -1 });
 
                     RefreshDataStructFrm(dataStructHandles.Last());
                 }
@@ -622,6 +640,8 @@ namespace Automation
         public string Name { get; set; }
 
         public int SelectRow { get; set; }
+
+        public int LastVersion { get; set; }
 
     }
 }

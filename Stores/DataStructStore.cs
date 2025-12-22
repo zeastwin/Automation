@@ -17,6 +17,7 @@ namespace Automation
     {
         private readonly object dataLock = new object();
         private readonly List<DataStruct> dataStructs = new List<DataStruct>();
+        private readonly List<int> structVersions = new List<int>();
         private int version = 0;
 
         public int Version
@@ -84,6 +85,7 @@ namespace Automation
             lock (dataLock)
             {
                 dataStructs.Clear();
+                structVersions.Clear();
                 MarkChangedNoLock();
             }
         }
@@ -93,6 +95,7 @@ namespace Automation
             lock (dataLock)
             {
                 dataStructs.Clear();
+                structVersions.Clear();
                 if (source == null)
                 {
                     return;
@@ -106,6 +109,7 @@ namespace Automation
                     }
                     NormalizeStruct(dataStruct);
                     dataStructs.Add(dataStruct);
+                    structVersions.Add(0);
                 }
                 MarkChangedNoLock();
             }
@@ -243,6 +247,31 @@ namespace Automation
             return false;
         }
 
+        public bool TryGetStructVersionByName(string name, out int structVersion)
+        {
+            structVersion = -1;
+            if (string.IsNullOrEmpty(name))
+            {
+                return false;
+            }
+            lock (dataLock)
+            {
+                for (int i = 0; i < dataStructs.Count; i++)
+                {
+                    if (dataStructs[i].Name == name)
+                    {
+                        if (i >= structVersions.Count)
+                        {
+                            return false;
+                        }
+                        structVersion = structVersions[i];
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         public bool AddStruct(string name)
         {
             if (string.IsNullOrEmpty(name))
@@ -256,7 +285,9 @@ namespace Automation
                     return false;
                 }
                 dataStructs.Add(new DataStruct { Name = name });
+                structVersions.Add(0);
                 MarkChangedNoLock();
+                MarkStructChangedNoLock(structVersions.Count - 1);
                 return true;
             }
         }
@@ -280,6 +311,7 @@ namespace Automation
                 }
                 dataStructs[index].Name = newName;
                 MarkChangedNoLock();
+                MarkStructChangedNoLock(index);
                 return true;
             }
         }
@@ -293,6 +325,10 @@ namespace Automation
                     return false;
                 }
                 dataStructs.RemoveAt(index);
+                if (index >= 0 && index < structVersions.Count)
+                {
+                    structVersions.RemoveAt(index);
+                }
                 MarkChangedNoLock();
                 return true;
             }
@@ -306,13 +342,14 @@ namespace Automation
             }
             lock (dataLock)
             {
-                if (!TryGetStructByNameNoLock(structName, out DataStruct dataStruct))
+                if (!TryGetStructByNameNoLock(structName, out DataStruct dataStruct, out int structIndex))
                 {
                     return false;
                 }
                 DataStructItem dataStructItem = BuildItem(itemName, strings, doubles, param);
                 InsertOrReplaceItem(dataStruct, itemIndex, dataStructItem);
                 MarkChangedNoLock();
+                MarkStructChangedNoLock(structIndex);
                 return true;
             }
         }
@@ -330,6 +367,7 @@ namespace Automation
                 DataStructItem dataStructItem = BuildItem(string.Empty, strings, doubles, param);
                 InsertOrReplaceItem(dataStruct, itemIndex, dataStructItem);
                 MarkChangedNoLock();
+                MarkStructChangedNoLock(structIndex);
                 return true;
             }
         }
@@ -360,40 +398,44 @@ namespace Automation
                         {
                             return false;
                         }
-                    item.num[valueIndex] = number;
-                    item.str.Remove(valueIndex);
+                        item.num[valueIndex] = number;
+                        item.str.Remove(valueIndex);
+                    }
+                    else
+                    {
+                        item.str[valueIndex] = value;
+                        item.num.Remove(valueIndex);
+                    }
                     MarkChangedNoLock();
+                    MarkStructChangedNoLock(structIndex);
+                    return true;
+                }
+
+                if (item.num.ContainsKey(valueIndex))
+                {
+                    if (!double.TryParse(value, out double number))
+                    {
+                        return false;
+                    }
+                    item.num[valueIndex] = number;
+                    MarkChangedNoLock();
+                    MarkStructChangedNoLock(structIndex);
+                    return true;
+                }
+
+                if (item.str.ContainsKey(valueIndex))
+                {
+                    item.str[valueIndex] = value;
+                    MarkChangedNoLock();
+                    MarkStructChangedNoLock(structIndex);
                     return true;
                 }
 
                 item.str[valueIndex] = value;
-                item.num.Remove(valueIndex);
                 MarkChangedNoLock();
+                MarkStructChangedNoLock(structIndex);
                 return true;
             }
-
-            if (item.num.ContainsKey(valueIndex))
-            {
-                if (!double.TryParse(value, out double number))
-                {
-                    return false;
-                }
-                item.num[valueIndex] = number;
-                MarkChangedNoLock();
-                return true;
-            }
-
-            if (item.str.ContainsKey(valueIndex))
-            {
-                item.str[valueIndex] = value;
-                MarkChangedNoLock();
-                return true;
-            }
-
-            item.str[valueIndex] = value;
-            MarkChangedNoLock();
-            return true;
-        }
         }
 
         public bool TryGetItemValueByIndex(int structIndex, int itemIndex, int valueIndex, out object value)
@@ -490,6 +532,7 @@ namespace Automation
                 }
                 dataStruct.dataStructItems.Insert(itemIndex, item);
                 MarkChangedNoLock();
+                MarkStructChangedNoLock(structIndex);
                 return true;
             }
         }
@@ -511,6 +554,7 @@ namespace Automation
                 NormalizeStruct(targetStruct);
                 InsertOrReplaceItem(targetStruct, targetItemIndex, copy);
                 MarkChangedNoLock();
+                MarkStructChangedNoLock(targetStructIndex);
                 return true;
             }
         }
@@ -530,6 +574,7 @@ namespace Automation
                 }
                 dataStruct.dataStructItems.RemoveAt(itemIndex);
                 MarkChangedNoLock();
+                MarkStructChangedNoLock(structIndex);
                 return true;
             }
         }
@@ -549,6 +594,7 @@ namespace Automation
                 }
                 dataStruct.dataStructItems.RemoveAt(0);
                 MarkChangedNoLock();
+                MarkStructChangedNoLock(structIndex);
                 return true;
             }
         }
@@ -568,6 +614,7 @@ namespace Automation
                 }
                 dataStruct.dataStructItems.RemoveAt(dataStruct.dataStructItems.Count - 1);
                 MarkChangedNoLock();
+                MarkStructChangedNoLock(structIndex);
                 return true;
             }
         }
@@ -668,6 +715,27 @@ namespace Automation
             return true;
         }
 
+        private bool TryGetStructByNameNoLock(string name, out DataStruct dataStruct, out int index)
+        {
+            dataStruct = null;
+            index = -1;
+            if (string.IsNullOrEmpty(name))
+            {
+                return false;
+            }
+            for (int i = 0; i < dataStructs.Count; i++)
+            {
+                if (dataStructs[i].Name == name)
+                {
+                    dataStruct = dataStructs[i];
+                    index = i;
+                    NormalizeStruct(dataStruct);
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private bool TryGetItemNoLock(int structIndex, int itemIndex, out DataStructItem item)
         {
             item = null;
@@ -700,6 +768,22 @@ namespace Automation
             else
             {
                 version++;
+            }
+        }
+
+        private void MarkStructChangedNoLock(int structIndex)
+        {
+            if (structIndex < 0 || structIndex >= structVersions.Count)
+            {
+                return;
+            }
+            if (structVersions[structIndex] == int.MaxValue)
+            {
+                structVersions[structIndex] = 0;
+            }
+            else
+            {
+                structVersions[structIndex]++;
             }
         }
 
