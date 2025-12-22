@@ -116,6 +116,7 @@ namespace Automation
                     int outputCount = SF.frmCard.controlCardTemp.cardHead.OutputCount;
                     List<IO> iOs = new List<IO>();
                     SF.frmIO.IOMap.Add(iOs);
+                    int newCardIndex = SF.frmCard.GetControlCardCount() - 1;
 
                     for (int i = 0; i < inputCount; i++)
                     {
@@ -124,14 +125,14 @@ namespace Automation
                             Index = i,
                             Status = false,
                             Name = "",
-                            CardNum = SF.frmCard.card.controlCards.Count-1,
+                            CardNum = newCardIndex,
                             Module = 0,
                             IOIndex = i.ToString(),
                             IOType = "通用输入",
                             UsedType = "通用",
                             EffectLevel = "正常"
                         };
-                        SF.frmIO.IOMap[SF.frmCard.card.controlCards.Count-1].Add(io);
+                        SF.frmIO.IOMap[newCardIndex].Add(io);
                     }
                     for (int i = 0; i < outputCount; i++)
                     {
@@ -140,14 +141,14 @@ namespace Automation
                             Index = i+ outputCount,
                             Status = false,
                             Name = "",
-                            CardNum = SF.frmCard.card.controlCards.Count-1,
+                            CardNum = newCardIndex,
                             Module = 0,
                             IOIndex = i.ToString(),
                             IOType = "通用输出",
                             UsedType = "通用",
                             EffectLevel = "正常"
                         };
-                        SF.frmIO.IOMap[SF.frmCard.card.controlCards.Count-1].Add(io);
+                        SF.frmIO.IOMap[newCardIndex].Add(io);
                     }
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", SF.frmIO.IOMap);
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
@@ -162,19 +163,22 @@ namespace Automation
                 {
                     if (SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
                     {
-                        int AxisCount = SF.frmCard.card.controlCards[cardIndex].cardHead.AxisCount;
-                        SF.frmCard.card.controlCards[cardIndex].axis.Clear();
-                        for (int i = 0; i < AxisCount; i++)
+                        if (SF.frmCard.TryGetControlCard(cardIndex, out ControlCard controlCard))
                         {
-                            Axis axis = new Axis() { AxisName = $"Axis{i}" };
-                            SF.frmCard.card.controlCards[cardIndex].axis.Add(axis);
+                            int AxisCount = controlCard.cardHead.AxisCount;
+                            controlCard.axis.Clear();
+                            for (int i = 0; i < AxisCount; i++)
+                            {
+                                Axis axis = new Axis() { AxisName = $"Axis{i}" };
+                                controlCard.axis.Add(axis);
+                            }
+                            SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
+                            SF.frmCard.RefreshCardList();
+                            SF.frmCard.RefreshCardTree();
+                            SF.mainfrm.ReflshDgv();
+                          
+                            SF.isModify = ModifyKind.None;
                         }
-                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
-                        SF.frmCard.RefreshCardList();
-                        SF.frmCard.RefreshCardTree();
-                        SF.mainfrm.ReflshDgv();
-                      
-                        SF.isModify = ModifyKind.None;
                     }
                    
                 }
@@ -328,7 +332,10 @@ namespace Automation
                 while (true)
                 {
                     Console.WriteLine(SF.motion.HomeStatus(0, 0));
-                    Console.WriteLine(SF.frmCard.card.controlCards[int.Parse(station.dataAxis.axisConfigs[0].CardNum)].axis[0].State);
+                    if (SF.frmCard.TryGetAxis(int.Parse(station.dataAxis.axisConfigs[0].CardNum), 0, out Axis axisInfo))
+                    {
+                        Console.WriteLine(axisInfo.State);
+                    }
                     Thread.Sleep(500);
                 }
             });

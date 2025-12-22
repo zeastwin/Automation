@@ -91,10 +91,10 @@ namespace Automation
             RefleshIODic();
             if (SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
             {
-                if (SF.frmCard.card.controlCards.Count != 0 && SF.frmCard.card.controlCards.Count > cardIndex)
+                if (SF.frmCard.TryGetCardHead(cardIndex, out CardHead cardHead) && IOMap.Count > cardIndex)
                 {
-                    int inputCount = SF.frmCard.card.controlCards[cardIndex].cardHead.InputCount;
-                    int outputCount = SF.frmCard.card.controlCards[cardIndex].cardHead.OutputCount;
+                    int inputCount = cardHead.InputCount;
+                    int outputCount = cardHead.OutputCount;
 
                     List<IO> cacheIOs = IOMap[cardIndex];
 
@@ -157,8 +157,12 @@ namespace Automation
         {
             if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
                 return;
-            int inputCount = SF.frmCard.card.controlCards[cardIndex].cardHead.InputCount;
-            int outputCount = SF.frmCard.card.controlCards[cardIndex].cardHead.OutputCount;
+            if (!SF.frmCard.TryGetCardHead(cardIndex, out CardHead cardHead))
+                return;
+            if (IOMap.Count <= cardIndex)
+                return;
+            int inputCount = cardHead.InputCount;
+            int outputCount = cardHead.OutputCount;
 
             List<IO> cacheIOs = IOMap[cardIndex];
             IO cacheIO;

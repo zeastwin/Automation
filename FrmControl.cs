@@ -175,7 +175,11 @@ namespace Automation
                         {
                             HomeSingleAxis(ushort.Parse(item.CardNum), (ushort)item.axis.AxisNum);
                         });
-                        Axis axisInfo = SF.frmCard.card.controlCards[int.Parse(item.CardNum)].axis[i];
+                        if (!SF.frmCard.TryGetAxis(int.Parse(item.CardNum), i, out Axis axisInfo))
+                        {
+                            MessageBox.Show($"卡{item.CardNum}轴{i}配置不存在，工站回零动作终止。");
+                            return;
+                        }
                       
                         await task;
 
@@ -224,87 +228,88 @@ namespace Automation
             if (!SF.motion.GetInPos(cardNum, axis))
                 return;
             ushort dir = 0;
-            Axis axisInfo = SF.frmCard.card.controlCards[cardNum].axis[axis];
-            axisInfo.State = Axis.Status.Run;
-            if (axisInfo != null)
+            if (!SF.frmCard.TryGetAxis(cardNum, axis, out Axis axisInfo))
             {
-                int sfc = 1;
-                if (axisInfo.HomeType == "从当前位回零")
-                {
-                    sfc = 10;
-                }
-                int IOindex = 3;
-                if (axisInfo.HomeType == "从正限位回零")
-                {
-                    dir = 1;
-                    IOindex = 2;
-                }
-                int IOindexTemp = IOindex ==2?3:2;
+                return;
+            }
+            axisInfo.State = Axis.Status.Run;
+            int sfc = 1;
+            if (axisInfo.HomeType == "从当前位回零")
+            {
+                sfc = 10;
+            }
+            int IOindex = 3;
+            if (axisInfo.HomeType == "从正限位回零")
+            {
+                dir = 1;
+                IOindex = 2;
+            }
+            int IOindexTemp = IOindex == 2 ? 3 : 2;
 
 
-                while (axisInfo.State == Axis.Status.Run)
+            while (axisInfo.State == Axis.Status.Run)
+            {
+                switch (sfc)
                 {
-                    switch (sfc)
-                    {
-                        case 1:
-                            SF.motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.LimitSpeed), axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
-                            SF.motion.Jog(cardNum,axis, dir);
-                            Task.Delay(20);
-                            sfc = 2;
-                            break;
-                        case 2:
-                            if (SF.mainfrm.StateDic[cardNum][axis][SF.mainfrm.StateDic[cardNum][axis].Length - IOindex] == '1')
-                            {
-                                sfc = 10;
-                            }
+                    case 1:
+                        SF.motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.LimitSpeed), axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
+                        SF.motion.Jog(cardNum, axis, dir);
+                        Task.Delay(20);
+                        sfc = 2;
+                        break;
+                    case 2:
+                        if (SF.mainfrm.StateDic[cardNum][axis][SF.mainfrm.StateDic[cardNum][axis].Length - IOindex] == '1')
+                        {
+                            sfc = 10;
+                        }
+                        if (SF.mainfrm.StateDic[cardNum][axis][SF.mainfrm.StateDic[cardNum][axis].Length - IOindexTemp] == '1')
+                        {
+                            SF.Delay(1000);
                             if (SF.mainfrm.StateDic[cardNum][axis][SF.mainfrm.StateDic[cardNum][axis].Length - IOindexTemp] == '1')
                             {
-                                SF.Delay(1000);
-                                if(SF.mainfrm.StateDic[cardNum][axis][SF.mainfrm.StateDic[cardNum][axis].Length - IOindexTemp] == '1')
-                                {
-                                    MessageBox.Show("限位方向错误，回零失败。");
-                                    sfc = 0;
-                                }
-                                
+                                MessageBox.Show("限位方向错误，回零失败。");
+                                sfc = 0;
                             }
-                            Task.Delay(20); 
-                            break;
-                        case 10:
-                            SF.motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.HomeSpeed), axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
-                            if (axisInfo.HomeType != "从当前位回零")
-                            {
-                                SF.motion.SettHomeParam(cardNum, axis, dir, 1, 1);
-                            }
-                            SF.motion.StartHome(cardNum,axis);
-                            Task.Delay(20);
-                            sfc = 20;
-                            break;
-                        case 20:
-                            if (SF.motion.GetInPos(cardNum,axis))
-                            {
-                                Task.Delay(300);
-                                if(SF.motion.HomeStatus(cardNum, axis) == true)
-                                {
-                                    SF.motion.CleanPos(cardNum, axis);
-                                    axisInfo.State = 0;
-                                    sfc = 0;
-                                }
-                                else
-                                {
-                                    MessageBox.Show("限位方向错误，回零失败。");
-                                    axisInfo.State = Axis.Status.NotReady;
-                                    sfc = 0;
-                                    return;
-                                }
-                                
-                            }
-                            Task.Delay(20);
-                            break;
 
-                    }
+                        }
+                        Task.Delay(20);
+                        break;
+                    case 10:
+                        SF.motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.HomeSpeed), axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
+                        if (axisInfo.HomeType != "从当前位回零")
+                        {
+                            SF.motion.SettHomeParam(cardNum, axis, dir, 1, 1);
+                        }
+                        SF.motion.StartHome(cardNum, axis);
+                        Task.Delay(20);
+                        sfc = 20;
+                        break;
+                    case 20:
+                        if (SF.motion.GetInPos(cardNum, axis))
+                        {
+                            Task.Delay(300);
+                            if (SF.motion.HomeStatus(cardNum, axis) == true)
+                            {
+                                SF.motion.CleanPos(cardNum, axis);
+                                axisInfo.State = 0;
+                                sfc = 0;
+                            }
+                            else
+                            {
+                                MessageBox.Show("限位方向错误，回零失败。");
+                                axisInfo.State = Axis.Status.NotReady;
+                                sfc = 0;
+                                return;
+                            }
+
+                        }
+                        Task.Delay(20);
+                        break;
+
                 }
-                
             }
+                
+            
         }
         private void FrmControl_Load(object sender, EventArgs e)
         {
@@ -681,7 +686,10 @@ namespace Automation
 
         public void StopAxis(int card,int axis)
         {
-            SF.frmCard.card.controlCards[card].axis[axis].SetState(Axis.Status.Ready);
+            if (SF.frmCard.TryGetAxis(card, axis, out Axis axisInfo))
+            {
+                axisInfo.SetState(Axis.Status.Ready);
+            }
             SF.motion.StopOneAxis((ushort)card, (ushort)axis, 0);
         }
     }

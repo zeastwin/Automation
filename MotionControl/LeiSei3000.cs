@@ -254,10 +254,10 @@ namespace Automation
 
         public void SetAllAxisSevonOn()
         {
-            for (int i = 0; i < SF.frmCard.card.controlCards.Count; i++)
+            for (int i = 0; i < SF.frmCard.GetControlCardCount(); i++)
             {
         
-                for (int j = 0; j < SF.frmCard.card.controlCards[i].axis.Count; j++)
+                for (int j = 0; j < SF.frmCard.GetAxisCount(i); j++)
                 {
                     SetAxisSevon((ushort)i, (ushort)j, true);
                 }
@@ -267,12 +267,15 @@ namespace Automation
 
         public void SetAllAxisEquiv()
         {
-            for (int i = 0; i < SF.frmCard.card.controlCards.Count; i++)
+            for (int i = 0; i < SF.frmCard.GetControlCardCount(); i++)
             {
 
-                for (int j = 0; j < SF.frmCard.card.controlCards[i].axis.Count; j++)
+                for (int j = 0; j < SF.frmCard.GetAxisCount(i); j++)
                 {
-                    LTDMC.dmc_set_equiv((ushort)i, (ushort)j, SF.frmCard.card.controlCards[i].axis[j].PulseToMM);  //设置脉冲当量
+                    if (SF.frmCard.TryGetAxis(i, j, out Axis axisInfo))
+                    {
+                        LTDMC.dmc_set_equiv((ushort)i, (ushort)j, axisInfo.PulseToMM);  //设置脉冲当量
+                    }
                 }
 
             }
@@ -280,10 +283,10 @@ namespace Automation
         //清楚报警
         public void CleanAlarm()
         {
-            for (int i = 0; i < SF.frmCard.card.controlCards.Count; i++)
+            for (int i = 0; i < SF.frmCard.GetControlCardCount(); i++)
             {
 
-                for (int j = 0; j < SF.frmCard.card.controlCards[i].axis.Count; j++)
+                for (int j = 0; j < SF.frmCard.GetAxisCount(i); j++)
                 {
                     LTDMC.nmc_clear_axis_errcode((ushort)i, (ushort)j);
                     LTDMC.dmc_clear_stop_reason((ushort)i, (ushort)j);

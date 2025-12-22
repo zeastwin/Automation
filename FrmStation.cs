@@ -174,7 +174,10 @@ namespace Automation
                 ushort i = ushort.Parse(dataStation.dataAxis.axisConfigs[AxisIndex].CardNum);
                 ushort j = (ushort)dataStation.dataAxis.axisConfigs[AxisIndex].axis.AxisNum;
 
-                SF.motion.SetMovParam(i, j, 0, SF.frmCard.card.controlCards[i].axis[j].SpeedMax * dataStation.Vel, SF.frmCard.card.controlCards[i].axis[j].AccMax, SF.frmCard.card.controlCards[i].axis[j].DecMax, 0, 0, SF.frmCard.card.controlCards[i].axis[j].PulseToMM);
+                if (SF.frmCard.TryGetAxis(i, j, out Axis axis))
+                {
+                    SF.motion.SetMovParam(i, j, 0, axis.SpeedMax * dataStation.Vel, axis.AccMax, axis.DecMax, 0, 0, axis.PulseToMM);
+                }
 
 
             }

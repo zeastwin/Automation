@@ -109,6 +109,88 @@ namespace Automation
             return false;
         }
 
+        public int GetControlCardCount()
+        {
+            if (card == null || card.controlCards == null)
+            {
+                return 0;
+            }
+            return card.controlCards.Count;
+        }
+
+        public bool TryGetControlCard(int cardIndex, out ControlCard controlCard)
+        {
+            controlCard = null;
+            if (card == null || card.controlCards == null)
+            {
+                return false;
+            }
+            if (cardIndex < 0 || cardIndex >= card.controlCards.Count)
+            {
+                return false;
+            }
+            controlCard = card.controlCards[cardIndex];
+            return controlCard != null;
+        }
+
+        public bool TryGetCardHead(int cardIndex, out CardHead cardHead)
+        {
+            cardHead = null;
+            if (!TryGetControlCard(cardIndex, out ControlCard controlCard))
+            {
+                return false;
+            }
+            cardHead = controlCard.cardHead;
+            return cardHead != null;
+        }
+
+        public int GetAxisCount(int cardIndex)
+        {
+            if (!TryGetControlCard(cardIndex, out ControlCard controlCard))
+            {
+                return 0;
+            }
+            if (controlCard.axis == null)
+            {
+                return 0;
+            }
+            return controlCard.axis.Count;
+        }
+
+        public bool TryGetAxis(int cardIndex, int axisIndex, out Axis axis)
+        {
+            axis = null;
+            if (!TryGetControlCard(cardIndex, out ControlCard controlCard))
+            {
+                return false;
+            }
+            if (controlCard.axis == null || axisIndex < 0 || axisIndex >= controlCard.axis.Count)
+            {
+                return false;
+            }
+            axis = controlCard.axis[axisIndex];
+            return axis != null;
+        }
+
+        public bool TryGetAxisByName(int cardIndex, string axisName, out Axis axis)
+        {
+            axis = null;
+            if (string.IsNullOrWhiteSpace(axisName))
+            {
+                return false;
+            }
+            if (!TryGetControlCard(cardIndex, out ControlCard controlCard))
+            {
+                return false;
+            }
+            if (controlCard.axis == null)
+            {
+                return false;
+            }
+            axis = controlCard.axis.FirstOrDefault(item => item != null && item.AxisName == axisName);
+            return axis != null;
+        }
+
         private void ClearCardSelection()
         {
             editKey.CardIndex = null;
@@ -517,7 +599,8 @@ namespace Automation
 
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
         {
-            return new StandardValuesCollection(SF.frmCard.card.controlCards.Select((obj, index) => index.ToString())
+            return new StandardValuesCollection(Enumerable.Range(0, SF.frmCard.GetControlCardCount())
+            .Select(index => index.ToString())
             .ToList());
         }
         public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
@@ -769,10 +852,10 @@ namespace Automation
                 if ((SF.isModify == ModifyKind.Station || CardNum != null) && value != "-1")
                 {
                     int num = int.Parse(cardNum);
-                    if (CardNum != null && SF.frmCard.card.controlCards.Count > num)
+                    if (CardNum != null && SF.frmCard.TryGetControlCard(num, out ControlCard controlCard))
                     {
                         axisItme.Clear();
-                        foreach (var item in SF.frmCard.card.controlCards[num].axis)
+                        foreach (var item in controlCard.axis)
                         {
                             axisItme.Add(item.AxisName);
                         }
@@ -794,8 +877,7 @@ namespace Automation
                 axisName = value;
                 if ((SF.isModify == ModifyKind.Station || SF.frmCard.IsNewStation) && value != "-1")
                 {
-                    Axis axis =SF.frmCard.card.controlCards[int.Parse(CardNum)].axis.FirstOrDefault(sc=>sc.AxisName==value);
-                    if (axis != null)
+                    if (SF.frmCard.TryGetAxisByName(int.Parse(CardNum), value, out Axis axis))
                     {
                         this.axis = axis;
                     }

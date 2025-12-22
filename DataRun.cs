@@ -1538,7 +1538,7 @@ namespace Automation
                             {
                                 if (station.dataAxis.axisConfigs[i].AxisName == "-1")
                                     continue;
-                                if (SF.frmCard.card.controlCards[int.Parse(station.dataAxis.axisConfigs[i].CardNum)].axis[i].State == Axis.Status.Ready)
+                                if (SF.frmCard.TryGetAxis(int.Parse(station.dataAxis.axisConfigs[i].CardNum), i, out Axis axisInfo) && axisInfo.State == Axis.Status.Ready)
                                 {
                                     isInPos = true;
                                 }
@@ -1603,6 +1603,13 @@ namespace Automation
                         {
                             ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
                             ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
+                            if (!SF.frmCard.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
+                            {
+                                evt.isAlarm = true;
+                                SF.frmInfo.PrintInfo($"工站：{stationRunPos.Name} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
+                                station.SetState(DataStation.Status.NotReady);
+                                return false;
+                            }
                             if (stationRunPos.ChangeVel == "改变速度")
                             {
                                 double VelTemp = 0;
@@ -1614,17 +1621,17 @@ namespace Automation
                                 DecTemp = stationRunPos.Dec == 0 ? SF.frmValue.dicValues[stationRunPos.DecV].GetDValue() : stationRunPos.Dec;
 
 
-                                Vel = SF.frmCard.card.controlCards[cardNum].axis[axisNum].SpeedMax * (VelTemp / 100);
-                                Acc = SF.frmCard.card.controlCards[cardNum].axis[axisNum].AccMax / (AccTemp / 100);
-                                Dec = SF.frmCard.card.controlCards[cardNum].axis[axisNum].DecMax / (DecTemp / 100);
+                                Vel = axisInfo.SpeedMax * (VelTemp / 100);
+                                Acc = axisInfo.AccMax / (AccTemp / 100);
+                                Dec = axisInfo.DecMax / (DecTemp / 100);
                             }
                             else
                             {
-                                Vel = SF.frmCard.card.controlCards[cardNum].axis[axisNum].SpeedMax * (SF.frmCard.card.controlCards[cardNum].axis[axisNum].SpeedRun / 100);
-                                Acc = SF.frmCard.card.controlCards[cardNum].axis[axisNum].AccMax / (SF.frmCard.card.controlCards[cardNum].axis[axisNum].AccRun / 100);
-                                Dec = SF.frmCard.card.controlCards[cardNum].axis[axisNum].DecMax / (SF.frmCard.card.controlCards[cardNum].axis[axisNum].DecRun / 100);
+                                Vel = axisInfo.SpeedMax * (axisInfo.SpeedRun / 100);
+                                Acc = axisInfo.AccMax / (axisInfo.AccRun / 100);
+                                Dec = axisInfo.DecMax / (axisInfo.DecRun / 100);
                             }
-                            SF.motion.SetMovParam(cardNum, axisNum, 0, Vel, Acc, Dec, 0, 0, SF.frmCard.card.controlCards[cardNum].axis[axisNum].PulseToMM);
+                            SF.motion.SetMovParam(cardNum, axisNum, 0, Vel, Acc, Dec, 0, 0, axisInfo.PulseToMM);
 
                             SF.motion.Mov(ushort.Parse(station.dataAxis.axisConfigs[i].CardNum), (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum, Poses[i], 1, false);
                         }
@@ -1689,7 +1696,13 @@ namespace Automation
                         {
                             for (int i = 0; i < cardNums.Count; i++)
                             {
-                                if (((SF.motion.GetAxisPos(cardNums[i], axisNums[i]) / SF.frmCard.card.controlCards[cardNums[i]].axis[axisNums[i]].PulseToMM - TargetPos[i])) > 0.01)
+                                if (!SF.frmCard.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
+                                {
+                                    evt.isAlarm = true;
+                                    SF.frmInfo.PrintInfo($"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在", FrmInfo.Level.Error);
+                                    return false;
+                                }
+                                if (((SF.motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - TargetPos[i])) > 0.01)
                                 {
                                     evt.isAlarm = true;
                                     SF.frmInfo.PrintInfo($"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位", FrmInfo.Level.Error);
@@ -1737,6 +1750,13 @@ namespace Automation
                         ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
                         cardNums.Add(cardNum);
                         axisNums.Add(axisNum);
+                        if (!SF.frmCard.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
+                        {
+                            evt.isAlarm = true;
+                            SF.frmInfo.PrintInfo($"工站：{stationRunRel.Name} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
+                            station.SetState(DataStation.Status.NotReady);
+                            return false;
+                        }
                         if (stationRunRel.ChangeVel == "改变速度")
                         {
                             double VelTemp = 0;
@@ -1748,18 +1768,18 @@ namespace Automation
                             DecTemp = stationRunRel.Dec == 0 ? SF.frmValue.dicValues[stationRunRel.DecV].GetDValue() : stationRunRel.Dec;
 
 
-                            Vel = SF.frmCard.card.controlCards[cardNum].axis[axisNum].SpeedMax * (VelTemp / 100);
-                            Acc = SF.frmCard.card.controlCards[cardNum].axis[axisNum].AccMax / (AccTemp / 100);
-                            Dec = SF.frmCard.card.controlCards[cardNum].axis[axisNum].DecMax / (DecTemp / 100);
+                            Vel = axisInfo.SpeedMax * (VelTemp / 100);
+                            Acc = axisInfo.AccMax / (AccTemp / 100);
+                            Dec = axisInfo.DecMax / (DecTemp / 100);
 
                         }
                         else
                         {
-                            Vel = SF.frmCard.card.controlCards[cardNum].axis[axisNum].SpeedMax * (SF.frmCard.card.controlCards[cardNum].axis[axisNum].SpeedRun / 100);
-                            Acc = SF.frmCard.card.controlCards[cardNum].axis[axisNum].AccMax / (SF.frmCard.card.controlCards[cardNum].axis[axisNum].AccRun / 100);
-                            Dec = SF.frmCard.card.controlCards[cardNum].axis[axisNum].DecMax / (SF.frmCard.card.controlCards[cardNum].axis[axisNum].DecRun / 100);
+                            Vel = axisInfo.SpeedMax * (axisInfo.SpeedRun / 100);
+                            Acc = axisInfo.AccMax / (axisInfo.AccRun / 100);
+                            Dec = axisInfo.DecMax / (axisInfo.DecRun / 100);
                         }
-                        SF.motion.SetMovParam(cardNum, axisNum, 0, Vel, Acc, Dec, 0, 0, SF.frmCard.card.controlCards[cardNum].axis[axisNum].PulseToMM);
+                        SF.motion.SetMovParam(cardNum, axisNum, 0, Vel, Acc, Dec, 0, 0, axisInfo.PulseToMM);
 
                         double DistanceTemp = 0;
                         DistanceTemp = TargetPos[i] == 0 ? SF.frmValue.dicValues[TargetPosV[i]].GetDValue() : TargetPos[i];
@@ -1809,7 +1829,13 @@ namespace Automation
                     {
                         for (int i = 0; i < cardNums.Count; i++)
                         {
-                            if (((SF.motion.GetAxisPos(cardNums[i], axisNums[i]) / SF.frmCard.card.controlCards[cardNums[i]].axis[axisNums[i]].PulseToMM - TargetPos[i])) > 0.01)
+                            if (!SF.frmCard.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
+                            {
+                                evt.isAlarm = true;
+                                SF.frmInfo.PrintInfo($"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在", FrmInfo.Level.Error);
+                                return false;
+                            }
+                            if (((SF.motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - TargetPos[i])) > 0.01)
                             {
                                 evt.isAlarm = true;
                                 SF.frmInfo.PrintInfo($"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位", FrmInfo.Level.Error);
@@ -1853,20 +1879,38 @@ namespace Automation
                             ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
                             ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
 
-                            SF.frmCard.card.controlCards[cardNum].axis[axisNum].SpeedRun = Vel;
-                            SF.frmCard.card.controlCards[cardNum].axis[axisNum].AccRun = Acc;
-                            SF.frmCard.card.controlCards[cardNum].axis[axisNum].DecRun = Dec;
+                            if (!SF.frmCard.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
+                            {
+                                evt.isAlarm = true;
+                                SF.frmInfo.PrintInfo($"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
+                                return false;
+                            }
+                            axisInfo.SpeedRun = Vel;
+                            axisInfo.AccRun = Acc;
+                            axisInfo.DecRun = Dec;
                         }
                     }
                 }
                 else
                 {
                     AxisConfig axisInfo = station.dataAxis.axisConfigs.FirstOrDefault(sc => sc.AxisName == setStationVel.SetAxisObj);
+                    if (axisInfo == null)
+                    {
+                        evt.isAlarm = true;
+                        SF.frmInfo.PrintInfo($"工站：{setStationVel.StationName} 轴配置不存在", FrmInfo.Level.Error);
+                        return false;
+                    }
                     int cardNum = int.Parse(axisInfo.CardNum);
                     int axisNum = axisInfo.axis.AxisNum;
-                    SF.frmCard.card.controlCards[cardNum].axis[axisNum].SpeedRun = Vel;
-                    SF.frmCard.card.controlCards[cardNum].axis[axisNum].AccRun = Acc;
-                    SF.frmCard.card.controlCards[cardNum].axis[axisNum].DecRun = Dec;
+                    if (!SF.frmCard.TryGetAxis(cardNum, axisNum, out Axis axisConfig))
+                    {
+                        evt.isAlarm = true;
+                        SF.frmInfo.PrintInfo($"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
+                        return false;
+                    }
+                    axisConfig.SpeedRun = Vel;
+                    axisConfig.AccRun = Acc;
+                    axisConfig.DecRun = Dec;
                 }
             }
             else
@@ -1954,7 +1998,13 @@ namespace Automation
                     {
                         if (waitStationStop.isWaitHome)
                         {
-                            if (SF.motion.HomeStatus(cardNums[i], axisNums[i]) && SF.frmCard.card.controlCards[cardNums[i]].axis[axisNums[i]].GetState() == Axis.Status.Ready)
+                            if (!SF.frmCard.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
+                            {
+                                evt.isAlarm = true;
+                                SF.frmInfo.PrintInfo($"工站：{waitStationStop.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在", FrmInfo.Level.Error);
+                                return false;
+                            }
+                            if (SF.motion.HomeStatus(cardNums[i], axisNums[i]) && axisInfo.GetState() == Axis.Status.Ready)
                             {
                                 isInPos = true;
                             }

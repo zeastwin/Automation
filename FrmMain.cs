@@ -184,9 +184,9 @@ namespace Automation
                             //    }
                             //}
 
-                            for (int i = 0; i < SF.frmCard.card.controlCards.Count; i++)
+                            for (int i = 0; i < SF.frmCard.GetControlCardCount(); i++)
                             {
-                                for (int j = 0; j < SF.frmCard.card.controlCards[i].axis.Count; j++)
+                                for (int j = 0; j < SF.frmCard.GetAxisCount(i); j++)
                                 {
                                     uint Number = csLTDMC.LTDMC.dmc_axis_io_status((ushort)i, (ushort)j);
 
@@ -207,7 +207,7 @@ namespace Automation
         public void ReflshDgv()
         {
             StateDic.Clear();
-            for (int i = 0; i < SF.frmCard.card.controlCards.Count; i++)
+            for (int i = 0; i < SF.frmCard.GetControlCardCount(); i++)
             {
                 Dictionary<int, char[]> dictionary1 = new Dictionary<int, char[]>();
                 StateDic.Add(dictionary1);
