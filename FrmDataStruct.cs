@@ -24,7 +24,7 @@ namespace Automation
 {
     public partial class FrmDataStruct : Form
     {
-        public List<DataStruct> dataStructs = new List<DataStruct>();
+        private List<DataStruct> dataStructs = new List<DataStruct>();
         public List<DataStructHandle> dataStructHandles = new List<DataStructHandle>();
         public FrmDataStructSet frmDataStructSet;
         public int selectDataStructIndex = -1;
@@ -124,9 +124,16 @@ namespace Automation
         public string GetStructName()
         {
             char targetChar = ':';
+            if (treeView1.SelectedNode == null)
+            {
+                return string.Empty;
+            }
             int indexOfTargetChar = treeView1.SelectedNode.Text.IndexOf(targetChar);
-            string resultString = treeView1.SelectedNode.Text.Substring(indexOfTargetChar + 1);
-            return resultString;
+            if (indexOfTargetChar < 0)
+            {
+                return treeView1.SelectedNode.Text;
+            }
+            return treeView1.SelectedNode.Text.Substring(indexOfTargetChar + 1);
         }
         private void AddDataStruct_Click(object sender, EventArgs e)
         {
@@ -138,22 +145,26 @@ namespace Automation
 
         private void ModifyDataStruct_Click(object sender, EventArgs e)
         {
-           
-            frmDataStructSet = new FrmDataStructSet(GetStructName());
+            string structName = GetStructName();
+            if (string.IsNullOrEmpty(structName))
+            {
+                return;
+            }
+            frmDataStructSet = new FrmDataStructSet(structName);
             frmDataStructSet.StartPosition = FormStartPosition.CenterScreen;
             frmDataStructSet.TopMost = true;
             frmDataStructSet.Show();
         }
-        bool isTrack2 = false;
         private void RemoveDataStruct_Click(object sender, EventArgs e)
         {
             DeleteDataSturct();
         }
         public void DeleteDataSturct()
         {
+            bool resumeTrack = false;
             if (m_evtTrack1.WaitOne(0))
             {
-                isTrack2 = true;
+                resumeTrack = true;
                 m_evtTrack1.Reset();
 
                 SF.Delay(100);
@@ -163,28 +174,57 @@ namespace Automation
                 }
             }
 
-            DataStructHandle result = dataStructHandles.FirstOrDefault(dsh => dsh.Name == GetStructName());
+            if (selectDataStructIndex < 0)
+            {
+                if (resumeTrack)
+                {
+                    m_evtTrack1.Set();
+                    isTrack = !isTrack;
+                }
+                return;
+            }
+
+            if (!SF.dataStructStore.TryGetStructNameByIndex(selectDataStructIndex, out string structName))
+            {
+                if (resumeTrack)
+                {
+                    m_evtTrack1.Set();
+                    isTrack = !isTrack;
+                }
+                return;
+            }
+
+            DataStructHandle result = dataStructHandles.FirstOrDefault(dsh => dsh.Name == structName);
             if (result != null)
             {
                 dataStructHandles.Remove(result);
                 result.form.Close();
             }
-            dataStructs.RemoveAt(selectDataStructIndex);
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStruct", dataStructs);
+            if (!SF.dataStructStore.RemoveStructAt(selectDataStructIndex))
+            {
+                if (resumeTrack)
+                {
+                    m_evtTrack1.Set();
+                    isTrack = !isTrack;
+                }
+                return;
+            }
+            SF.dataStructStore.Save(SF.ConfigPath);
             RefreshDataSturctList();
             RefreshDataSturctTree();
-            if (isTrack2)
+            if (resumeTrack)
             {
                 m_evtTrack1.Set();
 
                 isTrack = !isTrack;
             }
         }
-        public void ModifyStruct(string name)
+        public bool ModifyStruct(string name)
         {
+            bool resumeTrack = false;
             if (m_evtTrack1.WaitOne(0))
             {
-                isTrack2 = true;
+                resumeTrack = true;
                 m_evtTrack1.Reset();
 
                 SF.Delay(100);
@@ -193,39 +233,55 @@ namespace Automation
                     SF.Delay(10);
                 }
             }
-            DataStructHandle result = dataStructHandles.FirstOrDefault(dsh => dsh.Name == GetStructName());
-            if (result !=null&& result.form != null)
-            result.form.Close();
-            SF.frmdataStruct.dataStructs[SF.frmdataStruct.selectDataStructIndex].Name = name;
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStruct", dataStructs);
+            if (selectDataStructIndex < 0)
+            {
+                if (resumeTrack)
+                {
+                    m_evtTrack1.Set();
+                    isTrack = !isTrack;
+                }
+                return false;
+            }
+
+            if (!SF.dataStructStore.TryGetStructNameByIndex(selectDataStructIndex, out string structName))
+            {
+                if (resumeTrack)
+                {
+                    m_evtTrack1.Set();
+                    isTrack = !isTrack;
+                }
+                return false;
+            }
+
+            DataStructHandle result = dataStructHandles.FirstOrDefault(dsh => dsh.Name == structName);
+            if (result != null && result.form != null)
+            {
+                result.form.Close();
+            }
+
+            if (!SF.dataStructStore.RenameStruct(selectDataStructIndex, name))
+            {
+                if (resumeTrack)
+                {
+                    m_evtTrack1.Set();
+                    isTrack = !isTrack;
+                }
+                return false;
+            }
+            SF.dataStructStore.Save(SF.ConfigPath);
             RefreshDataSturctList();
             RefreshDataSturctTree();
-            if (isTrack2)
+            if (resumeTrack)
             {
                 m_evtTrack1.Set();
 
                 isTrack = !isTrack;
             }
+            return true;
         }
         public void RefreshDataSturctList()
         {
-            treeView1.Nodes.Clear();
-
-            if (!Directory.Exists(SF.ConfigPath))
-            {
-                Directory.CreateDirectory(SF.ConfigPath);
-            }
-            try
-            {
-                List<DataStruct> dataStructsTemp = SF.mainfrm.ReadJson<List<DataStruct>>(SF.ConfigPath, "DataStruct");
-                if (dataStructsTemp != null)
-                    dataStructs = dataStructsTemp;
-            }
-            catch (Exception ex) 
-            {
-                //Console.WriteLine(ex.Message);
-              
-            }
+            dataStructs = SF.dataStructStore.GetSnapshot();
         }
         public void RefreshDataSturctTree()
         {
@@ -244,40 +300,61 @@ namespace Automation
         }
         public int CalculateItemLength(DataStruct dataStruct)
         {
-            int dataRowCount = dataStruct.dataStructItems.Count;
+            if (dataStruct == null || dataStruct.dataStructItems == null)
+            {
+                return 0;
+            }
 
             int totalCount = 0;
-
-            for (int i = 0; i < dataRowCount; i++)
+            for (int i = 0; i < dataStruct.dataStructItems.Count; i++)
             {
-
-                int strCount = dataStruct.dataStructItems[i].str.Count;
-                int numCount = dataStruct.dataStructItems[i].num.Count;
-
-                int totalCountTemp = strCount + numCount;
-
-                if(totalCountTemp> totalCount)
-                    totalCount = totalCountTemp;
+                DataStructItem item = dataStruct.dataStructItems[i];
+                if (item == null)
+                {
+                    continue;
+                }
+                int itemCount = item.GetMaxIndex() + 1;
+                if (itemCount > totalCount)
+                {
+                    totalCount = itemCount;
+                }
             }
             return totalCount;
         }
   
         public void RefreshDataStructFrm(DataStructHandle dataStructHandle)
         {
-            //DataStruct dataStruct = FrmPropertyGrid.DeepCopy(dataStructs.FirstOrDefault(dsh => dsh.Name == dataStructHandle.Name));
-            DataStruct dataStruct = (DataStruct)(dataStructs.FirstOrDefault(dsh => dsh.Name == dataStructHandle.Name).Clone());
+            if (dataStructHandle == null || dataStructHandle.form == null || dataStructHandle.form.IsDisposed)
+            {
+                return;
+            }
 
-            DataGridView  dataGridView1 = (DataGridView)dataStructHandle.form.Controls[0];
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => RefreshDataStructFrm(dataStructHandle)));
+                return;
+            }
 
-            if(dataGridView1.Columns.Count == 0)
+            if (!SF.dataStructStore.TryGetStructSnapshotByName(dataStructHandle.Name, out DataStruct dataStruct))
+            {
+                return;
+            }
+
+            if (dataStructHandle.form.Controls.Count == 0)
+            {
+                return;
+            }
+            DataGridView dataGridView1 = dataStructHandle.form.Controls[0] as DataGridView;
+            if (dataGridView1 == null)
+            {
+                return;
+            }
+
+            if (dataGridView1.Columns.Count == 0)
             {
                 DataGridViewTextBoxColumn textColumn = new DataGridViewTextBoxColumn();
                 textColumn.HeaderText = "名称";
-                Invoke(new Action(() =>
-                {
-                    dataGridView1.Columns.Add(textColumn);
-
-                }));
+                dataGridView1.Columns.Add(textColumn);
             }
 
             int length = CalculateItemLength(dataStruct);
@@ -293,20 +370,14 @@ namespace Automation
                 textColumn1.Width = 90;
                 if (ColDiff > 0)
                 {
-                    Invoke(new Action(() =>
-                    {
-                        dataGridView1.Columns.Add(textColumn1);
-                    }));
+                    dataGridView1.Columns.Add(textColumn1);
                 }
                 else if (ColDiff < 0)
                 {
-                    Invoke(new Action(() =>
+                    if (dataGridView1.Columns.Count > 0)
                     {
-                        if (dataGridView1.Columns.Count > 0)
-                        {
-                            dataGridView1.Columns.RemoveAt(dataGridView1.Columns.Count - 1);
-                        }
-                    }));
+                        dataGridView1.Columns.RemoveAt(dataGridView1.Columns.Count - 1);
+                    }
                 }
               
             }
@@ -319,20 +390,14 @@ namespace Automation
             {
                 if (RowDiff > 0)
                 {
-                    Invoke(new Action(() =>
-                    {
-                        dataGridView1.Rows.Add();
-                    }));
+                    dataGridView1.Rows.Add();
                 }
                 else if (RowDiff < 0)
                 {
-                    Invoke(new Action(() =>
+                    if (dataGridView1.Rows.Count > 0)
                     {
-                        if (dataGridView1.Rows.Count > 0)
-                        {
-                            dataGridView1.Rows.RemoveAt(dataGridView1.Rows.Count - 1);
-                        }
-                    }));
+                        dataGridView1.Rows.RemoveAt(dataGridView1.Rows.Count - 1);
+                    }
                 }  
             }
             foreach (DataGridViewRow row in dataGridView1.Rows)
@@ -340,26 +405,33 @@ namespace Automation
                 foreach (DataGridViewCell cell in row.Cells)
                 {
                     cell.Value = null;
+                    cell.Style.BackColor = Color.White;
                 }
             }
             for (int i = 0; i < dataRowCount; i++)
             {
                 dataGridView1.Rows[i].Cells[0].Value = dataStruct.dataStructItems[i].Name;
                // List<KeyValuePair<int, string>> temp1 = dataStruct.dataStructItems[i].str.ToList();
-                foreach (KeyValuePair<int, string> kvp in dataStruct.dataStructItems[i].str)
+                if (dataStruct.dataStructItems[i].str != null)
                 {
-                    int key = kvp.Key + 1;
-                    string strs = kvp.Value;
-                    dataGridView1.Rows[i].Cells[key].Value = strs;
-                    dataGridView1.Rows[i].Cells[key].Style.BackColor = Color.Gray;
+                    foreach (KeyValuePair<int, string> kvp in dataStruct.dataStructItems[i].str)
+                    {
+                        int key = kvp.Key + 1;
+                        string strs = kvp.Value;
+                        dataGridView1.Rows[i].Cells[key].Value = strs;
+                        dataGridView1.Rows[i].Cells[key].Style.BackColor = Color.Gray;
+                    }
                 }
                // List<KeyValuePair<int, double>> temp2 = dataStruct.dataStructItems[i].num.ToList();
-                foreach (KeyValuePair<int, double> kvp in dataStruct.dataStructItems[i].num)
+                if (dataStruct.dataStructItems[i].num != null)
                 {
-                    int key = kvp.Key + 1;
-                    double num = kvp.Value;
-                    dataGridView1.Rows[i].Cells[key].Value = num;
-                    dataGridView1.Rows[i].Cells[key].Style.BackColor = Color.White;
+                    foreach (KeyValuePair<int, double> kvp in dataStruct.dataStructItems[i].num)
+                    {
+                        int key = kvp.Key + 1;
+                        double num = kvp.Value;
+                        dataGridView1.Rows[i].Cells[key].Value = num;
+                        dataGridView1.Rows[i].Cells[key].Style.BackColor = Color.White;
+                    }
                 }
 
             }
@@ -419,111 +491,17 @@ namespace Automation
         }
 
       
-        /*=================================================================================================================================*/
-        public void Set_StructItem_byName(string name,int ItemIndex, string ItemName ,List<string> strings, List<double> doubles ,string param)
-        {
-            DataStruct dataStruct = dataStructs.FirstOrDefault(ds => ds.Name == name);
-            if (dataStruct == null)
-                return;
-            DataStructItem dataStructItem = new DataStructItem();
-            dataStructItem.str = new Dictionary<int, string>();
-            dataStructItem.num = new Dictionary<int, double>();
-            int x = 0, y = 0;
-            for (int i = 0; i < param.Length; i++)
-            {
-                char digitChar = param[i];
-                if(digitChar == '0')
-                {
-                    dataStructItem.num.Add(i, doubles[x]);
-                    x++;
-                }
-                else if (digitChar == '1')
-                {
-                    dataStructItem.str.Add(i, strings[y]);
-                    y++;
-                }
-            }
-            dataStructItem.Name = ItemName;
-            if (dataStruct.dataStructItems.Count<= ItemIndex)
-                dataStruct.dataStructItems.Add(dataStructItem);
-            else 
-                dataStruct.dataStructItems[ItemIndex]= dataStructItem;
-        }
-        public void Set_StructItem_byIndex_Param(int index, int ItemIndex, List<string> strings, List<double> doubles , string param)
-        {
-            DataStruct dataStruct = null;
-            if (index >= 0 && index < dataStructs.Count)
-            {
-                dataStruct = dataStructs[index];
-            }
-            else
-            {
-                return;
-            }
-            DataStructItem dataStructItem = new DataStructItem();
-            dataStructItem.str = new Dictionary<int, string>();
-            dataStructItem.num = new Dictionary<int, double>();
-            int x = 0, y = 0;
-            for (int i = 0; i < param.Length; i++)
-            {
-                char digitChar = param[i];
-                if (digitChar == '0')
-                {
-                    dataStructItem.num.Add(i, doubles[x]);
-                    x++;
-                }
-                else if (digitChar == '1')
-                {
-                    dataStructItem.str.Add(i, strings[y]);
-                    y++;
-                }
-            }
-            if (dataStruct.dataStructItems.Count <= ItemIndex)
-                dataStruct.dataStructItems.Add(dataStructItem);
-            else
-                dataStruct.dataStructItems[ItemIndex] = dataStructItem;
-        }
-
-        public void Set_StructItem_byIndex(int DSTindex, int ItemIndex,int index, string value)
-        {
-            if (dataStructs[DSTindex].dataStructItems[ItemIndex].num.ContainsKey(index))
-            {
-                if (int.TryParse(value, out int number))
-                {
-                    dataStructs[DSTindex].dataStructItems[ItemIndex].num[index] = number;
-                }
-            }
-            else
-            {
-                dataStructs[DSTindex].dataStructItems[ItemIndex].str[index] = value;
-            }
-
-        }
-        public object Get_StructItem_byIndex(int DSTindex, int ItemIndex, int index)
-        {
-            if (dataStructs[DSTindex].dataStructItems[ItemIndex].num.ContainsKey(index))
-            {
-                return dataStructs[DSTindex].dataStructItems[ItemIndex].num[index];
-            }
-            else if(dataStructs[DSTindex].dataStructItems[ItemIndex].str.ContainsKey(index))
-            {
-                return dataStructs[DSTindex].dataStructItems[ItemIndex].str[index];
-            }
-            else { return null; }
-        }
-        public int Get_StructItemCount_byIndex(int DSTindex, int ItemIndex)
-        {
-            return dataStructs[DSTindex].dataStructItems[ItemIndex].num.Count + dataStructs[DSTindex].dataStructItems[ItemIndex].str.Count;
-
-        }
-        /*=================================================================================================================================*/
         private void treeView1_NodeMouseDoubleClick(object sender, TreeNodeMouseClickEventArgs e)
         {
 
             if (selectDataStructIndex != -1)
             {
 
-                bool exactMatchExists = dataStructHandles.Any(dsh => dsh.Name == GetStructName());
+                if (!SF.dataStructStore.TryGetStructNameByIndex(selectDataStructIndex, out string structName))
+                {
+                    return;
+                }
+                bool exactMatchExists = dataStructHandles.Any(dsh => dsh.Name == structName);
                 if (!exactMatchExists)
                 {
                     DataGridView dataGridView1 = new DataGridView();
@@ -546,10 +524,10 @@ namespace Automation
                   
                     Form form = new Form();
                     form.Controls.Add(dataGridView1);
-                    form.Text = dataStructs[selectDataStructIndex].Name;
+                    form.Text = structName;
                     form.FormClosed += Form_Closing;
                     loadFillForm(panel1, form);
-                    dataStructHandles.Add(new DataStructHandle() { form = form, Name = GetStructName() });
+                    dataStructHandles.Add(new DataStructHandle() { form = form, Name = structName });
 
                     RefreshDataStructFrm(dataStructHandles.Last());
                 }
@@ -590,10 +568,14 @@ namespace Automation
         {
             Form ownerForm = GetForm(sender);
             DataStructHandle result = dataStructHandles.FirstOrDefault(dsh => dsh.form == ownerForm);
-            char targetChar = ':';
-            int indexOfTargetChar = result.Name.IndexOf(targetChar);
-            string resultString = result.Name.Substring(indexOfTargetChar + 1);
-            DataStruct dt = dataStructs.FirstOrDefault(dsh => dsh.Name == resultString);
+            if (result == null || string.IsNullOrEmpty(result.Name))
+            {
+                return;
+            }
+            if (!SF.dataStructStore.TryGetStructSnapshotByName(result.Name, out DataStruct dt))
+            {
+                return;
+            }
             frmDataStructSet = new FrmDataStructSet(dt, result);
             frmDataStructSet.StartPosition = FormStartPosition.CenterScreen;
             frmDataStructSet.TopMost = true;
@@ -604,11 +586,19 @@ namespace Automation
         {
             Form ownerForm = GetForm(sender);
             DataStructHandle result = dataStructHandles.FirstOrDefault(dsh => dsh.form == ownerForm);
-            char targetChar = ':';
-            int indexOfTargetChar = result.Name.IndexOf(targetChar);
-            string resultString = result.Name.Substring(indexOfTargetChar + 1);
-            DataStruct dt = dataStructs.FirstOrDefault(dsh => dsh.Name == resultString);
+            if (result == null || string.IsNullOrEmpty(result.Name))
+            {
+                return;
+            }
+            if (!SF.dataStructStore.TryGetStructSnapshotByName(result.Name, out DataStruct dt))
+            {
+                return;
+            }
 
+            if (result.SelectRow < 0 || result.SelectRow >= dt.dataStructItems.Count)
+            {
+                return;
+            }
             frmDataStructSet = new FrmDataStructSet(dt.dataStructItems[result.SelectRow], result);
             frmDataStructSet.dt = dt;
             frmDataStructSet.StartPosition = FormStartPosition.CenterScreen;
@@ -622,46 +612,25 @@ namespace Automation
         {
             Form ownerForm = GetForm(sender);
             DataStructHandle result = dataStructHandles.FirstOrDefault(dsh => dsh.form == ownerForm);
-            char targetChar = ':';
-            int indexOfTargetChar = result.Name.IndexOf(targetChar);
-            string resultString = result.Name.Substring(indexOfTargetChar + 1);
-            DataStruct dt = dataStructs.FirstOrDefault(dsh => dsh.Name == resultString);
-
-            dt.dataStructItems.RemoveAt(result.SelectRow);
+            if (result == null || string.IsNullOrEmpty(result.Name))
+            {
+                return;
+            }
+            if (!SF.dataStructStore.TryGetStructIndexByName(result.Name, out int structIndex))
+            {
+                return;
+            }
+            if (!SF.dataStructStore.TryRemoveItemAt(structIndex, result.SelectRow))
+            {
+                return;
+            }
 
             RefreshDataStructFrm(result);
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStruct", SF.frmdataStruct.dataStructs);
+            SF.dataStructStore.Save(SF.ConfigPath);
             SF.frmdataStruct.RefreshDataSturctList();
             SF.frmdataStruct.RefreshDataSturctTree();
 
         }
-    }
-    [Serializable]
-    public class DataStruct : ICloneable
-    {
-        [Browsable(false)]
-        public string Name { get; set; }
-
-        public List<DataStructItem> dataStructItems = new List<DataStructItem>();
-        public object Clone()
-        {
-            using (MemoryStream memoryStream = new MemoryStream())
-            {
-                IFormatter formatter = new BinaryFormatter();
-                formatter.Serialize(memoryStream, this);
-                memoryStream.Seek(0, SeekOrigin.Begin);
-                return formatter.Deserialize(memoryStream);
-            }
-        }
-    }
-    [Serializable]
-    public class DataStructItem
-    {
-        public string Name { get; set; }
-
-        public Dictionary<int,string> str { get; set; }
-        public Dictionary<int,double> num { get; set; }
-
     }
     public class DataStructHandle
     {

@@ -1178,7 +1178,7 @@ namespace Automation
         {
             for (int i = 0; i < int.Parse(setDataStructItem.Count); i++)
             {
-                SF.frmdataStruct.Set_StructItem_byIndex(int.Parse(setDataStructItem.StructIndex), int.Parse(setDataStructItem.ItemIndex), int.Parse(setDataStructItem.Params[i].valueIndex), setDataStructItem.Params[i].value);
+                SF.dataStructStore.TrySetItemValueByIndex(int.Parse(setDataStructItem.StructIndex), int.Parse(setDataStructItem.ItemIndex), int.Parse(setDataStructItem.Params[i].valueIndex), setDataStructItem.Params[i].value);
             }
             return true;
         }
@@ -1186,38 +1186,37 @@ namespace Automation
         public bool RunGetDataStructItem(ProcHandle evt, GetDataStructItem getDataStructItem)
         {
 
+            int structIndex = int.Parse(getDataStructItem.StructIndex);
+            int itemIndex = int.Parse(getDataStructItem.ItemIndex);
             if (getDataStructItem.IsAllItem)
             {
-                int Startindex = SF.valueStore.GetValueByName(getDataStructItem.StartValue).Index;
-                for (int i = 0; i < SF.frmdataStruct.Get_StructItemCount_byIndex(int.Parse(getDataStructItem.StructIndex), int.Parse(getDataStructItem.ItemIndex)); i++)
+                int startIndex = SF.valueStore.GetValueByName(getDataStructItem.StartValue).Index;
+                int count = SF.dataStructStore.GetItemValueCount(structIndex, itemIndex);
+                for (int i = 0; i < count; i++)
                 {
-                    object obj = SF.frmdataStruct.Get_StructItem_byIndex(int.Parse(getDataStructItem.StructIndex), int.Parse(getDataStructItem.ItemIndex), i);
-
-                    string value = "";
-                    if (!string.IsNullOrEmpty(getDataStructItem.Params[i].ValueIndex))
-                        value = SF.valueStore.GetValueByIndex(int.Parse(getDataStructItem.Params[i].ValueIndex)).Value.ToString();
-                    else
-                        value = SF.valueStore.GetValueByName(getDataStructItem.Params[i].ValueName).Value.ToString();
-
-
-                    SF.valueStore.setValueByIndex(Startindex + i, obj);
-
+                    if (SF.dataStructStore.TryGetItemValueByIndex(structIndex, itemIndex, i, out object obj))
+                    {
+                        SF.valueStore.setValueByIndex(startIndex + i, obj);
+                    }
                 }
             }
             else
             {
                 for (int i = 0; i < getDataStructItem.Params.Count; i++)
                 {
-                    object obj = SF.frmdataStruct.Get_StructItem_byIndex(int.Parse(getDataStructItem.StructIndex), int.Parse(getDataStructItem.ItemIndex), int.Parse(getDataStructItem.Params[i].valueIndex));
+                    int valueIndex = int.Parse(getDataStructItem.Params[i].valueIndex);
+                    if (!SF.dataStructStore.TryGetItemValueByIndex(structIndex, itemIndex, valueIndex, out object obj))
+                    {
+                        continue;
+                    }
 
-                    string value = "";
+                    string valueName = "";
                     if (!string.IsNullOrEmpty(getDataStructItem.Params[i].ValueIndex))
-                        value = SF.valueStore.GetValueByIndex(int.Parse(getDataStructItem.Params[i].ValueIndex)).Value.ToString();
+                        valueName = SF.valueStore.GetValueByIndex(int.Parse(getDataStructItem.Params[i].ValueIndex)).Value.ToString();
                     else
-                        value = SF.valueStore.GetValueByName(getDataStructItem.Params[i].ValueName).Value.ToString();
+                        valueName = SF.valueStore.GetValueByName(getDataStructItem.Params[i].ValueName).Value.ToString();
 
-                    SF.valueStore.setValueByName(value, obj);
-
+                    SF.valueStore.setValueByName(valueName, obj);
                 }
             }
             return true;
@@ -1226,16 +1225,23 @@ namespace Automation
         {
             if (copyDataStructItem.IsAllValue)
             {
-                DataStructItem ds = SF.frmdataStruct.dataStructs[int.Parse(copyDataStructItem.SourceStructIndex)].dataStructItems[int.Parse(copyDataStructItem.SourceItemIndex)];
-                SF.frmdataStruct.dataStructs[int.Parse(copyDataStructItem.TargetStructIndex)].dataStructItems[int.Parse(copyDataStructItem.TargetItemIndex)] = ds;
+                SF.dataStructStore.TryCopyItemAll(int.Parse(copyDataStructItem.SourceStructIndex), int.Parse(copyDataStructItem.SourceItemIndex), int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex));
             }
             else
             {
                 for (int i = 0; i < copyDataStructItem.Params.Count; i++)
                 {
-                    object obj = SF.frmdataStruct.Get_StructItem_byIndex(int.Parse(copyDataStructItem.SourceStructIndex), int.Parse(copyDataStructItem.SourceItemIndex), int.Parse(copyDataStructItem.Params[i].SourcevalueIndex));
+                    if (!SF.dataStructStore.TryGetItemValueByIndex(int.Parse(copyDataStructItem.SourceStructIndex), int.Parse(copyDataStructItem.SourceItemIndex), int.Parse(copyDataStructItem.Params[i].SourcevalueIndex), out object obj, out DataStructValueType valueType))
+                    {
+                        continue;
+                    }
 
-                    SF.frmdataStruct.Set_StructItem_byIndex(int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex), int.Parse(copyDataStructItem.Params[i].Targetvalue), obj.ToString());
+                    if (obj == null)
+                    {
+                        continue;
+                    }
+
+                    SF.dataStructStore.TrySetItemValueByIndex(int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex), int.Parse(copyDataStructItem.Params[i].Targetvalue), obj.ToString(), valueType);
 
                 }
 
@@ -1244,11 +1250,10 @@ namespace Automation
         }
         public bool RunInsertDataStructItem(ProcHandle evt, InsertDataStructItem insertDataStructItem)
         {
-            DataStructItem dataStructItem = new DataStructItem();
-            dataStructItem.str = new Dictionary<int, string>();
-            dataStructItem.num = new Dictionary<int, double>();
-            dataStructItem.Name = insertDataStructItem.Name;
-            SF.frmdataStruct.dataStructs[int.Parse(insertDataStructItem.TargetStructIndex)].dataStructItems.Insert(int.Parse(insertDataStructItem.TargetItemIndex), dataStructItem);
+            DataStructItem dataStructItem = new DataStructItem
+            {
+                Name = insertDataStructItem.Name
+            };
             for (int i = 0; i < insertDataStructItem.Params.Count; i++)
             {
                 if (insertDataStructItem.Params[i].Type == "double")
@@ -1258,7 +1263,7 @@ namespace Automation
                         num = SF.valueStore.get_D_ValueByName(insertDataStructItem.Params[i].ValueItem);
                     else
                         num = double.Parse(insertDataStructItem.Params[i].Value);
-                    SF.frmdataStruct.Set_StructItem_byIndex(int.Parse(insertDataStructItem.TargetStructIndex), int.Parse(insertDataStructItem.TargetItemIndex), i, num.ToString());
+                    dataStructItem.num[i] = num;
                 }
                 else
                 {
@@ -1267,27 +1272,29 @@ namespace Automation
                         str = SF.valueStore.get_Str_ValueByName(insertDataStructItem.Params[i].ValueItem);
                     else
                         str = insertDataStructItem.Params[i].Value.ToString();
-
-                    SF.frmdataStruct.Set_StructItem_byIndex(int.Parse(insertDataStructItem.TargetStructIndex), int.Parse(insertDataStructItem.TargetItemIndex), i, str);
+                    dataStructItem.str[i] = str;
                 }
             }
+            SF.dataStructStore.TryInsertItem(int.Parse(insertDataStructItem.TargetStructIndex), int.Parse(insertDataStructItem.TargetItemIndex), dataStructItem);
             return true;
         }
 
 
         public bool RunDelDataStructItem(ProcHandle evt, DelDataStructItem delDataStructItem)
         {
-            if (int.Parse(delDataStructItem.TargetStructIndex) >= 255)
-                SF.frmdataStruct.dataStructs[int.Parse(delDataStructItem.TargetStructIndex)].dataStructItems.RemoveAt(SF.frmdataStruct.dataStructs[int.Parse(delDataStructItem.TargetStructIndex)].dataStructItems.Count - 1);
-            else if (int.Parse(delDataStructItem.TargetStructIndex) <= -1)
+            int structIndex = int.Parse(delDataStructItem.TargetStructIndex);
+            int itemIndex = int.Parse(delDataStructItem.TargetItemIndex);
+            if (itemIndex >= 255)
             {
-                if (SF.frmdataStruct.dataStructs[int.Parse(delDataStructItem.TargetStructIndex)].dataStructItems.Count != 0)
-                    SF.frmdataStruct.dataStructs[int.Parse(delDataStructItem.TargetStructIndex)].dataStructItems.RemoveAt(0);
+                SF.dataStructStore.TryRemoveLastItem(structIndex);
+            }
+            else if (itemIndex <= -1)
+            {
+                SF.dataStructStore.TryRemoveFirstItem(structIndex);
             }
             else
             {
-                SF.frmdataStruct.dataStructs[int.Parse(delDataStructItem.TargetStructIndex)].dataStructItems.RemoveAt(int.Parse(delDataStructItem.TargetItemIndex));
-
+                SF.dataStructStore.TryRemoveItemAt(structIndex, itemIndex);
             }
             return true;
         }
@@ -1296,37 +1303,25 @@ namespace Automation
         {
             if (findDataStructItem.Type == "名称等于key")
             {
-                DataStructItem dst = SF.frmdataStruct.dataStructs[int.Parse(findDataStructItem.TargetStructIndex)].dataStructItems.FirstOrDefault(sc => sc.Name.ToString() == findDataStructItem.key);
-                if (dst != null)
-                    SF.valueStore.setValueByName(findDataStructItem.save, dst.Name);
+                if (SF.dataStructStore.TryFindItemByName(int.Parse(findDataStructItem.TargetStructIndex), findDataStructItem.key, out string value))
+                {
+                    SF.valueStore.setValueByName(findDataStructItem.save, value);
+                }
             }
             else if (findDataStructItem.Type == "字符串等于key")
             {
-                var matchingItems = SF.frmdataStruct.dataStructs[int.Parse(findDataStructItem.TargetStructIndex)].dataStructItems.Where(item => item.str.ContainsValue(findDataStructItem.key)).ToList();
-
-                foreach (var item in matchingItems)
+                if (SF.dataStructStore.TryFindItemByStringValue(int.Parse(findDataStructItem.TargetStructIndex), findDataStructItem.key, out string value))
                 {
-                    foreach (var kvp in item.str)
-                    {
-                        if (kvp.Value == findDataStructItem.key)
-                        {
-                            SF.valueStore.setValueByName(findDataStructItem.save, kvp.Value);
-                        }
-                    }
+                    SF.valueStore.setValueByName(findDataStructItem.save, value);
                 }
             }
             else if (findDataStructItem.Type == "数值等于key")
             {
-                var matchingItems = SF.frmdataStruct.dataStructs[int.Parse(findDataStructItem.TargetStructIndex)].dataStructItems.Where(item => item.num.ContainsValue(double.Parse(findDataStructItem.key))).ToList();
-
-                foreach (var item in matchingItems)
+                if (double.TryParse(findDataStructItem.key, out double keyValue))
                 {
-                    foreach (var kvp in item.num)
+                    if (SF.dataStructStore.TryFindItemByNumberValue(int.Parse(findDataStructItem.TargetStructIndex), keyValue, out double value))
                     {
-                        if (kvp.Value == double.Parse(findDataStructItem.key))
-                        {
-                            SF.valueStore.setValueByName(findDataStructItem.save, kvp.Value);
-                        }
+                        SF.valueStore.setValueByName(findDataStructItem.save, value);
                     }
                 }
             }
@@ -1335,8 +1330,8 @@ namespace Automation
 
         public bool RunGetDataStructCount(ProcHandle evt, GetDataStructCount getDataStructCount)
         {
-            SF.valueStore.setValueByName(getDataStructCount.StructCount, SF.frmdataStruct.dataStructs.Count);
-            SF.valueStore.setValueByName(getDataStructCount.ItemCount, SF.frmdataStruct.dataStructs[int.Parse(getDataStructCount.TargetStructIndex)].dataStructItems.Count);
+            SF.valueStore.setValueByName(getDataStructCount.StructCount, SF.dataStructStore.Count);
+            SF.valueStore.setValueByName(getDataStructCount.ItemCount, SF.dataStructStore.GetItemCount(int.Parse(getDataStructCount.TargetStructIndex)));
 
             return true;
         }

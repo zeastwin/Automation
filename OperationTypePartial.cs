@@ -167,7 +167,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(SF.frmdataStruct.dataStructs.Select(sc=>sc.Name).ToList());
+                return new StandardValuesCollection(SF.dataStructStore.GetStructNames());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {

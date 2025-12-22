@@ -51,6 +51,7 @@ namespace Automation
             InitializeComponent();
             SF.cardStore = new CardConfigStore();
             SF.valueStore = new ValueConfigStore();
+            SF.dataStructStore = new DataStructStore();
             SF.mainfrm = this;
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;
@@ -100,6 +101,7 @@ namespace Automation
             SF.cardStore.Load(SF.ConfigPath);
             SF.frmIO.RefreshIOMap();
             SF.frmCard.RefreshStationList();
+            SF.dataStructStore.Load(SF.ConfigPath);
             SF.frmdataStruct.RefreshDataSturctList();
             SF.frmIODebug.RefreshIODebugMap();
             SF.frmComunication.RefreshSocketMap();
@@ -324,6 +326,7 @@ namespace Automation
         private void FrmMain_FormClosing(object sender, FormClosingEventArgs e)
         {
             SF.valueStore.Save(SF.ConfigPath);
+            SF.dataStructStore.Save(SF.ConfigPath);
             Environment.Exit(0);
         }
     }

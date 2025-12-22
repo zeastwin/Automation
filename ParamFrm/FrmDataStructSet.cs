@@ -159,42 +159,42 @@ namespace Automation.ParamFrm
 
         private void btnYes_Click(object sender, EventArgs e)
         {
+            string name = textBox1.Text.Trim();
+            if (string.IsNullOrEmpty(name))
+            {
+                MessageBox.Show("名称不能为空");
+                return;
+            }
+
             if (Text == "新建数据结构")
             {
-                bool exactMatchExists = SF.frmdataStruct.dataStructs.Any(dsh => dsh.Name == textBox1.Text);
-                if (exactMatchExists)
+                if (!SF.dataStructStore.AddStruct(name))
                 {
                     MessageBox.Show("名称重复");
                     return;
                 }
 
-                SF.frmdataStruct.dataStructs.Add(new DataStruct() { Name = textBox1.Text });
-
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStruct", SF.frmdataStruct.dataStructs);
+                SF.dataStructStore.Save(SF.ConfigPath);
                 SF.frmdataStruct.RefreshDataSturctList();
                 SF.frmdataStruct.RefreshDataSturctTree();
 
 
                 Close();
+                return;
             }
             else if (Text == "修改数据结构")
             {
-                bool exactMatchExists = SF.frmdataStruct.dataStructs.Any(dsh => dsh.Name == textBox1.Text);
-                if (exactMatchExists)
+                if (!SF.frmdataStruct.ModifyStruct(name))
                 {
                     MessageBox.Show("名称重复");
                     return;
                 }
-                SF.frmdataStruct.ModifyStruct(textBox1.Text);
                 Close();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStruct", SF.frmdataStruct.dataStructs);
-                SF.frmdataStruct.RefreshDataSturctList();
-                SF.frmdataStruct.RefreshDataSturctTree();
                 return;
             }
             else if (Text == "新建数据项")
             {
-                bool exactMatchExists = dt.dataStructItems.Any(dsh => dsh.Name == textBox1.Text);
+                bool exactMatchExists = dt.dataStructItems.Any(dsh => dsh.Name == name);
                 if (exactMatchExists)
                 {
                     MessageBox.Show("名称重复");
@@ -210,7 +210,12 @@ namespace Automation.ParamFrm
                 {
                     if (dynamicComboBoxs[i].SelectedIndex == 0)
                     {
-                        doubles.Add(int.Parse(dynamicTextBoxs[i].Text));
+                        if (!double.TryParse(dynamicTextBoxs[i].Text, out double numValue))
+                        {
+                            MessageBox.Show("数值格式错误");
+                            return;
+                        }
+                        doubles.Add(numValue);
                         param += 0;
                     }
                     else if (dynamicComboBoxs[i].SelectedIndex == 1)
@@ -223,9 +228,9 @@ namespace Automation.ParamFrm
                 int NewRow = dataStructHandle.SelectRow + 1;
                 if (dataStructHandle.SelectRow == -1)
                     NewRow = dt.dataStructItems.Count;
-                SF.frmdataStruct.Set_StructItem_byName(dt.Name, NewRow, textBox1.Text, strings, doubles, param);
+                SF.dataStructStore.TrySetStructItemByName(dt.Name, NewRow, name, strings, doubles, param);
                 Close();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStruct", SF.frmdataStruct.dataStructs);
+                SF.dataStructStore.Save(SF.ConfigPath);
                 SF.frmdataStruct.RefreshDataSturctList();
                 SF.frmdataStruct.RefreshDataSturctTree();
                 SF.frmdataStruct.RefreshDataStructFrm(dataStructHandle);
@@ -243,7 +248,12 @@ namespace Automation.ParamFrm
                 {
                     if (dynamicComboBoxs[i].SelectedIndex == 0)
                     {
-                        doubles.Add(int.Parse(dynamicTextBoxs[i].Text));
+                        if (!double.TryParse(dynamicTextBoxs[i].Text, out double numValue))
+                        {
+                            MessageBox.Show("数值格式错误");
+                            return;
+                        }
+                        doubles.Add(numValue);
                         param += 0;
                     }
                     else if (dynamicComboBoxs[i].SelectedIndex == 1)
@@ -254,9 +264,9 @@ namespace Automation.ParamFrm
 
                 }
                 int NewRow = dataStructHandle.SelectRow;
-                SF.frmdataStruct.Set_StructItem_byName(dt.Name, NewRow, textBox1.Text, strings, doubles, param);
+                SF.dataStructStore.TrySetStructItemByName(dt.Name, NewRow, name, strings, doubles, param);
                 Close();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStruct", SF.frmdataStruct.dataStructs);
+                SF.dataStructStore.Save(SF.ConfigPath);
                 SF.frmdataStruct.RefreshDataSturctList();
                 SF.frmdataStruct.RefreshDataSturctTree();
                 SF.frmdataStruct.RefreshDataStructFrm(dataStructHandle);

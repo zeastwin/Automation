@@ -51,6 +51,7 @@ namespace Automation
         public static FrmTest frmTest;
         public static CardConfigStore cardStore;
         public static ValueConfigStore valueStore;
+        public static DataStructStore dataStructStore;
 
         //编辑状态
         public static ModifyKind isModify = ModifyKind.None;
