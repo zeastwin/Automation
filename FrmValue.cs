@@ -1,27 +1,12 @@
-﻿using Newtonsoft.Json.Linq;
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
+﻿using System;
 using System.Drawing;
-using System.IO;
-using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
 
 namespace Automation
 {
     public partial class FrmValue : Form
     {  //存放变量对象
-        public const int ValueCapacity = 1000;
-
-        private readonly object valueLock = new object();
-        private readonly DicValue[] values = new DicValue[ValueCapacity];
-        private readonly Dictionary<string, int> nameIndex = new Dictionary<string, int>();
 
         public FrmValue()
         {
@@ -39,8 +24,6 @@ namespace Automation
 
             dgvValue.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             dgvValue.RowTemplate.Height = 20;
-
-            ResetValues();
         }
 
         private void FrmValue_FormClosing(object sender, FormClosingEventArgs e)
@@ -51,18 +34,7 @@ namespace Automation
         //从文件更新变量表
         public void RefreshDic()
         {
-            if (!Directory.Exists(SF.ConfigPath))
-            {
-                Directory.CreateDirectory(SF.ConfigPath);
-            }
-            string valuePath = Path.Combine(SF.ConfigPath, "value.json");
-            if (!File.Exists(valuePath))
-            {
-                Dictionary<string, DicValue> emptyValues = new Dictionary<string, DicValue>();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", emptyValues);
-            }
-            Dictionary<string, DicValue> loadValues = SF.mainfrm.ReadJson<Dictionary<string, DicValue>>(SF.ConfigPath, "value");
-            LoadFromDictionary(loadValues);
+            SF.valueStore.Load(SF.ConfigPath);
 
             RefreshValue();
 
@@ -74,13 +46,12 @@ namespace Automation
         {
             dgvValue.Rows.Clear();
 
-            for (int i = 0; i < ValueCapacity; i++)
+            for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
             {
                 dgvValue.Rows.Add();
 
-                DicValue cachedValue = values[i];
                 dgvValue.Rows[i].Cells[0].Value = i;
-                if (!string.IsNullOrEmpty(cachedValue.Name))
+                if (SF.valueStore.TryGetValueByIndex(i, out DicValue cachedValue))
                 {
                     dgvValue.Rows[i].Cells[1].Value = cachedValue.Name;
                     dgvValue.Rows[i].Cells[2].Value = cachedValue.Type;
@@ -92,10 +63,9 @@ namespace Automation
         //刷新变量界面
         public void FreshFrmValue()
         {
-            for (int i = 0; i < ValueCapacity; i++)
+            for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
             {
-                DicValue cachedValue = values[i];
-                if (!string.IsNullOrEmpty(cachedValue.Name))
+                if (SF.valueStore.TryGetValueByIndex(i, out DicValue cachedValue))
                 {
                     dgvValue.Rows[i].Cells[0].Value = i;
                     dgvValue.Rows[i].Cells[1].Value = cachedValue.Name;
@@ -105,249 +75,6 @@ namespace Automation
                 }
             }
 
-        }
-        /*=============================================================================================*/
-
-        private void ResetValues()
-        {
-            for (int i = 0; i < ValueCapacity; i++)
-            {
-                values[i] = new DicValue { Index = i };
-            }
-            nameIndex.Clear();
-        }
-
-        private void LoadFromDictionary(Dictionary<string, DicValue> source)
-        {
-            lock (valueLock)
-            {
-                ResetValues();
-                if (source == null)
-                {
-                    return;
-                }
-                foreach (var item in source)
-                {
-                    if (item.Value == null)
-                    {
-                        continue;
-                    }
-                    if (string.IsNullOrEmpty(item.Key))
-                    {
-                        continue;
-                    }
-                    int index = item.Value.Index;
-                    if (index < 0 || index >= ValueCapacity)
-                    {
-                        continue;
-                    }
-                    if (!string.IsNullOrEmpty(values[index].Name))
-                    {
-                        continue;
-                    }
-                    item.Value.Name = item.Key;
-                    if (item.Value.Type != "double" && item.Value.Type != "string")
-                    {
-                        item.Value.Type = "string";
-                    }
-                    values[index] = item.Value;
-                    nameIndex[item.Key] = index;
-                }
-            }
-        }
-
-        public DicValue GetValueByIndex(int index)
-        {
-            if (index < 0 || index >= ValueCapacity)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index), $"索引超出范围:{index}");
-            }
-            lock (valueLock)
-            {
-                if (string.IsNullOrEmpty(values[index].Name))
-                {
-                    throw new KeyNotFoundException($"未找到索引变量:{index}");
-                }
-                return values[index];
-            }
-        }
-
-        public DicValue GetValueByName(string key)
-        {
-            if (string.IsNullOrEmpty(key))
-            {
-                throw new ArgumentException("变量名不能为空", nameof(key));
-            }
-            lock (valueLock)
-            {
-                if (!nameIndex.TryGetValue(key, out int index))
-                {
-                    throw new KeyNotFoundException($"未找到变量:{key}");
-                }
-                return values[index];
-            }
-        }
-
-        public bool TryGetValueByIndex(int index, out DicValue value)
-        {
-            value = null;
-            if (index < 0 || index >= ValueCapacity)
-            {
-                return false;
-            }
-            lock (valueLock)
-            {
-                if (string.IsNullOrEmpty(values[index].Name))
-                {
-                    return false;
-                }
-                value = values[index];
-                return true;
-            }
-        }
-
-        public bool TryGetValueByName(string key, out DicValue value)
-        {
-            value = null;
-            if (string.IsNullOrEmpty(key))
-            {
-                return false;
-            }
-            lock (valueLock)
-            {
-                if (!nameIndex.TryGetValue(key, out int index))
-                {
-                    return false;
-                }
-                value = values[index];
-                return true;
-            }
-        }
-
-        public List<string> GetValueNames()
-        {
-            lock (valueLock)
-            {
-                return nameIndex.Keys.ToList();
-            }
-        }
-
-        public Dictionary<string, DicValue> BuildSaveData()
-        {
-            Dictionary<string, DicValue> data = new Dictionary<string, DicValue>();
-            lock (valueLock)
-            {
-                foreach (var item in nameIndex)
-                {
-                    DicValue value = values[item.Value];
-                    if (value == null || string.IsNullOrEmpty(value.Name))
-                    {
-                        continue;
-                    }
-                    data[item.Key] = value;
-                }
-            }
-            return data;
-        }
-
-        public double get_D_ValueByIndex(int index)
-        {
-            double result;
-            if (index < 0 || index >= ValueCapacity)
-            {
-                return -97654321;
-            }
-            lock (valueLock)
-            {
-                if (double.TryParse(values[index].Value, out result))
-                {
-                    return  result;
-                }
-                else
-                {
-                    return -97654321;
-                }
-            }
-        }
-        public string get_Str_ValueByIndex(int index)
-        {
-            if (index < 0 || index >= ValueCapacity)
-            {
-                return null;
-            }
-            lock (valueLock)
-            {
-                return values[index].Value;
-            }
-        }
-
-        public double get_D_ValueByName(string key)
-        {
-            if (string.IsNullOrEmpty(key))
-            {
-                return -97654321;
-            }
-            lock (valueLock)
-            {
-                if (nameIndex.TryGetValue(key, out int index))
-                {
-                    double result;
-                    if (double.TryParse(values[index].Value, out result))
-                    {
-                        return result;
-                    }
-                }
-                return -97654321;
-            }
-        }
-        public string get_Str_ValueByName(string key)
-        {
-            if (string.IsNullOrEmpty(key))
-            {
-                return null;
-            }
-            lock (valueLock)
-            {
-                if (nameIndex.TryGetValue(key, out int index))
-                {
-                    return values[index].Value;
-                }
-            }
-            return null;
-
-        }
-        public bool setValueByName(string key,object newValue)
-        {
-            if (string.IsNullOrEmpty(key) || newValue == null)
-            {
-                return false;
-            }
-            lock (valueLock)
-            {
-                if (nameIndex.TryGetValue(key, out int index))
-                {
-                    DicValue value = values[index];
-                    value.Value = newValue.ToString();
-                    return true;
-                }
-                return false;
-            }
-        }
-        public bool setValueByIndex(int index,object newValue)
-        {
-            if (index < 0 || index >= ValueCapacity || newValue == null)
-            {
-                return false;
-            }
-            lock (valueLock)
-            {
-                if (string.IsNullOrEmpty(values[index].Name))
-                {
-                    return false;
-                }
-                values[index].Value = newValue.ToString();
-                return true;
-            }
         }
         /*=============================================================================================*/
         private void FrmValue_Load(object sender, EventArgs e)
@@ -455,29 +182,13 @@ namespace Automation
                                 return;
                             }
                         }
-                        lock (valueLock)
+                        if (!SF.valueStore.TrySetValue(num, key, type, value, note))
                         {
-                            if (nameIndex.TryGetValue(key, out int existIndex) && existIndex != num)
-                            {
-                                dgvValue[1, e.RowIndex].Value = null;
-                                dgvValue[2, e.RowIndex].Value = null;
-                                dgvValue[3, e.RowIndex].Value = null;
-                                dgvValue[4, e.RowIndex].Value = null;
-                                return;
-                            }
-
-                            DicValue currentValue = values[num];
-                            if (!string.IsNullOrEmpty(currentValue.Name) && currentValue.Name != key)
-                            {
-                                nameIndex.Remove(currentValue.Name);
-                            }
-                            currentValue.Name = key;
-                            currentValue.Index = num;
-                            currentValue.Type = type;
-                            currentValue.Note = note;
-                            currentValue.Value = value;
-
-                            nameIndex[key] = num;
+                            dgvValue[1, e.RowIndex].Value = null;
+                            dgvValue[2, e.RowIndex].Value = null;
+                            dgvValue[3, e.RowIndex].Value = null;
+                            dgvValue[4, e.RowIndex].Value = null;
+                            return;
                         }
                     }
 
@@ -500,8 +211,8 @@ namespace Automation
                 int selectedColumnIndex = dgvValue.CurrentCell.ColumnIndex;
                 if(selectedColumnIndex == 0 && selectedRowIndex >= 0)
                 {
-                    values[selectedRowIndex].isMark= !values[selectedRowIndex].isMark;
-                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", BuildSaveData());
+                    SF.valueStore.ToggleMark(selectedRowIndex);
+                    SF.valueStore.Save(SF.ConfigPath);
                 }
             }
             else
@@ -516,11 +227,11 @@ namespace Automation
             int startIndex = currentIndex - 1;
             if (startIndex < 0)
             {
-                startIndex = ValueCapacity - 1;
+                startIndex = ValueConfigStore.ValueCapacity - 1;
             }
             for (int i = startIndex; i >= 0; i--)
             {
-                if (values[i].isMark)
+                if (SF.valueStore.IsMarked(i))
                 {
                     previousIndex = i;
                     break;
@@ -528,9 +239,9 @@ namespace Automation
             }
             if (previousIndex == -1)
             {
-                for (int i = ValueCapacity - 1; i >= 0; i--)
+                for (int i = ValueConfigStore.ValueCapacity - 1; i >= 0; i--)
                 {
-                    if (values[i].isMark)
+                    if (SF.valueStore.IsMarked(i))
                     {
                         previousIndex = i;
                         break;
@@ -553,9 +264,9 @@ namespace Automation
             {
                 startIndex = 0;
             }
-            for (int i = startIndex; i < ValueCapacity; i++)
+            for (int i = startIndex; i < ValueConfigStore.ValueCapacity; i++)
             {
-                if (values[i].isMark)
+                if (SF.valueStore.IsMarked(i))
                 {
                     nextIndex = i;
                     break;
@@ -563,9 +274,9 @@ namespace Automation
             }
             if (nextIndex == -1)
             {
-                for (int i = 0; i < ValueCapacity; i++)
+                for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
                 {
-                    if (values[i].isMark)
+                    if (SF.valueStore.IsMarked(i))
                     {
                         nextIndex = i;
                         break;
@@ -581,11 +292,8 @@ namespace Automation
 
         private void btnCancel_Click(object sender, EventArgs e)
         {
-            for (int i = 0; i < ValueCapacity; i++)
-            {
-                values[i].isMark = false;
-            }
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", BuildSaveData());
+            SF.valueStore.ClearMarks();
+            SF.valueStore.Save(SF.ConfigPath);
             dgvValue.Refresh();
         }
 
@@ -596,7 +304,7 @@ namespace Automation
             if (e.ColumnIndex == 0 && e.RowIndex >= 0)
             {
                 // 获取当前行对应的数据项
-                if (values[e.RowIndex].isMark)
+                if (SF.valueStore.IsMarked(e.RowIndex))
                 {
                     //  SetRowColor(e.RowIndex, dataGridView1.DefaultCellStyle.BackColor);
                     e.CellStyle.BackColor = Color.Red;
@@ -620,28 +328,5 @@ namespace Automation
             SF.frmSearch4Value.textBox1.Focus();
         }
 
-    }
-    public class DicValue
-    {
-        public int Index { get; set; }
-
-        public string Type { get; set; }
-
-        public string Name { get; set; }
-
-        public string Value { get; set; }
-
-        public string Note { get; set; }
-        public bool isMark { get; set; }
-
-        public double GetDValue()
-        {
-            return double.Parse(Value);
-        }
-
-        public string GetCValue()
-        {
-            return Value;
-        }
     }
 }

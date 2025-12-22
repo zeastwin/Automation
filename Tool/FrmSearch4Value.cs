@@ -42,9 +42,9 @@ namespace Automation
         private void btnSearch_Click(object sender, EventArgs e)
         {
             dataGridView1.Rows.Clear();
-            for (int k = 0; k < FrmValue.ValueCapacity; k++)
+            for (int k = 0; k < ValueConfigStore.ValueCapacity; k++)
             {
-                if (!SF.frmValue.TryGetValueByIndex(k, out DicValue obj))
+                if (!SF.valueStore.TryGetValueByIndex(k, out DicValue obj))
                 {
                     continue;
                 }

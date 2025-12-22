@@ -90,9 +90,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="CardConfigStore.cs" />
+    <Compile Include="Stores\\CardConfigStore.cs" />
     <Compile Include="CustomFunc.cs" />
     <Compile Include="DataRun.cs" />
+    <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="FrmAlarmConfig.cs">
       <SubType>Form</SubType>
     </Compile>

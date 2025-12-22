@@ -50,6 +50,7 @@ namespace Automation
         public static FrmInfo frmInfo;
         public static FrmTest frmTest;
         public static CardConfigStore cardStore;
+        public static ValueConfigStore valueStore;
 
         //编辑状态
         public static ModifyKind isModify = ModifyKind.None;

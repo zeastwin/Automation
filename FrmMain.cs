@@ -50,6 +50,7 @@ namespace Automation
         {
             InitializeComponent();
             SF.cardStore = new CardConfigStore();
+            SF.valueStore = new ValueConfigStore();
             SF.mainfrm = this;
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;
@@ -322,7 +323,7 @@ namespace Automation
 
         private void FrmMain_FormClosing(object sender, FormClosingEventArgs e)
         {
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", SF.frmValue.BuildSaveData());
+            SF.valueStore.Save(SF.ConfigPath);
             Environment.Exit(0);
         }
     }
