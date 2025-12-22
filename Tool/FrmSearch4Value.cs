@@ -42,11 +42,11 @@ namespace Automation
         private void btnSearch_Click(object sender, EventArgs e)
         {
             dataGridView1.Rows.Clear();
-            for (int k = 0; k < SF.frmValue.dicValuesList.Count; k++)
+            for (int k = 0; k < FrmValue.ValueCapacity; k++)
             {
-                DicValue obj = SF.frmValue.dicValuesList[k];
+                DicValue obj = SF.frmValue.GetValueByIndex(k);
 
-                if (obj.Name == null)
+                if (string.IsNullOrEmpty(obj.Name))
                     continue;
                 if (checkBox1.Checked)
                 {

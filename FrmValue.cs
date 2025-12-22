@@ -17,8 +17,11 @@ namespace Automation
 {
     public partial class FrmValue : Form
     {  //存放变量对象
-        public Dictionary<string, DicValue> dicValues; 
-        public List<DicValue> dicValuesList = new List<DicValue>();
+        public const int ValueCapacity = 1000;
+
+        private readonly object valueLock = new object();
+        private readonly DicValue[] values = new DicValue[ValueCapacity];
+        private readonly Dictionary<string, int> nameIndex = new Dictionary<string, int>();
 
         public FrmValue()
         {
@@ -35,6 +38,8 @@ namespace Automation
 
             dgvValue.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             dgvValue.RowTemplate.Height = 20;
+
+            ResetValues();
         }
 
         private void FrmValue_FormClosing(object sender, FormClosingEventArgs e)
@@ -45,17 +50,18 @@ namespace Automation
         //从文件更新变量表
         public void RefreshDic()
         {
-
             if (!Directory.Exists(SF.ConfigPath))
             {
                 Directory.CreateDirectory(SF.ConfigPath);
             }
-            if(!File.Exists(SF.ConfigPath+"value.json"))
+            string valuePath = Path.Combine(SF.ConfigPath, "value.json");
+            if (!File.Exists(valuePath))
             {
-                SF.frmValue.dicValues = new Dictionary<string, DicValue>();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", SF.frmValue.dicValues);
+                Dictionary<string, DicValue> emptyValues = new Dictionary<string, DicValue>();
+                SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", emptyValues);
             }
-            dicValues = SF.mainfrm.ReadJson<Dictionary<string, DicValue>>(SF.ConfigPath, "value");
+            Dictionary<string, DicValue> loadValues = SF.mainfrm.ReadJson<Dictionary<string, DicValue>>(SF.ConfigPath, "value");
+            LoadFromDictionary(loadValues);
 
             RefreshValue();
 
@@ -66,41 +72,31 @@ namespace Automation
         public void RefreshValue()
         {
             dgvValue.Rows.Clear();
-            dicValuesList.Clear();
 
-            for (int i = 0; i < 1000; i++)
+            for (int i = 0; i < ValueCapacity; i++)
             {
                 dgvValue.Rows.Add();
 
-                DicValue cachedValue = dicValues.Values.FirstOrDefault(item => item.Index == i);
-
-                if (cachedValue != null)
+                DicValue cachedValue = values[i];
+                dgvValue.Rows[i].Cells[0].Value = i;
+                if (!string.IsNullOrEmpty(cachedValue.Name))
                 {
-                    dgvValue.Rows[i].Cells[0].Value = cachedValue.Index;
                     dgvValue.Rows[i].Cells[1].Value = cachedValue.Name;
                     dgvValue.Rows[i].Cells[2].Value = cachedValue.Type;
                     dgvValue.Rows[i].Cells[3].Value = cachedValue.Value;
                     dgvValue.Rows[i].Cells[4].Value = cachedValue.Note;
-                    dicValuesList.Add(cachedValue);
-                  
-                }
-                else
-                {
-                    dgvValue.Rows[i].Cells[0].Value = i;
-                    dicValuesList.Add(new DicValue());
                 }
             }
         }
         //刷新变量界面
         public void FreshFrmValue()
         {
-            for (int i = 0; i < 1000; i++)
+            for (int i = 0; i < ValueCapacity; i++)
             {
-                DicValue cachedValue = dicValues.Values.FirstOrDefault(item => item.Index == i);
-
-                if (cachedValue != null)
+                DicValue cachedValue = values[i];
+                if (!string.IsNullOrEmpty(cachedValue.Name))
                 {
-                    dgvValue.Rows[i].Cells[0].Value = cachedValue.Index;
+                    dgvValue.Rows[i].Cells[0].Value = i;
                     dgvValue.Rows[i].Cells[1].Value = cachedValue.Name;
                     dgvValue.Rows[i].Cells[2].Value = cachedValue.Type;
                     dgvValue.Rows[i].Cells[3].Value = cachedValue.Value;
@@ -111,74 +107,206 @@ namespace Automation
         }
         /*=============================================================================================*/
 
+        private void ResetValues()
+        {
+            for (int i = 0; i < ValueCapacity; i++)
+            {
+                values[i] = new DicValue { Index = i };
+            }
+            nameIndex.Clear();
+        }
+
+        private void LoadFromDictionary(Dictionary<string, DicValue> source)
+        {
+            lock (valueLock)
+            {
+                ResetValues();
+                if (source == null)
+                {
+                    return;
+                }
+                foreach (var item in source)
+                {
+                    if (item.Value == null)
+                    {
+                        continue;
+                    }
+                    if (string.IsNullOrEmpty(item.Key))
+                    {
+                        continue;
+                    }
+                    int index = item.Value.Index;
+                    if (index < 0 || index >= ValueCapacity)
+                    {
+                        continue;
+                    }
+                    if (!string.IsNullOrEmpty(values[index].Name))
+                    {
+                        continue;
+                    }
+                    item.Value.Name = item.Key;
+                    if (item.Value.Type != "double" && item.Value.Type != "string")
+                    {
+                        item.Value.Type = "string";
+                    }
+                    values[index] = item.Value;
+                    nameIndex[item.Key] = index;
+                }
+            }
+        }
+
+        public DicValue GetValueByIndex(int index)
+        {
+            if (index < 0 || index >= ValueCapacity)
+            {
+                throw new ArgumentOutOfRangeException(nameof(index));
+            }
+            lock (valueLock)
+            {
+                return values[index];
+            }
+        }
+
+        public DicValue GetValueByName(string key)
+        {
+            if (string.IsNullOrEmpty(key))
+            {
+                throw new ArgumentException("变量名不能为空", nameof(key));
+            }
+            lock (valueLock)
+            {
+                if (!nameIndex.TryGetValue(key, out int index))
+                {
+                    throw new KeyNotFoundException($"未找到变量:{key}");
+                }
+                return values[index];
+            }
+        }
+
+        public List<string> GetValueNames()
+        {
+            lock (valueLock)
+            {
+                return nameIndex.Keys.ToList();
+            }
+        }
+
+        public Dictionary<string, DicValue> BuildSaveData()
+        {
+            Dictionary<string, DicValue> data = new Dictionary<string, DicValue>();
+            lock (valueLock)
+            {
+                foreach (var item in nameIndex)
+                {
+                    DicValue value = values[item.Value];
+                    if (value == null || string.IsNullOrEmpty(value.Name))
+                    {
+                        continue;
+                    }
+                    data[item.Key] = value;
+                }
+            }
+            return data;
+        }
+
         public double get_D_ValueByIndex(int index)
         {
             double result;
-            if (double.TryParse(dicValuesList[index].Value, out result))
-            {
-                return  result;
-            }
-            else
+            if (index < 0 || index >= ValueCapacity)
             {
                 return -97654321;
             }
-            return -97654321;
-        }
-        public string get_Str_ValueByIndex(int index)
-        {
-            return  dicValuesList[index].Value;
-        }
-
-        public double get_D_ValueByName(string key)
-        {
-            if (dicValues.TryGetValue(key, out DicValue value))
+            lock (valueLock)
             {
-                double result;
-                if (double.TryParse(value.Value, out result))
+                if (double.TryParse(values[index].Value, out result))
                 {
-                    return result;
+                    return  result;
                 }
                 else
                 {
                     return -97654321;
-                } 
+                }
             }
-            return -97654321;
+        }
+        public string get_Str_ValueByIndex(int index)
+        {
+            if (index < 0 || index >= ValueCapacity)
+            {
+                return null;
+            }
+            lock (valueLock)
+            {
+                return values[index].Value;
+            }
+        }
+
+        public double get_D_ValueByName(string key)
+        {
+            if (string.IsNullOrEmpty(key))
+            {
+                return -97654321;
+            }
+            lock (valueLock)
+            {
+                if (nameIndex.TryGetValue(key, out int index))
+                {
+                    double result;
+                    if (double.TryParse(values[index].Value, out result))
+                    {
+                        return result;
+                    }
+                }
+                return -97654321;
+            }
         }
         public string get_Str_ValueByName(string key)
         {
-            if (dicValues.TryGetValue(key, out DicValue value))
+            if (string.IsNullOrEmpty(key))
             {
-              return value.Value;
+                return null;
+            }
+            lock (valueLock)
+            {
+                if (nameIndex.TryGetValue(key, out int index))
+                {
+                    return values[index].Value;
+                }
             }
             return null;
 
         }
-        public bool get_B_ValueByName(string key)
-        {
-            if (dicValues.TryGetValue(key, out DicValue value))
-            {
-                return value.Value.ToString() == "TRUE" ? true : false;
-            }
-            return false;
-        }
         public bool setValueByName(string key,object newValue)
         {
-            if (dicValues.TryGetValue(key, out DicValue value))
+            if (string.IsNullOrEmpty(key) || newValue == null)
             {
-                value.Value = newValue.ToString();
-                return true;
+                return false;
             }
-            return false;
+            lock (valueLock)
+            {
+                if (nameIndex.TryGetValue(key, out int index))
+                {
+                    DicValue value = values[index];
+                    value.Value = newValue.ToString();
+                    return true;
+                }
+                return false;
+            }
         }
         public bool setValueByIndex(int index,object newValue)
         {
-            if (dicValuesList[index].Value != null)
+            if (index < 0 || index >= ValueCapacity || newValue == null)
             {
-                dicValuesList[index].Value = newValue.ToString();
-                return true;
+                return false;
             }
-            return false;
+            lock (valueLock)
+            {
+                if (values[index].Value != null)
+                {
+                    values[index].Value = newValue.ToString();
+                    return true;
+                }
+                return false;
+            }
         }
         /*=============================================================================================*/
         private void FrmValue_Load(object sender, EventArgs e)
@@ -193,35 +321,10 @@ namespace Automation
                 // 确保值变化发生在单元格中而不是在行标题或列标题
                 if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
                 {
-                    DataGridView dataGridView = (DataGridView)sender;
                     if (e.ColumnIndex == 2)
                     {
-                        DataGridViewComboBoxCell comboCell = (DataGridViewComboBoxCell)dataGridView.Rows[e.RowIndex].Cells[e.ColumnIndex];
-                        // 获取选中的值
-                        object selectedValue = comboCell.Value;
-
-                        if (selectedValue != null)
-                        {
-                            // 获取选中值在下拉框选项中的索引
-                            int selectedIndex = comboCell.Items.IndexOf(selectedValue);
-
-                            if (selectedIndex == 2)
-                            {
-                                DataGridViewComboBoxCell comboBoxCell = new DataGridViewComboBoxCell();
-                                comboBoxCell.Items.Add("TRUE");
-                                comboBoxCell.Items.Add("FALSE");
-                                comboBoxCell.Value = "FALSE"; // 设置默认选项
-                                dgvValue[e.ColumnIndex + 1, e.RowIndex] = comboBoxCell;
-                            }
-                            else
-                            {
-                                DataGridViewTextBoxCell TextboxCell = new DataGridViewTextBoxCell();
-                                dgvValue[e.ColumnIndex + 1, e.RowIndex] = TextboxCell;
-                            }
-                        }
-
-                       
-                     
+                        DataGridViewTextBoxCell textboxCell = new DataGridViewTextBoxCell();
+                        dgvValue[e.ColumnIndex + 1, e.RowIndex] = textboxCell;
                     }
                    
                 }
@@ -271,41 +374,37 @@ namespace Automation
                         string type = (string)dataGridView.Rows[e.RowIndex].Cells[2].Value; 
                         string note = (string)dataGridView.Rows[e.RowIndex].Cells[4].Value;
 
-                        if (dicValues.ContainsKey(key))
+                        if (string.IsNullOrEmpty(key))
                         {
-                            if(dicValues[key].Index != num)
-                            {
-                                dgvValue[1, e.RowIndex].Value = null;
-                                dgvValue[2, e.RowIndex].Value = null;
-                                dgvValue[3, e.RowIndex].Value = null;
-                                dgvValue[4, e.RowIndex].Value = null;
-                                return;
-                            }
+                            dgvValue[1, e.RowIndex].Value = null;
+                            dgvValue[2, e.RowIndex].Value = null;
+                            dgvValue[3, e.RowIndex].Value = null;
+                            dgvValue[4, e.RowIndex].Value = null;
+                            return;
                         }
 
-                        // 获取选中值在下拉框选项中的索引
-                        int selectedIndex = -1;
+                        if (type != "double" && type != "string")
+                        {
+                            dgvValue[1, e.RowIndex].Value = null;
+                            dgvValue[2, e.RowIndex].Value = null;
+                            dgvValue[3, e.RowIndex].Value = null;
+                            dgvValue[4, e.RowIndex].Value = null;
+                            return;
+                        }
+
+                        string value = dataGridView.Rows[e.RowIndex].Cells[3].Value?.ToString();
+                        if (string.IsNullOrEmpty(value))
+                        {
+                            dgvValue[1, e.RowIndex].Value = null;
+                            dgvValue[2, e.RowIndex].Value = null;
+                            dgvValue[3, e.RowIndex].Value = null;
+                            dgvValue[4, e.RowIndex].Value = null;
+                            return;
+                        }
 
                         if (type == "double")
                         {
-                            selectedIndex = 0;
-                        }
-                        else if (type == "string")
-                        {
-                            selectedIndex = 1;
-                        }
-                        else if(type =="bool")
-                        {
-                            selectedIndex = 2;
-                        }
-
-                        string value=null;
-
-                        if (selectedIndex == 0)
-                        {
-                            value = dataGridView.Rows[e.RowIndex].Cells[3].Value.ToString();
-                            string newValue = dataGridView.Rows[e.RowIndex].Cells[3].Value.ToString();
-                            if (double.TryParse(newValue, out double doubleValue2) == false)
+                            if (!double.TryParse(value, out double doubleValue2))
                             {
                             
                                 dgvValue[1,e.RowIndex].Value = null;
@@ -315,34 +414,29 @@ namespace Automation
                                 return;
                             }
                         }
-                        else if (selectedIndex==1|| selectedIndex == 2)
+                        lock (valueLock)
                         {
-                            value = dataGridView.Rows[e.RowIndex].Cells[3].Value.ToString();
-                        }
-
-                        DicValue dic =  new DicValue() { Name=key,Index = num, Type = type, Note = note, Value = value };
-
-                        if (dicValues.ContainsKey(key))
-                        {
-                            dicValues[key].Name=key;
-                            dicValues[key].Index=num;
-                            dicValues[key].Type=type;
-                            dicValues[key].Note=note;
-                            dicValues[key].Value=value;
-                         
-                        }
-                        else
-                        {
-                            if (dicValuesList[num].Name != null)
+                            if (nameIndex.TryGetValue(key, out int existIndex) && existIndex != num)
                             {
-                                if (dicValues.ContainsKey(dicValuesList[num].Name))
-                                {
-                                    dicValues.Remove(dicValuesList[num].Name);
-                                }
+                                dgvValue[1, e.RowIndex].Value = null;
+                                dgvValue[2, e.RowIndex].Value = null;
+                                dgvValue[3, e.RowIndex].Value = null;
+                                dgvValue[4, e.RowIndex].Value = null;
+                                return;
                             }
-                            dicValues.Add(key, dic);
-                            dicValuesList[num] = dic;
-                      
+
+                            DicValue currentValue = values[num];
+                            if (!string.IsNullOrEmpty(currentValue.Name) && currentValue.Name != key)
+                            {
+                                nameIndex.Remove(currentValue.Name);
+                            }
+                            currentValue.Name = key;
+                            currentValue.Index = num;
+                            currentValue.Type = type;
+                            currentValue.Note = note;
+                            currentValue.Value = value;
+
+                            nameIndex[key] = num;
                         }
                     }
 
@@ -365,8 +459,8 @@ namespace Automation
                 int selectedColumnIndex = dgvValue.CurrentCell.ColumnIndex;
                 if(selectedColumnIndex == 0 && selectedRowIndex >= 0)
                 {
-                    dicValuesList[selectedRowIndex].isMark= !dicValuesList[selectedRowIndex].isMark;
-                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", SF.frmValue.dicValues);
+                    values[selectedRowIndex].isMark= !values[selectedRowIndex].isMark;
+                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", BuildSaveData());
                 }
             }
             else
@@ -377,67 +471,80 @@ namespace Automation
         int currentIndex = -1;
         private void btnPrevious_Click(object sender, EventArgs e)
         {
-            if(currentIndex - 1 < 0)
+            int previousIndex = -1;
+            int startIndex = currentIndex - 1;
+            if (startIndex < 0)
             {
-                int nextIndex = dicValuesList.FindLastIndex(obj => obj.isMark);
-                if (nextIndex > 0)
+                startIndex = ValueCapacity - 1;
+            }
+            for (int i = startIndex; i >= 0; i--)
+            {
+                if (values[i].isMark)
                 {
-                    currentIndex = nextIndex;
-                    dgvValue.FirstDisplayedScrollingRowIndex = currentIndex;
-                    return;
+                    previousIndex = i;
+                    break;
                 }
             }
-            int previousIndex = dicValuesList.FindLastIndex(currentIndex-1, obj => obj.isMark);
-
+            if (previousIndex == -1)
+            {
+                for (int i = ValueCapacity - 1; i >= 0; i--)
+                {
+                    if (values[i].isMark)
+                    {
+                        previousIndex = i;
+                        break;
+                    }
+                }
+            }
             if (previousIndex != -1)
             {
-                // 标记找到的对象
                 currentIndex = previousIndex;
                 dgvValue.FirstDisplayedScrollingRowIndex = currentIndex;
-            }
-            else
-            {
-                int nextIndex = dicValuesList.FindLastIndex(obj => obj.isMark);
-                if (nextIndex > 0)
-                {
-                    currentIndex = nextIndex;
-                    dgvValue.FirstDisplayedScrollingRowIndex = currentIndex;
-                }
             }
 
         }
 
         private void BtnNext_Click(object sender, EventArgs e)
         {
-            int nextIndex = dicValuesList.FindIndex(currentIndex + 1, obj => obj.isMark);
-
+            int nextIndex = -1;
+            int startIndex = currentIndex + 1;
+            if (startIndex < 0)
+            {
+                startIndex = 0;
+            }
+            for (int i = startIndex; i < ValueCapacity; i++)
+            {
+                if (values[i].isMark)
+                {
+                    nextIndex = i;
+                    break;
+                }
+            }
+            if (nextIndex == -1)
+            {
+                for (int i = 0; i < ValueCapacity; i++)
+                {
+                    if (values[i].isMark)
+                    {
+                        nextIndex = i;
+                        break;
+                    }
+                }
+            }
             if (nextIndex != -1)
             {
-                // 标记下一个对象
                 currentIndex = nextIndex;
                 dgvValue.FirstDisplayedScrollingRowIndex = currentIndex;
-            }
-            else
-            {
-
-                int previousIndex = dicValuesList.FindIndex(0, obj => obj.isMark);
-                if (previousIndex != -1)
-                {
-                    currentIndex = previousIndex;
-                    dgvValue.FirstDisplayedScrollingRowIndex = currentIndex;
-                }
-                   
-
             }
         }
 
         private void btnCancel_Click(object sender, EventArgs e)
         {
-            for (int i = 0; i < dicValuesList.Count; i++)
+            for (int i = 0; i < ValueCapacity; i++)
             {
-                dicValuesList[i].isMark = false;
+                values[i].isMark = false;
             }
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", SF.frmValue.dicValues);
+            SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", BuildSaveData());
             dgvValue.Refresh();
         }
 
@@ -448,7 +555,7 @@ namespace Automation
             if (e.ColumnIndex == 0 && e.RowIndex >= 0)
             {
                 // 获取当前行对应的数据项
-                if (dicValuesList[e.RowIndex].isMark)
+                if (values[e.RowIndex].isMark)
                 {
                     //  SetRowColor(e.RowIndex, dataGridView1.DefaultCellStyle.BackColor);
                     e.CellStyle.BackColor = Color.Red;

@@ -482,7 +482,7 @@ namespace Automation
                 time = ioParam.delayBefore;
                 if (time <= 0 && !string.IsNullOrEmpty(ioParam.delayBeforeV))
                 {
-                    time = (int)SF.frmValue.dicValues[ioParam.delayBeforeV].GetDValue();
+                    time = (int)SF.frmValue.GetValueByName(ioParam.delayBeforeV).GetDValue();
                 }
                 Delay(time, evt);
                 if (!SF.motion.SetIO(SF.frmIO.DicIO[ioParam.IOName], ioParam.value))
@@ -493,7 +493,7 @@ namespace Automation
                 time = ioParam.delayAfter;
                 if (time <= 0 && !string.IsNullOrEmpty(ioParam.delayAfterV))
                 {
-                    time = (int)SF.frmValue.dicValues[ioParam.delayAfterV].GetDValue();
+                    time = (int)SF.frmValue.GetValueByName(ioParam.delayAfterV).GetDValue();
                 }
                 Delay(time, evt);
             }
@@ -508,13 +508,13 @@ namespace Automation
             timeOut = ioCheck.timeOutC.TimeOut;
             if (timeOut <= 0 && !string.IsNullOrEmpty(ioCheck.timeOutC.TimeOutValue))
             {
-                timeOut = (int)SF.frmValue.dicValues[ioCheck.timeOutC.TimeOutValue].GetDValue();
+                timeOut = (int)SF.frmValue.GetValueByName(ioCheck.timeOutC.TimeOutValue).GetDValue();
             }
 
             //time = ioParam.delayBefore;
             //if (time <= 0 && ioParam.delayBeforeV != "")
             //{
-            //    time = (int)SF.frmValue.dicValues[ioParam.delayBeforeV].GetDValue();
+            //    time = (int)SF.frmValue.GetValueByName(ioParam.delayBeforeV).GetDValue();
             //}
             //Delay(time, evt);
             int start = Environment.TickCount;
@@ -557,7 +557,7 @@ namespace Automation
             //time = ioParam.delayAfter;
             //if (time <= 0 && ioParam.delayAfterV != "")
             //{
-            //    time = (int)SF.frmValue.dicValues[ioParam.delayAfterV].GetDValue();
+            //    time = (int)SF.frmValue.GetValueByName(ioParam.delayAfterV).GetDValue();
             //}
             //Delay(time, evt);
 
@@ -573,7 +573,7 @@ namespace Automation
                 proc = SF.frmProc.procsList.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
                 else if (!string.IsNullOrEmpty(procParam.ProcValue))
                 {
-                    proc = SF.frmProc.procsList.FirstOrDefault(sc => sc.head.Name.ToString() == SF.frmValue.dicValues[procParam.ProcValue].GetCValue());
+                    proc = SF.frmProc.procsList.FirstOrDefault(sc => sc.head.Name.ToString() == SF.frmValue.GetValueByName(procParam.ProcValue).GetCValue());
                 }
                 if(proc == null)
                 {
@@ -630,13 +630,13 @@ namespace Automation
             timeOut = waitProc.timeOutC.TimeOut;
             if (timeOut <= 0 && !string.IsNullOrEmpty(waitProc.timeOutC.TimeOutValue))
             {
-                timeOut = (int)SF.frmValue.dicValues[waitProc.timeOutC.TimeOutValue].GetDValue();
+                timeOut = (int)SF.frmValue.GetValueByName(waitProc.timeOutC.TimeOutValue).GetDValue();
             }
             int DelayAfter;
             DelayAfter = waitProc.delayAfter;
             if (DelayAfter <= 0 && !string.IsNullOrEmpty(waitProc.delayAfterV))
             {
-                DelayAfter = (int)SF.frmValue.dicValues[waitProc.delayAfterV].GetDValue();
+                DelayAfter = (int)SF.frmValue.GetValueByName(waitProc.delayAfterV).GetDValue();
             }
             int start = Environment.TickCount;
             while (evt.isRun != 0)
@@ -659,7 +659,7 @@ namespace Automation
                         proc = SF.frmProc.procsList.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
                     else if (!string.IsNullOrEmpty(procParam.ProcValue))
                     {
-                        proc = SF.frmProc.procsList.FirstOrDefault(sc => sc.head.Name.ToString() == SF.frmValue.dicValues[procParam.ProcValue].GetCValue());
+                        proc = SF.frmProc.procsList.FirstOrDefault(sc => sc.head.Name.ToString() == SF.frmValue.GetValueByName(procParam.ProcValue).GetCValue());
                     }
                     if (proc == null)
                     {
@@ -699,20 +699,20 @@ namespace Automation
             {
                 string value = "";
                 if (!string.IsNullOrEmpty(gotoParam.ValueIndex))
-                    value = SF.frmValue.dicValuesList[int.Parse(gotoParam.ValueIndex)].Value.ToString();
+                    value = SF.frmValue.GetValueByIndex(int.Parse(gotoParam.ValueIndex)).Value.ToString();
                 else if (!string.IsNullOrEmpty(gotoParam.ValueIndex2Index))
                 {
-                    string index = SF.frmValue.dicValuesList[int.Parse(gotoParam.ValueIndex2Index)].Value.ToString();
-                    value = SF.frmValue.dicValuesList[int.Parse(index)].Value.ToString();
+                    string index = SF.frmValue.GetValueByIndex(int.Parse(gotoParam.ValueIndex2Index)).Value.ToString();
+                    value = SF.frmValue.GetValueByIndex(int.Parse(index)).Value.ToString();
                 }
                 else if (!string.IsNullOrEmpty(gotoParam.ValueName))
                 {
-                    value = SF.frmValue.dicValues[gotoParam.ValueName].Value.ToString();
+                    value = SF.frmValue.GetValueByName(gotoParam.ValueName).Value.ToString();
                 }
                 else if (!string.IsNullOrEmpty(gotoParam.ValueName2Index))
                 {
-                    string index = SF.frmValue.dicValues[gotoParam.ValueName2Index].Value.ToString();
-                    value = SF.frmValue.dicValuesList[int.Parse(index)].Value.ToString();
+                    string index = SF.frmValue.GetValueByName(gotoParam.ValueName2Index).Value.ToString();
+                    value = SF.frmValue.GetValueByIndex(int.Parse(index)).Value.ToString();
                 }
                 if(value == "")
                 {
@@ -727,11 +727,11 @@ namespace Automation
                         itemValue = item.MatchValue;
                     else if (!string.IsNullOrEmpty(item.MatchValueIndex))
                     {
-                        itemValue = SF.frmValue.dicValuesList[int.Parse(item.MatchValueIndex)].Value.ToString();
+                        itemValue = SF.frmValue.GetValueByIndex(int.Parse(item.MatchValueIndex)).Value.ToString();
                     }
                     else if (!string.IsNullOrEmpty(item.MatchValueV))
                     {
-                        itemValue = SF.frmValue.dicValues[item.MatchValueV].Value.ToString();
+                        itemValue = SF.frmValue.GetValueByName(item.MatchValueV).Value.ToString();
                     }
                     if (value == itemValue)
                     {
@@ -767,20 +767,20 @@ namespace Automation
                 {
                     string value = "";
                     if (!string.IsNullOrEmpty(item.ValueIndex))
-                        value = SF.frmValue.dicValuesList[int.Parse(item.ValueIndex)].Value.ToString();
+                        value = SF.frmValue.GetValueByIndex(int.Parse(item.ValueIndex)).Value.ToString();
                     else if (!string.IsNullOrEmpty(item.ValueIndex2Index))
                     {
-                        string index = SF.frmValue.dicValuesList[int.Parse(item.ValueIndex2Index)].Value.ToString();
-                        value = SF.frmValue.dicValuesList[int.Parse(index)].Value.ToString();
+                        string index = SF.frmValue.GetValueByIndex(int.Parse(item.ValueIndex2Index)).Value.ToString();
+                        value = SF.frmValue.GetValueByIndex(int.Parse(index)).Value.ToString();
                     }
                     else if (!string.IsNullOrEmpty(item.ValueName))
                     {
-                        value = SF.frmValue.dicValues[item.ValueName].Value.ToString();
+                        value = SF.frmValue.GetValueByName(item.ValueName).Value.ToString();
                     }
                     else if (!string.IsNullOrEmpty(item.ValueName2Index))
                     {
-                        string index = SF.frmValue.dicValues[item.ValueName2Index].Value.ToString();
-                        value = SF.frmValue.dicValuesList[int.Parse(index)].Value.ToString();
+                        string index = SF.frmValue.GetValueByName(item.ValueName2Index).Value.ToString();
+                        value = SF.frmValue.GetValueByIndex(int.Parse(index)).Value.ToString();
                     }
                     bool tempValue = false;
                     if (item.JudgeMode == "值在区间左")
@@ -855,7 +855,7 @@ namespace Automation
                 time = int.Parse(delay.timeMiniSecond);
             else if (!string.IsNullOrEmpty(delay.timeMiniSecondV))
             {
-                time = int.Parse(SF.frmValue.dicValues[delay.timeMiniSecondV].Value);
+                time = int.Parse(SF.frmValue.GetValueByName(delay.timeMiniSecondV).Value);
             }
          
             Delay(time,evt);
@@ -868,27 +868,27 @@ namespace Automation
                 //==============================================Get=====================================//
                 string value = "";
                 if (!string.IsNullOrEmpty(item.ValueSourceIndex))
-                    value = SF.frmValue.dicValuesList[int.Parse(item.ValueSourceIndex)].Value.ToString();
+                    value = SF.frmValue.GetValueByIndex(int.Parse(item.ValueSourceIndex)).Value.ToString();
                 else if (!string.IsNullOrEmpty(item.ValueSourceIndex2Index))
                 {
-                    string index = SF.frmValue.dicValuesList[int.Parse(item.ValueSourceIndex2Index)].Value.ToString();
-                    value = SF.frmValue.dicValuesList[int.Parse(index)].Value.ToString();
+                    string index = SF.frmValue.GetValueByIndex(int.Parse(item.ValueSourceIndex2Index)).Value.ToString();
+                    value = SF.frmValue.GetValueByIndex(int.Parse(index)).Value.ToString();
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSourceName))
                 {
-                    value = SF.frmValue.dicValues[item.ValueSourceName].Value.ToString();
+                    value = SF.frmValue.GetValueByName(item.ValueSourceName).Value.ToString();
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSourceName2Index))
                 {
-                    string index = SF.frmValue.dicValues[item.ValueSourceName2Index].Value.ToString();
-                    value = SF.frmValue.dicValuesList[int.Parse(index)].Value.ToString();
+                    string index = SF.frmValue.GetValueByName(item.ValueSourceName2Index).Value.ToString();
+                    value = SF.frmValue.GetValueByIndex(int.Parse(index)).Value.ToString();
                 }
                 //==============================================Save=====================================//
                 if (!string.IsNullOrEmpty(item.ValueSaveIndex))
                     SF.frmValue.setValueByIndex(int.Parse(item.ValueSaveIndex), value);
                 else if (!string.IsNullOrEmpty(item.ValueSaveIndex2Index))
                 {
-                    string index = SF.frmValue.dicValuesList[int.Parse(item.ValueSaveIndex2Index)].Value.ToString();
+                    string index = SF.frmValue.GetValueByIndex(int.Parse(item.ValueSaveIndex2Index)).Value.ToString();
                     SF.frmValue.setValueByIndex(int.Parse(index), value);
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveName))
@@ -897,7 +897,7 @@ namespace Automation
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveName2Index))
                 {
-                    string index = SF.frmValue.dicValues[item.ValueSaveName2Index].Value.ToString();
+                    string index = SF.frmValue.GetValueByName(item.ValueSaveName2Index).Value.ToString();
                     SF.frmValue.setValueByIndex(int.Parse(index), value);
                 }
                 
@@ -910,20 +910,20 @@ namespace Automation
             //==============================================GetSourceValue=====================================//
             string SourceValue = "";
             if (!string.IsNullOrEmpty(ops.ValueSourceIndex))
-                SourceValue = SF.frmValue.dicValuesList[int.Parse(ops.ValueSourceIndex)].Value.ToString();
+                SourceValue = SF.frmValue.GetValueByIndex(int.Parse(ops.ValueSourceIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(ops.ValueSourceIndex2Index))
             {
-                string index = SF.frmValue.dicValuesList[int.Parse(ops.ValueSourceIndex2Index)].Value.ToString();
-                SourceValue = SF.frmValue.dicValuesList[int.Parse(index)].Value.ToString();
+                string index = SF.frmValue.GetValueByIndex(int.Parse(ops.ValueSourceIndex2Index)).Value.ToString();
+                SourceValue = SF.frmValue.GetValueByIndex(int.Parse(index)).Value.ToString();
             }
             else if (!string.IsNullOrEmpty(ops.ValueSourceName))
             {
-                SourceValue = SF.frmValue.dicValues[ops.ValueSourceName].Value.ToString();
+                SourceValue = SF.frmValue.GetValueByName(ops.ValueSourceName).Value.ToString();
             }
             else if (!string.IsNullOrEmpty(ops.ValueSourceName2Index))
             {
-                string index = SF.frmValue.dicValues[ops.ValueSourceName2Index].Value.ToString();
-                SourceValue = SF.frmValue.dicValuesList[int.Parse(index)].Value.ToString();
+                string index = SF.frmValue.GetValueByName(ops.ValueSourceName2Index).Value.ToString();
+                SourceValue = SF.frmValue.GetValueByIndex(int.Parse(index)).Value.ToString();
             }
             if(SourceValue == "")
             {
@@ -939,20 +939,20 @@ namespace Automation
                 ChangeValue = ops.ChangeValue;
             }
             else if (!string.IsNullOrEmpty(ops.ChangeValueIndex))
-                ChangeValue = SF.frmValue.dicValuesList[int.Parse(ops.ChangeValueIndex)].Value.ToString();
+                ChangeValue = SF.frmValue.GetValueByIndex(int.Parse(ops.ChangeValueIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(ops.ChangeValueIndex2Index))
             {
-                string index = SF.frmValue.dicValuesList[int.Parse(ops.ChangeValueIndex2Index)].Value.ToString();
-                ChangeValue = SF.frmValue.dicValuesList[int.Parse(index)].Value.ToString();
+                string index = SF.frmValue.GetValueByIndex(int.Parse(ops.ChangeValueIndex2Index)).Value.ToString();
+                ChangeValue = SF.frmValue.GetValueByIndex(int.Parse(index)).Value.ToString();
             }
             else if (!string.IsNullOrEmpty(ops.ChangeValueName))
             {
-                ChangeValue = SF.frmValue.dicValues[ops.ChangeValueName].Value.ToString();
+                ChangeValue = SF.frmValue.GetValueByName(ops.ChangeValueName).Value.ToString();
             }
             else if (!string.IsNullOrEmpty(ops.ChangeValueName2Index))
             {
-                string index = SF.frmValue.dicValues[ops.ChangeValueName2Index].Value.ToString();
-                ChangeValue = SF.frmValue.dicValuesList[int.Parse(index)].Value.ToString();
+                string index = SF.frmValue.GetValueByName(ops.ChangeValueName2Index).Value.ToString();
+                ChangeValue = SF.frmValue.GetValueByIndex(int.Parse(index)).Value.ToString();
             }
             if (ChangeValue == "")
             {
@@ -1002,7 +1002,7 @@ namespace Automation
                 SF.frmValue.setValueByIndex(int.Parse(ops.OutputValueIndex), output);
             else if (!string.IsNullOrEmpty(ops.OutputValueIndex2Index))
             {
-                string index = SF.frmValue.dicValuesList[int.Parse(ops.OutputValueIndex2Index)].Value.ToString();
+                string index = SF.frmValue.GetValueByIndex(int.Parse(ops.OutputValueIndex2Index)).Value.ToString();
                 SF.frmValue.setValueByIndex(int.Parse(index), output);
             }
             else if (!string.IsNullOrEmpty(ops.OutputValueName))
@@ -1011,7 +1011,7 @@ namespace Automation
             }
             else if (!string.IsNullOrEmpty(ops.OutputValueName2Index))
             {
-                string index = SF.frmValue.dicValues[ops.OutputValueName2Index].Value.ToString();
+                string index = SF.frmValue.GetValueByName(ops.OutputValueName2Index).Value.ToString();
                 SF.frmValue.setValueByIndex(int.Parse(index), output);
             }
 
@@ -1026,10 +1026,10 @@ namespace Automation
                 //==============================================GetSourceValue=====================================//
                 string SourceValue = "";
                 if (!string.IsNullOrEmpty(item.ValueSourceIndex))
-                    SourceValue = SF.frmValue.dicValuesList[int.Parse(item.ValueSourceIndex)].Value.ToString();
+                    SourceValue = SF.frmValue.GetValueByIndex(int.Parse(item.ValueSourceIndex)).Value.ToString();
                 else if (!string.IsNullOrEmpty(item.ValueSourceName))
                 {
-                    SourceValue = SF.frmValue.dicValues[item.ValueSourceName].Value.ToString();
+                    SourceValue = SF.frmValue.GetValueByName(item.ValueSourceName).Value.ToString();
                 }
                 values.Add(SourceValue);
             }
@@ -1059,10 +1059,10 @@ namespace Automation
         {
             string SourceValue = "";
             if (!string.IsNullOrEmpty(split.SourceValueIndex))
-                SourceValue = SF.frmValue.dicValuesList[int.Parse(split.SourceValueIndex)].Value.ToString();
+                SourceValue = SF.frmValue.GetValueByIndex(int.Parse(split.SourceValueIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(split.SourceValue))
             {
-                SourceValue = SF.frmValue.dicValues[split.SourceValue].Value.ToString();
+                SourceValue = SF.frmValue.GetValueByName(split.SourceValue).Value.ToString();
             }
 
             string[] splitArray = SourceValue.Split(split.SplitMark);
@@ -1074,7 +1074,7 @@ namespace Automation
                 SaveIndex = int.Parse(split.OutputIndex);
             else if (!string.IsNullOrEmpty(split.Output))
             {
-                SaveIndex = SF.frmValue.dicValues[split.Output].Index;
+                SaveIndex = SF.frmValue.GetValueByName(split.Output).Index;
             }
             int Count = 0;
             if(!string.IsNullOrEmpty(split.Count))
@@ -1096,10 +1096,10 @@ namespace Automation
         {
             string SourceValue = "";
             if (!string.IsNullOrEmpty(replace.SourceValueIndex))
-                SourceValue = SF.frmValue.dicValuesList[int.Parse(replace.SourceValueIndex)].Value.ToString();
+                SourceValue = SF.frmValue.GetValueByIndex(int.Parse(replace.SourceValueIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(replace.SourceValue))
             {
-                SourceValue = SF.frmValue.dicValues[replace.SourceValue].Value.ToString();
+                SourceValue = SF.frmValue.GetValueByName(replace.SourceValue).Value.ToString();
             }
             if (SourceValue == "")
             {
@@ -1114,10 +1114,10 @@ namespace Automation
                 replaceStr = replace.ReplaceStr;
             }
             else if (!string.IsNullOrEmpty(replace.ReplaceStrIndex))
-                replaceStr = SF.frmValue.dicValuesList[int.Parse(replace.ReplaceStrIndex)].Value.ToString();
+                replaceStr = SF.frmValue.GetValueByIndex(int.Parse(replace.ReplaceStrIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(replace.ReplaceStrV))
             {
-                replaceStr = SF.frmValue.dicValues[replace.ReplaceStrV].Value.ToString();
+                replaceStr = SF.frmValue.GetValueByName(replace.ReplaceStrV).Value.ToString();
             }
             if (replaceStr == "")
             {
@@ -1132,10 +1132,10 @@ namespace Automation
                 newStr = replace.NewStr;
             }
             else if (!string.IsNullOrEmpty(replace.NewStrIndex))
-                newStr = SF.frmValue.dicValuesList[int.Parse(replace.NewStrIndex)].Value.ToString();
+                newStr = SF.frmValue.GetValueByIndex(int.Parse(replace.NewStrIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(replace.NewStrV))
             {
-                newStr = SF.frmValue.dicValues[replace.NewStrV].Value.ToString();
+                newStr = SF.frmValue.GetValueByName(replace.NewStrV).Value.ToString();
             }
             if (newStr == "")
             {
@@ -1187,16 +1187,16 @@ namespace Automation
 
             if (getDataStructItem.IsAllItem)
             {
-                int Startindex = SF.frmValue.dicValues[getDataStructItem.StartValue].Index;
+                int Startindex = SF.frmValue.GetValueByName(getDataStructItem.StartValue).Index;
                 for (int i = 0; i < SF.frmdataStruct.Get_StructItemCount_byIndex(int.Parse(getDataStructItem.StructIndex), int.Parse(getDataStructItem.ItemIndex)); i++)
                 {
                     object obj = SF.frmdataStruct.Get_StructItem_byIndex(int.Parse(getDataStructItem.StructIndex), int.Parse(getDataStructItem.ItemIndex), i);
 
                     string value = "";
                     if (!string.IsNullOrEmpty(getDataStructItem.Params[i].ValueIndex))
-                        value = SF.frmValue.dicValuesList[int.Parse(getDataStructItem.Params[i].ValueIndex)].Value.ToString();
+                        value = SF.frmValue.GetValueByIndex(int.Parse(getDataStructItem.Params[i].ValueIndex)).Value.ToString();
                     else
-                        value = SF.frmValue.dicValues[getDataStructItem.Params[i].ValueName].Value.ToString();
+                        value = SF.frmValue.GetValueByName(getDataStructItem.Params[i].ValueName).Value.ToString();
 
 
                     SF.frmValue.setValueByIndex(Startindex + i, obj);
@@ -1211,9 +1211,9 @@ namespace Automation
 
                     string value = "";
                     if (!string.IsNullOrEmpty(getDataStructItem.Params[i].ValueIndex))
-                        value = SF.frmValue.dicValuesList[int.Parse(getDataStructItem.Params[i].ValueIndex)].Value.ToString();
+                        value = SF.frmValue.GetValueByIndex(int.Parse(getDataStructItem.Params[i].ValueIndex)).Value.ToString();
                     else
-                        value = SF.frmValue.dicValues[getDataStructItem.Params[i].ValueName].Value.ToString();
+                        value = SF.frmValue.GetValueByName(getDataStructItem.Params[i].ValueName).Value.ToString();
 
                     SF.frmValue.setValueByName(value, obj);
 
@@ -1616,9 +1616,9 @@ namespace Automation
                                 double AccTemp = 0;
                                 double DecTemp = 0;
 
-                                VelTemp = stationRunPos.Vel == 0 ? SF.frmValue.dicValues[stationRunPos.VelV].GetDValue() : stationRunPos.Vel;
-                                AccTemp = stationRunPos.Acc == 0 ? SF.frmValue.dicValues[stationRunPos.AccV].GetDValue() : stationRunPos.Acc;
-                                DecTemp = stationRunPos.Dec == 0 ? SF.frmValue.dicValues[stationRunPos.DecV].GetDValue() : stationRunPos.Dec;
+                                VelTemp = stationRunPos.Vel == 0 ? SF.frmValue.GetValueByName(stationRunPos.VelV).GetDValue() : stationRunPos.Vel;
+                                AccTemp = stationRunPos.Acc == 0 ? SF.frmValue.GetValueByName(stationRunPos.AccV).GetDValue() : stationRunPos.Acc;
+                                DecTemp = stationRunPos.Dec == 0 ? SF.frmValue.GetValueByName(stationRunPos.DecV).GetDValue() : stationRunPos.Dec;
 
 
                                 Vel = axisInfo.SpeedMax * (VelTemp / 100);
@@ -1664,7 +1664,7 @@ namespace Automation
                         else
                         {
 
-                            time = SF.frmValue.dicValues[stationRunPos.timeOutV].GetDValue();
+                            time = SF.frmValue.GetValueByName(stationRunPos.timeOutV).GetDValue();
                         }
 
                         while (evt.isThStop == false && cardNums.Count != 0 && station.GetState() == DataStation.Status.Run)
@@ -1763,9 +1763,9 @@ namespace Automation
                             double AccTemp = 0;
                             double DecTemp = 0;
 
-                            VelTemp = stationRunRel.Vel == 0 ? SF.frmValue.dicValues[stationRunRel.VelV].GetDValue() : stationRunRel.Vel;
-                            AccTemp = stationRunRel.Acc == 0 ? SF.frmValue.dicValues[stationRunRel.AccV].GetDValue() : stationRunRel.Acc;
-                            DecTemp = stationRunRel.Dec == 0 ? SF.frmValue.dicValues[stationRunRel.DecV].GetDValue() : stationRunRel.Dec;
+                            VelTemp = stationRunRel.Vel == 0 ? SF.frmValue.GetValueByName(stationRunRel.VelV).GetDValue() : stationRunRel.Vel;
+                            AccTemp = stationRunRel.Acc == 0 ? SF.frmValue.GetValueByName(stationRunRel.AccV).GetDValue() : stationRunRel.Acc;
+                            DecTemp = stationRunRel.Dec == 0 ? SF.frmValue.GetValueByName(stationRunRel.DecV).GetDValue() : stationRunRel.Dec;
 
 
                             Vel = axisInfo.SpeedMax * (VelTemp / 100);
@@ -1782,7 +1782,7 @@ namespace Automation
                         SF.motion.SetMovParam(cardNum, axisNum, 0, Vel, Acc, Dec, 0, 0, axisInfo.PulseToMM);
 
                         double DistanceTemp = 0;
-                        DistanceTemp = TargetPos[i] == 0 ? SF.frmValue.dicValues[TargetPosV[i]].GetDValue() : TargetPos[i];
+                        DistanceTemp = TargetPos[i] == 0 ? SF.frmValue.GetValueByName(TargetPosV[i]).GetDValue() : TargetPos[i];
 
                         SF.motion.Mov(ushort.Parse(station.dataAxis.axisConfigs[i].CardNum), (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum, DistanceTemp, 0, false);
                     }
@@ -1798,7 +1798,7 @@ namespace Automation
                     else
                     {
 
-                        time = SF.frmValue.dicValues[stationRunRel.timeOutV].GetDValue();
+                        time = SF.frmValue.GetValueByName(stationRunRel.timeOutV).GetDValue();
                     }
                     while (evt.isThStop == false && station.GetState() == DataStation.Status.Run)
                     {
@@ -1866,9 +1866,9 @@ namespace Automation
                 double Acc = 0;
                 double Dec = 0;
 
-                Vel = setStationVel.Vel == 0 ? SF.frmValue.dicValues[setStationVel.VelV].GetDValue() : setStationVel.Vel;
-                Acc = setStationVel.Acc == 0 ? SF.frmValue.dicValues[setStationVel.AccV].GetDValue() : setStationVel.Acc;
-                Dec = setStationVel.Dec == 0 ? SF.frmValue.dicValues[setStationVel.DecV].GetDValue() : setStationVel.Dec;
+                Vel = setStationVel.Vel == 0 ? SF.frmValue.GetValueByName(setStationVel.VelV).GetDValue() : setStationVel.Vel;
+                Acc = setStationVel.Acc == 0 ? SF.frmValue.GetValueByName(setStationVel.AccV).GetDValue() : setStationVel.Acc;
+                Dec = setStationVel.Dec == 0 ? SF.frmValue.GetValueByName(setStationVel.DecV).GetDValue() : setStationVel.Dec;
 
                 if (setStationVel.SetAxisObj == "工站")
                 {
@@ -1982,7 +1982,7 @@ namespace Automation
                 else
                 {
 
-                    time = SF.frmValue.dicValues[waitStationStop.timeOutV].GetDValue();
+                    time = SF.frmValue.GetValueByName(waitStationStop.timeOutV).GetDValue();
                 }
                 while (evt.isThStop == false && station.GetState() == DataStation.Status.Run)
                 {

@@ -322,7 +322,7 @@ namespace Automation
 
         private void FrmMain_FormClosing(object sender, FormClosingEventArgs e)
         {
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", SF.frmValue.dicValues);
+            SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", SF.frmValue.BuildSaveData());
             Environment.Exit(0);
         }
     }

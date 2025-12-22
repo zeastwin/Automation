@@ -90,7 +90,7 @@ namespace Automation
                     SF.frmProc.bindingSource.ResetBindings(true);
                     SF.frmProc.Refresh();
                 }
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", SF.frmValue.dicValues);
+                SF.mainfrm.SaveAsJson(SF.ConfigPath, "value", SF.frmValue.BuildSaveData());
 
 
                 SF.frmProc.NewStepNum = -1;

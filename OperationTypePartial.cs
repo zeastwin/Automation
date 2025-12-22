@@ -286,7 +286,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(SF.frmValue.dicValues.Keys.ToList());
+                return new StandardValuesCollection(SF.frmValue.GetValueNames());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
