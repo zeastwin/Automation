@@ -17,6 +17,18 @@ namespace Automation
     {
         private readonly object dataLock = new object();
         private readonly List<DataStruct> dataStructs = new List<DataStruct>();
+        private int version = 0;
+
+        public int Version
+        {
+            get
+            {
+                lock (dataLock)
+                {
+                    return version;
+                }
+            }
+        }
 
         public bool Load(string configPath)
         {
@@ -72,6 +84,7 @@ namespace Automation
             lock (dataLock)
             {
                 dataStructs.Clear();
+                MarkChangedNoLock();
             }
         }
 
@@ -94,6 +107,7 @@ namespace Automation
                     NormalizeStruct(dataStruct);
                     dataStructs.Add(dataStruct);
                 }
+                MarkChangedNoLock();
             }
         }
 
@@ -242,6 +256,7 @@ namespace Automation
                     return false;
                 }
                 dataStructs.Add(new DataStruct { Name = name });
+                MarkChangedNoLock();
                 return true;
             }
         }
@@ -264,6 +279,7 @@ namespace Automation
                     return false;
                 }
                 dataStructs[index].Name = newName;
+                MarkChangedNoLock();
                 return true;
             }
         }
@@ -277,6 +293,7 @@ namespace Automation
                     return false;
                 }
                 dataStructs.RemoveAt(index);
+                MarkChangedNoLock();
                 return true;
             }
         }
@@ -295,6 +312,7 @@ namespace Automation
                 }
                 DataStructItem dataStructItem = BuildItem(itemName, strings, doubles, param);
                 InsertOrReplaceItem(dataStruct, itemIndex, dataStructItem);
+                MarkChangedNoLock();
                 return true;
             }
         }
@@ -311,6 +329,7 @@ namespace Automation
                 NormalizeStruct(dataStruct);
                 DataStructItem dataStructItem = BuildItem(string.Empty, strings, doubles, param);
                 InsertOrReplaceItem(dataStruct, itemIndex, dataStructItem);
+                MarkChangedNoLock();
                 return true;
             }
         }
@@ -341,35 +360,40 @@ namespace Automation
                         {
                             return false;
                         }
-                        item.num[valueIndex] = number;
-                        item.str.Remove(valueIndex);
-                        return true;
-                    }
-
-                    item.str[valueIndex] = value;
-                    item.num.Remove(valueIndex);
-                    return true;
-                }
-
-                if (item.num.ContainsKey(valueIndex))
-                {
-                    if (!double.TryParse(value, out double number))
-                    {
-                        return false;
-                    }
                     item.num[valueIndex] = number;
-                    return true;
-                }
-
-                if (item.str.ContainsKey(valueIndex))
-                {
-                    item.str[valueIndex] = value;
+                    item.str.Remove(valueIndex);
+                    MarkChangedNoLock();
                     return true;
                 }
 
                 item.str[valueIndex] = value;
+                item.num.Remove(valueIndex);
+                MarkChangedNoLock();
                 return true;
             }
+
+            if (item.num.ContainsKey(valueIndex))
+            {
+                if (!double.TryParse(value, out double number))
+                {
+                    return false;
+                }
+                item.num[valueIndex] = number;
+                MarkChangedNoLock();
+                return true;
+            }
+
+            if (item.str.ContainsKey(valueIndex))
+            {
+                item.str[valueIndex] = value;
+                MarkChangedNoLock();
+                return true;
+            }
+
+            item.str[valueIndex] = value;
+            MarkChangedNoLock();
+            return true;
+        }
         }
 
         public bool TryGetItemValueByIndex(int structIndex, int itemIndex, int valueIndex, out object value)
@@ -465,6 +489,7 @@ namespace Automation
                     itemIndex = dataStruct.dataStructItems.Count;
                 }
                 dataStruct.dataStructItems.Insert(itemIndex, item);
+                MarkChangedNoLock();
                 return true;
             }
         }
@@ -485,6 +510,7 @@ namespace Automation
                 DataStruct targetStruct = dataStructs[targetStructIndex];
                 NormalizeStruct(targetStruct);
                 InsertOrReplaceItem(targetStruct, targetItemIndex, copy);
+                MarkChangedNoLock();
                 return true;
             }
         }
@@ -503,6 +529,7 @@ namespace Automation
                     return false;
                 }
                 dataStruct.dataStructItems.RemoveAt(itemIndex);
+                MarkChangedNoLock();
                 return true;
             }
         }
@@ -521,6 +548,7 @@ namespace Automation
                     return false;
                 }
                 dataStruct.dataStructItems.RemoveAt(0);
+                MarkChangedNoLock();
                 return true;
             }
         }
@@ -539,6 +567,7 @@ namespace Automation
                     return false;
                 }
                 dataStruct.dataStructItems.RemoveAt(dataStruct.dataStructItems.Count - 1);
+                MarkChangedNoLock();
                 return true;
             }
         }
@@ -660,6 +689,18 @@ namespace Automation
             }
             NormalizeItem(item);
             return true;
+        }
+
+        private void MarkChangedNoLock()
+        {
+            if (version == int.MaxValue)
+            {
+                version = 0;
+            }
+            else
+            {
+                version++;
+            }
         }
 
         private static void InsertOrReplaceItem(DataStruct dataStruct, int itemIndex, DataStructItem dataStructItem)

@@ -28,7 +28,12 @@ namespace Automation
         public List<DataStructHandle> dataStructHandles = new List<DataStructHandle>();
         public FrmDataStructSet frmDataStructSet;
         public int selectDataStructIndex = -1;
-        public ManualResetEvent m_evtTrack1 = new ManualResetEvent(false);
+        private readonly Timer trackTimer = new Timer();
+        private bool isRefreshing = false;
+        private int lastRefreshTick = 0;
+        private int lastStoreVersion = -1;
+        private const int TrackIntervalMs = 100;
+        private const int TrackMinRefreshMs = 200;
         public FrmDataStruct()
         {
             InitializeComponent();
@@ -60,28 +65,14 @@ namespace Automation
             selectDataStructIndex = treeView1.SelectedNode.Index;
         
         }
-        bool isTrack=false;
         private void Form_Closing(object sender, FormClosedEventArgs e)
         {
-            if (m_evtTrack1.WaitOne(0))
-            {
-                isTrack = true;
-            }
-            m_evtTrack1.Reset();
-            SF.Delay(50);
-            while (isRefleshedStruct != true)
-            {
-                SF.Delay(10);
-            }
             Form form = (Form)sender;
             DataStructHandle result = dataStructHandles.FirstOrDefault(dsh => dsh.form == form);
-            dataStructHandles.Remove(result);
-            if (isTrack)
+            if (result != null)
             {
-                m_evtTrack1.Set();
-                isTrack = !isTrack;
+                dataStructHandles.Remove(result);
             }
-           
         }
         private void dataGridView1_CellMouseDown(object sender, DataGridViewCellMouseEventArgs e)
         {
@@ -161,36 +152,13 @@ namespace Automation
         }
         public void DeleteDataSturct()
         {
-            bool resumeTrack = false;
-            if (m_evtTrack1.WaitOne(0))
-            {
-                resumeTrack = true;
-                m_evtTrack1.Reset();
-
-                SF.Delay(100);
-                while (isRefleshedStruct != true)
-                {
-                    SF.Delay(10);
-                }
-            }
-
             if (selectDataStructIndex < 0)
             {
-                if (resumeTrack)
-                {
-                    m_evtTrack1.Set();
-                    isTrack = !isTrack;
-                }
                 return;
             }
 
             if (!SF.dataStructStore.TryGetStructNameByIndex(selectDataStructIndex, out string structName))
             {
-                if (resumeTrack)
-                {
-                    m_evtTrack1.Set();
-                    isTrack = !isTrack;
-                }
                 return;
             }
 
@@ -202,54 +170,21 @@ namespace Automation
             }
             if (!SF.dataStructStore.RemoveStructAt(selectDataStructIndex))
             {
-                if (resumeTrack)
-                {
-                    m_evtTrack1.Set();
-                    isTrack = !isTrack;
-                }
                 return;
             }
             SF.dataStructStore.Save(SF.ConfigPath);
             RefreshDataSturctList();
             RefreshDataSturctTree();
-            if (resumeTrack)
-            {
-                m_evtTrack1.Set();
-
-                isTrack = !isTrack;
-            }
         }
         public bool ModifyStruct(string name)
         {
-            bool resumeTrack = false;
-            if (m_evtTrack1.WaitOne(0))
-            {
-                resumeTrack = true;
-                m_evtTrack1.Reset();
-
-                SF.Delay(100);
-                while (isRefleshedStruct != true)
-                {
-                    SF.Delay(10);
-                }
-            }
             if (selectDataStructIndex < 0)
             {
-                if (resumeTrack)
-                {
-                    m_evtTrack1.Set();
-                    isTrack = !isTrack;
-                }
                 return false;
             }
 
             if (!SF.dataStructStore.TryGetStructNameByIndex(selectDataStructIndex, out string structName))
             {
-                if (resumeTrack)
-                {
-                    m_evtTrack1.Set();
-                    isTrack = !isTrack;
-                }
                 return false;
             }
 
@@ -261,22 +196,11 @@ namespace Automation
 
             if (!SF.dataStructStore.RenameStruct(selectDataStructIndex, name))
             {
-                if (resumeTrack)
-                {
-                    m_evtTrack1.Set();
-                    isTrack = !isTrack;
-                }
                 return false;
             }
             SF.dataStructStore.Save(SF.ConfigPath);
             RefreshDataSturctList();
             RefreshDataSturctTree();
-            if (resumeTrack)
-            {
-                m_evtTrack1.Set();
-
-                isTrack = !isTrack;
-            }
             return true;
         }
         public void RefreshDataSturctList()
@@ -444,8 +368,9 @@ namespace Automation
             RefreshDataSturctList();
             RefreshDataSturctTree();
             suppressSelection = true;
-            Track();
-
+            trackTimer.Interval = TrackIntervalMs;
+            trackTimer.Tick += TrackTimer_Tick;
+            trackTimer.Stop();
         }
         private bool suppressSelection;
         private void treeView1_BeforeSelect(object sender, TreeViewCancelEventArgs e)
@@ -456,35 +381,92 @@ namespace Automation
                 suppressSelection = false;
             }
         }
-        public bool isRefleshedStruct = true;
-        public void Track()
+        private void TrackTimer_Tick(object sender, EventArgs e)
         {
-            Task.Run(() =>
-            {                                                                                                                                                             
-                while (m_evtTrack1.WaitOne())
+            if (isRefreshing)
+            {
+                return;
+            }
+            if (dataStructHandles.Count == 0)
+            {
+                return;
+            }
+            int nowTick = Environment.TickCount;
+            if (Math.Abs(nowTick - lastRefreshTick) < TrackMinRefreshMs)
+            {
+                return;
+            }
+            int currentVersion = SF.dataStructStore.Version;
+            if (currentVersion == lastStoreVersion)
+            {
+                return;
+            }
+
+            isRefreshing = true;
+            try
+            {
+                bool refreshed = false;
+                for (int i = 0; i < dataStructHandles.Count; i++)
                 {
-                    isRefleshedStruct = false;
-                    for (int i = 0; i < dataStructHandles.Count; i++)
+                    DataStructHandle handle = dataStructHandles[i];
+                    if (!IsHandleVisibleInPanel(handle))
                     {
-                        RefreshDataStructFrm(dataStructHandles[i]);
+                        continue;
                     }
-                    Thread.Sleep(200);
-                    isRefleshedStruct = true;
+                    RefreshDataStructFrm(handle);
+                    refreshed = true;
                 }
-            });
-          
+                if (refreshed)
+                {
+                    lastStoreVersion = currentVersion;
+                }
+                lastRefreshTick = nowTick;
+            }
+            finally
+            {
+                isRefreshing = false;
+            }
+        }
+
+        private bool IsHandleVisibleInPanel(DataStructHandle handle)
+        {
+            if (handle == null || handle.form == null || handle.form.IsDisposed)
+            {
+                return false;
+            }
+            if (!Visible || WindowState == FormWindowState.Minimized)
+            {
+                return false;
+            }
+            if (panel1 == null || !panel1.Visible)
+            {
+                return false;
+            }
+            if (!handle.form.Visible || handle.form.WindowState == FormWindowState.Minimized)
+            {
+                return false;
+            }
+            if (handle.form.Parent != panel1)
+            {
+                return false;
+            }
+
+            Rectangle viewRect = new Rectangle(-panel1.AutoScrollPosition.X, -panel1.AutoScrollPosition.Y, panel1.ClientSize.Width, panel1.ClientSize.Height);
+            return handle.form.Bounds.IntersectsWith(viewRect);
         }
         bool isMonitor = true;
         private void btnTrack_Click(object sender, EventArgs e)
         {
             if (isMonitor)
             {
-                m_evtTrack1.Set();
+                lastStoreVersion = -1;
+                lastRefreshTick = 0;
+                trackTimer.Start();
                 btnTrack.BackColor = Color.Green;
             }
             else
             {
-                m_evtTrack1.Reset();
+                trackTimer.Stop();
                 btnTrack.BackColor = Color.White;
             }
             isMonitor = !isMonitor;
