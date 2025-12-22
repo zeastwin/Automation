@@ -28,7 +28,7 @@ namespace Automation
         public List<DataStructHandle> dataStructHandles = new List<DataStructHandle>();
         public FrmDataStructSet frmDataStructSet;
         public int selectDataStructIndex = -1;
-        private readonly Timer trackTimer = new Timer();
+        private readonly System.Windows.Forms.Timer trackTimer = new System.Windows.Forms.Timer();
         private bool isRefreshing = false;
         private int lastRefreshTick = 0;
         private int lastStoreVersion = -1;
