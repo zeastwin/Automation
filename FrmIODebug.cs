@@ -20,6 +20,7 @@ namespace Automation
         public List<Button> buttonsIn = new List<Button>();
         public List<Button> buttonsOut = new List<Button>();
         public List<ConnectButton> btnCon = new List<ConnectButton>();
+        private ListView listView6;
         private readonly Timer ioRefreshTimer = new Timer();
         private bool ioRefreshTimerInit = false;
 
@@ -38,6 +39,21 @@ namespace Automation
             listView5.View = View.Details;
             listView4.CheckBoxes = true;
             listView5.CheckBoxes = true;
+            listView6 = new ListView();
+            listView6.AllowDrop = true;
+            listView6.BackColor = Color.White;
+            listView6.CheckBoxes = true;
+            listView6.HideSelection = false;
+            listView6.Name = "listView6";
+            listView6.UseCompatibleStateImageBehavior = false;
+            listView6.View = View.Details;
+            listView6.Dock = DockStyle.Right;
+            listView6.Width = 170;
+            listView6.ItemChecked += listView6_ItemChecked;
+            groupBox1.Controls.Add(listView6);
+            listView3.Width = 170;
+            listView5.Width = 170;
+            listView4.Width = 170;
             this.VisibleChanged += FrmIODebug_VisibleChanged;
         }
         public bool CheckFormIsOpen(Form form)
@@ -227,8 +243,11 @@ namespace Automation
             listView4.Items.Clear();
             listView5.Clear();
             listView5.Items.Clear();
+            listView6.Clear();
+            listView6.Items.Clear();
             listView4.Columns.Add("通用输入", 220);
             listView5.Columns.Add("通用输入", 220);
+            listView6.Columns.Add("通用输出2", 220);
 
 
             List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
@@ -250,6 +269,12 @@ namespace Automation
                     ToolStripMenuItem dynamicMenuItem = new ToolStripMenuItem(cacheIO.Name);
                     dynamicMenuItem.Click += DynamicMenuItem_Click;
                     contextMenu.Items.Add(dynamicMenuItem);
+
+                    string copiedString = string.Copy(cacheIO.Name);
+                    ListViewItem item = new ListViewItem(copiedString);
+                    item.Text = copiedString;
+                    item.Font = font;
+                    listView6.Items.Add(item);
                 }
                 if (cacheIO != null && cacheIO.Name != "" && cacheIO.IOType == "通用输入")
                 {
@@ -305,6 +330,12 @@ namespace Automation
                 item.Text = name;
                 item.Font = font;
                 if (!TryResolveIoByName(name, "通用输出", out _))
+                {
+                    item.ForeColor = Color.Red;
+                }
+                if (iOConnect.Output2 != null
+                    && !string.IsNullOrWhiteSpace(iOConnect.Output2.Name)
+                    && !TryResolveIoByName(iOConnect.Output2.Name, "通用输出", out _))
                 {
                     item.ForeColor = Color.Red;
                 }
@@ -365,6 +396,7 @@ namespace Automation
                 dynamicButton.Text = IODebugMaps.iOConnects[i].Output.Name;
                 dynamicButton.Location = new System.Drawing.Point(col * 110, row * 40);
                 dynamicButton.Size = new System.Drawing.Size(100, 30);
+                dynamicButton.Tag = IODebugMaps.iOConnects[i];
 
                 tabPage3.Controls.Add(dynamicButton);
 
@@ -408,13 +440,32 @@ namespace Automation
             if (sender is Button button)
             {
                 bool Open_1 = false;
-                if (!TryResolveIoByName(button.Text, "通用输出", out IO value))
+                if (button.Tag is IOConnect ioConnect)
+                {
+                    if (!TryResolveIoByName(ioConnect.Output.Name, "通用输出", out IO outputIo))
+                    {
+                        button.BackColor = Color.Red;
+                        return;
+                    }
+                    SF.motion.GetOutIO(outputIo, ref Open_1);
+                    bool newState = !Open_1;
+                    SF.motion.SetIO(outputIo, newState);
+                    if (ioConnect.Output2 != null
+                        && !string.IsNullOrWhiteSpace(ioConnect.Output2.Name)
+                        && ioConnect.Output2.Name != ioConnect.Output.Name
+                        && TryResolveIoByName(ioConnect.Output2.Name, "通用输出", out IO output2))
+                    {
+                        SF.motion.SetIO(output2, !newState);
+                    }
+                    return;
+                }
+                if (!TryResolveIoByName(button.Text, "通用输出", out IO outputIo2))
                 {
                     button.BackColor = Color.Red;
                     return;
                 }
-                SF.motion.GetOutIO(value, ref Open_1);
-                SF.motion.SetIO(value, !Open_1);
+                SF.motion.GetOutIO(outputIo2, ref Open_1);
+                SF.motion.SetIO(outputIo2, !Open_1);
             }
         }
         public void RefreshIODebugMapFrm()
@@ -794,11 +845,13 @@ namespace Automation
                 case 3:
                     listView4.ItemChecked -= listView4_ItemChecked;
                     listView5.ItemChecked -= listView5_ItemChecked;
+                    listView6.ItemChecked -= listView6_ItemChecked;
                     SetConnectItemm();
                     RefreshIODebugMapFrm();
                     RefleshConnecdt();
                     listView4.ItemChecked += listView4_ItemChecked;
                     listView5.ItemChecked += listView5_ItemChecked;
+                    listView6.ItemChecked += listView6_ItemChecked;
                   
                     break;
                 default:
@@ -899,14 +952,77 @@ namespace Automation
                 }
             }
         }
+        private void listView6_ItemChecked(object sender, ItemCheckedEventArgs e)
+        {
+            ListView listView = (ListView)sender;
+            if (e.Item.Checked)
+            {
+
+                if (listView3.SelectedItems.Count != 0)
+                {
+                    listView6.ItemChecked -= listView6_ItemChecked;
+                    foreach (ListViewItem item in listView.CheckedItems)
+                    {
+                        if (item != e.Item)
+                        {
+                            item.Checked = false;
+                        }
+                        else
+                        {
+                            item.Checked = true;
+                        }
+                    }
+
+                    listView6.ItemChecked += listView6_ItemChecked;
+                    List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+                    if (cacheIOs == null)
+                    {
+                        return;
+                    }
+                    IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == e.Item.Text);
+                    IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == listView3.SelectedItems[0].Text);
+                    if (cacheIO != null && iOConnect != null)
+                    {
+                        iOConnect.Output2 = cacheIO.CloneForDebug();
+
+                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                    }
+                }
+            }
+            else
+            {
+                if (listView3.SelectedItems.Count != 0)
+                {
+                    IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == listView3.SelectedItems[0].Text);
+                    if (iOConnect != null)
+                    {
+                        if (iOConnect.Output2 == null)
+                        {
+                            iOConnect.Output2 = new IO();
+                        }
+                        iOConnect.Output2.Name = "";
+
+                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                    }
+                }
+            }
+        }
         private void listView3_SelectedIndexChanged(object sender, EventArgs e)
         {
             if (listView3.SelectedItems.Count > 0)
             {
                 listView4.ItemChecked -= listView4_ItemChecked;
                 listView5.ItemChecked -= listView5_ItemChecked;
+                listView6.ItemChecked -= listView6_ItemChecked;
                 string selectedText = listView3.SelectedItems[0].Text;
                 IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == selectedText);
+                if (iOConnect == null)
+                {
+                    listView4.ItemChecked += listView4_ItemChecked;
+                    listView5.ItemChecked += listView5_ItemChecked;
+                    listView6.ItemChecked += listView6_ItemChecked;
+                    return;
+                }
                 if (iOConnect.Intput1.Name == "")
                 {
                     foreach (ListViewItem item in listView4.CheckedItems)
@@ -955,6 +1071,28 @@ namespace Automation
                 }
                 listView4.ItemChecked += listView4_ItemChecked;
                 listView5.ItemChecked += listView5_ItemChecked;
+                if (iOConnect.Output2 == null || iOConnect.Output2.Name == "")
+                {
+                    foreach (ListViewItem item in listView6.CheckedItems)
+                    {
+                        item.Checked = false;
+                    }
+                }
+                else
+                {
+                    foreach (ListViewItem item in listView6.Items)
+                    {
+                        if (item.Text == iOConnect.Output2.Name)
+                        {
+                            item.Checked = true;
+                        }
+                        else
+                        {
+                            item.Checked = false;
+                        }
+                    }
+                }
+                listView6.ItemChecked += listView6_ItemChecked;
             }
         }
         private ListViewItem sourceItem3;
@@ -1028,6 +1166,7 @@ namespace Automation
     public class IOConnect
     {
         public IO Output = new IO();
+        public IO Output2 = new IO();
         public IO Intput1 = new IO();
         public IO Intput2 = new IO();
     }
