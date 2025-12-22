@@ -57,12 +57,18 @@ namespace Automation
             ContextMenuStrip inputMenu = new ContextMenuStrip();
             ToolStripMenuItem inputConfigItem = new ToolStripMenuItem("配置显示");
             inputConfigItem.Click += InputConfigItem_Click;
+            ToolStripMenuItem inputRemarkItem = new ToolStripMenuItem("添加备注");
+            inputRemarkItem.Click += InputRemarkItem_Click;
             inputMenu.Items.Add(inputConfigItem);
+            inputMenu.Items.Add(inputRemarkItem);
             listView1.ContextMenuStrip = inputMenu;
             ContextMenuStrip outputMenu = new ContextMenuStrip();
             ToolStripMenuItem outputConfigItem = new ToolStripMenuItem("配置显示");
             outputConfigItem.Click += OutputConfigItem_Click;
+            ToolStripMenuItem outputRemarkItem = new ToolStripMenuItem("添加备注");
+            outputRemarkItem.Click += OutputRemarkItem_Click;
             outputMenu.Items.Add(outputConfigItem);
+            outputMenu.Items.Add(outputRemarkItem);
             listView2.ContextMenuStrip = outputMenu;
             this.VisibleChanged += FrmIODebug_VisibleChanged;
         }
@@ -137,8 +143,17 @@ namespace Automation
                     EnsureInputTempSize(IODebugMaps.inputs.Count);
                     for (int i = 0; i < IODebugMaps.inputs.Count; i++)
                     {
+                        if (i >= buttonsIn.Count)
+                        {
+                            continue;
+                        }
+                        IO ioItem = IODebugMaps.inputs[i];
+                        if (ioItem == null || ioItem.IsRemark || buttonsIn[i] == null)
+                        {
+                            continue;
+                        }
                         bool Open_1 = false;
-                        if (TryResolveIoByName(IODebugMaps.inputs[i].Name, "通用输入", out IO io))
+                        if (TryResolveIoByName(ioItem.Name, "通用输入", out IO io))
                         {
                             SF.motion.GetInIO(io, ref Open_1);
                             if (Open_1 != InTemp[i])
@@ -164,8 +179,17 @@ namespace Automation
                     EnsureOutputTempSize(IODebugMaps.outputs.Count);
                     for (int i = 0; i < IODebugMaps.outputs.Count; i++)
                     {
+                        if (i >= buttonsOut.Count)
+                        {
+                            continue;
+                        }
+                        IO ioItem = IODebugMaps.outputs[i];
+                        if (ioItem == null || ioItem.IsRemark || buttonsOut[i] == null)
+                        {
+                            continue;
+                        }
                         bool Open_1 = false;
-                        if (TryResolveIoByName(IODebugMaps.outputs[i].Name, "通用输出", out IO io))
+                        if (TryResolveIoByName(ioItem.Name, "通用输出", out IO io))
                         {
                             SF.motion.GetOutIO(io, ref Open_1);
                             if (Open_1 != OutTemp[i])
@@ -369,24 +393,48 @@ namespace Automation
 
 
         }
-        public List<Button> CreateButtonIO(List<IO> iOs,TabPage tabPage)
+        public List<Button> CreateButtonIO(List<IO> iOs, TabPage tabPage)
         {
             List<Button> buttons = new List<Button>();
+            tabPage.AutoScroll = true;
             int col = 0, row = 0;
+            int colWidth = 110;
+            int rowHeight = 40;
             for (int i = 0; i < iOs.Count; i++)
             {
-                Button dynamicButton = new Button();
+                IO io = iOs[i];
+                if (io == null)
+                {
+                    buttons.Add(null);
+                }
+                else if (io.IsRemark)
+                {
+                    Label remarkLabel = new Label();
+                    remarkLabel.Text = io.Name;
+                    remarkLabel.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
+                    remarkLabel.Size = new System.Drawing.Size(100, 30);
+                    remarkLabel.TextAlign = ContentAlignment.MiddleCenter;
+                    remarkLabel.BackColor = Color.FromArgb(230, 232, 236);
+                    remarkLabel.ForeColor = Color.FromArgb(64, 64, 64);
+                    remarkLabel.Font = new Font("微软雅黑", 9F, FontStyle.Bold);
+                    tabPage.Controls.Add(remarkLabel);
+                    buttons.Add(null);
+                }
+                else
+                {
+                    Button dynamicButton = new Button();
 
-                dynamicButton.Text = iOs[i].Name;
-                dynamicButton.Location = new System.Drawing.Point(col * 110, row * 40);
-                dynamicButton.Size = new System.Drawing.Size(100, 30);
+                    dynamicButton.Text = io.Name;
+                    dynamicButton.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
+                    dynamicButton.Size = new System.Drawing.Size(100, 30);
 
-                tabPage.Controls.Add(dynamicButton);
-                buttons.Add(dynamicButton);
-                if (iOs[i].IOType == "通用输出")
-                    dynamicButton.Click += new EventHandler(IOButton_Click);
+                    tabPage.Controls.Add(dynamicButton);
+                    buttons.Add(dynamicButton);
+                    if (io.IOType == "通用输出")
+                        dynamicButton.Click += new EventHandler(IOButton_Click);
+                }
                 row++;
-                if(row>10)
+                if (row > 10)
                 {
                     row = 0;
                     col++;
@@ -497,9 +545,17 @@ namespace Automation
                 { 
                     string name = cacheIO.Name;
                     ListViewItem item = new ListViewItem(name);
-                    item.Text = name;
+                    if (cacheIO.IsRemark)
+                    {
+                        item.Text = $"【{name}】";
+                        item.ForeColor = Color.FromArgb(96, 96, 96);
+                    }
+                    else
+                    {
+                        item.Text = name;
+                    }
                     item.Font = font;
-                    if (!TryResolveIoByName(name, "通用输入", out _))
+                    if (!cacheIO.IsRemark && !TryResolveIoByName(name, "通用输入", out _))
                     {
                         item.ForeColor = Color.Red;
                     }
@@ -519,9 +575,17 @@ namespace Automation
                 {
                     string name = cacheIO.Name;
                     ListViewItem item = new ListViewItem(name);
-                    item.Text = name;
+                    if (cacheIO.IsRemark)
+                    {
+                        item.Text = $"【{name}】";
+                        item.ForeColor = Color.FromArgb(96, 96, 96);
+                    }
+                    else
+                    {
+                        item.Text = name;
+                    }
                     item.Font = font;
-                    if (!TryResolveIoByName(name, "通用输出", out _))
+                    if (!cacheIO.IsRemark && !TryResolveIoByName(name, "通用输出", out _))
                     {
                         item.ForeColor = Color.Red;
                     }
@@ -603,6 +667,14 @@ namespace Automation
         {
             OpenDebugConfig("通用输出");
         }
+        private void InputRemarkItem_Click(object sender, EventArgs e)
+        {
+            AddRemarkItem("通用输入", IODebugMaps.inputs, listView1);
+        }
+        private void OutputRemarkItem_Click(object sender, EventArgs e)
+        {
+            AddRemarkItem("通用输出", IODebugMaps.outputs, listView2);
+        }
         private void OpenDebugConfig(string ioType)
         {
             List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
@@ -629,6 +701,10 @@ namespace Automation
             {
                 if (io != null && !string.IsNullOrWhiteSpace(io.Name))
                 {
+                    if (io.IsRemark)
+                    {
+                        continue;
+                    }
                     selectedNames.Add(io.Name);
                 }
             }
@@ -664,13 +740,19 @@ namespace Automation
                 {
                     continue;
                 }
+                if (io.IsRemark)
+                {
+                    newList.Add(io);
+                    continue;
+                }
                 if (!selectedSet.Contains(io.Name))
                 {
                     continue;
                 }
                 if (ioByName.TryGetValue(io.Name, out IO sourceIo))
                 {
-                    newList.Add(sourceIo.CloneForDebug());
+                    IO cloned = sourceIo.CloneForDebug();
+                    newList.Add(cloned);
                     selectedSet.Remove(io.Name);
                 }
             }
@@ -682,7 +764,8 @@ namespace Automation
                 }
                 if (ioByName.TryGetValue(name, out IO sourceIo))
                 {
-                    newList.Add(sourceIo.CloneForDebug());
+                    IO cloned = sourceIo.CloneForDebug();
+                    newList.Add(cloned);
                     selectedSet.Remove(name);
                 }
             }
@@ -696,6 +779,79 @@ namespace Automation
             }
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
+        }
+        private void AddRemarkItem(string ioType, List<IO> targetList, ListView targetView)
+        {
+            string remarkText = PromptRemark($"{ioType}备注");
+            if (string.IsNullOrWhiteSpace(remarkText))
+            {
+                return;
+            }
+            IO remark = new IO
+            {
+                Name = remarkText.Trim(),
+                IOType = ioType,
+                IsRemark = true
+            };
+            int insertIndex = targetList.Count;
+            if (targetView.SelectedItems.Count > 0)
+            {
+                insertIndex = targetView.SelectedItems[0].Index + 1;
+                if (insertIndex < 0 || insertIndex > targetList.Count)
+                {
+                    insertIndex = targetList.Count;
+                }
+            }
+            targetList.Insert(insertIndex, remark);
+            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            RefreshIODebugMapFrm();
+        }
+        private string PromptRemark(string title)
+        {
+            using (Form form = new Form())
+            {
+                form.Text = title;
+                form.StartPosition = FormStartPosition.CenterParent;
+                form.FormBorderStyle = FormBorderStyle.FixedDialog;
+                form.MaximizeBox = false;
+                form.MinimizeBox = false;
+                form.Width = 300;
+                form.Height = 150;
+
+                Label label = new Label();
+                label.Text = "备注内容";
+                label.AutoSize = true;
+                label.Location = new Point(12, 12);
+
+                TextBox textBox = new TextBox();
+                textBox.Location = new Point(12, 36);
+                textBox.Width = 260;
+
+                Button ok = new Button();
+                ok.Text = "确定";
+                ok.DialogResult = DialogResult.OK;
+                ok.Location = new Point(116, 70);
+                ok.Width = 70;
+
+                Button cancel = new Button();
+                cancel.Text = "取消";
+                cancel.DialogResult = DialogResult.Cancel;
+                cancel.Location = new Point(202, 70);
+                cancel.Width = 70;
+
+                form.Controls.Add(label);
+                form.Controls.Add(textBox);
+                form.Controls.Add(ok);
+                form.Controls.Add(cancel);
+                form.AcceptButton = ok;
+                form.CancelButton = cancel;
+
+                if (form.ShowDialog(this) == DialogResult.OK)
+                {
+                    return textBox.Text.Trim();
+                }
+            }
+            return string.Empty;
         }
         private void EnsureInputTempSize(int count)
         {
@@ -876,8 +1032,17 @@ namespace Automation
                     EnsureInputTempSize(IODebugMaps.inputs.Count);
                     for (int i = 0; i < IODebugMaps.inputs.Count; i++)
                     {
+                        if (i >= buttonsIn.Count)
+                        {
+                            continue;
+                        }
+                        IO ioItem = IODebugMaps.inputs[i];
+                        if (ioItem == null || ioItem.IsRemark || buttonsIn[i] == null)
+                        {
+                            continue;
+                        }
                         bool Open_1 = false;
-                        if (TryResolveIoByName(IODebugMaps.inputs[i].Name, "通用输入", out IO io))
+                        if (TryResolveIoByName(ioItem.Name, "通用输入", out IO io))
                         {
                             SF.motion.GetInIO(io, ref Open_1);
                             buttonsIn[i].BackColor = Open_1 ? Color.Green : Color.Gray;
@@ -896,8 +1061,17 @@ namespace Automation
                     EnsureOutputTempSize(IODebugMaps.outputs.Count);
                     for (int i = 0; i < IODebugMaps.outputs.Count; i++)
                     {
+                        if (i >= buttonsOut.Count)
+                        {
+                            continue;
+                        }
+                        IO ioItem = IODebugMaps.outputs[i];
+                        if (ioItem == null || ioItem.IsRemark || buttonsOut[i] == null)
+                        {
+                            continue;
+                        }
                         bool Open_1 = false;
-                        if (TryResolveIoByName(IODebugMaps.outputs[i].Name, "通用输出", out IO io))
+                        if (TryResolveIoByName(ioItem.Name, "通用输出", out IO io))
                         {
                             SF.motion.GetOutIO(io, ref Open_1);
                             buttonsOut[i].BackColor = Open_1 ? Color.Green : Color.Gray;

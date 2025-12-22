@@ -260,6 +260,8 @@ namespace Automation
         public string EffectLevel { get; set; }
         [DisplayName("备注"), Category("设置"), Description(""), ReadOnly(false), Browsable(true)]
         public string Note { get; set; }
+        [Browsable(false)]
+        public bool IsRemark { get; set; }
        
         public IO()
         {
@@ -277,7 +279,8 @@ namespace Automation
                 IOType = IOType,
                 UsedType = UsedType,
                 EffectLevel = EffectLevel,
-                Note = Note
+                Note = Note,
+                IsRemark = IsRemark
             };
         }
 
