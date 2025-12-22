@@ -5,6 +5,7 @@ using System.Data;
 using System.Drawing;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml.Linq;
@@ -21,8 +22,18 @@ namespace Automation
         public List<Button> buttonsOut = new List<Button>();
         public List<ConnectButton> btnCon = new List<ConnectButton>();
         private ListView listView6;
-        private readonly Timer ioRefreshTimer = new Timer();
-        private bool ioRefreshTimerInit = false;
+        private readonly object ioCacheLock = new object();
+        private Dictionary<string, IO> inputIoCache = new Dictionary<string, IO>(StringComparer.Ordinal);
+        private Dictionary<string, IO> outputIoCache = new Dictionary<string, IO>(StringComparer.Ordinal);
+        private HashSet<string> inputIoDup = new HashSet<string>(StringComparer.Ordinal);
+        private HashSet<string> outputIoDup = new HashSet<string>(StringComparer.Ordinal);
+        private int ioCacheHash = 0;
+
+        private readonly object ioRefreshLock = new object();
+        private CancellationTokenSource ioRefreshCts;
+        private volatile bool ioRefreshEnabled = false;
+        private readonly int ioRefreshIntervalMs = 200;
+        private volatile int currentTabIndex = 0;
 
         public FrmIODebug()
         {
@@ -83,6 +94,7 @@ namespace Automation
             connectMenu.Items.Add(connectRemarkItem);
             listView3.ContextMenuStrip = connectMenu;
             this.VisibleChanged += FrmIODebug_VisibleChanged;
+            this.Resize += FrmIODebug_Resize;
         }
         public bool CheckFormIsOpen(Form form)
         {
@@ -97,6 +109,11 @@ namespace Automation
         bool[] InTemp = new bool[300];
         bool[] OutTemp = new bool[300];
         Connect[] ConnectTemp = new Connect[300];
+        bool[] InValid = new bool[300];
+        bool[] OutValid = new bool[300];
+        bool[] ConnectOutValid = new bool[300];
+        bool[] ConnectIn1Valid = new bool[300];
+        bool[] ConnectIn2Valid = new bool[300];
 
         public class ConnectButton
         {
@@ -113,174 +130,508 @@ namespace Automation
 
         public void RefleshIODebug()
         {
-            if (!ioRefreshTimerInit)
-            {
-                ioRefreshTimer.Interval = 200;
-                ioRefreshTimer.Tick += IoRefreshTimer_Tick;
-                ioRefreshTimerInit = true;
-            }
-            if (!ioRefreshTimer.Enabled)
-            {
-                ioRefreshTimer.Start();
-            }
+            UpdateRefreshEnabled();
         }
         private void FrmIODebug_VisibleChanged(object sender, EventArgs e)
         {
-            if (!ioRefreshTimerInit)
-            {
-                return;
-            }
-            ioRefreshTimer.Enabled = this.Visible;
+            UpdateRefreshEnabled();
         }
 
-        private void IoRefreshTimer_Tick(object sender, EventArgs e)
+        private void FrmIODebug_Resize(object sender, EventArgs e)
         {
-            if (!CheckFormIsOpen(SF.frmIODebug))
+            UpdateRefreshEnabled();
+        }
+
+        private void UpdateRefreshEnabled()
+        {
+            bool enable = this.Visible && this.WindowState != FormWindowState.Minimized;
+            ioRefreshEnabled = enable;
+            if (enable)
             {
-                return;
+                StartIoRefreshLoop();
             }
-            if (SF.isModify == ModifyKind.IO)
+            else
             {
-                return;
+                StopIoRefreshLoop();
             }
+        }
+
+        private void StartIoRefreshLoop()
+        {
+            lock (ioRefreshLock)
+            {
+                if (ioRefreshCts != null)
+                {
+                    return;
+                }
+                ioRefreshCts = new CancellationTokenSource();
+                Task.Run(() => IoRefreshLoop(ioRefreshCts.Token));
+            }
+        }
+
+        private void StopIoRefreshLoop()
+        {
+            lock (ioRefreshLock)
+            {
+                if (ioRefreshCts == null)
+                {
+                    return;
+                }
+                ioRefreshCts.Cancel();
+                ioRefreshCts = null;
+            }
+        }
+
+        private async Task IoRefreshLoop(CancellationToken token)
+        {
             try
             {
-                if (tabControl1.SelectedIndex == 0)
+                while (!token.IsCancellationRequested)
                 {
-                    if (buttonsIn.Count != IODebugMaps.inputs.Count)
+                    if (!ioRefreshEnabled || SF.isModify == ModifyKind.IO)
                     {
-                        tabPage1.Controls.Clear();
-                        buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1);
+                        await Task.Delay(ioRefreshIntervalMs, token);
+                        continue;
                     }
-                    EnsureInputTempSize(IODebugMaps.inputs.Count);
-                    for (int i = 0; i < IODebugMaps.inputs.Count; i++)
+                    IoRefreshData data = BuildIoRefreshData(currentTabIndex);
+                    if (data != null)
                     {
-                        if (i >= buttonsIn.Count)
+                        try
                         {
-                            continue;
+                            BeginInvoke(new Action(() => ApplyIoRefresh(data)));
                         }
-                        IO ioItem = IODebugMaps.inputs[i];
-                        if (ioItem == null || ioItem.IsRemark || buttonsIn[i] == null)
+                        catch (InvalidOperationException)
                         {
-                            continue;
-                        }
-                        bool Open_1 = false;
-                        if (TryResolveIoByName(ioItem.Name, "通用输入", out IO io))
-                        {
-                            SF.motion.GetInIO(io, ref Open_1);
-                            if (Open_1 != InTemp[i])
-                            {
-                                buttonsIn[i].BackColor = Open_1 ? Color.Green : Color.Gray;
-                                InTemp[i] = Open_1;
-                            }
-                        }
-                        else
-                        {
-                            buttonsIn[i].BackColor = Color.Red;
-                            InTemp[i] = false;
+                            return;
                         }
                     }
+                    await Task.Delay(ioRefreshIntervalMs, token);
                 }
-                else if (tabControl1.SelectedIndex == 1)
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+
+        private class IoRefreshData
+        {
+            public int TabIndex;
+            public int InputCount;
+            public int OutputCount;
+            public int ConnectCount;
+            public bool[] InputStates;
+            public bool[] InputValid;
+            public bool[] OutputStates;
+            public bool[] OutputValid;
+            public bool[] ConnectOutStates;
+            public bool[] ConnectOutValid;
+            public bool[] ConnectIn1States;
+            public bool[] ConnectIn1Valid;
+            public bool[] ConnectIn2States;
+            public bool[] ConnectIn2Valid;
+        }
+
+        private IoRefreshData BuildIoRefreshData(int tabIndex)
+        {
+            try
+            {
+                UpdateIoCacheIfNeeded();
+                if (tabIndex == 0)
                 {
-                    if (buttonsOut.Count != IODebugMaps.outputs.Count)
+                    IO[] inputs = IODebugMaps.inputs.ToArray();
+                    bool[] states = new bool[inputs.Length];
+                    bool[] valid = new bool[inputs.Length];
+                    for (int i = 0; i < inputs.Length; i++)
                     {
-                        tabPage2.Controls.Clear();
-                        buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2);
-                    }
-                    EnsureOutputTempSize(IODebugMaps.outputs.Count);
-                    for (int i = 0; i < IODebugMaps.outputs.Count; i++)
-                    {
-                        if (i >= buttonsOut.Count)
+                        IO ioItem = inputs[i];
+                        if (ioItem == null || ioItem.IsRemark)
                         {
+                            valid[i] = false;
                             continue;
                         }
-                        IO ioItem = IODebugMaps.outputs[i];
-                        if (ioItem == null || ioItem.IsRemark || buttonsOut[i] == null)
+                        bool open = false;
+                        if (TryResolveIoByName(ioItem.Name, "通用输入", out IO io, false))
                         {
-                            continue;
-                        }
-                        bool Open_1 = false;
-                        if (TryResolveIoByName(ioItem.Name, "通用输出", out IO io))
-                        {
-                            SF.motion.GetOutIO(io, ref Open_1);
-                            if (Open_1 != OutTemp[i])
-                            {
-                                buttonsOut[i].BackColor = Open_1 ? Color.Green : Color.Gray;
-                                OutTemp[i] = Open_1;
-                            }
+                            SF.motion.GetInIO(io, ref open);
+                            states[i] = open;
+                            valid[i] = true;
                         }
                         else
                         {
-                            buttonsOut[i].BackColor = Color.Red;
-                            OutTemp[i] = false;
+                            valid[i] = false;
                         }
                     }
+                    return new IoRefreshData
+                    {
+                        TabIndex = 0,
+                        InputCount = inputs.Length,
+                        InputStates = states,
+                        InputValid = valid
+                    };
                 }
-                else if (tabControl1.SelectedIndex == 2)
+                if (tabIndex == 1)
                 {
-                    if (btnCon.Count != IODebugMaps.iOConnects.Count)
+                    IO[] outputs = IODebugMaps.outputs.ToArray();
+                    bool[] states = new bool[outputs.Length];
+                    bool[] valid = new bool[outputs.Length];
+                    for (int i = 0; i < outputs.Length; i++)
                     {
-                        tabPage3.Controls.Clear();
-                        CreateButtonConnect();
-                    }
-                    EnsureConnectTempSize(IODebugMaps.iOConnects.Count);
-                    for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
-                    {
-                        IOConnect ioConnect = IODebugMaps.iOConnects[i];
-                        if (ioConnect?.Output == null || ioConnect.Output.IsRemark)
+                        IO ioItem = outputs[i];
+                        if (ioItem == null || ioItem.IsRemark)
                         {
+                            valid[i] = false;
                             continue;
                         }
-                        bool Open_1 = false;
-                        if (TryResolveIoByName(ioConnect.Output.Name, "通用输出", out IO outputIo))
+                        bool open = false;
+                        if (TryResolveIoByName(ioItem.Name, "通用输出", out IO io, false))
                         {
-                            SF.motion.GetOutIO(outputIo, ref Open_1);
-                            if (Open_1 != ConnectTemp[i].OutPut)
-                            {
-                                btnCon[i].OutPut.BackColor = Open_1 ? Color.Green : Color.Gray;
-                                ConnectTemp[i].OutPut = Open_1;
-                            }
+                            SF.motion.GetOutIO(io, ref open);
+                            states[i] = open;
+                            valid[i] = true;
                         }
                         else
                         {
-                            btnCon[i].OutPut.BackColor = Color.Red;
-                            ConnectTemp[i].OutPut = false;
-                        }
-                        if (TryResolveIoByName(ioConnect.Intput1.Name, "通用输入", out IO input1Io))
-                        {
-                            SF.motion.GetInIO(input1Io, ref Open_1);
-                            if (Open_1 != ConnectTemp[i].InPut1)
-                            {
-                                btnCon[i].InPut1.BackColor = Open_1 ? Color.Green : Color.Gray;
-                                ConnectTemp[i].InPut1 = Open_1;
-                            }
-                        }
-                        else
-                        {
-                            btnCon[i].InPut1.BackColor = Color.Red;
-                            ConnectTemp[i].InPut1 = false;
-                        }
-                        if (TryResolveIoByName(ioConnect.Intput2.Name, "通用输入", out IO input2Io))
-                        {
-                            SF.motion.GetInIO(input2Io, ref Open_1);
-                            if (Open_1 != ConnectTemp[i].InPut2)
-                            {
-                                btnCon[i].InPut2.BackColor = Open_1 ? Color.Green : Color.Gray;
-                                ConnectTemp[i].InPut2 = Open_1;
-                            }
-                        }
-                        else
-                        {
-                            btnCon[i].InPut2.BackColor = Color.Red;
-                            ConnectTemp[i].InPut2 = false;
+                            valid[i] = false;
                         }
                     }
+                    return new IoRefreshData
+                    {
+                        TabIndex = 1,
+                        OutputCount = outputs.Length,
+                        OutputStates = states,
+                        OutputValid = valid
+                    };
+                }
+                if (tabIndex == 2)
+                {
+                    IOConnect[] connects = IODebugMaps.iOConnects.ToArray();
+                    bool[] outStates = new bool[connects.Length];
+                    bool[] outValid = new bool[connects.Length];
+                    bool[] in1States = new bool[connects.Length];
+                    bool[] in1Valid = new bool[connects.Length];
+                    bool[] in2States = new bool[connects.Length];
+                    bool[] in2Valid = new bool[connects.Length];
+                    for (int i = 0; i < connects.Length; i++)
+                    {
+                        IOConnect connect = connects[i];
+                        if (connect?.Output == null || connect.Output.IsRemark)
+                        {
+                            outValid[i] = false;
+                            in1Valid[i] = false;
+                            in2Valid[i] = false;
+                            continue;
+                        }
+                        bool open = false;
+                        if (TryResolveIoByName(connect.Output.Name, "通用输出", out IO outputIo, false))
+                        {
+                            SF.motion.GetOutIO(outputIo, ref open);
+                            outStates[i] = open;
+                            outValid[i] = true;
+                        }
+                        else
+                        {
+                            outValid[i] = false;
+                        }
+                        if (connect.Intput1 != null && !string.IsNullOrWhiteSpace(connect.Intput1.Name)
+                            && TryResolveIoByName(connect.Intput1.Name, "通用输入", out IO input1Io, false))
+                        {
+                            SF.motion.GetInIO(input1Io, ref open);
+                            in1States[i] = open;
+                            in1Valid[i] = true;
+                        }
+                        else
+                        {
+                            in1Valid[i] = false;
+                        }
+                        if (connect.Intput2 != null && !string.IsNullOrWhiteSpace(connect.Intput2.Name)
+                            && TryResolveIoByName(connect.Intput2.Name, "通用输入", out IO input2Io, false))
+                        {
+                            SF.motion.GetInIO(input2Io, ref open);
+                            in2States[i] = open;
+                            in2Valid[i] = true;
+                        }
+                        else
+                        {
+                            in2Valid[i] = false;
+                        }
+                    }
+                    return new IoRefreshData
+                    {
+                        TabIndex = 2,
+                        ConnectCount = connects.Length,
+                        ConnectOutStates = outStates,
+                        ConnectOutValid = outValid,
+                        ConnectIn1States = in1States,
+                        ConnectIn1Valid = in1Valid,
+                        ConnectIn2States = in2States,
+                        ConnectIn2Valid = in2Valid
+                    };
                 }
             }
             catch
             {
+                return null;
+            }
+            return null;
+        }
+
+        private void ApplyIoRefresh(IoRefreshData data)
+        {
+            if (!CheckFormIsOpen(this))
+            {
                 return;
+            }
+            if (data.TabIndex == 0)
+            {
+                if (buttonsIn.Count != IODebugMaps.inputs.Count || data.InputCount != IODebugMaps.inputs.Count)
+                {
+                    tabPage1.Controls.Clear();
+                    buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1);
+                    EnsureInputTempSize(IODebugMaps.inputs.Count);
+                    return;
+                }
+                EnsureInputTempSize(data.InputCount);
+                for (int i = 0; i < data.InputCount; i++)
+                {
+                    if (i >= buttonsIn.Count || buttonsIn[i] == null)
+                    {
+                        continue;
+                    }
+                    if (!data.InputValid[i])
+                    {
+                        if (buttonsIn[i].BackColor != Color.Red)
+                        {
+                            buttonsIn[i].BackColor = Color.Red;
+                        }
+                        InTemp[i] = false;
+                        InValid[i] = false;
+                        continue;
+                    }
+                    bool open = data.InputStates[i];
+                    if (!InValid[i] || InTemp[i] != open)
+                    {
+                        buttonsIn[i].BackColor = open ? Color.Green : Color.Gray;
+                        InTemp[i] = open;
+                        InValid[i] = true;
+                    }
+                }
+                return;
+            }
+            if (data.TabIndex == 1)
+            {
+                if (buttonsOut.Count != IODebugMaps.outputs.Count || data.OutputCount != IODebugMaps.outputs.Count)
+                {
+                    tabPage2.Controls.Clear();
+                    buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2);
+                    EnsureOutputTempSize(IODebugMaps.outputs.Count);
+                    return;
+                }
+                EnsureOutputTempSize(data.OutputCount);
+                for (int i = 0; i < data.OutputCount; i++)
+                {
+                    if (i >= buttonsOut.Count || buttonsOut[i] == null)
+                    {
+                        continue;
+                    }
+                    if (!data.OutputValid[i])
+                    {
+                        if (buttonsOut[i].BackColor != Color.Red)
+                        {
+                            buttonsOut[i].BackColor = Color.Red;
+                        }
+                        OutTemp[i] = false;
+                        OutValid[i] = false;
+                        continue;
+                    }
+                    bool open = data.OutputStates[i];
+                    if (!OutValid[i] || OutTemp[i] != open)
+                    {
+                        buttonsOut[i].BackColor = open ? Color.Green : Color.Gray;
+                        OutTemp[i] = open;
+                        OutValid[i] = true;
+                    }
+                }
+                return;
+            }
+            if (data.TabIndex == 2)
+            {
+                if (btnCon.Count != IODebugMaps.iOConnects.Count || data.ConnectCount != IODebugMaps.iOConnects.Count)
+                {
+                    tabPage3.Controls.Clear();
+                    CreateButtonConnect();
+                    EnsureConnectTempSize(IODebugMaps.iOConnects.Count);
+                    return;
+                }
+                EnsureConnectTempSize(data.ConnectCount);
+                for (int i = 0; i < data.ConnectCount; i++)
+                {
+                    IOConnect connect = IODebugMaps.iOConnects[i];
+                    if (connect?.Output == null || connect.Output.IsRemark)
+                    {
+                        continue;
+                    }
+                    if (!data.ConnectOutValid[i])
+                    {
+                        if (btnCon[i].OutPut != null && btnCon[i].OutPut.BackColor != Color.Red)
+                        {
+                            btnCon[i].OutPut.BackColor = Color.Red;
+                        }
+                        ConnectTemp[i].OutPut = false;
+                        ConnectOutValid[i] = false;
+                    }
+                    else
+                    {
+                        bool open = data.ConnectOutStates[i];
+                        if (!ConnectOutValid[i] || ConnectTemp[i].OutPut != open)
+                        {
+                            if (btnCon[i].OutPut != null)
+                            {
+                                btnCon[i].OutPut.BackColor = open ? Color.Green : Color.Gray;
+                            }
+                            ConnectTemp[i].OutPut = open;
+                            ConnectOutValid[i] = true;
+                        }
+                    }
+                    if (!data.ConnectIn1Valid[i])
+                    {
+                        if (btnCon[i].InPut1 != null && btnCon[i].InPut1.BackColor != Color.Red)
+                        {
+                            btnCon[i].InPut1.BackColor = Color.Red;
+                        }
+                        ConnectTemp[i].InPut1 = false;
+                        ConnectIn1Valid[i] = false;
+                    }
+                    else
+                    {
+                        bool open = data.ConnectIn1States[i];
+                        if (!ConnectIn1Valid[i] || ConnectTemp[i].InPut1 != open)
+                        {
+                            if (btnCon[i].InPut1 != null)
+                            {
+                                btnCon[i].InPut1.BackColor = open ? Color.Green : Color.Gray;
+                            }
+                            ConnectTemp[i].InPut1 = open;
+                            ConnectIn1Valid[i] = true;
+                        }
+                    }
+                    if (!data.ConnectIn2Valid[i])
+                    {
+                        if (btnCon[i].InPut2 != null && btnCon[i].InPut2.BackColor != Color.Red)
+                        {
+                            btnCon[i].InPut2.BackColor = Color.Red;
+                        }
+                        ConnectTemp[i].InPut2 = false;
+                        ConnectIn2Valid[i] = false;
+                    }
+                    else
+                    {
+                        bool open = data.ConnectIn2States[i];
+                        if (!ConnectIn2Valid[i] || ConnectTemp[i].InPut2 != open)
+                        {
+                            if (btnCon[i].InPut2 != null)
+                            {
+                                btnCon[i].InPut2.BackColor = open ? Color.Green : Color.Gray;
+                            }
+                            ConnectTemp[i].InPut2 = open;
+                            ConnectIn2Valid[i] = true;
+                        }
+                    }
+                }
+                return;
+            }
+        }
+
+        private void UpdateIoCacheIfNeeded()
+        {
+            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+            if (cacheIOs == null)
+            {
+                lock (ioCacheLock)
+                {
+                    inputIoCache.Clear();
+                    outputIoCache.Clear();
+                    inputIoDup.Clear();
+                    outputIoDup.Clear();
+                    ioCacheHash = 0;
+                }
+                return;
+            }
+            IO[] snapshot;
+            try
+            {
+                snapshot = cacheIOs.ToArray();
+            }
+            catch
+            {
+                return;
+            }
+            int hash = 17;
+            StringComparer comparer = StringComparer.Ordinal;
+            for (int i = 0; i < snapshot.Length; i++)
+            {
+                IO io = snapshot[i];
+                if (io == null)
+                {
+                    continue;
+                }
+                hash = hash * 31 + comparer.GetHashCode(io.Name ?? string.Empty);
+                hash = hash * 31 + comparer.GetHashCode(io.IOType ?? string.Empty);
+                hash = hash * 31 + io.CardNum.GetHashCode();
+                hash = hash * 31 + io.Module.GetHashCode();
+                hash = hash * 31 + comparer.GetHashCode(io.IOIndex ?? string.Empty);
+            }
+            lock (ioCacheLock)
+            {
+                if (hash == ioCacheHash)
+                {
+                    return;
+                }
+                Dictionary<string, IO> newInput = new Dictionary<string, IO>(StringComparer.Ordinal);
+                Dictionary<string, IO> newOutput = new Dictionary<string, IO>(StringComparer.Ordinal);
+                HashSet<string> newInputDup = new HashSet<string>(StringComparer.Ordinal);
+                HashSet<string> newOutputDup = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < snapshot.Length; i++)
+                {
+                    IO io = snapshot[i];
+                    if (io == null || string.IsNullOrWhiteSpace(io.Name) || string.IsNullOrWhiteSpace(io.IOType))
+                    {
+                        continue;
+                    }
+                    if (io.IOType == "通用输入")
+                    {
+                        if (newInputDup.Contains(io.Name))
+                        {
+                            continue;
+                        }
+                        if (newInput.ContainsKey(io.Name))
+                        {
+                            newInput.Remove(io.Name);
+                            newInputDup.Add(io.Name);
+                            continue;
+                        }
+                        newInput.Add(io.Name, io);
+                    }
+                    else if (io.IOType == "通用输出")
+                    {
+                        if (newOutputDup.Contains(io.Name))
+                        {
+                            continue;
+                        }
+                        if (newOutput.ContainsKey(io.Name))
+                        {
+                            newOutput.Remove(io.Name);
+                            newOutputDup.Add(io.Name);
+                            continue;
+                        }
+                        newOutput.Add(io.Name, io);
+                    }
+                }
+                inputIoCache = newInput;
+                outputIoCache = newOutput;
+                inputIoDup = newInputDup;
+                outputIoDup = newOutputDup;
+                ioCacheHash = hash;
             }
         }
 
@@ -375,6 +726,7 @@ namespace Automation
         {
             listView3.Clear();
             listView3.Columns.Add("通用输出1", 220);
+            UpdateIoCacheIfNeeded();
             List<IOConnect> IOConnects = IODebugMaps.iOConnects;
             IOConnect iOConnect = null;
             for (int j = 0; j < IOConnects.Count; j++)
@@ -395,13 +747,13 @@ namespace Automation
                 }
                 else
                 {
-                    if (!TryResolveIoByName(name, "通用输出", out _))
+                    if (!TryResolveIoByName(name, "通用输出", out _, false))
                     {
                         item.ForeColor = Color.Red;
                     }
                     if (iOConnect.Output2 != null
                         && !string.IsNullOrWhiteSpace(iOConnect.Output2.Name)
-                        && !TryResolveIoByName(iOConnect.Output2.Name, "通用输出", out _))
+                        && !TryResolveIoByName(iOConnect.Output2.Name, "通用输出", out _, false))
                     {
                         item.ForeColor = Color.Red;
                     }
@@ -421,6 +773,7 @@ namespace Automation
             {
                 ConnectTemp[i] = new Connect();
             }
+            currentTabIndex = tabControl1.SelectedIndex;
             RefreshIODebugMapFrm();
             buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1);
 
@@ -604,6 +957,7 @@ namespace Automation
             listView2.Clear();
             listView1.Columns.Add("通用输入", 220);
             listView2.Columns.Add("通用输出", 220);
+            UpdateIoCacheIfNeeded();
             //for (int i = 0; i < SF.frmCard.card.controlCards.Count; i++)
             //{
             List<IO> cacheIOs = SF.frmIODebug.IODebugMaps.inputs;
@@ -627,7 +981,7 @@ namespace Automation
                         item.Text = name;
                     }
                     item.Font = font;
-                    if (!cacheIO.IsRemark && !TryResolveIoByName(name, "通用输入", out _))
+                    if (!cacheIO.IsRemark && !TryResolveIoByName(name, "通用输入", out _, false))
                     {
                         item.ForeColor = Color.Red;
                     }
@@ -657,7 +1011,7 @@ namespace Automation
                         item.Text = name;
                     }
                     item.Font = font;
-                    if (!cacheIO.IsRemark && !TryResolveIoByName(name, "通用输出", out _))
+                    if (!cacheIO.IsRemark && !TryResolveIoByName(name, "通用输出", out _, false))
                     {
                         item.ForeColor = Color.Red;
                     }
@@ -1025,12 +1379,20 @@ namespace Automation
             {
                 Array.Resize(ref InTemp, count);
             }
+            if (InValid.Length < count)
+            {
+                Array.Resize(ref InValid, count);
+            }
         }
         private void EnsureOutputTempSize(int count)
         {
             if (OutTemp.Length < count)
             {
                 Array.Resize(ref OutTemp, count);
+            }
+            if (OutValid.Length < count)
+            {
+                Array.Resize(ref OutValid, count);
             }
         }
         private void EnsureConnectTempSize(int count)
@@ -1044,24 +1406,48 @@ namespace Automation
                     ConnectTemp[i] = new Connect();
                 }
             }
+            if (ConnectOutValid.Length < count)
+            {
+                Array.Resize(ref ConnectOutValid, count);
+            }
+            if (ConnectIn1Valid.Length < count)
+            {
+                Array.Resize(ref ConnectIn1Valid, count);
+            }
+            if (ConnectIn2Valid.Length < count)
+            {
+                Array.Resize(ref ConnectIn2Valid, count);
+            }
         }
-        private bool TryResolveIoByName(string name, string ioType, out IO io)
+        private bool TryResolveIoByName(string name, string ioType, out IO io, bool ensureCache = true)
         {
             io = null;
             if (string.IsNullOrWhiteSpace(name))
             {
                 return false;
             }
-            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
-            if (cacheIOs == null)
+            if (ensureCache)
             {
-                return false;
+                UpdateIoCacheIfNeeded();
             }
-            List<IO> matches = cacheIOs.Where(item => item != null && item.IOType == ioType && item.Name == name).ToList();
-            if (matches.Count == 1)
+            lock (ioCacheLock)
             {
-                io = matches[0];
-                return true;
+                if (ioType == "通用输入")
+                {
+                    if (inputIoDup.Contains(name))
+                    {
+                        return false;
+                    }
+                    return inputIoCache.TryGetValue(name, out io);
+                }
+                if (ioType == "通用输出")
+                {
+                    if (outputIoDup.Contains(name))
+                    {
+                        return false;
+                    }
+                    return outputIoCache.TryGetValue(name, out io);
+                }
             }
             return false;
         }
@@ -1189,6 +1575,7 @@ namespace Automation
         private void tabControl1_SelectedIndexChanged(object sender, EventArgs e)
         {
             int selectedIndex = tabControl1.SelectedIndex;
+            currentTabIndex = selectedIndex;
 
             switch (selectedIndex)
             {
@@ -1196,108 +1583,16 @@ namespace Automation
                     tabPage1.Controls.Clear();
                     buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1);
                     EnsureInputTempSize(IODebugMaps.inputs.Count);
-                    for (int i = 0; i < IODebugMaps.inputs.Count; i++)
-                    {
-                        if (i >= buttonsIn.Count)
-                        {
-                            continue;
-                        }
-                        IO ioItem = IODebugMaps.inputs[i];
-                        if (ioItem == null || ioItem.IsRemark || buttonsIn[i] == null)
-                        {
-                            continue;
-                        }
-                        bool Open_1 = false;
-                        if (TryResolveIoByName(ioItem.Name, "通用输入", out IO io))
-                        {
-                            SF.motion.GetInIO(io, ref Open_1);
-                            buttonsIn[i].BackColor = Open_1 ? Color.Green : Color.Gray;
-                            InTemp[i] = Open_1;
-                        }
-                        else
-                        {
-                            buttonsIn[i].BackColor = Color.Red;
-                            InTemp[i] = false;
-                        }
-                    }
                     break;
                 case 1:
                     tabPage2.Controls.Clear();
                     buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2);
                     EnsureOutputTempSize(IODebugMaps.outputs.Count);
-                    for (int i = 0; i < IODebugMaps.outputs.Count; i++)
-                    {
-                        if (i >= buttonsOut.Count)
-                        {
-                            continue;
-                        }
-                        IO ioItem = IODebugMaps.outputs[i];
-                        if (ioItem == null || ioItem.IsRemark || buttonsOut[i] == null)
-                        {
-                            continue;
-                        }
-                        bool Open_1 = false;
-                        if (TryResolveIoByName(ioItem.Name, "通用输出", out IO io))
-                        {
-                            SF.motion.GetOutIO(io, ref Open_1);
-                            buttonsOut[i].BackColor = Open_1 ? Color.Green : Color.Gray;
-                            OutTemp[i] = Open_1;
-                        }
-                        else
-                        {
-                            buttonsOut[i].BackColor = Color.Red;
-                            OutTemp[i] = false;
-                        }
-                    }
                     break;
                 case 2:
                     tabPage3.Controls.Clear();
                     CreateButtonConnect();
                     EnsureConnectTempSize(IODebugMaps.iOConnects.Count);
-                    for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
-                    {
-                        IOConnect ioConnect = IODebugMaps.iOConnects[i];
-                        if (ioConnect?.Output == null || ioConnect.Output.IsRemark)
-                        {
-                            continue;
-                        }
-                        bool Open_1 = false;
-                        if (TryResolveIoByName(ioConnect.Output.Name, "通用输出", out IO outputIo))
-                        {
-                            SF.motion.GetOutIO(outputIo, ref Open_1);
-                            btnCon[i].OutPut.BackColor = Open_1 ? Color.Green : Color.Gray;
-                            ConnectTemp[i].OutPut = Open_1;
-                        }
-                        else
-                        {
-                            btnCon[i].OutPut.BackColor = Color.Red;
-                            ConnectTemp[i].OutPut = false;
-                        }
-
-                        if (TryResolveIoByName(ioConnect.Intput1.Name, "通用输入", out IO input1Io))
-                        {
-                            SF.motion.GetInIO(input1Io, ref Open_1);
-                            btnCon[i].InPut1.BackColor = Open_1 ? Color.Green : Color.Gray;
-                            ConnectTemp[i].InPut1 = Open_1;
-                        }
-                        else
-                        {
-                            btnCon[i].InPut1.BackColor = Color.Red;
-                            ConnectTemp[i].InPut1 = false;
-                        }
-
-                        if (TryResolveIoByName(ioConnect.Intput2.Name, "通用输入", out IO input2Io))
-                        {
-                            SF.motion.GetInIO(input2Io, ref Open_1);
-                            btnCon[i].InPut2.BackColor = Open_1 ? Color.Green : Color.Gray;
-                            ConnectTemp[i].InPut2 = Open_1;
-                        }
-                        else
-                        {
-                            btnCon[i].InPut2.BackColor = Color.Red;
-                            ConnectTemp[i].InPut2 = false;
-                        }
-                    }
                     break;
                 case 3:
                     listView4.ItemChecked -= listView4_ItemChecked;
