@@ -15,7 +15,6 @@ using System.Windows.Forms;
 using System.Collections;
 using Newtonsoft.Json.Linq;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-using System.Windows.Forms.DataVisualization.Charting;
 using System.Runtime.InteropServices;
 using csLTDMC;
 
@@ -174,7 +173,7 @@ namespace Automation
                 ushort i = ushort.Parse(dataStation.dataAxis.axisConfigs[AxisIndex].CardNum);
                 ushort j = (ushort)dataStation.dataAxis.axisConfigs[AxisIndex].axis.AxisNum;
 
-                if (SF.frmCard.TryGetAxis(i, j, out Axis axis))
+                if (SF.cardStore.TryGetAxis(i, j, out FrmCard.Axis axis))
                 {
                     SF.motion.SetMovParam(i, j, 0, axis.SpeedMax * dataStation.Vel, axis.AccMax, axis.DecMax, 0, 0, axis.PulseToMM);
                 }

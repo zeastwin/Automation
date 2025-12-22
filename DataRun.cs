@@ -1538,7 +1538,7 @@ namespace Automation
                             {
                                 if (station.dataAxis.axisConfigs[i].AxisName == "-1")
                                     continue;
-                                if (SF.frmCard.TryGetAxis(int.Parse(station.dataAxis.axisConfigs[i].CardNum), i, out Axis axisInfo) && axisInfo.State == Axis.Status.Ready)
+                                if (SF.cardStore.TryGetAxis(int.Parse(station.dataAxis.axisConfigs[i].CardNum), i, out Axis axisInfo) && axisInfo.State == Axis.Status.Ready)
                                 {
                                     isInPos = true;
                                 }
@@ -1603,7 +1603,7 @@ namespace Automation
                         {
                             ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
                             ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
-                            if (!SF.frmCard.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
+                            if (!SF.cardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                             {
                                 evt.isAlarm = true;
                                 SF.frmInfo.PrintInfo($"工站：{stationRunPos.Name} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
@@ -1696,7 +1696,7 @@ namespace Automation
                         {
                             for (int i = 0; i < cardNums.Count; i++)
                             {
-                                if (!SF.frmCard.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
+                                if (!SF.cardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
                                 {
                                     evt.isAlarm = true;
                                     SF.frmInfo.PrintInfo($"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在", FrmInfo.Level.Error);
@@ -1750,7 +1750,7 @@ namespace Automation
                         ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
                         cardNums.Add(cardNum);
                         axisNums.Add(axisNum);
-                        if (!SF.frmCard.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
+                        if (!SF.cardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                         {
                             evt.isAlarm = true;
                             SF.frmInfo.PrintInfo($"工站：{stationRunRel.Name} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
@@ -1829,7 +1829,7 @@ namespace Automation
                     {
                         for (int i = 0; i < cardNums.Count; i++)
                         {
-                            if (!SF.frmCard.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
+                            if (!SF.cardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
                             {
                                 evt.isAlarm = true;
                                 SF.frmInfo.PrintInfo($"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在", FrmInfo.Level.Error);
@@ -1879,7 +1879,7 @@ namespace Automation
                             ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
                             ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
 
-                            if (!SF.frmCard.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
+                            if (!SF.cardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                             {
                                 evt.isAlarm = true;
                                 SF.frmInfo.PrintInfo($"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
@@ -1902,7 +1902,7 @@ namespace Automation
                     }
                     int cardNum = int.Parse(axisInfo.CardNum);
                     int axisNum = axisInfo.axis.AxisNum;
-                    if (!SF.frmCard.TryGetAxis(cardNum, axisNum, out Axis axisConfig))
+                    if (!SF.cardStore.TryGetAxis(cardNum, axisNum, out Axis axisConfig))
                     {
                         evt.isAlarm = true;
                         SF.frmInfo.PrintInfo($"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
@@ -1998,7 +1998,7 @@ namespace Automation
                     {
                         if (waitStationStop.isWaitHome)
                         {
-                            if (!SF.frmCard.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
+                            if (!SF.cardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
                             {
                                 evt.isAlarm = true;
                                 SF.frmInfo.PrintInfo($"工站：{waitStationStop.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在", FrmInfo.Level.Error);

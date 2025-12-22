@@ -20,6 +20,8 @@ namespace Automation
         public List<Button> buttonsIn = new List<Button>();
         public List<Button> buttonsOut = new List<Button>();
         public List<ConnectButton> btnCon = new List<ConnectButton>();
+        private readonly Timer ioRefreshTimer = new Timer();
+        private bool ioRefreshTimerInit = false;
 
         public FrmIODebug()
         {
@@ -36,6 +38,7 @@ namespace Automation
             listView5.View = View.Details;
             listView4.CheckBoxes = true;
             listView5.CheckBoxes = true;
+            this.VisibleChanged += FrmIODebug_VisibleChanged;
         }
         public bool CheckFormIsOpen(Form form)
         {
@@ -66,84 +69,152 @@ namespace Automation
 
         public void RefleshIODebug()
         {
-            Task.Run(() =>
+            if (!ioRefreshTimerInit)
             {
-                while (true)
+                ioRefreshTimer.Interval = 200;
+                ioRefreshTimer.Tick += IoRefreshTimer_Tick;
+                ioRefreshTimerInit = true;
+            }
+            if (!ioRefreshTimer.Enabled)
+            {
+                ioRefreshTimer.Start();
+            }
+        }
+        private void FrmIODebug_VisibleChanged(object sender, EventArgs e)
+        {
+            if (!ioRefreshTimerInit)
+            {
+                return;
+            }
+            ioRefreshTimer.Enabled = this.Visible;
+        }
+
+        private void IoRefreshTimer_Tick(object sender, EventArgs e)
+        {
+            if (!CheckFormIsOpen(SF.frmIODebug))
+            {
+                return;
+            }
+            if (SF.isModify == ModifyKind.IO)
+            {
+                return;
+            }
+            try
+            {
+                if (tabControl1.SelectedIndex == 0)
                 {
-                    if (CheckFormIsOpen(SF.frmIODebug) && SF.isModify != ModifyKind.IO)
+                    if (buttonsIn.Count != IODebugMaps.inputs.Count)
                     {
-                        Invoke(new Action(() =>
-                        {
-                            try
-                            {
-                                if (tabControl1.SelectedIndex == 0)
-                                {
-                                    for (int i = 0; i < IODebugMaps.inputs.Count; i++)
-                                    {
-                                        bool Open_1 = false;
-                                        SF.motion.GetInIO(IODebugMaps.inputs[i], ref Open_1);
-                                        if (Open_1 != InTemp[i])
-                                        {
-                                            buttonsIn[i].BackColor = Open_1 ? Color.Green : Color.Gray;
-                                            InTemp[i] = Open_1;
-                                        }
-
-                                    }
-                                }
-                                else if (tabControl1.SelectedIndex == 1)
-                                {
-                                    for (int i = 0; i < IODebugMaps.outputs.Count; i++)
-                                    {
-                                        bool Open_1 = false;
-                                        SF.motion.GetOutIO(IODebugMaps.outputs[i], ref Open_1);
-                                        if (Open_1 != OutTemp[i])
-                                        {
-                                            buttonsOut[i].BackColor = Open_1 ? Color.Green : Color.Gray;
-                                            OutTemp[i] = Open_1;
-                                        }
-
-                                    }
-                                }
-                                else if (tabControl1.SelectedIndex == 2)
-                                {
-                                    for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
-                                    {
-                                        bool Open_1 = false;
-                                        SF.motion.GetOutIO(IODebugMaps.iOConnects[i].Output, ref Open_1);
-                                        if (Open_1 != ConnectTemp[i].OutPut)
-                                        {
-                                            btnCon[i].OutPut.BackColor = Open_1 ? Color.Green : Color.Gray;
-                                            ConnectTemp[i].OutPut = Open_1;
-                                        }
-                                        SF.motion.GetInIO(IODebugMaps.iOConnects[i].Intput1, ref Open_1);
-                                        if (Open_1 != ConnectTemp[i].InPut1)
-                                        {
-                                            btnCon[i].InPut1.BackColor = Open_1 ? Color.Green : Color.Gray;
-                                            ConnectTemp[i].InPut1 = Open_1;
-                                        }
-                                        SF.motion.GetInIO(IODebugMaps.iOConnects[i].Intput2, ref Open_1);
-                                        if (Open_1 != ConnectTemp[i].InPut2)
-                                        {
-                                            btnCon[i].InPut2.BackColor = Open_1 ? Color.Green : Color.Gray;
-                                            ConnectTemp[i].InPut2 = Open_1;
-                                        }
-
-                                    }
-                                }
-                            }
-                            catch(Exception ex)
-                            {
-                                MessageBox.Show(ex.Message);
-                            }
-                          
-
-                        }));
+                        tabPage1.Controls.Clear();
+                        buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1);
                     }
-
-                    SF.Delay(200);
+                    EnsureInputTempSize(IODebugMaps.inputs.Count);
+                    for (int i = 0; i < IODebugMaps.inputs.Count; i++)
+                    {
+                        bool Open_1 = false;
+                        if (TryResolveIoByName(IODebugMaps.inputs[i].Name, "通用输入", out IO io))
+                        {
+                            SF.motion.GetInIO(io, ref Open_1);
+                            if (Open_1 != InTemp[i])
+                            {
+                                buttonsIn[i].BackColor = Open_1 ? Color.Green : Color.Gray;
+                                InTemp[i] = Open_1;
+                            }
+                        }
+                        else
+                        {
+                            buttonsIn[i].BackColor = Color.Red;
+                            InTemp[i] = false;
+                        }
+                    }
                 }
-
-            });
+                else if (tabControl1.SelectedIndex == 1)
+                {
+                    if (buttonsOut.Count != IODebugMaps.outputs.Count)
+                    {
+                        tabPage2.Controls.Clear();
+                        buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2);
+                    }
+                    EnsureOutputTempSize(IODebugMaps.outputs.Count);
+                    for (int i = 0; i < IODebugMaps.outputs.Count; i++)
+                    {
+                        bool Open_1 = false;
+                        if (TryResolveIoByName(IODebugMaps.outputs[i].Name, "通用输出", out IO io))
+                        {
+                            SF.motion.GetOutIO(io, ref Open_1);
+                            if (Open_1 != OutTemp[i])
+                            {
+                                buttonsOut[i].BackColor = Open_1 ? Color.Green : Color.Gray;
+                                OutTemp[i] = Open_1;
+                            }
+                        }
+                        else
+                        {
+                            buttonsOut[i].BackColor = Color.Red;
+                            OutTemp[i] = false;
+                        }
+                    }
+                }
+                else if (tabControl1.SelectedIndex == 2)
+                {
+                    if (btnCon.Count != IODebugMaps.iOConnects.Count)
+                    {
+                        tabPage3.Controls.Clear();
+                        CreateButtonConnect();
+                    }
+                    EnsureConnectTempSize(IODebugMaps.iOConnects.Count);
+                    for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
+                    {
+                        bool Open_1 = false;
+                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Output.Name, "通用输出", out IO outputIo))
+                        {
+                            SF.motion.GetOutIO(outputIo, ref Open_1);
+                            if (Open_1 != ConnectTemp[i].OutPut)
+                            {
+                                btnCon[i].OutPut.BackColor = Open_1 ? Color.Green : Color.Gray;
+                                ConnectTemp[i].OutPut = Open_1;
+                            }
+                        }
+                        else
+                        {
+                            btnCon[i].OutPut.BackColor = Color.Red;
+                            ConnectTemp[i].OutPut = false;
+                        }
+                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Intput1.Name, "通用输入", out IO input1Io))
+                        {
+                            SF.motion.GetInIO(input1Io, ref Open_1);
+                            if (Open_1 != ConnectTemp[i].InPut1)
+                            {
+                                btnCon[i].InPut1.BackColor = Open_1 ? Color.Green : Color.Gray;
+                                ConnectTemp[i].InPut1 = Open_1;
+                            }
+                        }
+                        else
+                        {
+                            btnCon[i].InPut1.BackColor = Color.Red;
+                            ConnectTemp[i].InPut1 = false;
+                        }
+                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Intput2.Name, "通用输入", out IO input2Io))
+                        {
+                            SF.motion.GetInIO(input2Io, ref Open_1);
+                            if (Open_1 != ConnectTemp[i].InPut2)
+                            {
+                                btnCon[i].InPut2.BackColor = Open_1 ? Color.Green : Color.Gray;
+                                ConnectTemp[i].InPut2 = Open_1;
+                            }
+                        }
+                        else
+                        {
+                            btnCon[i].InPut2.BackColor = Color.Red;
+                            ConnectTemp[i].InPut2 = false;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                return;
+            }
         }
 
         public void SetConnectItemm()
@@ -205,7 +276,11 @@ namespace Automation
             ToolStripMenuItem menuItem = (ToolStripMenuItem)sender;
             List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
             IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == menuItem.Text);
-            IODebugMaps.iOConnects.Add(new IOConnect() { Output = cacheIO });
+            if (cacheIO == null)
+            {
+                return;
+            }
+            IODebugMaps.iOConnects.Add(new IOConnect() { Output = cacheIO.CloneForDebug() });
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
             RefleshConnecdt();
@@ -224,6 +299,10 @@ namespace Automation
                 ListViewItem item = new ListViewItem(name);
                 item.Text = name;
                 item.Font = font;
+                if (!TryResolveIoByName(name, "通用输出", out _))
+                {
+                    item.ForeColor = Color.Red;
+                }
                 listView3.Items.Add(item);
 
             }
@@ -324,7 +403,11 @@ namespace Automation
             if (sender is Button button)
             {
                 bool Open_1 = false;
-                IO value = SF.frmIO.DicIO[button.Text];
+                if (!TryResolveIoByName(button.Text, "通用输出", out IO value))
+                {
+                    button.BackColor = Color.Red;
+                    return;
+                }
                 SF.motion.GetOutIO(value, ref Open_1);
                 SF.motion.SetIO(value, !Open_1);
             }
@@ -350,6 +433,10 @@ namespace Automation
                     ListViewItem item = new ListViewItem(name);
                     item.Text = name;
                     item.Font = font;
+                    if (!TryResolveIoByName(name, "通用输入", out _))
+                    {
+                        item.ForeColor = Color.Red;
+                    }
                     listView1.Items.Add(item);
 
                 }
@@ -368,6 +455,10 @@ namespace Automation
                     ListViewItem item = new ListViewItem(name);
                     item.Text = name;
                     item.Font = font;
+                    if (!TryResolveIoByName(name, "通用输出", out _))
+                    {
+                        item.ForeColor = Color.Red;
+                    }
                     listView2.Items.Add(item);
 
                 }
@@ -394,6 +485,47 @@ namespace Automation
                 //Console.WriteLine(ex.Message);
 
             }
+        }
+        private void EnsureInputTempSize(int count)
+        {
+            if (InTemp.Length < count)
+            {
+                Array.Resize(ref InTemp, count);
+            }
+        }
+        private void EnsureOutputTempSize(int count)
+        {
+            if (OutTemp.Length < count)
+            {
+                Array.Resize(ref OutTemp, count);
+            }
+        }
+        private void EnsureConnectTempSize(int count)
+        {
+            if (ConnectTemp.Length < count)
+            {
+                int oldSize = ConnectTemp.Length;
+                Array.Resize(ref ConnectTemp, count);
+                for (int i = oldSize; i < count; i++)
+                {
+                    ConnectTemp[i] = new Connect();
+                }
+            }
+        }
+        private bool TryResolveIoByName(string name, string ioType, out IO io)
+        {
+            io = null;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return false;
+            }
+            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+            if (cacheIOs == null)
+            {
+                return false;
+            }
+            io = cacheIOs.FirstOrDefault(item => item != null && item.IOType == ioType && item.Name == name);
+            return io != null;
         }
         private ListViewItem sourceItem;
         private ListViewItem targetItem;
@@ -525,45 +657,85 @@ namespace Automation
                 case 0:
                     tabPage1.Controls.Clear();
                     buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1);
+                    EnsureInputTempSize(IODebugMaps.inputs.Count);
                     for (int i = 0; i < IODebugMaps.inputs.Count; i++)
                     {
                         bool Open_1 = false;
-                        SF.motion.GetInIO(IODebugMaps.inputs[i], ref Open_1);
-                        buttonsIn[i].BackColor = Open_1 ? Color.Green : Color.Gray;
-                        InTemp[i] = Open_1;
+                        if (TryResolveIoByName(IODebugMaps.inputs[i].Name, "通用输入", out IO io))
+                        {
+                            SF.motion.GetInIO(io, ref Open_1);
+                            buttonsIn[i].BackColor = Open_1 ? Color.Green : Color.Gray;
+                            InTemp[i] = Open_1;
+                        }
+                        else
+                        {
+                            buttonsIn[i].BackColor = Color.Red;
+                            InTemp[i] = false;
+                        }
                     }
                     break;
                 case 1:
                     tabPage2.Controls.Clear();
                     buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2);
+                    EnsureOutputTempSize(IODebugMaps.outputs.Count);
                     for (int i = 0; i < IODebugMaps.outputs.Count; i++)
                     {
                         bool Open_1 = false;
-                        SF.motion.GetOutIO(IODebugMaps.outputs[i], ref Open_1);
-                        buttonsOut[i].BackColor = Open_1 ? Color.Green : Color.Gray;
-                        OutTemp[i] = Open_1;
+                        if (TryResolveIoByName(IODebugMaps.outputs[i].Name, "通用输出", out IO io))
+                        {
+                            SF.motion.GetOutIO(io, ref Open_1);
+                            buttonsOut[i].BackColor = Open_1 ? Color.Green : Color.Gray;
+                            OutTemp[i] = Open_1;
+                        }
+                        else
+                        {
+                            buttonsOut[i].BackColor = Color.Red;
+                            OutTemp[i] = false;
+                        }
                     }
                     break;
                 case 2:
                     tabPage3.Controls.Clear();
                     CreateButtonConnect();
+                    EnsureConnectTempSize(IODebugMaps.iOConnects.Count);
                     for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
                     {
                         bool Open_1 = false;
-                        SF.motion.GetOutIO(IODebugMaps.iOConnects[i].Output, ref Open_1);
+                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Output.Name, "通用输出", out IO outputIo))
+                        {
+                            SF.motion.GetOutIO(outputIo, ref Open_1);
+                            btnCon[i].OutPut.BackColor = Open_1 ? Color.Green : Color.Gray;
+                            ConnectTemp[i].OutPut = Open_1;
+                        }
+                        else
+                        {
+                            btnCon[i].OutPut.BackColor = Color.Red;
+                            ConnectTemp[i].OutPut = false;
+                        }
 
-                        btnCon[i].OutPut.BackColor = Open_1 ? Color.Green : Color.Gray;
-                        ConnectTemp[i].OutPut = Open_1;
+                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Intput1.Name, "通用输入", out IO input1Io))
+                        {
+                            SF.motion.GetInIO(input1Io, ref Open_1);
+                            btnCon[i].InPut1.BackColor = Open_1 ? Color.Green : Color.Gray;
+                            ConnectTemp[i].InPut1 = Open_1;
+                        }
+                        else
+                        {
+                            btnCon[i].InPut1.BackColor = Color.Red;
+                            ConnectTemp[i].InPut1 = false;
+                        }
 
-                        SF.motion.GetInIO(IODebugMaps.iOConnects[i].Intput1, ref Open_1);
-
-                        btnCon[i].InPut1.BackColor = Open_1 ? Color.Green : Color.Gray;
-                        ConnectTemp[i].InPut1 = Open_1;
-
-                        SF.motion.GetInIO(IODebugMaps.iOConnects[i].Intput2, ref Open_1);
-
-                        btnCon[i].InPut2.BackColor = Open_1 ? Color.Green : Color.Gray;
-                        ConnectTemp[i].InPut2 = Open_1;
+                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Intput2.Name, "通用输入", out IO input2Io))
+                        {
+                            SF.motion.GetInIO(input2Io, ref Open_1);
+                            btnCon[i].InPut2.BackColor = Open_1 ? Color.Green : Color.Gray;
+                            ConnectTemp[i].InPut2 = Open_1;
+                        }
+                        else
+                        {
+                            btnCon[i].InPut2.BackColor = Color.Red;
+                            ConnectTemp[i].InPut2 = false;
+                        }
                     }
                     break;
                 case 3:
@@ -610,7 +782,7 @@ namespace Automation
                     IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == listView3.SelectedItems[0].Text);
                     if (cacheIO != null)
                     {
-                        iOConnect.Intput1 = cacheIO;
+                        iOConnect.Intput1 = cacheIO.CloneForDebug();
 
                         SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
                     }
@@ -653,7 +825,7 @@ namespace Automation
                     IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == listView3.SelectedItems[0].Text);
                     if (cacheIO != null)
                     {
-                        iOConnect.Intput2 = cacheIO;
+                        iOConnect.Intput2 = cacheIO.CloneForDebug();
 
                         SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
                     }

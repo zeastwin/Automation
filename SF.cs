@@ -49,6 +49,7 @@ namespace Automation
         public static FrmSearch4Value frmSearch4Value;
         public static FrmInfo frmInfo;
         public static FrmTest frmTest;
+        public static CardConfigStore cardStore;
 
         //编辑状态
         public static ModifyKind isModify = ModifyKind.None;

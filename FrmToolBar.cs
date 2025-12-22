@@ -103,7 +103,7 @@ namespace Automation
             {
                 if (SF.frmCard.IsNewCard)
                 {
-                    SF.frmCard.card.controlCards.Add(SF.frmCard.controlCardTemp);
+                    int newCardIndex = SF.cardStore.AddControlCard(SF.frmCard.controlCardTemp);
                     int AxisCount =SF.frmCard.controlCardTemp.cardHead.AxisCount;
                     for (int i = 0; i < AxisCount; i++)
                     {
@@ -116,7 +116,6 @@ namespace Automation
                     int outputCount = SF.frmCard.controlCardTemp.cardHead.OutputCount;
                     List<IO> iOs = new List<IO>();
                     SF.frmIO.IOMap.Add(iOs);
-                    int newCardIndex = SF.frmCard.GetControlCardCount() - 1;
 
                     for (int i = 0; i < inputCount; i++)
                     {
@@ -151,8 +150,7 @@ namespace Automation
                         SF.frmIO.IOMap[newCardIndex].Add(io);
                     }
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", SF.frmIO.IOMap);
-                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
-                    SF.frmCard.RefreshCardList();
+                    SF.cardStore.Save(SF.ConfigPath);
                     SF.frmCard.RefreshCardTree(); 
                     SF.frmIO.RefreshIOMap();
                     SF.mainfrm.ReflshDgv();
@@ -163,19 +161,18 @@ namespace Automation
                 {
                     if (SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
                     {
-                        if (SF.frmCard.TryGetControlCard(cardIndex, out ControlCard controlCard))
+                        if (SF.cardStore.TryGetControlCard(cardIndex, out ControlCard controlCard))
                         {
                             int AxisCount = controlCard.cardHead.AxisCount;
                             controlCard.axis.Clear();
-                            for (int i = 0; i < AxisCount; i++)
-                            {
-                                Axis axis = new Axis() { AxisName = $"Axis{i}" };
-                                controlCard.axis.Add(axis);
-                            }
-                            SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
-                            SF.frmCard.RefreshCardList();
-                            SF.frmCard.RefreshCardTree();
-                            SF.mainfrm.ReflshDgv();
+                        for (int i = 0; i < AxisCount; i++)
+                        {
+                            Axis axis = new Axis() { AxisName = $"Axis{i}" };
+                            controlCard.axis.Add(axis);
+                        }
+                        SF.cardStore.Save(SF.ConfigPath);
+                        SF.frmCard.RefreshCardTree();
+                        SF.mainfrm.ReflshDgv();
                           
                             SF.isModify = ModifyKind.None;
                         }
@@ -184,8 +181,7 @@ namespace Automation
                 }
                 if (SF.isModify == ModifyKind.Axis)
                 {
-                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
-                    SF.frmCard.RefreshCardList();
+                    SF.cardStore.Save(SF.ConfigPath);
                     SF.frmCard.RefreshCardTree();
                     SF.motion.SetAllAxisEquiv();
                     SF.isModify = ModifyKind.None;
@@ -332,7 +328,7 @@ namespace Automation
                 while (true)
                 {
                     Console.WriteLine(SF.motion.HomeStatus(0, 0));
-                    if (SF.frmCard.TryGetAxis(int.Parse(station.dataAxis.axisConfigs[0].CardNum), 0, out Axis axisInfo))
+                    if (SF.cardStore.TryGetAxis(int.Parse(station.dataAxis.axisConfigs[0].CardNum), 0, out Axis axisInfo))
                     {
                         Console.WriteLine(axisInfo.State);
                     }

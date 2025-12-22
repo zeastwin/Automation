@@ -48,7 +48,6 @@ namespace Automation
     public partial class FrmCard : Form
     {
         //存放所有轴卡信息 
-        public Card card =  new Card();
         //存放临时控制卡信息
         public ControlCard controlCardTemp;
         //存放临时轴信息
@@ -109,88 +108,6 @@ namespace Automation
             return false;
         }
 
-        public int GetControlCardCount()
-        {
-            if (card == null || card.controlCards == null)
-            {
-                return 0;
-            }
-            return card.controlCards.Count;
-        }
-
-        public bool TryGetControlCard(int cardIndex, out ControlCard controlCard)
-        {
-            controlCard = null;
-            if (card == null || card.controlCards == null)
-            {
-                return false;
-            }
-            if (cardIndex < 0 || cardIndex >= card.controlCards.Count)
-            {
-                return false;
-            }
-            controlCard = card.controlCards[cardIndex];
-            return controlCard != null;
-        }
-
-        public bool TryGetCardHead(int cardIndex, out CardHead cardHead)
-        {
-            cardHead = null;
-            if (!TryGetControlCard(cardIndex, out ControlCard controlCard))
-            {
-                return false;
-            }
-            cardHead = controlCard.cardHead;
-            return cardHead != null;
-        }
-
-        public int GetAxisCount(int cardIndex)
-        {
-            if (!TryGetControlCard(cardIndex, out ControlCard controlCard))
-            {
-                return 0;
-            }
-            if (controlCard.axis == null)
-            {
-                return 0;
-            }
-            return controlCard.axis.Count;
-        }
-
-        public bool TryGetAxis(int cardIndex, int axisIndex, out Axis axis)
-        {
-            axis = null;
-            if (!TryGetControlCard(cardIndex, out ControlCard controlCard))
-            {
-                return false;
-            }
-            if (controlCard.axis == null || axisIndex < 0 || axisIndex >= controlCard.axis.Count)
-            {
-                return false;
-            }
-            axis = controlCard.axis[axisIndex];
-            return axis != null;
-        }
-
-        public bool TryGetAxisByName(int cardIndex, string axisName, out Axis axis)
-        {
-            axis = null;
-            if (string.IsNullOrWhiteSpace(axisName))
-            {
-                return false;
-            }
-            if (!TryGetControlCard(cardIndex, out ControlCard controlCard))
-            {
-                return false;
-            }
-            if (controlCard.axis == null)
-            {
-                return false;
-            }
-            axis = controlCard.axis.FirstOrDefault(item => item != null && item.AxisName == axisName);
-            return axis != null;
-        }
-
         private void ClearCardSelection()
         {
             editKey.CardIndex = null;
@@ -212,35 +129,31 @@ namespace Automation
         {
             editKey.IsNewStation = false;
         }
-        public void RefreshCardList()
-        {
-            treeView1.Nodes.Clear();
-
-            if (!Directory.Exists(SF.ConfigPath))
-            {
-                Directory.CreateDirectory(SF.ConfigPath);
-            }
-
-           Card cardTemp = SF.mainfrm.ReadJson<Card>(SF.ConfigPath, "card");
-            if(cardTemp!=null)
-            card = cardTemp;
-        }
-
         public void RefreshCardTree()
         {
+            treeView1.Nodes.Clear();
             TreeNode treeNode = new TreeNode("控制卡");
             treeView1.Nodes.Add(treeNode);
-            if (card == null)
+            int cardCount = SF.cardStore.GetControlCardCount();
+            if (cardCount == 0)
             {
                 return;
             }
-            for (int i = 0; i < card.controlCards.Count; i++)
+            for (int i = 0; i < cardCount; i++)
             {
                 TreeNode chnode = new TreeNode(i + "号卡：");
                 treeView1.Nodes[0].Nodes.Add(chnode);
-                for (int j = 0; j < card.controlCards[i].axis.Count; j++)
+                if (!SF.cardStore.TryGetControlCard(i, out ControlCard controlCard))
                 {
-                    TreeNode chnodes = new TreeNode(j+":"+card.controlCards[i].axis[j].AxisName.ToString() + ":");
+                    continue;
+                }
+                if (controlCard.axis == null)
+                {
+                    continue;
+                }
+                for (int j = 0; j < controlCard.axis.Count; j++)
+                {
+                    TreeNode chnodes = new TreeNode(j + ":" + controlCard.axis[j].AxisName.ToString() + ":");
                     treeView1.Nodes[0].Nodes[i].Nodes.Add(chnodes);
                 }
             }
@@ -411,7 +324,10 @@ namespace Automation
                     editKey.CardIndex = treeView1.SelectedNode.Index;
                     editKey.AxisIndex = null;
 
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = card.controlCards[editKey.CardIndex.Value].cardHead;
+                    if (SF.cardStore.TryGetControlCard(editKey.CardIndex.Value, out ControlCard controlCard))
+                    {
+                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = controlCard.cardHead;
+                    }
 
                     SF.frmIO.RefreshIODgv();
                 }
@@ -421,7 +337,10 @@ namespace Automation
                     editKey.CardIndex = treeView1.SelectedNode.Parent.Index;
                     editKey.AxisIndex = treeView1.SelectedNode.Index;
 
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = card.controlCards[editKey.CardIndex.Value].axis[editKey.AxisIndex.Value];
+                    if (SF.cardStore.TryGetAxis(editKey.CardIndex.Value, editKey.AxisIndex.Value, out Axis axis))
+                    {
+                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = axis;
+                    }
                     SF.frmIO.RefreshIODgv();
                 }
                 treeView2.SelectedNode = null;
@@ -492,7 +411,10 @@ namespace Automation
         {
             if (TryGetSelectedCardIndex(out int cardIndex))
             {
-                card.controlCards.RemoveAt(cardIndex);
+                if (!SF.cardStore.RemoveControlCardAt(cardIndex))
+                {
+                    return;
+                }
                 SF.frmIO.IOMap.RemoveAt(cardIndex);
                     for (int i = 0;i < SF.frmIO.IOMap.Count; i++)
                     {
@@ -501,8 +423,7 @@ namespace Automation
                             SF.frmIO.IOMap[i][j].CardNum = i;
                         }
                     }
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "card", SF.frmCard.card);
-                SF.frmCard.RefreshCardList();
+                SF.cardStore.Save(SF.ConfigPath);
                 SF.frmCard.RefreshCardTree();
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", SF.frmIO.IOMap);
 
@@ -599,7 +520,7 @@ namespace Automation
 
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
         {
-            return new StandardValuesCollection(Enumerable.Range(0, SF.frmCard.GetControlCardCount())
+            return new StandardValuesCollection(Enumerable.Range(0, SF.cardStore.GetControlCardCount())
             .Select(index => index.ToString())
             .ToList());
         }
@@ -852,7 +773,7 @@ namespace Automation
                 if ((SF.isModify == ModifyKind.Station || CardNum != null) && value != "-1")
                 {
                     int num = int.Parse(cardNum);
-                    if (CardNum != null && SF.frmCard.TryGetControlCard(num, out ControlCard controlCard))
+                    if (CardNum != null && SF.cardStore.TryGetControlCard(num, out ControlCard controlCard))
                     {
                         axisItme.Clear();
                         foreach (var item in controlCard.axis)
@@ -877,7 +798,7 @@ namespace Automation
                 axisName = value;
                 if ((SF.isModify == ModifyKind.Station || SF.frmCard.IsNewStation) && value != "-1")
                 {
-                    if (SF.frmCard.TryGetAxisByName(int.Parse(CardNum), value, out Axis axis))
+                    if (SF.cardStore.TryGetAxisByName(int.Parse(CardNum), value, out Axis axis))
                     {
                         this.axis = axis;
                     }

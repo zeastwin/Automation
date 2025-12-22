@@ -175,7 +175,7 @@ namespace Automation
                         {
                             HomeSingleAxis(ushort.Parse(item.CardNum), (ushort)item.axis.AxisNum);
                         });
-                        if (!SF.frmCard.TryGetAxis(int.Parse(item.CardNum), i, out Axis axisInfo))
+                        if (!SF.cardStore.TryGetAxis(int.Parse(item.CardNum), i, out Axis axisInfo))
                         {
                             MessageBox.Show($"卡{item.CardNum}轴{i}配置不存在，工站回零动作终止。");
                             return;
@@ -228,7 +228,7 @@ namespace Automation
             if (!SF.motion.GetInPos(cardNum, axis))
                 return;
             ushort dir = 0;
-            if (!SF.frmCard.TryGetAxis(cardNum, axis, out Axis axisInfo))
+            if (!SF.cardStore.TryGetAxis(cardNum, axis, out Axis axisInfo))
             {
                 return;
             }
@@ -686,7 +686,7 @@ namespace Automation
 
         public void StopAxis(int card,int axis)
         {
-            if (SF.frmCard.TryGetAxis(card, axis, out Axis axisInfo))
+            if (SF.cardStore.TryGetAxis(card, axis, out Axis axisInfo))
             {
                 axisInfo.SetState(Axis.Status.Ready);
             }

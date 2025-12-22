@@ -49,6 +49,7 @@ namespace Automation
         public FrmMain()
         {
             InitializeComponent();
+            SF.cardStore = new CardConfigStore();
             SF.mainfrm = this;
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;
@@ -95,8 +96,8 @@ namespace Automation
         private void FrmMain_Load(object sender, EventArgs e)
         {
             SF.frmValue.RefreshDic();
+            SF.cardStore.Load(SF.ConfigPath);
             SF.frmIO.RefreshIOMap();
-            SF.frmCard.RefreshCardList();
             SF.frmCard.RefreshStationList();
             SF.frmdataStruct.RefreshDataSturctList();
             SF.frmIODebug.RefreshIODebugMap();
@@ -184,9 +185,9 @@ namespace Automation
                             //    }
                             //}
 
-                            for (int i = 0; i < SF.frmCard.GetControlCardCount(); i++)
+                            for (int i = 0; i < SF.cardStore.GetControlCardCount(); i++)
                             {
-                                for (int j = 0; j < SF.frmCard.GetAxisCount(i); j++)
+                                for (int j = 0; j < SF.cardStore.GetAxisCount(i); j++)
                                 {
                                     uint Number = csLTDMC.LTDMC.dmc_axis_io_status((ushort)i, (ushort)j);
 
@@ -207,7 +208,7 @@ namespace Automation
         public void ReflshDgv()
         {
             StateDic.Clear();
-            for (int i = 0; i < SF.frmCard.GetControlCardCount(); i++)
+            for (int i = 0; i < SF.cardStore.GetControlCardCount(); i++)
             {
                 Dictionary<int, char[]> dictionary1 = new Dictionary<int, char[]>();
                 StateDic.Add(dictionary1);

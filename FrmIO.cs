@@ -91,7 +91,7 @@ namespace Automation
             RefleshIODic();
             if (SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
             {
-                if (SF.frmCard.TryGetCardHead(cardIndex, out CardHead cardHead) && IOMap.Count > cardIndex)
+                if (SF.cardStore.TryGetCardHead(cardIndex, out CardHead cardHead) && IOMap.Count > cardIndex)
                 {
                     int inputCount = cardHead.InputCount;
                     int outputCount = cardHead.OutputCount;
@@ -157,7 +157,7 @@ namespace Automation
         {
             if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
                 return;
-            if (!SF.frmCard.TryGetCardHead(cardIndex, out CardHead cardHead))
+            if (!SF.cardStore.TryGetCardHead(cardIndex, out CardHead cardHead))
                 return;
             if (IOMap.Count <= cardIndex)
                 return;
@@ -291,11 +291,11 @@ namespace Automation
                     {
                         if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输入")
                         {
-                            SF.frmIODebug.IODebugMaps.inputs.Add(cacheIOs[SF.frmIO.iSelectedIORow]);
+                            SF.frmIODebug.IODebugMaps.inputs.Add(cacheIOs[SF.frmIO.iSelectedIORow].CloneForDebug());
                         }
                         else if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输出")
                         {
-                            SF.frmIODebug.IODebugMaps.outputs.Add(cacheIOs[SF.frmIO.iSelectedIORow]);
+                            SF.frmIODebug.IODebugMaps.outputs.Add(cacheIOs[SF.frmIO.iSelectedIORow].CloneForDebug());
                         }
 
                     }
@@ -303,11 +303,13 @@ namespace Automation
                     {  
                         if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输入")
                         {
-                            SF.frmIODebug.IODebugMaps.inputs.Remove(cacheIOs[SF.frmIO.iSelectedIORow]);
+                            string name = cacheIOs[SF.frmIO.iSelectedIORow].Name;
+                            SF.frmIODebug.IODebugMaps.inputs.RemoveAll(item => item != null && item.Name == name);
                         }
                         else if (cacheIOs[SF.frmIO.iSelectedIORow].IOType == "通用输出")
                         {
-                            SF.frmIODebug.IODebugMaps.outputs.Remove(cacheIOs[SF.frmIO.iSelectedIORow]);
+                            string name = cacheIOs[SF.frmIO.iSelectedIORow].Name;
+                            SF.frmIODebug.IODebugMaps.outputs.RemoveAll(item => item != null && item.Name == name);
                         }
                     }
 
@@ -317,6 +319,21 @@ namespace Automation
         public IO()
         {
             Name = "";
+        }
+        public IO CloneForDebug()
+        {
+            return new IO
+            {
+                Index = Index,
+                Name = Name,
+                CardNum = CardNum,
+                Module = Module,
+                IOIndex = IOIndex,
+                IOType = IOType,
+                UsedType = UsedType,
+                EffectLevel = EffectLevel,
+                Note = Note
+            };
         }
 
     }
