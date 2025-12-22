@@ -70,6 +70,14 @@ namespace Automation
             outputMenu.Items.Add(outputConfigItem);
             outputMenu.Items.Add(outputRemarkItem);
             listView2.ContextMenuStrip = outputMenu;
+            ContextMenuStrip connectMenu = new ContextMenuStrip();
+            ToolStripMenuItem connectConfigItem = new ToolStripMenuItem("配置显示");
+            connectConfigItem.Click += ConnectConfigItem_Click;
+            ToolStripMenuItem connectRemarkItem = new ToolStripMenuItem("添加备注");
+            connectRemarkItem.Click += ConnectRemarkItem_Click;
+            connectMenu.Items.Add(connectConfigItem);
+            connectMenu.Items.Add(connectRemarkItem);
+            listView3.ContextMenuStrip = connectMenu;
             this.VisibleChanged += FrmIODebug_VisibleChanged;
         }
         public bool CheckFormIsOpen(Form form)
@@ -215,8 +223,13 @@ namespace Automation
                     EnsureConnectTempSize(IODebugMaps.iOConnects.Count);
                     for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
                     {
+                        IOConnect ioConnect = IODebugMaps.iOConnects[i];
+                        if (ioConnect?.Output == null || ioConnect.Output.IsRemark)
+                        {
+                            continue;
+                        }
                         bool Open_1 = false;
-                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Output.Name, "通用输出", out IO outputIo))
+                        if (TryResolveIoByName(ioConnect.Output.Name, "通用输出", out IO outputIo))
                         {
                             SF.motion.GetOutIO(outputIo, ref Open_1);
                             if (Open_1 != ConnectTemp[i].OutPut)
@@ -230,7 +243,7 @@ namespace Automation
                             btnCon[i].OutPut.BackColor = Color.Red;
                             ConnectTemp[i].OutPut = false;
                         }
-                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Intput1.Name, "通用输入", out IO input1Io))
+                        if (TryResolveIoByName(ioConnect.Intput1.Name, "通用输入", out IO input1Io))
                         {
                             SF.motion.GetInIO(input1Io, ref Open_1);
                             if (Open_1 != ConnectTemp[i].InPut1)
@@ -244,7 +257,7 @@ namespace Automation
                             btnCon[i].InPut1.BackColor = Color.Red;
                             ConnectTemp[i].InPut1 = false;
                         }
-                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Intput2.Name, "通用输入", out IO input2Io))
+                        if (TryResolveIoByName(ioConnect.Intput2.Name, "通用输入", out IO input2Io))
                         {
                             SF.motion.GetInIO(input2Io, ref Open_1);
                             if (Open_1 != ConnectTemp[i].InPut2)
@@ -273,6 +286,12 @@ namespace Automation
             ContextMenuStrip contextMenu = new ContextMenuStrip();
             listView3.ContextMenuStrip = contextMenu;
             contextMenu.Items.Clear();
+            ToolStripMenuItem configItem = new ToolStripMenuItem("配置显示");
+            configItem.Click += ConnectConfigItem_Click;
+            ToolStripMenuItem remarkItem = new ToolStripMenuItem("添加备注");
+            remarkItem.Click += ConnectRemarkItem_Click;
+            contextMenu.Items.Add(configItem);
+            contextMenu.Items.Add(remarkItem);
             listView4.Clear();
             listView4.Items.Clear();
             listView5.Clear();
@@ -300,10 +319,6 @@ namespace Automation
                 cacheIO = cacheIOs[j];
                 if (cacheIO != null && cacheIO.Name != "" && cacheIO.IOType == "通用输出")
                 {
-                    ToolStripMenuItem dynamicMenuItem = new ToolStripMenuItem(cacheIO.Name);
-                    dynamicMenuItem.Click += DynamicMenuItem_Click;
-                    contextMenu.Items.Add(dynamicMenuItem);
-
                     string copiedString = string.Copy(cacheIO.Name);
                     ListViewItem item = new ListViewItem(copiedString);
                     item.Text = copiedString;
@@ -359,19 +374,31 @@ namespace Automation
             for (int j = 0; j < IOConnects.Count; j++)
             {
                 iOConnect = IOConnects[j];
+                if (iOConnect == null || iOConnect.Output == null)
+                {
+                    continue;
+                }
                 string name = iOConnect.Output.Name;
                 ListViewItem item = new ListViewItem(name);
                 item.Text = name;
                 item.Font = font;
-                if (!TryResolveIoByName(name, "通用输出", out _))
+                item.Tag = iOConnect;
+                if (iOConnect.Output.IsRemark)
                 {
-                    item.ForeColor = Color.Red;
+                    item.ForeColor = Color.FromArgb(96, 96, 96);
                 }
-                if (iOConnect.Output2 != null
-                    && !string.IsNullOrWhiteSpace(iOConnect.Output2.Name)
-                    && !TryResolveIoByName(iOConnect.Output2.Name, "通用输出", out _))
+                else
                 {
-                    item.ForeColor = Color.Red;
+                    if (!TryResolveIoByName(name, "通用输出", out _))
+                    {
+                        item.ForeColor = Color.Red;
+                    }
+                    if (iOConnect.Output2 != null
+                        && !string.IsNullOrWhiteSpace(iOConnect.Output2.Name)
+                        && !TryResolveIoByName(iOConnect.Output2.Name, "通用输出", out _))
+                    {
+                        item.ForeColor = Color.Red;
+                    }
                 }
                 listView3.Items.Add(item);
 
@@ -449,20 +476,30 @@ namespace Automation
             btnCon.Clear();
             for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
             {
+                IOConnect ioConnect = IODebugMaps.iOConnects[i];
                 Button dynamicButton = new Button();
 
-                dynamicButton.Text = IODebugMaps.iOConnects[i].Output.Name;
+                dynamicButton.Text = ioConnect.Output.Name;
                 dynamicButton.Location = new System.Drawing.Point(col * 110, row * 40);
                 dynamicButton.Size = new System.Drawing.Size(100, 30);
-                dynamicButton.Tag = IODebugMaps.iOConnects[i];
+                if (!ioConnect.Output.IsRemark)
+                {
+                    dynamicButton.Tag = ioConnect;
+                    dynamicButton.Click += new EventHandler(IOButton_Click);
+                }
+                else
+                {
+                    dynamicButton.Enabled = false;
+                    dynamicButton.FlatStyle = FlatStyle.Flat;
+                    dynamicButton.FlatAppearance.BorderSize = 0;
+                    dynamicButton.BackColor = Color.FromArgb(230, 232, 236);
+                }
 
                 tabPage3.Controls.Add(dynamicButton);
 
-                dynamicButton.Click += new EventHandler(IOButton_Click);
-
                 Label dynamicLabel1 = new Label();
 
-                dynamicLabel1.Text = IODebugMaps.iOConnects[i].Intput1.Name;
+                dynamicLabel1.Text = ioConnect.Output.IsRemark ? "" : ioConnect.Intput1.Name;
                 dynamicLabel1.Location = new System.Drawing.Point(col * 110+110, row * 40);
                 dynamicLabel1.Size = new System.Drawing.Size(100, 30);
                 dynamicLabel1.BackColor = System.Drawing.Color.Gray;
@@ -473,7 +510,7 @@ namespace Automation
 
                 Label dynamicLabel2 = new Label();
 
-                dynamicLabel2.Text = IODebugMaps.iOConnects[i].Intput2.Name;
+                dynamicLabel2.Text = ioConnect.Output.IsRemark ? "" : ioConnect.Intput2.Name;
                 dynamicLabel2.Location = new System.Drawing.Point(col * 110 + 220, row * 40);
                 dynamicLabel2.Size = new System.Drawing.Size(100, 30);
                 dynamicLabel2.BackColor = System.Drawing.Color.Gray;
@@ -675,6 +712,14 @@ namespace Automation
         {
             AddRemarkItem("通用输出", IODebugMaps.outputs, listView2);
         }
+        private void ConnectConfigItem_Click(object sender, EventArgs e)
+        {
+            OpenConnectConfig();
+        }
+        private void ConnectRemarkItem_Click(object sender, EventArgs e)
+        {
+            AddRemarkConnectItem();
+        }
         private void OpenDebugConfig(string ioType)
         {
             List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
@@ -780,6 +825,103 @@ namespace Automation
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
         }
+        private void OpenConnectConfig()
+        {
+            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+            if (cacheIOs == null)
+            {
+                MessageBox.Show("轴卡未配置");
+                return;
+            }
+            List<string> allNames = new List<string>();
+            foreach (IO io in cacheIOs)
+            {
+                if (io == null || io.IOType != "通用输出" || string.IsNullOrWhiteSpace(io.Name))
+                {
+                    continue;
+                }
+                if (!allNames.Contains(io.Name))
+                {
+                    allNames.Add(io.Name);
+                }
+            }
+            HashSet<string> selectedNames = new HashSet<string>();
+            foreach (IOConnect connect in IODebugMaps.iOConnects)
+            {
+                if (connect?.Output == null || connect.Output.IsRemark)
+                {
+                    continue;
+                }
+                if (!string.IsNullOrWhiteSpace(connect.Output.Name))
+                {
+                    selectedNames.Add(connect.Output.Name);
+                }
+            }
+            using (FrmIODebugConfig frm = new FrmIODebugConfig("输入输出关联显示配置", allNames, selectedNames))
+            {
+                if (frm.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+                ApplyConnectSelection(frm.SelectedNames, cacheIOs);
+            }
+        }
+        private void ApplyConnectSelection(List<string> selectedNames, List<IO> cacheIOs)
+        {
+            Dictionary<string, IO> ioByName = new Dictionary<string, IO>();
+            foreach (IO io in cacheIOs)
+            {
+                if (io == null || io.IOType != "通用输出" || string.IsNullOrWhiteSpace(io.Name))
+                {
+                    continue;
+                }
+                if (!ioByName.ContainsKey(io.Name))
+                {
+                    ioByName.Add(io.Name, io);
+                }
+            }
+            HashSet<string> selectedSet = new HashSet<string>(selectedNames);
+            List<IOConnect> newList = new List<IOConnect>();
+            foreach (IOConnect connect in IODebugMaps.iOConnects)
+            {
+                if (connect?.Output == null)
+                {
+                    continue;
+                }
+                if (connect.Output.IsRemark)
+                {
+                    newList.Add(connect);
+                    continue;
+                }
+                if (!selectedSet.Contains(connect.Output.Name))
+                {
+                    continue;
+                }
+                if (ioByName.TryGetValue(connect.Output.Name, out IO outputIo))
+                {
+                    connect.Output = outputIo.CloneForDebug();
+                }
+                newList.Add(connect);
+                selectedSet.Remove(connect.Output.Name);
+            }
+            foreach (string name in selectedNames)
+            {
+                if (!selectedSet.Contains(name))
+                {
+                    continue;
+                }
+                if (ioByName.TryGetValue(name, out IO outputIo))
+                {
+                    IOConnect connect = new IOConnect();
+                    connect.Output = outputIo.CloneForDebug();
+                    newList.Add(connect);
+                    selectedSet.Remove(name);
+                }
+            }
+            IODebugMaps.iOConnects = newList;
+            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            RefleshConnecdt();
+        }
         private void AddRemarkItem(string ioType, List<IO> targetList, ListView targetView)
         {
             string remarkText = PromptRemark($"{ioType}备注");
@@ -805,6 +947,30 @@ namespace Automation
             targetList.Insert(insertIndex, remark);
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
+        }
+        private void AddRemarkConnectItem()
+        {
+            string remarkText = PromptRemark("输入输出关联备注");
+            if (string.IsNullOrWhiteSpace(remarkText))
+            {
+                return;
+            }
+            IOConnect remark = new IOConnect();
+            remark.Output.Name = remarkText.Trim();
+            remark.Output.IOType = "通用输出";
+            remark.Output.IsRemark = true;
+            int insertIndex = IODebugMaps.iOConnects.Count;
+            if (listView3.SelectedItems.Count > 0)
+            {
+                insertIndex = listView3.SelectedItems[0].Index + 1;
+                if (insertIndex < 0 || insertIndex > IODebugMaps.iOConnects.Count)
+                {
+                    insertIndex = IODebugMaps.iOConnects.Count;
+                }
+            }
+            IODebugMaps.iOConnects.Insert(insertIndex, remark);
+            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            RefleshConnecdt();
         }
         private string PromptRemark(string title)
         {
@@ -1090,8 +1256,13 @@ namespace Automation
                     EnsureConnectTempSize(IODebugMaps.iOConnects.Count);
                     for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
                     {
+                        IOConnect ioConnect = IODebugMaps.iOConnects[i];
+                        if (ioConnect?.Output == null || ioConnect.Output.IsRemark)
+                        {
+                            continue;
+                        }
                         bool Open_1 = false;
-                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Output.Name, "通用输出", out IO outputIo))
+                        if (TryResolveIoByName(ioConnect.Output.Name, "通用输出", out IO outputIo))
                         {
                             SF.motion.GetOutIO(outputIo, ref Open_1);
                             btnCon[i].OutPut.BackColor = Open_1 ? Color.Green : Color.Gray;
@@ -1103,7 +1274,7 @@ namespace Automation
                             ConnectTemp[i].OutPut = false;
                         }
 
-                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Intput1.Name, "通用输入", out IO input1Io))
+                        if (TryResolveIoByName(ioConnect.Intput1.Name, "通用输入", out IO input1Io))
                         {
                             SF.motion.GetInIO(input1Io, ref Open_1);
                             btnCon[i].InPut1.BackColor = Open_1 ? Color.Green : Color.Gray;
@@ -1115,7 +1286,7 @@ namespace Automation
                             ConnectTemp[i].InPut1 = false;
                         }
 
-                        if (TryResolveIoByName(IODebugMaps.iOConnects[i].Intput2.Name, "通用输入", out IO input2Io))
+                        if (TryResolveIoByName(ioConnect.Intput2.Name, "通用输入", out IO input2Io))
                         {
                             SF.motion.GetInIO(input2Io, ref Open_1);
                             btnCon[i].InPut2.BackColor = Open_1 ? Color.Green : Color.Gray;
@@ -1171,8 +1342,8 @@ namespace Automation
                     listView4.ItemChecked += listView4_ItemChecked;
                     List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
                     IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == e.Item.Text);
-                    IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == listView3.SelectedItems[0].Text);
-                    if (cacheIO != null)
+                    IOConnect iOConnect = GetSelectedConnect();
+                    if (cacheIO != null && iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
                     {
                         iOConnect.Intput1 = cacheIO.CloneForDebug();
 
@@ -1184,10 +1355,13 @@ namespace Automation
             {
                 if (listView3.SelectedItems.Count != 0)
                 {
-                    IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == listView3.SelectedItems[0].Text);
-                    iOConnect.Intput1.Name = "";
+                    IOConnect iOConnect = GetSelectedConnect();
+                    if (iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
+                    {
+                        iOConnect.Intput1.Name = "";
 
-                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                    }
                 }
             }
         }
@@ -1214,8 +1388,8 @@ namespace Automation
                     listView5.ItemChecked += listView5_ItemChecked;
                     List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
                     IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == e.Item.Text);
-                    IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == listView3.SelectedItems[0].Text);
-                    if (cacheIO != null)
+                    IOConnect iOConnect = GetSelectedConnect();
+                    if (cacheIO != null && iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
                     {
                         iOConnect.Intput2 = cacheIO.CloneForDebug();
 
@@ -1229,11 +1403,13 @@ namespace Automation
             {
                 if (listView3.SelectedItems.Count != 0)
                 {
-                    IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == listView3.SelectedItems[0].Text);
+                    IOConnect iOConnect = GetSelectedConnect();
+                    if (iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
+                    {
+                        iOConnect.Intput2.Name = "";
 
-                    iOConnect.Intput2.Name = "";
-
-                    SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                    }
 
                 }
             }
@@ -1266,8 +1442,8 @@ namespace Automation
                         return;
                     }
                     IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == e.Item.Text);
-                    IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == listView3.SelectedItems[0].Text);
-                    if (cacheIO != null && iOConnect != null)
+                    IOConnect iOConnect = GetSelectedConnect();
+                    if (cacheIO != null && iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
                     {
                         iOConnect.Output2 = cacheIO.CloneForDebug();
 
@@ -1279,8 +1455,8 @@ namespace Automation
             {
                 if (listView3.SelectedItems.Count != 0)
                 {
-                    IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == listView3.SelectedItems[0].Text);
-                    if (iOConnect != null)
+                    IOConnect iOConnect = GetSelectedConnect();
+                    if (iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
                     {
                         if (iOConnect.Output2 == null)
                         {
@@ -1300,10 +1476,21 @@ namespace Automation
                 listView4.ItemChecked -= listView4_ItemChecked;
                 listView5.ItemChecked -= listView5_ItemChecked;
                 listView6.ItemChecked -= listView6_ItemChecked;
-                string selectedText = listView3.SelectedItems[0].Text;
-                IOConnect iOConnect = IODebugMaps.iOConnects.FirstOrDefault(con => con.Output.Name == selectedText);
-                if (iOConnect == null)
+                IOConnect iOConnect = GetSelectedConnect();
+                if (iOConnect == null || iOConnect.Output == null || iOConnect.Output.IsRemark)
                 {
+                    foreach (ListViewItem item in listView4.CheckedItems)
+                    {
+                        item.Checked = false;
+                    }
+                    foreach (ListViewItem item in listView5.CheckedItems)
+                    {
+                        item.Checked = false;
+                    }
+                    foreach (ListViewItem item in listView6.CheckedItems)
+                    {
+                        item.Checked = false;
+                    }
                     listView4.ItemChecked += listView4_ItemChecked;
                     listView5.ItemChecked += listView5_ItemChecked;
                     listView6.ItemChecked += listView6_ItemChecked;
@@ -1380,6 +1567,14 @@ namespace Automation
                 }
                 listView6.ItemChecked += listView6_ItemChecked;
             }
+        }
+        private IOConnect GetSelectedConnect()
+        {
+            if (listView3.SelectedItems.Count == 0)
+            {
+                return null;
+            }
+            return listView3.SelectedItems[0].Tag as IOConnect;
         }
         private ListViewItem sourceItem3;
         private ListViewItem targetItem3;
