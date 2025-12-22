@@ -461,6 +461,7 @@ namespace Automation
             catch (Exception e)
             {
                 evt.isAlarm = true;
+                evt.alarmMsg = e.Message;
                 SF.frmInfo.PrintInfo(e.Message, FrmInfo.Level.Error);
                 return false;
             }

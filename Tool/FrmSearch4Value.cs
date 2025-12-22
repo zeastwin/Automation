@@ -44,10 +44,10 @@ namespace Automation
             dataGridView1.Rows.Clear();
             for (int k = 0; k < FrmValue.ValueCapacity; k++)
             {
-                DicValue obj = SF.frmValue.GetValueByIndex(k);
-
-                if (string.IsNullOrEmpty(obj.Name))
+                if (!SF.frmValue.TryGetValueByIndex(k, out DicValue obj))
+                {
                     continue;
+                }
                 if (checkBox1.Checked)
                 {
                     bool stringsAreEqual = checkBox2.Checked ? obj.Name == textBox1.Text : string.Equals(obj.Name.ToString(), textBox1.Text, StringComparison.OrdinalIgnoreCase);

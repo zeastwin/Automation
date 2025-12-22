@@ -28,6 +28,7 @@ namespace Automation
             InitializeComponent();
             dgvValue.SelectionMode = DataGridViewSelectionMode.ColumnHeaderSelect;
             dgvValue.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
+            dgvValue.Columns[0].ReadOnly = true;
             dgvValue.RowHeadersVisible = false;
             dgvValue.AutoGenerateColumns = false;
         
@@ -159,10 +160,14 @@ namespace Automation
         {
             if (index < 0 || index >= ValueCapacity)
             {
-                throw new ArgumentOutOfRangeException(nameof(index));
+                throw new ArgumentOutOfRangeException(nameof(index), $"索引超出范围:{index}");
             }
             lock (valueLock)
             {
+                if (string.IsNullOrEmpty(values[index].Name))
+                {
+                    throw new KeyNotFoundException($"未找到索引变量:{index}");
+                }
                 return values[index];
             }
         }
@@ -180,6 +185,42 @@ namespace Automation
                     throw new KeyNotFoundException($"未找到变量:{key}");
                 }
                 return values[index];
+            }
+        }
+
+        public bool TryGetValueByIndex(int index, out DicValue value)
+        {
+            value = null;
+            if (index < 0 || index >= ValueCapacity)
+            {
+                return false;
+            }
+            lock (valueLock)
+            {
+                if (string.IsNullOrEmpty(values[index].Name))
+                {
+                    return false;
+                }
+                value = values[index];
+                return true;
+            }
+        }
+
+        public bool TryGetValueByName(string key, out DicValue value)
+        {
+            value = null;
+            if (string.IsNullOrEmpty(key))
+            {
+                return false;
+            }
+            lock (valueLock)
+            {
+                if (!nameIndex.TryGetValue(key, out int index))
+                {
+                    return false;
+                }
+                value = values[index];
+                return true;
             }
         }
 
@@ -300,12 +341,12 @@ namespace Automation
             }
             lock (valueLock)
             {
-                if (values[index].Value != null)
+                if (string.IsNullOrEmpty(values[index].Name))
                 {
-                    values[index].Value = newValue.ToString();
-                    return true;
+                    return false;
                 }
-                return false;
+                values[index].Value = newValue.ToString();
+                return true;
             }
         }
         /*=============================================================================================*/
