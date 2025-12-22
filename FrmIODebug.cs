@@ -96,7 +96,7 @@ namespace Automation
 
         public class ConnectButton
         {
-            public Button OutPut;
+            public Control OutPut;
             public Label InPut1;
             public Label InPut2;
         }
@@ -436,15 +436,8 @@ namespace Automation
                 }
                 else if (io.IsRemark)
                 {
-                    Label remarkLabel = new Label();
-                    remarkLabel.Text = io.Name;
-                    remarkLabel.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
-                    remarkLabel.Size = new System.Drawing.Size(100, 30);
-                    remarkLabel.TextAlign = ContentAlignment.MiddleCenter;
-                    remarkLabel.BackColor = Color.FromArgb(230, 232, 236);
-                    remarkLabel.ForeColor = Color.FromArgb(64, 64, 64);
-                    remarkLabel.Font = new Font("微软雅黑", 9F, FontStyle.Bold);
-                    tabPage.Controls.Add(remarkLabel);
+                    Control remarkHeader = CreateRemarkHeader(io.Name, new Point(col * colWidth, row * rowHeight), 100, 30);
+                    tabPage.Controls.Add(remarkHeader);
                     buttons.Add(null);
                 }
                 else
@@ -477,48 +470,49 @@ namespace Automation
             for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
             {
                 IOConnect ioConnect = IODebugMaps.iOConnects[i];
-                Button dynamicButton = new Button();
-
-                dynamicButton.Text = ioConnect.Output.Name;
-                dynamicButton.Location = new System.Drawing.Point(col * 110, row * 40);
-                dynamicButton.Size = new System.Drawing.Size(100, 30);
+                Control outputControl;
                 if (!ioConnect.Output.IsRemark)
                 {
+                    Button dynamicButton = new Button();
+                    dynamicButton.Text = ioConnect.Output.Name;
+                    dynamicButton.Location = new System.Drawing.Point(col * 110, row * 40);
+                    dynamicButton.Size = new System.Drawing.Size(100, 30);
                     dynamicButton.Tag = ioConnect;
                     dynamicButton.Click += new EventHandler(IOButton_Click);
+                    tabPage3.Controls.Add(dynamicButton);
+                    outputControl = dynamicButton;
                 }
                 else
                 {
-                    dynamicButton.Enabled = false;
-                    dynamicButton.FlatStyle = FlatStyle.Flat;
-                    dynamicButton.FlatAppearance.BorderSize = 0;
-                    dynamicButton.BackColor = Color.FromArgb(230, 232, 236);
+                    int colWidth = 110;
+                    int remarkWidth = colWidth * 3;
+                    Control remarkHeader = CreateRemarkHeader(ioConnect.Output.Name, new Point(col * colWidth, row * 40), remarkWidth, 30);
+                    tabPage3.Controls.Add(remarkHeader);
+                    outputControl = remarkHeader;
                 }
 
-                tabPage3.Controls.Add(dynamicButton);
-
                 Label dynamicLabel1 = new Label();
-
-                dynamicLabel1.Text = ioConnect.Output.IsRemark ? "" : ioConnect.Intput1.Name;
-                dynamicLabel1.Location = new System.Drawing.Point(col * 110+110, row * 40);
-                dynamicLabel1.Size = new System.Drawing.Size(100, 30);
-                dynamicLabel1.BackColor = System.Drawing.Color.Gray;
-                dynamicLabel1.TextAlign = ContentAlignment.MiddleCenter;
-
-
-                tabPage3.Controls.Add(dynamicLabel1);
-
                 Label dynamicLabel2 = new Label();
+                if (!ioConnect.Output.IsRemark)
+                {
+                    dynamicLabel1.Text = ioConnect.Intput1.Name;
+                    dynamicLabel1.Location = new System.Drawing.Point(col * 110 + 110, row * 40);
+                    dynamicLabel1.Size = new System.Drawing.Size(100, 30);
+                    dynamicLabel1.BackColor = System.Drawing.Color.Gray;
+                    dynamicLabel1.TextAlign = ContentAlignment.MiddleCenter;
 
-                dynamicLabel2.Text = ioConnect.Output.IsRemark ? "" : ioConnect.Intput2.Name;
-                dynamicLabel2.Location = new System.Drawing.Point(col * 110 + 220, row * 40);
-                dynamicLabel2.Size = new System.Drawing.Size(100, 30);
-                dynamicLabel2.BackColor = System.Drawing.Color.Gray;
-                dynamicLabel2.TextAlign = ContentAlignment.MiddleCenter;
+                    tabPage3.Controls.Add(dynamicLabel1);
 
-                tabPage3.Controls.Add(dynamicLabel2);
+                    dynamicLabel2.Text = ioConnect.Intput2.Name;
+                    dynamicLabel2.Location = new System.Drawing.Point(col * 110 + 220, row * 40);
+                    dynamicLabel2.Size = new System.Drawing.Size(100, 30);
+                    dynamicLabel2.BackColor = System.Drawing.Color.Gray;
+                    dynamicLabel2.TextAlign = ContentAlignment.MiddleCenter;
 
-                btnCon.Add(new ConnectButton { OutPut = dynamicButton ,InPut1 = dynamicLabel1 ,InPut2 = dynamicLabel2});
+                    tabPage3.Controls.Add(dynamicLabel2);
+                }
+
+                btnCon.Add(new ConnectButton { OutPut = outputControl ,InPut1 = dynamicLabel1 ,InPut2 = dynamicLabel2});
 
                 row++;
                 if (row > 10)
@@ -562,6 +556,41 @@ namespace Automation
                 SF.motion.GetOutIO(outputIo2, ref Open_1);
                 SF.motion.SetIO(outputIo2, !Open_1);
             }
+        }
+        private Control CreateRemarkHeader(string text, Point location, int width, int height)
+        {
+            Panel panel = new Panel();
+            panel.Location = location;
+            panel.Size = new Size(width, height);
+            panel.BackColor = Color.FromArgb(236, 238, 242);
+
+            Label textLabel = new Label();
+            textLabel.Text = text;
+            textLabel.Dock = DockStyle.Fill;
+            textLabel.TextAlign = ContentAlignment.MiddleCenter;
+            textLabel.Font = new Font("微软雅黑", 9F, FontStyle.Bold);
+            textLabel.ForeColor = Color.FromArgb(64, 64, 64);
+            textLabel.BackColor = Color.Transparent;
+
+            int linePadding = 8;
+            int textWidth = TextRenderer.MeasureText(text, textLabel.Font).Width;
+            int lineWidth = Math.Max(12, (width - textWidth - linePadding * 2) / 2);
+            int lineY = height / 2;
+
+            Panel leftLine = new Panel();
+            leftLine.BackColor = Color.FromArgb(170, 170, 170);
+            leftLine.Size = new Size(lineWidth, 1);
+            leftLine.Location = new Point(linePadding, lineY);
+
+            Panel rightLine = new Panel();
+            rightLine.BackColor = leftLine.BackColor;
+            rightLine.Size = new Size(lineWidth, 1);
+            rightLine.Location = new Point(width - linePadding - lineWidth, lineY);
+
+            panel.Controls.Add(leftLine);
+            panel.Controls.Add(rightLine);
+            panel.Controls.Add(textLabel);
+            return panel;
         }
         public void RefreshIODebugMapFrm()
         {
@@ -644,7 +673,7 @@ namespace Automation
             string filePath = Path.Combine(SF.ConfigPath, "IODebugMap.json");
             if (!File.Exists(filePath))
             {
-                BuildIODebugMapFromIOMap();
+                IODebugMaps = new IODebugMap();
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", IODebugMaps);
                 return;
             }
@@ -657,44 +686,9 @@ namespace Automation
             catch (Exception ex)
             {
                 //Console.WriteLine(ex.Message);
-
+                IODebugMaps = new IODebugMap();
+                SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", IODebugMaps);
             }
-        }
-        private void BuildIODebugMapFromIOMap()
-        {
-            IODebugMap result = new IODebugMap();
-            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
-            if (cacheIOs == null)
-            {
-                IODebugMaps = result;
-                return;
-            }
-            foreach (IO io in cacheIOs)
-            {
-                if (io == null)
-                {
-                    continue;
-                }
-                if (string.IsNullOrWhiteSpace(io.Name))
-                {
-                    continue;
-                }
-                if (io.IOType == "通用输入")
-                {
-                    if (!result.inputs.Any(item => item != null && item.Name == io.Name))
-                    {
-                        result.inputs.Add(io.CloneForDebug());
-                    }
-                }
-                else if (io.IOType == "通用输出")
-                {
-                    if (!result.outputs.Any(item => item != null && item.Name == io.Name))
-                    {
-                        result.outputs.Add(io.CloneForDebug());
-                    }
-                }
-            }
-            IODebugMaps = result;
         }
         private void InputConfigItem_Click(object sender, EventArgs e)
         {
