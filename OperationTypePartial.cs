@@ -151,7 +151,11 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection( SF.frmAlarmConfig.alarmInfos.Where(sc => !string.IsNullOrEmpty(sc.Name)).Select(sc => sc.Index).ToList());
+                if (SF.alarmInfoStore == null)
+                {
+                    return new StandardValuesCollection(new List<int>());
+                }
+                return new StandardValuesCollection(SF.alarmInfoStore.GetValidIndices());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {

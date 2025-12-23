@@ -150,153 +150,15 @@ namespace Automation
                 try
                 {
                     ExecuteOperation(evt, steps.Ops[i]);
-                    #region
-                    //if (steps.Ops[i] is CallCustomFunc)
-                    //{
-                    //    CallCustomFunc temp = (CallCustomFunc)steps.Ops[i];
-                    //    bOK = RunCustomFunc(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is IoOperate)
-                    //{
-                    //    IoOperate temp = (IoOperate)steps.Ops[i];
-                    //    bOK = RunIoOperate(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is IoCheck)
-                    //{
-                    //    IoCheck temp = (IoCheck)steps.Ops[i];
-                    //    bOK = RunIoCheck(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is ProcOps)
-                    //{
-                    //    ProcOps temp = (ProcOps)steps.Ops[i];
-                    //    bOK = RunProcOps(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is WaitProc)
-                    //{
-                    //    WaitProc temp = (WaitProc)steps.Ops[i];
-                    //    bOK = RunWaitProc(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is Goto)
-                    //{
-                    //    Goto temp = (Goto)steps.Ops[i];
-                    //    bOK = RunGoto(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is ParamGoto)
-                    //{
-                    //    ParamGoto temp = (ParamGoto)steps.Ops[i];
-                    //    bOK = RunParamGoto(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is SetDataStructItem)
-                    //{
-                    //    SetDataStructItem temp = (SetDataStructItem)steps.Ops[i];
-                    //    bOK = RunSetDataStructItem(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is Delay)
-                    //{
-                    //    Delay temp = (Delay)steps.Ops[i];
-                    //    bOK = RunDelay(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is GetDataStructItem)
-                    //{
-                    //    GetDataStructItem temp = (GetDataStructItem)steps.Ops[i];
-                    //    bOK = RunGetDataStructItem(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is CopyDataStructItem)
-                    //{
-                    //    CopyDataStructItem temp = (CopyDataStructItem)steps.Ops[i];
-                    //    bOK = RunCopyDataStructItem(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is InsertDataStructItem)
-                    //{
-                    //    InsertDataStructItem temp = (InsertDataStructItem)steps.Ops[i];
-                    //    bOK = RunInsertDataStructItem(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is DelDataStructItem)
-                    //{
-                    //    DelDataStructItem temp = (DelDataStructItem)steps.Ops[i];
-                    //    bOK = RunDelDataStructItem(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is FindDataStructItem)
-                    //{
-                    //    FindDataStructItem temp = (FindDataStructItem)steps.Ops[i];
-                    //    bOK = RunFindDataStructItem(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is GetDataStructCount)
-                    //{
-                    //    GetDataStructCount temp = (GetDataStructCount)steps.Ops[i];
-                    //    bOK = RunGetDataStructCount(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is GetValue)
-                    //{
-                    //    GetValue temp = (GetValue)steps.Ops[i];
-                    //    bOK = RunGetValue(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is ModifyValue)
-                    //{
-                    //    ModifyValue temp = (ModifyValue)steps.Ops[i];
-                    //    bOK = RunModifyValue(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is StringFormat)
-                    //{
-                    //    StringFormat temp = (StringFormat)steps.Ops[i];
-                    //    bOK = RunStringFormat(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is Split)
-                    //{
-                    //    Split temp = (Split)steps.Ops[i];
-                    //    bOK = RunSplit(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is Replace)
-                    //{
-                    //    Replace temp = (Replace)steps.Ops[i];
-                    //    bOK = RunReplace(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is TcpOps)
-                    //{
-                    //    TcpOps temp = (TcpOps)steps.Ops[i];
-                    //    bOK = RunTcpOps(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is WaitTcp)
-                    //{
-                    //    WaitTcp temp = (WaitTcp)steps.Ops[i];
-                    //    bOK = RunWaitTcp(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is SendTcpMsg)
-                    //{
-                    //    SendTcpMsg temp = (SendTcpMsg)steps.Ops[i];
-                    //    bOK = RunSendTcpMsg(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is ReceoveTcpMsg)
-                    //{
-                    //    ReceoveTcpMsg temp = (ReceoveTcpMsg)steps.Ops[i];
-                    //    bOK = RunReceoveTcpMsg(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is SendSerialPortMsg)
-                    //{
-                    //    SendSerialPortMsg temp = (SendSerialPortMsg)steps.Ops[i];
-                    //    bOK = RunSendSerialPortMsg(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is ReceoveSerialPortMsg)
-                    //{
-                    //    ReceoveSerialPortMsg temp = (ReceoveSerialPortMsg)steps.Ops[i];
-                    //    bOK = RunReceoveSerialPortMsg(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is SerialPortOps)
-                    //{
-                    //    SerialPortOps temp = (SerialPortOps)steps.Ops[i];
-                    //    bOK = RunSerialPortOps(evt, temp);
-                    //}
-                    //else if (steps.Ops[i] is WaitSerialPort)
-                    //{
-                    //    WaitSerialPort temp = (WaitSerialPort)steps.Ops[i];
-                    //    bOK = RunWaitSerialPort(evt, temp);
-                    //}
-                    #endregion
                     if (evt.isAlarm)
                     {
                         AlarmInfo alarmInfo = null;
-                        if (steps.Ops[i].AlarmInfoID != null)
-                            alarmInfo = SF.frmAlarmConfig.alarmInfos[int.Parse(steps.Ops[i].AlarmInfoID)];
+                        if (!string.IsNullOrWhiteSpace(steps.Ops[i].AlarmInfoID)
+                            && int.TryParse(steps.Ops[i].AlarmInfoID, out int alarmIndex)
+                            && SF.alarmInfoStore != null)
+                        {
+                            SF.alarmInfoStore.TryGetByIndex(alarmIndex, out alarmInfo);
+                        }
                         if (steps.Ops[i].AlarmType == "报警停止")
                             new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", evt.alarmMsg == null ? "流程停止" : evt.alarmMsg, () => { evt.isThStop = true; }, "确定", true);
                         if (steps.Ops[i].AlarmType == "报警忽略")
@@ -313,17 +175,26 @@ namespace Automation
                         if (steps.Ops[i].AlarmType == "弹框确定")
                         {
                             evt.isGoto = true;
-                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", alarmInfo.Note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, !string.IsNullOrEmpty(alarmInfo.Btn1) ? alarmInfo.Btn1 : "确定", true);
+                            string note = !string.IsNullOrEmpty(alarmInfo?.Note) ? alarmInfo.Note : (evt.alarmMsg ?? "发生报警");
+                            string btn1 = !string.IsNullOrEmpty(alarmInfo?.Btn1) ? alarmInfo.Btn1 : "确定";
+                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, btn1, true);
                         }
                         if (steps.Ops[i].AlarmType == "弹框确定与否")
                         {
                             evt.isGoto = true;
-                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", alarmInfo.Note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto2, evt); }, !string.IsNullOrEmpty(alarmInfo.Btn1) ? alarmInfo.Btn1 : "确定", !string.IsNullOrEmpty(alarmInfo.Btn2) ? alarmInfo.Btn2 : "否", true);
+                            string note = !string.IsNullOrEmpty(alarmInfo?.Note) ? alarmInfo.Note : (evt.alarmMsg ?? "发生报警");
+                            string btn1 = !string.IsNullOrEmpty(alarmInfo?.Btn1) ? alarmInfo.Btn1 : "确定";
+                            string btn2 = !string.IsNullOrEmpty(alarmInfo?.Btn2) ? alarmInfo.Btn2 : "否";
+                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto2, evt); }, btn1, btn2, true);
                         }
                         if (steps.Ops[i].AlarmType == "弹框确定与否与取消")
                         {
                             evt.isGoto = true;
-                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", alarmInfo.Note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto2, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto3, evt); }, !string.IsNullOrEmpty(alarmInfo.Btn1) ? alarmInfo.Btn1 : "确定", !string.IsNullOrEmpty(alarmInfo.Btn2) ? alarmInfo.Btn2 : "否", !string.IsNullOrEmpty(alarmInfo.Btn3) ? alarmInfo.Btn3 : "取消", true);
+                            string note = !string.IsNullOrEmpty(alarmInfo?.Note) ? alarmInfo.Note : (evt.alarmMsg ?? "发生报警");
+                            string btn1 = !string.IsNullOrEmpty(alarmInfo?.Btn1) ? alarmInfo.Btn1 : "确定";
+                            string btn2 = !string.IsNullOrEmpty(alarmInfo?.Btn2) ? alarmInfo.Btn2 : "否";
+                            string btn3 = !string.IsNullOrEmpty(alarmInfo?.Btn3) ? alarmInfo.Btn3 : "取消";
+                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto2, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto3, evt); }, btn1, btn2, btn3, true);
                         }
                     }
                     if (evt.isGoto)

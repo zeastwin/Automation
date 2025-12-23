@@ -90,6 +90,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Stores\\AlarmInfoStore.cs" />
     <Compile Include="Stores\\CardConfigStore.cs" />
     <Compile Include="CustomFunc.cs" />
     <Compile Include="DataStructModels.cs" />

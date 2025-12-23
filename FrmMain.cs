@@ -52,6 +52,7 @@ namespace Automation
             SF.cardStore = new CardConfigStore();
             SF.valueStore = new ValueConfigStore();
             SF.dataStructStore = new DataStructStore();
+            SF.alarmInfoStore = new AlarmInfoStore();
             SF.mainfrm = this;
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;
@@ -327,6 +328,7 @@ namespace Automation
         {
             SF.valueStore.Save(SF.ConfigPath);
             SF.dataStructStore.Save(SF.ConfigPath);
+            SF.alarmInfoStore.Save(SF.ConfigPath);
             Environment.Exit(0);
         }
     }

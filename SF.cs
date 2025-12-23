@@ -52,6 +52,7 @@ namespace Automation
         public static CardConfigStore cardStore;
         public static ValueConfigStore valueStore;
         public static DataStructStore dataStructStore;
+        public static AlarmInfoStore alarmInfoStore;
 
         //编辑状态
         public static ModifyKind isModify = ModifyKind.None;

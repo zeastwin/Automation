@@ -1,154 +1,143 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.IO;
-using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Automation
 {
     public partial class FrmAlarmConfig : Form
     {
-        public List<AlarmInfo> alarmInfos;
-        public bool isFinBulidFrmAlarmInfo = false;
-        //标志是否完成编辑
-        public bool isEndEdit = true;
+        private readonly BindingSource alarmBindingSource = new BindingSource();
+        private bool isLoading = false;
+
         public FrmAlarmConfig()
         {
             InitializeComponent();
             dataGridView1.SelectionMode = DataGridViewSelectionMode.ColumnHeaderSelect;
             dataGridView1.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
+            dataGridView1.Columns[0].ReadOnly = true;
             dataGridView1.RowHeadersVisible = false;
             dataGridView1.AutoGenerateColumns = false;
 
+            index.DataPropertyName = nameof(AlarmInfo.Index);
+            name.DataPropertyName = nameof(AlarmInfo.Name);
+            operaType.DataPropertyName = nameof(AlarmInfo.Btn1);
+            btn2.DataPropertyName = nameof(AlarmInfo.Btn2);
+            btn3.DataPropertyName = nameof(AlarmInfo.Btn3);
+            Note.DataPropertyName = nameof(AlarmInfo.Note);
 
-            Type dgvType = this.dataGridView1.GetType();
+            Type dgvType = dataGridView1.GetType();
             PropertyInfo pi = dgvType.GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
-            pi.SetValue(this.dataGridView1, true, null);
+            pi.SetValue(dataGridView1, true, null);
 
             dataGridView1.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            dataGridView1.RowValidating += dataGridView1_RowValidating;
+            dataGridView1.RowValidated += dataGridView1_RowValidated;
+            dataGridView1.DataError += dataGridView1_DataError;
         }
-        //从文件更新报警信息表
+
         public void RefreshAlarmInfo()
         {
-
-            if (!Directory.Exists(SF.ConfigPath))
+            if (SF.alarmInfoStore == null)
             {
-                Directory.CreateDirectory(SF.ConfigPath);
+                SF.alarmInfoStore = new AlarmInfoStore();
             }
-            if (!File.Exists(SF.ConfigPath + "AlarmInfo.json"))
-            {
-                SF.frmAlarmConfig.alarmInfos = new List<AlarmInfo>();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "AlarmInfo", SF.frmAlarmConfig.alarmInfos);
-            }
-            alarmInfos = SF.mainfrm.ReadJson<List<AlarmInfo>>(SF.ConfigPath, "AlarmInfo");
 
-            RefreshAlarmDgv();
-
+            isLoading = true;
+            SF.alarmInfoStore.Load(SF.ConfigPath);
+            alarmBindingSource.DataSource = SF.alarmInfoStore.Alarms;
+            dataGridView1.DataSource = alarmBindingSource;
+            alarmBindingSource.ResetBindings(false);
+            isLoading = false;
         }
 
-        public void RefreshAlarmDgv()
-        {
-            dataGridView1.Rows.Clear();
-
-            for (int i = 0; i < 1000; i++)
-            {
-                dataGridView1.Rows.Add();
-                dataGridView1.Rows[i].Cells[0].Value = alarmInfos[i].Index;
-                dataGridView1.Rows[i].Cells[1].Value = alarmInfos[i].Name;
-                dataGridView1.Rows[i].Cells[2].Value = alarmInfos[i].Btn1;
-                dataGridView1.Rows[i].Cells[3].Value = alarmInfos[i].Btn2;
-                dataGridView1.Rows[i].Cells[4].Value = alarmInfos[i].Btn3;
-                dataGridView1.Rows[i].Cells[5].Value = alarmInfos[i].Note;
-            }
-            isFinBulidFrmAlarmInfo = true;
-        }
-        //刷新变量界面
-        public void FreshFrmAlarmInfo()
-        {
-            for (int i = 0; i < 1000; i++)
-            {
-                dataGridView1.Rows[i].Cells[0].Value = alarmInfos[i].Index;
-                dataGridView1.Rows[i].Cells[1].Value = alarmInfos[i].Name;
-                dataGridView1.Rows[i].Cells[2].Value = alarmInfos[i].Btn1;
-                dataGridView1.Rows[i].Cells[3].Value = alarmInfos[i].Btn2;
-                dataGridView1.Rows[i].Cells[4].Value = alarmInfos[i].Btn3;
-                dataGridView1.Rows[i].Cells[5].Value = alarmInfos[i].Note;
-            }
-        }
         private void FrmAlarmConfig_FormClosing(object sender, FormClosingEventArgs e)
         {
             e.Cancel = true;
-            this.Hide();
+            Hide();
         }
 
         private void dataGridView1_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left && isEndEdit == true)
-                FreshFrmAlarmInfo();
+            if (e.Button == MouseButtons.Left)
+            {
+                dataGridView1.EndEdit();
+            }
         }
 
         private void dataGridView1_CellEndEdit(object sender, DataGridViewCellEventArgs e)
         {
-            if (isFinBulidFrmAlarmInfo)
+            if (e.RowIndex >= 0)
             {
-                // 确保值变化发生在单元格中而不是在行标题或列标题
-                if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
-                {
-                    DataGridView dataGridView = (DataGridView)sender;
-                    bool isEffective = CheckRowCellsHaveValue(dataGridView, e.RowIndex);
-                    isEndEdit = isEffective;
-                    if (isEffective)
-                    {
-                        int index = (int)dataGridView.Rows[e.RowIndex].Cells[0].Value;
-                        string name = (string)dataGridView.Rows[e.RowIndex].Cells[1].Value;
-                        string btn1 = (string)dataGridView.Rows[e.RowIndex].Cells[2].Value;
-                        string btn2 = (string)dataGridView.Rows[e.RowIndex].Cells[3].Value;
-                        string btn3 = (string)dataGridView.Rows[e.RowIndex].Cells[4].Value;
-                        string note = (string)dataGridView.Rows[e.RowIndex].Cells[5].Value;
-                        AlarmInfo alarm = new AlarmInfo() { Index= index,Name = name, Btn1 =btn1, Btn2 = btn2, Btn3 = btn3, Note = note };
-                        alarmInfos[index] = alarm;
-                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "AlarmInfo", SF.frmAlarmConfig.alarmInfos); 
-                        FreshFrmAlarmInfo();
-                    }
-
-                }
+                dataGridView1.Rows[e.RowIndex].ErrorText = string.Empty;
             }
         }
-        public bool CheckRowCellsHaveValue(DataGridView dataGridView, int rowIndex)
+
+        private void dataGridView1_RowValidating(object sender, DataGridViewCellCancelEventArgs e)
         {
-            int colsCount = dataGridView.ColumnCount;
-
-            for (int colIndex = 0; colIndex < colsCount; colIndex++)
+            if (isLoading || e.RowIndex < 0)
             {
-                if (colIndex == 1|| colIndex == 5)
-                {
-                    object cellValue = dataGridView.Rows[rowIndex].Cells[colIndex].Value;
-                    if (cellValue == null || cellValue.ToString() == "")
-                    {
-                        return false;
-                    }
-                }
+                return;
             }
-            return true;
+
+            DataGridViewRow row = dataGridView1.Rows[e.RowIndex];
+            AlarmInfo alarm = row.DataBoundItem as AlarmInfo;
+            if (alarm == null)
+            {
+                return;
+            }
+
+            string nameValue = alarm.Name?.Trim();
+            string noteValue = alarm.Note?.Trim();
+            bool hasName = !string.IsNullOrEmpty(nameValue);
+            bool hasNote = !string.IsNullOrEmpty(noteValue);
+
+            if (!hasName && !hasNote)
+            {
+                row.ErrorText = string.Empty;
+                return;
+            }
+
+            if (!hasName || !hasNote)
+            {
+                row.ErrorText = "名称与信息必须同时填写。";
+                e.Cancel = true;
+                return;
+            }
+
+            row.ErrorText = string.Empty;
         }
-    }
-    public class AlarmInfo
-    {
-        public int Index { get; set; }
-        public string Name { get; set; }
 
-        public string Btn1 { get; set; }
+        private void dataGridView1_RowValidated(object sender, DataGridViewCellEventArgs e)
+        {
+            if (isLoading || e.RowIndex < 0 || SF.alarmInfoStore == null)
+            {
+                return;
+            }
 
-        public string Btn2 { get; set; }
+            DataGridViewRow row = dataGridView1.Rows[e.RowIndex];
+            AlarmInfo alarm = row.DataBoundItem as AlarmInfo;
+            if (alarm == null)
+            {
+                return;
+            }
 
-        public string Btn3 { get; set; }
+            alarm.Index = e.RowIndex;
+            alarm.Name = alarm.Name?.Trim();
+            alarm.Note = alarm.Note?.Trim();
+            alarm.Btn1 = alarm.Btn1?.Trim();
+            alarm.Btn2 = alarm.Btn2?.Trim();
+            alarm.Btn3 = alarm.Btn3?.Trim();
 
-        public string Note { get; set; }
+            SF.alarmInfoStore.Save(SF.ConfigPath);
+        }
+
+        private void dataGridView1_DataError(object sender, DataGridViewDataErrorEventArgs e)
+        {
+            e.ThrowException = false;
+            if (e.RowIndex >= 0)
+            {
+                dataGridView1.Rows[e.RowIndex].ErrorText = "数据格式错误。";
+            }
+        }
     }
 }
