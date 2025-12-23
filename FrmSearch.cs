@@ -8,6 +8,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using static Automation.OperationTypePartial;
@@ -16,6 +17,8 @@ namespace Automation
 {
     public partial class FrmSearch : Form
     {
+        private CancellationTokenSource _searchCts;
+
         public FrmSearch()
         {
             InitializeComponent();
@@ -34,60 +37,105 @@ namespace Automation
 
         private void FrmSearch_FormClosing(object sender, FormClosingEventArgs e)
         {
+            _searchCts?.Cancel();
             e.Cancel = true;
             SF.frmDataGrid.ClearAllRowColors();
             this.Hide();
         }
        
-        private void btnSearch_Click(object sender, EventArgs e)
+        private async void btnSearch_Click(object sender, EventArgs e)
         {
-            int Count = 0;
             dataGridView1.Rows.Clear();
+            _searchCts?.Cancel();
+            CancellationTokenSource cts = new CancellationTokenSource();
+            _searchCts = cts;
+            btnSearch.Enabled = false;
+
+            string keyword = textBox1.Text;
+            bool isExactMatch = checkBox1.Checked;
+            StringComparison comparison = checkBox2.Checked ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+            List<SearchTarget> targets = new List<SearchTarget>();
             for (int i = 0; i < SF.frmProc.procsList.Count; i++)
             {
-                for(int j = 0;j< SF.frmProc.procsList[i].steps.Count;j++)
+                for (int j = 0; j < SF.frmProc.procsList[i].steps.Count; j++)
                 {
                     for (int k = 0; k < SF.frmProc.procsList[i].steps[j].Ops.Count; k++)
                     {
-                        OperationType obj = SF.frmProc.procsList[i].steps[j].Ops[k];
+                        targets.Add(new SearchTarget
+                        {
+                            ProcIndex = i,
+                            StepIndex = j,
+                            OpIndex = k,
+                            Op = SF.frmProc.procsList[i].steps[j].Ops[k]
+                        });
+                    }
+                }
+            }
+
+            try
+            {
+                List<SearchResult> results = await Task.Run(() =>
+                {
+                    List<SearchResult> list = new List<SearchResult>();
+                    int count = 0;
+                    foreach (SearchTarget target in targets)
+                    {
+                        cts.Token.ThrowIfCancellationRequested();
+                        if (target.Op == null)
+                            continue;
+                        OperationType obj = target.Op;
 
                         Type objectType = obj.GetType();
                         PropertyInfo[] properties = objectType.GetProperties();
 
                         foreach (PropertyInfo property in properties)
                         {
-                            string propertyName = property.Name;
+                            cts.Token.ThrowIfCancellationRequested();
                             object propertyValue = property.GetValue(obj);
                             if (propertyValue == null)
                                 continue;
-                            if (checkBox1.Checked)
+                            string value = propertyValue.ToString();
+                            bool isMatch = isExactMatch
+                                ? string.Equals(value, keyword, comparison)
+                                : value.IndexOf(keyword, comparison) >= 0;
+                            if (isMatch)
                             {
-                                bool stringsAreEqual = checkBox2.Checked? propertyValue.ToString() == textBox1.Text:string.Equals(propertyValue.ToString(), textBox1.Text, StringComparison.OrdinalIgnoreCase);
-                                if (stringsAreEqual)
+                                list.Add(new SearchResult
                                 {
-                                    dataGridView1.Rows.Add();
-                                    dataGridView1.Rows[Count].Cells[0].Value = Count;
-                                    dataGridView1.Rows[Count].Cells[1].Value = obj.Name;
-                                    dataGridView1.Rows[Count].Cells[2].Value = $"{i}-{j}-{k}";
-                                    Count++;
-                                }
+                                    Index = count,
+                                    Name = obj.Name,
+                                    Position = $"{target.ProcIndex}-{target.StepIndex}-{target.OpIndex}"
+                                });
+                                count++;
                             }
-                            else
-                            {
-                                bool containsSubstring = checkBox2.Checked ? propertyValue.ToString().Contains(textBox1.Text): propertyValue.ToString().ToLower().Contains(textBox1.Text.ToLower());
-                                if (containsSubstring)
-                                {
-                                    dataGridView1.Rows.Add();
-                                    dataGridView1.Rows[Count].Cells[0].Value = Count;
-                                    dataGridView1.Rows[Count].Cells[1].Value = obj.Name;
-                                    dataGridView1.Rows[Count].Cells[2].Value = $"{i}-{j}-{k}";
-                                    Count++;
-                                }
-                            }
-
                         }
                     }
+
+                    return list;
+                }, cts.Token);
+
+                if (!ReferenceEquals(_searchCts, cts) || cts.IsCancellationRequested)
+                    return;
+
+                for (int i = 0; i < results.Count; i++)
+                {
+                    dataGridView1.Rows.Add();
+                    dataGridView1.Rows[i].Cells[0].Value = results[i].Index;
+                    dataGridView1.Rows[i].Cells[1].Value = results[i].Name;
+                    dataGridView1.Rows[i].Cells[2].Value = results[i].Position;
                 }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                if (ReferenceEquals(_searchCts, cts))
+                {
+                    _searchCts = null;
+                    btnSearch.Enabled = true;
+                }
+                cts.Dispose();
             }
 
         }
@@ -114,6 +162,21 @@ namespace Automation
             {
                 SF.frmSearch.btnSearch.PerformClick();
             }
+        }
+
+        private class SearchResult
+        {
+            public int Index { get; set; }
+            public string Name { get; set; }
+            public string Position { get; set; }
+        }
+
+        private class SearchTarget
+        {
+            public int ProcIndex { get; set; }
+            public int StepIndex { get; set; }
+            public int OpIndex { get; set; }
+            public OperationType Op { get; set; }
         }
     }
 }

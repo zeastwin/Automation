@@ -322,19 +322,7 @@ namespace Automation
         }
         private void btnMonitor_Click(object sender, EventArgs e)
         {
-            Task.Run(() =>
-            {
-                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == "aaa");
-                while (true)
-                {
-                    Console.WriteLine(SF.motion.HomeStatus(0, 0));
-                    if (SF.cardStore.TryGetAxis(int.Parse(station.dataAxis.axisConfigs[0].CardNum), 0, out Axis axisInfo))
-                    {
-                        Console.WriteLine(axisInfo.State);
-                    }
-                    Thread.Sleep(500);
-                }
-            });
+            
         }
 
         private void btnAlarm_Click(object sender, EventArgs e)
@@ -347,17 +335,7 @@ namespace Automation
       
         private void button2_Click(object sender, EventArgs e)
         {
-            //SF.frmPropertyGrid.propertyGrid1.SelectedObject = button2;
-            //new FrmMessage("1", new EventHandler1(() => { MessageBox.Show("1234567"); }), "是");
-            // new Message("请注意，有些控件可能不允许失去焦点，例如Form或某些特殊的控件。在某些情况下，即使尝试设置焦点到其他控件，焦点可能仍然会回到某些特定控件上。这可能是由于控件属性、焦点顺序或事件处理等因素导致的。\r\n\r\n使用上述方法之一通常可以成功地从控件中移除焦点，但具体效果取决于您的应用程序的布局注意，有些控件可能不允许失去焦点，例如Form或某些特殊的控件。在某些情况下，即使尝试设置焦点到其他控件，焦点可能仍然会回到某些特定控件上。这可能是由于控件属性、焦点顺序或事件处理等因素导致的。\r\n\r\n使用上述方法之一通常可以成功地从控件中移除焦点，但具体效果取决于您的应用程序的布局和控和控件交互。", dd, dd2,dd2, "是", "否","dd",true);
-            //    new Message("请注意，有些控件可能不允许失去焦点，", dd, dd2, dd2, "是", "否", "dd", false);
-
-            // Console.WriteLine(1);
-            //   new FrmMessage("请注意。", 5000);
-            // Console.WriteLine(55);
-            //  SF.frmProc.RefleshGoto();
-
-            // SetDisplayName(typeof(StationRunPos), "StationName","111");
+           
         }
 
         private void btnLocate_Click(object sender, EventArgs e)
