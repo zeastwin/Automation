@@ -246,7 +246,6 @@ namespace Automation
             }
             int IOindexTemp = IOindex == 2 ? 3 : 2;
 
-
             while (axisInfo.State == Axis.Status.Run)
             {
                 switch (sfc)
@@ -258,14 +257,14 @@ namespace Automation
                         sfc = 2;
                         break;
                     case 2:
-                        if (SF.mainfrm.StateDic[cardNum][axis][SF.mainfrm.StateDic[cardNum][axis].Length - IOindex] == '1')
+                        if (GetAxisStateBit(cardNum, axis, IOindex))
                         {
                             sfc = 10;
                         }
-                        if (SF.mainfrm.StateDic[cardNum][axis][SF.mainfrm.StateDic[cardNum][axis].Length - IOindexTemp] == '1')
+                        if (GetAxisStateBit(cardNum, axis, IOindexTemp))
                         {
                             SF.Delay(1000);
-                            if (SF.mainfrm.StateDic[cardNum][axis][SF.mainfrm.StateDic[cardNum][axis].Length - IOindexTemp] == '1')
+                            if (GetAxisStateBit(cardNum, axis, IOindexTemp))
                             {
                                 MessageBox.Show("限位方向错误，回零失败。");
                                 sfc = 0;
@@ -310,6 +309,31 @@ namespace Automation
             }
                 
             
+        }
+
+        private bool GetAxisStateBit(ushort cardNum, ushort axis, int bitIndex)
+        {
+            if (bitIndex <= 0)
+            {
+                return false;
+            }
+            lock (SF.mainfrm.StateDicLock)
+            {
+                if (cardNum >= SF.mainfrm.StateDic.Count)
+                {
+                    return false;
+                }
+                Dictionary<int, char[]> axisStates = SF.mainfrm.StateDic[cardNum];
+                if (axisStates == null || !axisStates.TryGetValue(axis, out char[] state) || state == null)
+                {
+                    return false;
+                }
+                if (state.Length < bitIndex)
+                {
+                    return false;
+                }
+                return state[state.Length - bitIndex] == '1';
+            }
         }
         private void FrmControl_Load(object sender, EventArgs e)
         {

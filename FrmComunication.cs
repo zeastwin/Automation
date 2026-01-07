@@ -653,14 +653,14 @@ namespace Automation
                                         {
                                             item.state = state;
                                             string str = isOnline ? "已连接" : "未连接";
-                                            //foreach (DataGridViewRow row in dataGridView1.Rows)
-                                            //{
-                                            //    if (row.Cells[0].Value.ToString() == item.SocketInfo.ID.ToString())  // 检查第一列的单元格是否有值
-                                            //    {
+                                            foreach (DataGridViewRow row in dataGridView1.Rows)
+                                            {
+                                                if (row.Cells[0].Value.ToString() == item.SocketInfo.ID.ToString())  // 检查第一列的单元格是否有值
+                                                {
                                                     dataGridView1.Rows[i].Cells[5].Value = str;
                                                     break;
-                                            //    }
-                                            //}
+                                                }
+                                            }
                                             if (isOnline == false)
                                             {
                                                 socketers.Remove(item);
@@ -670,10 +670,10 @@ namespace Automation
                                     }
                                     else
                                     {
-                                        //foreach (DataGridViewRow row in dataGridView1.Rows)
-                                        //{
-                                        //    if (row.Cells[0].Value.ToString() == item.SocketInfo.ID.ToString())  // 检查第一列的单元格是否有值
-                                        //    {
+                                        foreach (DataGridViewRow row in dataGridView1.Rows)
+                                        {
+                                            if (row.Cells[0].Value.ToString() == item.SocketInfo.ID.ToString())  // 检查第一列的单元格是否有值
+                                            {
                                                 if (item.socketClient.Count == 0 && item.state != 1)
                                                 {
                                                     dataGridView1.Rows[i].Cells[5].Value = "已启动";
@@ -687,8 +687,8 @@ namespace Automation
                                                     item.ClientCount = item.socketClient.Count;
                                                     break;
                                                 }
-                                           // }
-                                       // }
+                                            }
+                                        }
 
                                     }
                                 }
@@ -699,7 +699,6 @@ namespace Automation
                                 }
                             }
 
-                            //List<int> list = new List<int>();
 
                             for (int i = 0; i < dataGridView2.Rows.Count; i++)
                             {
@@ -728,44 +727,6 @@ namespace Automation
                                     dataGridView2.Rows[i].Cells[7].Value = "已关闭";
                                 }
                             }
-
-                            //foreach (var item in serialPorters)
-                            //{
-                            //    bool isOpen = item.serialPort.IsOpen;
-                            //    if (isOpen != item.state)
-                            //    {
-                            //        item.state = isOpen;
-                            //        string str = isOpen ? "已打开" : "已关闭";
-
-                            //        int serialPorterIndex = serialPortInfos.IndexOf(serialPortInfos.FirstOrDefault(sc => sc.ID.ToString() == item.serialPortInfo.ID.ToString()));
-
-                            //        dataGridView2.Rows[serialPorterIndex].Cells[7].Value = str;
-     
-
-                            //        if (isOpen == false)
-                            //        {
-                            //            serialPorters.Remove(item);
-                            //            break;
-                            //        }
-                            //    }
-                            //}
-                            //for (int i = 0; i < serialPortInfos.Count; i++)
-                            //{
-                            //    bool isExist = false ;
-                            //    for(int j = 0;j < list.Count; j++)
-                            //    {
-                            //        if (i == list[j])
-                            //        {
-                            //            isExist = true;
-                            //            break;
-                            //        }                          
-                            //    }
-                            //    if(!isExist)
-                            //    {
-                            //        dataGridView2.Rows[i].Cells[7].Value = "已关闭";
-                            //    }
-                            //}
-                           
                         }
                     }
                     catch (Exception ex)

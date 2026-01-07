@@ -120,6 +120,7 @@ namespace Automation
         }
         
         public List<Dictionary<int, char[]>> StateDic = new List<Dictionary<int, char[]>>();
+        public object StateDicLock { get; } = new object();
 
         //public bool GetInPut(int cardNum,string Dtext, ref bool value)
         //{
@@ -194,8 +195,21 @@ namespace Automation
                                 for (int j = 0; j < SF.cardStore.GetAxisCount(i); j++)
                                 {
                                     uint Number = csLTDMC.LTDMC.dmc_axis_io_status((ushort)i, (ushort)j);
-
-                                    StateDic[i][j] = Convert.ToString(Number, 2).PadLeft(16, '0').ToCharArray();
+                                    char[] state = Convert.ToString(Number, 2).PadLeft(16, '0').ToCharArray();
+                                    lock (StateDicLock)
+                                    {
+                                        if (i >= StateDic.Count)
+                                        {
+                                            continue;
+                                        }
+                                        Dictionary<int, char[]> axisStates = StateDic[i];
+                                        if (axisStates == null)
+                                        {
+                                            axisStates = new Dictionary<int, char[]>();
+                                            StateDic[i] = axisStates;
+                                        }
+                                        axisStates[j] = state;
+                                    }
                                 }
                             }
                         }
@@ -211,11 +225,14 @@ namespace Automation
        
         public void ReflshDgv()
         {
-            StateDic.Clear();
-            for (int i = 0; i < SF.cardStore.GetControlCardCount(); i++)
+            lock (StateDicLock)
             {
-                Dictionary<int, char[]> dictionary1 = new Dictionary<int, char[]>();
-                StateDic.Add(dictionary1);
+                StateDic.Clear();
+                for (int i = 0; i < SF.cardStore.GetControlCardCount(); i++)
+                {
+                    Dictionary<int, char[]> dictionary1 = new Dictionary<int, char[]>();
+                    StateDic.Add(dictionary1);
+                }
             }
         }
 

@@ -9,8 +9,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Runtime.Serialization.Formatters.Binary;
-using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -664,13 +662,16 @@ namespace Automation
 
         public object Clone()
         {
-            using (MemoryStream memoryStream = new MemoryStream())
+            return new DataPos(Index)
             {
-                IFormatter formatter = new BinaryFormatter();
-                formatter.Serialize(memoryStream, this);
-                memoryStream.Seek(0, SeekOrigin.Begin);
-                return formatter.Deserialize(memoryStream);
-            }
+                Name = Name,
+                X = X,
+                Y = Y,
+                Z = Z,
+                U = U,
+                V = V,
+                W = W
+            };
         }
         public DataPos(int index)
         {
