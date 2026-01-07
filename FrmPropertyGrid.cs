@@ -57,6 +57,7 @@ namespace Automation
             OperationTypeList.Add(new WaitSerialPort());
             OperationTypeList.Add(new SendSerialPortMsg());
             OperationTypeList.Add(new ReceoveSerialPortMsg());
+            OperationTypeList.Add(new SendReceoveCommMsg());
             OperationTypeList.Add(new GetDataStructCount());
             OperationTypeList.Add(new SetDataStructItem());
             OperationTypeList.Add(new GetDataStructItem());

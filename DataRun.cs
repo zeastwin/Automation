@@ -301,6 +301,9 @@ namespace Automation
                     case ReceoveSerialPortMsg receoveSerialPortMsg:
                         return RunReceoveSerialPortMsg(evt, receoveSerialPortMsg);
 
+                    case SendReceoveCommMsg sendReceoveCommMsg:
+                        return RunSendReceoveCommMsg(evt, sendReceoveCommMsg);
+
                     case SerialPortOps serialPortOps:
                         return RunSerialPortOps(evt, serialPortOps);
 
@@ -1245,14 +1248,26 @@ namespace Automation
 
         public bool RunSendTcpMsg(ProcHandle evt, SendTcpMsg sendTcpMsg)
         {
-            SF.comm.SendTcpAsync(sendTcpMsg.ID, SF.valueStore.get_Str_ValueByName(sendTcpMsg.Msg), sendTcpMsg.isConVert)
+            bool success = SF.comm.SendTcpAsync(sendTcpMsg.ID, SF.valueStore.get_Str_ValueByName(sendTcpMsg.Msg), sendTcpMsg.isConVert)
                 .GetAwaiter()
                 .GetResult();
+            if (!success)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"TCP发送失败:{sendTcpMsg.ID}";
+                return false;
+            }
             return true;
         }
 
         public bool RunReceoveTcpMsg(ProcHandle evt, ReceoveTcpMsg receoveTcpMsg)
         {
+            if (!SF.comm.IsTcpActive(receoveTcpMsg.ID))
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"TCP未连接:{receoveTcpMsg.ID}";
+                return false;
+            }
             SF.comm.ClearTcpMessages(receoveTcpMsg.ID);
             int start = Environment.TickCount;
             while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < receoveTcpMsg.TImeOut)
@@ -1263,21 +1278,35 @@ namespace Automation
                     {
                         msg = Convert.ToString(number, 16).ToUpper();
                     }
-                    SF.valueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg);
-                    return true;
-                }
+                        SF.valueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg);
+                        return true;
+                    }
             }
+            evt.isAlarm = true;
+            evt.alarmMsg = $"TCP接收超时:{receoveTcpMsg.ID}";
             return true;
         }
         public bool RunSendSerialPortMsg(ProcHandle evt, SendSerialPortMsg sendSerialPortMsg)
         {
-            SF.comm.SendSerialAsync(sendSerialPortMsg.ID, SF.valueStore.get_Str_ValueByName(sendSerialPortMsg.Msg), sendSerialPortMsg.isConVert)
+            bool success = SF.comm.SendSerialAsync(sendSerialPortMsg.ID, SF.valueStore.get_Str_ValueByName(sendSerialPortMsg.Msg), sendSerialPortMsg.isConVert)
                 .GetAwaiter()
                 .GetResult();
+            if (!success)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"串口发送失败:{sendSerialPortMsg.ID}";
+                return false;
+            }
             return true;
         }
         public bool RunReceoveSerialPortMsg(ProcHandle evt, ReceoveSerialPortMsg receoveSerialPortMsg)
         {
+            if (!SF.comm.IsSerialOpen(receoveSerialPortMsg.ID))
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"串口未打开:{receoveSerialPortMsg.ID}";
+                return false;
+            }
             SF.comm.ClearSerialMessages(receoveSerialPortMsg.ID);
             int start = Environment.TickCount;
             while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < receoveSerialPortMsg.TImeOut)
@@ -1288,10 +1317,111 @@ namespace Automation
                     {
                         msg = Convert.ToString(number, 16).ToUpper();
                     }
-                    SF.valueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg);
-                    return true;
-                }
+                        SF.valueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg);
+                        return true;
+                    }
             }
+            evt.isAlarm = true;
+            evt.alarmMsg = $"串口接收超时:{receoveSerialPortMsg.ID}";
+            return true;
+        }
+
+        public bool RunSendReceoveCommMsg(ProcHandle evt, SendReceoveCommMsg sendReceoveCommMsg)
+        {
+            if (sendReceoveCommMsg == null || SF.comm == null || string.IsNullOrEmpty(sendReceoveCommMsg.ID))
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = "通讯参数无效";
+                return true;
+            }
+
+            string sendValue = SF.valueStore.get_Str_ValueByName(sendReceoveCommMsg.SendMsg);
+            string commType = sendReceoveCommMsg.CommType ?? "TCP";
+
+            if (string.Equals(commType, "TCP", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!SF.comm.IsTcpActive(sendReceoveCommMsg.ID))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"TCP未连接:{sendReceoveCommMsg.ID}";
+                    return false;
+                }
+                SF.comm.ClearTcpMessages(sendReceoveCommMsg.ID);
+                bool sendSuccess = SF.comm.SendTcpAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert)
+                    .GetAwaiter()
+                    .GetResult();
+                if (!sendSuccess)
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"TCP发送失败:{sendReceoveCommMsg.ID}";
+                    return false;
+                }
+
+                int start = Environment.TickCount;
+                while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < sendReceoveCommMsg.TimeOut)
+                {
+                    if (SF.comm.TryReceiveTcp(sendReceoveCommMsg.ID, 50, out string msg))
+                    {
+                        if (sendReceoveCommMsg.ReceiveConvert && int.TryParse(msg, out int number))
+                        {
+                            msg = Convert.ToString(number, 16).ToUpper();
+                        }
+                        if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
+                        {
+                            SF.valueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg);
+                        }
+                        return true;
+                    }
+                }
+                evt.isAlarm = true;
+                evt.alarmMsg = $"TCP接收超时:{sendReceoveCommMsg.ID}";
+                return false;
+            }
+
+            if (string.Equals(commType, "串口", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(commType, "Serial", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(commType, "SerialPort", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!SF.comm.IsSerialOpen(sendReceoveCommMsg.ID))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"串口未打开:{sendReceoveCommMsg.ID}";
+                    return false;
+                }
+                SF.comm.ClearSerialMessages(sendReceoveCommMsg.ID);
+                bool sendSuccess = SF.comm.SendSerialAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert)
+                    .GetAwaiter()
+                    .GetResult();
+                if (!sendSuccess)
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"串口发送失败:{sendReceoveCommMsg.ID}";
+                    return false;
+                }
+
+                int start = Environment.TickCount;
+                while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < sendReceoveCommMsg.TimeOut)
+                {
+                    if (SF.comm.TryReceiveSerial(sendReceoveCommMsg.ID, 50, out string msg))
+                    {
+                        if (sendReceoveCommMsg.ReceiveConvert && int.TryParse(msg, out int number))
+                        {
+                            msg = Convert.ToString(number, 16).ToUpper();
+                        }
+                        if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
+                        {
+                            SF.valueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg);
+                        }
+                        return true;
+                    }
+                }
+                evt.isAlarm = true;
+                evt.alarmMsg = $"串口接收超时:{sendReceoveCommMsg.ID}";
+                return false;
+            }
+
+            evt.isAlarm = true;
+            evt.alarmMsg = $"通讯类型不支持:{sendReceoveCommMsg.CommType}";
             return true;
         }
 

@@ -220,7 +220,11 @@ namespace Automation
             do
             {
                 bool convert = checkBox1.Checked;
-                await SF.comm.SendTcpAsync(name, sendMessage, convert);
+                bool success = await SF.comm.SendTcpAsync(name, sendMessage, convert);
+                if (!success)
+                {
+                    return;
+                }
 
                 if (checkBox2.Checked)
                 {
@@ -243,7 +247,11 @@ namespace Automation
             do
             {
                 bool convert = checkBox1.Checked;
-                await SF.comm.SendSerialAsync(name, sendMessage, convert);
+                bool success = await SF.comm.SendSerialAsync(name, sendMessage, convert);
+                if (!success)
+                {
+                    return;
+                }
 
                 if (checkBox2.Checked)
                 {

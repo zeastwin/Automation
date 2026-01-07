@@ -245,6 +245,55 @@ namespace Automation
                 return new StandardValuesCollection(new List<string>() { "启动", "断开" });
             }
         }
+        public class CommType : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(new List<string>() { "TCP", "串口" });
+            }
+        }
+        public class CommItem : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                if (context?.Instance is SendReceoveCommMsg commMsg)
+                {
+                    if (string.Equals(commMsg.CommType, "TCP", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new StandardValuesCollection(SF.frmComunication.socketInfos.Select(item => item.Name).ToList());
+                    }
+                    if (string.Equals(commMsg.CommType, "串口", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new StandardValuesCollection(SF.frmComunication.serialPortInfos.Select(item => item.Name).ToList());
+                    }
+                }
+
+                List<string> all = new List<string>();
+                all.AddRange(SF.frmComunication.socketInfos.Select(item => item.Name));
+                all.AddRange(SF.frmComunication.serialPortInfos.Select(item => item.Name));
+                return new StandardValuesCollection(all);
+            }
+        }
         public class SturctItemType : StringConverter
         {
             public override bool GetStandardValuesSupported(ITypeDescriptorContext context)

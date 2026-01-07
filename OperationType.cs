@@ -1612,6 +1612,38 @@ namespace Automation
     }
 
     [Serializable]
+    public class SendReceoveCommMsg : OperationType
+    {
+        public SendReceoveCommMsg()
+        {
+            OperaType = "发送与接收";
+            CommType = "TCP";
+            TimeOut = 3000;
+        }
+
+        [DisplayName("通讯类型"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(CommType))]
+        public string CommType { get; set; }
+
+        [DisplayName("ID"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(CommItem))]
+        public string ID { get; set; }
+
+        [DisplayName("发送信息"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string SendMsg { get; set; }
+
+        [DisplayName("是否16进制发送"), Category("参数"), Description(""), ReadOnly(false)]
+        public bool SendConvert { get; set; }
+
+        [DisplayName("接收信息"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string ReceiveSaveValue { get; set; }
+
+        [DisplayName("是否16进制接收"), Category("参数"), Description(""), ReadOnly(false)]
+        public bool ReceiveConvert { get; set; }
+
+        [DisplayName("超时时间"), Category("参数"), Description(""), ReadOnly(false)]
+        public int TimeOut { get; set; }
+    }
+
+    [Serializable]
     public class HomeRun : OperationType
     {
         public HomeRun()

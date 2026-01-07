@@ -50,6 +50,7 @@
 - 自定义逻辑：向 `CustomFunc.functionMap` 注册委托，名称即出现在 `CallCustomFunc`。
 - 硬件调整：使用 `FrmCard`/`FrmIO` UI 修改，`FrmToolBar` 保存后刷新缓存列表/字典。
 - 运行问题：操作设置 `ProcHandle.isAlarm`/`isGoto`，按 `AlarmType` 选择跳转或弹框（`Message`）策略。
+- 错误处理：任何错误（含超时/未连接/异常）必须设置 `ProcHandle.isAlarm = true` 并填写 `alarmMsg`，禁止静默吞错。
 
 ## 补充梳理（实现细节）
 - **运行时目录**：`SF.ConfigPath`/`SF.workPath` 由 exe 路径拼出，调试时写入 `bin/Debug/Config`（Release 同理），流程按 `0.json`…`N.json` 编号加载。

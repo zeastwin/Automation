@@ -146,16 +146,18 @@ namespace Automation
             return GetTcpStatus(name).IsRunning;
         }
 
-        public async Task SendTcpAsync(string name, string message, bool convertHex)
+        public async Task<bool> SendTcpAsync(string name, string message, bool convertHex)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
-                return;
+                RaiseLog(new CommLogEventArgs(CommChannelKind.TcpClient, CommDirection.Error, name, "TCP名称为空", null, null));
+                return false;
             }
 
             if (!_tcpChannels.TryGetValue(name, out TcpChannel channel))
             {
-                return;
+                RaiseLog(new CommLogEventArgs(CommChannelKind.TcpClient, CommDirection.Error, name, "TCP通道未启动", null, null));
+                return false;
             }
 
             string sendMessage = convertHex ? ConvertDecimalToHex(message) : (message ?? string.Empty);
@@ -164,10 +166,12 @@ namespace Automation
             {
                 await channel.SendAsync(sendMessage).ConfigureAwait(false);
                 RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Send, name, sendMessage, null, null));
+                return true;
             }
             catch (Exception ex)
             {
                 RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Error, name, ex.Message, null, ex));
+                return false;
             }
         }
 
@@ -265,16 +269,18 @@ namespace Automation
             return GetSerialStatus(name).IsOpen;
         }
 
-        public async Task SendSerialAsync(string name, string message, bool convertHex)
+        public async Task<bool> SendSerialAsync(string name, string message, bool convertHex)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
-                return;
+                RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, name, "串口名称为空", null, null));
+                return false;
             }
 
             if (!_serialChannels.TryGetValue(name, out SerialPortChannel channel))
             {
-                return;
+                RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, name, "串口未打开", null, null));
+                return false;
             }
 
             string sendMessage = convertHex ? ConvertDecimalToHex(message) : (message ?? string.Empty);
@@ -283,10 +289,12 @@ namespace Automation
             {
                 await channel.SendAsync(sendMessage).ConfigureAwait(false);
                 RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Send, name, sendMessage, channel.PortName, null));
+                return true;
             }
             catch (Exception ex)
             {
                 RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, name, ex.Message, channel.PortName, ex));
+                return false;
             }
         }
 
