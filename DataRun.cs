@@ -760,20 +760,42 @@ namespace Automation
                 }
                 //==============================================Save=====================================//
                 if (!string.IsNullOrEmpty(item.ValueSaveIndex))
-                    SF.valueStore.setValueByIndex(int.Parse(item.ValueSaveIndex), value);
+                {
+                    if (!SF.valueStore.setValueByIndex(int.Parse(item.ValueSaveIndex), value))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"保存变量失败:索引{item.ValueSaveIndex}";
+                        return false;
+                    }
+                }
                 else if (!string.IsNullOrEmpty(item.ValueSaveIndex2Index))
                 {
                     string index = SF.valueStore.GetValueByIndex(int.Parse(item.ValueSaveIndex2Index)).Value.ToString();
-                    SF.valueStore.setValueByIndex(int.Parse(index), value);
+                    if (!SF.valueStore.setValueByIndex(int.Parse(index), value))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"保存变量失败:索引{index}";
+                        return false;
+                    }
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveName))
                 {
-                    SF.valueStore.setValueByName(item.ValueSaveName, value);
+                    if (!SF.valueStore.setValueByName(item.ValueSaveName, value))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"保存变量失败:{item.ValueSaveName}";
+                        return false;
+                    }
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveName2Index))
                 {
                     string index = SF.valueStore.GetValueByName(item.ValueSaveName2Index).Value.ToString();
-                    SF.valueStore.setValueByIndex(int.Parse(index), value);
+                    if (!SF.valueStore.setValueByIndex(int.Parse(index), value))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"保存变量失败:索引{index}";
+                        return false;
+                    }
                 }
                 
             }
@@ -874,20 +896,42 @@ namespace Automation
 
             //==============================================OutputValue=====================================//
             if (!string.IsNullOrEmpty(ops.OutputValueIndex))
-                SF.valueStore.setValueByIndex(int.Parse(ops.OutputValueIndex), output);
+            {
+                if (!SF.valueStore.setValueByIndex(int.Parse(ops.OutputValueIndex), output))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存变量失败:索引{ops.OutputValueIndex}";
+                    return false;
+                }
+            }
             else if (!string.IsNullOrEmpty(ops.OutputValueIndex2Index))
             {
                 string index = SF.valueStore.GetValueByIndex(int.Parse(ops.OutputValueIndex2Index)).Value.ToString();
-                SF.valueStore.setValueByIndex(int.Parse(index), output);
+                if (!SF.valueStore.setValueByIndex(int.Parse(index), output))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存变量失败:索引{index}";
+                    return false;
+                }
             }
             else if (!string.IsNullOrEmpty(ops.OutputValueName))
             {
-                SF.valueStore.setValueByName(ops.OutputValueName, output);
+                if (!SF.valueStore.setValueByName(ops.OutputValueName, output))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存变量失败:{ops.OutputValueName}";
+                    return false;
+                }
             }
             else if (!string.IsNullOrEmpty(ops.OutputValueName2Index))
             {
                 string index = SF.valueStore.GetValueByName(ops.OutputValueName2Index).Value.ToString();
-                SF.valueStore.setValueByIndex(int.Parse(index), output);
+                if (!SF.valueStore.setValueByIndex(int.Parse(index), output))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存变量失败:索引{index}";
+                    return false;
+                }
             }
 
             return true;
@@ -914,17 +958,29 @@ namespace Automation
 
                 if (!string.IsNullOrEmpty(stringFormat.OutputValueIndex))
                 {
-                    SF.valueStore.setValueByIndex(int.Parse(stringFormat.OutputValueIndex), formattedStr);
+                    if (!SF.valueStore.setValueByIndex(int.Parse(stringFormat.OutputValueIndex), formattedStr))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"格式化结果保存失败:索引{stringFormat.OutputValueIndex}";
+                        return false;
+                    }
                 }
                 else if (!string.IsNullOrEmpty(stringFormat.OutputValueName))
                 {
-                    SF.valueStore.setValueByName(stringFormat.OutputValueName, formattedStr);
+                    if (!SF.valueStore.setValueByName(stringFormat.OutputValueName, formattedStr))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"格式化结果保存失败:{stringFormat.OutputValueName}";
+                        return false;
+                    }
                 }
                
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message);
+                evt.isAlarm = true;
+                evt.alarmMsg = ex.Message;
+                return false;
             }
             return true;
 
@@ -962,7 +1018,12 @@ namespace Automation
             }
             for (int i = SaveIndex; i < SaveIndex + Count; i++)
             {
-                SF.valueStore.setValueByIndex(i, splitArray[Startindex + i - SaveIndex]);
+                if (!SF.valueStore.setValueByIndex(i, splitArray[Startindex + i - SaveIndex]))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存变量失败:索引{i}";
+                    return false;
+                }
             }
             return true;
 
@@ -1034,10 +1095,22 @@ namespace Automation
             }
 
             if (!string.IsNullOrEmpty(replace.OutputIndex))
-                SF.valueStore.setValueByIndex(int.Parse(replace.OutputIndex),str);
+            {
+                if (!SF.valueStore.setValueByIndex(int.Parse(replace.OutputIndex),str))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存变量失败:索引{replace.OutputIndex}";
+                    return false;
+                }
+            }
             else if (!string.IsNullOrEmpty(replace.Output))
             {
-                SF.valueStore.setValueByName(replace.Output, str);
+                if (!SF.valueStore.setValueByName(replace.Output, str))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存变量失败:{replace.Output}";
+                    return false;
+                }
             }
             else
             {
@@ -1050,9 +1123,17 @@ namespace Automation
         }
         public bool RunSetDataStructItem(ProcHandle evt, SetDataStructItem setDataStructItem)
         {
+            int structIndex = int.Parse(setDataStructItem.StructIndex);
+            int itemIndex = int.Parse(setDataStructItem.ItemIndex);
             for (int i = 0; i < int.Parse(setDataStructItem.Count); i++)
             {
-                SF.dataStructStore.TrySetItemValueByIndex(int.Parse(setDataStructItem.StructIndex), int.Parse(setDataStructItem.ItemIndex), int.Parse(setDataStructItem.Params[i].valueIndex), setDataStructItem.Params[i].value);
+                int valueIndex = int.Parse(setDataStructItem.Params[i].valueIndex);
+                if (!SF.dataStructStore.TrySetItemValueByIndex(structIndex, itemIndex, valueIndex, setDataStructItem.Params[i].value))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"设置数据结构失败:结构{structIndex},项{itemIndex},值{valueIndex}";
+                    return false;
+                }
             }
             return true;
         }
@@ -1068,9 +1149,17 @@ namespace Automation
                 int count = SF.dataStructStore.GetItemValueCount(structIndex, itemIndex);
                 for (int i = 0; i < count; i++)
                 {
-                    if (SF.dataStructStore.TryGetItemValueByIndex(structIndex, itemIndex, i, out object obj))
+                    if (!SF.dataStructStore.TryGetItemValueByIndex(structIndex, itemIndex, i, out object obj))
                     {
-                        SF.valueStore.setValueByIndex(startIndex + i, obj);
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"读取数据结构失败:结构{structIndex},项{itemIndex},值{i}";
+                        return false;
+                    }
+                    if (!SF.valueStore.setValueByIndex(startIndex + i, obj))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"保存变量失败:索引{startIndex + i}";
+                        return false;
                     }
                 }
             }
@@ -1081,7 +1170,9 @@ namespace Automation
                     int valueIndex = int.Parse(getDataStructItem.Params[i].valueIndex);
                     if (!SF.dataStructStore.TryGetItemValueByIndex(structIndex, itemIndex, valueIndex, out object obj))
                     {
-                        continue;
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"读取数据结构失败:结构{structIndex},项{itemIndex},值{valueIndex}";
+                        return false;
                     }
 
                     string valueName = "";
@@ -1090,7 +1181,12 @@ namespace Automation
                     else
                         valueName = SF.valueStore.GetValueByName(getDataStructItem.Params[i].ValueName).Value.ToString();
 
-                    SF.valueStore.setValueByName(valueName, obj);
+                    if (!SF.valueStore.setValueByName(valueName, obj))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"保存变量失败:{valueName}";
+                        return false;
+                    }
                 }
             }
             return true;
@@ -1099,7 +1195,12 @@ namespace Automation
         {
             if (copyDataStructItem.IsAllValue)
             {
-                SF.dataStructStore.TryCopyItemAll(int.Parse(copyDataStructItem.SourceStructIndex), int.Parse(copyDataStructItem.SourceItemIndex), int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex));
+                if (!SF.dataStructStore.TryCopyItemAll(int.Parse(copyDataStructItem.SourceStructIndex), int.Parse(copyDataStructItem.SourceItemIndex), int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex)))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"复制数据结构失败:源{copyDataStructItem.SourceStructIndex}-{copyDataStructItem.SourceItemIndex},目标{copyDataStructItem.TargetStructIndex}-{copyDataStructItem.TargetItemIndex}";
+                    return false;
+                }
             }
             else
             {
@@ -1107,15 +1208,24 @@ namespace Automation
                 {
                     if (!SF.dataStructStore.TryGetItemValueByIndex(int.Parse(copyDataStructItem.SourceStructIndex), int.Parse(copyDataStructItem.SourceItemIndex), int.Parse(copyDataStructItem.Params[i].SourcevalueIndex), out object obj, out DataStructValueType valueType))
                     {
-                        continue;
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"读取数据结构失败:结构{copyDataStructItem.SourceStructIndex},项{copyDataStructItem.SourceItemIndex},值{copyDataStructItem.Params[i].SourcevalueIndex}";
+                        return false;
                     }
 
                     if (obj == null)
                     {
-                        continue;
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"数据结构值为空:结构{copyDataStructItem.SourceStructIndex},项{copyDataStructItem.SourceItemIndex},值{copyDataStructItem.Params[i].SourcevalueIndex}";
+                        return false;
                     }
 
-                    SF.dataStructStore.TrySetItemValueByIndex(int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex), int.Parse(copyDataStructItem.Params[i].Targetvalue), obj.ToString(), valueType);
+                    if (!SF.dataStructStore.TrySetItemValueByIndex(int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex), int.Parse(copyDataStructItem.Params[i].Targetvalue), obj.ToString(), valueType))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"设置数据结构失败:结构{copyDataStructItem.TargetStructIndex},项{copyDataStructItem.TargetItemIndex},值{copyDataStructItem.Params[i].Targetvalue}";
+                        return false;
+                    }
 
                 }
 
@@ -1149,7 +1259,12 @@ namespace Automation
                     dataStructItem.str[i] = str;
                 }
             }
-            SF.dataStructStore.TryInsertItem(int.Parse(insertDataStructItem.TargetStructIndex), int.Parse(insertDataStructItem.TargetItemIndex), dataStructItem);
+            if (!SF.dataStructStore.TryInsertItem(int.Parse(insertDataStructItem.TargetStructIndex), int.Parse(insertDataStructItem.TargetItemIndex), dataStructItem))
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"插入数据结构失败:结构{insertDataStructItem.TargetStructIndex},项{insertDataStructItem.TargetItemIndex}";
+                return false;
+            }
             return true;
         }
 
@@ -1158,17 +1273,24 @@ namespace Automation
         {
             int structIndex = int.Parse(delDataStructItem.TargetStructIndex);
             int itemIndex = int.Parse(delDataStructItem.TargetItemIndex);
+            bool success;
             if (itemIndex >= 255)
             {
-                SF.dataStructStore.TryRemoveLastItem(structIndex);
+                success = SF.dataStructStore.TryRemoveLastItem(structIndex);
             }
             else if (itemIndex <= -1)
             {
-                SF.dataStructStore.TryRemoveFirstItem(structIndex);
+                success = SF.dataStructStore.TryRemoveFirstItem(structIndex);
             }
             else
             {
-                SF.dataStructStore.TryRemoveItemAt(structIndex, itemIndex);
+                success = SF.dataStructStore.TryRemoveItemAt(structIndex, itemIndex);
+            }
+            if (!success)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"删除数据结构失败:结构{structIndex},项{itemIndex}";
+                return false;
             }
             return true;
         }
@@ -1177,26 +1299,53 @@ namespace Automation
         {
             if (findDataStructItem.Type == "名称等于key")
             {
-                if (SF.dataStructStore.TryFindItemByName(int.Parse(findDataStructItem.TargetStructIndex), findDataStructItem.key, out string value))
+                if (!SF.dataStructStore.TryFindItemByName(int.Parse(findDataStructItem.TargetStructIndex), findDataStructItem.key, out string value))
                 {
-                    SF.valueStore.setValueByName(findDataStructItem.save, value);
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}";
+                    return false;
+                }
+                if (!SF.valueStore.setValueByName(findDataStructItem.save, value))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存变量失败:{findDataStructItem.save}";
+                    return false;
                 }
             }
             else if (findDataStructItem.Type == "字符串等于key")
             {
-                if (SF.dataStructStore.TryFindItemByStringValue(int.Parse(findDataStructItem.TargetStructIndex), findDataStructItem.key, out string value))
+                if (!SF.dataStructStore.TryFindItemByStringValue(int.Parse(findDataStructItem.TargetStructIndex), findDataStructItem.key, out string value))
                 {
-                    SF.valueStore.setValueByName(findDataStructItem.save, value);
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}";
+                    return false;
+                }
+                if (!SF.valueStore.setValueByName(findDataStructItem.save, value))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存变量失败:{findDataStructItem.save}";
+                    return false;
                 }
             }
             else if (findDataStructItem.Type == "数值等于key")
             {
-                if (double.TryParse(findDataStructItem.key, out double keyValue))
+                if (!double.TryParse(findDataStructItem.key, out double keyValue))
                 {
-                    if (SF.dataStructStore.TryFindItemByNumberValue(int.Parse(findDataStructItem.TargetStructIndex), keyValue, out double value))
-                    {
-                        SF.valueStore.setValueByName(findDataStructItem.save, value);
-                    }
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"查找数值key无效:{findDataStructItem.key}";
+                    return false;
+                }
+                if (!SF.dataStructStore.TryFindItemByNumberValue(int.Parse(findDataStructItem.TargetStructIndex), keyValue, out double value))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}";
+                    return false;
+                }
+                if (!SF.valueStore.setValueByName(findDataStructItem.save, value))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存变量失败:{findDataStructItem.save}";
+                    return false;
                 }
             }
             return true;
@@ -1204,8 +1353,18 @@ namespace Automation
 
         public bool RunGetDataStructCount(ProcHandle evt, GetDataStructCount getDataStructCount)
         {
-            SF.valueStore.setValueByName(getDataStructCount.StructCount, SF.dataStructStore.Count);
-            SF.valueStore.setValueByName(getDataStructCount.ItemCount, SF.dataStructStore.GetItemCount(int.Parse(getDataStructCount.TargetStructIndex)));
+            if (!SF.valueStore.setValueByName(getDataStructCount.StructCount, SF.dataStructStore.Count))
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"保存变量失败:{getDataStructCount.StructCount}";
+                return false;
+            }
+            if (!SF.valueStore.setValueByName(getDataStructCount.ItemCount, SF.dataStructStore.GetItemCount(int.Parse(getDataStructCount.TargetStructIndex))))
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"保存变量失败:{getDataStructCount.ItemCount}";
+                return false;
+            }
 
             return true;
         }
@@ -1214,6 +1373,12 @@ namespace Automation
             foreach (var op in tcpOps.Params)
             {
                 SocketInfo socketInfo = SF.frmComunication.socketInfos.FirstOrDefault(sc => sc.Name == op.Name);
+                if (socketInfo == null)
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"TCP配置不存在:{op.Name}";
+                    return false;
+                }
                 if (op.Ops == "启动")
                 {
                     _ = SF.comm.StartTcpAsync(socketInfo);
@@ -1242,6 +1407,9 @@ namespace Automation
                     }
                     Delay(5, evt);
                 }
+                evt.isAlarm = true;
+                evt.alarmMsg = $"等待TCP连接超时:{op.Name}";
+                return false;
             }
             return true;
         }
@@ -1278,8 +1446,13 @@ namespace Automation
                     {
                         msg = Convert.ToString(number, 16).ToUpper();
                     }
-                        SF.valueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg);
-                        return true;
+                    if (!SF.valueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"保存TCP接收变量失败:{receoveTcpMsg.MsgSaveValue}";
+                        return false;
+                    }
+                    return true;
                     }
             }
             evt.isAlarm = true;
@@ -1317,8 +1490,13 @@ namespace Automation
                     {
                         msg = Convert.ToString(number, 16).ToUpper();
                     }
-                        SF.valueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg);
-                        return true;
+                    if (!SF.valueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"保存串口接收变量失败:{receoveSerialPortMsg.MsgSaveValue}";
+                        return false;
+                    }
+                    return true;
                     }
             }
             evt.isAlarm = true;
@@ -1368,7 +1546,12 @@ namespace Automation
                         }
                         if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
                         {
-                            SF.valueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg);
+                            if (!SF.valueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
+                            {
+                                evt.isAlarm = true;
+                                evt.alarmMsg = $"保存TCP接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
+                                return false;
+                            }
                         }
                         return true;
                     }
@@ -1410,7 +1593,12 @@ namespace Automation
                         }
                         if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
                         {
-                            SF.valueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg);
+                            if (!SF.valueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
+                            {
+                                evt.isAlarm = true;
+                                evt.alarmMsg = $"保存串口接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
+                                return false;
+                            }
                         }
                         return true;
                     }
@@ -1430,6 +1618,12 @@ namespace Automation
             foreach (var op in serialPortOps.Params)
             {
                 SerialPortInfo serialPortInfo = SF.frmComunication.serialPortInfos.FirstOrDefault(sc => sc.Name == op.Name);
+                if (serialPortInfo == null)
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"串口配置不存在:{op.Name}";
+                    return false;
+                }
                 if (op.Ops == "启动")
                 {
                     _ = SF.comm.StartSerialAsync(serialPortInfo);
@@ -1457,6 +1651,9 @@ namespace Automation
                     }
                     Delay(5, evt);
                 }
+                evt.isAlarm = true;
+                evt.alarmMsg = $"等待串口连接超时:{op.Name}";
+                return false;
             }
             return true;
         }
