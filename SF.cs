@@ -53,6 +53,7 @@ namespace Automation
         public static ValueConfigStore valueStore;
         public static DataStructStore dataStructStore;
         public static AlarmInfoStore alarmInfoStore;
+        public static CommunicationHub comm;
 
         //编辑状态
         public static ModifyKind isModify = ModifyKind.None;

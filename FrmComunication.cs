@@ -11,15 +11,12 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Security.Policy;
 using System.Net.Http;
-using System.Threading;
 using System.Reflection;
 using System.IO;
 using System.Collections;
 using System.Runtime.InteropServices.ComTypes;
 using static System.Net.Mime.MediaTypeNames;
 using static System.Windows.Forms.AxHost;
-using System.IO.Ports;
-using static Automation.FrmComunication;
 
 namespace Automation
 {
@@ -27,17 +24,14 @@ namespace Automation
     {
 
         public List<SocketInfo> socketInfos = new List<SocketInfo>();
-        public List<Socketer> socketers = new List<Socketer>();
-
         public List<SerialPortInfo> serialPortInfos = new List<SerialPortInfo>();
-        public List<SerialPorter> serialPorters = new List<SerialPorter>();
-
 
         public int iSelectedSocketRow;
         public int iSelectedSerialPortRow;
 
         bool isEndEdit = false;
         bool isEndEdit2 = false;
+        private readonly System.Windows.Forms.Timer stateTimer = new System.Windows.Forms.Timer();
 
 
         public FrmComunication()
@@ -76,133 +70,136 @@ namespace Automation
         {
             RefleshSocketDgv();
             RefleshSerialPortDgv();
-            IsOnline();
-
-        }
-        public class ConnectHandle
-        {
-            public ManualResetEvent connectDone = new ManualResetEvent(false);
-            public byte[] buffer = new byte[1024];
-            public Socketer socketer;
-        }
-
-        public void TryConnect(SocketInfo socketInfo)
-        {
-
-            try
+            if (SF.comm != null)
             {
-                Socket clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                Socketer socketClient = new Socketer() { SocketInfo = socketInfo, socket = clientSocket };
-                socketClient.isRun.Set();
-                ConnectHandle connectHandle = new ConnectHandle() { socketer = socketClient };
+                SF.comm.Log += Comm_Log;
+            }
+            StartStateTimer();
+            UpdateOnlineState();
 
-                // 设置连接超时时间为 5 秒
-                TimeSpan timeout = TimeSpan.FromSeconds(5);
-                clientSocket.BeginConnect(new IPEndPoint(IPAddress.Parse(socketInfo.Address), socketInfo.Port), ConnectCallback, connectHandle);
+        }
+        private void StartStateTimer()
+        {
+            stateTimer.Interval = 1000;
+            stateTimer.Tick += StateTimer_Tick;
+            stateTimer.Start();
+        }
 
-                // 等待连接完成或超时
-                if (connectHandle.connectDone.WaitOne(timeout))
+        private void StateTimer_Tick(object sender, EventArgs e)
+        {
+            if (!CheckFormIsOpen(this))
+            {
+                return;
+            }
+
+            UpdateOnlineState();
+        }
+
+        private void UpdateOnlineState()
+        {
+            if (SF.comm == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < socketInfos.Count && i < dataGridView1.Rows.Count; i++)
+            {
+                SocketInfo info = socketInfos[i];
+                if (info == null)
                 {
-                    socketers.Add(socketClient);
-                    // 开始异步接收数据
-                    clientSocket.BeginReceive(connectHandle.buffer, 0, connectHandle.buffer.Length, SocketFlags.None, ReceiveCallback, connectHandle);
+                    continue;
+                }
+                TcpStatus status = SF.comm.GetTcpStatus(info.Name);
+                if (ReferenceEquals(status, TcpStatus.Empty))
+                {
+                    dataGridView1.Rows[i].Cells[5].Value = "";
+                    continue;
+                }
+                if (string.Equals(info.Type, "Client", StringComparison.OrdinalIgnoreCase))
+                {
+                    dataGridView1.Rows[i].Cells[5].Value = status.IsRunning ? "已连接" : "未连接";
                 }
                 else
                 {
-                    // 连接超时
-                    clientSocket.Close();
-                    Invoke(new Action(() =>
+                    if (status.IsRunning)
                     {
-                        int length = ReceiveTextBox.TextLength;
-                        string str = socketInfo.Name + "连接超时\r\n";
-                        ReceiveTextBox.AppendText(str);
-                        SetTextColor(length, str, Color.Red);
-
-                    }));
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Error: " + ex.Message);
-
-            }
-        }
-        public void ConnectCallback(IAsyncResult ar)
-        {
-            ConnectHandle state = (ConnectHandle)ar.AsyncState;
-            try
-            {
-                // 完成连接
-
-                state.socketer.socket.EndConnect(ar);
-
-                // 通知连接已完成
-                state.connectDone.Set();
-            }
-            catch (Exception ex)
-            {
-                // 通知连接已完成
-                state.connectDone.Reset();
-                MessageBox.Show("Error: " + ex.Message);
-
-            }
-        }
-        public void ReceiveCallback(IAsyncResult ar)
-        {
-            bool isCheck = false;
-            try
-            {
-                ConnectHandle state = (ConnectHandle)ar.AsyncState;
-                int bytesRead = state.socketer.socket.EndReceive(ar);
-
-                if (bytesRead > 0)
-                {
-                    string receivedData = Encoding.UTF8.GetString(state.buffer, 0, bytesRead);
-
-                    if (state.socketer.isRun.WaitOne())
-                    {
-                        state.socketer.Msg = receivedData;
-                        if (SF.frmComunication.Visible == true)
+                        if (status.ClientCount > 0)
                         {
-                            Invoke(new Action(() =>
-                            {
-                                isCheck = checkBox3.Checked;
-                                if (isCheck)
-                                {
-                                    if (int.TryParse(receivedData, out int number))
-                                    {
-                                        receivedData = Convert.ToString(number, 16).ToUpper();
-                                    }
-                                }
-                                int length = ReceiveTextBox.TextLength;
-                                string str = $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}][{state.socketer.SocketInfo.Name}][Receive]：{receivedData}\r\n";
-                                ReceiveTextBox.AppendText(str);
-                                SetTextColor(length, str, Color.LightBlue);
-
-                            }));
+                            dataGridView1.Rows[i].Cells[5].Value = $"已连接({status.ClientCount})";
+                        }
+                        else
+                        {
+                            dataGridView1.Rows[i].Cells[5].Value = "已启动";
                         }
                     }
-                }
-
-                // 继续异步接收数据
-                state.socketer.socket.BeginReceive(state.buffer, 0, state.buffer.Length, SocketFlags.None, ReceiveCallback, state);
-            }
-            catch (SocketException se)
-            {
-                if (se.SocketErrorCode == SocketError.ConnectionReset)
-                {
-                    Console.WriteLine("Connection closed by remote host.");
-                }
-                else
-                {
-                    Console.WriteLine("SocketError: " + se.Message);
+                    else
+                    {
+                        dataGridView1.Rows[i].Cells[5].Value = "已关闭";
+                    }
                 }
             }
-            catch (Exception ex)
+
+            for (int i = 0; i < serialPortInfos.Count && i < dataGridView2.Rows.Count; i++)
             {
-                Console.WriteLine("Error in ReceiveCallback: " + ex.Message);
+                SerialPortInfo info = serialPortInfos[i];
+                if (info == null)
+                {
+                    continue;
+                }
+                SerialStatus status = SF.comm.GetSerialStatus(info.Name);
+                dataGridView2.Rows[i].Cells[7].Value = status.IsOpen ? "已打开" : "已关闭";
+            }
+        }
 
+        private void Comm_Log(object sender, CommLogEventArgs e)
+        {
+            if (!CheckFormIsOpen(this))
+            {
+                return;
+            }
 
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => AppendCommLog(e)));
+                return;
+            }
+
+            AppendCommLog(e);
+        }
+
+        private void AppendCommLog(CommLogEventArgs e)
+        {
+            string message = e.Message ?? string.Empty;
+            if (e.Direction == CommDirection.Receive && checkBox3.Checked)
+            {
+                if (int.TryParse(message, out int number))
+                {
+                    message = Convert.ToString(number, 16).ToUpper();
+                }
+            }
+
+            string target = e.Kind == CommChannelKind.SerialPort
+                ? (string.IsNullOrWhiteSpace(e.RemoteEndPoint) ? e.Name : e.RemoteEndPoint)
+                : e.Name;
+            string remote = e.Kind == CommChannelKind.TcpServer && !string.IsNullOrWhiteSpace(e.RemoteEndPoint)
+                ? $"[{e.RemoteEndPoint}]"
+                : string.Empty;
+            string action = e.Direction == CommDirection.Send ? "Send" : e.Direction == CommDirection.Receive ? "Receive" : "Error";
+            string str = $"[{e.Timestamp:yyyy-MM-dd HH:mm:ss.fff}]{remote}[{target}][{action}]：{message}\r\n";
+            int length = ReceiveTextBox.TextLength;
+            ReceiveTextBox.AppendText(str);
+
+            if (e.Direction == CommDirection.Error)
+            {
+                SetTextColor(length, str, Color.Red);
+            }
+            else if (e.Direction == CommDirection.Send)
+            {
+                SetTextColor(length, str, Color.LightYellow);
+            }
+            else
+            {
+                SetTextColor(length, str, Color.LightBlue);
             }
         }
         public void SetTextColor(int startindex, string str, Color color)
@@ -213,279 +210,50 @@ namespace Automation
             ReceiveTextBox.ScrollToCaret();
         }
 
-        public void SendSocketMessageForm(Socketer Socket, string sendMessage)
+        public async Task SendSocketMessageFormAsync(string name, string sendMessage)
         {
-            bool isCheck = false;
-
-            try
+            if (SF.comm == null || string.IsNullOrWhiteSpace(name))
             {
-                do
-                {
-                    Invoke(new Action(() =>
-                    {
-                        isCheck = checkBox1.Checked;
-                    }));
-                    if (isCheck)
-                    {
-                        if (int.TryParse(sendMessage, out int number))
-                        {
-                            sendMessage = Convert.ToString(number, 16).ToUpper();
-                        }
-                    }
-                    byte[] buffer = Encoding.UTF8.GetBytes(sendMessage);
-                    if (Socket.SocketInfo.Type == "Client")
-                    {
-                        Socket.socket.Send(buffer);
-                    }
-                    else
-                    {
-                        for (int i = 0; i < Socket.socketClient.Count; i++)
-                        {
-                            Socket.socketClient[i].Send(buffer);
-                        }
-                    }
-                 
-                    Invoke(new Action(() =>
-                    {
-                        int length = ReceiveTextBox.TextLength;
-                        string str = $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}][{Socket.SocketInfo.Name}][Send] ：{sendMessage}\r\n";
-                        ReceiveTextBox.AppendText(str);
-                        SetTextColor(length, str, Color.LightYellow);
-                    }));
-
-                    Invoke(new Action(() =>
-                    {
-                        isCheck = checkBox2.Checked;
-                    }));
-                    if (isCheck)
-                    {
-                        if (int.TryParse(DelayText.Text, out int time))
-                        {
-                            SF.Delay(time);
-                        }
-                    }
-
-                }
-                while (isCheck);
-
+                return;
             }
-            catch (Exception ex)
+
+            do
             {
-                if (SF.frmComunication.Visible == true)
+                bool convert = checkBox1.Checked;
+                await SF.comm.SendTcpAsync(name, sendMessage, convert);
+
+                if (checkBox2.Checked)
                 {
-                    Invoke(new Action(() =>
+                    if (int.TryParse(DelayText.Text, out int time))
                     {
-                        int length = ReceiveTextBox.TextLength;
-                        string str = $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}][{Socket.SocketInfo.Name}][SocketException] {ex.Message}\r\n";
-                        ReceiveTextBox.AppendText(str);
-                        SetTextColor(length, str, Color.Red);
-                    }));
+                        await Task.Delay(time);
+                    }
                 }
             }
+            while (checkBox2.Checked);
         }
 
-        public void SendSocketMessage(Socketer Socket, string sendMessage, SendTcpMsg sendTcpMsg)
+        public async Task SendSerialPortMessageFormAsync(string name, string sendMessage)
         {
-            try
+            if (SF.comm == null || string.IsNullOrWhiteSpace(name))
             {
-                if (sendTcpMsg.isConVert)
+                return;
+            }
+
+            do
+            {
+                bool convert = checkBox1.Checked;
+                await SF.comm.SendSerialAsync(name, sendMessage, convert);
+
+                if (checkBox2.Checked)
                 {
-                    if (int.TryParse(sendMessage, out int number))
+                    if (int.TryParse(DelayText.Text, out int time))
                     {
-                        sendMessage = Convert.ToString(number, 16).ToUpper();
-                    }
-                }
-                byte[] buffer = Encoding.UTF8.GetBytes(sendMessage);
-                if (Socket.SocketInfo.Type == "Client")
-                {
-                    Socket.socket.Send(buffer);
-                }
-                else
-                {
-                    for (int i = 0; i < Socket.socketClient.Count; i++)
-                    {
-                        Socket.socketClient[i].Send(buffer);
+                        await Task.Delay(time);
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            }
-        }
-        public void SendSerialPortMessageForm(SerialPorter serialPorter, string sendMessage)
-        {
-            bool isCheck = false;
-
-            try
-            {
-                do
-                {
-                    Invoke(new Action(() =>
-                    {
-                        isCheck = checkBox1.Checked;
-                    }));
-                    if (isCheck)
-                    {
-                        if (int.TryParse(sendMessage, out int number))
-                        {
-                            sendMessage = Convert.ToString(number, 16).ToUpper();
-                        }
-                    }
-                    serialPorter.serialPort.WriteLine(sendMessage); // 发送字符串数据
-
-                    Invoke(new Action(() =>
-                    {
-                        int length = ReceiveTextBox.TextLength;
-                        string str = $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}][{serialPorter.serialPortInfo.Port}][Send] ：{sendMessage}\r\n";
-                        ReceiveTextBox.AppendText(str);
-                        SetTextColor(length, str, Color.LightYellow);
-                    }));
-
-                    Invoke(new Action(() =>
-                    {
-                        isCheck = checkBox2.Checked;
-                    }));
-                    if (isCheck)
-                    {
-                        if (int.TryParse(DelayText.Text, out int time))
-                        {
-                            SF.Delay(time);
-                        }
-                    }
-
-                }
-                while (isCheck);
-
-            }
-            catch (Exception ex)
-            {
-                if (SF.frmComunication.Visible == true)
-                {
-                    Invoke(new Action(() =>
-                    {
-                        int length = ReceiveTextBox.TextLength;
-                        string str = $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}][{serialPorter.serialPortInfo.Port}][SocketException] {ex.Message}\r\n";
-                        ReceiveTextBox.AppendText(str);
-                        SetTextColor(length, str, Color.Red);
-                    }));
-                }
-            }
-        }
-        public void SendSerialPortMessage(SerialPorter serialPorter, string sendMessage, SendSerialPortMsg sendSerialPortMsg)
-        {
-            try
-            {
-                if (sendSerialPortMsg.isConVert)
-                {
-                    if (int.TryParse(sendMessage, out int number))
-                    {
-                        sendMessage = Convert.ToString(number, 16).ToUpper();
-                    }
-                }
-                serialPorter.serialPort.WriteLine(sendMessage); // 发送字符串数据
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            }
-        }
-        public void StartServer(SocketInfo socketInfo)
-        {
-            try
-            {
-                Socket serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                serverSocket.Bind(new IPEndPoint(IPAddress.Parse(socketInfo.Address), socketInfo.Port));
-                serverSocket.Listen(100);
-                socketInfo.isServering = true;
-                // dataGridView1.Rows[socketInfos.IndexOf(socketInfo)].Cells[5].Value = "已启动";
-                Socketer socketer = new Socketer() { SocketInfo = socketInfo, socket = serverSocket };
-                socketer.isRun.Set();
-                socketers.Add(socketer);
-                while (socketInfo.isServering)
-                {
-                    Socket clientSocket = serverSocket.Accept(); // 接受客户端连接
-                    socketer.socketClient.Add(clientSocket);
-                    Socketer socketClient = new Socketer() { SocketInfo = socketInfo, socket = clientSocket };
-                    Task.Run(() =>
-                    {
-                        //   dataGridView1.Rows[socketInfos.IndexOf(socketInfo)].Cells[5].Value = "已连接";
-                        HandleClient(socketer,socketClient, clientSocket);
-                    });
-                }
-
-            }
-            catch (SocketException se)
-            {
-
-            }
-            catch (Exception ex)
-            {
-                if (SF.frmComunication.Visible == true)
-                {
-                    Invoke(new Action(() =>
-                    {
-                        int length = ReceiveTextBox.TextLength;
-                        string str = $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}][{socketInfo.Name}][SocketException] {ex.Message}\r\n";
-                        ReceiveTextBox.AppendText(str);
-                        SetTextColor(length, str, Color.Red);
-                    }));
-                }
-            }
-
-
-            //}
-        }
-        public void HandleClient(Socketer socketerAll,Socketer socketer, Socket socketClient)
-        {
-            Console.WriteLine("客户端连接成功：" + socketer.socket.RemoteEndPoint);
-
-            byte[] buffer = new byte[1024];
-            int bytesRead;
-            bool isCheck;
-            while (true)
-            {
-                try
-                {
-                    bytesRead = socketer.socket.Receive(buffer); // 接收客户端数据
-
-                    if (bytesRead == 0)
-                        break;
-
-                    string receivedData = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                   // socketer.Msg = receivedData;
-                    if (SF.frmComunication.Visible == true)
-                    {
-                        Invoke(new Action(() =>
-                        {
-                            isCheck = checkBox3.Checked;
-                            if (isCheck)
-                            {
-                                if (int.TryParse(receivedData, out int number))
-                                {
-                                    receivedData = Convert.ToString(number, 16).ToUpper();
-                                }
-                            }
-                            int length = ReceiveTextBox.TextLength;
-                            string str = $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}][{socketer.socket.RemoteEndPoint}][{socketer.SocketInfo.Name}][Receive]：{receivedData}\r\n";
-                            ReceiveTextBox.AppendText(str);
-                            SetTextColor(length, str, Color.LightBlue);
-                        }));
-                    }
-                    // 在此处可以根据需要处理消息，并向客户端发送响应
-
-                    Array.Clear(buffer, 0, buffer.Length);
-                }
-                catch (SocketException ex)
-                {
-                    Console.WriteLine("客户端连接断开：" + ex.Message);
-                    socketer.socketClient.Remove(socketClient);
-                    break;
-                }
-            }
-
-            socketerAll.socketClient.Remove(socketClient);
-            Console.WriteLine("客户端连接已关闭");
+            while (checkBox2.Checked);
         }
 
         private void FrmComunication_FormClosing(object sender, FormClosingEventArgs e)
@@ -627,131 +395,29 @@ namespace Automation
             }
             return bResult;
         }
-        public void IsOnline()
-        {
-            Task.Run(() =>
-            {
-
-                while (true)
-                {
-                    try
-                    {
-                        if (CheckFormIsOpen(SF.frmComunication))
-                        {
-
-                            for (int i = 0; i < dataGridView1.Rows.Count; i++)
-                            {
-                                DataGridViewRow rowtemp = dataGridView1.Rows[i];
-                                Socketer item = socketers.FirstOrDefault(sc => sc.SocketInfo.Name == rowtemp.Cells[1].Value);
-                                if (item != null)
-                                {
-                                    if (item.SocketInfo.Type.ToString() == "Client")
-                                    {
-                                        bool isOnline = !((item.socket.Poll(1000, SelectMode.SelectRead) && (item.socket.Available == 0)) || !item.socket.Connected);
-                                        int state = isOnline ? 1 : 0;
-                                        if (state != item.state)
-                                        {
-                                            item.state = state;
-                                            string str = isOnline ? "已连接" : "未连接";
-                                            foreach (DataGridViewRow row in dataGridView1.Rows)
-                                            {
-                                                if (row.Cells[0].Value.ToString() == item.SocketInfo.ID.ToString())  // 检查第一列的单元格是否有值
-                                                {
-                                                    dataGridView1.Rows[i].Cells[5].Value = str;
-                                                    break;
-                                                }
-                                            }
-                                            if (isOnline == false)
-                                            {
-                                                socketers.Remove(item);
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    else
-                                    {
-                                        foreach (DataGridViewRow row in dataGridView1.Rows)
-                                        {
-                                            if (row.Cells[0].Value.ToString() == item.SocketInfo.ID.ToString())  // 检查第一列的单元格是否有值
-                                            {
-                                                if (item.socketClient.Count == 0 && item.state != 1)
-                                                {
-                                                    dataGridView1.Rows[i].Cells[5].Value = "已启动";
-                                                    item.state = 1;
-                                                    break;
-                                                }
-                                                else if (item.socketClient.Count != item.ClientCount)
-                                                {
-                                                    dataGridView1.Rows[i].Cells[5].Value = $"已连接({item.socketClient.Count})";
-                                                    item.state = 2;
-                                                    item.ClientCount = item.socketClient.Count;
-                                                    break;
-                                                }
-                                            }
-                                        }
-
-                                    }
-                                }
-                                else
-                                {
-                                    if(dataGridView1.Rows[i].Cells[5].Value != "")
-                                    dataGridView1.Rows[i].Cells[5].Value = "";
-                                }
-                            }
-
-
-                            for (int i = 0; i < dataGridView2.Rows.Count; i++)
-                            {
-                                SerialPorter serialPorter =serialPorters.FirstOrDefault(sc => sc.serialPortInfo.ID == serialPortInfos[i].ID);
-                                if(serialPorter != null)
-                                {
-                                    bool isOpen = serialPorter.serialPort.IsOpen;
-                                    if (isOpen != serialPorter.state)
-                                    {
-                                        serialPorter.state = isOpen;
-                                        string str = isOpen ? "已打开" : "已关闭";
-
-                                        int serialPorterIndex = serialPortInfos.IndexOf(serialPortInfos.FirstOrDefault(sc => sc.ID.ToString() == serialPorter.serialPortInfo.ID.ToString()));
-
-                                        dataGridView2.Rows[serialPorterIndex].Cells[7].Value = str;
-
-                                        if (isOpen == false)
-                                        {
-                                            serialPorters.Remove(serialPorter);
-                                            break;
-                                        }
-                                    }
-                                }
-                                else
-                                {
-                                    dataGridView2.Rows[i].Cells[7].Value = "已关闭";
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show(ex.Message);
-                    }
-                    SF.Delay(1000);
-                }
-            });
-        }
         public void SendMessage()
         {
             string text = SendTextBox.Text;
             TabPage selectedTabPage = tabControl1.SelectedTab;
             if (selectedTabPage == tabPage1)
             {
-                string Id = dataGridView1.Rows[iSelectedSocketRow].Cells[0].Value?.ToString();
-                Socketer socketClient = socketers.FirstOrDefault(sc => sc.SocketInfo.ID.ToString() == Id);
-                Task receTask = Task.Run(() => SendSocketMessageForm(socketClient, text));
+                if (iSelectedSocketRow < 0 || iSelectedSocketRow >= socketInfos.Count)
+                {
+                    return;
+                }
+
+                string name = socketInfos[iSelectedSocketRow].Name;
+                _ = SendSocketMessageFormAsync(name, text);
             }
             else if (selectedTabPage == tabPage2)
             {
+                if (iSelectedSerialPortRow < 0 || iSelectedSerialPortRow >= serialPortInfos.Count)
+                {
+                    return;
+                }
+
                 SerialPortInfo serialPortInfo = serialPortInfos[iSelectedSerialPortRow];
-                SerialPorter serialPorter = serialPorters.FirstOrDefault(sc => sc.serialPortInfo.ID == serialPortInfo.ID);
-                Task receTask = Task.Run(() => SendSerialPortMessageForm(serialPorter, text));
+                _ = SendSerialPortMessageFormAsync(serialPortInfo.Name, text);
 
             }
         }
@@ -765,14 +431,12 @@ namespace Automation
 
         private void connect_Click(object sender, EventArgs e)
         {
-            if (socketInfos[iSelectedSocketRow].Type.ToString() == "Client")
+            if (iSelectedSocketRow < 0 || iSelectedSocketRow >= socketInfos.Count)
             {
-                Task receTask = Task.Run(() => TryConnect(socketInfos[iSelectedSocketRow]));
+                return;
             }
-            else
-            {
-                Task receTask = Task.Run(() => StartServer(socketInfos[iSelectedSocketRow]));
-            }
+
+            _ = SF.comm.StartTcpAsync(socketInfos[iSelectedSocketRow]);
         }
 
         private void dataGridView1_CellMouseDown(object sender, DataGridViewCellMouseEventArgs e)
@@ -799,7 +463,7 @@ namespace Automation
 
         private void contextMenuStrip1_Opening(object sender, CancelEventArgs e)
         {
-            if (iSelectedSocketRow != -1)
+            if (iSelectedSocketRow != -1 && dataGridView1.Rows.Count > iSelectedSocketRow)
             {
                 if (dataGridView1.Rows[iSelectedSocketRow].Cells[2].Value?.ToString() == "Client")
                 {
@@ -837,11 +501,13 @@ namespace Automation
 
         private void CloseSocket_Click(object sender, EventArgs e)
         {
-            string Id = dataGridView1.Rows[iSelectedSocketRow].Cells[0].Value?.ToString();
-            Socketer socketClient = socketers.FirstOrDefault(sc => sc.SocketInfo.ID.ToString() == Id);
-            socketClient.socket.Dispose();
-            socketClient.socket.Close();
-            socketers.Remove(socketClient);
+            if (iSelectedSocketRow < 0 || iSelectedSocketRow >= socketInfos.Count)
+            {
+                return;
+            }
+
+            string name = socketInfos[iSelectedSocketRow].Name;
+            _ = SF.comm.StopTcpAsync(name);
             if (dataGridView1.Rows[iSelectedSocketRow].Cells[2].Value?.ToString() == "Client")
             {
                 dataGridView1.Rows[iSelectedSocketRow].Cells[5].Value = "未连接";
@@ -878,73 +544,23 @@ namespace Automation
                 RefleshSerialPortDgv();
             }
         }
-        private void SerialPort_DataReceived(object sender, SerialDataReceivedEventArgs e)
-        {
-            bool isCheck;
-            SerialPort serialPort = (SerialPort)sender;
-            SerialPorter serialPorter = serialPorters.FirstOrDefault(client => client.serialPort == serialPort);
-            string data = serialPort.ReadExisting();
-
-            if (serialPorter.isRun.WaitOne())
-            {
-                serialPorter.Msg = data;
-
-                if (SF.frmComunication.Visible == true)
-                {
-                    Invoke(new Action(() =>
-                    {
-                        isCheck = checkBox3.Checked;
-                        if (isCheck)
-                        {
-                            if (int.TryParse(data, out int number))
-                            {
-                                data = Convert.ToString(number, 16).ToUpper();
-                            }
-                        }
-                        int length = ReceiveTextBox.TextLength;
-                        string str = $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}][{serialPort.PortName}][Receive]：{data}\r\n";
-                        ReceiveTextBox.AppendText(str);
-                        SetTextColor(length, str, Color.LightBlue);
-
-                    }));
-                }
-            }
-
-           
-        }
-        public void ConnectSerialPort(SerialPortInfo serialPortInfo)
-        {
-            try
-            {
-                SerialPort serialPort = new SerialPort(serialPortInfo.Port, int.Parse(serialPortInfo.BitRate), (Parity)Parity.Parse(typeof(Parity), serialPortInfo.CheckBit), int.Parse(serialPortInfo.DataBit), (StopBits)StopBits.Parse(typeof(StopBits), serialPortInfo.StopBit)); // 替换为你的串口号和波特率
-
-                SerialPorter serialPorter = new SerialPorter() { serialPortInfo = serialPortInfo, serialPort = serialPort };
-
-                serialPorter.isRun.Set();
-
-                serialPorters.Add(serialPorter);
-
-                serialPort.Open();
-
-                serialPort.DataReceived += SerialPort_DataReceived;
-
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Error: " + ex.Message);
-
-            }
-        }
         private void OpenSerial_Click(object sender, EventArgs e)
         {
-            Task receTask = Task.Run(() => ConnectSerialPort(serialPortInfos[iSelectedSerialPortRow]));
+            if (iSelectedSerialPortRow < 0 || iSelectedSerialPortRow >= serialPortInfos.Count)
+            {
+                return;
+            }
+
+            _ = SF.comm.StartSerialAsync(serialPortInfos[iSelectedSerialPortRow]);
         }
         private void Close_Click(object sender, EventArgs e)
         {
-            string Id = dataGridView2.Rows[iSelectedSerialPortRow].Cells[0].Value?.ToString();
-            SerialPorter serialPorter = serialPorters.FirstOrDefault(sc => sc.serialPortInfo.ID.ToString() == Id);
-            serialPorter.serialPort.Close();
-            serialPorters.Remove(serialPorter);
+            if (iSelectedSerialPortRow < 0 || iSelectedSerialPortRow >= serialPortInfos.Count)
+            {
+                return;
+            }
+
+            _ = SF.comm.StopSerialAsync(serialPortInfos[iSelectedSerialPortRow].Name);
 
         }
         private void dataGridView2_CellEndEdit(object sender, DataGridViewCellEventArgs e)
@@ -1015,56 +631,6 @@ namespace Automation
         {
             SendMessage();
         }
-    }
-
-    public class Socketer
-    {
-        public Socket socket { get; set; }
-        public SocketInfo SocketInfo { get; set; }
-
-        public int state;
-
-        public int ClientCount;
-
-        public ManualResetEvent isRun = new ManualResetEvent(false);
-
-        public List<Socket> socketClient = new List<Socket>();
-
-        public string Msg;
-    }
-
-    public class SocketInfo
-    {
-        public int ID { get; set; }
-        public string Name { get; set; }
-
-        public string Type { get; set; }
-        public int Port { get; set; }
-        public string Address { get; set; }
-        public bool isServering { get; set; }
-
-    }
-    public class SerialPorter
-    {
-        public SerialPort serialPort { get; set; }
-        public SerialPortInfo serialPortInfo { get; set; }
-
-        public bool state;
-
-        public ManualResetEvent isRun = new ManualResetEvent(false);
-
-        public string Msg;
-
-    }
-    public class SerialPortInfo
-    {
-        public int ID { get; set; }
-        public string Name { get; set; }
-        public string Port { get; set; }
-        public string BitRate { get; set; }
-        public string CheckBit { get; set; }
-        public string DataBit { get; set; }
-        public string StopBit { get; set; }
     }
 }
 

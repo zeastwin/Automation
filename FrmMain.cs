@@ -53,6 +53,7 @@ namespace Automation
             SF.valueStore = new ValueConfigStore();
             SF.dataStructStore = new DataStructStore();
             SF.alarmInfoStore = new AlarmInfoStore();
+            SF.comm = new CommunicationHub();
             SF.mainfrm = this;
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;

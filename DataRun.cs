@@ -1213,21 +1213,11 @@ namespace Automation
                 SocketInfo socketInfo = SF.frmComunication.socketInfos.FirstOrDefault(sc => sc.Name == op.Name);
                 if (op.Ops == "启动")
                 {
-                    if (socketInfo.Type.ToString() == "Client")
-                    {
-                        Task receTask = Task.Run(() => SF.frmComunication.TryConnect(socketInfo));
-                    }
-                    else
-                    {
-                        Task receTask = Task.Run(() => SF.frmComunication.StartServer(socketInfo));
-                    }
+                    _ = SF.comm.StartTcpAsync(socketInfo);
                 }
                 else
                 {
-                    Socketer socketClient = SF.frmComunication.socketers.FirstOrDefault(sc => sc.SocketInfo.Name.ToString() == op.Name);
-                    socketClient.socket.Dispose();
-                    socketClient.socket.Close();
-                    SF.frmComunication.socketers.Remove(socketClient);
+                    _ = SF.comm.StopTcpAsync(op.Name);
 
                 }
 
@@ -1243,8 +1233,7 @@ namespace Automation
                 int start = Environment.TickCount;
                 while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < op.TimeOut)
                 {
-                    Socketer socketer = SF.frmComunication.socketers.FirstOrDefault(sc => sc.SocketInfo.Name == op.Name);
-                    if (socketer != null)
+                    if (SF.comm.IsTcpActive(op.Name))
                     {
                         return true;
                     }
@@ -1256,69 +1245,51 @@ namespace Automation
 
         public bool RunSendTcpMsg(ProcHandle evt, SendTcpMsg sendTcpMsg)
         {
-            Socketer socketer = SF.frmComunication.socketers.FirstOrDefault(sc => sc.SocketInfo.Name == sendTcpMsg.ID);
-            if (socketer != null)
-            {
-                socketer.isRun.Reset();
-                SF.frmComunication.SendSocketMessage(socketer, SF.valueStore.get_Str_ValueByName(sendTcpMsg.Msg), sendTcpMsg);
-            }
+            SF.comm.SendTcpAsync(sendTcpMsg.ID, SF.valueStore.get_Str_ValueByName(sendTcpMsg.Msg), sendTcpMsg.isConVert)
+                .GetAwaiter()
+                .GetResult();
             return true;
         }
 
         public bool RunReceoveTcpMsg(ProcHandle evt, ReceoveTcpMsg receoveTcpMsg)
         {
-            Socketer socketer = SF.frmComunication.socketers.FirstOrDefault(sc => sc.SocketInfo.Name == receoveTcpMsg.ID);
-            if (socketer != null)
+            SF.comm.ClearTcpMessages(receoveTcpMsg.ID);
+            int start = Environment.TickCount;
+            while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < receoveTcpMsg.TImeOut)
             {
-                socketer.Msg = null;
-                socketer.isRun.Set();
-                int start = Environment.TickCount;
-                while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < receoveTcpMsg.TImeOut)
+                if (SF.comm.TryReceiveTcp(receoveTcpMsg.ID, 50, out string msg))
                 {
-                    if (socketer.Msg != null)
+                    if (receoveTcpMsg.isConVert && int.TryParse(msg, out int number))
                     {
-                        if (receoveTcpMsg.isConVert && int.TryParse(socketer.Msg, out int number))
-                        {
-                            socketer.Msg = Convert.ToString(number, 16).ToUpper();
-                        }
-                        SF.valueStore.setValueByName(receoveTcpMsg.MsgSaveValue, socketer.Msg);
-                        return true;
+                        msg = Convert.ToString(number, 16).ToUpper();
                     }
-                    Delay(5, evt);
+                    SF.valueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg);
+                    return true;
                 }
             }
             return true;
         }
         public bool RunSendSerialPortMsg(ProcHandle evt, SendSerialPortMsg sendSerialPortMsg)
         {
-            SerialPorter serialPorter = SF.frmComunication.serialPorters.FirstOrDefault(sc => sc.serialPortInfo.Name == sendSerialPortMsg.ID);
-            if (serialPorter != null)
-            {
-                serialPorter.isRun.Reset();
-                SF.frmComunication.SendSerialPortMessage(serialPorter, SF.valueStore.get_Str_ValueByName(sendSerialPortMsg.Msg), sendSerialPortMsg);
-            }
+            SF.comm.SendSerialAsync(sendSerialPortMsg.ID, SF.valueStore.get_Str_ValueByName(sendSerialPortMsg.Msg), sendSerialPortMsg.isConVert)
+                .GetAwaiter()
+                .GetResult();
             return true;
         }
         public bool RunReceoveSerialPortMsg(ProcHandle evt, ReceoveSerialPortMsg receoveSerialPortMsg)
         {
-            SerialPorter serialPorter = SF.frmComunication.serialPorters.FirstOrDefault(sc => sc.serialPortInfo.Name == receoveSerialPortMsg.ID);
-            if (serialPorter != null)
+            SF.comm.ClearSerialMessages(receoveSerialPortMsg.ID);
+            int start = Environment.TickCount;
+            while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < receoveSerialPortMsg.TImeOut)
             {
-                serialPorter.Msg = null;
-                serialPorter.isRun.Set();
-                int start = Environment.TickCount;
-                while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < receoveSerialPortMsg.TImeOut)
+                if (SF.comm.TryReceiveSerial(receoveSerialPortMsg.ID, 50, out string msg))
                 {
-                    if (serialPorter.Msg != null)
+                    if (int.TryParse(msg, out int number))
                     {
-                        if (int.TryParse(serialPorter.Msg, out int number))
-                        {
-                            serialPorter.Msg = Convert.ToString(number, 16).ToUpper();
-                        }
-                        SF.valueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, serialPorter.Msg);
-                        return true;
+                        msg = Convert.ToString(number, 16).ToUpper();
                     }
-                    Delay(5, evt);
+                    SF.valueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg);
+                    return true;
                 }
             }
             return true;
@@ -1331,13 +1302,11 @@ namespace Automation
                 SerialPortInfo serialPortInfo = SF.frmComunication.serialPortInfos.FirstOrDefault(sc => sc.Name == op.Name);
                 if (op.Ops == "启动")
                 {
-                    Task receTask = Task.Run(() => SF.frmComunication.ConnectSerialPort(serialPortInfo));
+                    _ = SF.comm.StartSerialAsync(serialPortInfo);
                 }
                 else
                 {
-                    SerialPorter serialPorter = SF.frmComunication.serialPorters.FirstOrDefault(sc => sc.serialPortInfo.Name.ToString() == op.Name);
-                    serialPorter.serialPort.Close();
-                    SF.frmComunication.serialPorters.Remove(serialPorter);
+                    _ = SF.comm.StopSerialAsync(op.Name);
                 }
 
             }
@@ -1352,8 +1321,7 @@ namespace Automation
                 int start = Environment.TickCount;
                 while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < op.TimeOut)
                 {
-                    SerialPorter serialPorter = SF.frmComunication.serialPorters.FirstOrDefault(sc => sc.serialPortInfo.Name == op.Name);
-                    if (serialPorter != null)
+                    if (SF.comm.IsSerialOpen(op.Name))
                     {
                         return true;
                     }
