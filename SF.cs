@@ -73,7 +73,6 @@ namespace Automation
         //标志是否完成编辑
         public static bool isEndEdit = true;
      
-        public static bool isTrack = false;
         //指示当前页面
         public static int curPage = 0;
 

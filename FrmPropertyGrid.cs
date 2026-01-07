@@ -98,10 +98,9 @@ namespace Automation
             {
                 // temp = DeepCopy((OperationType)OperationType.SelectedItem);
                 SF.frmDataGrid.OperationTemp = (OperationType)((OperationType)OperationType.SelectedItem).Clone();
-
                 SF.frmDataGrid.OperationTemp.Num = SF.frmDataGrid.iSelectedRow;
-                SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[SF.frmDataGrid.iSelectedRow] = SF.frmDataGrid.OperationTemp;
-                propertyGrid1.SelectedObject = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[SF.frmDataGrid.iSelectedRow];
+                propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
+                SF.frmDataGrid.OperationTemp.evtRP();
                 propertyGrid1.ExpandAllGridItems();
             }
             if (OperationType.SelectedIndex != -1 && SF.isAddOps == true)
@@ -110,6 +109,7 @@ namespace Automation
                 SF.frmDataGrid.OperationTemp = (OperationType)((OperationType)OperationType.SelectedItem).Clone();
                 SF.frmDataGrid.OperationTemp.Num = num;
                 propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
+                SF.frmDataGrid.OperationTemp.evtRP();
                 propertyGrid1.ExpandAllGridItems();
             }
          

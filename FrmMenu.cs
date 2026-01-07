@@ -37,7 +37,6 @@ namespace Automation
                 SF.frmToolBar.btnPause.Visible = false;
                 SF.frmToolBar.btnStop.Visible = false;
                 SF.frmToolBar.SingleRun.Visible = false;
-                SF.frmToolBar.btnTrack.Visible = false;
                 SF.frmToolBar.btnAlarm.Visible = false;
                 SF.frmToolBar.btnLocate.Visible = false;
                 SF.frmToolBar.btnSearch.Visible = false;
@@ -78,7 +77,6 @@ namespace Automation
                 SF.frmToolBar.btnPause.Visible = true;
                 SF.frmToolBar.btnStop.Visible = true;
                 SF.frmToolBar.SingleRun.Visible = true;
-                SF.frmToolBar.btnTrack.Visible = true;
                 SF.frmToolBar.btnAlarm.Visible = true;
                 SF.frmToolBar.btnLocate.Visible = true;
                 SF.frmToolBar.btnSearch.Visible = true;

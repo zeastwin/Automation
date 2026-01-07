@@ -38,6 +38,12 @@ namespace Automation
         public int SelectedProcNum { get; set; }
         public int SelectedStepNum { get; set; }
 
+        private ProcHead editProcHeadBackup;
+        private Step editStepBackup;
+        private int editProcIndex = -1;
+        private int editStepIndex = -1;
+        private bool hasEditBackup = false;
+
         public FrmProc()
         {
             InitializeComponent();
@@ -147,6 +153,83 @@ namespace Automation
                 procListItem.Add(item.head.Name);
                 procListItemCount.Add((procListItemCount.Count+1).ToString());
             }
+        }
+
+        private void CaptureEditBackup()
+        {
+            hasEditBackup = false;
+            editProcIndex = SelectedProcNum;
+            editStepIndex = SelectedStepNum;
+
+            if (editProcIndex < 0 || editProcIndex >= procsList.Count)
+            {
+                return;
+            }
+
+            if (editStepIndex == -1)
+            {
+                editProcHeadBackup = FrmPropertyGrid.DeepCopy(procsList[editProcIndex].head);
+                editStepBackup = null;
+            }
+            else if (editStepIndex >= 0 && editStepIndex < procsList[editProcIndex].steps.Count)
+            {
+                editStepBackup = FrmPropertyGrid.DeepCopy(procsList[editProcIndex].steps[editStepIndex]);
+                editProcHeadBackup = null;
+            }
+
+            hasEditBackup = editProcHeadBackup != null || editStepBackup != null;
+        }
+
+        public void RollbackEdit()
+        {
+            if (!hasEditBackup)
+            {
+                return;
+            }
+
+            if (editProcIndex < 0 || editProcIndex >= procsList.Count)
+            {
+                ClearEditBackup();
+                return;
+            }
+
+            if (editStepIndex == -1)
+            {
+                if (editProcHeadBackup != null)
+                {
+                    procsList[editProcIndex].head.Name = editProcHeadBackup.Name;
+                    if (editProcIndex < proc_treeView.Nodes.Count)
+                    {
+                        proc_treeView.Nodes[editProcIndex].Text = $"{editProcIndex}：{procsList[editProcIndex].head.Name}";
+                    }
+                }
+            }
+            else if (editStepIndex >= 0 && editStepIndex < procsList[editProcIndex].steps.Count)
+            {
+                Step step = procsList[editProcIndex].steps[editStepIndex];
+                if (editStepBackup != null)
+                {
+                    step.Name = editStepBackup.Name;
+                    step.Ops.Clear();
+                    step.Ops.AddRange(editStepBackup.Ops);
+                }
+                if (editProcIndex < proc_treeView.Nodes.Count && editStepIndex < proc_treeView.Nodes[editProcIndex].Nodes.Count)
+                {
+                    proc_treeView.Nodes[editProcIndex].Nodes[editStepIndex].Text = $"{editStepIndex}：{step.Name}";
+                }
+            }
+
+            bindingSource.ResetBindings(true);
+            ClearEditBackup();
+        }
+
+        public void ClearEditBackup()
+        {
+            hasEditBackup = false;
+            editProcHeadBackup = null;
+            editStepBackup = null;
+            editProcIndex = -1;
+            editStepIndex = -1;
         }
 
         private void AddProc_Click(object sender, EventArgs e)
@@ -281,6 +364,12 @@ namespace Automation
 
         private void Modify_Click(object sender, EventArgs e)
         {
+            if (SelectedProcNum < 0)
+            {
+                MessageBox.Show("请选择流程或步骤");
+                return;
+            }
+            CaptureEditBackup();
             SF.BeginEdit(ModifyKind.Proc);
         }
 

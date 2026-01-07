@@ -38,7 +38,6 @@
             this.button2 = new System.Windows.Forms.Button();
             this.btnMonitor = new System.Windows.Forms.Button();
             this.btnStop = new System.Windows.Forms.Button();
-            this.btnTrack = new System.Windows.Forms.Button();
             this.SingleRun = new System.Windows.Forms.Button();
             this.btnPause = new System.Windows.Forms.Button();
             this.btnSearch = new System.Windows.Forms.Button();
@@ -59,7 +58,6 @@
             this.ToolBar_Panel.Controls.Add(this.button2);
             this.ToolBar_Panel.Controls.Add(this.btnMonitor);
             this.ToolBar_Panel.Controls.Add(this.btnStop);
-            this.ToolBar_Panel.Controls.Add(this.btnTrack);
             this.ToolBar_Panel.Controls.Add(this.SingleRun);
             this.ToolBar_Panel.Controls.Add(this.btnPause);
             this.ToolBar_Panel.Controls.Add(this.btnSearch);
@@ -199,17 +197,6 @@
             this.btnStop.UseVisualStyleBackColor = false;
             this.btnStop.Click += new System.EventHandler(this.btnStop_Click);
             // 
-            // btnTrack
-            // 
-            this.btnTrack.Location = new System.Drawing.Point(1189, 5);
-            this.btnTrack.Margin = new System.Windows.Forms.Padding(2);
-            this.btnTrack.Name = "btnTrack";
-            this.btnTrack.Size = new System.Drawing.Size(67, 30);
-            this.btnTrack.TabIndex = 6;
-            this.btnTrack.Text = "监控";
-            this.btnTrack.UseVisualStyleBackColor = true;
-            this.btnTrack.Click += new System.EventHandler(this.btnTrack_Click);
-            // 
             // SingleRun
             // 
             this.SingleRun.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
@@ -346,7 +333,6 @@
         private System.Windows.Forms.Button btnMonitor;
         public System.Windows.Forms.Button btnCancel;
         public System.Windows.Forms.Button SingleRun;
-        public System.Windows.Forms.Button btnTrack;
         private System.Windows.Forms.Button button2;
         public System.Windows.Forms.Button btnAlarm;
         public System.Windows.Forms.Button btnLocate;

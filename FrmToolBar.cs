@@ -53,6 +53,11 @@ namespace Automation
 
                 if (SF.isAddOps == true && SF.frmProc.SelectedStepNum != -1)
                 {
+                    if (!TryValidateGotoTargets(SF.frmDataGrid.OperationTemp, SF.frmProc.SelectedProcNum, out string gotoError))
+                    {
+                        MessageBox.Show(gotoError);
+                        return;
+                    }
                     if (SF.frmDataGrid.iSelectedRow == -1)
                     {
                         SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Add(SF.frmDataGrid.OperationTemp);
@@ -80,6 +85,11 @@ namespace Automation
                 }
                 if (SF.isModify == ModifyKind.Operation)
                 {
+                    if (!TryValidateGotoTargets(SF.frmDataGrid.OperationTemp, SF.frmProc.SelectedProcNum, out string gotoError))
+                    {
+                        MessageBox.Show(gotoError);
+                        return;
+                    }
                     SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[SF.frmDataGrid.iSelectedRow] = SF.frmDataGrid.OperationTemp;
                     SF.frmDataGrid.SaveSingleProc(SF.frmProc.SelectedProcNum);
                     SF.frmProc.bindingSource.ResetBindings(true);
@@ -89,6 +99,7 @@ namespace Automation
                     SF.frmDataGrid.SaveSingleProc(SF.frmProc.SelectedProcNum);
                     SF.frmProc.bindingSource.ResetBindings(true);
                     SF.frmProc.Refresh();
+                    SF.frmProc.ClearEditBackup();
                 }
                 SF.valueStore.Save(SF.ConfigPath);
 
@@ -222,6 +233,10 @@ namespace Automation
  
         private void btnCancel_Click(object sender, EventArgs e)
         {
+            if (SF.isModify == ModifyKind.Proc)
+            {
+                SF.frmProc.RollbackEdit();
+            }
             SF.frmProc.NewStepNum = -1;
             SF.frmProc.NewProcNum = -1;
             SF.frmCard.EndNewCard();
@@ -293,21 +308,6 @@ namespace Automation
             }
                 
         }
-        private void btnTrack_Click(object sender, EventArgs e)
-        {
-            if(SF.isTrack==false)
-            {
-                SF.frmDataGrid.m_evtTrack.Set();
-                btnTrack.BackColor = Color.Green;
-            }
-            else
-            {
-                SF.frmDataGrid.m_evtTrack.Reset();
-                btnTrack.BackColor = Color.White;
-            }
-            SF.isTrack = !SF.isTrack;
-        }
-
         private void btnStop_Click(object sender, EventArgs e)
         {
             if(SF.frmProc.SelectedProcNum >=0&& SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
@@ -320,6 +320,94 @@ namespace Automation
             }
 
         }
+
+        private bool TryValidateGotoTargets(OperationType operation, int procNum, out string error)
+        {
+            error = null;
+            if (operation == null)
+            {
+                return true;
+            }
+            return ValidateGotoTargets(operation, procNum, ref error);
+        }
+
+        private bool ValidateGotoTargets(object obj, int procNum, ref string error)
+        {
+            foreach (var propertyInfo in obj.GetType().GetProperties())
+            {
+                if (propertyInfo.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+                if (propertyInfo.PropertyType == typeof(string) && IsGotoProperty(propertyInfo))
+                {
+                    string value = propertyInfo.GetValue(obj) as string;
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        if (!TryParseGoto(value, out int gotoProc))
+                        {
+                            error = $"跳转地址格式错误：{value}";
+                            return false;
+                        }
+                        if (gotoProc != procNum)
+                        {
+                            error = $"跳转地址不允许跨流程：{value}";
+                            return false;
+                        }
+                    }
+                }
+
+                var propertyValue = propertyInfo.GetValue(obj);
+                if (propertyValue is IEnumerable enumerable && !(propertyValue is string))
+                {
+                    foreach (var item in enumerable)
+                    {
+                        if (item == null)
+                        {
+                            continue;
+                        }
+                        if (!ValidateGotoTargets(item, procNum, ref error))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private bool IsGotoProperty(PropertyInfo propertyInfo)
+        {
+            var converterAttr = propertyInfo.GetCustomAttribute<TypeConverterAttribute>();
+            if (converterAttr == null)
+            {
+                return false;
+            }
+
+            var converterType = Type.GetType(converterAttr.ConverterTypeName);
+            if (converterType == typeof(GotoItem))
+            {
+                return true;
+            }
+
+            return converterAttr.ConverterTypeName != null
+                && converterAttr.ConverterTypeName.Contains("GotoItem", StringComparison.Ordinal);
+        }
+
+        private bool TryParseGoto(string value, out int procNum)
+        {
+            procNum = -1;
+            string[] parts = value.Split('-');
+            if (parts.Length != 3)
+            {
+                return false;
+            }
+            return int.TryParse(parts[0], out procNum)
+                && int.TryParse(parts[1], out _)
+                && int.TryParse(parts[2], out _);
+        }
+
         private void btnMonitor_Click(object sender, EventArgs e)
         {
             

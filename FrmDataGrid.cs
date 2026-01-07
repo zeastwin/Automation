@@ -50,6 +50,7 @@ namespace Automation
 
             dataGridView1.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
+            m_evtTrack.Set();
             Track();
 
         }
@@ -61,7 +62,7 @@ namespace Automation
                int opsNumTemp = -1;
                while (true)
                {
-                   //m_evtTrack.WaitOne();
+                   m_evtTrack.WaitOne();
 
 
                    if (SF.frmProc != null && SF.frmComunication.CheckFormIsOpen(SF.frmInfo) && SF.frmComunication.CheckFormIsOpen(SF.mainfrm))
