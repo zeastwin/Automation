@@ -38,6 +38,8 @@ namespace Automation
         public int SelectedProcNum { get; set; }
         public int SelectedStepNum { get; set; }
 
+        public bool isStopPointDirty = false;
+
         private ProcHead editProcHeadBackup;
         private Step editStepBackup;
         private int editProcIndex = -1;
@@ -90,15 +92,64 @@ namespace Automation
         }
         public void RebuildWorkConfig()
         {
-            // 删除目标文件夹及其内容
-            Directory.Delete(SF.workPath, true);
+            string workDir = SF.workPath.TrimEnd('\\');
+            string configDir = Path.GetDirectoryName(workDir);
+            if (string.IsNullOrEmpty(configDir))
+            {
+                MessageBox.Show("流程目录无效");
+                return;
+            }
 
-            // 创建空的目标文件夹
-            Directory.CreateDirectory(SF.workPath);
+            if (!Directory.Exists(workDir))
+            {
+                Directory.CreateDirectory(workDir);
+            }
 
+            string tempDir = Path.Combine(configDir, "Work_tmp");
+            string backupDir = Path.Combine(configDir, "Work_bak");
+
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+            Directory.CreateDirectory(tempDir);
+
+            string tempPath = tempDir + "\\";
             for (int i = 0; i < procsList.Count; i++)
             {
-                SF.frmDataGrid.SaveSingleProc(i);
+                SF.mainfrm.SaveAsJson(tempPath, i.ToString(), procsList[i]);
+            }
+
+            try
+            {
+                if (Directory.Exists(backupDir))
+                {
+                    Directory.Delete(backupDir, true);
+                }
+                if (Directory.Exists(workDir))
+                {
+                    Directory.Move(workDir, backupDir);
+                }
+                Directory.Move(tempDir, workDir);
+                if (Directory.Exists(backupDir))
+                {
+                    Directory.Delete(backupDir, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!Directory.Exists(workDir) && Directory.Exists(backupDir))
+                {
+                    try
+                    {
+                        Directory.Move(backupDir, workDir);
+                    }
+                    catch
+                    {
+                    }
+                }
+                MessageBox.Show(ex.Message);
+                return;
             }
 
             SF.frmProc.Refresh();
@@ -109,39 +160,45 @@ namespace Automation
 
             proc_treeView.Nodes.Clear();
 
-            string path = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) + "\\Config\\Work";
+            string path = SF.workPath.TrimEnd('\\');
 
             if (!Directory.Exists(path))
             {
                 Directory.CreateDirectory(path);
             }
 
-            int count = System.IO.Directory.GetFiles(path).Length;
-   
-            for (int i = 0; i < count; i++)
+            List<int> indices = new List<int>();
+            foreach (string file in Directory.EnumerateFiles(path, "*.json"))
             {
-                procsListTemp.Add(SF.mainfrm.ReadJson<Proc>(SF.workPath,i.ToString()));
+                string name = Path.GetFileNameWithoutExtension(file);
+                if (int.TryParse(name, out int index))
+                {
+                    indices.Add(index);
+                }
+            }
+            indices.Sort();
 
-                TreeNode treeNode = new TreeNode(i + "：" + procsListTemp[i].head.Name);
-                
+            for (int i = 0; i < indices.Count; i++)
+            {
+                Proc proc = SF.mainfrm.ReadJson<Proc>(SF.workPath, indices[i].ToString());
+                if (proc == null)
+                {
+                    continue;
+                }
+
+                procsListTemp.Add(proc);
+
+                TreeNode treeNode = new TreeNode(i + "：" + proc.head.Name);
                 proc_treeView.Nodes.Add(treeNode);
 
-                if (procsListTemp[i].steps != null)
+                if (proc.steps != null)
                 {
-                    //foreach (Step item in procsListTemp[i].steps)
-                    //{
-                    //    TreeNode chnode = new TreeNode(item.Name);
-                    //    proc_treeView.Nodes[i].Nodes.Add(chnode);
-                      
-                    //}
-                    for (int j = 0; j < procsListTemp[i].steps.Count; j++)
+                    for (int j = 0; j < proc.steps.Count; j++)
                     {
-                        TreeNode chnode = new TreeNode(j+"："+procsListTemp[i].steps[j].Name);
+                        TreeNode chnode = new TreeNode(j + "：" + proc.steps[j].Name);
                         proc_treeView.Nodes[i].Nodes.Add(chnode);
                     }
                 }
-                
-
             }
             procsList = procsListTemp;
 
@@ -353,6 +410,11 @@ namespace Automation
                     SelectedProcNum = -1;
 
                     SelectedStepNum = -1;
+                    SF.frmDataGrid.iSelectedRow = -1;
+                    SF.frmDataGrid.OperationTemp = null;
+                    bindingSource.DataSource = null;
+                    SF.frmDataGrid.dataGridView1.DataSource = null;
+                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
                 }
                 if (clickedNode != null)
                 {

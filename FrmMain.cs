@@ -344,6 +344,17 @@ namespace Automation
 
         private void FrmMain_FormClosing(object sender, FormClosingEventArgs e)
         {
+            if (SF.frmProc != null && SF.frmProc.isStopPointDirty)
+            {
+                if (!Directory.Exists(SF.workPath))
+                {
+                    Directory.CreateDirectory(SF.workPath);
+                }
+                for (int i = 0; i < SF.frmProc.procsList.Count; i++)
+                {
+                    SaveAsJson(SF.workPath, i.ToString(), SF.frmProc.procsList[i]);
+                }
+            }
             SF.valueStore.Save(SF.ConfigPath);
             SF.dataStructStore.Save(SF.ConfigPath);
             SF.alarmInfoStore.Save(SF.ConfigPath);

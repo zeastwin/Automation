@@ -246,6 +246,10 @@ namespace Automation
 
         private void Delete_Click(object sender, EventArgs e)
         {
+            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            {
+                return;
+            }
             // int count = 0;
             selectedRowIndexes4Del.Clear();
             foreach (DataGridViewRow selectedRow in dataGridView1.SelectedRows)
@@ -378,7 +382,11 @@ namespace Automation
 
         private void SetStopPoint_Click(object sender, EventArgs e)
         {
-            if (iSelectedRow >= 0)
+            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            {
+                return;
+            }
+            if (iSelectedRow >= 0 && iSelectedRow < dataGridView1.Rows.Count)
             {
                 // 获取当前行对应的数据项
                 OperationType dataItem = dataGridView1.Rows[iSelectedRow].DataBoundItem as OperationType;
@@ -386,6 +394,9 @@ namespace Automation
                 if (dataItem != null)
                 {
                     dataItem.isStopPoint = !dataItem.isStopPoint;
+                    SF.frmProc.bindingSource.ResetBindings(true);
+                    SF.frmProc.isStopPointDirty = true;
+                    dataGridView1.InvalidateRow(iSelectedRow);
                 }
             }
         }
@@ -408,6 +419,10 @@ namespace Automation
         }
         public void Paste()
         {
+            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            {
+                return;
+            }
             bool isEmptyRow = false;
             List<OperationType> deepCopy;
             // 创建一个MemoryStream来保存序列化后的数据
