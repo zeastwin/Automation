@@ -1828,29 +1828,42 @@ namespace Automation
                 {
                     SetPropertyAttribute(this, AxisName[i], typeof(BrowsableAttribute), "browsable", false);
                 }
+                return;
             }
-            else
-            {
-                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == StationName);
 
-                if (station != null)
+            if (SF.frmCard == null || SF.frmCard.dataStation == null)
+            {
+                for (int i = 0; i < 6; i++)
                 {
-                    int stationIndex = SF.frmCard.dataStation.IndexOf(station);
-                    if (stationIndex != -1)
+                    SetPropertyAttribute(this, AxisName[i], typeof(BrowsableAttribute), "browsable", false);
+                }
+                return;
+            }
+
+            var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == StationName);
+            if (station == null)
+            {
+                for (int i = 0; i < 6; i++)
+                {
+                    SetPropertyAttribute(this, AxisName[i], typeof(BrowsableAttribute), "browsable", false);
+                }
+                return;
+            }
+
+            int stationIndex = SF.frmCard.dataStation.IndexOf(station);
+            if (stationIndex != -1)
+            {
+                for (int j = 0; j < SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs.Count; j++)
+                {
+                    ushort index = (ushort)j;
+                    if (SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
                     {
-                        for (int j = 0; j < SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs.Count; j++)
-                        {
-                            ushort index = (ushort)j;
-                            if (SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
-                            {
-                                SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
-                                SetDisplayName(typeof(StationRunPos), AxisName[j], SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName);
-                            }
-                            else
-                            {
-                                SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", false);
-                            }
-                        }
+                        SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
+                        SetDisplayName(typeof(StationRunPos), AxisName[j], SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName);
+                    }
+                    else
+                    {
+                        SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", false);
                     }
                 }
             }
@@ -2082,32 +2095,48 @@ namespace Automation
         {
             string[] AxisName = { "Axis1", "Axis2", "Axis3", "Axis4", "Axis5", "Axis6" };
 
+            if (SF.frmCard == null || SF.frmCard.dataStation == null)
+            {
+                for (int i = 0; i < 6; i++)
+                {
+                    SetPropertyAttribute(this, AxisName[i], typeof(BrowsableAttribute), "browsable", false);
+                    SetPropertyAttribute(this, AxisName[i] + "V", typeof(BrowsableAttribute), "browsable", false);
+                }
+                return;
+            }
+
             var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == StationName);
 
-            if (station != null)
+            if (station == null)
             {
-                int stationIndex = SF.frmCard.dataStation.IndexOf(station);
-                if (stationIndex != -1)
+                for (int i = 0; i < 6; i++)
                 {
-                    for (int j = 0; j < SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs.Count; j++)
+                    SetPropertyAttribute(this, AxisName[i], typeof(BrowsableAttribute), "browsable", false);
+                    SetPropertyAttribute(this, AxisName[i] + "V", typeof(BrowsableAttribute), "browsable", false);
+                }
+                return;
+            }
+
+            int stationIndex = SF.frmCard.dataStation.IndexOf(station);
+            if (stationIndex != -1)
+            {
+                for (int j = 0; j < SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs.Count; j++)
+                {
+                    ushort index = (ushort)j;
+                    if (SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
                     {
-                        ushort index = (ushort)j;
-                        if (SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
-                        {
-                            SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
-                            SetPropertyAttribute(this, AxisName[j]+"V", typeof(BrowsableAttribute), "browsable", true);
-                            SetDisplayName(typeof(StationRunRel), AxisName[j], SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName);
-                            SetDisplayName(typeof(StationRunRel), AxisName[j] + "V", SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName+"变量");
-                        }
-                        else
-                        {
-                            SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", false);
-                            SetPropertyAttribute(this, AxisName[j] + "V", typeof(BrowsableAttribute), "browsable", false);
-                        }
+                        SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
+                        SetPropertyAttribute(this, AxisName[j] + "V", typeof(BrowsableAttribute), "browsable", true);
+                        SetDisplayName(typeof(StationRunRel), AxisName[j], SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName);
+                        SetDisplayName(typeof(StationRunRel), AxisName[j] + "V", SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName + "变量");
+                    }
+                    else
+                    {
+                        SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", false);
+                        SetPropertyAttribute(this, AxisName[j] + "V", typeof(BrowsableAttribute), "browsable", false);
                     }
                 }
             }
-
         }
     }
     [Serializable]
@@ -2247,29 +2276,43 @@ namespace Automation
         {
             string[] AxisName = { "Axis1", "Axis2", "Axis3", "Axis4", "Axis5", "Axis6" };
 
+            if (SF.frmCard == null || SF.frmCard.dataStation == null)
+            {
+                for (int i = 0; i < 6; i++)
+                {
+                    SetPropertyAttribute(this, AxisName[i], typeof(BrowsableAttribute), "browsable", false);
+                }
+                return;
+            }
+
             var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == StationName);
 
-            if (station != null)
+            if (station == null)
             {
-                int stationIndex = SF.frmCard.dataStation.IndexOf(station);
-                if (stationIndex != -1)
+                for (int i = 0; i < 6; i++)
                 {
-                    for (int j = 0; j < SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs.Count; j++)
+                    SetPropertyAttribute(this, AxisName[i], typeof(BrowsableAttribute), "browsable", false);
+                }
+                return;
+            }
+
+            int stationIndex = SF.frmCard.dataStation.IndexOf(station);
+            if (stationIndex != -1)
+            {
+                for (int j = 0; j < SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs.Count; j++)
+                {
+                    ushort index = (ushort)j;
+                    if (SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
                     {
-                        ushort index = (ushort)j;
-                        if (SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
-                        {
-                            SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
-                            SetDisplayName(typeof(StationStop), AxisName[j], SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName);
-                        }
-                        else
-                        {
-                            SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", false);
-                        }
+                        SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
+                        SetDisplayName(typeof(StationStop), AxisName[j], SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName);
+                    }
+                    else
+                    {
+                        SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", false);
                     }
                 }
             }
-
         }
     }
     [Serializable]

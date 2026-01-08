@@ -480,11 +480,29 @@ namespace Automation
             List<string> Item()
             {
                 List<string> gotoItem = new List<string>();
-                for (int i = 0; i < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count; i++)
+                if (SF.frmProc == null || SF.frmProc.procsList == null)
                 {
-                    for (int j = 0; j < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[i].Ops.Count; j++)
+                    return gotoItem;
+                }
+                int procIndex = SF.frmProc.SelectedProcNum;
+                if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+                {
+                    return gotoItem;
+                }
+                if (SF.frmProc.procsList[procIndex]?.steps == null)
+                {
+                    return gotoItem;
+                }
+                for (int i = 0; i < SF.frmProc.procsList[procIndex].steps.Count; i++)
+                {
+                    var ops = SF.frmProc.procsList[procIndex].steps[i]?.Ops;
+                    if (ops == null)
                     {
-                        gotoItem.Add($"{SF.frmProc.SelectedProcNum}-{i}-{j}");
+                        continue;
+                    }
+                    for (int j = 0; j < ops.Count; j++)
+                    {
+                        gotoItem.Add($"{procIndex}-{i}-{j}");
                     }
                 }
                 return gotoItem;
@@ -616,6 +634,10 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
+                if (SF.frmCard == null || SF.frmCard.dataStation == null)
+                {
+                    return new StandardValuesCollection(new List<string>());
+                }
                 return new StandardValuesCollection(SF.frmCard.dataStation.Select(Info => Info.Name).ToList());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
@@ -649,6 +671,10 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
+                if (SF.frmCard == null || SF.frmCard.dataStation == null)
+                {
+                    return new StandardValuesCollection(new List<string>());
+                }
                 return new StandardValuesCollection(SF.frmCard.dataStation.Select(Info => Info.Name).ToList());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
@@ -695,17 +721,29 @@ namespace Automation
             List<string> Item()
             {
                 List<string> posItems = new List<string>();
-                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == ((StationRunPos)SF.frmDataGrid.OperationTemp).StationName);
+                if (SF.frmCard == null || SF.frmCard.dataStation == null)
+                {
+                    return posItems;
+                }
+                if (!(SF.frmDataGrid?.OperationTemp is StationRunPos stationRunPos) || string.IsNullOrEmpty(stationRunPos.StationName))
+                {
+                    return posItems;
+                }
+                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == stationRunPos.StationName);
 
                 if (station != null)
                 {
                     int stationIndex = SF.frmCard.dataStation.IndexOf(station);
                     if (stationIndex != -1)
                     {
-                        posItems =  SF.frmCard.dataStation[stationIndex].ListDataPos
-                            .Where(info => !string.IsNullOrEmpty(info.Name))
-                            .Select(info => info.Name)
-                            .ToList();
+                        var posList = SF.frmCard.dataStation[stationIndex].ListDataPos;
+                        if (posList != null)
+                        {
+                            posItems = posList
+                                .Where(info => !string.IsNullOrEmpty(info.Name))
+                                .Select(info => info.Name)
+                                .ToList();
+                        }
                     }
                 }
             
@@ -732,7 +770,15 @@ namespace Automation
             List<string> Item()
             {
                 List<string> AxisItems = new List<string>();
-                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == ((SetStationVel)SF.frmDataGrid.OperationTemp).StationName);
+                if (SF.frmCard == null || SF.frmCard.dataStation == null)
+                {
+                    return AxisItems;
+                }
+                if (!(SF.frmDataGrid?.OperationTemp is SetStationVel setStationVel) || string.IsNullOrEmpty(setStationVel.StationName))
+                {
+                    return AxisItems;
+                }
+                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == setStationVel.StationName);
 
                 if (station != null)
                 {
@@ -740,12 +786,17 @@ namespace Automation
                     if (stationIndex != -1)
                     {
                         AxisItems.Add("工站");
-                        for (int j = 0; j < SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs.Count; j++)
+                        var axisConfigs = SF.frmCard.dataStation[stationIndex].dataAxis?.axisConfigs;
+                        if (axisConfigs == null)
+                        {
+                            return AxisItems;
+                        }
+                        for (int j = 0; j < axisConfigs.Count; j++)
                         {
                             ushort index = (ushort)j;
-                            if (SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
+                            if (axisConfigs[j].AxisName != "-1")
                             {
-                                AxisItems.Add(SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName);
+                                AxisItems.Add(axisConfigs[j].AxisName);
                             }
                         }
                     }
