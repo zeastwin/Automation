@@ -55,6 +55,7 @@
             this.InvertIOMenu = new System.Windows.Forms.ToolStripMenuItem();
             this.InvertInput = new System.Windows.Forms.ToolStripMenuItem();
             this.InvertOutput = new System.Windows.Forms.ToolStripMenuItem();
+            this.ClearSelected = new System.Windows.Forms.ToolStripMenuItem();
             ((System.ComponentModel.ISupportInitialize)(this.dgvIO)).BeginInit();
             this.contextMenuStrip1.SuspendLayout();
             this.SuspendLayout();
@@ -216,9 +217,10 @@
             this.contextMenuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.Modify,
             this.PasteNames,
+            this.ClearSelected,
             this.InvertIOMenu});
             this.contextMenuStrip1.Name = "contextMenuStrip1";
-            this.contextMenuStrip1.Size = new System.Drawing.Size(197, 76);
+            this.contextMenuStrip1.Size = new System.Drawing.Size(197, 100);
             // 
             // Modify
             // 
@@ -233,6 +235,13 @@
             this.PasteNames.Size = new System.Drawing.Size(196, 24);
             this.PasteNames.Text = "批量粘贴IO名称";
             this.PasteNames.Click += new System.EventHandler(this.PasteNames_Click);
+            // 
+            // ClearSelected
+            // 
+            this.ClearSelected.Name = "ClearSelected";
+            this.ClearSelected.Size = new System.Drawing.Size(196, 24);
+            this.ClearSelected.Text = "清除";
+            this.ClearSelected.Click += new System.EventHandler(this.ClearSelected_Click);
             // 
             // InvertIOMenu
             // 
@@ -282,6 +291,7 @@
         private System.Windows.Forms.ToolStripMenuItem InvertIOMenu;
         private System.Windows.Forms.ToolStripMenuItem InvertInput;
         private System.Windows.Forms.ToolStripMenuItem InvertOutput;
+        private System.Windows.Forms.ToolStripMenuItem ClearSelected;
         private System.Windows.Forms.DataGridViewTextBoxColumn index;
         private System.Windows.Forms.DataGridViewImageColumn status;
         private System.Windows.Forms.DataGridViewTextBoxColumn name;

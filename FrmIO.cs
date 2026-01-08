@@ -319,8 +319,7 @@ namespace Automation
                 string name = names[i];
                 if (string.IsNullOrWhiteSpace(name))
                 {
-                    MessageBox.Show("粘贴失败：存在空名称IO，请检查剪贴板数据。");
-                    return;
+                    continue;
                 }
                 if (!newNames.Add(name) || existingNames.Contains(name))
                 {
@@ -334,8 +333,75 @@ namespace Automation
                 IO io = cacheIOs[iSelectedIORow + i];
                 if (io != null)
                 {
-                    io.Name = names[i];
+                    string name = names[i];
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        io.Name = "";
+                        io.Module = 0;
+                        io.UsedType = "通用";
+                        io.EffectLevel = "正常";
+                        io.Note = "";
+                        io.IsRemark = false;
+                    }
+                    else
+                    {
+                        io.Name = name;
+                    }
                 }
+            }
+
+            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap);
+            RefreshIODgv();
+        }
+
+        private void ClearSelected_Click(object sender, EventArgs e)
+        {
+            if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
+            {
+                MessageBox.Show("请先选择控制卡。");
+                return;
+            }
+            if (IOMap == null || cardIndex < 0 || cardIndex >= IOMap.Count || IOMap[cardIndex] == null)
+            {
+                MessageBox.Show("IO列表为空。");
+                return;
+            }
+
+            List<int> rowIndexes = new List<int>();
+            foreach (DataGridViewRow row in dgvIO.SelectedRows)
+            {
+                if (row.Index >= 0)
+                {
+                    rowIndexes.Add(row.Index);
+                }
+            }
+            if (rowIndexes.Count == 0 && iSelectedIORow >= 0)
+            {
+                rowIndexes.Add(iSelectedIORow);
+            }
+            if (rowIndexes.Count == 0)
+            {
+                return;
+            }
+
+            List<IO> cacheIOs = IOMap[cardIndex];
+            foreach (int index in rowIndexes)
+            {
+                if (index < 0 || index >= cacheIOs.Count)
+                {
+                    continue;
+                }
+                IO io = cacheIOs[index];
+                if (io == null)
+                {
+                    continue;
+                }
+                io.Name = "";
+                io.Module = 0;
+                io.UsedType = "通用";
+                io.EffectLevel = "正常";
+                io.Note = "";
+                io.IsRemark = false;
             }
 
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap);
@@ -394,14 +460,11 @@ namespace Automation
             {
                 return names;
             }
-            string[] lines = text.Replace("\r\n", "\n").Split('\n');
+            string normalized = text.Replace("\r\n", "\n").Replace("\r", "\n");
+            string[] lines = normalized.Split('\n');
             foreach (string raw in lines)
             {
-                string line = raw.Trim();
-                if (string.IsNullOrEmpty(line))
-                {
-                    continue;
-                }
+                string line = raw ?? string.Empty;
                 string name = line;
                 int tabIndex = line.IndexOf('\t');
                 if (tabIndex >= 0)
@@ -417,11 +480,11 @@ namespace Automation
                     }
                 }
                 name = name.Trim().Trim('"');
-                if (string.IsNullOrWhiteSpace(name))
-                {
-                    continue;
-                }
                 names.Add(name);
+            }
+            if (!normalized.EndsWith("\n\n", StringComparison.Ordinal) && names.Count > 0 && string.IsNullOrEmpty(names[names.Count - 1]))
+            {
+                names.RemoveAt(names.Count - 1);
             }
             if (names.Count > 1)
             {

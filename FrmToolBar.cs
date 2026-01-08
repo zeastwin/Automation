@@ -207,6 +207,36 @@ namespace Automation
                 }
                 if (SF.isModify == ModifyKind.IO)
                 {
+                    if (SF.frmIO.IOMap == null)
+                    {
+                        MessageBox.Show("IO列表为空。");
+                        return;
+                    }
+                    HashSet<string> nameSet = new HashSet<string>();
+                    foreach (List<IO> list in SF.frmIO.IOMap)
+                    {
+                        if (list == null)
+                        {
+                            continue;
+                        }
+                        foreach (IO io in list)
+                        {
+                            if (io == null)
+                            {
+                                continue;
+                            }
+                            string name = io.Name?.Trim();
+                            if (string.IsNullOrEmpty(name))
+                            {
+                                continue;
+                            }
+                            if (!nameSet.Add(name))
+                            {
+                                MessageBox.Show($"IO名称重复：{name}");
+                                return;
+                            }
+                        }
+                    }
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", SF.frmIO.IOMap);
                     SF.frmIO.RefreshIODgv();
                    // SF.frmIO.FreshFrmIO();
