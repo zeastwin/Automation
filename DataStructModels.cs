@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Formatters.Binary;
 
 namespace Automation
 {
@@ -15,29 +18,13 @@ namespace Automation
 
         public object Clone()
         {
-            DataStruct copy = new DataStruct
+            using (MemoryStream memoryStream = new MemoryStream())
             {
-                Name = Name
-            };
-
-            if (dataStructItems == null)
-            {
-                return copy;
+                IFormatter formatter = new BinaryFormatter();
+                formatter.Serialize(memoryStream, this);
+                memoryStream.Seek(0, SeekOrigin.Begin);
+                return formatter.Deserialize(memoryStream);
             }
-
-            foreach (DataStructItem item in dataStructItems)
-            {
-                if (item == null)
-                {
-                    copy.dataStructItems.Add(new DataStructItem());
-                }
-                else
-                {
-                    copy.dataStructItems.Add(item.Clone());
-                }
-            }
-
-            return copy;
         }
     }
 
@@ -51,28 +38,13 @@ namespace Automation
 
         public DataStructItem Clone()
         {
-            DataStructItem copy = new DataStructItem
+            using (MemoryStream memoryStream = new MemoryStream())
             {
-                Name = Name
-            };
-
-            if (str != null)
-            {
-                foreach (KeyValuePair<int, string> kvp in str)
-                {
-                    copy.str[kvp.Key] = kvp.Value;
-                }
+                IFormatter formatter = new BinaryFormatter();
+                formatter.Serialize(memoryStream, this);
+                memoryStream.Seek(0, SeekOrigin.Begin);
+                return (DataStructItem)formatter.Deserialize(memoryStream);
             }
-
-            if (num != null)
-            {
-                foreach (KeyValuePair<int, double> kvp in num)
-                {
-                    copy.num[kvp.Key] = kvp.Value;
-                }
-            }
-
-            return copy;
         }
 
         public int GetMaxIndex()

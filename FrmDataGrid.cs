@@ -1,5 +1,4 @@
-﻿using Newtonsoft.Json;
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -8,6 +7,8 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -522,12 +523,13 @@ namespace Automation
             }
             bool isEmptyRow = false;
             List<OperationType> deepCopy;
-            var settings = new JsonSerializerSettings
+            using (MemoryStream stream = new MemoryStream())
             {
-                TypeNameHandling = TypeNameHandling.All
-            };
-            string output = JsonConvert.SerializeObject(ListOperationType4Copy, settings);
-            deepCopy = JsonConvert.DeserializeObject<List<OperationType>>(output, settings);
+                IFormatter formatter = new BinaryFormatter();
+                formatter.Serialize(stream, ListOperationType4Copy);
+                stream.Seek(0, SeekOrigin.Begin);
+                deepCopy = (List<OperationType>)formatter.Deserialize(stream);
+            }
             if (SF.frmDataGrid.dataGridView1.Rows.Count != 0)
             {
                 SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.InsertRange(iSelectedRow + 1, deepCopy);
@@ -712,12 +714,13 @@ namespace Automation
                     ListOperationType4Copy.Add(dataItem);
                 }
 
-                var settings = new JsonSerializerSettings
+                using (MemoryStream stream = new MemoryStream())
                 {
-                    TypeNameHandling = TypeNameHandling.All
-                };
-                string payload = JsonConvert.SerializeObject(ListOperationType4Copy, settings);
-                Clipboard.SetData("MyCustomDataFormat", payload);
+                    IFormatter formatter = new BinaryFormatter();
+                    formatter.Serialize(stream, ListOperationType4Copy);
+                    byte[] serializedData = stream.ToArray();
+                    Clipboard.SetData("MyCustomDataFormat", serializedData);
+                }
             }
         }
 
@@ -729,14 +732,11 @@ namespace Automation
                 List<OperationType> deepCopy = null;
                 if (Clipboard.ContainsData("MyCustomDataFormat"))
                 {
-                    string payload = Clipboard.GetData("MyCustomDataFormat") as string;
-                    if (!string.IsNullOrWhiteSpace(payload))
+                    byte[] receivedData = (byte[])Clipboard.GetData("MyCustomDataFormat");
+                    using (MemoryStream stream = new MemoryStream(receivedData))
                     {
-                        var settings = new JsonSerializerSettings
-                        {
-                            TypeNameHandling = TypeNameHandling.All
-                        };
-                        deepCopy = JsonConvert.DeserializeObject<List<OperationType>>(payload, settings);
+                        IFormatter formatter = new BinaryFormatter();
+                        deepCopy = (List<OperationType>)formatter.Deserialize(stream);
                     }
                 }
                 if (deepCopy == null)

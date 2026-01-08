@@ -8,6 +8,8 @@ using System.Dynamic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Formatters.Binary;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
@@ -662,16 +664,13 @@ namespace Automation
 
         public object Clone()
         {
-            return new DataPos(Index)
+            using (MemoryStream memoryStream = new MemoryStream())
             {
-                Name = Name,
-                X = X,
-                Y = Y,
-                Z = Z,
-                U = U,
-                V = V,
-                W = W
-            };
+                IFormatter formatter = new BinaryFormatter();
+                formatter.Serialize(memoryStream, this);
+                memoryStream.Seek(0, SeekOrigin.Begin);
+                return formatter.Deserialize(memoryStream);
+            }
         }
         public DataPos(int index)
         {
