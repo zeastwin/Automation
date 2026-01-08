@@ -11,6 +11,8 @@ using System.Net;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.InteropServices;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -189,12 +191,13 @@ namespace Automation
         public bool Enable { get; set; }
         public object Clone()
         {
-            var settings = new JsonSerializerSettings
+            using (MemoryStream memoryStream = new MemoryStream())
             {
-                TypeNameHandling = TypeNameHandling.All
-            };
-            string output = JsonConvert.SerializeObject(this, settings);
-            return JsonConvert.DeserializeObject<OperationType>(output, settings);
+                IFormatter formatter = new BinaryFormatter();
+                formatter.Serialize(memoryStream, this);
+                memoryStream.Seek(0, SeekOrigin.Begin);
+                return formatter.Deserialize(memoryStream);
+            }
         }
         public void SetPropertyAttribute(object obj, string propertyName, Type attrType, string attrField, object value)
         {
