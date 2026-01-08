@@ -146,7 +146,24 @@ namespace Automation
                 }
 
                 ProcHandle selectedHandle = SF.DR.ProcHandles[selectedProc];
-                if (selectedHandle == null || selectedHandle.isRun == 0 || SF.frmProc.SelectedStepNum != selectedHandle.stepNum)
+                if (selectedHandle == null || selectedHandle.isRun == 0)
+                {
+                    ClearLastHighlight();
+                    return;
+                }
+
+                if (selectedHandle.isRun == 1 && SF.frmProc.SelectedStepNum != selectedHandle.stepNum)
+                {
+                    if (selectedHandle.stepNum >= 0
+                        && selectedProc >= 0
+                        && selectedProc < SF.frmProc.proc_treeView.Nodes.Count
+                        && selectedHandle.stepNum < SF.frmProc.proc_treeView.Nodes[selectedProc].Nodes.Count)
+                    {
+                        SelectChildNode(selectedProc, selectedHandle.stepNum);
+                    }
+                }
+
+                if (SF.frmProc.SelectedStepNum != selectedHandle.stepNum)
                 {
                     ClearLastHighlight();
                     return;
@@ -172,6 +189,10 @@ namespace Automation
 
                     SetRowColor(rowIndex, Color.LightBlue);
                     dataGridView1.InvalidateRow(rowIndex);
+                    if (selectedHandle.isRun == 1)
+                    {
+                        ScrollRowToCenter(rowIndex);
+                    }
                     lastHighlightActive = true;
                     lastHighlightedRow = rowIndex;
                     lastHighlightedProc = selectedProc;
