@@ -35,6 +35,7 @@
             this.SingleRun = new System.Windows.Forms.Button();
             this.btnPause = new System.Windows.Forms.Button();
             this.btnSearch = new System.Windows.Forms.Button();
+            this.btnIOMonitor = new System.Windows.Forms.Button();
             this.button1 = new System.Windows.Forms.Button();
             this.btnCancel = new System.Windows.Forms.Button();
             this.btnSave = new System.Windows.Forms.Button();
@@ -49,6 +50,7 @@
             this.ToolBar_Panel.Controls.Add(this.SingleRun);
             this.ToolBar_Panel.Controls.Add(this.btnPause);
             this.ToolBar_Panel.Controls.Add(this.btnSearch);
+            this.ToolBar_Panel.Controls.Add(this.btnIOMonitor);
             this.ToolBar_Panel.Controls.Add(this.button1);
             this.ToolBar_Panel.Controls.Add(this.btnCancel);
             this.ToolBar_Panel.Controls.Add(this.btnSave);
@@ -172,6 +174,25 @@
             this.btnSearch.UseVisualStyleBackColor = false;
             this.btnSearch.Click += new System.EventHandler(this.btnSearch_Click);
             // 
+            // btnIOMonitor
+            // 
+            this.btnIOMonitor.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnIOMonitor.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnIOMonitor.FlatAppearance.BorderSize = 2;
+            this.btnIOMonitor.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnIOMonitor.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnIOMonitor.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnIOMonitor.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnIOMonitor.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnIOMonitor.Location = new System.Drawing.Point(622, 1);
+            this.btnIOMonitor.Margin = new System.Windows.Forms.Padding(2);
+            this.btnIOMonitor.Name = "btnIOMonitor";
+            this.btnIOMonitor.Size = new System.Drawing.Size(76, 39);
+            this.btnIOMonitor.TabIndex = 12;
+            this.btnIOMonitor.Text = "IO监视";
+            this.btnIOMonitor.UseVisualStyleBackColor = false;
+            this.btnIOMonitor.Click += new System.EventHandler(this.btnIOMonitor_Click);
+            // 
             // button1
             // 
             this.button1.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
@@ -182,7 +203,7 @@
             this.button1.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.button1.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.button1.ForeColor = System.Drawing.SystemColors.ControlText;
-            this.button1.Location = new System.Drawing.Point(689, 5);
+            this.button1.Location = new System.Drawing.Point(720, 5);
             this.button1.Name = "button1";
             this.button1.Size = new System.Drawing.Size(121, 30);
             this.button1.TabIndex = 2;
@@ -253,5 +274,6 @@
         public System.Windows.Forms.Button btnAlarm;
         public System.Windows.Forms.Button btnLocate;
         public System.Windows.Forms.Button btnSearch;
+        public System.Windows.Forms.Button btnIOMonitor;
     }
 }

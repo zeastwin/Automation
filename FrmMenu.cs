@@ -62,6 +62,8 @@ namespace Automation
                 SF.frmToolBar.btnAlarm.Visible = false;
                 SF.frmToolBar.btnLocate.Visible = false;
                 SF.frmToolBar.btnSearch.Visible = false;
+                SF.frmToolBar.btnIOMonitor.Visible = true;
+                SF.frmToolBar.btnIOMonitor.Text = SF.frmIO.IsIOMonitoring ? "停止监视" : "IO监视";
             }
         }
 
@@ -117,6 +119,9 @@ namespace Automation
                 SF.frmToolBar.btnAlarm.Visible = true;
                 SF.frmToolBar.btnLocate.Visible = true;
                 SF.frmToolBar.btnSearch.Visible = true;
+                SF.frmToolBar.btnIOMonitor.Visible = false;
+                SF.frmIO.StopIOMonitor();
+                SF.frmToolBar.btnIOMonitor.Text = "IO监视";
                 if(SF.isAddOps)
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
                 else
@@ -135,7 +140,7 @@ namespace Automation
                 }
                 if (!SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
                 {
-                    SF.mainfrm.loadFillForm(SF.mainfrm.main_panel, SF.frmStation);
+                SF.mainfrm.loadFillForm(SF.mainfrm.main_panel, SF.frmStation);
                 }
 
                 SF.mainfrm.ToolBar_panel.Visible = false;
@@ -161,6 +166,10 @@ namespace Automation
                 
                 SF.frmControl.comboBox1.DisplayMember = "Name";
                 SF.frmControl.comboBox1.DataSource = SF.frmCard.dataStation;
+
+                SF.frmToolBar.btnIOMonitor.Visible = false;
+                SF.frmIO.StopIOMonitor();
+                SF.frmToolBar.btnIOMonitor.Text = "IO监视";
              
             }
         }

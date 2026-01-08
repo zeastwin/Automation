@@ -32,6 +32,7 @@ namespace Automation
             InitializeComponent();
             btnSave.Enabled = false;
             btnCancel.Enabled = false;
+            btnIOMonitor.Visible = false;
 
         }
       
@@ -296,6 +297,16 @@ namespace Automation
             SF.frmSearch.BringToFront();
             SF.frmSearch.WindowState = FormWindowState.Normal;
             SF.frmSearch.textBox1.Focus();
+        }
+
+        private void btnIOMonitor_Click(object sender, EventArgs e)
+        {
+            if (SF.frmIO == null)
+            {
+                return;
+            }
+            bool enabled = SF.frmIO.ToggleIOMonitor();
+            btnIOMonitor.Text = enabled ? "停止监视" : "IO监视";
         }
 
         private void btnPause_Click(object sender, EventArgs e)

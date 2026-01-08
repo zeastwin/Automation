@@ -27,6 +27,8 @@ namespace Automation
         public List<string> IoOutItems = new List<string>();
         public List<string> IoInItems = new List<string>();
         public List<string> IoItems = new List<string>();
+        private System.Windows.Forms.Timer ioMonitorTimer;
+        private bool ioMonitorEnabled;
         public FrmIO()
         {
             InitializeComponent();
@@ -43,7 +45,10 @@ namespace Automation
 
             dgvIO.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             dgvIO.KeyDown += dgvIO_KeyDown;
+            FormClosing += FrmIO_FormClosing;
         }
+
+        public bool IsIOMonitoring => ioMonitorEnabled;
         public void RefleshIODic()
         {
             DicIO.Clear();
@@ -100,6 +105,10 @@ namespace Automation
                     List<IO> cacheIOs = IOMap[cardIndex];
 
                     WriteIODgv(inputCount, outputCount, cacheIOs);
+                    if (ioMonitorEnabled)
+                    {
+                        UpdateIOStatusIcons();
+                    }
                 }
             }
         }
@@ -451,6 +460,119 @@ namespace Automation
 
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap);
             RefreshIODgv();
+        }
+
+        public bool ToggleIOMonitor()
+        {
+            if (ioMonitorEnabled)
+            {
+                StopIOMonitor();
+                return false;
+            }
+            StartIOMonitor();
+            return true;
+        }
+
+        public void StopIOMonitor()
+        {
+            ioMonitorEnabled = false;
+            if (ioMonitorTimer != null)
+            {
+                ioMonitorTimer.Stop();
+            }
+        }
+
+        private void StartIOMonitor()
+        {
+            if (ioMonitorTimer == null)
+            {
+                ioMonitorTimer = new System.Windows.Forms.Timer();
+                ioMonitorTimer.Interval = 200;
+                ioMonitorTimer.Tick += IoMonitorTimer_Tick;
+            }
+            ioMonitorEnabled = true;
+            ioMonitorTimer.Start();
+            UpdateIOStatusIcons();
+        }
+
+        private void IoMonitorTimer_Tick(object sender, EventArgs e)
+        {
+            UpdateIOStatusIcons();
+        }
+
+        private void UpdateIOStatusIcons()
+        {
+            try
+            {
+                if (IsDisposed || !IsHandleCreated)
+                {
+                    StopIOMonitor();
+                    return;
+                }
+                if (SF.motion == null)
+                {
+                    return;
+                }
+                if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
+                {
+                    return;
+                }
+                if (IOMap == null || cardIndex < 0 || cardIndex >= IOMap.Count || IOMap[cardIndex] == null)
+                {
+                    return;
+                }
+                List<IO> cacheIOs = IOMap[cardIndex];
+                int rowCount = Math.Min(dgvIO.Rows.Count, cacheIOs.Count);
+                for (int i = 0; i < rowCount; i++)
+                {
+                    IO io = cacheIOs[i];
+                    if (io == null)
+                    {
+                        continue;
+                    }
+                    bool value = false;
+                    bool ok;
+                    if (io.IOType == "通用输入")
+                    {
+                        ok = SF.motion.GetInIO(io, ref value);
+                    }
+                    else if (io.IOType == "通用输出")
+                    {
+                        ok = SF.motion.GetOutIO(io, ref value);
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                    if (!ok)
+                    {
+                        continue;
+                    }
+                    io.Status = value;
+                    System.Drawing.Image nextImage = value ? validImage : invalidImage;
+                    DataGridViewCell cell = dgvIO.Rows[i].Cells[1];
+                    if (!ReferenceEquals(cell.Value, nextImage))
+                    {
+                        cell.Value = nextImage;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                StopIOMonitor();
+            }
+        }
+
+        private void FrmIO_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (ioMonitorTimer != null)
+            {
+                ioMonitorTimer.Stop();
+                ioMonitorTimer.Tick -= IoMonitorTimer_Tick;
+                ioMonitorTimer.Dispose();
+                ioMonitorTimer = null;
+            }
+            ioMonitorEnabled = false;
         }
 
         private List<string> ParseClipboardNames(string text)
