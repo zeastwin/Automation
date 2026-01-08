@@ -25,14 +25,36 @@ namespace Automation
             if (SF.curPage != 5)
             {
                 SF.curPage = 5;
-
-                SF.mainfrm.treeView_panel.Controls.Clear();
-
                 SF.frmPropertyGrid.panel1.Visible = false;
                 SF.mainfrm.panel_Info.Visible = false;
 
-                SF.mainfrm.loadFillForm(SF.mainfrm.DataGrid_panel, SF.frmIO);
-                SF.mainfrm.loadFillForm(SF.mainfrm.treeView_panel, SF.frmCard);
+                if (!SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
+                {
+                    SF.mainfrm.loadFillForm(SF.mainfrm.DataGrid_panel, SF.frmIO);
+                }
+                if (!SF.mainfrm.treeView_panel.Controls.Contains(SF.frmCard))
+                {
+                    SF.mainfrm.loadFillForm(SF.mainfrm.treeView_panel, SF.frmCard);
+                }
+
+                SF.mainfrm.ToolBar_panel.Visible = true;
+                SF.mainfrm.treeView_panel.Visible = true;
+                SF.mainfrm.propertyGrid_panel.Visible = true;
+                SF.mainfrm.DataGrid_panel.Visible = true;
+                SF.mainfrm.panel_Info.Visible = false;
+                SF.mainfrm.state_panel.Visible = true;
+
+                SF.frmIO.Visible = true;
+                SF.frmCard.Visible = true;
+                SF.frmDataGrid.Visible = false;
+                SF.frmProc.Visible = false;
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
+                {
+                    SF.frmStation.Visible = false;
+                }
+
+                SF.frmCard.BringToFront();
+                SF.frmIO.BringToFront();
 
                 SF.frmToolBar.btnPause.Visible = false;
                 SF.frmToolBar.btnStop.Visible = false;
@@ -40,14 +62,6 @@ namespace Automation
                 SF.frmToolBar.btnAlarm.Visible = false;
                 SF.frmToolBar.btnLocate.Visible = false;
                 SF.frmToolBar.btnSearch.Visible = false;
-
-                AddPanel(SF.mainfrm.main_panel, SF.mainfrm.ToolBar_panel, DockStyle.Top);
-                AddPanel(SF.mainfrm.main_panel, SF.mainfrm.state_panel, DockStyle.Bottom);
-                AddPanel(SF.mainfrm.main_panel, SF.mainfrm.treeView_panel, DockStyle.Left);
-                AddPanel(SF.mainfrm.main_panel, SF.mainfrm.propertyGrid_panel, DockStyle.Right);
-                AddPanel(SF.mainfrm.main_panel, SF.mainfrm.DataGrid_panel, DockStyle.Fill);
-
-
             }
         }
 
@@ -63,17 +77,40 @@ namespace Automation
             if (SF.curPage != 0)
             {
                 SF.curPage = 0;
-                SF.mainfrm.main_panel.Controls.Clear();
                 SF.frmPropertyGrid.panel1.Visible = true;
                 SF.mainfrm.panel_Info.Visible = true;
-                AddPanel(SF.mainfrm.main_panel, SF.mainfrm.ToolBar_panel, DockStyle.Top);
-                AddPanel(SF.mainfrm.main_panel, SF.mainfrm.state_panel, DockStyle.Bottom);
-                AddPanel(SF.mainfrm.main_panel, SF.mainfrm.treeView_panel, DockStyle.Left);
-                AddPanel(SF.mainfrm.main_panel, SF.mainfrm.propertyGrid_panel, DockStyle.Right);
-                AddPanel(SF.mainfrm.main_panel, SF.mainfrm.panel_Info, DockStyle.Bottom);
-                AddPanel(SF.mainfrm.main_panel, SF.mainfrm.DataGrid_panel, DockStyle.Fill);
-                SF.mainfrm.loadFillForm(SF.mainfrm.DataGrid_panel, SF.frmDataGrid);
-                SF.mainfrm.loadFillForm(SF.mainfrm.treeView_panel, SF.frmProc);
+
+                if (!SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmDataGrid))
+                {
+                    SF.mainfrm.loadFillForm(SF.mainfrm.DataGrid_panel, SF.frmDataGrid);
+                }
+                if (!SF.mainfrm.treeView_panel.Controls.Contains(SF.frmProc))
+                {
+                    SF.mainfrm.loadFillForm(SF.mainfrm.treeView_panel, SF.frmProc);
+                }
+
+                SF.mainfrm.ToolBar_panel.Visible = true;
+                SF.mainfrm.treeView_panel.Visible = true;
+                SF.mainfrm.propertyGrid_panel.Visible = true;
+                SF.mainfrm.DataGrid_panel.Visible = true;
+                SF.mainfrm.panel_Info.Visible = true;
+                SF.mainfrm.state_panel.Visible = true;
+
+                SF.frmDataGrid.Visible = true;
+                SF.frmProc.Visible = true;
+                if (SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
+                {
+                    SF.frmIO.Visible = false;
+                }
+                if (SF.mainfrm.treeView_panel.Controls.Contains(SF.frmCard))
+                {
+                    SF.frmCard.Visible = false;
+                }
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
+                {
+                    SF.frmStation.Visible = false;
+                }
+
                 SF.frmToolBar.btnPause.Visible = true;
                 SF.frmToolBar.btnStop.Visible = true;
                 SF.frmToolBar.SingleRun.Visible = true;
@@ -92,9 +129,35 @@ namespace Automation
             if (SF.curPage != 1)
             {
                 SF.curPage = 1;
-                SF.mainfrm.main_panel.Controls.Clear();
-                SF.mainfrm.loadFillForm(SF.frmStation.panel1, SF.frmControl);
-                SF.mainfrm.loadFillForm(SF.mainfrm.main_panel, SF.frmStation);
+                if (!SF.frmStation.panel1.Controls.Contains(SF.frmControl))
+                {
+                    SF.mainfrm.loadFillForm(SF.frmStation.panel1, SF.frmControl);
+                }
+                if (!SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
+                {
+                    SF.mainfrm.loadFillForm(SF.mainfrm.main_panel, SF.frmStation);
+                }
+
+                SF.mainfrm.ToolBar_panel.Visible = false;
+                SF.mainfrm.treeView_panel.Visible = false;
+                SF.mainfrm.propertyGrid_panel.Visible = false;
+                SF.mainfrm.DataGrid_panel.Visible = false;
+                SF.mainfrm.panel_Info.Visible = false;
+                SF.mainfrm.state_panel.Visible = false;
+
+                SF.frmStation.Visible = true;
+                SF.frmStation.BringToFront();
+
+                SF.frmDataGrid.Visible = false;
+                SF.frmProc.Visible = false;
+                if (SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
+                {
+                    SF.frmIO.Visible = false;
+                }
+                if (SF.mainfrm.treeView_panel.Controls.Contains(SF.frmCard))
+                {
+                    SF.frmCard.Visible = false;
+                }
                 
                 SF.frmControl.comboBox1.DisplayMember = "Name";
                 SF.frmControl.comboBox1.DataSource = SF.frmCard.dataStation;
