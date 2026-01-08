@@ -42,6 +42,7 @@ namespace Automation
             pi.SetValue(this.dgvIO, true, null);
 
             dgvIO.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            dgvIO.KeyDown += dgvIO_KeyDown;
         }
         public void RefleshIODic()
         {
@@ -233,6 +234,204 @@ namespace Automation
                 SF.BeginEdit(ModifyKind.IO);
             }
           
+        }
+
+        private void dgvIO_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Control && e.KeyCode == Keys.V)
+            {
+                PasteNames_Click(sender, EventArgs.Empty);
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+        }
+
+        private void PasteNames_Click(object sender, EventArgs e)
+        {
+            if (!Clipboard.ContainsText())
+            {
+                MessageBox.Show("剪贴板没有可用文本。");
+                return;
+            }
+            List<string> names = ParseClipboardNames(Clipboard.GetText());
+            if (names.Count == 0)
+            {
+                MessageBox.Show("剪贴板内容为空。");
+                return;
+            }
+            if (iSelectedIORow < 0)
+            {
+                MessageBox.Show("请先选择起始行。");
+                return;
+            }
+            if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
+            {
+                MessageBox.Show("请先选择控制卡。");
+                return;
+            }
+            if (IOMap == null || cardIndex < 0 || cardIndex >= IOMap.Count || IOMap[cardIndex] == null)
+            {
+                MessageBox.Show("IO列表为空。");
+                return;
+            }
+
+            List<IO> cacheIOs = IOMap[cardIndex];
+            if (iSelectedIORow >= cacheIOs.Count)
+            {
+                MessageBox.Show("起始行超出范围。");
+                return;
+            }
+
+            int maxPasteCount = Math.Min(names.Count, cacheIOs.Count - iSelectedIORow);
+            if (maxPasteCount <= 0)
+            {
+                return;
+            }
+
+            HashSet<string> existingNames = new HashSet<string>();
+            foreach (List<IO> list in IOMap)
+            {
+                if (list == null)
+                {
+                    continue;
+                }
+                foreach (IO io in list)
+                {
+                    if (io == null || string.IsNullOrWhiteSpace(io.Name))
+                    {
+                        continue;
+                    }
+                    existingNames.Add(io.Name);
+                }
+            }
+            for (int i = 0; i < maxPasteCount; i++)
+            {
+                IO oldIo = cacheIOs[iSelectedIORow + i];
+                if (oldIo != null && !string.IsNullOrWhiteSpace(oldIo.Name))
+                {
+                    existingNames.Remove(oldIo.Name);
+                }
+            }
+
+            HashSet<string> newNames = new HashSet<string>();
+            for (int i = 0; i < maxPasteCount; i++)
+            {
+                string name = names[i];
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    MessageBox.Show("粘贴失败：存在空名称IO，请检查剪贴板数据。");
+                    return;
+                }
+                if (!newNames.Add(name) || existingNames.Contains(name))
+                {
+                    MessageBox.Show($"粘贴失败：名称重复（{name}），请先修改名称。");
+                    return;
+                }
+            }
+
+            for (int i = 0; i < maxPasteCount; i++)
+            {
+                IO io = cacheIOs[iSelectedIORow + i];
+                if (io != null)
+                {
+                    io.Name = names[i];
+                }
+            }
+
+            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap);
+            RefreshIODgv();
+        }
+
+        private void InvertInput_Click(object sender, EventArgs e)
+        {
+            SetIoEffectLevel("通用输入", "取反");
+        }
+
+        private void InvertOutput_Click(object sender, EventArgs e)
+        {
+            SetIoEffectLevel("通用输出", "取反");
+        }
+
+        private void SetIoEffectLevel(string ioType, string effectLevel)
+        {
+            if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
+            {
+                MessageBox.Show("请先选择控制卡。");
+                return;
+            }
+            if (IOMap == null || cardIndex < 0 || cardIndex >= IOMap.Count || IOMap[cardIndex] == null)
+            {
+                MessageBox.Show("IO列表为空。");
+                return;
+            }
+
+            bool hasMatched = false;
+            List<IO> cacheIOs = IOMap[cardIndex];
+            for (int i = 0; i < cacheIOs.Count; i++)
+            {
+                IO io = cacheIOs[i];
+                if (io == null || io.IOType != ioType)
+                {
+                    continue;
+                }
+                io.EffectLevel = effectLevel;
+                hasMatched = true;
+            }
+            if (!hasMatched)
+            {
+                MessageBox.Show("未找到对应类型IO。");
+                return;
+            }
+
+            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap);
+            RefreshIODgv();
+        }
+
+        private List<string> ParseClipboardNames(string text)
+        {
+            List<string> names = new List<string>();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return names;
+            }
+            string[] lines = text.Replace("\r\n", "\n").Split('\n');
+            foreach (string raw in lines)
+            {
+                string line = raw.Trim();
+                if (string.IsNullOrEmpty(line))
+                {
+                    continue;
+                }
+                string name = line;
+                int tabIndex = line.IndexOf('\t');
+                if (tabIndex >= 0)
+                {
+                    name = line.Substring(0, tabIndex);
+                }
+                else
+                {
+                    int commaIndex = line.IndexOf(',');
+                    if (commaIndex >= 0)
+                    {
+                        name = line.Substring(0, commaIndex);
+                    }
+                }
+                name = name.Trim().Trim('"');
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+                names.Add(name);
+            }
+            if (names.Count > 1)
+            {
+                string header = names[0];
+                if (header == "IO名称" || header == "名称" || header.Equals("Name", StringComparison.OrdinalIgnoreCase))
+                {
+                    names.RemoveAt(0);
+                }
+            }
+            return names;
         }
 
     }

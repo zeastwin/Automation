@@ -51,6 +51,10 @@
             this.Note = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.contextMenuStrip1 = new System.Windows.Forms.ContextMenuStrip(this.components);
             this.Modify = new System.Windows.Forms.ToolStripMenuItem();
+            this.PasteNames = new System.Windows.Forms.ToolStripMenuItem();
+            this.InvertIOMenu = new System.Windows.Forms.ToolStripMenuItem();
+            this.InvertInput = new System.Windows.Forms.ToolStripMenuItem();
+            this.InvertOutput = new System.Windows.Forms.ToolStripMenuItem();
             ((System.ComponentModel.ISupportInitialize)(this.dgvIO)).BeginInit();
             this.contextMenuStrip1.SuspendLayout();
             this.SuspendLayout();
@@ -210,9 +214,11 @@
             // 
             this.contextMenuStrip1.ImageScalingSize = new System.Drawing.Size(20, 20);
             this.contextMenuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.Modify});
+            this.Modify,
+            this.PasteNames,
+            this.InvertIOMenu});
             this.contextMenuStrip1.Name = "contextMenuStrip1";
-            this.contextMenuStrip1.Size = new System.Drawing.Size(109, 28);
+            this.contextMenuStrip1.Size = new System.Drawing.Size(197, 76);
             // 
             // Modify
             // 
@@ -220,6 +226,36 @@
             this.Modify.Size = new System.Drawing.Size(108, 24);
             this.Modify.Text = "修改";
             this.Modify.Click += new System.EventHandler(this.Modify_Click);
+            // 
+            // PasteNames
+            // 
+            this.PasteNames.Name = "PasteNames";
+            this.PasteNames.Size = new System.Drawing.Size(196, 24);
+            this.PasteNames.Text = "批量粘贴IO名称";
+            this.PasteNames.Click += new System.EventHandler(this.PasteNames_Click);
+            // 
+            // InvertIOMenu
+            // 
+            this.InvertIOMenu.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.InvertInput,
+            this.InvertOutput});
+            this.InvertIOMenu.Name = "InvertIOMenu";
+            this.InvertIOMenu.Size = new System.Drawing.Size(196, 24);
+            this.InvertIOMenu.Text = "IO取反";
+            // 
+            // InvertInput
+            // 
+            this.InvertInput.Name = "InvertInput";
+            this.InvertInput.Size = new System.Drawing.Size(136, 24);
+            this.InvertInput.Text = "输入取反";
+            this.InvertInput.Click += new System.EventHandler(this.InvertInput_Click);
+            // 
+            // InvertOutput
+            // 
+            this.InvertOutput.Name = "InvertOutput";
+            this.InvertOutput.Size = new System.Drawing.Size(136, 24);
+            this.InvertOutput.Text = "输出取反";
+            this.InvertOutput.Click += new System.EventHandler(this.InvertOutput_Click);
             // 
             // FrmIO
             // 
@@ -242,6 +278,10 @@
         public System.Windows.Forms.DataGridView dgvIO;
         private System.Windows.Forms.ContextMenuStrip contextMenuStrip1;
         private System.Windows.Forms.ToolStripMenuItem Modify;
+        private System.Windows.Forms.ToolStripMenuItem PasteNames;
+        private System.Windows.Forms.ToolStripMenuItem InvertIOMenu;
+        private System.Windows.Forms.ToolStripMenuItem InvertInput;
+        private System.Windows.Forms.ToolStripMenuItem InvertOutput;
         private System.Windows.Forms.DataGridViewTextBoxColumn index;
         private System.Windows.Forms.DataGridViewImageColumn status;
         private System.Windows.Forms.DataGridViewTextBoxColumn name;
