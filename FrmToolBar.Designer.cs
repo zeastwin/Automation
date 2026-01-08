@@ -29,14 +29,8 @@
         private void InitializeComponent()
         {
             this.ToolBar_Panel = new System.Windows.Forms.Panel();
-            this.CleanAllMark = new System.Windows.Forms.Button();
-            this.Mark = new System.Windows.Forms.Button();
-            this.LastMark = new System.Windows.Forms.Button();
-            this.NextMark = new System.Windows.Forms.Button();
             this.btnLocate = new System.Windows.Forms.Button();
             this.btnAlarm = new System.Windows.Forms.Button();
-            this.button2 = new System.Windows.Forms.Button();
-            this.btnMonitor = new System.Windows.Forms.Button();
             this.btnStop = new System.Windows.Forms.Button();
             this.SingleRun = new System.Windows.Forms.Button();
             this.btnPause = new System.Windows.Forms.Button();
@@ -49,14 +43,8 @@
             // 
             // ToolBar_Panel
             // 
-            this.ToolBar_Panel.Controls.Add(this.CleanAllMark);
-            this.ToolBar_Panel.Controls.Add(this.Mark);
-            this.ToolBar_Panel.Controls.Add(this.LastMark);
-            this.ToolBar_Panel.Controls.Add(this.NextMark);
             this.ToolBar_Panel.Controls.Add(this.btnLocate);
             this.ToolBar_Panel.Controls.Add(this.btnAlarm);
-            this.ToolBar_Panel.Controls.Add(this.button2);
-            this.ToolBar_Panel.Controls.Add(this.btnMonitor);
             this.ToolBar_Panel.Controls.Add(this.btnStop);
             this.ToolBar_Panel.Controls.Add(this.SingleRun);
             this.ToolBar_Panel.Controls.Add(this.btnPause);
@@ -69,54 +57,6 @@
             this.ToolBar_Panel.Name = "ToolBar_Panel";
             this.ToolBar_Panel.Size = new System.Drawing.Size(1280, 72);
             this.ToolBar_Panel.TabIndex = 0;
-            // 
-            // CleanAllMark
-            // 
-            this.CleanAllMark.Location = new System.Drawing.Point(964, 5);
-            this.CleanAllMark.Margin = new System.Windows.Forms.Padding(2);
-            this.CleanAllMark.Name = "CleanAllMark";
-            this.CleanAllMark.Size = new System.Drawing.Size(35, 30);
-            this.CleanAllMark.TabIndex = 15;
-            this.CleanAllMark.Text = "×";
-            this.CleanAllMark.UseVisualStyleBackColor = true;
-            this.CleanAllMark.Visible = false;
-            this.CleanAllMark.Click += new System.EventHandler(this.CleanAllMark_Click);
-            // 
-            // Mark
-            // 
-            this.Mark.Location = new System.Drawing.Point(815, 5);
-            this.Mark.Margin = new System.Windows.Forms.Padding(2);
-            this.Mark.Name = "Mark";
-            this.Mark.Size = new System.Drawing.Size(67, 30);
-            this.Mark.TabIndex = 14;
-            this.Mark.Text = "标记";
-            this.Mark.UseVisualStyleBackColor = true;
-            this.Mark.Visible = false;
-            this.Mark.Click += new System.EventHandler(this.Mark_Click);
-            // 
-            // LastMark
-            // 
-            this.LastMark.Location = new System.Drawing.Point(886, 5);
-            this.LastMark.Margin = new System.Windows.Forms.Padding(2);
-            this.LastMark.Name = "LastMark";
-            this.LastMark.Size = new System.Drawing.Size(35, 30);
-            this.LastMark.TabIndex = 13;
-            this.LastMark.Text = "←";
-            this.LastMark.UseVisualStyleBackColor = true;
-            this.LastMark.Visible = false;
-            this.LastMark.Click += new System.EventHandler(this.LastMark_Click);
-            // 
-            // NextMark
-            // 
-            this.NextMark.Location = new System.Drawing.Point(925, 5);
-            this.NextMark.Margin = new System.Windows.Forms.Padding(2);
-            this.NextMark.Name = "NextMark";
-            this.NextMark.Size = new System.Drawing.Size(35, 30);
-            this.NextMark.TabIndex = 12;
-            this.NextMark.Text = "→";
-            this.NextMark.UseVisualStyleBackColor = true;
-            this.NextMark.Visible = false;
-            this.NextMark.Click += new System.EventHandler(this.NextMark_Click);
             // 
             // btnLocate
             // 
@@ -155,28 +95,6 @@
             this.btnAlarm.Text = "报警信息";
             this.btnAlarm.UseVisualStyleBackColor = false;
             this.btnAlarm.Click += new System.EventHandler(this.btnAlarm_Click);
-            // 
-            // button2
-            // 
-            this.button2.Location = new System.Drawing.Point(1047, 5);
-            this.button2.Margin = new System.Windows.Forms.Padding(2);
-            this.button2.Name = "button2";
-            this.button2.Size = new System.Drawing.Size(67, 30);
-            this.button2.TabIndex = 9;
-            this.button2.Text = "Test";
-            this.button2.UseVisualStyleBackColor = true;
-            this.button2.Click += new System.EventHandler(this.button2_Click);
-            // 
-            // btnMonitor
-            // 
-            this.btnMonitor.Location = new System.Drawing.Point(1118, 5);
-            this.btnMonitor.Margin = new System.Windows.Forms.Padding(2);
-            this.btnMonitor.Name = "btnMonitor";
-            this.btnMonitor.Size = new System.Drawing.Size(67, 30);
-            this.btnMonitor.TabIndex = 8;
-            this.btnMonitor.Text = "监视器";
-            this.btnMonitor.UseVisualStyleBackColor = true;
-            this.btnMonitor.Click += new System.EventHandler(this.btnMonitor_Click);
             // 
             // btnStop
             // 
@@ -330,16 +248,10 @@
         public System.Windows.Forms.Button btnSave;
         public System.Windows.Forms.Button btnStop;
         public System.Windows.Forms.Button btnPause;
-        private System.Windows.Forms.Button btnMonitor;
         public System.Windows.Forms.Button btnCancel;
         public System.Windows.Forms.Button SingleRun;
-        private System.Windows.Forms.Button button2;
         public System.Windows.Forms.Button btnAlarm;
         public System.Windows.Forms.Button btnLocate;
         public System.Windows.Forms.Button btnSearch;
-        public System.Windows.Forms.Button Mark;
-        public System.Windows.Forms.Button LastMark;
-        public System.Windows.Forms.Button NextMark;
-        public System.Windows.Forms.Button CleanAllMark;
     }
 }

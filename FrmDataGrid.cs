@@ -86,6 +86,12 @@ namespace Automation
                     return;
                 }
 
+                if (SF.curPage != 0)
+                {
+                    ClearLastHighlight();
+                    return;
+                }
+
                 if (!SF.frmComunication.CheckFormIsOpen(SF.frmInfo) || !SF.frmComunication.CheckFormIsOpen(SF.mainfrm))
                 {
                     return;

@@ -408,11 +408,6 @@ namespace Automation
                 && int.TryParse(parts[2], out _);
         }
 
-        private void btnMonitor_Click(object sender, EventArgs e)
-        {
-            
-        }
-
         private void btnAlarm_Click(object sender, EventArgs e)
         {
             SF.frmAlarmConfig.StartPosition = FormStartPosition.CenterScreen;
@@ -420,59 +415,12 @@ namespace Automation
             SF.frmAlarmConfig.BringToFront();
             SF.frmAlarmConfig.WindowState = FormWindowState.Normal;
         }
-      
-        private void button2_Click(object sender, EventArgs e)
-        {
-           
-        }
 
         private void btnLocate_Click(object sender, EventArgs e)
         {
             SF.frmDataGrid.SelectChildNode(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].procNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].stepNum);
             SF.frmDataGrid.ScrollRowToCenter(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum);
             SF.frmDataGrid.SetRowColor(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum, Color.LightBlue);
-        }
-
-        public class MarkPoint
-        {
-            public int procNum =-1;
-            public int stepNum =-1;
-            public int opsNum = -1;
-        }
-
-        public List<MarkPoint> markPoints;
-        public void RefleshMark()
-        {
-            if (!Directory.Exists(SF.ConfigPath))
-            {
-                Directory.CreateDirectory(SF.ConfigPath);
-            }
-            if (!File.Exists(SF.ConfigPath + "MarkPoints.json"))
-            {
-                markPoints = new List<MarkPoint>();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "MarkPoints", markPoints);
-            }
-            markPoints = SF.mainfrm.ReadJson<List<MarkPoint>>(SF.ConfigPath, "MarkPoints");
-        }
-
-        private void Mark_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void LastMark_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void NextMark_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void CleanAllMark_Click(object sender, EventArgs e)
-        {
-
         }
     }
 }

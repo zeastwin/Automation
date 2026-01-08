@@ -109,7 +109,6 @@ namespace Automation
             SF.frmComunication.RefreshSocketMap();
             SF.frmComunication.RefreshSerialPortInfo();
             SF.frmAlarmConfig.RefreshAlarmInfo();
-            SF.frmToolBar.RefleshMark();
             SF.frmIODebug.RefleshIODebug();
             //初始化运动控制相关
             SF.motion.InitCardType();
