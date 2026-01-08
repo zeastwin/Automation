@@ -7,7 +7,6 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Net.Sockets;
-using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,17 +21,6 @@ namespace Automation
         public FrmInfo()
         {
             InitializeComponent();
-            dataGridView1.SelectionMode = DataGridViewSelectionMode.ColumnHeaderSelect;
-            dataGridView1.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
-            dataGridView1.RowHeadersVisible = false;
-            dataGridView1.AutoGenerateColumns = false;
-
-
-            Type dgvType = this.dataGridView1.GetType();
-            PropertyInfo pi = dgvType.GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
-            pi.SetValue(this.dataGridView1, true, null);
-
-            dataGridView1.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
         }
 
         private void FrmInfo_Load(object sender, EventArgs e)
@@ -40,20 +28,6 @@ namespace Automation
            
         }
 
-        private void dataGridView1_CellMouseDoubleClick(object sender, DataGridViewCellMouseEventArgs e)
-        {
-            if (e.RowIndex >= 0)
-            {
-                DataGridViewCell cell = dataGridView1.Rows[e.RowIndex].Cells[1];
-                string cellValue = cell.Value.ToString();
-
-                string[] values = cellValue.Split(new string[] { "---" }, StringSplitOptions.None);
-
-                SF.frmDataGrid.SelectChildNode(int.Parse(values[0]), int.Parse(values[1]));
-                SF.frmDataGrid.ScrollRowToCenter(int.Parse(values[2]));
-                SF.frmDataGrid.SetRowColor(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum, Color.LightBlue);
-            }
-        }
         [Browsable(false)]
         [JsonIgnore]
         public Level level { get; set; } = 0;

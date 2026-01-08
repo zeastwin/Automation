@@ -27,10 +27,6 @@ namespace Automation
         public int iSelectedRow = -1;
 
         private System.Windows.Forms.Timer trackTimer;
-        private int lastInfoProcCount = -1;
-        private string[] lastInfoNames;
-        private string[] lastInfoPositions;
-        private string[] lastInfoStates;
         private int lastHighlightedRow = -1;
         private int lastHighlightedProc = -1;
         private int lastHighlightedStep = -1;
@@ -96,47 +92,6 @@ namespace Automation
                 if (!SF.frmComunication.CheckFormIsOpen(SF.frmInfo) || !SF.frmComunication.CheckFormIsOpen(SF.mainfrm))
                 {
                     return;
-                }
-
-                if (SF.frmInfo.tabControl1.SelectedIndex == 1)
-                {
-                    int procCount = SF.frmProc.procsList.Count;
-                    if (lastInfoProcCount != procCount || lastInfoNames == null)
-                    {
-                        SF.frmInfo.dataGridView1.Rows.Clear();
-                        for (int i = 0; i < procCount; i++)
-                        {
-                            SF.frmInfo.dataGridView1.Rows.Add();
-                        }
-                        lastInfoProcCount = procCount;
-                        lastInfoNames = new string[procCount];
-                        lastInfoPositions = new string[procCount];
-                        lastInfoStates = new string[procCount];
-                    }
-
-                    for (int i = 0; i < procCount && i < SF.DR.ProcHandles.Length; i++)
-                    {
-                        string name = SF.frmProc.procsList[i].head.Name;
-                        ProcHandle handle = SF.DR.ProcHandles[i];
-                        string position = $"{handle.procNum}---{handle.stepNum}---{handle.opsNum}";
-                        string state = handle.isRun == 0 ? "就绪" : "运行";
-
-                        if (lastInfoNames[i] != name)
-                        {
-                            SF.frmInfo.dataGridView1.Rows[i].Cells[0].Value = name;
-                            lastInfoNames[i] = name;
-                        }
-                        if (lastInfoPositions[i] != position)
-                        {
-                            SF.frmInfo.dataGridView1.Rows[i].Cells[1].Value = position;
-                            lastInfoPositions[i] = position;
-                        }
-                        if (lastInfoStates[i] != state)
-                        {
-                            SF.frmInfo.dataGridView1.Rows[i].Cells[2].Value = state;
-                            lastInfoStates[i] = state;
-                        }
-                    }
                 }
 
                 int selectedProc = SF.frmProc.SelectedProcNum;
