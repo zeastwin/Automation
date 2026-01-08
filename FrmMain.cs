@@ -123,47 +123,7 @@ namespace Automation
         public List<Dictionary<int, char[]>> StateDic = new List<Dictionary<int, char[]>>();
         public object StateDicLock { get; } = new object();
 
-        //public bool GetInPut(int cardNum,string Dtext, ref bool value)
-        //{
-        //    if (Dtext == "")
-        //        return false;
-        //    try
-        //    {
-        //        int io = int.Parse(Dtext);
-        //        value = InputArray[cardNum,io];
-        //        return true;
-        //    }
-        //    catch (Exception)
-        //    {
-        //        return false;
-        //    }
-        //}
-
-        //public bool GetOutPut(int cardNum, string Dtext, ref bool value)
-        //{
-        //    if (Dtext == "")
-        //        return false;
-        //    try
-        //    {
-        //        int io = int.Parse(Dtext);
-        //        value = OutputArray[cardNum, io];
-        //        return true;
-        //    }
-        //    catch (Exception)
-        //    {
-        //        return false;
-        //    }
-        //}
-        //  public uint[] InputArray = null;
-        //   public uint[] OutputArray = null;
-        //// 创建二维矩阵
-        //bool[,] InputArray = new bool[50, 1000];
-        //bool[,] OutputArray = new bool[50, 1000];
-
-        // 在矩阵中赋值或访问元素
-        //matrix[0, 0] = 42; // 设置第一行第一列的值为42
-        //uint value = matrix[1, 1]; // 获取第二行第二列的值
-
+    
         public void Monitor()
         {
             ReflshDgv();
@@ -175,21 +135,7 @@ namespace Automation
                     {
                         if (SF.isModify != ModifyKind.ControlCard && !SF.frmCard.IsNewCard)
                         {
-                            //for (int i = 0; i < SF.frmCard.card.controlCards.Count; i++)
-                            //{
-                            //    for (int j = 0; j < SF.frmCard.card.controlCards[i].cardHead.InputCount; j++)
-                            //    {
-                            //        bool Number = false;
-                            //        SF.motion.GetInIO((ushort)i, j.ToString(), ref Number);
-                            //        InputArray[i, j] = Number;
-                            //    }
-                            //    for (int j = 0; j < SF.frmCard.card.controlCards[i].cardHead.OutputCount; j++)
-                            //    {
-                            //        bool Number = false ;
-                            //        SF.motion.GetOutIO((ushort)i, j.ToString(),ref Number);
-                            //        OutputArray[i, j] = Number;
-                            //    }
-                            //}
+                            
 
                             for (int i = 0; i < SF.cardStore.GetControlCardCount(); i++)
                             {
@@ -310,22 +256,29 @@ namespace Automation
 
         public bool SaveAsJson<T>(string FilePath, string Name, T t)
         {
-            FileStream fs = null;
-
             string strFilePath = FilePath + Name + ".json";
-
-            if (!File.Exists(strFilePath))
+            string directory = Path.GetDirectoryName(strFilePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
-                fs = new FileStream(strFilePath, FileMode.Create, FileAccess.ReadWrite);
-                fs.Close();
+                Directory.CreateDirectory(directory);
             }
+
             var settings = new JsonSerializerSettings
             {
                 TypeNameHandling = TypeNameHandling.All
             };
             string output = Newtonsoft.Json.JsonConvert.SerializeObject(t, settings);
 
-            File.WriteAllText(strFilePath, output);
+            string tempPath = strFilePath + ".tmp";
+            File.WriteAllText(tempPath, output);
+            if (File.Exists(strFilePath))
+            {
+                File.Replace(tempPath, strFilePath, null);
+            }
+            else
+            {
+                File.Move(tempPath, strFilePath);
+            }
 
             return true;
         }

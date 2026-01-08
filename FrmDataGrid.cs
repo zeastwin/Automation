@@ -8,11 +8,8 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.Serialization.Formatters.Binary;
-using System.Runtime.Serialization;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using static Automation.OperationTypePartial;
@@ -28,7 +25,15 @@ namespace Automation
         //鼠标选定的行数
         public int iSelectedRow = -1;
 
-        public ManualResetEvent m_evtTrack = new ManualResetEvent(false);
+        private System.Windows.Forms.Timer trackTimer;
+        private int lastInfoProcCount = -1;
+        private string[] lastInfoNames;
+        private string[] lastInfoPositions;
+        private string[] lastInfoStates;
+        private int lastHighlightedRow = -1;
+        private int lastHighlightedProc = -1;
+        private int lastHighlightedStep = -1;
+        private bool lastHighlightActive = false;
 
         //记录要复制行的index
         public List<int> selectedRowIndexes4Copy = new List<int>();
@@ -50,90 +55,155 @@ namespace Automation
 
             dataGridView1.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
-            m_evtTrack.Set();
             Track();
+            FormClosing += FrmDataGrid_FormClosing;
 
         }
 
         public void Track()
         {
-            Task.Run(() =>
+            if (trackTimer == null)
             {
-               int opsNumTemp = -1;
-               while (true)
-               {
-                   m_evtTrack.WaitOne();
+                trackTimer = new System.Windows.Forms.Timer();
+                trackTimer.Interval = 200;
+                trackTimer.Tick += TrackTimer_Tick;
+            }
+            trackTimer.Start();
+        }
 
+        private void TrackTimer_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                if (IsDisposed || !IsHandleCreated)
+                {
+                    trackTimer.Stop();
+                    return;
+                }
 
-                   if (SF.frmProc != null && SF.frmComunication.CheckFormIsOpen(SF.frmInfo) && SF.frmComunication.CheckFormIsOpen(SF.mainfrm))
-                   {
-                       try
-                       {
-                           Invoke(new Action(() =>
-                           {
-                               if (SF.frmInfo.tabControl1.SelectedIndex == 1)
-                               {
-                                   if (SF.frmProc.procsList.Count != SF.frmInfo.dataGridView1.Rows.Count)
-                                   {
+                if (SF.frmProc == null || SF.frmComunication == null || SF.frmInfo == null || SF.mainfrm == null || SF.DR == null)
+                {
+                    return;
+                }
 
-                                       SF.frmInfo.dataGridView1.Rows.Clear();
-                                       for (int i = 0; i < SF.frmProc.procsList.Count; i++)
-                                       {
-                                           SF.frmInfo.dataGridView1.Rows.Add();
-                                       }
-                                   }
-                                   for (int i = 0; i < SF.frmProc.procsList.Count; i++)
-                                   {
-                                       SF.frmInfo.dataGridView1.Rows[i].Cells[0].Value = SF.frmProc.procsList[i].head.Name;
-                                       SF.frmInfo.dataGridView1.Rows[i].Cells[1].Value = $"{SF.DR.ProcHandles[i].procNum}---{SF.DR.ProcHandles[i].stepNum}---{SF.DR.ProcHandles[i].opsNum}";
-                                       SF.frmInfo.dataGridView1.Rows[i].Cells[2].Value = SF.DR.ProcHandles[i].isRun == 0 ? "就绪" : "运行";
-                                   }
-                               }
-                           }));
-                           if (SF.frmProc != null && SF.frmProc.SelectedProcNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
-                           {
-                               if (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun != 0)
-                               {
-                                   int num = SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum;
-                                   if (opsNumTemp == num)
-                                   {
-                                       continue;
-                                   }
-                                   opsNumTemp = num;
-                                   //  ScrollRowToCenter(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum);
+                if (!SF.frmComunication.CheckFormIsOpen(SF.frmInfo) || !SF.frmComunication.CheckFormIsOpen(SF.mainfrm))
+                {
+                    return;
+                }
 
-                                   if (SF.frmProc.SelectedStepNum == SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].stepNum)
-                                   {
-                                       ClearAllRowColors();
+                if (SF.frmInfo.tabControl1.SelectedIndex == 1)
+                {
+                    int procCount = SF.frmProc.procsList.Count;
+                    if (lastInfoProcCount != procCount || lastInfoNames == null)
+                    {
+                        SF.frmInfo.dataGridView1.Rows.Clear();
+                        for (int i = 0; i < procCount; i++)
+                        {
+                            SF.frmInfo.dataGridView1.Rows.Add();
+                        }
+                        lastInfoProcCount = procCount;
+                        lastInfoNames = new string[procCount];
+                        lastInfoPositions = new string[procCount];
+                        lastInfoStates = new string[procCount];
+                    }
 
-                                       SetRowColor(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum, Color.LightBlue);
+                    for (int i = 0; i < procCount && i < SF.DR.ProcHandles.Length; i++)
+                    {
+                        string name = SF.frmProc.procsList[i].head.Name;
+                        ProcHandle handle = SF.DR.ProcHandles[i];
+                        string position = $"{handle.procNum}---{handle.stepNum}---{handle.opsNum}";
+                        string state = handle.isRun == 0 ? "就绪" : "运行";
 
-                                   }
-                                   else
-                                   {
-                                       // 选定指定节点
-                                       //SelectChildNode(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].procNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].stepNum);
-                                       ClearAllRowColors();
-                                   }
+                        if (lastInfoNames[i] != name)
+                        {
+                            SF.frmInfo.dataGridView1.Rows[i].Cells[0].Value = name;
+                            lastInfoNames[i] = name;
+                        }
+                        if (lastInfoPositions[i] != position)
+                        {
+                            SF.frmInfo.dataGridView1.Rows[i].Cells[1].Value = position;
+                            lastInfoPositions[i] = position;
+                        }
+                        if (lastInfoStates[i] != state)
+                        {
+                            SF.frmInfo.dataGridView1.Rows[i].Cells[2].Value = state;
+                            lastInfoStates[i] = state;
+                        }
+                    }
+                }
 
+                int selectedProc = SF.frmProc.SelectedProcNum;
+                if (selectedProc < 0 || selectedProc >= SF.DR.ProcHandles.Length)
+                {
+                    ClearLastHighlight();
+                    return;
+                }
 
-                               }
-                               else if (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun == 0)
-                               {
-                                   //ClearAllRowColors();
-                               }
-                           }
-                       }
-                       catch (Exception ex)
-                       {
-                           SF.frmInfo.PrintInfo(ex.Message, FrmInfo.Level.Error);
-                       }
+                ProcHandle selectedHandle = SF.DR.ProcHandles[selectedProc];
+                if (selectedHandle == null || selectedHandle.isRun == 0 || SF.frmProc.SelectedStepNum != selectedHandle.stepNum)
+                {
+                    ClearLastHighlight();
+                    return;
+                }
 
-                   }
-                   Thread.Sleep(50);
+                int rowIndex = selectedHandle.opsNum;
+                if (rowIndex < 0 || rowIndex >= dataGridView1.RowCount)
+                {
+                    ClearLastHighlight();
+                    return;
+                }
 
-               }
-           });
+                if (!lastHighlightActive
+                    || rowIndex != lastHighlightedRow
+                    || selectedProc != lastHighlightedProc
+                    || selectedHandle.stepNum != lastHighlightedStep)
+                {
+                    if (lastHighlightActive && lastHighlightedRow >= 0 && lastHighlightedRow < dataGridView1.RowCount)
+                    {
+                        ClearRowColor(lastHighlightedRow);
+                        dataGridView1.InvalidateRow(lastHighlightedRow);
+                    }
+
+                    SetRowColor(rowIndex, Color.LightBlue);
+                    dataGridView1.InvalidateRow(rowIndex);
+                    lastHighlightActive = true;
+                    lastHighlightedRow = rowIndex;
+                    lastHighlightedProc = selectedProc;
+                    lastHighlightedStep = selectedHandle.stepNum;
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
+            {
+                trackTimer.Stop();
+            }
+            catch (Exception ex)
+            {
+                SF.frmInfo.PrintInfo(ex.Message, FrmInfo.Level.Error);
+            }
+        }
+
+        private void ClearLastHighlight()
+        {
+            if (lastHighlightActive && lastHighlightedRow >= 0 && lastHighlightedRow < dataGridView1.RowCount)
+            {
+                ClearRowColor(lastHighlightedRow);
+                dataGridView1.InvalidateRow(lastHighlightedRow);
+            }
+            lastHighlightActive = false;
+            lastHighlightedRow = -1;
+            lastHighlightedProc = -1;
+            lastHighlightedStep = -1;
+        }
+
+        private void FrmDataGrid_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (trackTimer != null)
+            {
+                trackTimer.Stop();
+                trackTimer.Tick -= TrackTimer_Tick;
+                trackTimer.Dispose();
+                trackTimer = null;
+            }
         }
         public void SelectChildNode(int parentIndex, int childIndex)
         {
@@ -425,14 +495,12 @@ namespace Automation
             }
             bool isEmptyRow = false;
             List<OperationType> deepCopy;
-            // 创建一个MemoryStream来保存序列化后的数据
-            using (MemoryStream stream = new MemoryStream())
+            var settings = new JsonSerializerSettings
             {
-                IFormatter formatter = new BinaryFormatter();
-                formatter.Serialize(stream, ListOperationType4Copy);
-                stream.Seek(0, SeekOrigin.Begin);
-                deepCopy = (List<OperationType>)formatter.Deserialize(stream);
-            }
+                TypeNameHandling = TypeNameHandling.All
+            };
+            string output = JsonConvert.SerializeObject(ListOperationType4Copy, settings);
+            deepCopy = JsonConvert.DeserializeObject<List<OperationType>>(output, settings);
             if (SF.frmDataGrid.dataGridView1.Rows.Count != 0)
             {
                 SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.InsertRange(iSelectedRow + 1, deepCopy);
@@ -617,14 +685,12 @@ namespace Automation
                     ListOperationType4Copy.Add(dataItem);
                 }
 
-                using (MemoryStream stream = new MemoryStream())
+                var settings = new JsonSerializerSettings
                 {
-                    IFormatter formatter = new BinaryFormatter();
-                    formatter.Serialize(stream, ListOperationType4Copy);
-                    byte[] serializedData = stream.ToArray();
-
-                    Clipboard.SetData("MyCustomDataFormat", serializedData);
-                }
+                    TypeNameHandling = TypeNameHandling.All
+                };
+                string payload = JsonConvert.SerializeObject(ListOperationType4Copy, settings);
+                Clipboard.SetData("MyCustomDataFormat", payload);
             }
         }
 
@@ -636,13 +702,19 @@ namespace Automation
                 List<OperationType> deepCopy = null;
                 if (Clipboard.ContainsData("MyCustomDataFormat"))
                 {
-                    byte[] receivedData = (byte[])Clipboard.GetData("MyCustomDataFormat");
-
-                    using (MemoryStream stream = new MemoryStream(receivedData))
+                    string payload = Clipboard.GetData("MyCustomDataFormat") as string;
+                    if (!string.IsNullOrWhiteSpace(payload))
                     {
-                        IFormatter formatter = new BinaryFormatter();
-                        deepCopy = (List<OperationType>)formatter.Deserialize(stream);
+                        var settings = new JsonSerializerSettings
+                        {
+                            TypeNameHandling = TypeNameHandling.All
+                        };
+                        deepCopy = JsonConvert.DeserializeObject<List<OperationType>>(payload, settings);
                     }
+                }
+                if (deepCopy == null)
+                {
+                    return;
                 }
                 if (SF.frmDataGrid.dataGridView1.Rows.Count != 0)
                 {
