@@ -126,7 +126,7 @@ namespace Automation
                     {
                         continue;
                     }
-                    if (SF.DR.ProcHandles[i] != null && SF.DR.ProcHandles[i].isRun != 0)
+                    if (SF.DR.ProcHandles[i] != null && SF.DR.ProcHandles[i].State != ProcRunState.Stopped)
                     {
                         continue;
                     }
@@ -137,7 +137,7 @@ namespace Automation
                         handle.m_evtRun.Set();
                         handle.m_evtTik.Set();
                         handle.m_evtTok.Set();
-                        handle.isRun = 2;
+                        handle.State = ProcRunState.Running;
                     }
                 }
             }

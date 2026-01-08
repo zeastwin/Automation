@@ -59,7 +59,7 @@ namespace Automation
             if (milliSecond <= 0)
                 return;
             int start = Environment.TickCount;
-            while (Math.Abs(Environment.TickCount - start) < milliSecond && evt.isRun != 0)//毫秒
+            while (Math.Abs(Environment.TickCount - start) < milliSecond && evt.State != ProcRunState.Stopped)//毫秒
             {
                 Thread.Sleep(2);
             }
@@ -111,7 +111,7 @@ namespace Automation
                 if (i != proc.steps.Count - 1)
                     evt.opsNum = 0;
             }
-            evt.isRun = 0;
+            evt.State = ProcRunState.Stopped;
             SetProcText(evt.procNum, false);
         }
         //运行步骤
@@ -136,7 +136,7 @@ namespace Automation
                     evt.m_evtRun.Reset();
                     evt.m_evtTik.Reset();
                     evt.m_evtTok.Set();
-                    evt.isRun = 1;
+                    evt.State = ProcRunState.Paused;
                     SF.frmToolBar.btnPause?.Invoke(new Action(() =>
                     {
                         SF.frmToolBar.btnPause.Text = "继续";
@@ -152,6 +152,8 @@ namespace Automation
                     ExecuteOperation(evt, steps.Ops[i]);
                     if (evt.isAlarm)
                     {
+                        ProcRunState lastState = evt.State;
+                        evt.State = ProcRunState.Alarming;
                         AlarmInfo alarmInfo = null;
                         if (!string.IsNullOrWhiteSpace(steps.Ops[i].AlarmInfoID)
                             && int.TryParse(steps.Ops[i].AlarmInfoID, out int alarmIndex)
@@ -195,6 +197,10 @@ namespace Automation
                             string btn2 = !string.IsNullOrEmpty(alarmInfo?.Btn2) ? alarmInfo.Btn2 : "否";
                             string btn3 = !string.IsNullOrEmpty(alarmInfo?.Btn3) ? alarmInfo.Btn3 : "取消";
                             new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto2, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto3, evt); }, btn1, btn2, btn3, true);
+                        }
+                        if (evt.State == ProcRunState.Alarming)
+                        {
+                            evt.State = evt.isThStop ? ProcRunState.Stopped : lastState;
                         }
                     }
                     if (evt.isGoto)
@@ -393,7 +399,7 @@ namespace Automation
             //}
             //Delay(time, evt);
             int start = Environment.TickCount;
-            while (evt.isRun != 0 && timeOut > 0)
+            while (evt.State != ProcRunState.Stopped && timeOut > 0)
             {
                 if (Math.Abs(Environment.TickCount - start) < timeOut)
                 {
@@ -458,7 +464,7 @@ namespace Automation
                 }
                 if (procParam.value == "运行")
                 {
-                    if (evt.isRun != 0)
+                    if (evt.State != ProcRunState.Stopped)
                     {
                         evt.isAlarm = true;
                         return false;
@@ -468,7 +474,7 @@ namespace Automation
                     SF.DR.ProcHandles[index].m_evtRun.Set();
                     SF.DR.ProcHandles[index].m_evtTik.Set();
                     SF.DR.ProcHandles[index].m_evtTok.Set();
-                    SF.DR.ProcHandles[index].isRun = 2;
+                    SF.DR.ProcHandles[index].State = ProcRunState.Running;
 
                     SF.frmProc.proc_treeView?.Invoke(new Action(() =>
                     {
@@ -477,14 +483,14 @@ namespace Automation
                 }
                 else
                 {
-                    if (evt.isRun == 0)
+                    if (evt.State == ProcRunState.Stopped)
                     {
                         evt.isAlarm = true;
                         return false;
                     }
                     int index = SF.frmProc.procsList.IndexOf(proc);
                     SF.DR.ProcHandles[index].isThStop = true;
-                    SF.DR.ProcHandles[index].isRun = 0;
+                    SF.DR.ProcHandles[index].State = ProcRunState.Stopped;
                     SF.DR.ProcHandles[index].m_evtRun.Set();
                     SF.DR.ProcHandles[index].m_evtTik.Set();
                     SF.DR.ProcHandles[index].m_evtTok.Set();
@@ -514,7 +520,7 @@ namespace Automation
                 DelayAfter = (int)SF.valueStore.GetValueByName(waitProc.delayAfterV).GetDValue();
             }
             int start = Environment.TickCount;
-            while (evt.isRun != 0)
+            while (evt.State != ProcRunState.Stopped)
             {
                 if (timeOut > 0)
                 {
@@ -545,7 +551,7 @@ namespace Automation
                     int index = SF.frmProc.procsList.IndexOf(proc);
                     if (procParam.value == "运行")
                     {
-                        if (SF.DR.ProcHandles[index].isRun == 0)
+                        if (SF.DR.ProcHandles[index].State == ProcRunState.Stopped)
                         {
                             isWaitOff = false;
                             break;
@@ -553,7 +559,7 @@ namespace Automation
                     }
                     else if (procParam.value == "停止")
                     {
-                        if (SF.DR.ProcHandles[index].isRun != 0)
+                        if (SF.DR.ProcHandles[index].State != ProcRunState.Stopped)
                         {
                             isWaitOff = false;
                             break;
@@ -2201,6 +2207,13 @@ namespace Automation
             return true;
         }
     }
+    public enum ProcRunState
+    {
+        Stopped = 0,
+        Paused = 1,
+        Running = 2,
+        Alarming = 3
+    }
     public class ProcHandle
     {
         public ManualResetEvent m_evtRun = new ManualResetEvent(false);
@@ -2213,10 +2226,8 @@ namespace Automation
 
         public string procName;
 
-        //   0  停止
-        //   1  暂停
-        //   2  运行
-        public int isRun;
+        //流程状态
+        public ProcRunState State = ProcRunState.Stopped;
         //线程终止标志位
         public bool isThStop;
         //标志是否发生了跳转

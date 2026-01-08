@@ -111,7 +111,7 @@ namespace Automation
             Select();
             if (threadIndex != -1)
             {
-                while (isChoiced == false && SF.DR.ProcHandles[threadIndex].isRun > 0)
+                while (isChoiced == false && SF.DR.ProcHandles[threadIndex].State != ProcRunState.Stopped)
                 {
                     SF.Delay(100);
                 }

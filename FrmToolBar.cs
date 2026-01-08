@@ -311,23 +311,23 @@ namespace Automation
 
         private void btnPause_Click(object sender, EventArgs e)
         {
-            if (SF.frmProc.SelectedProcNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun == 2)
+            if (SF.frmProc.SelectedProcNum != -1 && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Running || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Alarming))
             {
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Reset();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Reset();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
 
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun = 1;
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Paused;
 
                 btnPause.Text = "继续";
             }
-            else if(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun == 1)
+            else if(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused)
             {
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
 
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun = 2;
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Running;
 
                 btnPause.Text = "暂停";
             }
@@ -337,7 +337,7 @@ namespace Automation
         {
             if (SF.frmProc.SelectedProcNum!= -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
             {
-                if (SF.frmProc.SelectedStepNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun == 1)
+                if (SF.frmProc.SelectedStepNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused)
                 {
                     SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
                     SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Reset();
@@ -354,7 +354,7 @@ namespace Automation
             if(SF.frmProc.SelectedProcNum >=0&& SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
             {
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isThStop = true;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun = 0;
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Stopped;
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
@@ -386,7 +386,7 @@ namespace Automation
                 }
 
                 handle.isThStop = true;
-                handle.isRun = 0;
+                handle.State = ProcRunState.Stopped;
                 handle.m_evtRun.Set();
                 handle.m_evtTik.Set();
                 handle.m_evtTok.Set();

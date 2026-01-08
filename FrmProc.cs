@@ -379,11 +379,11 @@ namespace Automation
 
                 if(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
                 {
-                    if (SF.frmProc.SelectedProcNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun == 2)
+                    if (SF.frmProc.SelectedProcNum != -1 && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Running || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Alarming))
                     {
                         SF.frmToolBar.btnPause.Text = "暂停";
                     }
-                    else if (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun == 1)
+                    else if (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused)
                     {
                         SF.frmToolBar.btnPause.Text = "继续";
                     }
@@ -449,7 +449,7 @@ namespace Automation
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isRun = 2;
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Running;
 
                 proc_treeView.Nodes[SF.frmProc.SelectedProcNum].Text = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].head.Name + "|运行";
             }
