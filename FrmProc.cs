@@ -556,6 +556,9 @@ namespace Automation
     {
         [DisplayName("流程名称"), Category("流程信息"), Description(""), ReadOnly(false)]
         public string Name { get; set; }
+
+        [DisplayName("自启动"), Category("流程信息"), Description("启动程序时自动运行"), ReadOnly(false)]
+        public bool AutoStart { get; set; }
     }
     public class Step
     {

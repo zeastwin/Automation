@@ -117,6 +117,30 @@ namespace Automation
             SF.motion.SetAllAxisSevonOn();
             SF.motion.SetAllAxisEquiv();
             Monitor();
+            if (SF.frmProc?.procsList != null && SF.frmProc.procsList.Count > 0)
+            {
+                for (int i = 0; i < SF.frmProc.procsList.Count; i++)
+                {
+                    Proc proc = SF.frmProc.procsList[i];
+                    if (proc?.head?.AutoStart != true)
+                    {
+                        continue;
+                    }
+                    if (SF.DR.ProcHandles[i] != null && SF.DR.ProcHandles[i].isRun != 0)
+                    {
+                        continue;
+                    }
+                    SF.DR.StartProcAuto(proc, i);
+                    ProcHandle handle = SF.DR.ProcHandles[i];
+                    if (handle != null)
+                    {
+                        handle.m_evtRun.Set();
+                        handle.m_evtTik.Set();
+                        handle.m_evtTok.Set();
+                        handle.isRun = 2;
+                    }
+                }
+            }
         }
         
         public List<Dictionary<int, char[]>> StateDic = new List<Dictionary<int, char[]>>();
