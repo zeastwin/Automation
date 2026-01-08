@@ -362,6 +362,37 @@ namespace Automation
 
         }
 
+        private void btnStopAll_Click(object sender, EventArgs e)
+        {
+            if (SF.frmProc?.procsList == null || SF.DR?.ProcHandles == null)
+            {
+                return;
+            }
+
+            int count = Math.Min(SF.frmProc.procsList.Count, SF.DR.ProcHandles.Length);
+            for (int i = 0; i < count; i++)
+            {
+                Proc proc = SF.frmProc.procsList[i];
+                string procName = proc?.head?.Name;
+                if (!string.IsNullOrEmpty(procName) && procName.StartsWith("系统", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                ProcHandle handle = SF.DR.ProcHandles[i];
+                if (handle == null)
+                {
+                    continue;
+                }
+
+                handle.isThStop = true;
+                handle.isRun = 0;
+                handle.m_evtRun.Set();
+                handle.m_evtTik.Set();
+                handle.m_evtTok.Set();
+            }
+        }
+
         private bool TryValidateGotoTargets(OperationType operation, int procNum, out string error)
         {
             error = null;

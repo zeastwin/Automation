@@ -32,6 +32,7 @@
             this.btnLocate = new System.Windows.Forms.Button();
             this.btnAlarm = new System.Windows.Forms.Button();
             this.btnStop = new System.Windows.Forms.Button();
+            this.btnStopAll = new System.Windows.Forms.Button();
             this.SingleRun = new System.Windows.Forms.Button();
             this.btnPause = new System.Windows.Forms.Button();
             this.btnSearch = new System.Windows.Forms.Button();
@@ -47,6 +48,7 @@
             this.ToolBar_Panel.Controls.Add(this.btnLocate);
             this.ToolBar_Panel.Controls.Add(this.btnAlarm);
             this.ToolBar_Panel.Controls.Add(this.btnStop);
+            this.ToolBar_Panel.Controls.Add(this.btnStopAll);
             this.ToolBar_Panel.Controls.Add(this.SingleRun);
             this.ToolBar_Panel.Controls.Add(this.btnPause);
             this.ToolBar_Panel.Controls.Add(this.btnSearch);
@@ -116,6 +118,25 @@
             this.btnStop.Text = "停止";
             this.btnStop.UseVisualStyleBackColor = false;
             this.btnStop.Click += new System.EventHandler(this.btnStop_Click);
+            // 
+            // btnStopAll
+            // 
+            this.btnStopAll.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnStopAll.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnStopAll.FlatAppearance.BorderSize = 2;
+            this.btnStopAll.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnStopAll.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnStopAll.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnStopAll.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnStopAll.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnStopAll.Location = new System.Drawing.Point(622, 1);
+            this.btnStopAll.Margin = new System.Windows.Forms.Padding(2);
+            this.btnStopAll.Name = "btnStopAll";
+            this.btnStopAll.Size = new System.Drawing.Size(76, 39);
+            this.btnStopAll.TabIndex = 13;
+            this.btnStopAll.Text = "停止所有";
+            this.btnStopAll.UseVisualStyleBackColor = false;
+            this.btnStopAll.Click += new System.EventHandler(this.btnStopAll_Click);
             // 
             // SingleRun
             // 
@@ -268,6 +289,7 @@
         private System.Windows.Forms.Button button1;
         public System.Windows.Forms.Button btnSave;
         public System.Windows.Forms.Button btnStop;
+        public System.Windows.Forms.Button btnStopAll;
         public System.Windows.Forms.Button btnPause;
         public System.Windows.Forms.Button btnCancel;
         public System.Windows.Forms.Button SingleRun;
