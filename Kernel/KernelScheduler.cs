@@ -8,6 +8,7 @@ namespace Automation.Kernel
         private readonly object _syncRoot = new object();
         private readonly DataRun _dataRun;
         private readonly Dictionary<int, ProcessRunner> _runners = new Dictionary<int, ProcessRunner>();
+        private readonly Dictionary<int, ProcessStateSignal> _stateSignals = new Dictionary<int, ProcessStateSignal>();
 
         public event Action<ProcessStatus> StatusChanged;
         public event Action<ProcessStatus> Faulted;
@@ -65,9 +66,7 @@ namespace Automation.Kernel
                     handle.isThStop = true;
                     handle.State = ProcRunState.Stopped;
                     handle.isBreakpoint = false;
-                    handle.m_evtRun.Set();
-                    handle.m_evtTik.Set();
-                    handle.m_evtTok.Set();
+                    handle.Sync.ForceWakeForStop();
                     _dataRun.SetProcText(processIndex, handle.State, handle.isBreakpoint);
                 }
                 PublishStatus(processIndex);
@@ -116,6 +115,14 @@ namespace Automation.Kernel
             return statuses;
         }
 
+        internal ProcessStateSignal GetStateSignal(int processIndex)
+        {
+            ProcessStateSignal signal = GetOrCreateSignal(processIndex);
+            ProcessStatus status = BuildStatus(processIndex);
+            signal.Update(status.State);
+            return signal;
+        }
+
         private ProcessRunner GetOrCreateRunner(int processIndex, Proc proc)
         {
             lock (_syncRoot)
@@ -155,6 +162,7 @@ namespace Automation.Kernel
         private void PublishStatus(int processIndex)
         {
             ProcessStatus status = BuildStatus(processIndex);
+            UpdateStateSignal(processIndex, status.State);
             StatusChanged?.Invoke(status);
 
             ProcHandle handle = GetHandle(processIndex);
@@ -172,8 +180,28 @@ namespace Automation.Kernel
                 State = ProcessState.Unknown,
                 LastError = message
             };
+            UpdateStateSignal(processIndex, status.State);
             Faulted?.Invoke(status);
             StatusChanged?.Invoke(status);
+        }
+
+        private ProcessStateSignal GetOrCreateSignal(int processIndex)
+        {
+            lock (_syncRoot)
+            {
+                if (!_stateSignals.TryGetValue(processIndex, out ProcessStateSignal signal))
+                {
+                    signal = new ProcessStateSignal();
+                    _stateSignals[processIndex] = signal;
+                }
+                return signal;
+            }
+        }
+
+        private void UpdateStateSignal(int processIndex, ProcessState state)
+        {
+            ProcessStateSignal signal = GetOrCreateSignal(processIndex);
+            signal.Update(state);
         }
 
         private ProcessStatus BuildStatus(int processIndex)

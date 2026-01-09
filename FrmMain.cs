@@ -18,6 +18,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using static System.Collections.Specialized.BitVector32;
 using static System.Net.Mime.MediaTypeNames;
+using Automation.Kernel;
 
 namespace Automation
 {
@@ -78,6 +79,7 @@ namespace Automation
             SF.frmSearch4Value = frmSearch4Value;
             SF.frmInfo = frmInfo;
             SF.frmTest = frmTest;
+            BindKernelUiEvents();
 
             StartPosition = FormStartPosition.CenterScreen;
 
@@ -88,6 +90,102 @@ namespace Automation
             loadFillForm(ToolBar_panel, SF.frmToolBar);
             loadFillForm(state_panel, SF.frmState);
             loadFillForm(panel_Info, SF.frmInfo);
+        }
+
+        private void BindKernelUiEvents()
+        {
+            if (SF.DR == null)
+            {
+                return;
+            }
+            SF.DR.ProcTextChanged += OnProcTextChanged;
+            SF.DR.PauseTextChanged += OnPauseTextChanged;
+            SF.DR.AlarmDialogRequested += OnAlarmDialogRequested;
+        }
+
+        private void OnProcTextChanged(object sender, ProcTextChangedEventArgs e)
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => OnProcTextChanged(sender, e)));
+                return;
+            }
+            if (SF.frmProc?.proc_treeView == null || SF.frmProc.procsList == null)
+            {
+                return;
+            }
+            if (e.ProcNum < 0 || e.ProcNum >= SF.frmProc.procsList.Count || e.ProcNum >= SF.frmProc.proc_treeView.Nodes.Count)
+            {
+                return;
+            }
+            SF.frmProc.proc_treeView.Nodes[e.ProcNum].Text = e.DisplayText;
+        }
+
+        private void OnPauseTextChanged(int procNum, string text)
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => OnPauseTextChanged(procNum, text)));
+                return;
+            }
+            if (SF.frmToolBar?.btnPause == null)
+            {
+                return;
+            }
+            SF.frmToolBar.btnPause.Text = text;
+        }
+
+        private void OnAlarmDialogRequested(AlarmDialogRequest request, Action<AlarmDialogResult> reply)
+        {
+            if (IsDisposed || Disposing)
+            {
+                reply?.Invoke(AlarmDialogResult.None);
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => OnAlarmDialogRequested(request, reply)));
+                return;
+            }
+            if (request == null)
+            {
+                reply?.Invoke(AlarmDialogResult.None);
+                return;
+            }
+            string[] buttons = request.Buttons ?? Array.Empty<string>();
+            if (buttons.Length == 0)
+            {
+                reply?.Invoke(AlarmDialogResult.None);
+                return;
+            }
+            string title = request.Title ?? string.Empty;
+            string msg = request.Message ?? string.Empty;
+            if (buttons.Length == 1)
+            {
+                new Message(title, msg, () => reply?.Invoke(AlarmDialogResult.Button1), buttons[0], false);
+                return;
+            }
+            if (buttons.Length == 2)
+            {
+                new Message(title, msg,
+                    () => reply?.Invoke(AlarmDialogResult.Button1),
+                    () => reply?.Invoke(AlarmDialogResult.Button2),
+                    buttons[0], buttons[1], false);
+                return;
+            }
+            new Message(title, msg,
+                () => reply?.Invoke(AlarmDialogResult.Button1),
+                () => reply?.Invoke(AlarmDialogResult.Button2),
+                () => reply?.Invoke(AlarmDialogResult.Button3),
+                buttons[0], buttons[1], buttons[2], false);
         }
 
         
@@ -133,24 +231,7 @@ namespace Automation
                     {
                         continue;
                     }
-                    if (SF.kernelScheduler != null)
-                    {
-                        SF.kernelScheduler.Start(i);
-                    }
-                    else
-                    {
-                        SF.DR.StartProcAuto(proc, i);
-                        ProcHandle handle = SF.DR.ProcHandles[i];
-                        if (handle != null)
-                        {
-                            handle.m_evtRun.Set();
-                            handle.m_evtTik.Set();
-                            handle.m_evtTok.Set();
-                            handle.State = ProcRunState.Running;
-                            handle.isBreakpoint = false;
-                            SF.DR.SetProcText(i, handle.State, handle.isBreakpoint);
-                        }
-                    }
+                    SF.kernelScheduler?.Start(i);
                 }
             }
         }

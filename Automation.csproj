@@ -101,8 +101,10 @@
     <Compile Include="Logger.cs" />
     <Compile Include="Kernel\\KernelContracts.cs" />
     <Compile Include="Kernel\\KernelScheduler.cs" />
-    <Compile Include="Kernel\\KernelSchedulerAdapter.cs" />
+    <Compile Include="Kernel\\KernelUiContracts.cs" />
     <Compile Include="Kernel\\ProcessRunner.cs" />
+    <Compile Include="Kernel\\ProcessStateSignal.cs" />
+    <Compile Include="Kernel\\RunnerSyncController.cs" />
     <Compile Include="Stores\\DataStructStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="FrmAlarmConfig.cs">

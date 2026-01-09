@@ -332,20 +332,11 @@ namespace Automation
                 if (SF.frmProc.SelectedStepNum != -1
                     && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.SingleStep))
                 {
-                    if (SF.kernelScheduler != null)
+                    if (SF.kernelScheduler == null)
                     {
-                        SF.kernelScheduler.Step(SF.frmProc.SelectedProcNum);
                         return;
                     }
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.SingleStep;
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
-                    SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Reset();
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
-                    SF.Delay(10);
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Reset();
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
+                    SF.kernelScheduler.Step(SF.frmProc.SelectedProcNum);
                 }
             }
                 
@@ -354,18 +345,7 @@ namespace Automation
         {
             if(SF.frmProc.SelectedProcNum >=0&& SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
             {
-                if (SF.kernelScheduler != null)
-                {
-                    SF.kernelScheduler.Stop(SF.frmProc.SelectedProcNum);
-                    return;
-                }
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isThStop = true;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Stopped;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
-                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
+                SF.kernelScheduler?.Stop(SF.frmProc.SelectedProcNum);
             }
 
         }
@@ -378,10 +358,6 @@ namespace Automation
             }
 
             int count = SF.frmProc.procsList.Count;
-            if (SF.kernelScheduler == null)
-            {
-                count = Math.Min(count, SF.DR.ProcHandles.Length);
-            }
             for (int i = 0; i < count; i++)
             {
                 Proc proc = SF.frmProc.procsList[i];
@@ -391,25 +367,7 @@ namespace Automation
                     continue;
                 }
 
-                if (SF.kernelScheduler != null)
-                {
-                    SF.kernelScheduler.Stop(i);
-                    continue;
-                }
-
-                ProcHandle handle = SF.DR.ProcHandles[i];
-                if (handle == null)
-                {
-                    continue;
-                }
-
-                handle.isThStop = true;
-                handle.State = ProcRunState.Stopped;
-                handle.isBreakpoint = false;
-                handle.m_evtRun.Set();
-                handle.m_evtTik.Set();
-                handle.m_evtTok.Set();
-                SF.DR.SetProcText(i, handle.State, handle.isBreakpoint);
+                SF.kernelScheduler?.Stop(i);
             }
         }
 

@@ -20,12 +20,16 @@ using static System.Windows.Forms.VisualStyles.VisualStyleElement.TaskbarClock;
 using System.Diagnostics;
 using Newtonsoft.Json.Linq;
 using System.Numerics;
+using Automation.Kernel;
 
 namespace Automation
 {
     public class DataRun
     {
         public ILogger Logger { get; set; } = new TraceLogger();
+        public event EventHandler<ProcTextChangedEventArgs> ProcTextChanged;
+        public event Action<int, string> PauseTextChanged;
+        public event Action<AlarmDialogRequest, Action<AlarmDialogResult>> AlarmDialogRequested;
         public Thread[] threads = Array.Empty<Thread>();
         public ProcHandle[] ProcHandles = Array.Empty<ProcHandle>();
 
@@ -56,11 +60,11 @@ namespace Automation
         }
         public void SetProcText(int procNum, ProcRunState state, bool isBreakpoint)
         {
-            if (SF.frmProc?.proc_treeView == null || SF.frmProc.procsList == null)
+            if (SF.frmProc?.procsList == null)
             {
                 return;
             }
-            if (procNum < 0 || procNum >= SF.frmProc.procsList.Count || procNum >= SF.frmProc.proc_treeView.Nodes.Count)
+            if (procNum < 0 || procNum >= SF.frmProc.procsList.Count)
             {
                 return;
             }
@@ -96,10 +100,8 @@ namespace Automation
             }
 
             Logger?.Info($"流程状态: {procNum}-{procName} {stateText}{(isBreakpoint ? " 断点" : "")}");
-            SF.frmProc.proc_treeView?.Invoke(new Action(() =>
-            {
-                SF.frmProc.proc_treeView.Nodes[procNum].Text = procName + result;
-            }));
+            string displayText = procName + result;
+            ProcTextChanged?.Invoke(this, new ProcTextChangedEventArgs(procNum, procName, state, isBreakpoint, displayText));
         }
         public void Delay(int milliSecond, ProcHandle evt)
         {
@@ -110,54 +112,6 @@ namespace Automation
             {
                 Thread.Sleep(2);
             }
-        }
-        public void StartProc(Proc proc)
-        {
-            if (SF.kernelScheduler is Kernel.KernelScheduler scheduler)
-            {
-                scheduler.Start(SF.frmProc.SelectedProcNum);
-                return;
-            }
-
-            ProcHandle procHandle = new ProcHandle();
-            procHandle.procNum = SF.frmProc.SelectedProcNum;
-            procHandle.stepNum = 0;
-            procHandle.opsNum = 0;
-            procHandle.isThStop = false;
-            procHandle.procName = proc.head.Name;
-            EnsureCapacity(procHandle.procNum + 1);
-            ProcHandles[SF.frmProc.SelectedProcNum] = procHandle;
-            //   Task task = Task.Run(() => RunProc(proc, procHandle));
-            Logger?.Info($"流程启动请求: {procHandle.procNum}-{procHandle.procName}");
-            Thread th = new Thread(() => { RunProc(proc, procHandle); });
-            threads[SF.frmProc.SelectedProcNum] = th;
-            Logger?.Info($"线程创建: {procHandle.procNum}-{procHandle.procName}");
-            // tasks[SF.frmProc.SelectedProcNum] = task;
-            th.Start();
-        }
-        public void StartProcAuto(Proc proc, int index)
-        {
-            if (SF.kernelScheduler is Kernel.KernelScheduler scheduler)
-            {
-                scheduler.Start(index);
-                return;
-            }
-
-            ProcHandle procHandle = new ProcHandle();
-            procHandle.procNum = index;
-            procHandle.stepNum = 0;
-            procHandle.opsNum = 0;
-            procHandle.isThStop = false;
-            procHandle.procName = proc.head.Name;
-            EnsureCapacity(procHandle.procNum + 1);
-            ProcHandles[index] = procHandle;
-            //   Task task = Task.Run(() => RunProc(proc, procHandle));
-            Logger?.Info($"流程启动请求: {procHandle.procNum}-{procHandle.procName}");
-            Thread th = new Thread(() => { RunProc(proc, procHandle); });
-            threads[index] = th;
-            Logger?.Info($"线程创建: {procHandle.procNum}-{procHandle.procName}");
-            // tasks[SF.frmProc.SelectedProcNum] = task;
-            th.Start();
         }
         public void RunProc(Proc proc, ProcHandle evt)
         {
@@ -212,23 +166,16 @@ namespace Automation
                 }
                 if (steps.Ops[i].isStopPoint)
                 {
-                    evt.m_evtRun.Reset();
-                    evt.m_evtTik.Reset();
-                    evt.m_evtTok.Set();
+                    evt.Sync.EnterBreakpoint();
                     evt.isBreakpoint = true;
                     if (evt.State != ProcRunState.SingleStep)
                     {
                         evt.State = ProcRunState.Paused;
-                        SF.frmToolBar.btnPause?.Invoke(new Action(() =>
-                        {
-                            SF.frmToolBar.btnPause.Text = "继续";
-                        }));
+                        PauseTextChanged?.Invoke(evt.procNum, "继续");
                     }
                     SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
                 }
-                evt.m_evtRun.WaitOne();
-                evt.m_evtTik.WaitOne();
-                evt.m_evtTok.WaitOne();
+                evt.Sync.WaitForContinue();
                 if (evt.isBreakpoint)
                 {
                     evt.isBreakpoint = false;
@@ -256,8 +203,16 @@ namespace Automation
                         {
                             SF.alarmInfoStore.TryGetByIndex(alarmIndex, out alarmInfo);
                         }
+                        string alarmTitle = $"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}";
                         if (steps.Ops[i].AlarmType == "报警停止")
-                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", evt.alarmMsg == null ? "流程停止" : evt.alarmMsg, () => { evt.isThStop = true; }, "确定", true);
+                        {
+                            string note = evt.alarmMsg == null ? "流程停止" : evt.alarmMsg;
+                            AlarmDialogResult result = RequestAlarmDialog(evt, new AlarmDialogRequest(evt.procNum, alarmTitle, note, new[] { "确定" }));
+                            if (result == AlarmDialogResult.Button1)
+                            {
+                                evt.isThStop = true;
+                            }
+                        }
                         if (steps.Ops[i].AlarmType == "报警忽略")
                         {
 
@@ -274,7 +229,11 @@ namespace Automation
                             evt.isGoto = true;
                             string note = !string.IsNullOrEmpty(alarmInfo?.Note) ? alarmInfo.Note : (evt.alarmMsg ?? "发生报警");
                             string btn1 = !string.IsNullOrEmpty(alarmInfo?.Btn1) ? alarmInfo.Btn1 : "确定";
-                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, btn1, true);
+                            AlarmDialogResult result = RequestAlarmDialog(evt, new AlarmDialogRequest(evt.procNum, alarmTitle, note, new[] { btn1 }));
+                            if (result == AlarmDialogResult.Button1)
+                            {
+                                ExecuteGoto(steps.Ops[i].Goto1, evt);
+                            }
                         }
                         if (steps.Ops[i].AlarmType == "弹框确定与否")
                         {
@@ -282,7 +241,15 @@ namespace Automation
                             string note = !string.IsNullOrEmpty(alarmInfo?.Note) ? alarmInfo.Note : (evt.alarmMsg ?? "发生报警");
                             string btn1 = !string.IsNullOrEmpty(alarmInfo?.Btn1) ? alarmInfo.Btn1 : "确定";
                             string btn2 = !string.IsNullOrEmpty(alarmInfo?.Btn2) ? alarmInfo.Btn2 : "否";
-                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto2, evt); }, btn1, btn2, true);
+                            AlarmDialogResult result = RequestAlarmDialog(evt, new AlarmDialogRequest(evt.procNum, alarmTitle, note, new[] { btn1, btn2 }));
+                            if (result == AlarmDialogResult.Button1)
+                            {
+                                ExecuteGoto(steps.Ops[i].Goto1, evt);
+                            }
+                            else if (result == AlarmDialogResult.Button2)
+                            {
+                                ExecuteGoto(steps.Ops[i].Goto2, evt);
+                            }
                         }
                         if (steps.Ops[i].AlarmType == "弹框确定与否与取消")
                         {
@@ -291,7 +258,19 @@ namespace Automation
                             string btn1 = !string.IsNullOrEmpty(alarmInfo?.Btn1) ? alarmInfo.Btn1 : "确定";
                             string btn2 = !string.IsNullOrEmpty(alarmInfo?.Btn2) ? alarmInfo.Btn2 : "否";
                             string btn3 = !string.IsNullOrEmpty(alarmInfo?.Btn3) ? alarmInfo.Btn3 : "取消";
-                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto2, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto3, evt); }, btn1, btn2, btn3, true);
+                            AlarmDialogResult result = RequestAlarmDialog(evt, new AlarmDialogRequest(evt.procNum, alarmTitle, note, new[] { btn1, btn2, btn3 }));
+                            if (result == AlarmDialogResult.Button1)
+                            {
+                                ExecuteGoto(steps.Ops[i].Goto1, evt);
+                            }
+                            else if (result == AlarmDialogResult.Button2)
+                            {
+                                ExecuteGoto(steps.Ops[i].Goto2, evt);
+                            }
+                            else if (result == AlarmDialogResult.Button3)
+                            {
+                                ExecuteGoto(steps.Ops[i].Goto3, evt);
+                            }
                         }
                         if (evt.State == ProcRunState.Alarming)
                         {
@@ -307,7 +286,7 @@ namespace Automation
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(ex.Message);
+                    RequestAlarmDialog(evt, new AlarmDialogRequest(evt.procNum, "异常", ex.Message, new[] { "确定" }));
                     evt.isThStop = true;
                     return false;
                 }
@@ -317,6 +296,35 @@ namespace Automation
             return bOK;
 
 
+        }
+
+        private AlarmDialogResult RequestAlarmDialog(ProcHandle evt, AlarmDialogRequest request)
+        {
+            Action<AlarmDialogRequest, Action<AlarmDialogResult>> handler = AlarmDialogRequested;
+            if (handler == null || request == null)
+            {
+                Logger?.Warn("报警弹窗未绑定UI处理器");
+                return AlarmDialogResult.None;
+            }
+
+            AlarmDialogResult result = AlarmDialogResult.None;
+            using (ManualResetEventSlim waitHandle = new ManualResetEventSlim(false))
+            {
+                handler(request, reply =>
+                {
+                    result = reply;
+                    waitHandle.Set();
+                });
+                while (!waitHandle.IsSet)
+                {
+                    if (evt.isThStop || evt.State == ProcRunState.Stopped)
+                    {
+                        break;
+                    }
+                    waitHandle.Wait(100);
+                }
+            }
+            return result;
         }
 
 
@@ -544,6 +552,13 @@ namespace Automation
         public bool RunProcOps(ProcHandle evt, ProcOps procOps)
         {
             bool value = false;
+            Kernel.IKernelScheduler scheduler = SF.kernelScheduler;
+            if (scheduler == null)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = "内核调度未初始化";
+                return false;
+            }
             foreach (procParam procParam in procOps.procParams)
             {
                 Proc proc = null;
@@ -567,20 +582,7 @@ namespace Automation
                         return false;
                     }
                     int index = SF.frmProc.procsList.IndexOf(proc);
-                    if (SF.kernelScheduler != null)
-                    {
-                        SF.kernelScheduler.Start(index);
-                    }
-                    else
-                    {
-                        SF.DR.StartProcAuto(proc, index);
-                        SF.DR.ProcHandles[index].m_evtRun.Set();
-                        SF.DR.ProcHandles[index].m_evtTik.Set();
-                        SF.DR.ProcHandles[index].m_evtTok.Set();
-                        SF.DR.ProcHandles[index].State = ProcRunState.Running;
-                        SF.DR.ProcHandles[index].isBreakpoint = false;
-                        SetProcText(index, SF.DR.ProcHandles[index].State, SF.DR.ProcHandles[index].isBreakpoint);
-                    }
+                    scheduler.Start(index);
                 }
                 else
                 {
@@ -590,20 +592,7 @@ namespace Automation
                         return false;
                     }
                     int index = SF.frmProc.procsList.IndexOf(proc);
-                    if (SF.kernelScheduler != null)
-                    {
-                        SF.kernelScheduler.Stop(index);
-                    }
-                    else
-                    {
-                        SF.DR.ProcHandles[index].isThStop = true;
-                        SF.DR.ProcHandles[index].State = ProcRunState.Stopped;
-                        SF.DR.ProcHandles[index].isBreakpoint = false;
-                        SF.DR.ProcHandles[index].m_evtRun.Set();
-                        SF.DR.ProcHandles[index].m_evtTik.Set();
-                        SF.DR.ProcHandles[index].m_evtTok.Set();
-                        SetProcText(index, SF.DR.ProcHandles[index].State, SF.DR.ProcHandles[index].isBreakpoint);
-                    }
+                    scheduler.Stop(index);
                 }
                 Delay(procParam.delayAfter, evt);
             }
@@ -626,20 +615,30 @@ namespace Automation
             }
             Logger?.Info($"WaitProc开始: {evt.procNum}-{evt.stepNum}-{evt.opsNum} 超时:{timeOut} 延时:{DelayAfter}");
             int start = Environment.TickCount;
+            Kernel.KernelScheduler scheduler = SF.kernelScheduler as Kernel.KernelScheduler;
+            if (scheduler == null)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = "内核调度未初始化";
+                return false;
+            }
             while (evt.State != ProcRunState.Stopped)
             {
-                if (timeOut > 0)
+                int elapsed = Math.Abs(Environment.TickCount - start);
+                if (timeOut > 0 && elapsed > timeOut)
                 {
-                    if (Math.Abs(Environment.TickCount - start) > timeOut)
-                    {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = "等待超时";
-                        Logger?.Warn($"WaitProc超时: {evt.procNum}-{evt.stepNum}-{evt.opsNum} 超时:{timeOut}");
-                        break;
-                    }
+                    evt.isAlarm = true;
+                    evt.alarmMsg = "等待超时";
+                    Logger?.Warn($"WaitProc超时: {evt.procNum}-{evt.stepNum}-{evt.opsNum} 超时:{timeOut}");
+                    break;
                 }
                 bool isWaitOff = true;
-                IReadOnlyList<Kernel.ProcessStatus> statuses = SF.kernelScheduler?.GetStatuses();
+                List<WaitHandle> waitHandles = new List<WaitHandle>();
+                ProcessStateSignal selfSignal = scheduler.GetStateSignal(evt.procNum);
+                if (selfSignal != null)
+                {
+                    waitHandles.Add(selfSignal.StoppedEvent.WaitHandle);
+                }
 
                 foreach (WaitProcParam procParam in waitProc.Params)
                 {
@@ -657,38 +656,62 @@ namespace Automation
                         return false;
                     }
                     int index = SF.frmProc.procsList.IndexOf(proc);
-                    Kernel.ProcessState targetState = Kernel.ProcessState.Stopped;
-                    if (statuses != null && index >= 0 && index < statuses.Count)
-                    {
-                        targetState = statuses[index].State;
-                    }
-                    else if (SF.DR.ProcHandles != null && index >= 0 && index < SF.DR.ProcHandles.Length && SF.DR.ProcHandles[index] != null)
-                    {
-                        targetState = SF.DR.ProcHandles[index].State == ProcRunState.Stopped
-                            ? Kernel.ProcessState.Stopped
-                            : Kernel.ProcessState.Running;
-                    }
-
+                    ProcessStateSignal signal = scheduler.GetStateSignal(index);
                     if (procParam.value == "运行")
                     {
-                        if (targetState == Kernel.ProcessState.Stopped)
+                        if (signal == null || !signal.RunningEvent.IsSet)
                         {
                             isWaitOff = false;
-                            break;
+                            if (signal != null)
+                            {
+                                waitHandles.Add(signal.RunningEvent.WaitHandle);
+                            }
                         }
                     }
                     else if (procParam.value == "停止")
                     {
-                        if (targetState != Kernel.ProcessState.Stopped)
+                        if (signal == null || !signal.StoppedEvent.IsSet)
                         {
                             isWaitOff = false;
-                            break;
+                            if (signal != null)
+                            {
+                                waitHandles.Add(signal.StoppedEvent.WaitHandle);
+                            }
                         }
                     }
                 }
                 if (isWaitOff)
                 {
                     break;
+                }
+                int waitMs = 100;
+                if (timeOut > 0)
+                {
+                    int remaining = timeOut - elapsed;
+                    if (remaining < waitMs)
+                    {
+                        waitMs = Math.Max(remaining, 0);
+                    }
+                }
+                if (waitHandles.Count > 0)
+                {
+                    if (waitHandles.Count > 64)
+                    {
+                        WaitHandle[] handles = new WaitHandle[64];
+                        for (int i = 0; i < 64; i++)
+                        {
+                            handles[i] = waitHandles[i];
+                        }
+                        WaitHandle.WaitAny(handles, waitMs);
+                    }
+                    else
+                    {
+                        WaitHandle.WaitAny(waitHandles.ToArray(), waitMs);
+                    }
+                }
+                else
+                {
+                    Thread.Sleep(waitMs);
                 }
             }
             Logger?.Info($"WaitProc结束: {evt.procNum}-{evt.stepNum}-{evt.opsNum} 报警:{evt.isAlarm}");
@@ -2328,6 +2351,24 @@ namespace Automation
             return true;
         }
     }
+    public sealed class ProcTextChangedEventArgs : EventArgs
+    {
+        public ProcTextChangedEventArgs(int procNum, string procName, ProcRunState state, bool isBreakpoint, string displayText)
+        {
+            ProcNum = procNum;
+            ProcName = procName ?? string.Empty;
+            State = state;
+            IsBreakpoint = isBreakpoint;
+            DisplayText = displayText ?? string.Empty;
+        }
+
+        public int ProcNum { get; }
+        public string ProcName { get; }
+        public ProcRunState State { get; }
+        public bool IsBreakpoint { get; }
+        public string DisplayText { get; }
+    }
+
     public enum ProcRunState
     {
         Stopped = 0,
@@ -2341,6 +2382,19 @@ namespace Automation
         public ManualResetEvent m_evtRun = new ManualResetEvent(false);
         public ManualResetEvent m_evtTik = new ManualResetEvent(false);
         public ManualResetEvent m_evtTok = new ManualResetEvent(false);
+        private RunnerSyncController _sync;
+
+        public RunnerSyncController Sync
+        {
+            get
+            {
+                if (_sync == null)
+                {
+                    _sync = new RunnerSyncController(m_evtRun, m_evtTik, m_evtTok);
+                }
+                return _sync;
+            }
+        }
 
         public int procNum;
         public int stepNum;

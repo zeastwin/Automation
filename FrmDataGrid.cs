@@ -365,61 +365,19 @@ namespace Automation
 
         private void SetStartOps_Click(object sender, EventArgs e)
         {
-            if (SF.kernelScheduler != null)
+            if (SF.kernelScheduler == null)
             {
-                if (SF.frmProc.SelectedProcNum >= 0)
-                {
-                    SF.kernelScheduler.Stop(SF.frmProc.SelectedProcNum);
-                    SF.kernelScheduler.StartAt(SF.frmProc.SelectedProcNum, SF.frmProc.SelectedStepNum, iSelectedRow, Kernel.ProcessState.Paused);
-                    Invoke(new Action(() =>
-                    {
-                        SF.frmToolBar.btnPause.Text = "继续";
-                    }));
-                }
                 return;
             }
-
-            if (SF.frmProc.SelectedProcNum >= 0 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
+            if (SF.frmProc.SelectedProcNum >= 0)
             {
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isThStop = true;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Stopped;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
-                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
+                SF.kernelScheduler.Stop(SF.frmProc.SelectedProcNum);
+                SF.kernelScheduler.StartAt(SF.frmProc.SelectedProcNum, SF.frmProc.SelectedStepNum, iSelectedRow, Kernel.ProcessState.Paused);
+                Invoke(new Action(() =>
+                {
+                    SF.frmToolBar.btnPause.Text = "继续";
+                }));
             }
-
-
-            ProcHandle procHandle = new ProcHandle();
-            procHandle.procNum = SF.frmProc.SelectedProcNum;
-            procHandle.stepNum = SF.frmProc.SelectedStepNum;
-            procHandle.opsNum = iSelectedRow;
-            procHandle.isThStop = false;
-            procHandle.isBreakpoint = false;
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] = procHandle;
-
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Reset();
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Reset();
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
-
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Paused;
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
-            SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
-
-            Invoke(new Action(() =>
-            {
-                SF.frmToolBar.btnPause.Text = "继续";
-            }));
-
-            Thread th = new Thread(() => { SF.DR.RunProc(SF.frmProc.procsList[SF.frmProc.SelectedProcNum], procHandle); });
-            SF.DR.threads[SF.frmProc.SelectedProcNum] = th;
-            //  Task task = Task.Run(() => SF.DR.RunProc(SF.frmProc.procsList[SF.frmProc.SelectedProcNum], procHandle));
-
-
-            //  SF.DR.tasks[SF.frmProc.SelectedProcNum] = task;
-
-            th.Start();
         }
 
         private void dataGridView1_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
@@ -605,77 +563,21 @@ namespace Automation
 
         private void OneSetp_Click(object sender, EventArgs e)
         {
-            if (SF.kernelScheduler != null)
+            if (SF.kernelScheduler == null)
             {
-                if (SF.frmProc.SelectedProcNum >= 0)
-                {
-                    SF.kernelScheduler.StartAt(SF.frmProc.SelectedProcNum, SF.frmProc.SelectedStepNum, iSelectedRow, Kernel.ProcessState.SingleStep);
-                    Invoke(new Action(() =>
-                    {
-                        SF.frmToolBar.btnPause.Text = "继续";
-                    }));
-                    SF.Delay(200);
-                    SF.kernelScheduler.Step(SF.frmProc.SelectedProcNum);
-                    SF.Delay(200);
-                    SF.kernelScheduler.Stop(SF.frmProc.SelectedProcNum);
-                }
                 return;
             }
-
-            ProcHandle procHandle = new ProcHandle();
-            procHandle.procNum = SF.frmProc.SelectedProcNum;
-            procHandle.stepNum = SF.frmProc.SelectedStepNum;
-            procHandle.opsNum = iSelectedRow;
-            procHandle.isThStop = false;
-            procHandle.isBreakpoint = false;
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] = procHandle;
-
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Reset();
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Reset();
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
-
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.SingleStep;
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
-            SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
-
-            Invoke(new Action(() =>
+            if (SF.frmProc.SelectedProcNum >= 0)
             {
-                SF.frmToolBar.btnPause.Text = "继续";
-            }));
-
-            Thread th = new Thread(() => { SF.DR.RunProc(SF.frmProc.procsList[SF.frmProc.SelectedProcNum], procHandle); });
-            SF.DR.threads[SF.frmProc.SelectedProcNum] = th;
-            //  Task task = Task.Run(() => SF.DR.RunProc(SF.frmProc.procsList[SF.frmProc.SelectedProcNum], procHandle));
-
-
-            //  SF.DR.tasks[SF.frmProc.SelectedProcNum] = task;
-
-            th.Start();
-            SF.Delay(200);
-            if (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
-            {
-                if (SF.frmProc.SelectedStepNum != -1 && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.SingleStep))
+                SF.kernelScheduler.StartAt(SF.frmProc.SelectedProcNum, SF.frmProc.SelectedStepNum, iSelectedRow, Kernel.ProcessState.SingleStep);
+                Invoke(new Action(() =>
                 {
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Reset();
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
-                    SF.Delay(10);
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Reset();
-                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
-                }
-            }
-            SF.Delay(200);
-            if (SF.frmProc.SelectedProcNum >= 0 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
-            {
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isThStop = true;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
-
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Stopped;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
-                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
-
+                    SF.frmToolBar.btnPause.Text = "继续";
+                }));
+                SF.Delay(200);
+                SF.kernelScheduler.Step(SF.frmProc.SelectedProcNum);
+                SF.Delay(200);
+                SF.kernelScheduler.Stop(SF.frmProc.SelectedProcNum);
             }
         }
 

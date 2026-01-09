@@ -49,9 +49,7 @@ namespace Automation.Kernel
             handle.isThStop = true;
             handle.State = ProcRunState.Stopped;
             handle.isBreakpoint = false;
-            handle.m_evtRun.Set();
-            handle.m_evtTik.Set();
-            handle.m_evtTok.Set();
+            handle.Sync.ForceWakeForStop();
             _dataRun.SetProcText(_processIndex, handle.State, handle.isBreakpoint);
         }
 
@@ -65,9 +63,7 @@ namespace Automation.Kernel
 
             if (handle.State == ProcRunState.Running || handle.State == ProcRunState.Alarming)
             {
-                handle.m_evtRun.Reset();
-                handle.m_evtTik.Reset();
-                handle.m_evtTok.Set();
+                handle.Sync.EnterBreakpoint();
                 handle.State = ProcRunState.Paused;
                 handle.isBreakpoint = false;
                 _dataRun.SetProcText(_processIndex, handle.State, handle.isBreakpoint);
@@ -84,9 +80,7 @@ namespace Automation.Kernel
 
             if (handle.State == ProcRunState.Paused || handle.State == ProcRunState.SingleStep)
             {
-                handle.m_evtRun.Set();
-                handle.m_evtTik.Set();
-                handle.m_evtTok.Set();
+                handle.Sync.Continue();
                 handle.State = ProcRunState.Running;
                 handle.isBreakpoint = false;
                 _dataRun.SetProcText(_processIndex, handle.State, handle.isBreakpoint);
@@ -106,12 +100,7 @@ namespace Automation.Kernel
                 handle.State = ProcRunState.SingleStep;
                 handle.isBreakpoint = false;
                 _dataRun.SetProcText(_processIndex, handle.State, handle.isBreakpoint);
-                handle.m_evtRun.Set();
-                handle.m_evtTok.Reset();
-                handle.m_evtTik.Set();
-                SF.Delay(10);
-                handle.m_evtTik.Reset();
-                handle.m_evtTok.Set();
+                handle.Sync.StepOnce();
             }
         }
 
@@ -130,15 +119,11 @@ namespace Automation.Kernel
 
             if (initialState == ProcRunState.Paused || initialState == ProcRunState.SingleStep)
             {
-                handle.m_evtRun.Reset();
-                handle.m_evtTik.Reset();
-                handle.m_evtTok.Set();
+                handle.Sync.EnterBreakpoint();
             }
             else
             {
-                handle.m_evtRun.Set();
-                handle.m_evtTik.Set();
-                handle.m_evtTok.Set();
+                handle.Sync.Continue();
             }
 
             return handle;
@@ -159,9 +144,7 @@ namespace Automation.Kernel
                 if (handle.State == ProcRunState.Stopped)
                 {
                     handle.State = ProcRunState.Running;
-                    handle.m_evtRun.Set();
-                    handle.m_evtTik.Set();
-                    handle.m_evtTok.Set();
+                    handle.Sync.Continue();
                 }
                 _dataRun.SetProcText(_processIndex, handle.State, handle.isBreakpoint);
 
