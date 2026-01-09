@@ -257,7 +257,17 @@ namespace Automation
                     procsList[editProcIndex].head.Name = editProcHeadBackup.Name;
                     if (editProcIndex < proc_treeView.Nodes.Count)
                     {
-                        proc_treeView.Nodes[editProcIndex].Text = $"{editProcIndex}：{procsList[editProcIndex].head.Name}";
+                        ProcHandle handle = (SF.DR?.ProcHandles != null && editProcIndex < SF.DR.ProcHandles.Length)
+                            ? SF.DR.ProcHandles[editProcIndex]
+                            : null;
+                        if (handle != null)
+                        {
+                            SF.DR.SetProcText(editProcIndex, handle.State, handle.isBreakpoint);
+                        }
+                        else
+                        {
+                            proc_treeView.Nodes[editProcIndex].Text = $"{editProcIndex}：{procsList[editProcIndex].head.Name}";
+                        }
                     }
                 }
             }
@@ -383,7 +393,7 @@ namespace Automation
                     {
                         SF.frmToolBar.btnPause.Text = "暂停";
                     }
-                    else if (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused)
+                    else if (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.SingleStep)
                     {
                         SF.frmToolBar.btnPause.Text = "继续";
                     }
@@ -450,8 +460,8 @@ namespace Automation
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Running;
-
-                proc_treeView.Nodes[SF.frmProc.SelectedProcNum].Text = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].head.Name + "|运行";
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
+                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
             }
         }
         public Tuple<int, int, int> FindOperationTypeIndex(OperationType hash)

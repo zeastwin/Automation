@@ -26,10 +26,6 @@ namespace Automation
     public class DataRun
     {
         public Thread[] threads = new Thread[100];
-        //  public Task[] tasks = new Task[100];
-
-
-
         public ProcHandle[] ProcHandles = new ProcHandle[100];
 
         public DataRun()
@@ -45,9 +41,45 @@ namespace Automation
             evt.stepNum = int.Parse(key[1]);
             evt.opsNum = int.Parse(key[2]);
         }
-        public void SetProcText(int procNum, bool isRun)
+        public void SetProcText(int procNum, ProcRunState state, bool isBreakpoint)
         {
-            string result = isRun ? "|运行" : "|就绪";
+            if (SF.frmProc?.proc_treeView == null || SF.frmProc.procsList == null)
+            {
+                return;
+            }
+            if (procNum < 0 || procNum >= SF.frmProc.procsList.Count || procNum >= SF.frmProc.proc_treeView.Nodes.Count)
+            {
+                return;
+            }
+
+            string stateText;
+            switch (state)
+            {
+                case ProcRunState.Stopped:
+                    stateText = "停止";
+                    break;
+                case ProcRunState.Paused:
+                    stateText = "暂停";
+                    break;
+                case ProcRunState.SingleStep:
+                    stateText = "单步";
+                    break;
+                case ProcRunState.Running:
+                    stateText = "运行";
+                    break;
+                case ProcRunState.Alarming:
+                    stateText = "报警中";
+                    break;
+                default:
+                    stateText = "未知";
+                    break;
+            }
+
+            string result = $"|{stateText}";
+            if (isBreakpoint)
+            {
+                result += "|断点";
+            }
 
             SF.frmProc.proc_treeView?.Invoke(new Action(() =>
             {
@@ -96,7 +128,12 @@ namespace Automation
         }
         public void RunProc(Proc proc, ProcHandle evt)
         {
-            SetProcText(evt.procNum, true);
+            if (evt.State == ProcRunState.Stopped)
+            {
+                evt.State = ProcRunState.Running;
+            }
+            evt.isBreakpoint = false;
+            SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
             for (int i = evt.stepNum; i < proc.steps.Count; i++)
             {
                 evt.stepNum = i;
@@ -112,7 +149,8 @@ namespace Automation
                     evt.opsNum = 0;
             }
             evt.State = ProcRunState.Stopped;
-            SetProcText(evt.procNum, false);
+            evt.isBreakpoint = false;
+            SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
         }
         //运行步骤
         public bool RunStep(Step steps, ProcHandle evt)
@@ -136,15 +174,25 @@ namespace Automation
                     evt.m_evtRun.Reset();
                     evt.m_evtTik.Reset();
                     evt.m_evtTok.Set();
-                    evt.State = ProcRunState.Paused;
-                    SF.frmToolBar.btnPause?.Invoke(new Action(() =>
+                    evt.isBreakpoint = true;
+                    if (evt.State != ProcRunState.SingleStep)
                     {
-                        SF.frmToolBar.btnPause.Text = "继续";
-                    }));
+                        evt.State = ProcRunState.Paused;
+                        SF.frmToolBar.btnPause?.Invoke(new Action(() =>
+                        {
+                            SF.frmToolBar.btnPause.Text = "继续";
+                        }));
+                    }
+                    SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
                 }
                 evt.m_evtRun.WaitOne();
                 evt.m_evtTik.WaitOne();
                 evt.m_evtTok.WaitOne();
+                if (evt.isBreakpoint)
+                {
+                    evt.isBreakpoint = false;
+                    SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
+                }
                 if (evt.isThStop)
                     return false;
                 try
@@ -153,7 +201,10 @@ namespace Automation
                     if (evt.isAlarm)
                     {
                         ProcRunState lastState = evt.State;
+                        bool lastBreakpoint = evt.isBreakpoint;
                         evt.State = ProcRunState.Alarming;
+                        evt.isBreakpoint = false;
+                        SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
                         AlarmInfo alarmInfo = null;
                         if (!string.IsNullOrWhiteSpace(steps.Ops[i].AlarmInfoID)
                             && int.TryParse(steps.Ops[i].AlarmInfoID, out int alarmIndex)
@@ -201,6 +252,8 @@ namespace Automation
                         if (evt.State == ProcRunState.Alarming)
                         {
                             evt.State = evt.isThStop ? ProcRunState.Stopped : lastState;
+                            evt.isBreakpoint = evt.State == ProcRunState.Paused ? lastBreakpoint : false;
+                            SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
                         }
                     }
                     if (evt.isGoto)
@@ -475,11 +528,8 @@ namespace Automation
                     SF.DR.ProcHandles[index].m_evtTik.Set();
                     SF.DR.ProcHandles[index].m_evtTok.Set();
                     SF.DR.ProcHandles[index].State = ProcRunState.Running;
-
-                    SF.frmProc.proc_treeView?.Invoke(new Action(() =>
-                    {
-                        SF.frmProc.proc_treeView.Nodes[index].Text = SF.frmProc.procsList[index].head.Name + "|运行";
-                    }));
+                    SF.DR.ProcHandles[index].isBreakpoint = false;
+                    SetProcText(index, SF.DR.ProcHandles[index].State, SF.DR.ProcHandles[index].isBreakpoint);
                 }
                 else
                 {
@@ -491,14 +541,11 @@ namespace Automation
                     int index = SF.frmProc.procsList.IndexOf(proc);
                     SF.DR.ProcHandles[index].isThStop = true;
                     SF.DR.ProcHandles[index].State = ProcRunState.Stopped;
+                    SF.DR.ProcHandles[index].isBreakpoint = false;
                     SF.DR.ProcHandles[index].m_evtRun.Set();
                     SF.DR.ProcHandles[index].m_evtTik.Set();
                     SF.DR.ProcHandles[index].m_evtTok.Set();
-
-                    SF.frmProc.proc_treeView?.Invoke(new Action(() =>
-                    {
-                        SF.frmProc.proc_treeView.Nodes[index].Text = SF.frmProc.procsList[index].head.Name + "|就绪";
-                    }));
+                    SetProcText(index, SF.DR.ProcHandles[index].State, SF.DR.ProcHandles[index].isBreakpoint);
                 }
                 Delay(procParam.delayAfter, evt);
             }
@@ -2211,8 +2258,9 @@ namespace Automation
     {
         Stopped = 0,
         Paused = 1,
-        Running = 2,
-        Alarming = 3
+        SingleStep = 2,
+        Running = 3,
+        Alarming = 4
     }
     public class ProcHandle
     {
@@ -2228,6 +2276,8 @@ namespace Automation
 
         //流程状态
         public ProcRunState State = ProcRunState.Stopped;
+        //断点标志
+        public bool isBreakpoint;
         //线程终止标志位
         public bool isThStop;
         //标志是否发生了跳转

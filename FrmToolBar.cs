@@ -311,23 +311,29 @@ namespace Automation
 
         private void btnPause_Click(object sender, EventArgs e)
         {
-            if (SF.frmProc.SelectedProcNum != -1 && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Running || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Alarming))
+            if (SF.frmProc.SelectedProcNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null
+                && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Running || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Alarming))
             {
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Reset();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Reset();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
 
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Paused;
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
+                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
 
                 btnPause.Text = "继续";
             }
-            else if(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused)
+            else if (SF.frmProc.SelectedProcNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null
+                && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.SingleStep))
             {
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
 
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Running;
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
+                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
 
                 btnPause.Text = "暂停";
             }
@@ -337,8 +343,12 @@ namespace Automation
         {
             if (SF.frmProc.SelectedProcNum!= -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
             {
-                if (SF.frmProc.SelectedStepNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused)
+                if (SF.frmProc.SelectedStepNum != -1
+                    && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.SingleStep))
                 {
+                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.SingleStep;
+                    SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
+                    SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
                     SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
                     SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Reset();
                     SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
@@ -355,9 +365,11 @@ namespace Automation
             {
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isThStop = true;
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Stopped;
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
+                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
             }
 
         }
@@ -387,9 +399,11 @@ namespace Automation
 
                 handle.isThStop = true;
                 handle.State = ProcRunState.Stopped;
+                handle.isBreakpoint = false;
                 handle.m_evtRun.Set();
                 handle.m_evtTik.Set();
                 handle.m_evtTok.Set();
+                SF.DR.SetProcText(i, handle.State, handle.isBreakpoint);
             }
         }
 

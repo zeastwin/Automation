@@ -108,7 +108,7 @@ namespace Automation
                     return;
                 }
 
-                if (selectedHandle.State == ProcRunState.Paused && SF.frmProc.SelectedStepNum != selectedHandle.stepNum)
+                if ((selectedHandle.State == ProcRunState.Paused || selectedHandle.State == ProcRunState.SingleStep) && SF.frmProc.SelectedStepNum != selectedHandle.stepNum)
                 {
                     if (selectedHandle.stepNum >= 0
                         && selectedProc >= 0
@@ -145,7 +145,7 @@ namespace Automation
 
                     SetRowColor(rowIndex, Color.LightBlue);
                     dataGridView1.InvalidateRow(rowIndex);
-                    if (selectedHandle.State == ProcRunState.Paused)
+                    if (selectedHandle.State == ProcRunState.Paused || selectedHandle.State == ProcRunState.SingleStep)
                     {
                         ScrollRowToCenter(rowIndex);
                     }
@@ -369,9 +369,11 @@ namespace Automation
             {
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isThStop = true;
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Stopped;
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
+                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
             }
 
 
@@ -380,6 +382,7 @@ namespace Automation
             procHandle.stepNum = SF.frmProc.SelectedStepNum;
             procHandle.opsNum = iSelectedRow;
             procHandle.isThStop = false;
+            procHandle.isBreakpoint = false;
             SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] = procHandle;
 
             SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Reset();
@@ -387,6 +390,8 @@ namespace Automation
             SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
 
             SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Paused;
+            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
+            SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
 
             Invoke(new Action(() =>
             {
@@ -591,13 +596,16 @@ namespace Automation
             procHandle.stepNum = SF.frmProc.SelectedStepNum;
             procHandle.opsNum = iSelectedRow;
             procHandle.isThStop = false;
+            procHandle.isBreakpoint = false;
             SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] = procHandle;
 
             SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Reset();
             SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Reset();
             SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
 
-            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Paused;
+            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.SingleStep;
+            SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
+            SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
 
             Invoke(new Action(() =>
             {
@@ -615,7 +623,7 @@ namespace Automation
             SF.Delay(200);
             if (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
             {
-                if (SF.frmProc.SelectedStepNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused)
+                if (SF.frmProc.SelectedStepNum != -1 && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.SingleStep))
                 {
                     SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
                     SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Reset();
@@ -634,6 +642,8 @@ namespace Automation
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
 
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Stopped;
+                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
+                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
 
             }
         }

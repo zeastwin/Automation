@@ -138,6 +138,8 @@ namespace Automation
                         handle.m_evtTik.Set();
                         handle.m_evtTok.Set();
                         handle.State = ProcRunState.Running;
+                        handle.isBreakpoint = false;
+                        SF.DR.SetProcText(i, handle.State, handle.isBreakpoint);
                     }
                 }
             }
