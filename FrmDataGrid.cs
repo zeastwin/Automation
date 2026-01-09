@@ -365,6 +365,20 @@ namespace Automation
 
         private void SetStartOps_Click(object sender, EventArgs e)
         {
+            if (SF.kernelScheduler != null)
+            {
+                if (SF.frmProc.SelectedProcNum >= 0)
+                {
+                    SF.kernelScheduler.Stop(SF.frmProc.SelectedProcNum);
+                    SF.kernelScheduler.StartAt(SF.frmProc.SelectedProcNum, SF.frmProc.SelectedStepNum, iSelectedRow, Kernel.ProcessState.Paused);
+                    Invoke(new Action(() =>
+                    {
+                        SF.frmToolBar.btnPause.Text = "继续";
+                    }));
+                }
+                return;
+            }
+
             if (SF.frmProc.SelectedProcNum >= 0 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
             {
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isThStop = true;
@@ -591,6 +605,23 @@ namespace Automation
 
         private void OneSetp_Click(object sender, EventArgs e)
         {
+            if (SF.kernelScheduler != null)
+            {
+                if (SF.frmProc.SelectedProcNum >= 0)
+                {
+                    SF.kernelScheduler.StartAt(SF.frmProc.SelectedProcNum, SF.frmProc.SelectedStepNum, iSelectedRow, Kernel.ProcessState.SingleStep);
+                    Invoke(new Action(() =>
+                    {
+                        SF.frmToolBar.btnPause.Text = "继续";
+                    }));
+                    SF.Delay(200);
+                    SF.kernelScheduler.Step(SF.frmProc.SelectedProcNum);
+                    SF.Delay(200);
+                    SF.kernelScheduler.Stop(SF.frmProc.SelectedProcNum);
+                }
+                return;
+            }
+
             ProcHandle procHandle = new ProcHandle();
             procHandle.procNum = SF.frmProc.SelectedProcNum;
             procHandle.stepNum = SF.frmProc.SelectedStepNum;

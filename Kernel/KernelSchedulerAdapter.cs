@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace Automation.Kernel
 {
@@ -46,6 +47,49 @@ namespace Automation.Kernel
             handle.State = ProcRunState.Running;
             handle.isBreakpoint = false;
             _dataRun.SetProcText(processIndex, handle.State, handle.isBreakpoint);
+
+            PublishStatus(processIndex);
+        }
+
+        public void StartAt(int processIndex, int stepIndex, int opIndex, ProcessState initialState)
+        {
+            Proc proc = GetProc(processIndex);
+            if (proc == null)
+            {
+                PublishFault(processIndex, "Process not found");
+                return;
+            }
+
+            ProcHandle procHandle = new ProcHandle
+            {
+                procNum = processIndex,
+                stepNum = stepIndex,
+                opsNum = opIndex,
+                isThStop = false,
+                isBreakpoint = false,
+                procName = proc.head.Name,
+                State = MapState(initialState)
+            };
+
+            _dataRun.EnsureCapacity(processIndex + 1);
+            _dataRun.ProcHandles[processIndex] = procHandle;
+            if (procHandle.State == ProcRunState.Paused || procHandle.State == ProcRunState.SingleStep)
+            {
+                procHandle.m_evtRun.Reset();
+                procHandle.m_evtTik.Reset();
+                procHandle.m_evtTok.Set();
+            }
+            else
+            {
+                procHandle.m_evtRun.Set();
+                procHandle.m_evtTik.Set();
+                procHandle.m_evtTok.Set();
+            }
+            _dataRun.SetProcText(processIndex, procHandle.State, procHandle.isBreakpoint);
+
+            Thread th = new Thread(() => { _dataRun.RunProc(proc, procHandle); });
+            _dataRun.threads[processIndex] = th;
+            th.Start();
 
             PublishStatus(processIndex);
         }
@@ -141,16 +185,7 @@ namespace Automation.Kernel
 
         public IReadOnlyList<ProcessStatus> GetStatuses()
         {
-            if (_dataRun.ProcHandles == null)
-            {
-                return Array.Empty<ProcessStatus>();
-            }
-
-            int count = _dataRun.ProcHandles.Length;
-            if (SF.frmProc?.procsList != null)
-            {
-                count = Math.Min(count, SF.frmProc.procsList.Count);
-            }
+            int count = SF.frmProc?.procsList?.Count ?? 0;
 
             List<ProcessStatus> statuses = new List<ProcessStatus>(count);
             for (int i = 0; i < count; i++)
@@ -224,10 +259,29 @@ namespace Automation.Kernel
                 ProcessName = processName,
                 StepIndex = handle?.stepNum ?? -1,
                 OpIndex = handle?.opsNum ?? -1,
-                State = handle == null ? ProcessState.Unknown : MapState(handle.State),
+                State = handle == null ? ProcessState.Stopped : MapState(handle.State),
                 IsBreakpoint = handle?.isBreakpoint ?? false,
                 LastError = handle?.alarmMsg
             };
+        }
+
+        private static ProcRunState MapState(ProcessState state)
+        {
+            switch (state)
+            {
+                case ProcessState.Stopped:
+                    return ProcRunState.Stopped;
+                case ProcessState.Paused:
+                    return ProcRunState.Paused;
+                case ProcessState.SingleStep:
+                    return ProcRunState.SingleStep;
+                case ProcessState.Running:
+                    return ProcRunState.Running;
+                case ProcessState.Alarming:
+                    return ProcRunState.Alarming;
+                default:
+                    return ProcRunState.Stopped;
+            }
         }
 
         private static ProcessState MapState(ProcRunState state)

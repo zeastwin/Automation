@@ -26,14 +26,26 @@ namespace Automation
     public class DataRun
     {
         public ILogger Logger { get; set; } = new TraceLogger();
-        public Thread[] threads = new Thread[100];
-        public ProcHandle[] ProcHandles = new ProcHandle[100];
+        public Thread[] threads = Array.Empty<Thread>();
+        public ProcHandle[] ProcHandles = Array.Empty<ProcHandle>();
 
         public DataRun()
         {
-            for (int i = 0; i < ProcHandles.Length; i++)
+        }
+
+        public void EnsureCapacity(int count)
+        {
+            if (count <= 0)
             {
-                ProcHandles[i] = new ProcHandle();
+                return;
+            }
+            if (ProcHandles == null || ProcHandles.Length < count)
+            {
+                Array.Resize(ref ProcHandles, count);
+            }
+            if (threads == null || threads.Length < count)
+            {
+                Array.Resize(ref threads, count);
             }
         }
         public void ExecuteGoto(string GOTO, ProcHandle evt)
@@ -101,12 +113,19 @@ namespace Automation
         }
         public void StartProc(Proc proc)
         {
+            if (SF.kernelScheduler is Kernel.KernelScheduler scheduler)
+            {
+                scheduler.Start(SF.frmProc.SelectedProcNum);
+                return;
+            }
+
             ProcHandle procHandle = new ProcHandle();
             procHandle.procNum = SF.frmProc.SelectedProcNum;
             procHandle.stepNum = 0;
             procHandle.opsNum = 0;
             procHandle.isThStop = false;
             procHandle.procName = proc.head.Name;
+            EnsureCapacity(procHandle.procNum + 1);
             ProcHandles[SF.frmProc.SelectedProcNum] = procHandle;
             //   Task task = Task.Run(() => RunProc(proc, procHandle));
             Logger?.Info($"流程启动请求: {procHandle.procNum}-{procHandle.procName}");
@@ -118,12 +137,19 @@ namespace Automation
         }
         public void StartProcAuto(Proc proc, int index)
         {
+            if (SF.kernelScheduler is Kernel.KernelScheduler scheduler)
+            {
+                scheduler.Start(index);
+                return;
+            }
+
             ProcHandle procHandle = new ProcHandle();
             procHandle.procNum = index;
             procHandle.stepNum = 0;
             procHandle.opsNum = 0;
             procHandle.isThStop = false;
             procHandle.procName = proc.head.Name;
+            EnsureCapacity(procHandle.procNum + 1);
             ProcHandles[index] = procHandle;
             //   Task task = Task.Run(() => RunProc(proc, procHandle));
             Logger?.Info($"流程启动请求: {procHandle.procNum}-{procHandle.procName}");
@@ -541,13 +567,20 @@ namespace Automation
                         return false;
                     }
                     int index = SF.frmProc.procsList.IndexOf(proc);
-                    SF.DR.StartProcAuto(proc, index);
-                    SF.DR.ProcHandles[index].m_evtRun.Set();
-                    SF.DR.ProcHandles[index].m_evtTik.Set();
-                    SF.DR.ProcHandles[index].m_evtTok.Set();
-                    SF.DR.ProcHandles[index].State = ProcRunState.Running;
-                    SF.DR.ProcHandles[index].isBreakpoint = false;
-                    SetProcText(index, SF.DR.ProcHandles[index].State, SF.DR.ProcHandles[index].isBreakpoint);
+                    if (SF.kernelScheduler != null)
+                    {
+                        SF.kernelScheduler.Start(index);
+                    }
+                    else
+                    {
+                        SF.DR.StartProcAuto(proc, index);
+                        SF.DR.ProcHandles[index].m_evtRun.Set();
+                        SF.DR.ProcHandles[index].m_evtTik.Set();
+                        SF.DR.ProcHandles[index].m_evtTok.Set();
+                        SF.DR.ProcHandles[index].State = ProcRunState.Running;
+                        SF.DR.ProcHandles[index].isBreakpoint = false;
+                        SetProcText(index, SF.DR.ProcHandles[index].State, SF.DR.ProcHandles[index].isBreakpoint);
+                    }
                 }
                 else
                 {
@@ -557,13 +590,20 @@ namespace Automation
                         return false;
                     }
                     int index = SF.frmProc.procsList.IndexOf(proc);
-                    SF.DR.ProcHandles[index].isThStop = true;
-                    SF.DR.ProcHandles[index].State = ProcRunState.Stopped;
-                    SF.DR.ProcHandles[index].isBreakpoint = false;
-                    SF.DR.ProcHandles[index].m_evtRun.Set();
-                    SF.DR.ProcHandles[index].m_evtTik.Set();
-                    SF.DR.ProcHandles[index].m_evtTok.Set();
-                    SetProcText(index, SF.DR.ProcHandles[index].State, SF.DR.ProcHandles[index].isBreakpoint);
+                    if (SF.kernelScheduler != null)
+                    {
+                        SF.kernelScheduler.Stop(index);
+                    }
+                    else
+                    {
+                        SF.DR.ProcHandles[index].isThStop = true;
+                        SF.DR.ProcHandles[index].State = ProcRunState.Stopped;
+                        SF.DR.ProcHandles[index].isBreakpoint = false;
+                        SF.DR.ProcHandles[index].m_evtRun.Set();
+                        SF.DR.ProcHandles[index].m_evtTik.Set();
+                        SF.DR.ProcHandles[index].m_evtTok.Set();
+                        SetProcText(index, SF.DR.ProcHandles[index].State, SF.DR.ProcHandles[index].isBreakpoint);
+                    }
                 }
                 Delay(procParam.delayAfter, evt);
             }
@@ -599,6 +639,7 @@ namespace Automation
                     }
                 }
                 bool isWaitOff = true;
+                IReadOnlyList<Kernel.ProcessStatus> statuses = SF.kernelScheduler?.GetStatuses();
 
                 foreach (WaitProcParam procParam in waitProc.Params)
                 {
@@ -616,9 +657,21 @@ namespace Automation
                         return false;
                     }
                     int index = SF.frmProc.procsList.IndexOf(proc);
+                    Kernel.ProcessState targetState = Kernel.ProcessState.Stopped;
+                    if (statuses != null && index >= 0 && index < statuses.Count)
+                    {
+                        targetState = statuses[index].State;
+                    }
+                    else if (SF.DR.ProcHandles != null && index >= 0 && index < SF.DR.ProcHandles.Length && SF.DR.ProcHandles[index] != null)
+                    {
+                        targetState = SF.DR.ProcHandles[index].State == ProcRunState.Stopped
+                            ? Kernel.ProcessState.Stopped
+                            : Kernel.ProcessState.Running;
+                    }
+
                     if (procParam.value == "运行")
                     {
-                        if (SF.DR.ProcHandles[index].State == ProcRunState.Stopped)
+                        if (targetState == Kernel.ProcessState.Stopped)
                         {
                             isWaitOff = false;
                             break;
@@ -626,7 +679,7 @@ namespace Automation
                     }
                     else if (procParam.value == "停止")
                     {
-                        if (SF.DR.ProcHandles[index].State != ProcRunState.Stopped)
+                        if (targetState != Kernel.ProcessState.Stopped)
                         {
                             isWaitOff = false;
                             break;

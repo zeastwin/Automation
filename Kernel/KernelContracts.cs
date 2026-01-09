@@ -30,6 +30,7 @@ namespace Automation.Kernel
         event Action<ProcessStatus> Faulted;
 
         void Start(int processIndex);
+        void StartAt(int processIndex, int stepIndex, int opIndex, ProcessState initialState);
         void Stop(int processIndex);
         void Pause(int processIndex);
         void Resume(int processIndex);

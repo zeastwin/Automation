@@ -332,6 +332,11 @@ namespace Automation
                 if (SF.frmProc.SelectedStepNum != -1
                     && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.SingleStep))
                 {
+                    if (SF.kernelScheduler != null)
+                    {
+                        SF.kernelScheduler.Step(SF.frmProc.SelectedProcNum);
+                        return;
+                    }
                     SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.SingleStep;
                     SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
                     SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
@@ -349,6 +354,11 @@ namespace Automation
         {
             if(SF.frmProc.SelectedProcNum >=0&& SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
             {
+                if (SF.kernelScheduler != null)
+                {
+                    SF.kernelScheduler.Stop(SF.frmProc.SelectedProcNum);
+                    return;
+                }
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isThStop = true;
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Stopped;
                 SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
@@ -367,13 +377,23 @@ namespace Automation
                 return;
             }
 
-            int count = Math.Min(SF.frmProc.procsList.Count, SF.DR.ProcHandles.Length);
+            int count = SF.frmProc.procsList.Count;
+            if (SF.kernelScheduler == null)
+            {
+                count = Math.Min(count, SF.DR.ProcHandles.Length);
+            }
             for (int i = 0; i < count; i++)
             {
                 Proc proc = SF.frmProc.procsList[i];
                 string procName = proc?.head?.Name;
                 if (!string.IsNullOrEmpty(procName) && procName.StartsWith("系统", StringComparison.Ordinal))
                 {
+                    continue;
+                }
+
+                if (SF.kernelScheduler != null)
+                {
+                    SF.kernelScheduler.Stop(i);
                     continue;
                 }
 
@@ -490,9 +510,14 @@ namespace Automation
 
         private void btnLocate_Click(object sender, EventArgs e)
         {
-            SF.frmDataGrid.SelectChildNode(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].procNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].stepNum);
-            SF.frmDataGrid.ScrollRowToCenter(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum);
-            SF.frmDataGrid.SetRowColor(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum, Color.LightBlue);
+            ProcHandle handle = SF.DR.ProcHandles[SF.frmProc.SelectedProcNum];
+            if (handle == null)
+            {
+                return;
+            }
+            SF.frmDataGrid.SelectChildNode(handle.procNum, handle.stepNum);
+            SF.frmDataGrid.ScrollRowToCenter(handle.opsNum);
+            SF.frmDataGrid.SetRowColor(handle.opsNum, Color.LightBlue);
         }
     }
 }

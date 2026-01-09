@@ -64,7 +64,7 @@ namespace Automation
             SF.frmIO = frmIO;
             SF.frmCard = frmCard;
             SF.DR = dataRun;
-            SF.kernelScheduler = new Kernel.KernelSchedulerAdapter(SF.DR);
+            SF.kernelScheduler = new Kernel.KernelScheduler(SF.DR);
             SF.frmControl = frmControl;
             SF.frmStation = frmStation;
             SF.frmdataStruct = frmdataStruct;
@@ -120,6 +120,8 @@ namespace Automation
             Monitor();
             if (SF.frmProc?.procsList != null && SF.frmProc.procsList.Count > 0)
             {
+                SF.DR.EnsureCapacity(SF.frmProc.procsList.Count);
+                IReadOnlyList<Kernel.ProcessStatus> statuses = SF.kernelScheduler?.GetStatuses();
                 for (int i = 0; i < SF.frmProc.procsList.Count; i++)
                 {
                     Proc proc = SF.frmProc.procsList[i];
@@ -127,20 +129,27 @@ namespace Automation
                     {
                         continue;
                     }
-                    if (SF.DR.ProcHandles[i] != null && SF.DR.ProcHandles[i].State != ProcRunState.Stopped)
+                    if (statuses != null && i >= 0 && i < statuses.Count && statuses[i].State != Kernel.ProcessState.Stopped)
                     {
                         continue;
                     }
-                    SF.DR.StartProcAuto(proc, i);
-                    ProcHandle handle = SF.DR.ProcHandles[i];
-                    if (handle != null)
+                    if (SF.kernelScheduler != null)
                     {
-                        handle.m_evtRun.Set();
-                        handle.m_evtTik.Set();
-                        handle.m_evtTok.Set();
-                        handle.State = ProcRunState.Running;
-                        handle.isBreakpoint = false;
-                        SF.DR.SetProcText(i, handle.State, handle.isBreakpoint);
+                        SF.kernelScheduler.Start(i);
+                    }
+                    else
+                    {
+                        SF.DR.StartProcAuto(proc, i);
+                        ProcHandle handle = SF.DR.ProcHandles[i];
+                        if (handle != null)
+                        {
+                            handle.m_evtRun.Set();
+                            handle.m_evtTik.Set();
+                            handle.m_evtTok.Set();
+                            handle.State = ProcRunState.Running;
+                            handle.isBreakpoint = false;
+                            SF.DR.SetProcText(i, handle.State, handle.isBreakpoint);
+                        }
                     }
                 }
             }

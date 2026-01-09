@@ -70,6 +70,7 @@ namespace Automation
                 RebuildWorkConfig();
             }
 
+            SF.DR?.EnsureCapacity(procsList.Count);
             NewProcNum = -1;
 
         }
@@ -201,6 +202,7 @@ namespace Automation
                 }
             }
             procsList = procsListTemp;
+            SF.DR?.EnsureCapacity(procsList.Count);
 
             proc_treeView.ExpandAll();
             procListItem.Clear();
