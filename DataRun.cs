@@ -25,6 +25,7 @@ namespace Automation
 {
     public class DataRun
     {
+        public ILogger Logger { get; set; } = new TraceLogger();
         public Thread[] threads = new Thread[100];
         public ProcHandle[] ProcHandles = new ProcHandle[100];
 
@@ -52,6 +53,7 @@ namespace Automation
                 return;
             }
 
+            string procName = SF.frmProc.procsList[procNum].head.Name;
             string stateText;
             switch (state)
             {
@@ -81,9 +83,10 @@ namespace Automation
                 result += "|断点";
             }
 
+            Logger?.Info($"流程状态: {procNum}-{procName} {stateText}{(isBreakpoint ? " 断点" : "")}");
             SF.frmProc.proc_treeView?.Invoke(new Action(() =>
             {
-                SF.frmProc.proc_treeView.Nodes[procNum].Text = SF.frmProc.procsList[procNum].head.Name + result;
+                SF.frmProc.proc_treeView.Nodes[procNum].Text = procName + result;
             }));
         }
         public void Delay(int milliSecond, ProcHandle evt)
@@ -106,8 +109,10 @@ namespace Automation
             procHandle.procName = proc.head.Name;
             ProcHandles[SF.frmProc.SelectedProcNum] = procHandle;
             //   Task task = Task.Run(() => RunProc(proc, procHandle));
+            Logger?.Info($"流程启动请求: {procHandle.procNum}-{procHandle.procName}");
             Thread th = new Thread(() => { RunProc(proc, procHandle); });
             threads[SF.frmProc.SelectedProcNum] = th;
+            Logger?.Info($"线程创建: {procHandle.procNum}-{procHandle.procName}");
             // tasks[SF.frmProc.SelectedProcNum] = task;
             th.Start();
         }
@@ -121,16 +126,24 @@ namespace Automation
             procHandle.procName = proc.head.Name;
             ProcHandles[index] = procHandle;
             //   Task task = Task.Run(() => RunProc(proc, procHandle));
+            Logger?.Info($"流程启动请求: {procHandle.procNum}-{procHandle.procName}");
             Thread th = new Thread(() => { RunProc(proc, procHandle); });
             threads[index] = th;
+            Logger?.Info($"线程创建: {procHandle.procNum}-{procHandle.procName}");
             // tasks[SF.frmProc.SelectedProcNum] = task;
             th.Start();
         }
         public void RunProc(Proc proc, ProcHandle evt)
         {
-            if (evt.State == ProcRunState.Stopped)
+            Logger?.Info($"线程进入: {evt.procNum}-{evt.procName} T{Thread.CurrentThread.ManagedThreadId}");
+            bool wasStopped = evt.State == ProcRunState.Stopped;
+            if (wasStopped)
             {
                 evt.State = ProcRunState.Running;
+            }
+            if (wasStopped)
+            {
+                Logger?.Info($"流程启动: {evt.procNum}-{evt.procName}");
             }
             evt.isBreakpoint = false;
             SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
@@ -151,6 +164,8 @@ namespace Automation
             evt.State = ProcRunState.Stopped;
             evt.isBreakpoint = false;
             SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
+            Logger?.Info($"流程停止: {evt.procNum}-{evt.procName} 原因:{(evt.isThStop ? "收到停止请求" : "流程结束")}");
+            Logger?.Info($"线程退出: {evt.procNum}-{evt.procName} T{Thread.CurrentThread.ManagedThreadId}");
         }
         //运行步骤
         public bool RunStep(Step steps, ProcHandle evt)
@@ -200,6 +215,9 @@ namespace Automation
                     ExecuteOperation(evt, steps.Ops[i]);
                     if (evt.isAlarm)
                     {
+                        string alarmType = steps.Ops[i].AlarmType ?? "未知";
+                        string alarmMsg = string.IsNullOrEmpty(evt.alarmMsg) ? "无" : evt.alarmMsg;
+                        Logger?.Warn($"报警触发: {evt.procNum}-{evt.stepNum}-{evt.opsNum} 类型:{alarmType} 信息:{alarmMsg}");
                         ProcRunState lastState = evt.State;
                         bool lastBreakpoint = evt.isBreakpoint;
                         evt.State = ProcRunState.Alarming;
@@ -566,6 +584,7 @@ namespace Automation
             {
                 DelayAfter = (int)SF.valueStore.GetValueByName(waitProc.delayAfterV).GetDValue();
             }
+            Logger?.Info($"WaitProc开始: {evt.procNum}-{evt.stepNum}-{evt.opsNum} 超时:{timeOut} 延时:{DelayAfter}");
             int start = Environment.TickCount;
             while (evt.State != ProcRunState.Stopped)
             {
@@ -575,6 +594,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = "等待超时";
+                        Logger?.Warn($"WaitProc超时: {evt.procNum}-{evt.stepNum}-{evt.opsNum} 超时:{timeOut}");
                         break;
                     }
                 }
@@ -618,6 +638,7 @@ namespace Automation
                     break;
                 }
             }
+            Logger?.Info($"WaitProc结束: {evt.procNum}-{evt.stepNum}-{evt.opsNum} 报警:{evt.isAlarm}");
             Delay(DelayAfter, evt);
             return true;
         }

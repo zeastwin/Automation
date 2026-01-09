@@ -98,6 +98,7 @@
     <Compile Include="CustomFunc.cs" />
     <Compile Include="DataStructModels.cs" />
     <Compile Include="DataRun.cs" />
+    <Compile Include="Logger.cs" />
     <Compile Include="Stores\\DataStructStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="FrmAlarmConfig.cs">
