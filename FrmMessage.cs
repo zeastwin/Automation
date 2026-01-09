@@ -117,7 +117,7 @@ namespace Automation
                         ? SF.DR.ProcHandles[threadIndex]
                         : null;
                     if (handle == null || handle.State == ProcRunState.Stopped)
-                {
+                    {
                         break;
                     }
                     SF.Delay(100);
