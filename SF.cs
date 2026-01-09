@@ -49,6 +49,7 @@ namespace Automation
         public static FrmSearch4Value frmSearch4Value;
         public static FrmInfo frmInfo;
         public static FrmTest frmTest;
+        public static Kernel.IKernelScheduler kernelScheduler;
         public static CardConfigStore cardStore;
         public static ValueConfigStore valueStore;
         public static DataStructStore dataStructStore;

@@ -455,13 +455,7 @@ namespace Automation
         {
             if (SelectedProcNum != -1)
             {
-                SF.DR.StartProc(SF.frmProc.procsList[SF.frmProc.SelectedProcNum]);
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Running;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
-                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
+                SF.kernelScheduler.Start(SF.frmProc.SelectedProcNum);
             }
         }
         public Tuple<int, int, int> FindOperationTypeIndex(OperationType hash)

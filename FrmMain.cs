@@ -64,6 +64,7 @@ namespace Automation
             SF.frmIO = frmIO;
             SF.frmCard = frmCard;
             SF.DR = dataRun;
+            SF.kernelScheduler = new Kernel.KernelSchedulerAdapter(SF.DR);
             SF.frmControl = frmControl;
             SF.frmStation = frmStation;
             SF.frmdataStruct = frmdataStruct;

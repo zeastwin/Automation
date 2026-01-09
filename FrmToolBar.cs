@@ -314,27 +314,13 @@ namespace Automation
             if (SF.frmProc.SelectedProcNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null
                 && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Running || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Alarming))
             {
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Reset();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Reset();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
-
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Paused;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
-                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
-
+                SF.kernelScheduler.Pause(SF.frmProc.SelectedProcNum);
                 btnPause.Text = "继续";
             }
             else if (SF.frmProc.SelectedProcNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null
                 && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.SingleStep))
             {
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
-
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Running;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
-                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
-
+                SF.kernelScheduler.Resume(SF.frmProc.SelectedProcNum);
                 btnPause.Text = "暂停";
             }
         }
