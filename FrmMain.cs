@@ -76,7 +76,9 @@ namespace Automation
                 AxisStateBitGetter = TryGetAxisStateBit
             };
             dataRun = new ProcessEngine(engineContext);
-            dataRun.Logger = new FrmInfoLogger(frmInfo);
+            ILogger uiLogger = new FrmInfoLogger(frmInfo);
+            ILogger fileLogger = new LocalFileLogger(@"D:\AutomationLogs");
+            dataRun.Logger = new CompositeLogger(uiLogger, fileLogger);
             dataRun.AlarmHandler = new WinFormsAlarmHandler(this);
             dataRun.SnapshotChanged += CacheSnapshot;
             SF.procStore = new ProcessEngineStore(dataRun);
