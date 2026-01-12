@@ -540,7 +540,9 @@ namespace Automation
             public Thread Thread;
         }
 
-        private readonly BlockingCollection<EngineCommand> queue = new BlockingCollection<EngineCommand>();
+        private const int MaxQueueSize = 128;
+        private readonly BlockingCollection<EngineCommand> queue = new BlockingCollection<EngineCommand>(new ConcurrentQueue<EngineCommand>(), MaxQueueSize);
+        private readonly object queueLock = new object();
         private readonly Thread dispatcher;
         private readonly object sync = new object();
         private readonly ProcessEngine engine;
@@ -566,13 +568,35 @@ namespace Automation
             {
                 return;
             }
-            command.Generation = Volatile.Read(ref generation);
-            queue.Add(command);
+            lock (queueLock)
+            {
+                command.Generation = Volatile.Read(ref generation);
+                if (command.Type == EngineCommandType.Start
+                    || command.Type == EngineCommandType.StartAt
+                    || command.Type == EngineCommandType.RunSingleOpOnce)
+                {
+                    ClearQueue();
+                }
+                if (!queue.TryAdd(command))
+                {
+                    if (command.Type == EngineCommandType.Start
+                        || command.Type == EngineCommandType.StartAt
+                        || command.Type == EngineCommandType.RunSingleOpOnce)
+                    {
+                        ClearQueue();
+                        queue.TryAdd(command);
+                    }
+                }
+            }
         }
 
         public void RequestStop()
         {
             Interlocked.Increment(ref generation);
+            lock (queueLock)
+            {
+                ClearQueue();
+            }
             StopCurrent(true);
         }
 
@@ -585,6 +609,13 @@ namespace Automation
             disposed = true;
             queue.CompleteAdding();
             StopCurrent(false);
+        }
+
+        private void ClearQueue()
+        {
+            while (queue.TryTake(out _))
+            {
+            }
         }
 
         private void DispatchLoop()

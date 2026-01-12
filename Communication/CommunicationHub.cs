@@ -368,6 +368,7 @@ namespace Automation
         private readonly BlockingCollection<string> _messages = new BlockingCollection<string>(new ConcurrentQueue<string>());
         private readonly object _clientLock = new object();
         private readonly Encoding _encoding = Encoding.UTF8;
+        private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
         private CancellationTokenSource _cts;
         private TcpClient _client;
         private TcpListener _listener;
@@ -504,55 +505,68 @@ namespace Automation
                 throw new InvalidOperationException("TCP 未连接");
             }
 
-            byte[] buffer = _encoding.GetBytes(message ?? string.Empty);
-
-            if (IsServer)
+            await _sendGate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                List<TcpClient> clients;
-                lock (_clientLock)
+                if (!_isRunning)
                 {
-                    clients = _clients.ToList();
+                    throw new InvalidOperationException("TCP 未连接");
                 }
 
-                List<TcpClient> broken = null;
+                byte[] buffer = _encoding.GetBytes(message ?? string.Empty);
 
-                foreach (TcpClient client in clients)
+                if (IsServer)
                 {
-                    try
-                    {
-                        NetworkStream stream = client.GetStream();
-                        await stream.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
-                    }
-                    catch
-                    {
-                        if (broken == null)
-                        {
-                            broken = new List<TcpClient>();
-                        }
-                        broken.Add(client);
-                    }
-                }
-
-                if (broken != null)
-                {
+                    List<TcpClient> clients;
                     lock (_clientLock)
                     {
-                        foreach (TcpClient client in broken)
+                        clients = _clients.ToList();
+                    }
+
+                    List<TcpClient> broken = null;
+
+                    foreach (TcpClient client in clients)
+                    {
+                        try
                         {
-                            _clients.Remove(client);
+                            NetworkStream stream = client.GetStream();
+                            await stream.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            if (broken == null)
+                            {
+                                broken = new List<TcpClient>();
+                            }
+                            broken.Add(client);
+                        }
+                    }
+
+                    if (broken != null)
+                    {
+                        lock (_clientLock)
+                        {
+                            foreach (TcpClient client in broken)
+                            {
+                                _clients.Remove(client);
+                            }
                         }
                     }
                 }
-            }
-            else
-            {
-                if (_client == null)
+                else
                 {
-                    throw new InvalidOperationException("TCP 客户端未初始化");
-                }
+                    if (_client == null)
+                    {
+                        throw new InvalidOperationException("TCP 客户端未初始化");
+                    }
 
-                NetworkStream stream = _client.GetStream();
-                await stream.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+                    NetworkStream stream = _client.GetStream();
+                    await stream.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _sendGate.Release();
             }
         }
 
