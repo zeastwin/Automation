@@ -101,6 +101,7 @@
     <Compile Include="Engine\\ProcessEngine.Operations.cs" />
     <Compile Include="Engine\\ProcessEngine.Models.cs" />
     <Compile Include="Stores\\DataStructStore.cs" />
+    <Compile Include="Stores\\ProcessEngineStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="FrmAlarmConfig.cs">
       <SubType>Form</SubType>

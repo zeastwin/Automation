@@ -79,6 +79,7 @@ namespace Automation
             dataRun.Logger = new FrmInfoLogger(frmInfo);
             dataRun.AlarmHandler = new WinFormsAlarmHandler(this);
             dataRun.SnapshotChanged += CacheSnapshot;
+            SF.procStore = new ProcessEngineStore(dataRun);
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;
             SF.frmDataGrid = frmDataGrid;
