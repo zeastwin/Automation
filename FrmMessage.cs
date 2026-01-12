@@ -28,7 +28,6 @@ namespace Automation
 
         public bool isChoiced = false;
 
-        public int threadIndex;
 
         public Message(string headText,string msg, EventHandler1 eventHandler1, string btnTxt1,bool isWait)
         {
@@ -109,21 +108,10 @@ namespace Automation
             if (!isWait)
                 return;
             Select();
-            if (threadIndex != -1)
+            while (isChoiced == false)
             {
-                while (isChoiced == false && SF.DR.ProcHandles[threadIndex].State != ProcRunState.Stopped)
-                {
-                    SF.Delay(100);
-                }
+                Thread.Sleep(100);
             }
-            else
-            {
-                while (isChoiced == false)
-                {
-                    SF.Delay(100);
-                }
-            }
-                
         }
         public void SetMsgFrom(string msg)
         {
@@ -133,24 +121,11 @@ namespace Automation
             Height = SF.mainfrm.Height / 4;
             StartPosition = FormStartPosition.CenterScreen;
             txtMsg.Text = msg;
-
-            threadIndex = GetThreadIndex();
-
         }
         private void frmMessage_Load(object sender, EventArgs e)
         {
          
         }
-        public int GetThreadIndex()
-        {
-            int threadId = Thread.CurrentThread.ManagedThreadId;
-
-            int index = Array.FindIndex(SF.DR.threads, thread => thread?.ManagedThreadId == threadId);
-        
-            return index;
-         
-        }
-
 
         public void ShowMessage()
         {

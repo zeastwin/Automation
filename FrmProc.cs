@@ -261,12 +261,9 @@ namespace Automation
                     procsList[editProcIndex].head.Name = editProcHeadBackup.Name;
                     if (editProcIndex < proc_treeView.Nodes.Count)
                     {
-                        ProcHandle handle = (SF.DR?.ProcHandles != null && editProcIndex < SF.DR.ProcHandles.Length)
-                            ? SF.DR.ProcHandles[editProcIndex]
-                            : null;
-                        if (handle != null)
+                        if (SF.DR != null)
                         {
-                            SF.DR.SetProcText(editProcIndex, handle.State, handle.isBreakpoint);
+                            SF.DR.RefreshProcName(editProcIndex);
                         }
                         else
                         {
@@ -391,15 +388,20 @@ namespace Automation
                 }
                 SF.frmDataGrid.dataGridView1.DataSource = bindingSource;
 
-                if(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
+                if (SF.DR != null && SF.frmProc.SelectedProcNum != -1)
                 {
-                    if (SF.frmProc.SelectedProcNum != -1 && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Running || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Alarming))
+                    EngineSnapshot snapshot = SF.DR.GetSnapshot(SF.frmProc.SelectedProcNum);
+                    if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
                     {
                         SF.frmToolBar.btnPause.Text = "暂停";
                     }
-                    else if (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.SingleStep)
+                    else if (snapshot != null && (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep))
                     {
                         SF.frmToolBar.btnPause.Text = "继续";
+                    }
+                    else
+                    {
+                        SF.frmToolBar.btnPause.Text = "暂停";
                     }
                 }
                 else

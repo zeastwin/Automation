@@ -95,37 +95,37 @@ namespace Automation
                 }
 
                 int selectedProc = SF.frmProc.SelectedProcNum;
-                if (selectedProc < 0 || selectedProc >= SF.DR.ProcHandles.Length)
+                if (selectedProc < 0 || selectedProc >= SF.frmProc.procsList.Count)
                 {
                     ClearLastHighlight();
                     return;
                 }
 
-                ProcHandle selectedHandle = SF.DR.ProcHandles[selectedProc];
-                if (selectedHandle == null || selectedHandle.State == ProcRunState.Stopped)
+                EngineSnapshot snapshot = SF.DR.GetSnapshot(selectedProc);
+                if (snapshot == null || snapshot.State == ProcRunState.Stopped)
                 {
                     ClearLastHighlight();
                     return;
                 }
 
-                if ((selectedHandle.State == ProcRunState.Paused || selectedHandle.State == ProcRunState.SingleStep) && SF.frmProc.SelectedStepNum != selectedHandle.stepNum)
+                if ((snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep) && SF.frmProc.SelectedStepNum != snapshot.StepIndex)
                 {
-                    if (selectedHandle.stepNum >= 0
+                    if (snapshot.StepIndex >= 0
                         && selectedProc >= 0
                         && selectedProc < SF.frmProc.proc_treeView.Nodes.Count
-                        && selectedHandle.stepNum < SF.frmProc.proc_treeView.Nodes[selectedProc].Nodes.Count)
+                        && snapshot.StepIndex < SF.frmProc.proc_treeView.Nodes[selectedProc].Nodes.Count)
                     {
-                        SelectChildNode(selectedProc, selectedHandle.stepNum);
+                        SelectChildNode(selectedProc, snapshot.StepIndex);
                     }
                 }
 
-                if (SF.frmProc.SelectedStepNum != selectedHandle.stepNum)
+                if (SF.frmProc.SelectedStepNum != snapshot.StepIndex)
                 {
                     ClearLastHighlight();
                     return;
                 }
 
-                int rowIndex = selectedHandle.opsNum;
+                int rowIndex = snapshot.OpIndex;
                 if (rowIndex < 0 || rowIndex >= dataGridView1.RowCount)
                 {
                     ClearLastHighlight();
@@ -135,7 +135,7 @@ namespace Automation
                 if (!lastHighlightActive
                     || rowIndex != lastHighlightedRow
                     || selectedProc != lastHighlightedProc
-                    || selectedHandle.stepNum != lastHighlightedStep)
+                    || snapshot.StepIndex != lastHighlightedStep)
                 {
                     if (lastHighlightActive && lastHighlightedRow >= 0 && lastHighlightedRow < dataGridView1.RowCount)
                     {
@@ -145,14 +145,14 @@ namespace Automation
 
                     SetRowColor(rowIndex, Color.LightBlue);
                     dataGridView1.InvalidateRow(rowIndex);
-                    if (selectedHandle.State == ProcRunState.Paused || selectedHandle.State == ProcRunState.SingleStep)
+                    if (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep)
                     {
                         ScrollRowToCenter(rowIndex);
                     }
                     lastHighlightActive = true;
                     lastHighlightedRow = rowIndex;
                     lastHighlightedProc = selectedProc;
-                    lastHighlightedStep = selectedHandle.stepNum;
+                    lastHighlightedStep = snapshot.StepIndex;
                 }
             }
             catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
@@ -365,7 +365,7 @@ namespace Automation
 
         private void SetStartOps_Click(object sender, EventArgs e)
         {
-            if (SF.frmProc.SelectedProcNum >= 0 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
+            if (SF.frmProc.SelectedProcNum >= 0)
             {
                 SF.DR.Stop(SF.frmProc.SelectedProcNum);
             }

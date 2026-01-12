@@ -26,20 +26,147 @@ namespace Automation
 {
     public class ProcessEngine
     {
-        public Thread[] threads = new Thread[100];
-        public ProcHandle[] ProcHandles = new ProcHandle[100];
-        private readonly ProcessControl[] controls = new ProcessControl[100];
+        private ProcRunner[] runners = Array.Empty<ProcRunner>();
+        private EngineSnapshot[] snapshots = Array.Empty<EngineSnapshot>();
+        private readonly object runnerLock = new object();
+        private readonly TimeSpan stopJoinTimeout = TimeSpan.FromSeconds(2);
         public EngineContext Context { get; }
         public IAlarmHandler AlarmHandler { get; set; }
         public ILogger Logger { get; set; }
-        public event Action<int, ProcRunState, bool> ProcTextChanged;
+        public event Action<EngineSnapshot> SnapshotChanged;
 
         public ProcessEngine(EngineContext context)
         {
             Context = context ?? throw new ArgumentNullException(nameof(context));
-            for (int i = 0; i < ProcHandles.Length; i++)
+            if (Context.Procs != null && Context.Procs.Count > 0)
             {
-                ProcHandles[i] = new ProcHandle();
+                EnsureCapacity(Context.Procs.Count - 1);
+            }
+        }
+        public EngineSnapshot GetSnapshot(int procIndex)
+        {
+            if (procIndex < 0)
+            {
+                return null;
+            }
+            EnsureCapacity(procIndex);
+            EngineSnapshot snapshot = null;
+            if (procIndex < snapshots.Length)
+            {
+                snapshot = Volatile.Read(ref snapshots[procIndex]);
+            }
+            if (snapshot != null)
+            {
+                return snapshot;
+            }
+
+            string procName = null;
+            if (Context?.Procs != null && procIndex < Context.Procs.Count)
+            {
+                procName = Context.Procs[procIndex]?.head?.Name;
+            }
+            snapshot = new EngineSnapshot(procIndex, procName, ProcRunState.Stopped, -1, -1, false, false, null, DateTime.Now);
+            if (procIndex < snapshots.Length)
+            {
+                Volatile.Write(ref snapshots[procIndex], snapshot);
+            }
+            return snapshot;
+        }
+        public IReadOnlyList<EngineSnapshot> GetSnapshots()
+        {
+            int count = Context?.Procs?.Count ?? 0;
+            List<EngineSnapshot> result = new List<EngineSnapshot>(count);
+            for (int i = 0; i < count; i++)
+            {
+                result.Add(GetSnapshot(i));
+            }
+            return result;
+        }
+        public void RefreshProcName(int procIndex)
+        {
+            EngineSnapshot snapshot = GetSnapshot(procIndex);
+            if (snapshot == null)
+            {
+                return;
+            }
+            string procName = null;
+            if (Context?.Procs != null && procIndex >= 0 && procIndex < Context.Procs.Count)
+            {
+                procName = Context.Procs[procIndex]?.head?.Name;
+            }
+            UpdateSnapshot(procIndex, procName, snapshot.State, snapshot.StepIndex, snapshot.OpIndex, snapshot.IsBreakpoint,
+                snapshot.IsAlarm, snapshot.AlarmMessage, true);
+        }
+        private void EnsureCapacity(int procIndex)
+        {
+            if (procIndex < 0)
+            {
+                return;
+            }
+            if (procIndex < runners.Length)
+            {
+                return;
+            }
+            lock (runnerLock)
+            {
+                if (procIndex < runners.Length)
+                {
+                    return;
+                }
+                int newSize = runners.Length == 0 ? 1 : runners.Length;
+                while (newSize <= procIndex)
+                {
+                    newSize *= 2;
+                }
+                Array.Resize(ref runners, newSize);
+                Array.Resize(ref snapshots, newSize);
+            }
+        }
+        private ProcRunner GetOrCreateRunner(int procIndex)
+        {
+            if (procIndex < 0)
+            {
+                return null;
+            }
+            EnsureCapacity(procIndex);
+            lock (runnerLock)
+            {
+                ProcRunner runner = runners[procIndex];
+                if (runner == null)
+                {
+                    runner = new ProcRunner(this, procIndex);
+                    runners[procIndex] = runner;
+                }
+                return runner;
+            }
+        }
+        private ProcRunState GetProcState(int procIndex)
+        {
+            EngineSnapshot snapshot = GetSnapshot(procIndex);
+            return snapshot?.State ?? ProcRunState.Stopped;
+        }
+        internal TimeSpan StopJoinTimeout => stopJoinTimeout;
+        internal void UpdateSnapshot(int procIndex, string procName, ProcRunState state, int stepIndex, int opIndex,
+            bool isBreakpoint, bool isAlarm, string alarmMessage, bool raiseEvent)
+        {
+            EnsureCapacity(procIndex);
+            EngineSnapshot snapshot = new EngineSnapshot(procIndex, procName, state, stepIndex, opIndex, isBreakpoint,
+                isAlarm, alarmMessage, DateTime.Now);
+            Volatile.Write(ref snapshots[procIndex], snapshot);
+            if (raiseEvent)
+            {
+                RaiseSnapshotChanged(snapshot);
+            }
+        }
+        private void RaiseSnapshotChanged(EngineSnapshot snapshot)
+        {
+            try
+            {
+                SnapshotChanged?.Invoke(snapshot);
+            }
+            catch (Exception ex)
+            {
+                Logger?.Log(ex.Message, LogLevel.Error);
             }
         }
         public void ExecuteGoto(string GOTO, ProcHandle evt)
@@ -47,10 +174,6 @@ namespace Automation
             string[] key = GOTO.Split('-');
             evt.stepNum = int.Parse(key[1]);
             evt.opsNum = int.Parse(key[2]);
-        }
-        public void SetProcText(int procNum, ProcRunState state, bool isBreakpoint)
-        {
-            ProcTextChanged?.Invoke(procNum, state, isBreakpoint);
         }
         public void Delay(int milliSecond, ProcHandle evt)
         {
@@ -72,131 +195,50 @@ namespace Automation
         }
         public void StartProcAt(Proc proc, int procIndex, int stepIndex, int opIndex, ProcRunState startState)
         {
+            StartProcAtInternal(proc, procIndex, stepIndex, opIndex, startState, false);
+        }
+        private bool StartProcAtInternal(Proc proc, int procIndex, int stepIndex, int opIndex, ProcRunState startState, bool singleOpOnce)
+        {
             if (proc == null)
             {
-                return;
+                return false;
             }
-            ProcHandle procHandle = new ProcHandle
+            ProcRunner runner = GetOrCreateRunner(procIndex);
+            if (runner == null)
             {
-                procNum = procIndex,
-                stepNum = stepIndex,
-                opsNum = opIndex,
-                isThStop = false,
-                procName = proc.head?.Name
-            };
-            ProcHandles[procIndex] = procHandle;
-            if (controls[procIndex] != null)
-            {
-                controls[procIndex].Dispose();
+                return false;
             }
-            ProcessControl control = new ProcessControl();
-            controls[procIndex] = control;
-
-            procHandle.State = startState;
-            procHandle.isBreakpoint = false;
-            if (startState == ProcRunState.Running || startState == ProcRunState.SingleStep)
-            {
-                control.SetRunning();
-            }
-            else
-            {
-                control.SetPaused();
-            }
-
-            Thread th = new Thread(() => { RunProc(proc, procHandle); });
-            threads[procIndex] = th;
-            th.Start();
-            SetProcText(procIndex, procHandle.State, procHandle.isBreakpoint);
+            return runner.Start(proc, stepIndex, opIndex, startState, singleOpOnce);
         }
         public void Pause(int procIndex)
         {
-            ProcHandle handle = ProcHandles[procIndex];
-            ProcessControl control = controls[procIndex];
-            if (handle == null || control == null)
-            {
-                return;
-            }
-            if (handle.State == ProcRunState.Running || handle.State == ProcRunState.Alarming)
-            {
-                handle.State = ProcRunState.Paused;
-                handle.isBreakpoint = false;
-                control.SetPaused();
-                SetProcText(procIndex, handle.State, handle.isBreakpoint);
-            }
+            ProcRunner runner = GetOrCreateRunner(procIndex);
+            runner?.Pause();
         }
         public void Resume(int procIndex)
         {
-            ProcHandle handle = ProcHandles[procIndex];
-            ProcessControl control = controls[procIndex];
-            if (handle == null || control == null)
-            {
-                return;
-            }
-            if (handle.State == ProcRunState.Paused || handle.State == ProcRunState.SingleStep)
-            {
-                handle.State = ProcRunState.Running;
-                handle.isBreakpoint = false;
-                control.SetRunning();
-                SetProcText(procIndex, handle.State, handle.isBreakpoint);
-            }
+            ProcRunner runner = GetOrCreateRunner(procIndex);
+            runner?.Resume();
         }
         public void Step(int procIndex)
         {
-            ProcHandle handle = ProcHandles[procIndex];
-            ProcessControl control = controls[procIndex];
-            if (handle == null || control == null)
-            {
-                return;
-            }
-            if (handle.State == ProcRunState.Paused || handle.State == ProcRunState.SingleStep)
-            {
-                handle.State = ProcRunState.SingleStep;
-                handle.isBreakpoint = false;
-                control.RequestStep();
-                SetProcText(procIndex, handle.State, handle.isBreakpoint);
-            }
+            ProcRunner runner = GetOrCreateRunner(procIndex);
+            runner?.Step();
         }
         public void RunSingleOpOnce(Proc proc, int procIndex, int stepIndex, int opIndex)
         {
-            StartProcAt(proc, procIndex, stepIndex, opIndex, ProcRunState.SingleStep);
-            Step(procIndex);
-            Task.Run(() =>
+            if (StartProcAtInternal(proc, procIndex, stepIndex, opIndex, ProcRunState.SingleStep, true))
             {
-                ProcHandle handle = ProcHandles[procIndex];
-                int startStep = stepIndex;
-                int startOp = opIndex;
-                while (handle != null && !handle.isThStop)
-                {
-                    if (handle.State == ProcRunState.Stopped)
-                    {
-                        break;
-                    }
-                    if (handle.stepNum != startStep || handle.opsNum != startOp)
-                    {
-                        Stop(procIndex);
-                        break;
-                    }
-                    Thread.Sleep(10);
-                }
-            });
+                Step(procIndex);
+            }
         }
         public void Stop(int procIndex)
         {
-            ProcHandle handle = ProcHandles[procIndex];
-            ProcessControl control = controls[procIndex];
-            if (handle == null || control == null)
-            {
-                return;
-            }
-            handle.isThStop = true;
-            handle.State = ProcRunState.Stopped;
-            handle.isBreakpoint = false;
-            control.RequestStop();
-            SetProcText(procIndex, handle.State, handle.isBreakpoint);
+            ProcRunner runner = GetOrCreateRunner(procIndex);
+            runner?.Stop();
         }
-        private void RunProc(Proc proc, ProcHandle evt)
+        internal void RunProc(Proc proc, ProcHandle evt, ProcessControl control)
         {
-            ProcessControl control = controls[evt.procNum];
             if (control == null)
             {
                 return;
@@ -207,10 +249,11 @@ namespace Automation
                 control.SetRunning();
             }
             evt.isBreakpoint = false;
-            SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
+            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
             for (int i = evt.stepNum; i < proc.steps.Count; i++)
             {
                 evt.stepNum = i;
+                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
                 RunStep(proc.steps[i], evt, control);
                 if (evt.isThStop || control.IsStopRequested)
                     break;
@@ -224,7 +267,7 @@ namespace Automation
             }
             evt.State = ProcRunState.Stopped;
             evt.isBreakpoint = false;
-            SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
+            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
         }
         //运行步骤
         private bool RunStep(Step steps, ProcHandle evt, ProcessControl control)
@@ -239,6 +282,7 @@ namespace Automation
                 if (evt.isThStop || control.IsStopRequested)
                     return false;
                 evt.opsNum = i;
+                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
                 if (steps.Ops[i].Enable)
                 {
                     continue;
@@ -251,7 +295,7 @@ namespace Automation
                     {
                         evt.State = ProcRunState.Paused;
                     }
-                    SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
+                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                 }
                 control.WaitForRun();
                 if (evt.State == ProcRunState.SingleStep)
@@ -261,7 +305,7 @@ namespace Automation
                 if (evt.isBreakpoint)
                 {
                     evt.isBreakpoint = false;
-                    SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
+                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                 }
                 if (evt.isThStop || control.IsStopRequested)
                     return false;
@@ -276,6 +320,11 @@ namespace Automation
                     {
                         return true;
                     }
+                    if (evt.singleOpOnce && evt.stepNum == evt.singleOpStep && evt.opsNum == evt.singleOpOp)
+                    {
+                        evt.isThStop = true;
+                        return false;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -289,6 +338,7 @@ namespace Automation
             }
 
             evt.opsNum = -1;
+            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
             return bOK;
 
 
@@ -300,7 +350,7 @@ namespace Automation
             bool lastBreakpoint = evt.isBreakpoint;
             evt.State = ProcRunState.Alarming;
             evt.isBreakpoint = false;
-            SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
+            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
 
             Logger?.Log($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum} {evt.alarmMsg}", LogLevel.Error);
 
@@ -311,7 +361,7 @@ namespace Automation
             {
                 evt.State = evt.isThStop ? ProcRunState.Stopped : lastState;
                 evt.isBreakpoint = evt.State == ProcRunState.Paused ? lastBreakpoint : false;
-                SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
+                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
             }
         }
 
@@ -660,22 +710,24 @@ namespace Automation
                 }
                 if (procParam.value == "运行")
                 {
-                    if (evt.State != ProcRunState.Stopped)
+                    int index = Context.Procs.IndexOf(proc);
+                    ProcRunState targetState = GetProcState(index);
+                    if (targetState != ProcRunState.Stopped)
                     {
                         evt.isAlarm = true;
                         return false;
                     }
-                    int index = Context.Procs.IndexOf(proc);
                     StartProcAuto(proc, index);
                 }
                 else
                 {
-                    if (evt.State == ProcRunState.Stopped)
+                    int index = Context.Procs.IndexOf(proc);
+                    ProcRunState targetState = GetProcState(index);
+                    if (targetState == ProcRunState.Stopped)
                     {
                         evt.isAlarm = true;
                         return false;
                     }
-                    int index = Context.Procs.IndexOf(proc);
                     Stop(index);
                 }
                 Delay(procParam.delayAfter, evt);
@@ -729,7 +781,7 @@ namespace Automation
                     int index = Context.Procs.IndexOf(proc);
                     if (procParam.value == "运行")
                     {
-                        if (ProcHandles[index].State == ProcRunState.Stopped)
+                        if (GetProcState(index) == ProcRunState.Stopped)
                         {
                             isWaitOff = false;
                             break;
@@ -737,7 +789,7 @@ namespace Automation
                     }
                     else if (procParam.value == "停止")
                     {
-                        if (ProcHandles[index].State != ProcRunState.Stopped)
+                        if (GetProcState(index) != ProcRunState.Stopped)
                         {
                             isWaitOff = false;
                             break;
@@ -2629,7 +2681,36 @@ namespace Automation
         public bool isAlarm;
         //自定义报警信息
         public string alarmMsg;
+        public bool singleOpOnce;
+        public int singleOpStep;
+        public int singleOpOp;
 
+    }
+    public sealed class EngineSnapshot
+    {
+        public EngineSnapshot(int procIndex, string procName, ProcRunState state, int stepIndex, int opIndex,
+            bool isBreakpoint, bool isAlarm, string alarmMessage, DateTime updateTime)
+        {
+            ProcIndex = procIndex;
+            ProcName = procName;
+            State = state;
+            StepIndex = stepIndex;
+            OpIndex = opIndex;
+            IsBreakpoint = isBreakpoint;
+            IsAlarm = isAlarm;
+            AlarmMessage = alarmMessage;
+            UpdateTime = updateTime;
+        }
+
+        public int ProcIndex { get; }
+        public string ProcName { get; }
+        public ProcRunState State { get; }
+        public int StepIndex { get; }
+        public int OpIndex { get; }
+        public bool IsBreakpoint { get; }
+        public bool IsAlarm { get; }
+        public string AlarmMessage { get; }
+        public DateTime UpdateTime { get; }
     }
 
     public enum AlarmDecision
@@ -2699,6 +2780,222 @@ namespace Automation
         public IList<SerialPortInfo> SerialPortInfos { get; set; }
         public CustomFunc CustomFunc { get; set; }
         public Func<ushort, ushort, int, bool> AxisStateBitGetter { get; set; }
+    }
+
+    internal sealed class ProcRunner
+    {
+        private readonly object sync = new object();
+        private readonly ProcessEngine engine;
+        private readonly int procIndex;
+        private Thread worker;
+        private ProcessControl control;
+        private ProcHandle handle;
+
+        public ProcRunner(ProcessEngine engine, int procIndex)
+        {
+            this.engine = engine;
+            this.procIndex = procIndex;
+        }
+
+        public bool Start(Proc proc, int stepIndex, int opIndex, ProcRunState startState, bool singleOpOnce)
+        {
+            if (proc == null)
+            {
+                return false;
+            }
+            Thread runningWorker = null;
+            lock (sync)
+            {
+                if (worker != null && worker.IsAlive)
+                {
+                    RequestStopLocked();
+                    runningWorker = worker;
+                }
+            }
+            if (runningWorker != null)
+            {
+                if (!runningWorker.Join(engine.StopJoinTimeout))
+                {
+                    engine.Logger?.Log($"流程{procIndex}停止超时，拒绝再次启动。", LogLevel.Error);
+                    return false;
+                }
+            }
+            ProcHandle currentHandle;
+            lock (sync)
+            {
+                control?.Dispose();
+                control = new ProcessControl();
+                handle = new ProcHandle
+                {
+                    procNum = procIndex,
+                    stepNum = stepIndex,
+                    opsNum = opIndex,
+                    isThStop = false,
+                    procName = proc.head?.Name,
+                    singleOpOnce = singleOpOnce,
+                    singleOpStep = stepIndex,
+                    singleOpOp = opIndex
+                };
+                handle.State = startState;
+                handle.isBreakpoint = false;
+                if (startState == ProcRunState.Running || startState == ProcRunState.SingleStep)
+                {
+                    control.SetRunning();
+                }
+                else
+                {
+                    control.SetPaused();
+                }
+                worker = new Thread(() => RunWorker(proc, handle, control))
+                {
+                    IsBackground = true
+                };
+                worker.Start();
+                currentHandle = handle;
+            }
+            engine.UpdateSnapshot(procIndex, currentHandle.procName, currentHandle.State, currentHandle.stepNum, currentHandle.opsNum,
+                currentHandle.isBreakpoint, currentHandle.isAlarm, currentHandle.alarmMsg, true);
+            return true;
+        }
+
+        public void Pause()
+        {
+            ProcHandle currentHandle;
+            ProcessControl currentControl;
+            lock (sync)
+            {
+                currentHandle = handle;
+                currentControl = control;
+                if (currentHandle == null || currentControl == null)
+                {
+                    return;
+                }
+                if (currentHandle.State != ProcRunState.Running && currentHandle.State != ProcRunState.Alarming)
+                {
+                    return;
+                }
+                currentHandle.State = ProcRunState.Paused;
+                currentHandle.isBreakpoint = false;
+                currentControl.SetPaused();
+            }
+            engine.UpdateSnapshot(currentHandle.procNum, currentHandle.procName, currentHandle.State, currentHandle.stepNum,
+                currentHandle.opsNum, currentHandle.isBreakpoint, currentHandle.isAlarm, currentHandle.alarmMsg, true);
+        }
+
+        public void Resume()
+        {
+            ProcHandle currentHandle;
+            ProcessControl currentControl;
+            lock (sync)
+            {
+                currentHandle = handle;
+                currentControl = control;
+                if (currentHandle == null || currentControl == null)
+                {
+                    return;
+                }
+                if (currentHandle.State != ProcRunState.Paused && currentHandle.State != ProcRunState.SingleStep)
+                {
+                    return;
+                }
+                currentHandle.State = ProcRunState.Running;
+                currentHandle.isBreakpoint = false;
+                currentControl.SetRunning();
+            }
+            engine.UpdateSnapshot(currentHandle.procNum, currentHandle.procName, currentHandle.State, currentHandle.stepNum,
+                currentHandle.opsNum, currentHandle.isBreakpoint, currentHandle.isAlarm, currentHandle.alarmMsg, true);
+        }
+
+        public void Step()
+        {
+            ProcHandle currentHandle;
+            ProcessControl currentControl;
+            lock (sync)
+            {
+                currentHandle = handle;
+                currentControl = control;
+                if (currentHandle == null || currentControl == null)
+                {
+                    return;
+                }
+                if (currentHandle.State != ProcRunState.Paused && currentHandle.State != ProcRunState.SingleStep)
+                {
+                    return;
+                }
+                currentHandle.State = ProcRunState.SingleStep;
+                currentHandle.isBreakpoint = false;
+                currentControl.RequestStep();
+            }
+            engine.UpdateSnapshot(currentHandle.procNum, currentHandle.procName, currentHandle.State, currentHandle.stepNum,
+                currentHandle.opsNum, currentHandle.isBreakpoint, currentHandle.isAlarm, currentHandle.alarmMsg, true);
+        }
+
+        public void Stop()
+        {
+            ProcHandle currentHandle;
+            ProcessControl currentControl;
+            lock (sync)
+            {
+                currentHandle = handle;
+                currentControl = control;
+                if (currentHandle == null || currentControl == null)
+                {
+                    return;
+                }
+                currentHandle.isThStop = true;
+                currentHandle.State = ProcRunState.Stopped;
+                currentHandle.isBreakpoint = false;
+                currentControl.RequestStop();
+            }
+            engine.UpdateSnapshot(currentHandle.procNum, currentHandle.procName, currentHandle.State, currentHandle.stepNum,
+                currentHandle.opsNum, currentHandle.isBreakpoint, currentHandle.isAlarm, currentHandle.alarmMsg, true);
+        }
+
+        private void RequestStopLocked()
+        {
+            if (handle == null || control == null)
+            {
+                return;
+            }
+            handle.isThStop = true;
+            control.RequestStop();
+        }
+
+        private void RunWorker(Proc proc, ProcHandle runHandle, ProcessControl runControl)
+        {
+            try
+            {
+                engine.RunProc(proc, runHandle, runControl);
+            }
+            catch (Exception ex)
+            {
+                runHandle.isAlarm = true;
+                runHandle.alarmMsg = ex.Message;
+                runHandle.State = ProcRunState.Stopped;
+                engine.UpdateSnapshot(runHandle.procNum, runHandle.procName, runHandle.State, runHandle.stepNum, runHandle.opsNum,
+                    runHandle.isBreakpoint, runHandle.isAlarm, runHandle.alarmMsg, true);
+                engine.Logger?.Log(ex.Message, LogLevel.Error);
+            }
+            finally
+            {
+                lock (sync)
+                {
+                    runControl?.Dispose();
+                    if (ReferenceEquals(control, runControl))
+                    {
+                        control = null;
+                    }
+                    if (ReferenceEquals(handle, runHandle))
+                    {
+                        handle = null;
+                    }
+                    if (ReferenceEquals(worker, Thread.CurrentThread))
+                    {
+                        worker = null;
+                    }
+                }
+            }
+        }
     }
 
     internal sealed class ProcessControl : IDisposable

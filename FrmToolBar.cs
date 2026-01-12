@@ -311,37 +311,41 @@ namespace Automation
 
         private void btnPause_Click(object sender, EventArgs e)
         {
-            if (SF.frmProc.SelectedProcNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null
-                && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Running || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Alarming))
+            int procIndex = SF.frmProc.SelectedProcNum;
+            if (procIndex < 0)
             {
-                SF.DR.Pause(SF.frmProc.SelectedProcNum);
-
+                return;
+            }
+            EngineSnapshot snapshot = SF.DR.GetSnapshot(procIndex);
+            if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
+            {
+                SF.DR.Pause(procIndex);
                 btnPause.Text = "继续";
             }
-            else if (SF.frmProc.SelectedProcNum != -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null
-                && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.SingleStep))
+            else if (snapshot != null && (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep))
             {
-                SF.DR.Resume(SF.frmProc.SelectedProcNum);
-
+                SF.DR.Resume(procIndex);
                 btnPause.Text = "暂停";
             }
         }
 
         private void SingleRun_Click(object sender, EventArgs e)
         {
-            if (SF.frmProc.SelectedProcNum!= -1 && SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
+            int procIndex = SF.frmProc.SelectedProcNum;
+            if (procIndex != -1)
             {
-                if (SF.frmProc.SelectedStepNum != -1
-                    && (SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.Paused || SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State == ProcRunState.SingleStep))
+                EngineSnapshot snapshot = SF.DR.GetSnapshot(procIndex);
+                if (SF.frmProc.SelectedStepNum != -1 && snapshot != null
+                    && (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep))
                 {
-                    SF.DR.Step(SF.frmProc.SelectedProcNum);
+                    SF.DR.Step(procIndex);
                 }
             }
                 
         }
         private void btnStop_Click(object sender, EventArgs e)
         {
-            if(SF.frmProc.SelectedProcNum >=0&& SF.DR.ProcHandles[SF.frmProc.SelectedProcNum] != null)
+            if (SF.frmProc.SelectedProcNum >= 0)
             {
                 SF.DR.Stop(SF.frmProc.SelectedProcNum);
             }
@@ -350,23 +354,17 @@ namespace Automation
 
         private void btnStopAll_Click(object sender, EventArgs e)
         {
-            if (SF.frmProc?.procsList == null || SF.DR?.ProcHandles == null)
+            if (SF.frmProc?.procsList == null)
             {
                 return;
             }
 
-            int count = Math.Min(SF.frmProc.procsList.Count, SF.DR.ProcHandles.Length);
+            int count = SF.frmProc.procsList.Count;
             for (int i = 0; i < count; i++)
             {
                 Proc proc = SF.frmProc.procsList[i];
                 string procName = proc?.head?.Name;
                 if (!string.IsNullOrEmpty(procName) && procName.StartsWith("系统", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                ProcHandle handle = SF.DR.ProcHandles[i];
-                if (handle == null)
                 {
                     continue;
                 }
@@ -472,9 +470,19 @@ namespace Automation
 
         private void btnLocate_Click(object sender, EventArgs e)
         {
-            SF.frmDataGrid.SelectChildNode(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].procNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].stepNum);
-            SF.frmDataGrid.ScrollRowToCenter(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum);
-            SF.frmDataGrid.SetRowColor(SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].opsNum, Color.LightBlue);
+            int procIndex = SF.frmProc.SelectedProcNum;
+            if (procIndex < 0)
+            {
+                return;
+            }
+            EngineSnapshot snapshot = SF.DR.GetSnapshot(procIndex);
+            if (snapshot == null || snapshot.StepIndex < 0 || snapshot.OpIndex < 0)
+            {
+                return;
+            }
+            SF.frmDataGrid.SelectChildNode(procIndex, snapshot.StepIndex);
+            SF.frmDataGrid.ScrollRowToCenter(snapshot.OpIndex);
+            SF.frmDataGrid.SetRowColor(snapshot.OpIndex, Color.LightBlue);
         }
     }
 }

@@ -74,7 +74,7 @@ namespace Automation
             dataRun = new ProcessEngine(engineContext);
             dataRun.Logger = new FrmInfoLogger(frmInfo);
             dataRun.AlarmHandler = new WinFormsAlarmHandler(this);
-            dataRun.ProcTextChanged += UpdateProcText;
+            dataRun.SnapshotChanged += UpdateProcText;
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;
             SF.frmDataGrid = frmDataGrid;
@@ -154,7 +154,8 @@ namespace Automation
                     {
                         continue;
                     }
-                    if (SF.DR.ProcHandles[i] != null && SF.DR.ProcHandles[i].State != ProcRunState.Stopped)
+                    EngineSnapshot snapshot = SF.DR.GetSnapshot(i);
+                    if (snapshot != null && snapshot.State != ProcRunState.Stopped)
                     {
                         continue;
                     }
@@ -251,19 +252,24 @@ namespace Automation
             }
         }
 
-        private void UpdateProcText(int procNum, ProcRunState state, bool isBreakpoint)
+        private void UpdateProcText(EngineSnapshot snapshot)
         {
             if (SF.frmProc?.proc_treeView == null || SF.frmProc.procsList == null)
             {
                 return;
             }
+            if (snapshot == null)
+            {
+                return;
+            }
+            int procNum = snapshot.ProcIndex;
             if (procNum < 0 || procNum >= SF.frmProc.procsList.Count || procNum >= SF.frmProc.proc_treeView.Nodes.Count)
             {
                 return;
             }
 
             string stateText;
-            switch (state)
+            switch (snapshot.State)
             {
                 case ProcRunState.Stopped:
                     stateText = "停止";
@@ -286,19 +292,24 @@ namespace Automation
             }
 
             string result = $"|{stateText}";
-            if (isBreakpoint)
+            if (snapshot.IsBreakpoint)
             {
                 result += "|断点";
             }
 
             SF.frmProc.proc_treeView?.Invoke(new Action(() =>
             {
-                SF.frmProc.proc_treeView.Nodes[procNum].Text = SF.frmProc.procsList[procNum].head.Name + result;
+                string procName = snapshot.ProcName;
+                if (string.IsNullOrEmpty(procName) && procNum < SF.frmProc.procsList.Count)
+                {
+                    procName = SF.frmProc.procsList[procNum].head.Name;
+                }
+                SF.frmProc.proc_treeView.Nodes[procNum].Text = procName + result;
             }));
 
             if (SF.frmToolBar?.btnPause != null && procNum == SF.frmProc.SelectedProcNum)
             {
-                string buttonText = (state == ProcRunState.Running || state == ProcRunState.Alarming) ? "暂停" : "继续";
+                string buttonText = (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming) ? "暂停" : "继续";
                 SF.frmToolBar.btnPause?.BeginInvoke(new Action(() =>
                 {
                     SF.frmToolBar.btnPause.Text = buttonText;
