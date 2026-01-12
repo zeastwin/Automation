@@ -45,6 +45,10 @@ namespace Automation
         public FrmInfo frmInfo = new FrmInfo();
         public FrmTest frmTest = new FrmTest();
         public MotionCtrl motion = new MotionCtrl();
+        private EngineSnapshot[] snapshotCache = Array.Empty<EngineSnapshot>();
+        private bool[] snapshotDirty = Array.Empty<bool>();
+        private readonly object snapshotLock = new object();
+        private System.Windows.Forms.Timer snapshotTimer;
 
         public FrmMain()
         {
@@ -74,7 +78,7 @@ namespace Automation
             dataRun = new ProcessEngine(engineContext);
             dataRun.Logger = new FrmInfoLogger(frmInfo);
             dataRun.AlarmHandler = new WinFormsAlarmHandler(this);
-            dataRun.SnapshotChanged += UpdateProcText;
+            dataRun.SnapshotChanged += CacheSnapshot;
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;
             SF.frmDataGrid = frmDataGrid;
@@ -107,6 +111,7 @@ namespace Automation
             loadFillForm(ToolBar_panel, SF.frmToolBar);
             loadFillForm(state_panel, SF.frmState);
             loadFillForm(panel_Info, SF.frmInfo);
+            StartSnapshotTimer();
         }
 
         
@@ -252,6 +257,106 @@ namespace Automation
             }
         }
 
+        private void CacheSnapshot(EngineSnapshot snapshot)
+        {
+            if (snapshot == null)
+            {
+                return;
+            }
+            lock (snapshotLock)
+            {
+                EnsureSnapshotCapacity(snapshot.ProcIndex);
+                snapshotCache[snapshot.ProcIndex] = snapshot;
+                snapshotDirty[snapshot.ProcIndex] = true;
+            }
+        }
+
+        private void EnsureSnapshotCapacity(int procIndex)
+        {
+            if (procIndex < 0)
+            {
+                return;
+            }
+            if (procIndex < snapshotCache.Length)
+            {
+                return;
+            }
+            int newSize = snapshotCache.Length == 0 ? 1 : snapshotCache.Length;
+            while (newSize <= procIndex)
+            {
+                newSize *= 2;
+            }
+            Array.Resize(ref snapshotCache, newSize);
+            Array.Resize(ref snapshotDirty, newSize);
+        }
+
+        private void StartSnapshotTimer()
+        {
+            if (snapshotTimer != null)
+            {
+                return;
+            }
+            snapshotTimer = new System.Windows.Forms.Timer();
+            snapshotTimer.Interval = 200;
+            snapshotTimer.Tick += SnapshotTimer_Tick;
+            snapshotTimer.Start();
+        }
+
+        private void SnapshotTimer_Tick(object sender, EventArgs e)
+        {
+            if (IsDisposed)
+            {
+                return;
+            }
+            List<EngineSnapshot> pending = null;
+            lock (snapshotLock)
+            {
+                for (int i = 0; i < snapshotDirty.Length; i++)
+                {
+                    if (!snapshotDirty[i])
+                    {
+                        continue;
+                    }
+                    if (pending == null)
+                    {
+                        pending = new List<EngineSnapshot>();
+                    }
+                    pending.Add(snapshotCache[i]);
+                    snapshotDirty[i] = false;
+                }
+            }
+            if (pending != null)
+            {
+                foreach (EngineSnapshot snapshot in pending)
+                {
+                    UpdateProcText(snapshot);
+                }
+            }
+            UpdateHighlightFromCache();
+        }
+
+        private void UpdateHighlightFromCache()
+        {
+            if (SF.frmDataGrid == null || SF.frmProc == null)
+            {
+                return;
+            }
+            int selectedProc = SF.frmProc.SelectedProcNum;
+            EngineSnapshot snapshot = null;
+            lock (snapshotLock)
+            {
+                if (selectedProc >= 0 && selectedProc < snapshotCache.Length)
+                {
+                    snapshot = snapshotCache[selectedProc];
+                }
+            }
+            if (snapshot == null && SF.DR != null && selectedProc >= 0)
+            {
+                snapshot = SF.DR.GetSnapshot(selectedProc);
+            }
+            SF.frmDataGrid.UpdateHighlight(snapshot);
+        }
+
         private void UpdateProcText(EngineSnapshot snapshot)
         {
             if (SF.frmProc?.proc_treeView == null || SF.frmProc.procsList == null)
@@ -296,8 +401,7 @@ namespace Automation
             {
                 result += "|断点";
             }
-
-            SF.frmProc.proc_treeView?.Invoke(new Action(() =>
+            void ApplyProcText()
             {
                 string procName = snapshot.ProcName;
                 if (string.IsNullOrEmpty(procName) && procNum < SF.frmProc.procsList.Count)
@@ -305,15 +409,31 @@ namespace Automation
                     procName = SF.frmProc.procsList[procNum].head.Name;
                 }
                 SF.frmProc.proc_treeView.Nodes[procNum].Text = procName + result;
-            }));
+            }
+            if (SF.frmProc.proc_treeView.InvokeRequired)
+            {
+                SF.frmProc.proc_treeView.BeginInvoke((Action)ApplyProcText);
+            }
+            else
+            {
+                ApplyProcText();
+            }
 
             if (SF.frmToolBar?.btnPause != null && procNum == SF.frmProc.SelectedProcNum)
             {
                 string buttonText = (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming) ? "暂停" : "继续";
-                SF.frmToolBar.btnPause?.BeginInvoke(new Action(() =>
+                void ApplyPauseText()
                 {
                     SF.frmToolBar.btnPause.Text = buttonText;
-                }));
+                }
+                if (SF.frmToolBar.btnPause.InvokeRequired)
+                {
+                    SF.frmToolBar.btnPause.BeginInvoke((Action)ApplyPauseText);
+                }
+                else
+                {
+                    ApplyPauseText();
+                }
             }
         }
 
@@ -445,6 +565,13 @@ namespace Automation
             SF.valueStore.Save(SF.ConfigPath);
             SF.dataStructStore.Save(SF.ConfigPath);
             SF.alarmInfoStore.Save(SF.ConfigPath);
+            if (snapshotTimer != null)
+            {
+                snapshotTimer.Stop();
+                snapshotTimer.Tick -= SnapshotTimer_Tick;
+                snapshotTimer.Dispose();
+                snapshotTimer = null;
+            }
             Environment.Exit(0);
         }
     }

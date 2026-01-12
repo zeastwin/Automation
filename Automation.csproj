@@ -97,7 +97,9 @@
     <Compile Include="Stores\\CardConfigStore.cs" />
     <Compile Include="CustomFunc.cs" />
     <Compile Include="DataStructModels.cs" />
-    <Compile Include="DataRun.cs" />
+    <Compile Include="Engine\\ProcessEngine.Core.cs" />
+    <Compile Include="Engine\\ProcessEngine.Operations.cs" />
+    <Compile Include="Engine\\ProcessEngine.Models.cs" />
     <Compile Include="Stores\\DataStructStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="FrmAlarmConfig.cs">

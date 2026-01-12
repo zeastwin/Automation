@@ -16,6 +16,7 @@
 ## 核心概念
 - **流程模型**：`Proc` → `Step` → `OperationType`。通过 `FrmProc`（树）、`FrmDataGrid`（操作列表）、`FrmPropertyGrid`（属性编辑）修改，序列化为 JSON（启用 `TypeNameHandling.All`）。
 - **运行引擎**：`ProcessEngine` 以 `ProcRunner` 管理单流程执行，`ProcHandle` 仅在引擎内记录索引/状态，UI 通过 `EngineSnapshot` + `SnapshotChanged` 订阅状态。`RunProc`/`RunStep` 支持暂停、单步、跳转、报警；`ExecuteOperation` 将具体操作派发到对应执行函数。
+- **文件拆分**：引擎内核在 `Engine/ProcessEngine.Core.cs`，操作执行在 `Engine/ProcessEngine.Operations.cs`，模型在 `Engine/ProcessEngine.Models.cs`。
 - **变量**：`FrmValue` 管理 0–999 的 `DicValue`，含类型/名称/备注，持久化到 `Config/value.json`，提供按名/按索引读写。
 - **数据结构**：`FrmDataStruct` 定义结构体集合，操作可对项进行设/取/复制/插入/删除/查找/计数。
 

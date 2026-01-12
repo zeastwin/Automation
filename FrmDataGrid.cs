@@ -26,7 +26,6 @@ namespace Automation
         //鼠标选定的行数
         public int iSelectedRow = -1;
 
-        private System.Windows.Forms.Timer trackTimer;
         private int lastHighlightedRow = -1;
         private int lastHighlightedProc = -1;
         private int lastHighlightedStep = -1;
@@ -52,33 +51,18 @@ namespace Automation
 
             dataGridView1.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
-            Track();
-            FormClosing += FrmDataGrid_FormClosing;
-
         }
 
-        public void Track()
-        {
-            if (trackTimer == null)
-            {
-                trackTimer = new System.Windows.Forms.Timer();
-                trackTimer.Interval = 200;
-                trackTimer.Tick += TrackTimer_Tick;
-            }
-            trackTimer.Start();
-        }
-
-        private void TrackTimer_Tick(object sender, EventArgs e)
+        public void UpdateHighlight(EngineSnapshot snapshot)
         {
             try
             {
                 if (IsDisposed || !IsHandleCreated)
                 {
-                    trackTimer.Stop();
                     return;
                 }
 
-                if (SF.frmProc == null || SF.frmComunication == null || SF.frmInfo == null || SF.mainfrm == null || SF.DR == null)
+                if (SF.frmProc == null || SF.frmComunication == null || SF.frmInfo == null || SF.mainfrm == null)
                 {
                     return;
                 }
@@ -95,14 +79,13 @@ namespace Automation
                 }
 
                 int selectedProc = SF.frmProc.SelectedProcNum;
-                if (selectedProc < 0 || selectedProc >= SF.frmProc.procsList.Count)
+                if (selectedProc < 0)
                 {
                     ClearLastHighlight();
                     return;
                 }
 
-                EngineSnapshot snapshot = SF.DR.GetSnapshot(selectedProc);
-                if (snapshot == null || snapshot.State == ProcRunState.Stopped)
+                if (snapshot == null || snapshot.ProcIndex != selectedProc || snapshot.State == ProcRunState.Stopped)
                 {
                     ClearLastHighlight();
                     return;
@@ -157,7 +140,6 @@ namespace Automation
             }
             catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
             {
-                trackTimer.Stop();
             }
             catch (Exception ex)
             {
@@ -178,16 +160,6 @@ namespace Automation
             lastHighlightedStep = -1;
         }
 
-        private void FrmDataGrid_FormClosing(object sender, FormClosingEventArgs e)
-        {
-            if (trackTimer != null)
-            {
-                trackTimer.Stop();
-                trackTimer.Tick -= TrackTimer_Tick;
-                trackTimer.Dispose();
-                trackTimer = null;
-            }
-        }
         public void SelectChildNode(int parentIndex, int childIndex)
         {
 
