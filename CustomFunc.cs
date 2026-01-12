@@ -58,8 +58,9 @@ namespace Automation
             //    Console.WriteLine("!");
             //    SF.Delay(500);
             //} 
-          
-            Console.WriteLine("毫秒：" + Stopwatch.ElapsedMilliseconds);
+            double time = Stopwatch.ElapsedMilliseconds;
+            SF.frmInfo.PrintInfo("毫秒：" + time, FrmInfo.Level.Normal);
+          //  Console.WriteLine("毫秒：" + Stopwatch.ElapsedMilliseconds);
         }
     }
 }

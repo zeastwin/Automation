@@ -33,7 +33,7 @@ namespace Automation
         public static FrmToolBar frmToolBar;
         public static FrmValue frmValue;
         public static FrmMain mainfrm;
-        public static DataRun DR;
+        public static ProcessEngine DR;
         public static FrmCard frmCard;
         public static FrmIO frmIO;
         public static MotionCtrl motion;
@@ -92,16 +92,6 @@ namespace Automation
             }
         }
 
-        //public static async Task Delay(int milliseconds)
-        //{
-        //    var start = Environment.TickCount;
-
-        //    while (unchecked(Environment.TickCount - start) < milliseconds)
-        //    {
-        //        Application.DoEvents(); 
-        //        await Task.Yield();           // 比 Task.Delay(5) 更轻量，允许UI线程继续工作
-        //    }
-        //}
 
         public static void Delay2(int milliSecond)
         {
@@ -139,10 +129,6 @@ namespace Automation
                 frmToolBar.btnCancel.Enabled = false;
             }
         }
-        //public static async Task Delay(int milliSecond)
-        //{
-        //    await Task.Delay(milliSecond);
-        //}
 
     }
 }

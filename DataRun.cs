@@ -12,6 +12,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Automation.MotionControl;
 using static Automation.FrmProc;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
@@ -23,13 +24,19 @@ using System.Numerics;
 
 namespace Automation
 {
-    public class DataRun
+    public class ProcessEngine
     {
         public Thread[] threads = new Thread[100];
         public ProcHandle[] ProcHandles = new ProcHandle[100];
+        private readonly ProcessControl[] controls = new ProcessControl[100];
+        public EngineContext Context { get; }
+        public IAlarmHandler AlarmHandler { get; set; }
+        public ILogger Logger { get; set; }
+        public event Action<int, ProcRunState, bool> ProcTextChanged;
 
-        public DataRun()
+        public ProcessEngine(EngineContext context)
         {
+            Context = context ?? throw new ArgumentNullException(nameof(context));
             for (int i = 0; i < ProcHandles.Length; i++)
             {
                 ProcHandles[i] = new ProcHandle();
@@ -43,102 +50,169 @@ namespace Automation
         }
         public void SetProcText(int procNum, ProcRunState state, bool isBreakpoint)
         {
-            if (SF.frmProc?.proc_treeView == null || SF.frmProc.procsList == null)
-            {
-                return;
-            }
-            if (procNum < 0 || procNum >= SF.frmProc.procsList.Count || procNum >= SF.frmProc.proc_treeView.Nodes.Count)
-            {
-                return;
-            }
-
-            string stateText;
-            switch (state)
-            {
-                case ProcRunState.Stopped:
-                    stateText = "停止";
-                    break;
-                case ProcRunState.Paused:
-                    stateText = "暂停";
-                    break;
-                case ProcRunState.SingleStep:
-                    stateText = "单步";
-                    break;
-                case ProcRunState.Running:
-                    stateText = "运行";
-                    break;
-                case ProcRunState.Alarming:
-                    stateText = "报警中";
-                    break;
-                default:
-                    stateText = "未知";
-                    break;
-            }
-
-            string result = $"|{stateText}";
-            if (isBreakpoint)
-            {
-                result += "|断点";
-            }
-
-            SF.frmProc.proc_treeView?.Invoke(new Action(() =>
-            {
-                SF.frmProc.proc_treeView.Nodes[procNum].Text = SF.frmProc.procsList[procNum].head.Name + result;
-            }));
+            ProcTextChanged?.Invoke(procNum, state, isBreakpoint);
         }
         public void Delay(int milliSecond, ProcHandle evt)
         {
             if (milliSecond <= 0)
                 return;
             int start = Environment.TickCount;
-            while (Math.Abs(Environment.TickCount - start) < milliSecond && evt.State != ProcRunState.Stopped)//毫秒
+            while (Math.Abs(Environment.TickCount - start) < milliSecond && evt.State != ProcRunState.Stopped && !evt.isThStop)//毫秒
             {
                 Thread.Sleep(2);
             }
         }
-        public void StartProc(Proc proc)
+        public void StartProc(Proc proc, int procIndex)
         {
-            ProcHandle procHandle = new ProcHandle();
-            procHandle.procNum = SF.frmProc.SelectedProcNum;
-            procHandle.stepNum = 0;
-            procHandle.opsNum = 0;
-            procHandle.isThStop = false;
-            procHandle.procName = proc.head.Name;
-            ProcHandles[SF.frmProc.SelectedProcNum] = procHandle;
-            //   Task task = Task.Run(() => RunProc(proc, procHandle));
-            Thread th = new Thread(() => { RunProc(proc, procHandle); });
-            threads[SF.frmProc.SelectedProcNum] = th;
-            // tasks[SF.frmProc.SelectedProcNum] = task;
-            th.Start();
+            StartProcAt(proc, procIndex, 0, 0, ProcRunState.Running);
         }
         public void StartProcAuto(Proc proc, int index)
         {
-            ProcHandle procHandle = new ProcHandle();
-            procHandle.procNum = index;
-            procHandle.stepNum = 0;
-            procHandle.opsNum = 0;
-            procHandle.isThStop = false;
-            procHandle.procName = proc.head.Name;
-            ProcHandles[index] = procHandle;
-            //   Task task = Task.Run(() => RunProc(proc, procHandle));
-            Thread th = new Thread(() => { RunProc(proc, procHandle); });
-            threads[index] = th;
-            // tasks[SF.frmProc.SelectedProcNum] = task;
-            th.Start();
+            StartProcAt(proc, index, 0, 0, ProcRunState.Running);
         }
-        public void RunProc(Proc proc, ProcHandle evt)
+        public void StartProcAt(Proc proc, int procIndex, int stepIndex, int opIndex, ProcRunState startState)
         {
+            if (proc == null)
+            {
+                return;
+            }
+            ProcHandle procHandle = new ProcHandle
+            {
+                procNum = procIndex,
+                stepNum = stepIndex,
+                opsNum = opIndex,
+                isThStop = false,
+                procName = proc.head?.Name
+            };
+            ProcHandles[procIndex] = procHandle;
+            if (controls[procIndex] != null)
+            {
+                controls[procIndex].Dispose();
+            }
+            ProcessControl control = new ProcessControl();
+            controls[procIndex] = control;
+
+            procHandle.State = startState;
+            procHandle.isBreakpoint = false;
+            if (startState == ProcRunState.Running || startState == ProcRunState.SingleStep)
+            {
+                control.SetRunning();
+            }
+            else
+            {
+                control.SetPaused();
+            }
+
+            Thread th = new Thread(() => { RunProc(proc, procHandle); });
+            threads[procIndex] = th;
+            th.Start();
+            SetProcText(procIndex, procHandle.State, procHandle.isBreakpoint);
+        }
+        public void Pause(int procIndex)
+        {
+            ProcHandle handle = ProcHandles[procIndex];
+            ProcessControl control = controls[procIndex];
+            if (handle == null || control == null)
+            {
+                return;
+            }
+            if (handle.State == ProcRunState.Running || handle.State == ProcRunState.Alarming)
+            {
+                handle.State = ProcRunState.Paused;
+                handle.isBreakpoint = false;
+                control.SetPaused();
+                SetProcText(procIndex, handle.State, handle.isBreakpoint);
+            }
+        }
+        public void Resume(int procIndex)
+        {
+            ProcHandle handle = ProcHandles[procIndex];
+            ProcessControl control = controls[procIndex];
+            if (handle == null || control == null)
+            {
+                return;
+            }
+            if (handle.State == ProcRunState.Paused || handle.State == ProcRunState.SingleStep)
+            {
+                handle.State = ProcRunState.Running;
+                handle.isBreakpoint = false;
+                control.SetRunning();
+                SetProcText(procIndex, handle.State, handle.isBreakpoint);
+            }
+        }
+        public void Step(int procIndex)
+        {
+            ProcHandle handle = ProcHandles[procIndex];
+            ProcessControl control = controls[procIndex];
+            if (handle == null || control == null)
+            {
+                return;
+            }
+            if (handle.State == ProcRunState.Paused || handle.State == ProcRunState.SingleStep)
+            {
+                handle.State = ProcRunState.SingleStep;
+                handle.isBreakpoint = false;
+                control.RequestStep();
+                SetProcText(procIndex, handle.State, handle.isBreakpoint);
+            }
+        }
+        public void RunSingleOpOnce(Proc proc, int procIndex, int stepIndex, int opIndex)
+        {
+            StartProcAt(proc, procIndex, stepIndex, opIndex, ProcRunState.SingleStep);
+            Step(procIndex);
+            Task.Run(() =>
+            {
+                ProcHandle handle = ProcHandles[procIndex];
+                int startStep = stepIndex;
+                int startOp = opIndex;
+                while (handle != null && !handle.isThStop)
+                {
+                    if (handle.State == ProcRunState.Stopped)
+                    {
+                        break;
+                    }
+                    if (handle.stepNum != startStep || handle.opsNum != startOp)
+                    {
+                        Stop(procIndex);
+                        break;
+                    }
+                    Thread.Sleep(10);
+                }
+            });
+        }
+        public void Stop(int procIndex)
+        {
+            ProcHandle handle = ProcHandles[procIndex];
+            ProcessControl control = controls[procIndex];
+            if (handle == null || control == null)
+            {
+                return;
+            }
+            handle.isThStop = true;
+            handle.State = ProcRunState.Stopped;
+            handle.isBreakpoint = false;
+            control.RequestStop();
+            SetProcText(procIndex, handle.State, handle.isBreakpoint);
+        }
+        private void RunProc(Proc proc, ProcHandle evt)
+        {
+            ProcessControl control = controls[evt.procNum];
+            if (control == null)
+            {
+                return;
+            }
             if (evt.State == ProcRunState.Stopped)
             {
                 evt.State = ProcRunState.Running;
+                control.SetRunning();
             }
             evt.isBreakpoint = false;
             SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
             for (int i = evt.stepNum; i < proc.steps.Count; i++)
             {
                 evt.stepNum = i;
-                RunStep(proc.steps[i], evt);
-                if (evt.isThStop)
+                RunStep(proc.steps[i], evt, control);
+                if (evt.isThStop || control.IsStopRequested)
                     break;
                 if (evt.isGoto)
                 {
@@ -153,7 +227,7 @@ namespace Automation
             SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
         }
         //运行步骤
-        public bool RunStep(Step steps, ProcHandle evt)
+        private bool RunStep(Step steps, ProcHandle evt, ProcessControl control)
         {
 
             bool bOK = true;
@@ -162,7 +236,7 @@ namespace Automation
                 evt.isAlarm = false;
                 evt.isGoto = false;
                 evt.alarmMsg = null;
-                if (evt.isThStop)
+                if (evt.isThStop || control.IsStopRequested)
                     return false;
                 evt.opsNum = i;
                 if (steps.Ops[i].Enable)
@@ -171,90 +245,32 @@ namespace Automation
                 }
                 if (steps.Ops[i].isStopPoint)
                 {
-                    evt.m_evtRun.Reset();
-                    evt.m_evtTik.Reset();
-                    evt.m_evtTok.Set();
+                    control.SetPaused();
                     evt.isBreakpoint = true;
                     if (evt.State != ProcRunState.SingleStep)
                     {
                         evt.State = ProcRunState.Paused;
-                        SF.frmToolBar.btnPause?.Invoke(new Action(() =>
-                        {
-                            SF.frmToolBar.btnPause.Text = "继续";
-                        }));
                     }
                     SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
                 }
-                evt.m_evtRun.WaitOne();
-                evt.m_evtTik.WaitOne();
-                evt.m_evtTok.WaitOne();
+                control.WaitForRun();
+                if (evt.State == ProcRunState.SingleStep)
+                {
+                    control.WaitForStep();
+                }
                 if (evt.isBreakpoint)
                 {
                     evt.isBreakpoint = false;
                     SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
                 }
-                if (evt.isThStop)
+                if (evt.isThStop || control.IsStopRequested)
                     return false;
                 try
                 {
                     ExecuteOperation(evt, steps.Ops[i]);
                     if (evt.isAlarm)
                     {
-                        ProcRunState lastState = evt.State;
-                        bool lastBreakpoint = evt.isBreakpoint;
-                        evt.State = ProcRunState.Alarming;
-                        evt.isBreakpoint = false;
-                        SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
-                        AlarmInfo alarmInfo = null;
-                        if (!string.IsNullOrWhiteSpace(steps.Ops[i].AlarmInfoID)
-                            && int.TryParse(steps.Ops[i].AlarmInfoID, out int alarmIndex)
-                            && SF.alarmInfoStore != null)
-                        {
-                            SF.alarmInfoStore.TryGetByIndex(alarmIndex, out alarmInfo);
-                        }
-                        if (steps.Ops[i].AlarmType == "报警停止")
-                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", evt.alarmMsg == null ? "流程停止" : evt.alarmMsg, () => { evt.isThStop = true; }, "确定", true);
-                        if (steps.Ops[i].AlarmType == "报警忽略")
-                        {
-
-                        }
-                        if (steps.Ops[i].AlarmType == "自动处理")
-                        {
-                            evt.isGoto = true;
-                            string[] key = steps.Ops[i].Goto1.Split('-');
-                            evt.stepNum = int.Parse(key[1]);
-                            evt.opsNum = int.Parse(key[2]);
-                        }
-                        if (steps.Ops[i].AlarmType == "弹框确定")
-                        {
-                            evt.isGoto = true;
-                            string note = !string.IsNullOrEmpty(alarmInfo?.Note) ? alarmInfo.Note : (evt.alarmMsg ?? "发生报警");
-                            string btn1 = !string.IsNullOrEmpty(alarmInfo?.Btn1) ? alarmInfo.Btn1 : "确定";
-                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, btn1, true);
-                        }
-                        if (steps.Ops[i].AlarmType == "弹框确定与否")
-                        {
-                            evt.isGoto = true;
-                            string note = !string.IsNullOrEmpty(alarmInfo?.Note) ? alarmInfo.Note : (evt.alarmMsg ?? "发生报警");
-                            string btn1 = !string.IsNullOrEmpty(alarmInfo?.Btn1) ? alarmInfo.Btn1 : "确定";
-                            string btn2 = !string.IsNullOrEmpty(alarmInfo?.Btn2) ? alarmInfo.Btn2 : "否";
-                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto2, evt); }, btn1, btn2, true);
-                        }
-                        if (steps.Ops[i].AlarmType == "弹框确定与否与取消")
-                        {
-                            evt.isGoto = true;
-                            string note = !string.IsNullOrEmpty(alarmInfo?.Note) ? alarmInfo.Note : (evt.alarmMsg ?? "发生报警");
-                            string btn1 = !string.IsNullOrEmpty(alarmInfo?.Btn1) ? alarmInfo.Btn1 : "确定";
-                            string btn2 = !string.IsNullOrEmpty(alarmInfo?.Btn2) ? alarmInfo.Btn2 : "否";
-                            string btn3 = !string.IsNullOrEmpty(alarmInfo?.Btn3) ? alarmInfo.Btn3 : "取消";
-                            new Message($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum}", note, () => { ExecuteGoto(steps.Ops[i].Goto1, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto2, evt); }, () => { ExecuteGoto(steps.Ops[i].Goto3, evt); }, btn1, btn2, btn3, true);
-                        }
-                        if (evt.State == ProcRunState.Alarming)
-                        {
-                            evt.State = evt.isThStop ? ProcRunState.Stopped : lastState;
-                            evt.isBreakpoint = evt.State == ProcRunState.Paused ? lastBreakpoint : false;
-                            SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
-                        }
+                        HandleAlarm(steps.Ops[i], evt);
                     }
                     if (evt.isGoto)
                     {
@@ -263,7 +279,10 @@ namespace Automation
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(ex.Message);
+                    evt.isAlarm = true;
+                    evt.alarmMsg = ex.Message;
+                    Logger?.Log(ex.Message, LogLevel.Error);
+                    HandleAlarm(steps.Ops[i], evt);
                     evt.isThStop = true;
                     return false;
                 }
@@ -273,6 +292,118 @@ namespace Automation
             return bOK;
 
 
+        }
+
+        private void HandleAlarm(OperationType operation, ProcHandle evt)
+        {
+            ProcRunState lastState = evt.State;
+            bool lastBreakpoint = evt.isBreakpoint;
+            evt.State = ProcRunState.Alarming;
+            evt.isBreakpoint = false;
+            SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
+
+            Logger?.Log($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum} {evt.alarmMsg}", LogLevel.Error);
+
+            AlarmDecision decision = ResolveAlarmDecision(operation, evt);
+            ApplyAlarmDecision(operation, evt, decision);
+
+            if (evt.State == ProcRunState.Alarming)
+            {
+                evt.State = evt.isThStop ? ProcRunState.Stopped : lastState;
+                evt.isBreakpoint = evt.State == ProcRunState.Paused ? lastBreakpoint : false;
+                SetProcText(evt.procNum, evt.State, evt.isBreakpoint);
+            }
+        }
+
+        private AlarmDecision ResolveAlarmDecision(OperationType operation, ProcHandle evt)
+        {
+            if (operation == null)
+            {
+                return AlarmDecision.Stop;
+            }
+            switch (operation.AlarmType)
+            {
+                case "报警停止":
+                    return AlarmDecision.Stop;
+                case "报警忽略":
+                    return AlarmDecision.Ignore;
+                case "自动处理":
+                    return AlarmDecision.Goto1;
+                case "弹框确定":
+                case "弹框确定与否":
+                case "弹框确定与否与取消":
+                    return RequestAlarmDecision(operation, evt);
+                default:
+                    return AlarmDecision.Stop;
+            }
+        }
+
+        private AlarmDecision RequestAlarmDecision(OperationType operation, ProcHandle evt)
+        {
+            if (AlarmHandler == null)
+            {
+                return AlarmDecision.Stop;
+            }
+            AlarmContext context = BuildAlarmContext(operation, evt);
+            try
+            {
+                return AlarmHandler.HandleAsync(context).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Logger?.Log(ex.Message, LogLevel.Error);
+                return AlarmDecision.Stop;
+            }
+        }
+
+        private AlarmContext BuildAlarmContext(OperationType operation, ProcHandle evt)
+        {
+            AlarmInfo alarmInfo = null;
+            if (!string.IsNullOrWhiteSpace(operation.AlarmInfoID)
+                && int.TryParse(operation.AlarmInfoID, out int alarmIndex)
+                && Context.AlarmInfoStore != null)
+            {
+                Context.AlarmInfoStore.TryGetByIndex(alarmIndex, out alarmInfo);
+            }
+            string note = !string.IsNullOrEmpty(alarmInfo?.Note) ? alarmInfo.Note : (evt.alarmMsg ?? "发生报警");
+            string btn1 = !string.IsNullOrEmpty(alarmInfo?.Btn1) ? alarmInfo.Btn1 : "确定";
+            string btn2 = !string.IsNullOrEmpty(alarmInfo?.Btn2) ? alarmInfo.Btn2 : "否";
+            string btn3 = !string.IsNullOrEmpty(alarmInfo?.Btn3) ? alarmInfo.Btn3 : "取消";
+
+            return new AlarmContext(
+                evt.procNum,
+                evt.stepNum,
+                evt.opsNum,
+                operation.AlarmType,
+                evt.alarmMsg,
+                note,
+                btn1,
+                btn2,
+                btn3);
+        }
+
+        private void ApplyAlarmDecision(OperationType operation, ProcHandle evt, AlarmDecision decision)
+        {
+            switch (decision)
+            {
+                case AlarmDecision.Stop:
+                    evt.isThStop = true;
+                    break;
+                case AlarmDecision.Ignore:
+                    break;
+                case AlarmDecision.Goto1:
+                    evt.isGoto = true;
+                    ExecuteGoto(operation.Goto1, evt);
+                    break;
+                case AlarmDecision.Goto2:
+                    evt.isGoto = true;
+                    ExecuteGoto(operation.Goto2, evt);
+                    break;
+                case AlarmDecision.Goto3:
+                    evt.isGoto = true;
+                    ExecuteGoto(operation.Goto3, evt);
+                    break;
+            }
         }
 
 
@@ -395,7 +526,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = e.Message;
-                SF.frmInfo.PrintInfo(e.Message, FrmInfo.Level.Error);
+                Logger?.Log(e.Message, LogLevel.Error);
                 return false;
             }
         }
@@ -404,7 +535,19 @@ namespace Automation
         {
             string funcName = callCustomFunc.Name;
 
-            evt.isAlarm = !SF.mainfrm.customFunc.RunFunc(funcName);
+            if (Context.CustomFunc == null)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = "自定义函数未初始化";
+                return false;
+            }
+
+            bool success = Context.CustomFunc.RunFunc(funcName);
+            if (!success)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"找不到自定义函数:{funcName}";
+            }
 
             return true;
         }
@@ -416,10 +559,10 @@ namespace Automation
                 time = ioParam.delayBefore;
                 if (time <= 0 && !string.IsNullOrEmpty(ioParam.delayBeforeV))
                 {
-                    time = (int)SF.valueStore.GetValueByName(ioParam.delayBeforeV).GetDValue();
+                    time = (int)Context.ValueStore.GetValueByName(ioParam.delayBeforeV).GetDValue();
                 }
                 Delay(time, evt);
-                if (!SF.motion.SetIO(SF.frmIO.DicIO[ioParam.IOName], ioParam.value))
+                if (!Context.Motion.SetIO(Context.IoMap[ioParam.IOName], ioParam.value))
                 {
                     evt.isAlarm = true;
                     return false;
@@ -427,7 +570,7 @@ namespace Automation
                 time = ioParam.delayAfter;
                 if (time <= 0 && !string.IsNullOrEmpty(ioParam.delayAfterV))
                 {
-                    time = (int)SF.valueStore.GetValueByName(ioParam.delayAfterV).GetDValue();
+                    time = (int)Context.ValueStore.GetValueByName(ioParam.delayAfterV).GetDValue();
                 }
                 Delay(time, evt);
             }
@@ -442,13 +585,13 @@ namespace Automation
             timeOut = ioCheck.timeOutC.TimeOut;
             if (timeOut <= 0 && !string.IsNullOrEmpty(ioCheck.timeOutC.TimeOutValue))
             {
-                timeOut = (int)SF.valueStore.GetValueByName(ioCheck.timeOutC.TimeOutValue).GetDValue();
+                timeOut = (int)Context.ValueStore.GetValueByName(ioCheck.timeOutC.TimeOutValue).GetDValue();
             }
 
             //time = ioParam.delayBefore;
             //if (time <= 0 && ioParam.delayBeforeV != "")
             //{
-            //    time = (int)SF.valueStore.GetValueByName(ioParam.delayBeforeV).GetDValue();
+            //    time = (int)Context.ValueStore.GetValueByName(ioParam.delayBeforeV).GetDValue();
             //}
             //Delay(time, evt);
             int start = Environment.TickCount;
@@ -459,14 +602,14 @@ namespace Automation
                     bool isCheckOff = true;
                     foreach (IoCheckParam ioParam in ioCheck.IoParams)
                     {
-                        if (SF.frmIO.DicIO[ioParam.IOName].IOType == "通用输入")
+                        if (Context.IoMap[ioParam.IOName].IOType == "通用输入")
                         {
-                            SF.motion.GetInIO(SF.frmIO.DicIO[ioParam.IOName], ref value);
+                            Context.Motion.GetInIO(Context.IoMap[ioParam.IOName], ref value);
 
                         }
                         else
                         {
-                            SF.motion.GetOutIO(SF.frmIO.DicIO[ioParam.IOName], ref value);
+                            Context.Motion.GetOutIO(Context.IoMap[ioParam.IOName], ref value);
 
                         }
                         if (value != ioParam.value)
@@ -491,7 +634,7 @@ namespace Automation
             //time = ioParam.delayAfter;
             //if (time <= 0 && ioParam.delayAfterV != "")
             //{
-            //    time = (int)SF.valueStore.GetValueByName(ioParam.delayAfterV).GetDValue();
+            //    time = (int)Context.ValueStore.GetValueByName(ioParam.delayAfterV).GetDValue();
             //}
             //Delay(time, evt);
 
@@ -504,10 +647,10 @@ namespace Automation
             {
                 Proc proc = null;
                 if(!string.IsNullOrEmpty(procParam.ProcName))
-                proc = SF.frmProc.procsList.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
+                proc = Context.Procs.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
                 else if (!string.IsNullOrEmpty(procParam.ProcValue))
                 {
-                    proc = SF.frmProc.procsList.FirstOrDefault(sc => sc.head.Name.ToString() == SF.valueStore.GetValueByName(procParam.ProcValue).GetCValue());
+                    proc = Context.Procs.FirstOrDefault(sc => sc.head.Name.ToString() == Context.ValueStore.GetValueByName(procParam.ProcValue).GetCValue());
                 }
                 if(proc == null)
                 {
@@ -522,14 +665,8 @@ namespace Automation
                         evt.isAlarm = true;
                         return false;
                     }
-                    int index = SF.frmProc.procsList.IndexOf(proc);
-                    SF.DR.StartProcAuto(proc, index);
-                    SF.DR.ProcHandles[index].m_evtRun.Set();
-                    SF.DR.ProcHandles[index].m_evtTik.Set();
-                    SF.DR.ProcHandles[index].m_evtTok.Set();
-                    SF.DR.ProcHandles[index].State = ProcRunState.Running;
-                    SF.DR.ProcHandles[index].isBreakpoint = false;
-                    SetProcText(index, SF.DR.ProcHandles[index].State, SF.DR.ProcHandles[index].isBreakpoint);
+                    int index = Context.Procs.IndexOf(proc);
+                    StartProcAuto(proc, index);
                 }
                 else
                 {
@@ -538,14 +675,8 @@ namespace Automation
                         evt.isAlarm = true;
                         return false;
                     }
-                    int index = SF.frmProc.procsList.IndexOf(proc);
-                    SF.DR.ProcHandles[index].isThStop = true;
-                    SF.DR.ProcHandles[index].State = ProcRunState.Stopped;
-                    SF.DR.ProcHandles[index].isBreakpoint = false;
-                    SF.DR.ProcHandles[index].m_evtRun.Set();
-                    SF.DR.ProcHandles[index].m_evtTik.Set();
-                    SF.DR.ProcHandles[index].m_evtTok.Set();
-                    SetProcText(index, SF.DR.ProcHandles[index].State, SF.DR.ProcHandles[index].isBreakpoint);
+                    int index = Context.Procs.IndexOf(proc);
+                    Stop(index);
                 }
                 Delay(procParam.delayAfter, evt);
             }
@@ -558,13 +689,13 @@ namespace Automation
             timeOut = waitProc.timeOutC.TimeOut;
             if (timeOut <= 0 && !string.IsNullOrEmpty(waitProc.timeOutC.TimeOutValue))
             {
-                timeOut = (int)SF.valueStore.GetValueByName(waitProc.timeOutC.TimeOutValue).GetDValue();
+                timeOut = (int)Context.ValueStore.GetValueByName(waitProc.timeOutC.TimeOutValue).GetDValue();
             }
             int DelayAfter;
             DelayAfter = waitProc.delayAfter;
             if (DelayAfter <= 0 && !string.IsNullOrEmpty(waitProc.delayAfterV))
             {
-                DelayAfter = (int)SF.valueStore.GetValueByName(waitProc.delayAfterV).GetDValue();
+                DelayAfter = (int)Context.ValueStore.GetValueByName(waitProc.delayAfterV).GetDValue();
             }
             int start = Environment.TickCount;
             while (evt.State != ProcRunState.Stopped)
@@ -584,10 +715,10 @@ namespace Automation
                 {
                     Proc proc = null;
                     if (!string.IsNullOrEmpty(procParam.ProcName))
-                        proc = SF.frmProc.procsList.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
+                        proc = Context.Procs.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
                     else if (!string.IsNullOrEmpty(procParam.ProcValue))
                     {
-                        proc = SF.frmProc.procsList.FirstOrDefault(sc => sc.head.Name.ToString() == SF.valueStore.GetValueByName(procParam.ProcValue).GetCValue());
+                        proc = Context.Procs.FirstOrDefault(sc => sc.head.Name.ToString() == Context.ValueStore.GetValueByName(procParam.ProcValue).GetCValue());
                     }
                     if (proc == null)
                     {
@@ -595,10 +726,10 @@ namespace Automation
                         evt.alarmMsg = "找不到流程";
                         return false;
                     }
-                    int index = SF.frmProc.procsList.IndexOf(proc);
+                    int index = Context.Procs.IndexOf(proc);
                     if (procParam.value == "运行")
                     {
-                        if (SF.DR.ProcHandles[index].State == ProcRunState.Stopped)
+                        if (ProcHandles[index].State == ProcRunState.Stopped)
                         {
                             isWaitOff = false;
                             break;
@@ -606,7 +737,7 @@ namespace Automation
                     }
                     else if (procParam.value == "停止")
                     {
-                        if (SF.DR.ProcHandles[index].State != ProcRunState.Stopped)
+                        if (ProcHandles[index].State != ProcRunState.Stopped)
                         {
                             isWaitOff = false;
                             break;
@@ -627,20 +758,20 @@ namespace Automation
             {
                 string value = "";
                 if (!string.IsNullOrEmpty(gotoParam.ValueIndex))
-                    value = SF.valueStore.GetValueByIndex(int.Parse(gotoParam.ValueIndex)).Value.ToString();
+                    value = Context.ValueStore.GetValueByIndex(int.Parse(gotoParam.ValueIndex)).Value.ToString();
                 else if (!string.IsNullOrEmpty(gotoParam.ValueIndex2Index))
                 {
-                    string index = SF.valueStore.GetValueByIndex(int.Parse(gotoParam.ValueIndex2Index)).Value.ToString();
-                    value = SF.valueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                    string index = Context.ValueStore.GetValueByIndex(int.Parse(gotoParam.ValueIndex2Index)).Value.ToString();
+                    value = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
                 }
                 else if (!string.IsNullOrEmpty(gotoParam.ValueName))
                 {
-                    value = SF.valueStore.GetValueByName(gotoParam.ValueName).Value.ToString();
+                    value = Context.ValueStore.GetValueByName(gotoParam.ValueName).Value.ToString();
                 }
                 else if (!string.IsNullOrEmpty(gotoParam.ValueName2Index))
                 {
-                    string index = SF.valueStore.GetValueByName(gotoParam.ValueName2Index).Value.ToString();
-                    value = SF.valueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                    string index = Context.ValueStore.GetValueByName(gotoParam.ValueName2Index).Value.ToString();
+                    value = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
                 }
                 if(value == "")
                 {
@@ -655,11 +786,11 @@ namespace Automation
                         itemValue = item.MatchValue;
                     else if (!string.IsNullOrEmpty(item.MatchValueIndex))
                     {
-                        itemValue = SF.valueStore.GetValueByIndex(int.Parse(item.MatchValueIndex)).Value.ToString();
+                        itemValue = Context.ValueStore.GetValueByIndex(int.Parse(item.MatchValueIndex)).Value.ToString();
                     }
                     else if (!string.IsNullOrEmpty(item.MatchValueV))
                     {
-                        itemValue = SF.valueStore.GetValueByName(item.MatchValueV).Value.ToString();
+                        itemValue = Context.ValueStore.GetValueByName(item.MatchValueV).Value.ToString();
                     }
                     if (value == itemValue)
                     {
@@ -695,20 +826,20 @@ namespace Automation
                 {
                     string value = "";
                     if (!string.IsNullOrEmpty(item.ValueIndex))
-                        value = SF.valueStore.GetValueByIndex(int.Parse(item.ValueIndex)).Value.ToString();
+                        value = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueIndex)).Value.ToString();
                     else if (!string.IsNullOrEmpty(item.ValueIndex2Index))
                     {
-                        string index = SF.valueStore.GetValueByIndex(int.Parse(item.ValueIndex2Index)).Value.ToString();
-                        value = SF.valueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                        string index = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueIndex2Index)).Value.ToString();
+                        value = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
                     }
                     else if (!string.IsNullOrEmpty(item.ValueName))
                     {
-                        value = SF.valueStore.GetValueByName(item.ValueName).Value.ToString();
+                        value = Context.ValueStore.GetValueByName(item.ValueName).Value.ToString();
                     }
                     else if (!string.IsNullOrEmpty(item.ValueName2Index))
                     {
-                        string index = SF.valueStore.GetValueByName(item.ValueName2Index).Value.ToString();
-                        value = SF.valueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                        string index = Context.ValueStore.GetValueByName(item.ValueName2Index).Value.ToString();
+                        value = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
                     }
                     bool tempValue = false;
                     if (item.JudgeMode == "值在区间左")
@@ -783,7 +914,7 @@ namespace Automation
                 time = int.Parse(delay.timeMiniSecond);
             else if (!string.IsNullOrEmpty(delay.timeMiniSecondV))
             {
-                time = int.Parse(SF.valueStore.GetValueByName(delay.timeMiniSecondV).Value);
+                time = int.Parse(Context.ValueStore.GetValueByName(delay.timeMiniSecondV).Value);
             }
          
             Delay(time,evt);
@@ -796,25 +927,25 @@ namespace Automation
                 //==============================================Get=====================================//
                 string value = "";
                 if (!string.IsNullOrEmpty(item.ValueSourceIndex))
-                    value = SF.valueStore.GetValueByIndex(int.Parse(item.ValueSourceIndex)).Value.ToString();
+                    value = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueSourceIndex)).Value.ToString();
                 else if (!string.IsNullOrEmpty(item.ValueSourceIndex2Index))
                 {
-                    string index = SF.valueStore.GetValueByIndex(int.Parse(item.ValueSourceIndex2Index)).Value.ToString();
-                    value = SF.valueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                    string index = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueSourceIndex2Index)).Value.ToString();
+                    value = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSourceName))
                 {
-                    value = SF.valueStore.GetValueByName(item.ValueSourceName).Value.ToString();
+                    value = Context.ValueStore.GetValueByName(item.ValueSourceName).Value.ToString();
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSourceName2Index))
                 {
-                    string index = SF.valueStore.GetValueByName(item.ValueSourceName2Index).Value.ToString();
-                    value = SF.valueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                    string index = Context.ValueStore.GetValueByName(item.ValueSourceName2Index).Value.ToString();
+                    value = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
                 }
                 //==============================================Save=====================================//
                 if (!string.IsNullOrEmpty(item.ValueSaveIndex))
                 {
-                    if (!SF.valueStore.setValueByIndex(int.Parse(item.ValueSaveIndex), value))
+                    if (!Context.ValueStore.setValueByIndex(int.Parse(item.ValueSaveIndex), value))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:索引{item.ValueSaveIndex}";
@@ -823,8 +954,8 @@ namespace Automation
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveIndex2Index))
                 {
-                    string index = SF.valueStore.GetValueByIndex(int.Parse(item.ValueSaveIndex2Index)).Value.ToString();
-                    if (!SF.valueStore.setValueByIndex(int.Parse(index), value))
+                    string index = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueSaveIndex2Index)).Value.ToString();
+                    if (!Context.ValueStore.setValueByIndex(int.Parse(index), value))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:索引{index}";
@@ -833,7 +964,7 @@ namespace Automation
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveName))
                 {
-                    if (!SF.valueStore.setValueByName(item.ValueSaveName, value))
+                    if (!Context.ValueStore.setValueByName(item.ValueSaveName, value))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:{item.ValueSaveName}";
@@ -842,8 +973,8 @@ namespace Automation
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveName2Index))
                 {
-                    string index = SF.valueStore.GetValueByName(item.ValueSaveName2Index).Value.ToString();
-                    if (!SF.valueStore.setValueByIndex(int.Parse(index), value))
+                    string index = Context.ValueStore.GetValueByName(item.ValueSaveName2Index).Value.ToString();
+                    if (!Context.ValueStore.setValueByIndex(int.Parse(index), value))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:索引{index}";
@@ -860,20 +991,20 @@ namespace Automation
             //==============================================GetSourceValue=====================================//
             string SourceValue = "";
             if (!string.IsNullOrEmpty(ops.ValueSourceIndex))
-                SourceValue = SF.valueStore.GetValueByIndex(int.Parse(ops.ValueSourceIndex)).Value.ToString();
+                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(ops.ValueSourceIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(ops.ValueSourceIndex2Index))
             {
-                string index = SF.valueStore.GetValueByIndex(int.Parse(ops.ValueSourceIndex2Index)).Value.ToString();
-                SourceValue = SF.valueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                string index = Context.ValueStore.GetValueByIndex(int.Parse(ops.ValueSourceIndex2Index)).Value.ToString();
+                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
             }
             else if (!string.IsNullOrEmpty(ops.ValueSourceName))
             {
-                SourceValue = SF.valueStore.GetValueByName(ops.ValueSourceName).Value.ToString();
+                SourceValue = Context.ValueStore.GetValueByName(ops.ValueSourceName).Value.ToString();
             }
             else if (!string.IsNullOrEmpty(ops.ValueSourceName2Index))
             {
-                string index = SF.valueStore.GetValueByName(ops.ValueSourceName2Index).Value.ToString();
-                SourceValue = SF.valueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                string index = Context.ValueStore.GetValueByName(ops.ValueSourceName2Index).Value.ToString();
+                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
             }
             if(SourceValue == "")
             {
@@ -889,20 +1020,20 @@ namespace Automation
                 ChangeValue = ops.ChangeValue;
             }
             else if (!string.IsNullOrEmpty(ops.ChangeValueIndex))
-                ChangeValue = SF.valueStore.GetValueByIndex(int.Parse(ops.ChangeValueIndex)).Value.ToString();
+                ChangeValue = Context.ValueStore.GetValueByIndex(int.Parse(ops.ChangeValueIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(ops.ChangeValueIndex2Index))
             {
-                string index = SF.valueStore.GetValueByIndex(int.Parse(ops.ChangeValueIndex2Index)).Value.ToString();
-                ChangeValue = SF.valueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                string index = Context.ValueStore.GetValueByIndex(int.Parse(ops.ChangeValueIndex2Index)).Value.ToString();
+                ChangeValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
             }
             else if (!string.IsNullOrEmpty(ops.ChangeValueName))
             {
-                ChangeValue = SF.valueStore.GetValueByName(ops.ChangeValueName).Value.ToString();
+                ChangeValue = Context.ValueStore.GetValueByName(ops.ChangeValueName).Value.ToString();
             }
             else if (!string.IsNullOrEmpty(ops.ChangeValueName2Index))
             {
-                string index = SF.valueStore.GetValueByName(ops.ChangeValueName2Index).Value.ToString();
-                ChangeValue = SF.valueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                string index = Context.ValueStore.GetValueByName(ops.ChangeValueName2Index).Value.ToString();
+                ChangeValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
             }
             if (ChangeValue == "")
             {
@@ -950,7 +1081,7 @@ namespace Automation
             //==============================================OutputValue=====================================//
             if (!string.IsNullOrEmpty(ops.OutputValueIndex))
             {
-                if (!SF.valueStore.setValueByIndex(int.Parse(ops.OutputValueIndex), output))
+                if (!Context.ValueStore.setValueByIndex(int.Parse(ops.OutputValueIndex), output))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:索引{ops.OutputValueIndex}";
@@ -959,8 +1090,8 @@ namespace Automation
             }
             else if (!string.IsNullOrEmpty(ops.OutputValueIndex2Index))
             {
-                string index = SF.valueStore.GetValueByIndex(int.Parse(ops.OutputValueIndex2Index)).Value.ToString();
-                if (!SF.valueStore.setValueByIndex(int.Parse(index), output))
+                string index = Context.ValueStore.GetValueByIndex(int.Parse(ops.OutputValueIndex2Index)).Value.ToString();
+                if (!Context.ValueStore.setValueByIndex(int.Parse(index), output))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:索引{index}";
@@ -969,7 +1100,7 @@ namespace Automation
             }
             else if (!string.IsNullOrEmpty(ops.OutputValueName))
             {
-                if (!SF.valueStore.setValueByName(ops.OutputValueName, output))
+                if (!Context.ValueStore.setValueByName(ops.OutputValueName, output))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:{ops.OutputValueName}";
@@ -978,8 +1109,8 @@ namespace Automation
             }
             else if (!string.IsNullOrEmpty(ops.OutputValueName2Index))
             {
-                string index = SF.valueStore.GetValueByName(ops.OutputValueName2Index).Value.ToString();
-                if (!SF.valueStore.setValueByIndex(int.Parse(index), output))
+                string index = Context.ValueStore.GetValueByName(ops.OutputValueName2Index).Value.ToString();
+                if (!Context.ValueStore.setValueByIndex(int.Parse(index), output))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:索引{index}";
@@ -998,10 +1129,10 @@ namespace Automation
                 //==============================================GetSourceValue=====================================//
                 string SourceValue = "";
                 if (!string.IsNullOrEmpty(item.ValueSourceIndex))
-                    SourceValue = SF.valueStore.GetValueByIndex(int.Parse(item.ValueSourceIndex)).Value.ToString();
+                    SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueSourceIndex)).Value.ToString();
                 else if (!string.IsNullOrEmpty(item.ValueSourceName))
                 {
-                    SourceValue = SF.valueStore.GetValueByName(item.ValueSourceName).Value.ToString();
+                    SourceValue = Context.ValueStore.GetValueByName(item.ValueSourceName).Value.ToString();
                 }
                 values.Add(SourceValue);
             }
@@ -1011,7 +1142,7 @@ namespace Automation
 
                 if (!string.IsNullOrEmpty(stringFormat.OutputValueIndex))
                 {
-                    if (!SF.valueStore.setValueByIndex(int.Parse(stringFormat.OutputValueIndex), formattedStr))
+                    if (!Context.ValueStore.setValueByIndex(int.Parse(stringFormat.OutputValueIndex), formattedStr))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"格式化结果保存失败:索引{stringFormat.OutputValueIndex}";
@@ -1020,7 +1151,7 @@ namespace Automation
                 }
                 else if (!string.IsNullOrEmpty(stringFormat.OutputValueName))
                 {
-                    if (!SF.valueStore.setValueByName(stringFormat.OutputValueName, formattedStr))
+                    if (!Context.ValueStore.setValueByName(stringFormat.OutputValueName, formattedStr))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"格式化结果保存失败:{stringFormat.OutputValueName}";
@@ -1043,10 +1174,10 @@ namespace Automation
         {
             string SourceValue = "";
             if (!string.IsNullOrEmpty(split.SourceValueIndex))
-                SourceValue = SF.valueStore.GetValueByIndex(int.Parse(split.SourceValueIndex)).Value.ToString();
+                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(split.SourceValueIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(split.SourceValue))
             {
-                SourceValue = SF.valueStore.GetValueByName(split.SourceValue).Value.ToString();
+                SourceValue = Context.ValueStore.GetValueByName(split.SourceValue).Value.ToString();
             }
 
             string[] splitArray = SourceValue.Split(split.SplitMark);
@@ -1058,7 +1189,7 @@ namespace Automation
                 SaveIndex = int.Parse(split.OutputIndex);
             else if (!string.IsNullOrEmpty(split.Output))
             {
-                SaveIndex = SF.valueStore.GetValueByName(split.Output).Index;
+                SaveIndex = Context.ValueStore.GetValueByName(split.Output).Index;
             }
             int Count = 0;
             if(!string.IsNullOrEmpty(split.Count))
@@ -1071,7 +1202,7 @@ namespace Automation
             }
             for (int i = SaveIndex; i < SaveIndex + Count; i++)
             {
-                if (!SF.valueStore.setValueByIndex(i, splitArray[Startindex + i - SaveIndex]))
+                if (!Context.ValueStore.setValueByIndex(i, splitArray[Startindex + i - SaveIndex]))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:索引{i}";
@@ -1085,10 +1216,10 @@ namespace Automation
         {
             string SourceValue = "";
             if (!string.IsNullOrEmpty(replace.SourceValueIndex))
-                SourceValue = SF.valueStore.GetValueByIndex(int.Parse(replace.SourceValueIndex)).Value.ToString();
+                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(replace.SourceValueIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(replace.SourceValue))
             {
-                SourceValue = SF.valueStore.GetValueByName(replace.SourceValue).Value.ToString();
+                SourceValue = Context.ValueStore.GetValueByName(replace.SourceValue).Value.ToString();
             }
             if (SourceValue == "")
             {
@@ -1103,10 +1234,10 @@ namespace Automation
                 replaceStr = replace.ReplaceStr;
             }
             else if (!string.IsNullOrEmpty(replace.ReplaceStrIndex))
-                replaceStr = SF.valueStore.GetValueByIndex(int.Parse(replace.ReplaceStrIndex)).Value.ToString();
+                replaceStr = Context.ValueStore.GetValueByIndex(int.Parse(replace.ReplaceStrIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(replace.ReplaceStrV))
             {
-                replaceStr = SF.valueStore.GetValueByName(replace.ReplaceStrV).Value.ToString();
+                replaceStr = Context.ValueStore.GetValueByName(replace.ReplaceStrV).Value.ToString();
             }
             if (replaceStr == "")
             {
@@ -1121,10 +1252,10 @@ namespace Automation
                 newStr = replace.NewStr;
             }
             else if (!string.IsNullOrEmpty(replace.NewStrIndex))
-                newStr = SF.valueStore.GetValueByIndex(int.Parse(replace.NewStrIndex)).Value.ToString();
+                newStr = Context.ValueStore.GetValueByIndex(int.Parse(replace.NewStrIndex)).Value.ToString();
             else if (!string.IsNullOrEmpty(replace.NewStrV))
             {
-                newStr = SF.valueStore.GetValueByName(replace.NewStrV).Value.ToString();
+                newStr = Context.ValueStore.GetValueByName(replace.NewStrV).Value.ToString();
             }
             if (newStr == "")
             {
@@ -1149,7 +1280,7 @@ namespace Automation
 
             if (!string.IsNullOrEmpty(replace.OutputIndex))
             {
-                if (!SF.valueStore.setValueByIndex(int.Parse(replace.OutputIndex),str))
+                if (!Context.ValueStore.setValueByIndex(int.Parse(replace.OutputIndex),str))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:索引{replace.OutputIndex}";
@@ -1158,7 +1289,7 @@ namespace Automation
             }
             else if (!string.IsNullOrEmpty(replace.Output))
             {
-                if (!SF.valueStore.setValueByName(replace.Output, str))
+                if (!Context.ValueStore.setValueByName(replace.Output, str))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:{replace.Output}";
@@ -1181,7 +1312,7 @@ namespace Automation
             for (int i = 0; i < int.Parse(setDataStructItem.Count); i++)
             {
                 int valueIndex = int.Parse(setDataStructItem.Params[i].valueIndex);
-                if (!SF.dataStructStore.TrySetItemValueByIndex(structIndex, itemIndex, valueIndex, setDataStructItem.Params[i].value))
+                if (!Context.DataStructStore.TrySetItemValueByIndex(structIndex, itemIndex, valueIndex, setDataStructItem.Params[i].value))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"设置数据结构失败:结构{structIndex},项{itemIndex},值{valueIndex}";
@@ -1198,17 +1329,17 @@ namespace Automation
             int itemIndex = int.Parse(getDataStructItem.ItemIndex);
             if (getDataStructItem.IsAllItem)
             {
-                int startIndex = SF.valueStore.GetValueByName(getDataStructItem.StartValue).Index;
-                int count = SF.dataStructStore.GetItemValueCount(structIndex, itemIndex);
+                int startIndex = Context.ValueStore.GetValueByName(getDataStructItem.StartValue).Index;
+                int count = Context.DataStructStore.GetItemValueCount(structIndex, itemIndex);
                 for (int i = 0; i < count; i++)
                 {
-                    if (!SF.dataStructStore.TryGetItemValueByIndex(structIndex, itemIndex, i, out object obj))
+                    if (!Context.DataStructStore.TryGetItemValueByIndex(structIndex, itemIndex, i, out object obj))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"读取数据结构失败:结构{structIndex},项{itemIndex},值{i}";
                         return false;
                     }
-                    if (!SF.valueStore.setValueByIndex(startIndex + i, obj))
+                    if (!Context.ValueStore.setValueByIndex(startIndex + i, obj))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:索引{startIndex + i}";
@@ -1221,7 +1352,7 @@ namespace Automation
                 for (int i = 0; i < getDataStructItem.Params.Count; i++)
                 {
                     int valueIndex = int.Parse(getDataStructItem.Params[i].valueIndex);
-                    if (!SF.dataStructStore.TryGetItemValueByIndex(structIndex, itemIndex, valueIndex, out object obj))
+                    if (!Context.DataStructStore.TryGetItemValueByIndex(structIndex, itemIndex, valueIndex, out object obj))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"读取数据结构失败:结构{structIndex},项{itemIndex},值{valueIndex}";
@@ -1230,11 +1361,11 @@ namespace Automation
 
                     string valueName = "";
                     if (!string.IsNullOrEmpty(getDataStructItem.Params[i].ValueIndex))
-                        valueName = SF.valueStore.GetValueByIndex(int.Parse(getDataStructItem.Params[i].ValueIndex)).Value.ToString();
+                        valueName = Context.ValueStore.GetValueByIndex(int.Parse(getDataStructItem.Params[i].ValueIndex)).Value.ToString();
                     else
-                        valueName = SF.valueStore.GetValueByName(getDataStructItem.Params[i].ValueName).Value.ToString();
+                        valueName = Context.ValueStore.GetValueByName(getDataStructItem.Params[i].ValueName).Value.ToString();
 
-                    if (!SF.valueStore.setValueByName(valueName, obj))
+                    if (!Context.ValueStore.setValueByName(valueName, obj))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:{valueName}";
@@ -1248,7 +1379,7 @@ namespace Automation
         {
             if (copyDataStructItem.IsAllValue)
             {
-                if (!SF.dataStructStore.TryCopyItemAll(int.Parse(copyDataStructItem.SourceStructIndex), int.Parse(copyDataStructItem.SourceItemIndex), int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex)))
+                if (!Context.DataStructStore.TryCopyItemAll(int.Parse(copyDataStructItem.SourceStructIndex), int.Parse(copyDataStructItem.SourceItemIndex), int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex)))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"复制数据结构失败:源{copyDataStructItem.SourceStructIndex}-{copyDataStructItem.SourceItemIndex},目标{copyDataStructItem.TargetStructIndex}-{copyDataStructItem.TargetItemIndex}";
@@ -1259,7 +1390,7 @@ namespace Automation
             {
                 for (int i = 0; i < copyDataStructItem.Params.Count; i++)
                 {
-                    if (!SF.dataStructStore.TryGetItemValueByIndex(int.Parse(copyDataStructItem.SourceStructIndex), int.Parse(copyDataStructItem.SourceItemIndex), int.Parse(copyDataStructItem.Params[i].SourcevalueIndex), out object obj, out DataStructValueType valueType))
+                    if (!Context.DataStructStore.TryGetItemValueByIndex(int.Parse(copyDataStructItem.SourceStructIndex), int.Parse(copyDataStructItem.SourceItemIndex), int.Parse(copyDataStructItem.Params[i].SourcevalueIndex), out object obj, out DataStructValueType valueType))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"读取数据结构失败:结构{copyDataStructItem.SourceStructIndex},项{copyDataStructItem.SourceItemIndex},值{copyDataStructItem.Params[i].SourcevalueIndex}";
@@ -1273,7 +1404,7 @@ namespace Automation
                         return false;
                     }
 
-                    if (!SF.dataStructStore.TrySetItemValueByIndex(int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex), int.Parse(copyDataStructItem.Params[i].Targetvalue), obj.ToString(), valueType))
+                    if (!Context.DataStructStore.TrySetItemValueByIndex(int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex), int.Parse(copyDataStructItem.Params[i].Targetvalue), obj.ToString(), valueType))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"设置数据结构失败:结构{copyDataStructItem.TargetStructIndex},项{copyDataStructItem.TargetItemIndex},值{copyDataStructItem.Params[i].Targetvalue}";
@@ -1297,7 +1428,7 @@ namespace Automation
                 {
                     double num = -1;
                     if (insertDataStructItem.Params[i].ValueItem != null)
-                        num = SF.valueStore.get_D_ValueByName(insertDataStructItem.Params[i].ValueItem);
+                        num = Context.ValueStore.get_D_ValueByName(insertDataStructItem.Params[i].ValueItem);
                     else
                         num = double.Parse(insertDataStructItem.Params[i].Value);
                     dataStructItem.num[i] = num;
@@ -1306,13 +1437,13 @@ namespace Automation
                 {
                     string str = "";
                     if (insertDataStructItem.Params[i].ValueItem != null)
-                        str = SF.valueStore.get_Str_ValueByName(insertDataStructItem.Params[i].ValueItem);
+                        str = Context.ValueStore.get_Str_ValueByName(insertDataStructItem.Params[i].ValueItem);
                     else
                         str = insertDataStructItem.Params[i].Value.ToString();
                     dataStructItem.str[i] = str;
                 }
             }
-            if (!SF.dataStructStore.TryInsertItem(int.Parse(insertDataStructItem.TargetStructIndex), int.Parse(insertDataStructItem.TargetItemIndex), dataStructItem))
+            if (!Context.DataStructStore.TryInsertItem(int.Parse(insertDataStructItem.TargetStructIndex), int.Parse(insertDataStructItem.TargetItemIndex), dataStructItem))
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"插入数据结构失败:结构{insertDataStructItem.TargetStructIndex},项{insertDataStructItem.TargetItemIndex}";
@@ -1329,15 +1460,15 @@ namespace Automation
             bool success;
             if (itemIndex >= 255)
             {
-                success = SF.dataStructStore.TryRemoveLastItem(structIndex);
+                success = Context.DataStructStore.TryRemoveLastItem(structIndex);
             }
             else if (itemIndex <= -1)
             {
-                success = SF.dataStructStore.TryRemoveFirstItem(structIndex);
+                success = Context.DataStructStore.TryRemoveFirstItem(structIndex);
             }
             else
             {
-                success = SF.dataStructStore.TryRemoveItemAt(structIndex, itemIndex);
+                success = Context.DataStructStore.TryRemoveItemAt(structIndex, itemIndex);
             }
             if (!success)
             {
@@ -1352,13 +1483,13 @@ namespace Automation
         {
             if (findDataStructItem.Type == "名称等于key")
             {
-                if (!SF.dataStructStore.TryFindItemByName(int.Parse(findDataStructItem.TargetStructIndex), findDataStructItem.key, out string value))
+                if (!Context.DataStructStore.TryFindItemByName(int.Parse(findDataStructItem.TargetStructIndex), findDataStructItem.key, out string value))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}";
                     return false;
                 }
-                if (!SF.valueStore.setValueByName(findDataStructItem.save, value))
+                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:{findDataStructItem.save}";
@@ -1367,13 +1498,13 @@ namespace Automation
             }
             else if (findDataStructItem.Type == "字符串等于key")
             {
-                if (!SF.dataStructStore.TryFindItemByStringValue(int.Parse(findDataStructItem.TargetStructIndex), findDataStructItem.key, out string value))
+                if (!Context.DataStructStore.TryFindItemByStringValue(int.Parse(findDataStructItem.TargetStructIndex), findDataStructItem.key, out string value))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}";
                     return false;
                 }
-                if (!SF.valueStore.setValueByName(findDataStructItem.save, value))
+                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:{findDataStructItem.save}";
@@ -1388,13 +1519,13 @@ namespace Automation
                     evt.alarmMsg = $"查找数值key无效:{findDataStructItem.key}";
                     return false;
                 }
-                if (!SF.dataStructStore.TryFindItemByNumberValue(int.Parse(findDataStructItem.TargetStructIndex), keyValue, out double value))
+                if (!Context.DataStructStore.TryFindItemByNumberValue(int.Parse(findDataStructItem.TargetStructIndex), keyValue, out double value))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}";
                     return false;
                 }
-                if (!SF.valueStore.setValueByName(findDataStructItem.save, value))
+                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:{findDataStructItem.save}";
@@ -1406,13 +1537,13 @@ namespace Automation
 
         public bool RunGetDataStructCount(ProcHandle evt, GetDataStructCount getDataStructCount)
         {
-            if (!SF.valueStore.setValueByName(getDataStructCount.StructCount, SF.dataStructStore.Count))
+            if (!Context.ValueStore.setValueByName(getDataStructCount.StructCount, Context.DataStructStore.Count))
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"保存变量失败:{getDataStructCount.StructCount}";
                 return false;
             }
-            if (!SF.valueStore.setValueByName(getDataStructCount.ItemCount, SF.dataStructStore.GetItemCount(int.Parse(getDataStructCount.TargetStructIndex))))
+            if (!Context.ValueStore.setValueByName(getDataStructCount.ItemCount, Context.DataStructStore.GetItemCount(int.Parse(getDataStructCount.TargetStructIndex))))
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"保存变量失败:{getDataStructCount.ItemCount}";
@@ -1425,7 +1556,7 @@ namespace Automation
         {
             foreach (var op in tcpOps.Params)
             {
-                SocketInfo socketInfo = SF.frmComunication.socketInfos.FirstOrDefault(sc => sc.Name == op.Name);
+                SocketInfo socketInfo = Context.SocketInfos.FirstOrDefault(sc => sc.Name == op.Name);
                 if (socketInfo == null)
                 {
                     evt.isAlarm = true;
@@ -1434,11 +1565,11 @@ namespace Automation
                 }
                 if (op.Ops == "启动")
                 {
-                    _ = SF.comm.StartTcpAsync(socketInfo);
+                    _ = Context.Comm.StartTcpAsync(socketInfo);
                 }
                 else
                 {
-                    _ = SF.comm.StopTcpAsync(op.Name);
+                    _ = Context.Comm.StopTcpAsync(op.Name);
 
                 }
 
@@ -1454,7 +1585,7 @@ namespace Automation
                 int start = Environment.TickCount;
                 while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < op.TimeOut)
                 {
-                    if (SF.comm.IsTcpActive(op.Name))
+                    if (Context.Comm.IsTcpActive(op.Name))
                     {
                         return true;
                     }
@@ -1469,7 +1600,7 @@ namespace Automation
 
         public bool RunSendTcpMsg(ProcHandle evt, SendTcpMsg sendTcpMsg)
         {
-            bool success = SF.comm.SendTcpAsync(sendTcpMsg.ID, SF.valueStore.get_Str_ValueByName(sendTcpMsg.Msg), sendTcpMsg.isConVert)
+            bool success = Context.Comm.SendTcpAsync(sendTcpMsg.ID, Context.ValueStore.get_Str_ValueByName(sendTcpMsg.Msg), sendTcpMsg.isConVert)
                 .GetAwaiter()
                 .GetResult();
             if (!success)
@@ -1483,23 +1614,23 @@ namespace Automation
 
         public bool RunReceoveTcpMsg(ProcHandle evt, ReceoveTcpMsg receoveTcpMsg)
         {
-            if (!SF.comm.IsTcpActive(receoveTcpMsg.ID))
+            if (!Context.Comm.IsTcpActive(receoveTcpMsg.ID))
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"TCP未连接:{receoveTcpMsg.ID}";
                 return false;
             }
-            SF.comm.ClearTcpMessages(receoveTcpMsg.ID);
+            Context.Comm.ClearTcpMessages(receoveTcpMsg.ID);
             int start = Environment.TickCount;
             while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < receoveTcpMsg.TImeOut)
             {
-                if (SF.comm.TryReceiveTcp(receoveTcpMsg.ID, 50, out string msg))
+                if (Context.Comm.TryReceiveTcp(receoveTcpMsg.ID, 50, out string msg))
                 {
                     if (receoveTcpMsg.isConVert && int.TryParse(msg, out int number))
                     {
                         msg = Convert.ToString(number, 16).ToUpper();
                     }
-                    if (!SF.valueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg))
+                    if (!Context.ValueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存TCP接收变量失败:{receoveTcpMsg.MsgSaveValue}";
@@ -1514,7 +1645,7 @@ namespace Automation
         }
         public bool RunSendSerialPortMsg(ProcHandle evt, SendSerialPortMsg sendSerialPortMsg)
         {
-            bool success = SF.comm.SendSerialAsync(sendSerialPortMsg.ID, SF.valueStore.get_Str_ValueByName(sendSerialPortMsg.Msg), sendSerialPortMsg.isConVert)
+            bool success = Context.Comm.SendSerialAsync(sendSerialPortMsg.ID, Context.ValueStore.get_Str_ValueByName(sendSerialPortMsg.Msg), sendSerialPortMsg.isConVert)
                 .GetAwaiter()
                 .GetResult();
             if (!success)
@@ -1527,23 +1658,23 @@ namespace Automation
         }
         public bool RunReceoveSerialPortMsg(ProcHandle evt, ReceoveSerialPortMsg receoveSerialPortMsg)
         {
-            if (!SF.comm.IsSerialOpen(receoveSerialPortMsg.ID))
+            if (!Context.Comm.IsSerialOpen(receoveSerialPortMsg.ID))
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"串口未打开:{receoveSerialPortMsg.ID}";
                 return false;
             }
-            SF.comm.ClearSerialMessages(receoveSerialPortMsg.ID);
+            Context.Comm.ClearSerialMessages(receoveSerialPortMsg.ID);
             int start = Environment.TickCount;
             while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < receoveSerialPortMsg.TImeOut)
             {
-                if (SF.comm.TryReceiveSerial(receoveSerialPortMsg.ID, 50, out string msg))
+                if (Context.Comm.TryReceiveSerial(receoveSerialPortMsg.ID, 50, out string msg))
                 {
                     if (int.TryParse(msg, out int number))
                     {
                         msg = Convert.ToString(number, 16).ToUpper();
                     }
-                    if (!SF.valueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg))
+                    if (!Context.ValueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存串口接收变量失败:{receoveSerialPortMsg.MsgSaveValue}";
@@ -1559,26 +1690,26 @@ namespace Automation
 
         public bool RunSendReceoveCommMsg(ProcHandle evt, SendReceoveCommMsg sendReceoveCommMsg)
         {
-            if (sendReceoveCommMsg == null || SF.comm == null || string.IsNullOrEmpty(sendReceoveCommMsg.ID))
+            if (sendReceoveCommMsg == null || Context.Comm == null || string.IsNullOrEmpty(sendReceoveCommMsg.ID))
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "通讯参数无效";
                 return true;
             }
 
-            string sendValue = SF.valueStore.get_Str_ValueByName(sendReceoveCommMsg.SendMsg);
+            string sendValue = Context.ValueStore.get_Str_ValueByName(sendReceoveCommMsg.SendMsg);
             string commType = sendReceoveCommMsg.CommType ?? "TCP";
 
             if (string.Equals(commType, "TCP", StringComparison.OrdinalIgnoreCase))
             {
-                if (!SF.comm.IsTcpActive(sendReceoveCommMsg.ID))
+                if (!Context.Comm.IsTcpActive(sendReceoveCommMsg.ID))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"TCP未连接:{sendReceoveCommMsg.ID}";
                     return false;
                 }
-                SF.comm.ClearTcpMessages(sendReceoveCommMsg.ID);
-                bool sendSuccess = SF.comm.SendTcpAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert)
+                Context.Comm.ClearTcpMessages(sendReceoveCommMsg.ID);
+                bool sendSuccess = Context.Comm.SendTcpAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert)
                     .GetAwaiter()
                     .GetResult();
                 if (!sendSuccess)
@@ -1591,7 +1722,7 @@ namespace Automation
                 int start = Environment.TickCount;
                 while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < sendReceoveCommMsg.TimeOut)
                 {
-                    if (SF.comm.TryReceiveTcp(sendReceoveCommMsg.ID, 50, out string msg))
+                    if (Context.Comm.TryReceiveTcp(sendReceoveCommMsg.ID, 50, out string msg))
                     {
                         if (sendReceoveCommMsg.ReceiveConvert && int.TryParse(msg, out int number))
                         {
@@ -1599,7 +1730,7 @@ namespace Automation
                         }
                         if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
                         {
-                            if (!SF.valueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
+                            if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"保存TCP接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
@@ -1618,14 +1749,14 @@ namespace Automation
                 string.Equals(commType, "Serial", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(commType, "SerialPort", StringComparison.OrdinalIgnoreCase))
             {
-                if (!SF.comm.IsSerialOpen(sendReceoveCommMsg.ID))
+                if (!Context.Comm.IsSerialOpen(sendReceoveCommMsg.ID))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"串口未打开:{sendReceoveCommMsg.ID}";
                     return false;
                 }
-                SF.comm.ClearSerialMessages(sendReceoveCommMsg.ID);
-                bool sendSuccess = SF.comm.SendSerialAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert)
+                Context.Comm.ClearSerialMessages(sendReceoveCommMsg.ID);
+                bool sendSuccess = Context.Comm.SendSerialAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert)
                     .GetAwaiter()
                     .GetResult();
                 if (!sendSuccess)
@@ -1638,7 +1769,7 @@ namespace Automation
                 int start = Environment.TickCount;
                 while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < sendReceoveCommMsg.TimeOut)
                 {
-                    if (SF.comm.TryReceiveSerial(sendReceoveCommMsg.ID, 50, out string msg))
+                    if (Context.Comm.TryReceiveSerial(sendReceoveCommMsg.ID, 50, out string msg))
                     {
                         if (sendReceoveCommMsg.ReceiveConvert && int.TryParse(msg, out int number))
                         {
@@ -1646,7 +1777,7 @@ namespace Automation
                         }
                         if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
                         {
-                            if (!SF.valueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
+                            if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"保存串口接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
@@ -1670,7 +1801,7 @@ namespace Automation
         {
             foreach (var op in serialPortOps.Params)
             {
-                SerialPortInfo serialPortInfo = SF.frmComunication.serialPortInfos.FirstOrDefault(sc => sc.Name == op.Name);
+                SerialPortInfo serialPortInfo = Context.SerialPortInfos.FirstOrDefault(sc => sc.Name == op.Name);
                 if (serialPortInfo == null)
                 {
                     evt.isAlarm = true;
@@ -1679,11 +1810,11 @@ namespace Automation
                 }
                 if (op.Ops == "启动")
                 {
-                    _ = SF.comm.StartSerialAsync(serialPortInfo);
+                    _ = Context.Comm.StartSerialAsync(serialPortInfo);
                 }
                 else
                 {
-                    _ = SF.comm.StopSerialAsync(op.Name);
+                    _ = Context.Comm.StopSerialAsync(op.Name);
                 }
 
             }
@@ -1698,7 +1829,7 @@ namespace Automation
                 int start = Environment.TickCount;
                 while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < op.TimeOut)
                 {
-                    if (SF.comm.IsSerialOpen(op.Name))
+                    if (Context.Comm.IsSerialOpen(op.Name))
                     {
                         return true;
                     }
@@ -1716,26 +1847,26 @@ namespace Automation
             DataStation station;
             if (homeRun.StationIndex != -1)
             {
-                station = SF.frmCard.dataStation[homeRun.StationIndex];
+                station = Context.Stations[homeRun.StationIndex];
             }
             else
             {
-                station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == homeRun.StationName);
+                station = Context.Stations.FirstOrDefault(sc => sc.Name == homeRun.StationName);
             }
             if (station != null)
             {
                 station.SetState(DataStation.Status.Run);
-                int stationIndex = SF.frmCard.dataStation.IndexOf(station);
+                int stationIndex = Context.Stations.IndexOf(station);
                 if (stationIndex != -1)
                 {
                     Task task = Task.Run(() =>
                     {
                         if (homeRun.StationHomeType == "轴按优先顺序回")
-                            SF.frmControl.HomeStationByseq(stationIndex);
+                            HomeStationBySeq(stationIndex);
                         else
-                            SF.frmControl.HomeStationByAll(stationIndex);
+                            HomeStationByAll(stationIndex);
                     });
-                    SF.Delay(500);
+                    Delay(500, evt);
                     if (!homeRun.isUnWait)
                     {
                         int start = Environment.TickCount;
@@ -1745,7 +1876,8 @@ namespace Automation
                             if (Math.Abs(Environment.TickCount - start) > 120000)
                             {
                                 evt.isAlarm = true;
-                                SF.frmInfo.PrintInfo(homeRun.Name + "运动超时！", FrmInfo.Level.Error);
+                                evt.alarmMsg = homeRun.Name + "运动超时";
+                                Logger?.Log(homeRun.Name + "运动超时！", LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 return false;
                             }
@@ -1753,7 +1885,7 @@ namespace Automation
                             {
                                 if (station.dataAxis.axisConfigs[i].AxisName == "-1")
                                     continue;
-                                if (SF.cardStore.TryGetAxis(int.Parse(station.dataAxis.axisConfigs[i].CardNum), i, out Axis axisInfo) && axisInfo.State == Axis.Status.Ready)
+                                if (Context.CardStore.TryGetAxis(int.Parse(station.dataAxis.axisConfigs[i].CardNum), i, out Axis axisInfo) && axisInfo.State == Axis.Status.Ready)
                                 {
                                     isInPos = true;
                                 }
@@ -1767,7 +1899,7 @@ namespace Automation
                             {
                                 break;
                             }
-                            SF.Delay(5);
+                            Delay(5, evt);
                         }
                     }
                 }
@@ -1780,11 +1912,11 @@ namespace Automation
             DataStation station;
             //if (stationRunPos.StationIndex != -1)
             //{
-            //    station = SF.frmCard.dataStation[stationRunPos.StationIndex];
+            //    station = Context.Stations[stationRunPos.StationIndex];
             //}
             //else
             //{
-            station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == stationRunPos.StationName);
+            station = Context.Stations.FirstOrDefault(sc => sc.Name == stationRunPos.StationName);
             //}
 
             if (station != null)
@@ -1818,10 +1950,11 @@ namespace Automation
                         {
                             ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
                             ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
-                            if (!SF.cardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
+                            if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                             {
                                 evt.isAlarm = true;
-                                SF.frmInfo.PrintInfo($"工站：{stationRunPos.Name} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
+                                evt.alarmMsg = $"工站：{stationRunPos.Name} {cardNum}号卡{axisNum}号轴配置不存在";
+                                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 return false;
                             }
@@ -1831,9 +1964,9 @@ namespace Automation
                                 double AccTemp = 0;
                                 double DecTemp = 0;
 
-                                VelTemp = stationRunPos.Vel == 0 ? SF.valueStore.GetValueByName(stationRunPos.VelV).GetDValue() : stationRunPos.Vel;
-                                AccTemp = stationRunPos.Acc == 0 ? SF.valueStore.GetValueByName(stationRunPos.AccV).GetDValue() : stationRunPos.Acc;
-                                DecTemp = stationRunPos.Dec == 0 ? SF.valueStore.GetValueByName(stationRunPos.DecV).GetDValue() : stationRunPos.Dec;
+                                VelTemp = stationRunPos.Vel == 0 ? Context.ValueStore.GetValueByName(stationRunPos.VelV).GetDValue() : stationRunPos.Vel;
+                                AccTemp = stationRunPos.Acc == 0 ? Context.ValueStore.GetValueByName(stationRunPos.AccV).GetDValue() : stationRunPos.Acc;
+                                DecTemp = stationRunPos.Dec == 0 ? Context.ValueStore.GetValueByName(stationRunPos.DecV).GetDValue() : stationRunPos.Dec;
 
 
                                 Vel = axisInfo.SpeedMax * (VelTemp / 100);
@@ -1846,9 +1979,9 @@ namespace Automation
                                 Acc = axisInfo.AccMax / (axisInfo.AccRun / 100);
                                 Dec = axisInfo.DecMax / (axisInfo.DecRun / 100);
                             }
-                            SF.motion.SetMovParam(cardNum, axisNum, 0, Vel, Acc, Dec, 0, 0, axisInfo.PulseToMM);
+                            Context.Motion.SetMovParam(cardNum, axisNum, 0, Vel, Acc, Dec, 0, 0, axisInfo.PulseToMM);
 
-                            SF.motion.Mov(ushort.Parse(station.dataAxis.axisConfigs[i].CardNum), (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum, Poses[i], 1, false);
+                            Context.Motion.Mov(ushort.Parse(station.dataAxis.axisConfigs[i].CardNum), (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum, Poses[i], 1, false);
                         }
                     }
                     if (!stationRunPos.isUnWait)
@@ -1879,7 +2012,7 @@ namespace Automation
                         else
                         {
 
-                            time = SF.valueStore.GetValueByName(stationRunPos.timeOutV).GetDValue();
+                            time = Context.ValueStore.GetValueByName(stationRunPos.timeOutV).GetDValue();
                         }
 
                         while (evt.isThStop == false && cardNums.Count != 0 && station.GetState() == DataStation.Status.Run)
@@ -1887,13 +2020,14 @@ namespace Automation
                             if (Math.Abs(Environment.TickCount - start) > time)
                             {
                                 evt.isAlarm = true;
-                                SF.frmInfo.PrintInfo(stationRunPos.Name + "运动超时！", FrmInfo.Level.Error);
+                                evt.alarmMsg = stationRunPos.Name + "运动超时";
+                                Logger?.Log(stationRunPos.Name + "运动超时！", LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 return false;
                             }
                             for (int i = 0; i < cardNums.Count; i++)
                             {
-                                if (SF.motion.GetInPos(cardNums[i], axisNums[i]))
+                                if (Context.Motion.GetInPos(cardNums[i], axisNums[i]))
                                 {
                                     isInPos = true;
                                 }
@@ -1905,22 +2039,24 @@ namespace Automation
                             }
                             if (isInPos)
                                 break;
-                            SF.Delay(5);
+                            Delay(5, evt);
                         }
                         if (stationRunPos.isCheckInPos)
                         {
                             for (int i = 0; i < cardNums.Count; i++)
                             {
-                                if (!SF.cardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
+                                if (!Context.CardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
                                 {
                                     evt.isAlarm = true;
-                                    SF.frmInfo.PrintInfo($"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在", FrmInfo.Level.Error);
+                                    evt.alarmMsg = $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
+                                    Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                     return false;
                                 }
-                                if (((SF.motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - TargetPos[i])) > 0.01)
+                                if (((Context.Motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - TargetPos[i])) > 0.01)
                                 {
                                     evt.isAlarm = true;
-                                    SF.frmInfo.PrintInfo($"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位", FrmInfo.Level.Error);
+                                    evt.alarmMsg = $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位";
+                                    Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 }
                             }
                         }
@@ -1936,11 +2072,11 @@ namespace Automation
             DataStation station;
             //if (stationRunRel.StationIndex != -1)
             //{
-            //    station = SF.frmCard.dataStation[stationRunRel.StationIndex];
+            //    station = Context.Stations[stationRunRel.StationIndex];
             //}
             //else
             //{
-            station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == stationRunRel.StationName);
+            station = Context.Stations.FirstOrDefault(sc => sc.Name == stationRunRel.StationName);
             //}
 
             if (station != null)
@@ -1965,10 +2101,11 @@ namespace Automation
                         ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
                         cardNums.Add(cardNum);
                         axisNums.Add(axisNum);
-                        if (!SF.cardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
+                        if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                         {
                             evt.isAlarm = true;
-                            SF.frmInfo.PrintInfo($"工站：{stationRunRel.Name} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
+                            evt.alarmMsg = $"工站：{stationRunRel.Name} {cardNum}号卡{axisNum}号轴配置不存在";
+                            Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
                             return false;
                         }
@@ -1978,9 +2115,9 @@ namespace Automation
                             double AccTemp = 0;
                             double DecTemp = 0;
 
-                            VelTemp = stationRunRel.Vel == 0 ? SF.valueStore.GetValueByName(stationRunRel.VelV).GetDValue() : stationRunRel.Vel;
-                            AccTemp = stationRunRel.Acc == 0 ? SF.valueStore.GetValueByName(stationRunRel.AccV).GetDValue() : stationRunRel.Acc;
-                            DecTemp = stationRunRel.Dec == 0 ? SF.valueStore.GetValueByName(stationRunRel.DecV).GetDValue() : stationRunRel.Dec;
+                            VelTemp = stationRunRel.Vel == 0 ? Context.ValueStore.GetValueByName(stationRunRel.VelV).GetDValue() : stationRunRel.Vel;
+                            AccTemp = stationRunRel.Acc == 0 ? Context.ValueStore.GetValueByName(stationRunRel.AccV).GetDValue() : stationRunRel.Acc;
+                            DecTemp = stationRunRel.Dec == 0 ? Context.ValueStore.GetValueByName(stationRunRel.DecV).GetDValue() : stationRunRel.Dec;
 
 
                             Vel = axisInfo.SpeedMax * (VelTemp / 100);
@@ -1994,12 +2131,12 @@ namespace Automation
                             Acc = axisInfo.AccMax / (axisInfo.AccRun / 100);
                             Dec = axisInfo.DecMax / (axisInfo.DecRun / 100);
                         }
-                        SF.motion.SetMovParam(cardNum, axisNum, 0, Vel, Acc, Dec, 0, 0, axisInfo.PulseToMM);
+                        Context.Motion.SetMovParam(cardNum, axisNum, 0, Vel, Acc, Dec, 0, 0, axisInfo.PulseToMM);
 
                         double DistanceTemp = 0;
-                        DistanceTemp = TargetPos[i] == 0 ? SF.valueStore.GetValueByName(TargetPosV[i]).GetDValue() : TargetPos[i];
+                        DistanceTemp = TargetPos[i] == 0 ? Context.ValueStore.GetValueByName(TargetPosV[i]).GetDValue() : TargetPos[i];
 
-                        SF.motion.Mov(ushort.Parse(station.dataAxis.axisConfigs[i].CardNum), (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum, DistanceTemp, 0, false);
+                        Context.Motion.Mov(ushort.Parse(station.dataAxis.axisConfigs[i].CardNum), (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum, DistanceTemp, 0, false);
                     }
                 }
                 if (!stationRunRel.isUnWait)
@@ -2013,20 +2150,21 @@ namespace Automation
                     else
                     {
 
-                        time = SF.valueStore.GetValueByName(stationRunRel.timeOutV).GetDValue();
+                        time = Context.ValueStore.GetValueByName(stationRunRel.timeOutV).GetDValue();
                     }
                     while (evt.isThStop == false && station.GetState() == DataStation.Status.Run)
                     {
                         if (Math.Abs(Environment.TickCount - start) > time)
                         {
                             evt.isAlarm = true;
-                            SF.frmInfo.PrintInfo(stationRunRel.Name + "运动超时！", FrmInfo.Level.Error);
+                            evt.alarmMsg = stationRunRel.Name + "运动超时";
+                            Logger?.Log(stationRunRel.Name + "运动超时！", LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
                             return false;
                         }
                         for (int i = 0; i < cardNums.Count; i++)
                         {
-                            if (SF.motion.GetInPos(cardNums[i], axisNums[i]))
+                            if (Context.Motion.GetInPos(cardNums[i], axisNums[i]))
                             {
                                 isInPos = true;
                             }
@@ -2038,22 +2176,24 @@ namespace Automation
                         }
                         if (isInPos)
                             break;
-                        SF.Delay(5);
+                        Delay(5, evt);
                     }
                     if (stationRunRel.isCheckInPos)
                     {
                         for (int i = 0; i < cardNums.Count; i++)
                         {
-                            if (!SF.cardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
+                            if (!Context.CardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
                             {
                                 evt.isAlarm = true;
-                                SF.frmInfo.PrintInfo($"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在", FrmInfo.Level.Error);
+                                evt.alarmMsg = $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
+                                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 return false;
                             }
-                            if (((SF.motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - TargetPos[i])) > 0.01)
+                            if (((Context.Motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - TargetPos[i])) > 0.01)
                             {
                                 evt.isAlarm = true;
-                                SF.frmInfo.PrintInfo($"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位", FrmInfo.Level.Error);
+                                evt.alarmMsg = $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位";
+                                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             }
                         }
                     }
@@ -2068,11 +2208,11 @@ namespace Automation
             DataStation station;
             if (setStationVel.StationIndex != -1)
             {
-                station = SF.frmCard.dataStation[setStationVel.StationIndex];
+                station = Context.Stations[setStationVel.StationIndex];
             }
             else
             {
-                station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == setStationVel.StationName);
+                station = Context.Stations.FirstOrDefault(sc => sc.Name == setStationVel.StationName);
             }
 
             if (station != null)
@@ -2081,9 +2221,9 @@ namespace Automation
                 double Acc = 0;
                 double Dec = 0;
 
-                Vel = setStationVel.Vel == 0 ? SF.valueStore.GetValueByName(setStationVel.VelV).GetDValue() : setStationVel.Vel;
-                Acc = setStationVel.Acc == 0 ? SF.valueStore.GetValueByName(setStationVel.AccV).GetDValue() : setStationVel.Acc;
-                Dec = setStationVel.Dec == 0 ? SF.valueStore.GetValueByName(setStationVel.DecV).GetDValue() : setStationVel.Dec;
+                Vel = setStationVel.Vel == 0 ? Context.ValueStore.GetValueByName(setStationVel.VelV).GetDValue() : setStationVel.Vel;
+                Acc = setStationVel.Acc == 0 ? Context.ValueStore.GetValueByName(setStationVel.AccV).GetDValue() : setStationVel.Acc;
+                Dec = setStationVel.Dec == 0 ? Context.ValueStore.GetValueByName(setStationVel.DecV).GetDValue() : setStationVel.Dec;
 
                 if (setStationVel.SetAxisObj == "工站")
                 {
@@ -2094,10 +2234,11 @@ namespace Automation
                             ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
                             ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
 
-                            if (!SF.cardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
+                            if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                             {
                                 evt.isAlarm = true;
-                                SF.frmInfo.PrintInfo($"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
+                                evt.alarmMsg = $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在";
+                                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 return false;
                             }
                             axisInfo.SpeedRun = Vel;
@@ -2112,15 +2253,17 @@ namespace Automation
                     if (axisInfo == null)
                     {
                         evt.isAlarm = true;
-                        SF.frmInfo.PrintInfo($"工站：{setStationVel.StationName} 轴配置不存在", FrmInfo.Level.Error);
+                        evt.alarmMsg = $"工站：{setStationVel.StationName} 轴配置不存在";
+                        Logger?.Log(evt.alarmMsg, LogLevel.Error);
                         return false;
                     }
                     int cardNum = int.Parse(axisInfo.CardNum);
                     int axisNum = axisInfo.axis.AxisNum;
-                    if (!SF.cardStore.TryGetAxis(cardNum, axisNum, out Axis axisConfig))
+                    if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisConfig))
                     {
                         evt.isAlarm = true;
-                        SF.frmInfo.PrintInfo($"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在", FrmInfo.Level.Error);
+                        evt.alarmMsg = $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在";
+                        Logger?.Log(evt.alarmMsg, LogLevel.Error);
                         return false;
                     }
                     axisConfig.SpeedRun = Vel;
@@ -2136,13 +2279,13 @@ namespace Automation
         }
         public bool RunStationStop(ProcHandle evt, StationStop stationStop)
         {
-            DataStation station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == stationStop.StationName);
+            DataStation station = Context.Stations.FirstOrDefault(sc => sc.Name == stationStop.StationName);
 
             if (station != null)
             {
                 if (stationStop.isAllStop)
                 {
-                    SF.frmControl.StopStation(station);
+                    StopStation(station);
                 }
                 else
                 {
@@ -2153,7 +2296,7 @@ namespace Automation
                         {
                             int cardNum = int.Parse(station.dataAxis.axisConfigs[i].CardNum);
                             int axisNum = station.dataAxis.axisConfigs[i].axis.AxisNum;
-                            SF.frmControl.StopAxis(cardNum, axisNum);
+                            StopAxis(cardNum, axisNum);
                         }
                     }
                 }
@@ -2169,11 +2312,11 @@ namespace Automation
             DataStation station;
             if (waitStationStop.StationIndex != -1)
             {
-                station = SF.frmCard.dataStation[waitStationStop.StationIndex];
+                station = Context.Stations[waitStationStop.StationIndex];
             }
             else
             {
-                station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == waitStationStop.StationName);
+                station = Context.Stations.FirstOrDefault(sc => sc.Name == waitStationStop.StationName);
             }
             station.SetState(DataStation.Status.Run);
             List<ushort> cardNums = new List<ushort>();
@@ -2197,7 +2340,7 @@ namespace Automation
                 else
                 {
 
-                    time = SF.valueStore.GetValueByName(waitStationStop.timeOutV).GetDValue();
+                    time = Context.ValueStore.GetValueByName(waitStationStop.timeOutV).GetDValue();
                 }
                 while (evt.isThStop == false && station.GetState() == DataStation.Status.Run)
                 {
@@ -2206,20 +2349,22 @@ namespace Automation
                     if (Math.Abs(Environment.TickCount - start) > time)
                     {
                         evt.isAlarm = true;
-                        SF.frmInfo.PrintInfo(waitStationStop.Name + "等待超时！", FrmInfo.Level.Error);
+                        evt.alarmMsg = waitStationStop.Name + "等待超时";
+                        Logger?.Log(waitStationStop.Name + "等待超时！", LogLevel.Error);
                         return false;
                     }
                     for (int i = 0; i < cardNums.Count; i++)
                     {
                         if (waitStationStop.isWaitHome)
                         {
-                            if (!SF.cardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
+                            if (!Context.CardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
                             {
                                 evt.isAlarm = true;
-                                SF.frmInfo.PrintInfo($"工站：{waitStationStop.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在", FrmInfo.Level.Error);
+                                evt.alarmMsg = $"工站：{waitStationStop.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
+                                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 return false;
                             }
-                            if (SF.motion.HomeStatus(cardNums[i], axisNums[i]) && axisInfo.GetState() == Axis.Status.Ready)
+                            if (Context.Motion.HomeStatus(cardNums[i], axisNums[i]) && axisInfo.GetState() == Axis.Status.Ready)
                             {
                                 isInPos = true;
                             }
@@ -2231,7 +2376,7 @@ namespace Automation
                         }
                         else
                         {
-                            if (SF.motion.GetInPos(cardNums[i], axisNums[i]))
+                            if (Context.Motion.GetInPos(cardNums[i], axisNums[i]))
                             {
                                 isInPos = true;
                             }
@@ -2244,7 +2389,7 @@ namespace Automation
                     }
                     if (isInPos)
                         break;
-                    SF.Delay(5);
+                    Delay(5, evt);
                 }
             }
             else
@@ -2252,6 +2397,206 @@ namespace Automation
                 return false;
             }
             return true;
+        }
+
+        private void StopStation(DataStation station)
+        {
+            if (station == null || Context.Motion == null)
+            {
+                return;
+            }
+            for (int i = 0; i < 6; i++)
+            {
+                if (station.dataAxis.axisConfigs[i].AxisName != "-1")
+                {
+                    station.SetState(DataStation.Status.Ready);
+                    station.dataAxis.axisConfigs[i].axis.SetState(Axis.Status.Ready);
+                    Context.Motion.StopOneAxis(ushort.Parse(station.dataAxis.axisConfigs[i].CardNum),
+                        (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum,
+                        0);
+                }
+            }
+        }
+
+        private void StopAxis(int card, int axis)
+        {
+            if (Context.CardStore != null && Context.CardStore.TryGetAxis(card, axis, out Axis axisInfo))
+            {
+                axisInfo.SetState(Axis.Status.Ready);
+            }
+            Context.Motion?.StopOneAxis((ushort)card, (ushort)axis, 0);
+        }
+
+        private void HomeStationBySeq(int dataStationIndex)
+        {
+            if (Context.Stations == null || dataStationIndex < 0 || dataStationIndex >= Context.Stations.Count)
+            {
+                return;
+            }
+            DataStation station = Context.Stations[dataStationIndex];
+            List<AxisName> seq = station.homeSeq.axisSeq;
+            for (int i = 0; i < 6; i++)
+            {
+                foreach (var item in station.dataAxis.axisConfigs)
+                {
+                    if (item.AxisName == seq[i].Name && item.AxisName != "-1")
+                    {
+                        HomeSingleAxis(ushort.Parse(item.CardNum), (ushort)item.axis.AxisNum);
+                        if (Context.CardStore == null || !Context.CardStore.TryGetAxis(int.Parse(item.CardNum), i, out Axis axisInfo))
+                        {
+                            Logger?.Log($"卡{item.CardNum}轴{i}配置不存在，工站回零动作终止。", LogLevel.Error);
+                            return;
+                        }
+
+                        if (axisInfo.State == Axis.Status.NotReady)
+                        {
+                            Logger?.Log($"卡{item.CardNum}轴{i}回零失败,工站回零动作终止。", LogLevel.Error);
+                            return;
+                        }
+                        break;
+                    }
+                }
+            }
+            for (int j = 0; j < station.dataAxis.axisConfigs.Count; j++)
+            {
+                ushort index = (ushort)j;
+                if (station.dataAxis.axisConfigs[j].AxisName != "-1"
+                    && Context.Motion != null
+                    && !Context.Motion.HomeStatus(ushort.Parse(station.dataAxis.axisConfigs[index].CardNum),
+                        (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum))
+                {
+                    Task task = Task.Run(() =>
+                    {
+                        HomeSingleAxis(ushort.Parse(station.dataAxis.axisConfigs[index].CardNum),
+                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum);
+                    });
+                }
+            }
+        }
+
+        private void HomeStationByAll(int dataStationIndex)
+        {
+            if (Context.Stations == null || dataStationIndex < 0 || dataStationIndex >= Context.Stations.Count)
+            {
+                return;
+            }
+            DataStation station = Context.Stations[dataStationIndex];
+            for (int j = 0; j < station.dataAxis.axisConfigs.Count; j++)
+            {
+                ushort index = (ushort)j;
+                if (station.dataAxis.axisConfigs[j].AxisName != "-1")
+                {
+                    Task task = Task.Run(() =>
+                    {
+                        HomeSingleAxis(ushort.Parse(station.dataAxis.axisConfigs[index].CardNum),
+                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum);
+                    });
+                }
+            }
+        }
+
+        private void HomeSingleAxis(ushort cardNum, ushort axis)
+        {
+            if (Context.Motion == null || Context.CardStore == null)
+            {
+                return;
+            }
+            if (!Context.Motion.GetInPos(cardNum, axis))
+            {
+                return;
+            }
+            ushort dir = 0;
+            if (!Context.CardStore.TryGetAxis(cardNum, axis, out Axis axisInfo))
+            {
+                return;
+            }
+            axisInfo.State = Axis.Status.Run;
+            int sfc = 1;
+            if (axisInfo.HomeType == "从当前位回零")
+            {
+                sfc = 10;
+            }
+            int IOindex = 3;
+            if (axisInfo.HomeType == "从正限位回零")
+            {
+                dir = 1;
+                IOindex = 2;
+            }
+            int IOindexTemp = IOindex == 2 ? 3 : 2;
+
+            while (axisInfo.State == Axis.Status.Run)
+            {
+                switch (sfc)
+                {
+                    case 1:
+                        Context.Motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.LimitSpeed), axisInfo.AccMax,
+                            axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
+                        Context.Motion.Jog(cardNum, axis, dir);
+                        Task.Delay(20);
+                        sfc = 2;
+                        break;
+                    case 2:
+                        if (GetAxisStateBit(cardNum, axis, IOindex))
+                        {
+                            sfc = 10;
+                        }
+                        if (GetAxisStateBit(cardNum, axis, IOindexTemp))
+                        {
+                            Thread.Sleep(1000);
+                            if (GetAxisStateBit(cardNum, axis, IOindexTemp))
+                            {
+                                Logger?.Log("限位方向错误，回零失败。", LogLevel.Error);
+                                axisInfo.State = Axis.Status.NotReady;
+                                return;
+                            }
+
+                        }
+                        Task.Delay(20);
+                        break;
+                    case 10:
+                        Context.Motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.HomeSpeed), axisInfo.AccMax,
+                            axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
+                        if (axisInfo.HomeType != "从当前位回零")
+                        {
+                            Context.Motion.SettHomeParam(cardNum, axis, dir, 1, 1);
+                        }
+                        Context.Motion.StartHome(cardNum, axis);
+                        Task.Delay(20);
+                        sfc = 20;
+                        break;
+                    case 20:
+                        if (Context.Motion.GetInPos(cardNum, axis))
+                        {
+                            Thread.Sleep(300);
+                            if (Context.Motion.HomeStatus(cardNum, axis) == true)
+                            {
+                                Context.Motion.CleanPos(cardNum, axis);
+                                axisInfo.State = 0;
+                                sfc = 0;
+                            }
+                            else
+                            {
+                                Logger?.Log("限位方向错误，回零失败。", LogLevel.Error);
+                                axisInfo.State = Axis.Status.NotReady;
+                                sfc = 0;
+                                return;
+                            }
+
+                        }
+                        Task.Delay(20);
+                        break;
+
+                }
+            }
+        }
+
+        private bool GetAxisStateBit(ushort cardNum, ushort axis, int bitIndex)
+        {
+            if (bitIndex <= 0)
+            {
+                return false;
+            }
+            return Context.AxisStateBitGetter != null && Context.AxisStateBitGetter(cardNum, axis, bitIndex);
         }
     }
     public enum ProcRunState
@@ -2264,10 +2609,6 @@ namespace Automation
     }
     public class ProcHandle
     {
-        public ManualResetEvent m_evtRun = new ManualResetEvent(false);
-        public ManualResetEvent m_evtTik = new ManualResetEvent(false);
-        public ManualResetEvent m_evtTok = new ManualResetEvent(false);
-
         public int procNum;
         public int stepNum;
         public int opsNum;
@@ -2287,5 +2628,147 @@ namespace Automation
         //自定义报警信息
         public string alarmMsg;
 
+    }
+
+    public enum AlarmDecision
+    {
+        Stop = 0,
+        Ignore = 1,
+        Goto1 = 2,
+        Goto2 = 3,
+        Goto3 = 4
+    }
+
+    public enum LogLevel
+    {
+        Error = 0,
+        Normal = 1
+    }
+
+    public interface ILogger
+    {
+        void Log(string message, LogLevel level);
+    }
+
+    public interface IAlarmHandler
+    {
+        Task<AlarmDecision> HandleAsync(AlarmContext context);
+    }
+
+    public sealed class AlarmContext
+    {
+        public AlarmContext(int procIndex, int stepIndex, int opIndex, string alarmType, string alarmMessage,
+            string note, string btn1, string btn2, string btn3)
+        {
+            ProcIndex = procIndex;
+            StepIndex = stepIndex;
+            OpIndex = opIndex;
+            AlarmType = alarmType;
+            AlarmMessage = alarmMessage;
+            Note = note;
+            Btn1 = btn1;
+            Btn2 = btn2;
+            Btn3 = btn3;
+        }
+
+        public int ProcIndex { get; }
+        public int StepIndex { get; }
+        public int OpIndex { get; }
+        public string AlarmType { get; }
+        public string AlarmMessage { get; }
+        public string Note { get; }
+        public string Btn1 { get; }
+        public string Btn2 { get; }
+        public string Btn3 { get; }
+    }
+
+    public sealed class EngineContext
+    {
+        public IList<Proc> Procs { get; set; }
+        public ValueConfigStore ValueStore { get; set; }
+        public DataStructStore DataStructStore { get; set; }
+        public CardConfigStore CardStore { get; set; }
+        public MotionCtrl Motion { get; set; }
+        public CommunicationHub Comm { get; set; }
+        public AlarmInfoStore AlarmInfoStore { get; set; }
+        public IDictionary<string, IO> IoMap { get; set; }
+        public IList<DataStation> Stations { get; set; }
+        public IList<SocketInfo> SocketInfos { get; set; }
+        public IList<SerialPortInfo> SerialPortInfos { get; set; }
+        public CustomFunc CustomFunc { get; set; }
+        public Func<ushort, ushort, int, bool> AxisStateBitGetter { get; set; }
+    }
+
+    internal sealed class ProcessControl : IDisposable
+    {
+        private readonly ManualResetEventSlim runGate = new ManualResetEventSlim(false);
+        private readonly SemaphoreSlim stepGate = new SemaphoreSlim(0, 1);
+        private readonly CancellationTokenSource stopCts = new CancellationTokenSource();
+
+        public bool IsStopRequested => stopCts.IsCancellationRequested;
+
+        public void SetRunning()
+        {
+            runGate.Set();
+        }
+
+        public void SetPaused()
+        {
+            runGate.Reset();
+        }
+
+        public void RequestStep()
+        {
+            runGate.Set();
+            try
+            {
+                stepGate.Release();
+            }
+            catch (SemaphoreFullException)
+            {
+            }
+        }
+
+        public void RequestStop()
+        {
+            stopCts.Cancel();
+            runGate.Set();
+            try
+            {
+                stepGate.Release();
+            }
+            catch (SemaphoreFullException)
+            {
+            }
+        }
+
+        public void WaitForRun()
+        {
+            try
+            {
+                runGate.Wait(stopCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        public void WaitForStep()
+        {
+            try
+            {
+                stepGate.Wait(stopCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        public void Dispose()
+        {
+            runGate.Dispose();
+            stepGate.Dispose();
+            stopCts.Dispose();
+        }
     }
 }

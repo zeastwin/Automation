@@ -31,7 +31,7 @@ namespace Automation
         public FrmValue frmValue = new FrmValue();
         public FrmIO  frmIO = new FrmIO();
         public FrmCard  frmCard = new FrmCard();
-        public DataRun dataRun = new DataRun();
+        public ProcessEngine dataRun;
         public CustomFunc customFunc = new CustomFunc();
         public FrmControl frmControl = new FrmControl();
         public FrmStation frmStation = new FrmStation();
@@ -55,6 +55,26 @@ namespace Automation
             SF.alarmInfoStore = new AlarmInfoStore();
             SF.comm = new CommunicationHub();
             SF.mainfrm = this;
+            EngineContext engineContext = new EngineContext
+            {
+                Procs = frmProc.procsList,
+                ValueStore = SF.valueStore,
+                DataStructStore = SF.dataStructStore,
+                CardStore = SF.cardStore,
+                Motion = motion,
+                Comm = SF.comm,
+                AlarmInfoStore = SF.alarmInfoStore,
+                IoMap = frmIO.DicIO,
+                Stations = frmCard.dataStation,
+                SocketInfos = frmComunication.socketInfos,
+                SerialPortInfos = frmComunication.serialPortInfos,
+                CustomFunc = customFunc,
+                AxisStateBitGetter = TryGetAxisStateBit
+            };
+            dataRun = new ProcessEngine(engineContext);
+            dataRun.Logger = new FrmInfoLogger(frmInfo);
+            dataRun.AlarmHandler = new WinFormsAlarmHandler(this);
+            dataRun.ProcTextChanged += UpdateProcText;
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;
             SF.frmDataGrid = frmDataGrid;
@@ -110,6 +130,14 @@ namespace Automation
             SF.frmComunication.RefreshSerialPortInfo();
             SF.frmAlarmConfig.RefreshAlarmInfo();
             SF.frmIODebug.RefleshIODebug();
+            if (SF.DR?.Context != null)
+            {
+                SF.DR.Context.Procs = SF.frmProc.procsList;
+                SF.DR.Context.Stations = SF.frmCard.dataStation;
+                SF.DR.Context.SocketInfos = SF.frmComunication.socketInfos;
+                SF.DR.Context.SerialPortInfos = SF.frmComunication.serialPortInfos;
+                SF.DR.Context.IoMap = SF.frmIO.DicIO;
+            }
             //初始化运动控制相关
             SF.motion.InitCardType();
             SF.motion.InitCard();
@@ -131,16 +159,6 @@ namespace Automation
                         continue;
                     }
                     SF.DR.StartProcAuto(proc, i);
-                    ProcHandle handle = SF.DR.ProcHandles[i];
-                    if (handle != null)
-                    {
-                        handle.m_evtRun.Set();
-                        handle.m_evtTik.Set();
-                        handle.m_evtTok.Set();
-                        handle.State = ProcRunState.Running;
-                        handle.isBreakpoint = false;
-                        SF.DR.SetProcText(i, handle.State, handle.isBreakpoint);
-                    }
                 }
             }
         }
@@ -205,6 +223,86 @@ namespace Automation
                     Dictionary<int, char[]> dictionary1 = new Dictionary<int, char[]>();
                     StateDic.Add(dictionary1);
                 }
+            }
+        }
+
+        public bool TryGetAxisStateBit(ushort cardNum, ushort axis, int bitIndex)
+        {
+            if (bitIndex <= 0)
+            {
+                return false;
+            }
+            lock (StateDicLock)
+            {
+                if (cardNum >= StateDic.Count)
+                {
+                    return false;
+                }
+                Dictionary<int, char[]> axisStates = StateDic[cardNum];
+                if (axisStates == null || !axisStates.TryGetValue(axis, out char[] state) || state == null)
+                {
+                    return false;
+                }
+                if (state.Length < bitIndex)
+                {
+                    return false;
+                }
+                return state[state.Length - bitIndex] == '1';
+            }
+        }
+
+        private void UpdateProcText(int procNum, ProcRunState state, bool isBreakpoint)
+        {
+            if (SF.frmProc?.proc_treeView == null || SF.frmProc.procsList == null)
+            {
+                return;
+            }
+            if (procNum < 0 || procNum >= SF.frmProc.procsList.Count || procNum >= SF.frmProc.proc_treeView.Nodes.Count)
+            {
+                return;
+            }
+
+            string stateText;
+            switch (state)
+            {
+                case ProcRunState.Stopped:
+                    stateText = "停止";
+                    break;
+                case ProcRunState.Paused:
+                    stateText = "暂停";
+                    break;
+                case ProcRunState.SingleStep:
+                    stateText = "单步";
+                    break;
+                case ProcRunState.Running:
+                    stateText = "运行";
+                    break;
+                case ProcRunState.Alarming:
+                    stateText = "报警中";
+                    break;
+                default:
+                    stateText = "未知";
+                    break;
+            }
+
+            string result = $"|{stateText}";
+            if (isBreakpoint)
+            {
+                result += "|断点";
+            }
+
+            SF.frmProc.proc_treeView?.Invoke(new Action(() =>
+            {
+                SF.frmProc.proc_treeView.Nodes[procNum].Text = SF.frmProc.procsList[procNum].head.Name + result;
+            }));
+
+            if (SF.frmToolBar?.btnPause != null && procNum == SF.frmProc.SelectedProcNum)
+            {
+                string buttonText = (state == ProcRunState.Running || state == ProcRunState.Alarming) ? "暂停" : "继续";
+                SF.frmToolBar.btnPause?.BeginInvoke(new Action(() =>
+                {
+                    SF.frmToolBar.btnPause.Text = buttonText;
+                }));
             }
         }
 
@@ -337,6 +435,89 @@ namespace Automation
             SF.dataStructStore.Save(SF.ConfigPath);
             SF.alarmInfoStore.Save(SF.ConfigPath);
             Environment.Exit(0);
+        }
+    }
+
+    public sealed class WinFormsAlarmHandler : IAlarmHandler
+    {
+        private readonly Control invoker;
+
+        public WinFormsAlarmHandler(Control invoker)
+        {
+            this.invoker = invoker;
+        }
+
+        public Task<AlarmDecision> HandleAsync(AlarmContext context)
+        {
+            var tcs = new TaskCompletionSource<AlarmDecision>();
+            if (context == null)
+            {
+                tcs.TrySetResult(AlarmDecision.Stop);
+                return tcs.Task;
+            }
+
+            void ShowDialog()
+            {
+                string title = $"发生报警:{context.ProcIndex}---{context.StepIndex}---{context.OpIndex}";
+                switch (context.AlarmType)
+                {
+                    case "弹框确定":
+                        new Message(title, context.Note, () => tcs.TrySetResult(AlarmDecision.Goto1), context.Btn1, false);
+                        break;
+                    case "弹框确定与否":
+                        new Message(title, context.Note,
+                            () => tcs.TrySetResult(AlarmDecision.Goto1),
+                            () => tcs.TrySetResult(AlarmDecision.Goto2),
+                            context.Btn1, context.Btn2, false);
+                        break;
+                    case "弹框确定与否与取消":
+                        new Message(title, context.Note,
+                            () => tcs.TrySetResult(AlarmDecision.Goto1),
+                            () => tcs.TrySetResult(AlarmDecision.Goto2),
+                            () => tcs.TrySetResult(AlarmDecision.Goto3),
+                            context.Btn1, context.Btn2, context.Btn3, false);
+                        break;
+                    default:
+                        tcs.TrySetResult(AlarmDecision.Stop);
+                        break;
+                }
+            }
+
+            if (invoker == null || invoker.IsDisposed)
+            {
+                tcs.TrySetResult(AlarmDecision.Stop);
+                return tcs.Task;
+            }
+            if (invoker.InvokeRequired)
+            {
+                invoker.BeginInvoke((Action)ShowDialog);
+            }
+            else
+            {
+                ShowDialog();
+            }
+
+            return tcs.Task;
+        }
+    }
+
+    public sealed class FrmInfoLogger : ILogger
+    {
+        private readonly FrmInfo info;
+
+        public FrmInfoLogger(FrmInfo info)
+        {
+            this.info = info;
+        }
+
+        public void Log(string message, LogLevel level)
+        {
+            if (info == null || info.IsDisposed)
+            {
+                return;
+            }
+            FrmInfo.Level uiLevel = level == LogLevel.Error ? FrmInfo.Level.Error : FrmInfo.Level.Normal;
+            info.PrintInfo(message, uiLevel);
         }
     }
 }

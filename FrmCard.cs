@@ -390,6 +390,10 @@ namespace Automation
             List<DataStation> dataStationsTemp = SF.mainfrm.ReadJson<List<DataStation>>(SF.ConfigPath, "DataStation");
             if (dataStationsTemp != null)
                 dataStation = dataStationsTemp;
+            if (SF.DR?.Context != null)
+            {
+                SF.DR.Context.Stations = dataStation;
+            }
 
         }
 

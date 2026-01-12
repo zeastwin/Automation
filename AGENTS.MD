@@ -11,11 +11,11 @@
 项目概述：基于 Windows Forms 的低代码自动化平台，核心是可编辑的“流程/步骤/操作”图谱，协同运动控制卡、IO、TCP/串口通讯与自定义逻辑。入口 `Program.cs` → `FrmMain`，主窗体内嵌各功能子窗体。
 
 - **配置布局**：`Config/Work/*.json` 存流程；`Config/value.json` 存变量；`Config/card.json`、`Config/IOMap.json`、`Config/DataStruct.json`、`Config/DataStation.json` 定义硬件/IO/数据结构；`Config/MarkPoints.json` 记录标记点。
-- **全局入口**：`SF` 静态类持有所有窗体、运动控制器 `MotionCtrl`、运行器 `DataRun` 以及路径 `workPath`、`ConfigPath`，UI/运行期均从此处获取依赖。
+- **全局入口**：`SF` 静态类持有所有窗体、运动控制器 `MotionCtrl`、运行器 `ProcessEngine` 以及路径 `workPath`、`ConfigPath`，UI/运行期均从此处获取依赖。
 
 ## 核心概念
 - **流程模型**：`Proc` → `Step` → `OperationType`。通过 `FrmProc`（树）、`FrmDataGrid`（操作列表）、`FrmPropertyGrid`（属性编辑）修改，序列化为 JSON（启用 `TypeNameHandling.All`）。
-- **运行引擎**：`DataRun` 为每个流程开启线程，`ProcHandle` 记录索引、状态与 `ManualResetEvent`。`RunProc`/`RunStep` 支持暂停、单步、跳转、报警；`ExecuteOperation` 将具体操作派发到对应执行函数。
+- **运行引擎**：`ProcessEngine` 为每个流程开启线程，`ProcHandle` 记录索引、状态与运行标志。`RunProc`/`RunStep` 支持暂停、单步、跳转、报警；`ExecuteOperation` 将具体操作派发到对应执行函数。
 - **变量**：`FrmValue` 管理 0–999 的 `DicValue`，含类型/名称/备注，持久化到 `Config/value.json`，提供按名/按索引读写。
 - **数据结构**：`FrmDataStruct` 定义结构体集合，操作可对项进行设/取/复制/插入/删除/查找/计数。
 
@@ -46,7 +46,7 @@
 - 监控/搜索：`FrmState`、`FrmSearch`/`FrmSearch4Value`、`FrmInfo`、`FrmTest`。
 
 ## 扩展指引
-- 新增操作：继承 `OperationType` 定义属性/转换器/报警行为，在 `DataRun.ExecuteOperation` 添加分支并实现执行函数。
+- 新增操作：继承 `OperationType` 定义属性/转换器/报警行为，在 `ProcessEngine.ExecuteOperation` 添加分支并实现执行函数。
 - 自定义逻辑：向 `CustomFunc.functionMap` 注册委托，名称即出现在 `CallCustomFunc`。
 - 硬件调整：使用 `FrmCard`/`FrmIO` UI 修改，`FrmToolBar` 保存后刷新缓存列表/字典。
 - 运行问题：操作设置 `ProcHandle.isAlarm`/`isGoto`，按 `AlarmType` 选择跳转或弹框（`Message`）策略。
@@ -57,7 +57,7 @@
 - **窗体装配**：`FrmMain` 构造时创建所有子窗体并写入 `SF`，`loadFillForm` 以 `TopLevel=false` + `Dock=Fill` 嵌入面板。
 - **启动顺序**：`FrmMain_Load` 依次刷新变量/IO/卡/数据结构/通讯/报警，并完成运动卡初始化、配置下载、使能伺服、设定当量。
 - **页面切换**：`FrmMenu` 通过 `SF.curPage` 切换流程编辑/卡与 IO/工站等界面，动态重排面板与工具条按钮可见性。
-- **流程调度**：`DataRun` 为每个流程创建 `Thread`，`ProcHandle` 的 `m_evtRun/m_evtTik/m_evtTok` 实现运行/暂停/单步。
+- **流程调度**：`ProcessEngine` 为每个流程创建 `Thread`，通过同步门闩控制运行/暂停/单步。
 - **报警处理**：执行异常标记 `isAlarm`，`Message` 弹窗根据 `AlarmType` 触发停止/忽略/跳转或多按钮选择。
 
 ## 配置文件补充

@@ -210,6 +210,10 @@ namespace Automation
                 procListItem.Add(item.head.Name);
                 procListItemCount.Add((procListItemCount.Count+1).ToString());
             }
+            if (SF.DR?.Context != null)
+            {
+                SF.DR.Context.Procs = procsList;
+            }
         }
 
         private void CaptureEditBackup()
@@ -455,13 +459,7 @@ namespace Automation
         {
             if (SelectedProcNum != -1)
             {
-                SF.DR.StartProc(SF.frmProc.procsList[SF.frmProc.SelectedProcNum]);
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtRun.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTik.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].m_evtTok.Set();
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State = ProcRunState.Running;
-                SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint = false;
-                SF.DR.SetProcText(SF.frmProc.SelectedProcNum, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].State, SF.DR.ProcHandles[SF.frmProc.SelectedProcNum].isBreakpoint);
+                SF.DR.StartProc(SF.frmProc.procsList[SF.frmProc.SelectedProcNum], SF.frmProc.SelectedProcNum);
             }
         }
         public Tuple<int, int, int> FindOperationTypeIndex(OperationType hash)

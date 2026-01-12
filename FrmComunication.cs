@@ -282,6 +282,10 @@ namespace Automation
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "SocketInfo", socketInfos);
             }
             socketInfos = SF.mainfrm.ReadJson<List<SocketInfo>>(SF.ConfigPath, "SocketInfo");
+            if (SF.DR?.Context != null)
+            {
+                SF.DR.Context.SocketInfos = socketInfos;
+            }
         }
         public void RefreshSerialPortInfo()
         {
@@ -295,6 +299,10 @@ namespace Automation
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "SerialPortInfo", serialPortInfos);
             }
             serialPortInfos = SF.mainfrm.ReadJson<List<SerialPortInfo>>(SF.ConfigPath, "SerialPortInfo");
+            if (SF.DR?.Context != null)
+            {
+                SF.DR.Context.SerialPortInfos = serialPortInfos;
+            }
         }
         public void RefleshSocketDgv()
         {

@@ -65,7 +65,7 @@ namespace Automation
                 }
                 else if(InfoLevel == Level.Normal)
                 {
-                    color = Color.Black;
+                    color = Color.BurlyWood;
                 }
                 ReceiveTextBox.Select(length, str.Length);
                 ReceiveTextBox.SelectionBackColor = color;
