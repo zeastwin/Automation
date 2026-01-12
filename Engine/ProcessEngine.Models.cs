@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -56,6 +57,7 @@ namespace Automation
         public int singleOpStep;
         public int singleOpOp;
         public CancellationToken CancellationToken { get; set; }
+        public ConcurrentBag<Task> RunningTasks { get; } = new ConcurrentBag<Task>();
 
     }
     public enum EngineCommandType

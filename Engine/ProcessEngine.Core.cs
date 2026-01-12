@@ -201,13 +201,28 @@ namespace Automation
         {
             if (milliSecond <= 0)
                 return;
+            if (evt == null)
+            {
+                Thread.Sleep(milliSecond);
+                return;
+            }
             int start = Environment.TickCount;
-            while (Math.Abs(Environment.TickCount - start) < milliSecond
+            int remaining = milliSecond;
+            while (remaining > 0
                 && evt.State != ProcRunState.Stopped
                 && !evt.isThStop
-                && !evt.CancellationToken.IsCancellationRequested)//毫秒
+                && !evt.CancellationToken.IsCancellationRequested)
             {
-                Thread.Sleep(2);
+                int slice = remaining > 20 ? 20 : remaining;
+                try
+                {
+                    Task.Delay(slice, evt.CancellationToken).GetAwaiter().GetResult();
+                }
+                catch (TaskCanceledException)
+                {
+                    break;
+                }
+                remaining = milliSecond - Math.Abs(Environment.TickCount - start);
             }
         }
         public void StartProc(Proc proc, int procIndex)
@@ -801,6 +816,28 @@ namespace Automation
             }
             finally
             {
+                if (runHandle != null && runHandle.RunningTasks != null)
+                {
+                    Task[] tasks = runHandle.RunningTasks.ToArray();
+                    if (tasks.Length > 0)
+                    {
+                        try
+                        {
+                            if (!Task.WaitAll(tasks, engine.StopJoinTimeout))
+                            {
+                                engine.Logger?.Log($"流程{runHandle.procNum}后台任务未在超时内结束。", LogLevel.Error);
+                            }
+                        }
+                        catch (AggregateException ex)
+                        {
+                            engine.Logger?.Log($"流程{runHandle.procNum}后台任务异常:{ex.Message}", LogLevel.Error);
+                        }
+                        catch (Exception ex)
+                        {
+                            engine.Logger?.Log($"流程{runHandle.procNum}等待后台任务失败:{ex.Message}", LogLevel.Error);
+                        }
+                    }
+                }
                 runControl?.Dispose();
                 lock (sync)
                 {

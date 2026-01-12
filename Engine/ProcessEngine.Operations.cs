@@ -1500,11 +1500,16 @@ namespace Automation
                 {
                     Task task = Task.Run(() =>
                     {
+                        if (evt.CancellationToken.IsCancellationRequested || evt.isThStop)
+                        {
+                            return;
+                        }
                         if (homeRun.StationHomeType == "轴按优先顺序回")
-                            HomeStationBySeq(stationIndex);
+                            HomeStationBySeq(stationIndex, evt);
                         else
-                            HomeStationByAll(stationIndex);
-                    });
+                            HomeStationByAll(stationIndex, evt);
+                    }, evt.CancellationToken);
+                    evt.RunningTasks.Add(task);
                     Delay(500, evt);
                     if (!homeRun.isUnWait)
                     {
@@ -2075,7 +2080,7 @@ namespace Automation
             Context.Motion?.StopOneAxis((ushort)card, (ushort)axis, 0);
         }
 
-        private void HomeStationBySeq(int dataStationIndex)
+        private void HomeStationBySeq(int dataStationIndex, ProcHandle evt)
         {
             if (Context.Stations == null || dataStationIndex < 0 || dataStationIndex >= Context.Stations.Count)
             {
@@ -2085,11 +2090,19 @@ namespace Automation
             List<AxisName> seq = station.homeSeq.axisSeq;
             for (int i = 0; i < 6; i++)
             {
+                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
                 foreach (var item in station.dataAxis.axisConfigs)
                 {
+                    if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
                     if (item.AxisName == seq[i].Name && item.AxisName != "-1")
                     {
-                        HomeSingleAxis(ushort.Parse(item.CardNum), (ushort)item.axis.AxisNum);
+                        HomeSingleAxis(ushort.Parse(item.CardNum), (ushort)item.axis.AxisNum, evt);
                         if (Context.CardStore == null || !Context.CardStore.TryGetAxis(int.Parse(item.CardNum), i, out Axis axisInfo))
                         {
                             Logger?.Log($"卡{item.CardNum}轴{i}配置不存在，工站回零动作终止。", LogLevel.Error);
@@ -2115,14 +2128,19 @@ namespace Automation
                 {
                     Task task = Task.Run(() =>
                     {
+                        if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                        {
+                            return;
+                        }
                         HomeSingleAxis(ushort.Parse(station.dataAxis.axisConfigs[index].CardNum),
-                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum);
-                    });
+                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum, evt);
+                    }, evt.CancellationToken);
+                    evt.RunningTasks.Add(task);
                 }
             }
         }
 
-        private void HomeStationByAll(int dataStationIndex)
+        private void HomeStationByAll(int dataStationIndex, ProcHandle evt)
         {
             if (Context.Stations == null || dataStationIndex < 0 || dataStationIndex >= Context.Stations.Count)
             {
@@ -2131,21 +2149,34 @@ namespace Automation
             DataStation station = Context.Stations[dataStationIndex];
             for (int j = 0; j < station.dataAxis.axisConfigs.Count; j++)
             {
+                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
                 ushort index = (ushort)j;
                 if (station.dataAxis.axisConfigs[j].AxisName != "-1")
                 {
                     Task task = Task.Run(() =>
                     {
+                        if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                        {
+                            return;
+                        }
                         HomeSingleAxis(ushort.Parse(station.dataAxis.axisConfigs[index].CardNum),
-                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum);
-                    });
+                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum, evt);
+                    }, evt.CancellationToken);
+                    evt.RunningTasks.Add(task);
                 }
             }
         }
 
-        private void HomeSingleAxis(ushort cardNum, ushort axis)
+        private void HomeSingleAxis(ushort cardNum, ushort axis, ProcHandle evt)
         {
             if (Context.Motion == null || Context.CardStore == null)
+            {
+                return;
+            }
+            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
             {
                 return;
             }
@@ -2172,7 +2203,9 @@ namespace Automation
             }
             int IOindexTemp = IOindex == 2 ? 3 : 2;
 
-            while (axisInfo.State == Axis.Status.Run)
+            while (axisInfo.State == Axis.Status.Run
+                && !evt.isThStop
+                && !evt.CancellationToken.IsCancellationRequested)
             {
                 switch (sfc)
                 {
@@ -2180,7 +2213,10 @@ namespace Automation
                         Context.Motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.LimitSpeed), axisInfo.AccMax,
                             axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
                         Context.Motion.Jog(cardNum, axis, dir);
-                        Thread.Sleep(20);
+                        if (!WaitDelay(20, evt.CancellationToken))
+                        {
+                            return;
+                        }
                         sfc = 2;
                         break;
                     case 2:
@@ -2190,7 +2226,10 @@ namespace Automation
                         }
                         if (GetAxisStateBit(cardNum, axis, IOindexTemp))
                         {
-                            Thread.Sleep(1000);
+                            if (!WaitDelay(1000, evt.CancellationToken))
+                            {
+                                return;
+                            }
                             if (GetAxisStateBit(cardNum, axis, IOindexTemp))
                             {
                                 Logger?.Log("限位方向错误，回零失败。", LogLevel.Error);
@@ -2199,7 +2238,10 @@ namespace Automation
                             }
 
                         }
-                        Thread.Sleep(20);
+                        if (!WaitDelay(20, evt.CancellationToken))
+                        {
+                            return;
+                        }
                         break;
                     case 10:
                         Context.Motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.HomeSpeed), axisInfo.AccMax,
@@ -2209,13 +2251,19 @@ namespace Automation
                             Context.Motion.SettHomeParam(cardNum, axis, dir, 1, 1);
                         }
                         Context.Motion.StartHome(cardNum, axis);
-                        Thread.Sleep(20);
+                        if (!WaitDelay(20, evt.CancellationToken))
+                        {
+                            return;
+                        }
                         sfc = 20;
                         break;
                     case 20:
                         if (Context.Motion.GetInPos(cardNum, axis))
                         {
-                            Thread.Sleep(300);
+                            if (!WaitDelay(300, evt.CancellationToken))
+                            {
+                                return;
+                            }
                             if (Context.Motion.HomeStatus(cardNum, axis) == true)
                             {
                                 Context.Motion.CleanPos(cardNum, axis);
@@ -2231,10 +2279,34 @@ namespace Automation
                             }
 
                         }
-                        Thread.Sleep(20);
+                        if (!WaitDelay(20, evt.CancellationToken))
+                        {
+                            return;
+                        }
                         break;
 
                 }
+            }
+        }
+
+        private bool WaitDelay(int milliSecond, CancellationToken token)
+        {
+            if (milliSecond <= 0)
+            {
+                return true;
+            }
+            if (token.IsCancellationRequested)
+            {
+                return false;
+            }
+            try
+            {
+                Task.Delay(milliSecond, token).GetAwaiter().GetResult();
+                return !token.IsCancellationRequested;
+            }
+            catch (TaskCanceledException)
+            {
+                return false;
             }
         }
 
