@@ -2180,7 +2180,7 @@ namespace Automation
                         Context.Motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.LimitSpeed), axisInfo.AccMax,
                             axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
                         Context.Motion.Jog(cardNum, axis, dir);
-                        Task.Delay(20);
+                        Thread.Sleep(20);
                         sfc = 2;
                         break;
                     case 2:
@@ -2199,7 +2199,7 @@ namespace Automation
                             }
 
                         }
-                        Task.Delay(20);
+                        Thread.Sleep(20);
                         break;
                     case 10:
                         Context.Motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.HomeSpeed), axisInfo.AccMax,
@@ -2209,7 +2209,7 @@ namespace Automation
                             Context.Motion.SettHomeParam(cardNum, axis, dir, 1, 1);
                         }
                         Context.Motion.StartHome(cardNum, axis);
-                        Task.Delay(20);
+                        Thread.Sleep(20);
                         sfc = 20;
                         break;
                     case 20:
@@ -2231,7 +2231,7 @@ namespace Automation
                             }
 
                         }
-                        Task.Delay(20);
+                        Thread.Sleep(20);
                         break;
 
                 }

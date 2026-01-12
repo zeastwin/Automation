@@ -31,10 +31,16 @@ namespace Automation
         private EngineSnapshot[] snapshots = Array.Empty<EngineSnapshot>();
         private readonly object agentLock = new object();
         private readonly TimeSpan stopJoinTimeout = TimeSpan.FromSeconds(2);
+        private int snapshotThrottleMilliseconds = 50;
         public EngineContext Context { get; }
         public IAlarmHandler AlarmHandler { get; set; }
         public ILogger Logger { get; set; }
         public event Action<EngineSnapshot> SnapshotChanged;
+        public int SnapshotThrottleMilliseconds
+        {
+            get => snapshotThrottleMilliseconds;
+            set => snapshotThrottleMilliseconds = value < 0 ? 0 : value;
+        }
 
         public ProcessEngine(EngineContext context)
         {
@@ -151,6 +157,21 @@ namespace Automation
             bool isBreakpoint, bool isAlarm, string alarmMessage, bool raiseEvent)
         {
             EnsureCapacity(procIndex);
+            if (!raiseEvent && snapshotThrottleMilliseconds > 0)
+            {
+                EngineSnapshot current = Volatile.Read(ref snapshots[procIndex]);
+                if (current != null)
+                {
+                    double elapsed = (DateTime.Now - current.UpdateTime).TotalMilliseconds;
+                    if (elapsed < snapshotThrottleMilliseconds
+                        && current.State == state
+                        && current.IsAlarm == isAlarm
+                        && current.IsBreakpoint == isBreakpoint)
+                    {
+                        return;
+                    }
+                }
+            }
             EngineSnapshot snapshot = new EngineSnapshot(procIndex, procName, state, stepIndex, opIndex, isBreakpoint,
                 isAlarm, alarmMessage, DateTime.Now);
             Volatile.Write(ref snapshots[procIndex], snapshot);
