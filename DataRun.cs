@@ -406,7 +406,7 @@ namespace Automation
             }
         }
 
-
+        #region
         public bool ExecuteOperation(ProcHandle evt, object operation)
         {
             try
@@ -2599,6 +2599,8 @@ namespace Automation
             return Context.AxisStateBitGetter != null && Context.AxisStateBitGetter(cardNum, axis, bitIndex);
         }
     }
+
+    #endregion
     public enum ProcRunState
     {
         Stopped = 0,
