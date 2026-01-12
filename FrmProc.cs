@@ -302,6 +302,10 @@ namespace Automation
 
         private void AddProc_Click(object sender, EventArgs e)
         {   
+            if (!SF.CanEditProcStructure())
+            {
+                return;
+            }
             if (proc_treeView.SelectedNode == null)
             {
                 NewProcNum = procsList.Count;
@@ -322,6 +326,10 @@ namespace Automation
             TreeNode selectdnode = proc_treeView.SelectedNode;
             if (selectdnode != null)
             {
+                if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+                {
+                    return;
+                }
                 NewStepNum = 1;
 
                 StepTemp = new Step();
@@ -342,11 +350,19 @@ namespace Automation
             TreeNode parentnode = selectnode.Parent;
             if (parentnode == null)
             {
+                if (!SF.CanEditProcStructure())
+                {
+                    return;
+                }
                 procsList.RemoveAt(SelectedProcNum);
                 RebuildWorkConfig();
             }
             else
             {
+                if (!SF.CanEditProc(SelectedProcNum))
+                {
+                    return;
+                }
                 procsList[SelectedProcNum].steps.RemoveAt(SelectedStepNum);
                 SF.frmDataGrid.SaveSingleProc(SelectedProcNum);
                 Refresh();
@@ -445,6 +461,10 @@ namespace Automation
             if (SelectedProcNum < 0)
             {
                 MessageBox.Show("请选择流程或步骤");
+                return;
+            }
+            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            {
                 return;
             }
             CaptureEditBackup();

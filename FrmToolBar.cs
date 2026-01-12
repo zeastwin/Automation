@@ -40,6 +40,20 @@ namespace Automation
         {
             if(SF.curPage == 0)
             {
+                if (SF.frmProc.NewProcNum != -1 && !SF.CanEditProcStructure())
+                {
+                    SF.CancelProcEditing();
+                    return;
+                }
+                bool isProcEdit = SF.frmProc.NewStepNum != -1
+                    || SF.isAddOps
+                    || SF.isModify == ModifyKind.Operation
+                    || SF.isModify == ModifyKind.Proc;
+                if (isProcEdit && !SF.CanEditProc(SF.frmProc.SelectedProcNum))
+                {
+                    SF.CancelProcEditing();
+                    return;
+                }
                 if (SF.frmProc.NewProcNum != -1)
                 {
                     SF.frmProc.NewProcSave();

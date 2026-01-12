@@ -214,7 +214,10 @@ namespace Automation
             //}
             //Delay(time, evt);
             int start = Environment.TickCount;
-            while (evt.State != ProcRunState.Stopped && timeOut > 0)
+            while (evt.State != ProcRunState.Stopped
+                && timeOut > 0
+                && !evt.isThStop
+                && !evt.CancellationToken.IsCancellationRequested)
             {
                 if (Math.Abs(Environment.TickCount - start) < timeOut)
                 {
@@ -319,7 +322,9 @@ namespace Automation
                 DelayAfter = (int)Context.ValueStore.GetValueByName(waitProc.delayAfterV).GetDValue();
             }
             int start = Environment.TickCount;
-            while (evt.State != ProcRunState.Stopped)
+            while (evt.State != ProcRunState.Stopped
+                && !evt.isThStop
+                && !evt.CancellationToken.IsCancellationRequested)
             {
                 if (timeOut > 0)
                 {
@@ -369,6 +374,7 @@ namespace Automation
                 {
                     break;
                 }
+                Delay(5, evt);
             }
             Delay(DelayAfter, evt);
             return true;
@@ -1204,7 +1210,9 @@ namespace Automation
             foreach (var op in waitTcp.Params)
             {
                 int start = Environment.TickCount;
-                while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < op.TimeOut)
+                while (!evt.isThStop
+                    && !evt.CancellationToken.IsCancellationRequested
+                    && Math.Abs(Environment.TickCount - start) < op.TimeOut)
                 {
                     if (Context.Comm.IsTcpActive(op.Name))
                     {
@@ -1243,7 +1251,9 @@ namespace Automation
             }
             Context.Comm.ClearTcpMessages(receoveTcpMsg.ID);
             int start = Environment.TickCount;
-            while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < receoveTcpMsg.TImeOut)
+            while (!evt.isThStop
+                && !evt.CancellationToken.IsCancellationRequested
+                && Math.Abs(Environment.TickCount - start) < receoveTcpMsg.TImeOut)
             {
                 if (Context.Comm.TryReceiveTcp(receoveTcpMsg.ID, 50, out string msg))
                 {
@@ -1287,7 +1297,9 @@ namespace Automation
             }
             Context.Comm.ClearSerialMessages(receoveSerialPortMsg.ID);
             int start = Environment.TickCount;
-            while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < receoveSerialPortMsg.TImeOut)
+            while (!evt.isThStop
+                && !evt.CancellationToken.IsCancellationRequested
+                && Math.Abs(Environment.TickCount - start) < receoveSerialPortMsg.TImeOut)
             {
                 if (Context.Comm.TryReceiveSerial(receoveSerialPortMsg.ID, 50, out string msg))
                 {
@@ -1341,7 +1353,9 @@ namespace Automation
                 }
 
                 int start = Environment.TickCount;
-                while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < sendReceoveCommMsg.TimeOut)
+                while (!evt.isThStop
+                    && !evt.CancellationToken.IsCancellationRequested
+                    && Math.Abs(Environment.TickCount - start) < sendReceoveCommMsg.TimeOut)
                 {
                     if (Context.Comm.TryReceiveTcp(sendReceoveCommMsg.ID, 50, out string msg))
                     {
@@ -1388,7 +1402,9 @@ namespace Automation
                 }
 
                 int start = Environment.TickCount;
-                while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < sendReceoveCommMsg.TimeOut)
+                while (!evt.isThStop
+                    && !evt.CancellationToken.IsCancellationRequested
+                    && Math.Abs(Environment.TickCount - start) < sendReceoveCommMsg.TimeOut)
                 {
                     if (Context.Comm.TryReceiveSerial(sendReceoveCommMsg.ID, 50, out string msg))
                     {
@@ -1448,7 +1464,9 @@ namespace Automation
             foreach (var op in waitSerialPort.Params)
             {
                 int start = Environment.TickCount;
-                while (!evt.isThStop && Math.Abs(Environment.TickCount - start) < op.TimeOut)
+                while (!evt.isThStop
+                    && !evt.CancellationToken.IsCancellationRequested
+                    && Math.Abs(Environment.TickCount - start) < op.TimeOut)
                 {
                     if (Context.Comm.IsSerialOpen(op.Name))
                     {
@@ -1492,7 +1510,9 @@ namespace Automation
                     {
                         int start = Environment.TickCount;
                         bool isInPos = false;
-                        while (evt.isThStop == false && station.GetState() == DataStation.Status.Run)
+                        while (evt.isThStop == false
+                            && !evt.CancellationToken.IsCancellationRequested
+                            && station.GetState() == DataStation.Status.Run)
                         {
                             if (Math.Abs(Environment.TickCount - start) > 120000)
                             {
@@ -1636,7 +1656,10 @@ namespace Automation
                             time = Context.ValueStore.GetValueByName(stationRunPos.timeOutV).GetDValue();
                         }
 
-                        while (evt.isThStop == false && cardNums.Count != 0 && station.GetState() == DataStation.Status.Run)
+                        while (evt.isThStop == false
+                            && !evt.CancellationToken.IsCancellationRequested
+                            && cardNums.Count != 0
+                            && station.GetState() == DataStation.Status.Run)
                         {
                             if (Math.Abs(Environment.TickCount - start) > time)
                             {
@@ -1773,7 +1796,9 @@ namespace Automation
 
                         time = Context.ValueStore.GetValueByName(stationRunRel.timeOutV).GetDValue();
                     }
-                    while (evt.isThStop == false && station.GetState() == DataStation.Status.Run)
+                    while (evt.isThStop == false
+                        && !evt.CancellationToken.IsCancellationRequested
+                        && station.GetState() == DataStation.Status.Run)
                     {
                         if (Math.Abs(Environment.TickCount - start) > time)
                         {
@@ -1963,7 +1988,9 @@ namespace Automation
 
                     time = Context.ValueStore.GetValueByName(waitStationStop.timeOutV).GetDValue();
                 }
-                while (evt.isThStop == false && station.GetState() == DataStation.Status.Run)
+                while (evt.isThStop == false
+                    && !evt.CancellationToken.IsCancellationRequested
+                    && station.GetState() == DataStation.Status.Run)
                 {
                     bool isInPos = false;
 

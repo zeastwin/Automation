@@ -354,6 +354,17 @@ namespace Automation
             {
                 snapshot = SF.DR.GetSnapshot(selectedProc);
             }
+            if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
+            {
+                bool isProcEditing = SF.isAddOps
+                    || SF.isModify == ModifyKind.Proc
+                    || SF.isModify == ModifyKind.Operation
+                    || (SF.frmProc != null && (SF.frmProc.NewProcNum != -1 || SF.frmProc.NewStepNum != -1));
+                if (isProcEditing)
+                {
+                    SF.CancelProcEditing();
+                }
+            }
             SF.frmDataGrid.UpdateHighlight(snapshot);
         }
 

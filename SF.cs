@@ -102,6 +102,65 @@ namespace Automation
             }
         }
 
+        public static bool CanEditProc(int procIndex)
+        {
+            if (procIndex < 0)
+            {
+                return true;
+            }
+            EngineSnapshot snapshot = DR?.GetSnapshot(procIndex);
+            if (snapshot == null)
+            {
+                return true;
+            }
+            if (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming)
+            {
+                MessageBox.Show("流程运行中禁止编辑，请先暂停或单步。");
+                return false;
+            }
+            return true;
+        }
+
+        public static bool CanEditProcStructure()
+        {
+            if (frmProc?.procsList == null)
+            {
+                return true;
+            }
+            for (int i = 0; i < frmProc.procsList.Count; i++)
+            {
+                EngineSnapshot snapshot = DR?.GetSnapshot(i);
+                if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
+                {
+                    MessageBox.Show("存在运行中的流程，禁止新增或删除流程。");
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        public static void CancelProcEditing()
+        {
+            isModify = ModifyKind.None;
+            isAddOps = false;
+            if (frmProc != null)
+            {
+                frmProc.NewProcNum = -1;
+                frmProc.NewStepNum = -1;
+                frmProc.Enabled = true;
+            }
+            if (frmDataGrid != null)
+            {
+                frmDataGrid.OperationTemp = null;
+                frmDataGrid.dataGridView1.Enabled = true;
+            }
+            if (frmPropertyGrid != null)
+            {
+                frmPropertyGrid.propertyGrid1.SelectedObject = null;
+            }
+            EndEdit();
+        }
+
         public static void BeginEdit(ModifyKind kind)
         {
             isModify = kind;

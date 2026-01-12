@@ -207,6 +207,10 @@ namespace Automation
         }
         private void Add_Click(object sender, EventArgs e)
         {
+            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            {
+                return;
+            }
             if (this.dataGridView1.SelectedRows.Count == 0)
                 iSelectedRow = -1;
             OperationTemp = new HomeRun() { Num = iSelectedRow == -1 ? this.dataGridView1.Rows.Count : iSelectedRow + 1 };
@@ -275,6 +279,10 @@ namespace Automation
             {
                 return;
             }
+            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            {
+                return;
+            }
             // int count = 0;
             selectedRowIndexes4Del.Clear();
             foreach (DataGridViewRow selectedRow in dataGridView1.SelectedRows)
@@ -304,6 +312,10 @@ namespace Automation
 
         private void Modify_Click(object sender, EventArgs e)
         {
+            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            {
+                return;
+            }
             SF.BeginEdit(ModifyKind.Operation);
             SF.frmDataGrid.dataGridView1.Enabled = false;
             SF.frmProc.Enabled = false;
@@ -392,6 +404,10 @@ namespace Automation
             {
                 return;
             }
+            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            {
+                return;
+            }
             if (iSelectedRow >= 0 && iSelectedRow < dataGridView1.Rows.Count)
             {
                 // 获取当前行对应的数据项
@@ -426,6 +442,10 @@ namespace Automation
         public void Paste()
         {
             if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            {
+                return;
+            }
+            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
             {
                 return;
             }
@@ -496,6 +516,11 @@ namespace Automation
 
         private void dataGridView1_DragDrop(object sender, DragEventArgs e)
         {
+            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            {
+                dragIndex = -1;
+                return;
+            }
             if (dragIndex >= 0)
             {
                 Point p = dataGridView1.PointToClient(new Point(e.X, e.Y));
@@ -531,6 +556,10 @@ namespace Automation
         {
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
             {
+                if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+                {
+                    return;
+                }
                 SF.BeginEdit(ModifyKind.Operation);
                 SF.frmDataGrid.dataGridView1.Enabled = false;
                 SF.frmProc.Enabled = false;
@@ -554,6 +583,10 @@ namespace Automation
         {
             if (iSelectedRow >= 0)
             {
+                if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+                {
+                    return;
+                }
                 OperationType dataItem = dataGridView1.Rows[iSelectedRow].DataBoundItem as OperationType;
 
                 if (dataItem != null)
@@ -595,6 +628,10 @@ namespace Automation
         {
             try
             {
+                if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+                {
+                    return;
+                }
                 bool isEmptyRow = false;
                 List<OperationType> deepCopy = null;
                 if (Clipboard.ContainsData("MyCustomDataFormat"))

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -26,9 +27,9 @@ namespace Automation
 {
     public partial class ProcessEngine
     {
-        private ProcRunner[] runners = Array.Empty<ProcRunner>();
+        private ProcAgent[] agents = Array.Empty<ProcAgent>();
         private EngineSnapshot[] snapshots = Array.Empty<EngineSnapshot>();
-        private readonly object runnerLock = new object();
+        private readonly object agentLock = new object();
         private readonly TimeSpan stopJoinTimeout = TimeSpan.FromSeconds(2);
         public EngineContext Context { get; }
         public IAlarmHandler AlarmHandler { get; set; }
@@ -103,41 +104,41 @@ namespace Automation
             {
                 return;
             }
-            if (procIndex < runners.Length)
+            if (procIndex < agents.Length)
             {
                 return;
             }
-            lock (runnerLock)
+            lock (agentLock)
             {
-                if (procIndex < runners.Length)
+                if (procIndex < agents.Length)
                 {
                     return;
                 }
-                int newSize = runners.Length == 0 ? 1 : runners.Length;
+                int newSize = agents.Length == 0 ? 1 : agents.Length;
                 while (newSize <= procIndex)
                 {
                     newSize *= 2;
                 }
-                Array.Resize(ref runners, newSize);
+                Array.Resize(ref agents, newSize);
                 Array.Resize(ref snapshots, newSize);
             }
         }
-        private ProcRunner GetOrCreateRunner(int procIndex)
+        private ProcAgent GetOrCreateAgent(int procIndex)
         {
             if (procIndex < 0)
             {
                 return null;
             }
             EnsureCapacity(procIndex);
-            lock (runnerLock)
+            lock (agentLock)
             {
-                ProcRunner runner = runners[procIndex];
-                if (runner == null)
+                ProcAgent agent = agents[procIndex];
+                if (agent == null)
                 {
-                    runner = new ProcRunner(this, procIndex);
-                    runners[procIndex] = runner;
+                    agent = new ProcAgent(this, procIndex);
+                    agents[procIndex] = agent;
                 }
-                return runner;
+                return agent;
             }
         }
         private ProcRunState GetProcState(int procIndex)
@@ -180,7 +181,10 @@ namespace Automation
             if (milliSecond <= 0)
                 return;
             int start = Environment.TickCount;
-            while (Math.Abs(Environment.TickCount - start) < milliSecond && evt.State != ProcRunState.Stopped && !evt.isThStop)//毫秒
+            while (Math.Abs(Environment.TickCount - start) < milliSecond
+                && evt.State != ProcRunState.Stopped
+                && !evt.isThStop
+                && !evt.CancellationToken.IsCancellationRequested)//毫秒
             {
                 Thread.Sleep(2);
             }
@@ -195,47 +199,47 @@ namespace Automation
         }
         public void StartProcAt(Proc proc, int procIndex, int stepIndex, int opIndex, ProcRunState startState)
         {
-            StartProcAtInternal(proc, procIndex, stepIndex, opIndex, startState, false);
-        }
-        private bool StartProcAtInternal(Proc proc, int procIndex, int stepIndex, int opIndex, ProcRunState startState, bool singleOpOnce)
-        {
             if (proc == null)
             {
-                return false;
+                return;
             }
-            ProcRunner runner = GetOrCreateRunner(procIndex);
-            if (runner == null)
-            {
-                return false;
-            }
-            return runner.Start(proc, stepIndex, opIndex, startState, singleOpOnce);
+            EngineCommand command = EngineCommand.Start(procIndex, proc, stepIndex, opIndex, startState);
+            EnqueueCommand(procIndex, command);
         }
         public void Pause(int procIndex)
         {
-            ProcRunner runner = GetOrCreateRunner(procIndex);
-            runner?.Pause();
+            EnqueueCommand(procIndex, EngineCommand.Pause(procIndex));
         }
         public void Resume(int procIndex)
         {
-            ProcRunner runner = GetOrCreateRunner(procIndex);
-            runner?.Resume();
+            EnqueueCommand(procIndex, EngineCommand.Resume(procIndex));
         }
         public void Step(int procIndex)
         {
-            ProcRunner runner = GetOrCreateRunner(procIndex);
-            runner?.Step();
+            EnqueueCommand(procIndex, EngineCommand.Step(procIndex));
         }
         public void RunSingleOpOnce(Proc proc, int procIndex, int stepIndex, int opIndex)
         {
-            if (StartProcAtInternal(proc, procIndex, stepIndex, opIndex, ProcRunState.SingleStep, true))
+            if (proc == null)
             {
-                Step(procIndex);
+                return;
             }
+            EngineCommand command = EngineCommand.RunSingleOpOnce(procIndex, proc, stepIndex, opIndex);
+            EnqueueCommand(procIndex, command);
         }
         public void Stop(int procIndex)
         {
-            ProcRunner runner = GetOrCreateRunner(procIndex);
-            runner?.Stop();
+            ProcAgent agent = GetOrCreateAgent(procIndex);
+            agent?.RequestStop();
+        }
+        private void EnqueueCommand(int procIndex, EngineCommand command)
+        {
+            ProcAgent agent = GetOrCreateAgent(procIndex);
+            if (agent == null || command == null)
+            {
+                return;
+            }
+            agent.Enqueue(command);
         }
         internal void RunProc(Proc proc, ProcHandle evt, ProcessControl control)
         {
@@ -252,6 +256,10 @@ namespace Automation
             UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
             for (int i = evt.stepNum; i < proc.steps.Count; i++)
             {
+                if (evt.isThStop || control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
                 evt.stepNum = i;
                 UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
                 RunStep(proc.steps[i], evt, control);
@@ -279,7 +287,7 @@ namespace Automation
                 evt.isAlarm = false;
                 evt.isGoto = false;
                 evt.alarmMsg = null;
-                if (evt.isThStop || control.IsStopRequested)
+                if (evt.isThStop || control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                     return false;
                 evt.opsNum = i;
                 UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
@@ -298,16 +306,24 @@ namespace Automation
                     UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                 }
                 control.WaitForRun();
+                if (evt.isThStop || control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return false;
+                }
                 if (evt.State == ProcRunState.SingleStep)
                 {
                     control.WaitForStep();
+                }
+                if (evt.isThStop || control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return false;
                 }
                 if (evt.isBreakpoint)
                 {
                     evt.isBreakpoint = false;
                     UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                 }
-                if (evt.isThStop || control.IsStopRequested)
+                if (evt.isThStop || control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                     return false;
                 try
                 {
@@ -397,7 +413,27 @@ namespace Automation
             AlarmContext context = BuildAlarmContext(operation, evt);
             try
             {
-                return AlarmHandler.HandleAsync(context).GetAwaiter().GetResult();
+                Task<AlarmDecision> decisionTask = AlarmHandler.HandleAsync(context);
+                if (decisionTask == null)
+                {
+                    return AlarmDecision.Stop;
+                }
+                if (evt != null && evt.CancellationToken.CanBeCanceled)
+                {
+                    try
+                    {
+                        decisionTask.Wait(evt.CancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return AlarmDecision.Stop;
+                    }
+                }
+                else
+                {
+                    decisionTask.Wait();
+                }
+                return decisionTask.Result;
             }
             catch (Exception ex)
             {
@@ -458,183 +494,273 @@ namespace Automation
 
     }
 
-    internal sealed class ProcRunner
+    internal sealed class ProcAgent : IDisposable
     {
+        private sealed class ExecutionContext
+        {
+            public Proc Proc;
+            public ProcHandle Handle;
+            public ProcessControl Control;
+            public Thread Thread;
+        }
+
+        private readonly BlockingCollection<EngineCommand> queue = new BlockingCollection<EngineCommand>();
+        private readonly Thread dispatcher;
         private readonly object sync = new object();
         private readonly ProcessEngine engine;
         private readonly int procIndex;
-        private Thread worker;
-        private ProcessControl control;
-        private ProcHandle handle;
+        private ExecutionContext current;
+        private long generation;
+        private bool disposed;
 
-        public ProcRunner(ProcessEngine engine, int procIndex)
+        public ProcAgent(ProcessEngine engine, int procIndex)
         {
             this.engine = engine;
             this.procIndex = procIndex;
+            dispatcher = new Thread(DispatchLoop)
+            {
+                IsBackground = true
+            };
+            dispatcher.Start();
         }
 
-        public bool Start(Proc proc, int stepIndex, int opIndex, ProcRunState startState, bool singleOpOnce)
+        public void Enqueue(EngineCommand command)
         {
+            if (disposed || command == null)
+            {
+                return;
+            }
+            command.Generation = Volatile.Read(ref generation);
+            queue.Add(command);
+        }
+
+        public void RequestStop()
+        {
+            Interlocked.Increment(ref generation);
+            StopCurrent(true);
+        }
+
+        public void Dispose()
+        {
+            if (disposed)
+            {
+                return;
+            }
+            disposed = true;
+            queue.CompleteAdding();
+            StopCurrent(false);
+        }
+
+        private void DispatchLoop()
+        {
+            foreach (EngineCommand command in queue.GetConsumingEnumerable())
+            {
+                if (disposed)
+                {
+                    return;
+                }
+                HandleCommand(command);
+            }
+        }
+
+        private void HandleCommand(EngineCommand command)
+        {
+            long currentGen = Volatile.Read(ref generation);
+            if (command.Generation != currentGen)
+            {
+                return;
+            }
+            switch (command.Type)
+            {
+                case EngineCommandType.Start:
+                case EngineCommandType.StartAt:
+                case EngineCommandType.RunSingleOpOnce:
+                    StartInternal(command);
+                    break;
+                case EngineCommandType.Pause:
+                    PauseInternal();
+                    break;
+                case EngineCommandType.Resume:
+                    ResumeInternal();
+                    break;
+                case EngineCommandType.Step:
+                    StepInternal();
+                    break;
+                case EngineCommandType.Stop:
+                    RequestStop();
+                    break;
+            }
+        }
+
+        private void StartInternal(EngineCommand command)
+        {
+            Proc proc = command.Proc;
+            if (proc == null && engine.Context?.Procs != null && command.ProcIndex >= 0 && command.ProcIndex < engine.Context.Procs.Count)
+            {
+                proc = engine.Context.Procs[command.ProcIndex];
+            }
             if (proc == null)
             {
-                return false;
+                engine.Logger?.Log("启动流程失败：流程为空。", LogLevel.Error);
+                return;
             }
-            Thread runningWorker = null;
+
+            ExecutionContext runningContext;
             lock (sync)
             {
-                if (worker != null && worker.IsAlive)
-                {
-                    RequestStopLocked();
-                    runningWorker = worker;
-                }
+                runningContext = current;
             }
-            if (runningWorker != null)
+            if (runningContext?.Thread != null && runningContext.Thread.IsAlive)
             {
-                if (!runningWorker.Join(engine.StopJoinTimeout))
+                StopCurrent(true);
+                if (!runningContext.Thread.Join(engine.StopJoinTimeout))
                 {
                     engine.Logger?.Log($"流程{procIndex}停止超时，拒绝再次启动。", LogLevel.Error);
-                    return false;
+                    return;
                 }
             }
-            ProcHandle currentHandle;
+
+            ProcessControl control = new ProcessControl();
+            ProcHandle handle = new ProcHandle
+            {
+                procNum = procIndex,
+                stepNum = command.StepIndex,
+                opsNum = command.OpIndex,
+                isThStop = false,
+                procName = proc.head?.Name,
+                singleOpOnce = command.SingleOpOnce,
+                singleOpStep = command.StepIndex,
+                singleOpOp = command.OpIndex,
+                CancellationToken = control.CancellationToken
+            };
+            handle.State = command.StartState;
+            handle.isBreakpoint = false;
+            if (handle.State == ProcRunState.Running || handle.State == ProcRunState.SingleStep)
+            {
+                control.SetRunning();
+            }
+            else
+            {
+                control.SetPaused();
+            }
+
+            Thread execThread = new Thread(() => RunWorker(proc, handle, control))
+            {
+                IsBackground = true
+            };
             lock (sync)
             {
-                control?.Dispose();
-                control = new ProcessControl();
-                handle = new ProcHandle
+                current = new ExecutionContext
                 {
-                    procNum = procIndex,
-                    stepNum = stepIndex,
-                    opsNum = opIndex,
-                    isThStop = false,
-                    procName = proc.head?.Name,
-                    singleOpOnce = singleOpOnce,
-                    singleOpStep = stepIndex,
-                    singleOpOp = opIndex
+                    Proc = proc,
+                    Handle = handle,
+                    Control = control,
+                    Thread = execThread
                 };
-                handle.State = startState;
-                handle.isBreakpoint = false;
-                if (startState == ProcRunState.Running || startState == ProcRunState.SingleStep)
-                {
-                    control.SetRunning();
-                }
-                else
-                {
-                    control.SetPaused();
-                }
-                worker = new Thread(() => RunWorker(proc, handle, control))
-                {
-                    IsBackground = true
-                };
-                worker.Start();
-                currentHandle = handle;
             }
-            engine.UpdateSnapshot(procIndex, currentHandle.procName, currentHandle.State, currentHandle.stepNum, currentHandle.opsNum,
-                currentHandle.isBreakpoint, currentHandle.isAlarm, currentHandle.alarmMsg, true);
-            return true;
+            execThread.Start();
+            engine.UpdateSnapshot(procIndex, handle.procName, handle.State, handle.stepNum, handle.opsNum,
+                handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
+            if (command.AutoStep)
+            {
+                control.RequestStep();
+            }
         }
 
-        public void Pause()
+        private void PauseInternal()
         {
-            ProcHandle currentHandle;
-            ProcessControl currentControl;
+            ProcHandle handle;
+            ProcessControl control;
             lock (sync)
             {
-                currentHandle = handle;
-                currentControl = control;
-                if (currentHandle == null || currentControl == null)
-                {
-                    return;
-                }
-                if (currentHandle.State != ProcRunState.Running && currentHandle.State != ProcRunState.Alarming)
-                {
-                    return;
-                }
-                currentHandle.State = ProcRunState.Paused;
-                currentHandle.isBreakpoint = false;
-                currentControl.SetPaused();
+                handle = current?.Handle;
+                control = current?.Control;
             }
-            engine.UpdateSnapshot(currentHandle.procNum, currentHandle.procName, currentHandle.State, currentHandle.stepNum,
-                currentHandle.opsNum, currentHandle.isBreakpoint, currentHandle.isAlarm, currentHandle.alarmMsg, true);
+            if (handle == null || control == null)
+            {
+                return;
+            }
+            if (handle.State != ProcRunState.Running && handle.State != ProcRunState.Alarming)
+            {
+                return;
+            }
+            handle.State = ProcRunState.Paused;
+            handle.isBreakpoint = false;
+            control.SetPaused();
+            engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
+                handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
         }
 
-        public void Resume()
+        private void ResumeInternal()
         {
-            ProcHandle currentHandle;
-            ProcessControl currentControl;
+            ProcHandle handle;
+            ProcessControl control;
             lock (sync)
             {
-                currentHandle = handle;
-                currentControl = control;
-                if (currentHandle == null || currentControl == null)
-                {
-                    return;
-                }
-                if (currentHandle.State != ProcRunState.Paused && currentHandle.State != ProcRunState.SingleStep)
-                {
-                    return;
-                }
-                currentHandle.State = ProcRunState.Running;
-                currentHandle.isBreakpoint = false;
-                currentControl.SetRunning();
+                handle = current?.Handle;
+                control = current?.Control;
             }
-            engine.UpdateSnapshot(currentHandle.procNum, currentHandle.procName, currentHandle.State, currentHandle.stepNum,
-                currentHandle.opsNum, currentHandle.isBreakpoint, currentHandle.isAlarm, currentHandle.alarmMsg, true);
+            if (handle == null || control == null)
+            {
+                return;
+            }
+            if (handle.State != ProcRunState.Paused && handle.State != ProcRunState.SingleStep)
+            {
+                return;
+            }
+            handle.State = ProcRunState.Running;
+            handle.isBreakpoint = false;
+            control.SetRunning();
+            engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
+                handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
         }
 
-        public void Step()
+        private void StepInternal()
         {
-            ProcHandle currentHandle;
-            ProcessControl currentControl;
+            ProcHandle handle;
+            ProcessControl control;
             lock (sync)
             {
-                currentHandle = handle;
-                currentControl = control;
-                if (currentHandle == null || currentControl == null)
-                {
-                    return;
-                }
-                if (currentHandle.State != ProcRunState.Paused && currentHandle.State != ProcRunState.SingleStep)
-                {
-                    return;
-                }
-                currentHandle.State = ProcRunState.SingleStep;
-                currentHandle.isBreakpoint = false;
-                currentControl.RequestStep();
+                handle = current?.Handle;
+                control = current?.Control;
             }
-            engine.UpdateSnapshot(currentHandle.procNum, currentHandle.procName, currentHandle.State, currentHandle.stepNum,
-                currentHandle.opsNum, currentHandle.isBreakpoint, currentHandle.isAlarm, currentHandle.alarmMsg, true);
+            if (handle == null || control == null)
+            {
+                return;
+            }
+            if (handle.State != ProcRunState.Paused && handle.State != ProcRunState.SingleStep)
+            {
+                return;
+            }
+            handle.State = ProcRunState.SingleStep;
+            handle.isBreakpoint = false;
+            control.RequestStep();
+            engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
+                handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
         }
 
-        public void Stop()
+        private void StopCurrent(bool raiseSnapshot)
         {
-            ProcHandle currentHandle;
-            ProcessControl currentControl;
+            ProcHandle handle;
+            ProcessControl control;
             lock (sync)
             {
-                currentHandle = handle;
-                currentControl = control;
-                if (currentHandle == null || currentControl == null)
-                {
-                    return;
-                }
-                currentHandle.isThStop = true;
-                currentHandle.State = ProcRunState.Stopped;
-                currentHandle.isBreakpoint = false;
-                currentControl.RequestStop();
+                handle = current?.Handle;
+                control = current?.Control;
             }
-            engine.UpdateSnapshot(currentHandle.procNum, currentHandle.procName, currentHandle.State, currentHandle.stepNum,
-                currentHandle.opsNum, currentHandle.isBreakpoint, currentHandle.isAlarm, currentHandle.alarmMsg, true);
-        }
-
-        private void RequestStopLocked()
-        {
             if (handle == null || control == null)
             {
                 return;
             }
             handle.isThStop = true;
+            handle.State = ProcRunState.Stopped;
+            handle.isBreakpoint = false;
             control.RequestStop();
+            if (raiseSnapshot)
+            {
+                engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
+                    handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
+            }
         }
 
         private void RunWorker(Proc proc, ProcHandle runHandle, ProcessControl runControl)
@@ -654,20 +780,12 @@ namespace Automation
             }
             finally
             {
+                runControl?.Dispose();
                 lock (sync)
                 {
-                    runControl?.Dispose();
-                    if (ReferenceEquals(control, runControl))
+                    if (current != null && ReferenceEquals(current.Thread, Thread.CurrentThread))
                     {
-                        control = null;
-                    }
-                    if (ReferenceEquals(handle, runHandle))
-                    {
-                        handle = null;
-                    }
-                    if (ReferenceEquals(worker, Thread.CurrentThread))
-                    {
-                        worker = null;
+                        current = null;
                     }
                 }
             }
@@ -681,6 +799,7 @@ namespace Automation
         private readonly CancellationTokenSource stopCts = new CancellationTokenSource();
 
         public bool IsStopRequested => stopCts.IsCancellationRequested;
+        public CancellationToken CancellationToken => stopCts.Token;
 
         public void SetRunning()
         {

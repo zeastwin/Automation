@@ -55,7 +55,75 @@ namespace Automation
         public bool singleOpOnce;
         public int singleOpStep;
         public int singleOpOp;
+        public CancellationToken CancellationToken { get; set; }
 
+    }
+    public enum EngineCommandType
+    {
+        Start = 0,
+        StartAt = 1,
+        RunSingleOpOnce = 2,
+        Pause = 3,
+        Resume = 4,
+        Step = 5,
+        Stop = 6
+    }
+
+    public sealed class EngineCommand
+    {
+        private EngineCommand(EngineCommandType type, int procIndex, Proc proc, int stepIndex, int opIndex,
+            ProcRunState startState, bool singleOpOnce, bool autoStep)
+        {
+            Type = type;
+            ProcIndex = procIndex;
+            Proc = proc;
+            StepIndex = stepIndex;
+            OpIndex = opIndex;
+            StartState = startState;
+            SingleOpOnce = singleOpOnce;
+            AutoStep = autoStep;
+        }
+
+        public EngineCommandType Type { get; }
+        public int ProcIndex { get; }
+        public Proc Proc { get; }
+        public int StepIndex { get; }
+        public int OpIndex { get; }
+        public ProcRunState StartState { get; }
+        public bool SingleOpOnce { get; }
+        public bool AutoStep { get; }
+        internal long Generation { get; set; }
+
+        public static EngineCommand Start(int procIndex, Proc proc, int stepIndex, int opIndex, ProcRunState startState)
+        {
+            return new EngineCommand(EngineCommandType.StartAt, procIndex, proc, stepIndex, opIndex, startState, false, false);
+        }
+
+        public static EngineCommand RunSingleOpOnce(int procIndex, Proc proc, int stepIndex, int opIndex)
+        {
+            return new EngineCommand(EngineCommandType.RunSingleOpOnce, procIndex, proc, stepIndex, opIndex,
+                ProcRunState.SingleStep, true, true);
+        }
+
+        public static EngineCommand Pause(int procIndex)
+        {
+            return new EngineCommand(EngineCommandType.Pause, procIndex, null, 0, 0, ProcRunState.Paused, false, false);
+        }
+
+        public static EngineCommand Resume(int procIndex)
+        {
+            return new EngineCommand(EngineCommandType.Resume, procIndex, null, 0, 0, ProcRunState.Running, false, false);
+        }
+
+        public static EngineCommand Step(int procIndex)
+        {
+            return new EngineCommand(EngineCommandType.Step, procIndex, null, 0, 0, ProcRunState.SingleStep, false, false);
+        }
+
+        public static EngineCommand Stop(int procIndex)
+        {
+            return new EngineCommand(EngineCommandType.Stop, procIndex, null, 0, 0, ProcRunState.Stopped, false, false);
+        }
     }
     public sealed class EngineSnapshot
     {
