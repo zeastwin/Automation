@@ -138,6 +138,20 @@ namespace Automation
                         return RunWaitStationStop(evt, waitStationStop);
 
                     default:
+                        if (evt != null)
+                        {
+                            evt.isAlarm = true;
+                            evt.isThStop = true;
+                            if (operation == null)
+                            {
+                                evt.alarmMsg = "操作为空";
+                            }
+                            else
+                            {
+                                evt.alarmMsg = $"操作类型不支持:{operation.GetType().Name}";
+                            }
+                            Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                        }
                         return false;
                 }
             }
@@ -145,6 +159,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = e.Message;
+                evt.isThStop = true;
                 Logger?.Log(e.Message, LogLevel.Error);
                 return false;
             }
@@ -1489,17 +1504,39 @@ namespace Automation
         public bool RunHomeRun(ProcHandle evt, HomeRun homeRun)
         {
             DataStation station;
+            if (Context.Stations == null)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = "工站列表为空";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                return false;
+            }
             if (homeRun.StationIndex != -1)
             {
+                if (homeRun.StationIndex < 0 || homeRun.StationIndex >= Context.Stations.Count)
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"工站索引无效:{homeRun.StationIndex}";
+                    evt.isThStop = true;
+                    Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                    return false;
+                }
                 station = Context.Stations[homeRun.StationIndex];
             }
             else
             {
                 station = Context.Stations.FirstOrDefault(sc => sc.Name == homeRun.StationName);
             }
-            if (station != null)
+            if (station == null)
             {
-                station.SetState(DataStation.Status.Run);
+                evt.isAlarm = true;
+                evt.alarmMsg = $"找不到工站:{homeRun.StationName}";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                return false;
+            }
+            station.SetState(DataStation.Status.Run);
                 int stationIndex = Context.Stations.IndexOf(station);
                 if (stationIndex != -1)
                 {
@@ -1528,6 +1565,7 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = homeRun.Name + "运动超时";
+                                evt.isThStop = true;
                                 Logger?.Log(homeRun.Name + "运动超时！", LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 return false;
@@ -1554,7 +1592,6 @@ namespace Automation
                         }
                     }
                 }
-            }
             return true;
         }
 
@@ -1570,20 +1607,34 @@ namespace Automation
             station = Context.Stations.FirstOrDefault(sc => sc.Name == stationRunPos.StationName);
             //}
 
-            if (station != null)
+            if (station == null)
             {
-                station.SetState(DataStation.Status.Run);
-                DataPos posItems;
-                if (stationRunPos.PosIndex != -1)
-                {
-                    posItems = station.ListDataPos[stationRunPos.PosIndex];
-                }
-                else
-                {
-                    posItems = station.ListDataPos.FirstOrDefault(sc => sc.Name == stationRunPos.PosName);
-                }
-                if (posItems != null)
-                {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"找不到工站:{stationRunPos.StationName}";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                return false;
+            }
+            station.SetState(DataStation.Status.Run);
+            DataPos posItems;
+            if (stationRunPos.PosIndex != -1)
+            {
+                posItems = station.ListDataPos[stationRunPos.PosIndex];
+            }
+            else
+            {
+                posItems = station.ListDataPos.FirstOrDefault(sc => sc.Name == stationRunPos.PosName);
+            }
+            if (posItems == null)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"工站点位不存在:{stationRunPos.PosName}";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                station.SetState(DataStation.Status.NotReady);
+                return false;
+            }
+
                     List<double> Poses = posItems.GetAllValues();
                     List<bool> AxisDisableInfos = stationRunPos.GetAllValues();
                     List<double> TargetPos = new List<double>();
@@ -1605,6 +1656,7 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"工站：{stationRunPos.Name} {cardNum}号卡{axisNum}号轴配置不存在";
+                                evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 return false;
@@ -1675,6 +1727,7 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = stationRunPos.Name + "运动超时";
+                                evt.isThStop = true;
                                 Logger?.Log(stationRunPos.Name + "运动超时！", LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 return false;
@@ -1703,6 +1756,7 @@ namespace Automation
                                 {
                                     evt.isAlarm = true;
                                     evt.alarmMsg = $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
+                                    evt.isThStop = true;
                                     Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                     return false;
                                 }
@@ -1710,14 +1764,13 @@ namespace Automation
                                 {
                                     evt.isAlarm = true;
                                     evt.alarmMsg = $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位";
+                                    evt.isThStop = true;
                                     Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 }
                             }
                         }
-
                     }
-                }
-            }
+
             return true;
         }
         public bool RunStationRunRel(ProcHandle evt, StationRunRel stationRunRel)
@@ -1733,9 +1786,15 @@ namespace Automation
             station = Context.Stations.FirstOrDefault(sc => sc.Name == stationRunRel.StationName);
             //}
 
-            if (station != null)
+            if (station == null)
             {
-                station.SetState(DataStation.Status.Run);
+                evt.isAlarm = true;
+                evt.alarmMsg = $"找不到工站:{stationRunRel.StationName}";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                return false;
+            }
+            station.SetState(DataStation.Status.Run);
                 double Vel = 0;
                 double Acc = 0;
                 double Dec = 0;
@@ -1759,6 +1818,7 @@ namespace Automation
                         {
                             evt.isAlarm = true;
                             evt.alarmMsg = $"工站：{stationRunRel.Name} {cardNum}号卡{axisNum}号轴配置不存在";
+                            evt.isThStop = true;
                             Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
                             return false;
@@ -1814,6 +1874,7 @@ namespace Automation
                         {
                             evt.isAlarm = true;
                             evt.alarmMsg = stationRunRel.Name + "运动超时";
+                            evt.isThStop = true;
                             Logger?.Log(stationRunRel.Name + "运动超时！", LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
                             return false;
@@ -1842,6 +1903,7 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
+                                evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 return false;
                             }
@@ -1849,6 +1911,7 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位";
+                                evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             }
                         }
@@ -1871,11 +1934,17 @@ namespace Automation
                 station = Context.Stations.FirstOrDefault(sc => sc.Name == setStationVel.StationName);
             }
 
-            if (station != null)
+            if (station == null)
             {
-                double Vel = 0;
-                double Acc = 0;
-                double Dec = 0;
+                evt.isAlarm = true;
+                evt.alarmMsg = $"找不到工站:{setStationVel.StationName}";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                return false;
+            }
+            double Vel = 0;
+            double Acc = 0;
+            double Dec = 0;
 
                 Vel = setStationVel.Vel == 0 ? Context.ValueStore.GetValueByName(setStationVel.VelV).GetDValue() : setStationVel.Vel;
                 Acc = setStationVel.Acc == 0 ? Context.ValueStore.GetValueByName(setStationVel.AccV).GetDValue() : setStationVel.Acc;
@@ -1894,6 +1963,7 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在";
+                                evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 return false;
                             }
@@ -1910,6 +1980,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"工站：{setStationVel.StationName} 轴配置不存在";
+                        evt.isThStop = true;
                         Logger?.Log(evt.alarmMsg, LogLevel.Error);
                         return false;
                     }
@@ -1919,6 +1990,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在";
+                        evt.isThStop = true;
                         Logger?.Log(evt.alarmMsg, LogLevel.Error);
                         return false;
                     }
@@ -1926,40 +1998,36 @@ namespace Automation
                     axisConfig.AccRun = Acc;
                     axisConfig.DecRun = Dec;
                 }
-            }
-            else
-            {
-                return false;
-            }
             return true;
         }
         public bool RunStationStop(ProcHandle evt, StationStop stationStop)
         {
             DataStation station = Context.Stations.FirstOrDefault(sc => sc.Name == stationStop.StationName);
 
-            if (station != null)
+            if (station == null)
             {
-                if (stationStop.isAllStop)
-                {
-                    StopStation(station);
-                }
-                else
-                {
-                    List<bool> AxisParams = stationStop.GetAllValues();
-                    for (int i = 0; i < 6; i++)
-                    {
-                        if (AxisParams[i] == true)
-                        {
-                            int cardNum = int.Parse(station.dataAxis.axisConfigs[i].CardNum);
-                            int axisNum = station.dataAxis.axisConfigs[i].axis.AxisNum;
-                            StopAxis(cardNum, axisNum);
-                        }
-                    }
-                }
+                evt.isAlarm = true;
+                evt.alarmMsg = $"找不到工站:{stationStop.StationName}";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                return false;
+            }
+            if (stationStop.isAllStop)
+            {
+                StopStation(station);
             }
             else
             {
-                return false;
+                List<bool> AxisParams = stationStop.GetAllValues();
+                for (int i = 0; i < 6; i++)
+                {
+                    if (AxisParams[i] == true)
+                    {
+                        int cardNum = int.Parse(station.dataAxis.axisConfigs[i].CardNum);
+                        int axisNum = station.dataAxis.axisConfigs[i].axis.AxisNum;
+                        StopAxis(cardNum, axisNum);
+                    }
+                }
             }
             return true;
         }
@@ -1974,85 +2042,88 @@ namespace Automation
             {
                 station = Context.Stations.FirstOrDefault(sc => sc.Name == waitStationStop.StationName);
             }
+            if (station == null)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"找不到工站:{waitStationStop.StationName}";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                return false;
+            }
             station.SetState(DataStation.Status.Run);
             List<ushort> cardNums = new List<ushort>();
             List<ushort> axisNums = new List<ushort>();
-            if (station != null)
+            for (int i = 0; i < 6; i++)
             {
-                for (int i = 0; i < 6; i++)
+                if (station.dataAxis.axisConfigs[i].AxisName != "-1")
                 {
-                    if (station.dataAxis.axisConfigs[i].AxisName != "-1")
-                    {
-                        ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
-                        ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
-                        cardNums.Add(cardNum);
-                        axisNums.Add(axisNum);
-                    }
+                    ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
+                    ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
+                    cardNums.Add(cardNum);
+                    axisNums.Add(axisNum);
                 }
-                Stopwatch stopwatch = Stopwatch.StartNew();
-                double time;
-                if (waitStationStop.timeOut > 0)
-                    time = waitStationStop.timeOut;
-                else
-                {
+            }
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            double time;
+            if (waitStationStop.timeOut > 0)
+                time = waitStationStop.timeOut;
+            else
+            {
 
-                    time = Context.ValueStore.GetValueByName(waitStationStop.timeOutV).GetDValue();
+                time = Context.ValueStore.GetValueByName(waitStationStop.timeOutV).GetDValue();
+            }
+            while (evt.isThStop == false
+                && !evt.CancellationToken.IsCancellationRequested
+                && station.GetState() == DataStation.Status.Run)
+            {
+                bool isInPos = false;
+
+                if (stopwatch.ElapsedMilliseconds > time)
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = waitStationStop.Name + "等待超时";
+                    evt.isThStop = true;
+                    Logger?.Log(waitStationStop.Name + "等待超时！", LogLevel.Error);
+                    return false;
                 }
-                while (evt.isThStop == false
-                    && !evt.CancellationToken.IsCancellationRequested
-                    && station.GetState() == DataStation.Status.Run)
+                for (int i = 0; i < cardNums.Count; i++)
                 {
-                    bool isInPos = false;
-
-                    if (stopwatch.ElapsedMilliseconds > time)
+                    if (waitStationStop.isWaitHome)
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = waitStationStop.Name + "等待超时";
-                        Logger?.Log(waitStationStop.Name + "等待超时！", LogLevel.Error);
-                        return false;
-                    }
-                    for (int i = 0; i < cardNums.Count; i++)
-                    {
-                        if (waitStationStop.isWaitHome)
+                        if (!Context.CardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
                         {
-                            if (!Context.CardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
-                            {
-                                evt.isAlarm = true;
-                                evt.alarmMsg = $"工站：{waitStationStop.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
-                                Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                                return false;
-                            }
-                            if (Context.Motion.HomeStatus(cardNums[i], axisNums[i]) && axisInfo.GetState() == Axis.Status.Ready)
-                            {
-                                isInPos = true;
-                            }
-                            else
-                            {
-                                isInPos = false;
-                                break;
-                            }
+                            evt.isAlarm = true;
+                            evt.alarmMsg = $"工站：{waitStationStop.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
+                            evt.isThStop = true;
+                            Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                            return false;
+                        }
+                        if (Context.Motion.HomeStatus(cardNums[i], axisNums[i]) && axisInfo.GetState() == Axis.Status.Ready)
+                        {
+                            isInPos = true;
                         }
                         else
                         {
-                            if (Context.Motion.GetInPos(cardNums[i], axisNums[i]))
-                            {
-                                isInPos = true;
-                            }
-                            else
-                            {
-                                isInPos = false;
-                                break;
-                            }
+                            isInPos = false;
+                            break;
                         }
                     }
-                    if (isInPos)
-                        break;
-                    Delay(5, evt);
+                    else
+                    {
+                        if (Context.Motion.GetInPos(cardNums[i], axisNums[i]))
+                        {
+                            isInPos = true;
+                        }
+                        else
+                        {
+                            isInPos = false;
+                            break;
+                        }
+                    }
                 }
-            }
-            else
-            {
-                return false;
+                if (isInPos)
+                    break;
+                Delay(5, evt);
             }
             return true;
         }
@@ -2089,6 +2160,10 @@ namespace Automation
         {
             if (Context.Stations == null || dataStationIndex < 0 || dataStationIndex >= Context.Stations.Count)
             {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"工站索引无效:{dataStationIndex}";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 return;
             }
             DataStation station = Context.Stations[dataStationIndex];
@@ -2110,13 +2185,19 @@ namespace Automation
                         HomeSingleAxis(ushort.Parse(item.CardNum), (ushort)item.axis.AxisNum, evt);
                         if (Context.CardStore == null || !Context.CardStore.TryGetAxis(int.Parse(item.CardNum), i, out Axis axisInfo))
                         {
-                            Logger?.Log($"卡{item.CardNum}轴{i}配置不存在，工站回零动作终止。", LogLevel.Error);
+                            evt.isAlarm = true;
+                            evt.alarmMsg = $"卡{item.CardNum}轴{i}配置不存在，工站回零动作终止。";
+                            evt.isThStop = true;
+                            Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             return;
                         }
 
                         if (axisInfo.State == Axis.Status.NotReady)
                         {
-                            Logger?.Log($"卡{item.CardNum}轴{i}回零失败,工站回零动作终止。", LogLevel.Error);
+                            evt.isAlarm = true;
+                            evt.alarmMsg = $"卡{item.CardNum}轴{i}回零失败,工站回零动作终止。";
+                            evt.isThStop = true;
+                            Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             return;
                         }
                         break;
@@ -2149,6 +2230,10 @@ namespace Automation
         {
             if (Context.Stations == null || dataStationIndex < 0 || dataStationIndex >= Context.Stations.Count)
             {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"工站索引无效:{dataStationIndex}";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 return;
             }
             DataStation station = Context.Stations[dataStationIndex];
@@ -2179,6 +2264,10 @@ namespace Automation
         {
             if (Context.Motion == null || Context.CardStore == null)
             {
+                evt.isAlarm = true;
+                evt.alarmMsg = "运动控制未初始化";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 return;
             }
             if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
@@ -2187,11 +2276,19 @@ namespace Automation
             }
             if (!Context.Motion.GetInPos(cardNum, axis))
             {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"轴未到位，禁止回零:{cardNum}-{axis}";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 return;
             }
             ushort dir = 0;
             if (!Context.CardStore.TryGetAxis(cardNum, axis, out Axis axisInfo))
             {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"轴配置不存在:{cardNum}-{axis}";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 return;
             }
             axisInfo.State = Axis.Status.Run;
@@ -2238,6 +2335,9 @@ namespace Automation
                             if (GetAxisStateBit(cardNum, axis, IOindexTemp))
                             {
                                 Logger?.Log("限位方向错误，回零失败。", LogLevel.Error);
+                                evt.isAlarm = true;
+                                evt.alarmMsg = "限位方向错误，回零失败。";
+                                evt.isThStop = true;
                                 axisInfo.State = Axis.Status.NotReady;
                                 return;
                             }
@@ -2278,6 +2378,9 @@ namespace Automation
                             else
                             {
                                 Logger?.Log("限位方向错误，回零失败。", LogLevel.Error);
+                                evt.isAlarm = true;
+                                evt.alarmMsg = "限位方向错误，回零失败。";
+                                evt.isThStop = true;
                                 axisInfo.State = Axis.Status.NotReady;
                                 sfc = 0;
                                 return;
