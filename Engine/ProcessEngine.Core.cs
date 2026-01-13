@@ -25,7 +25,7 @@ using System.Numerics;
 
 namespace Automation
 {
-    public partial class ProcessEngine
+    public partial class ProcessEngine : IDisposable
     {
         private ProcAgent[] agents = Array.Empty<ProcAgent>();
         private EngineSnapshot[] snapshots = Array.Empty<EngineSnapshot>();
@@ -37,6 +37,7 @@ namespace Automation
         private readonly object snapshotDispatchLock = new object();
         private System.Threading.Timer snapshotTimer;
         private int snapshotFlushRunning;
+        private int disposed;
         public EngineContext Context { get; }
         public IAlarmHandler AlarmHandler { get; set; }
         public ILogger Logger { get; set; }
@@ -148,6 +149,10 @@ namespace Automation
         private ProcAgent GetOrCreateAgent(int procIndex)
         {
             if (procIndex < 0)
+            {
+                return null;
+            }
+            if (Volatile.Read(ref disposed) == 1)
             {
                 return null;
             }
@@ -405,6 +410,31 @@ namespace Automation
             {
                 return;
             }
+            if (evt == null)
+            {
+                return;
+            }
+            if (proc == null)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = "运行流程失败：流程为空";
+                HandleAlarm(null, evt);
+                return;
+            }
+            if (proc.steps == null || proc.steps.Count == 0)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = "运行流程失败：步骤为空";
+                HandleAlarm(null, evt);
+                return;
+            }
+            if (evt.stepNum < 0 || evt.stepNum >= proc.steps.Count)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"运行流程失败：步骤索引超界 {evt.stepNum}";
+                HandleAlarm(null, evt);
+                return;
+            }
             if (evt.State == ProcRunState.Stopped)
             {
                 evt.State = ProcRunState.Running;
@@ -440,6 +470,37 @@ namespace Automation
         {
 
             bool bOK = true;
+            if (evt == null)
+            {
+                return false;
+            }
+            if (steps == null)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = "运行步骤失败：步骤为空";
+                HandleAlarm(null, evt);
+                return false;
+            }
+            if (steps.Ops == null)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = "运行步骤失败：操作列表为空";
+                HandleAlarm(null, evt);
+                return false;
+            }
+            if (steps.Ops.Count == 0)
+            {
+                evt.opsNum = -1;
+                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
+                return true;
+            }
+            if (evt.opsNum < 0 || evt.opsNum >= steps.Ops.Count)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"运行步骤失败：操作索引超界 {evt.opsNum}";
+                HandleAlarm(null, evt);
+                return false;
+            }
             for (int i = evt.opsNum; i < steps.Ops.Count; i++)
             {
                 evt.isAlarm = false;
@@ -584,7 +645,11 @@ namespace Automation
                     }
                     catch (OperationCanceledException)
                     {
-                        return AlarmDecision.Stop;
+                        if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                        {
+                            return AlarmDecision.Stop;
+                        }
+                        return AlarmDecision.Ignore;
                     }
                 }
                 else
@@ -663,6 +728,36 @@ namespace Automation
                     }
                     break;
             }
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 1)
+            {
+                return;
+            }
+            lock (snapshotDispatchLock)
+            {
+                snapshotTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+                snapshotTimer?.Dispose();
+                snapshotTimer = null;
+            }
+            ProcAgent[] agentsToDispose;
+            lock (agentLock)
+            {
+                agentsToDispose = agents;
+                agents = Array.Empty<ProcAgent>();
+                snapshots = Array.Empty<EngineSnapshot>();
+            }
+            if (agentsToDispose != null)
+            {
+                foreach (ProcAgent agent in agentsToDispose)
+                {
+                    agent?.Dispose();
+                }
+            }
+            pendingSnapshots.Clear();
+            GC.SuppressFinalize(this);
         }
 
     }
@@ -761,13 +856,35 @@ namespace Automation
 
         private void DispatchLoop()
         {
-            foreach (EngineCommand command in queue.GetConsumingEnumerable())
+            try
             {
-                if (disposed)
+                foreach (EngineCommand command in queue.GetConsumingEnumerable())
                 {
-                    return;
+                    if (disposed)
+                    {
+                        return;
+                    }
+                    try
+                    {
+                        HandleCommand(command);
+                    }
+                    catch (Exception ex)
+                    {
+                        engine.Logger?.Log($"调度处理异常:{command?.Type} {ex.Message}，触发安全停机", LogLevel.Error);
+                        if (!disposed)
+                        {
+                            RequestStop();
+                        }
+                    }
                 }
-                HandleCommand(command);
+            }
+            catch (Exception ex)
+            {
+                engine.Logger?.Log($"调度线程异常:{ex.Message}，触发安全停机", LogLevel.Error);
+                if (!disposed)
+                {
+                    RequestStop();
+                }
             }
         }
 
