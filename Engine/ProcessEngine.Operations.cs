@@ -213,13 +213,13 @@ namespace Automation
             //    time = (int)Context.ValueStore.GetValueByName(ioParam.delayBeforeV).GetDValue();
             //}
             //Delay(time, evt);
-            int start = Environment.TickCount;
+            Stopwatch stopwatch = Stopwatch.StartNew();
             while (evt.State != ProcRunState.Stopped
                 && timeOut > 0
                 && !evt.isThStop
                 && !evt.CancellationToken.IsCancellationRequested)
             {
-                if (Math.Abs(Environment.TickCount - start) < timeOut)
+                if (stopwatch.ElapsedMilliseconds < timeOut)
                 {
                     bool isCheckOff = true;
                     foreach (IoCheckParam ioParam in ioCheck.IoParams)
@@ -321,14 +321,14 @@ namespace Automation
             {
                 DelayAfter = (int)Context.ValueStore.GetValueByName(waitProc.delayAfterV).GetDValue();
             }
-            int start = Environment.TickCount;
+            Stopwatch stopwatch = Stopwatch.StartNew();
             while (evt.State != ProcRunState.Stopped
                 && !evt.isThStop
                 && !evt.CancellationToken.IsCancellationRequested)
             {
                 if (timeOut > 0)
                 {
-                    if (Math.Abs(Environment.TickCount - start) > timeOut)
+                    if (stopwatch.ElapsedMilliseconds > timeOut)
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = "等待超时";
@@ -1214,10 +1214,10 @@ namespace Automation
         {
             foreach (var op in waitTcp.Params)
             {
-                int start = Environment.TickCount;
+                Stopwatch stopwatch = Stopwatch.StartNew();
                 while (!evt.isThStop
                     && !evt.CancellationToken.IsCancellationRequested
-                    && Math.Abs(Environment.TickCount - start) < op.TimeOut)
+                    && stopwatch.ElapsedMilliseconds < op.TimeOut)
                 {
                     if (Context.Comm.IsTcpActive(op.Name))
                     {
@@ -1255,10 +1255,10 @@ namespace Automation
                 return false;
             }
             Context.Comm.ClearTcpMessages(receoveTcpMsg.ID);
-            int start = Environment.TickCount;
+            Stopwatch stopwatch = Stopwatch.StartNew();
             while (!evt.isThStop
                 && !evt.CancellationToken.IsCancellationRequested
-                && Math.Abs(Environment.TickCount - start) < receoveTcpMsg.TImeOut)
+                && stopwatch.ElapsedMilliseconds < receoveTcpMsg.TImeOut)
             {
                 if (Context.Comm.TryReceiveTcp(receoveTcpMsg.ID, 50, out string msg))
                 {
@@ -1301,10 +1301,10 @@ namespace Automation
                 return false;
             }
             Context.Comm.ClearSerialMessages(receoveSerialPortMsg.ID);
-            int start = Environment.TickCount;
+            Stopwatch stopwatch = Stopwatch.StartNew();
             while (!evt.isThStop
                 && !evt.CancellationToken.IsCancellationRequested
-                && Math.Abs(Environment.TickCount - start) < receoveSerialPortMsg.TImeOut)
+                && stopwatch.ElapsedMilliseconds < receoveSerialPortMsg.TImeOut)
             {
                 if (Context.Comm.TryReceiveSerial(receoveSerialPortMsg.ID, 50, out string msg))
                 {
@@ -1357,10 +1357,10 @@ namespace Automation
                     return false;
                 }
 
-                int start = Environment.TickCount;
+                Stopwatch stopwatch = Stopwatch.StartNew();
                 while (!evt.isThStop
                     && !evt.CancellationToken.IsCancellationRequested
-                    && Math.Abs(Environment.TickCount - start) < sendReceoveCommMsg.TimeOut)
+                    && stopwatch.ElapsedMilliseconds < sendReceoveCommMsg.TimeOut)
                 {
                     if (Context.Comm.TryReceiveTcp(sendReceoveCommMsg.ID, 50, out string msg))
                     {
@@ -1406,10 +1406,10 @@ namespace Automation
                     return false;
                 }
 
-                int start = Environment.TickCount;
+                Stopwatch stopwatch = Stopwatch.StartNew();
                 while (!evt.isThStop
                     && !evt.CancellationToken.IsCancellationRequested
-                    && Math.Abs(Environment.TickCount - start) < sendReceoveCommMsg.TimeOut)
+                    && stopwatch.ElapsedMilliseconds < sendReceoveCommMsg.TimeOut)
                 {
                     if (Context.Comm.TryReceiveSerial(sendReceoveCommMsg.ID, 50, out string msg))
                     {
@@ -1468,10 +1468,10 @@ namespace Automation
         {
             foreach (var op in waitSerialPort.Params)
             {
-                int start = Environment.TickCount;
+                Stopwatch stopwatch = Stopwatch.StartNew();
                 while (!evt.isThStop
                     && !evt.CancellationToken.IsCancellationRequested
-                    && Math.Abs(Environment.TickCount - start) < op.TimeOut)
+                    && stopwatch.ElapsedMilliseconds < op.TimeOut)
                 {
                     if (Context.Comm.IsSerialOpen(op.Name))
                     {
@@ -1518,13 +1518,13 @@ namespace Automation
                     Delay(500, evt);
                     if (!homeRun.isUnWait)
                     {
-                        int start = Environment.TickCount;
+                        Stopwatch stopwatch = Stopwatch.StartNew();
                         bool isInPos = false;
                         while (evt.isThStop == false
                             && !evt.CancellationToken.IsCancellationRequested
                             && station.GetState() == DataStation.Status.Run)
                         {
-                            if (Math.Abs(Environment.TickCount - start) > 120000)
+                            if (stopwatch.ElapsedMilliseconds > 120000)
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = homeRun.Name + "运动超时";
@@ -1655,7 +1655,7 @@ namespace Automation
                                 TargetPos.Add(Poses[i]);
                             }
                         }
-                        int start = Environment.TickCount;
+                        Stopwatch stopwatch = Stopwatch.StartNew();
                         bool isInPos = false;
                         double time;
                         if (stationRunPos.timeOut > 0)
@@ -1671,7 +1671,7 @@ namespace Automation
                             && cardNums.Count != 0
                             && station.GetState() == DataStation.Status.Run)
                         {
-                            if (Math.Abs(Environment.TickCount - start) > time)
+                            if (stopwatch.ElapsedMilliseconds > time)
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = stationRunPos.Name + "运动超时";
@@ -1796,7 +1796,7 @@ namespace Automation
                 if (!stationRunRel.isUnWait)
                 {
 
-                    int start = Environment.TickCount;
+                    Stopwatch stopwatch = Stopwatch.StartNew();
                     bool isInPos = false;
                     double time;
                     if (stationRunRel.timeOut > 0)
@@ -1810,7 +1810,7 @@ namespace Automation
                         && !evt.CancellationToken.IsCancellationRequested
                         && station.GetState() == DataStation.Status.Run)
                     {
-                        if (Math.Abs(Environment.TickCount - start) > time)
+                        if (stopwatch.ElapsedMilliseconds > time)
                         {
                             evt.isAlarm = true;
                             evt.alarmMsg = stationRunRel.Name + "运动超时";
@@ -1989,7 +1989,7 @@ namespace Automation
                         axisNums.Add(axisNum);
                     }
                 }
-                int start = Environment.TickCount;
+                Stopwatch stopwatch = Stopwatch.StartNew();
                 double time;
                 if (waitStationStop.timeOut > 0)
                     time = waitStationStop.timeOut;
@@ -2004,7 +2004,7 @@ namespace Automation
                 {
                     bool isInPos = false;
 
-                    if (Math.Abs(Environment.TickCount - start) > time)
+                    if (stopwatch.ElapsedMilliseconds > time)
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = waitStationStop.Name + "等待超时";

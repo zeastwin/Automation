@@ -130,7 +130,7 @@ namespace Automation
     public sealed class EngineSnapshot
     {
         public EngineSnapshot(int procIndex, string procName, ProcRunState state, int stepIndex, int opIndex,
-            bool isBreakpoint, bool isAlarm, string alarmMessage, DateTime updateTime)
+            bool isBreakpoint, bool isAlarm, string alarmMessage, DateTime updateTime, long updateTicks)
         {
             ProcIndex = procIndex;
             ProcName = procName;
@@ -141,6 +141,7 @@ namespace Automation
             IsAlarm = isAlarm;
             AlarmMessage = alarmMessage;
             UpdateTime = updateTime;
+            UpdateTicks = updateTicks;
         }
 
         public int ProcIndex { get; }
@@ -152,6 +153,7 @@ namespace Automation
         public bool IsAlarm { get; }
         public string AlarmMessage { get; }
         public DateTime UpdateTime { get; }
+        public long UpdateTicks { get; }
     }
 
     public enum AlarmDecision

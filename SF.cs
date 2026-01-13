@@ -85,8 +85,8 @@ namespace Automation
 
         public static void Delay(int milliSecond)
         {
-            int start = Environment.TickCount;
-            while (Math.Abs(Environment.TickCount - start) < milliSecond)//毫秒
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            while (stopwatch.ElapsedMilliseconds < milliSecond)//毫秒
             {
                 Application.DoEvents();
                 Thread.Sleep(5);
@@ -96,8 +96,8 @@ namespace Automation
 
         public static void Delay2(int milliSecond)
         {
-            int start = Environment.TickCount;
-            while (Math.Abs(Environment.TickCount - start) < milliSecond)//毫秒
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            while (stopwatch.ElapsedMilliseconds < milliSecond)//毫秒
             {
                 Application.DoEvents();
             }
@@ -109,15 +109,28 @@ namespace Automation
             {
                 return true;
             }
-            EngineSnapshot snapshot = DR?.GetSnapshot(procIndex);
+            if (DR == null)
+            {
+                return true;
+            }
+            EngineSnapshot snapshot = DR.GetSnapshot(procIndex);
             if (snapshot == null)
             {
                 return true;
             }
-            if (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming)
+            if (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep)
             {
-                MessageBox.Show("流程运行中禁止编辑，请先暂停或单步。");
-                return false;
+                return true;
+            }
+            IReadOnlyList<EngineSnapshot> snapshots = DR.GetSnapshots();
+            for (int i = 0; i < snapshots.Count; i++)
+            {
+                EngineSnapshot item = snapshots[i];
+                if (item != null && (item.State == ProcRunState.Running || item.State == ProcRunState.Alarming))
+                {
+                    MessageBox.Show("流程运行中禁止编辑，请先暂停或单步。");
+                    return false;
+                }
             }
             return true;
         }
@@ -133,7 +146,7 @@ namespace Automation
                 EngineSnapshot snapshot = DR?.GetSnapshot(i);
                 if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
                 {
-                    MessageBox.Show("存在运行中的流程，禁止新增或删除流程。");
+                    MessageBox.Show("存在运行中的流程，禁止新增或删除流程，请先暂停或单步。");
                     return false;
                 }
             }

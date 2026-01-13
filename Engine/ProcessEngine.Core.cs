@@ -31,6 +31,7 @@ namespace Automation
         private EngineSnapshot[] snapshots = Array.Empty<EngineSnapshot>();
         private readonly object agentLock = new object();
         private readonly TimeSpan stopJoinTimeout = TimeSpan.FromSeconds(2);
+        private static readonly double stopwatchTickToMilliseconds = 1000.0 / Stopwatch.Frequency;
         private int snapshotThrottleMilliseconds = 50;
         private readonly ConcurrentDictionary<int, EngineSnapshot> pendingSnapshots = new ConcurrentDictionary<int, EngineSnapshot>();
         private readonly object snapshotDispatchLock = new object();
@@ -86,7 +87,8 @@ namespace Automation
             {
                 procName = Context.Procs[procIndex]?.head?.Name;
             }
-            snapshot = new EngineSnapshot(procIndex, procName, ProcRunState.Stopped, -1, -1, false, false, null, DateTime.Now);
+            long nowTicks = Stopwatch.GetTimestamp();
+            snapshot = new EngineSnapshot(procIndex, procName, ProcRunState.Stopped, -1, -1, false, false, null, DateTime.Now, nowTicks);
             if (procIndex < snapshots.Length)
             {
                 Volatile.Write(ref snapshots[procIndex], snapshot);
@@ -171,12 +173,13 @@ namespace Automation
             bool isBreakpoint, bool isAlarm, string alarmMessage, bool raiseEvent)
         {
             EnsureCapacity(procIndex);
+            long nowTicks = Stopwatch.GetTimestamp();
             if (!raiseEvent && snapshotThrottleMilliseconds > 0)
             {
                 EngineSnapshot current = Volatile.Read(ref snapshots[procIndex]);
                 if (current != null)
                 {
-                    double elapsed = (DateTime.Now - current.UpdateTime).TotalMilliseconds;
+                    double elapsed = (nowTicks - current.UpdateTicks) * stopwatchTickToMilliseconds;
                     if (elapsed < snapshotThrottleMilliseconds
                         && current.State == state
                         && current.IsAlarm == isAlarm
@@ -191,7 +194,7 @@ namespace Automation
                 }
             }
             EngineSnapshot snapshot = new EngineSnapshot(procIndex, procName, state, stepIndex, opIndex, isBreakpoint,
-                isAlarm, alarmMessage, DateTime.Now);
+                isAlarm, alarmMessage, DateTime.Now, nowTicks);
             Volatile.Write(ref snapshots[procIndex], snapshot);
             EnqueueSnapshot(snapshot);
         }
@@ -236,7 +239,7 @@ namespace Automation
             }
             try
             {
-                foreach (var item in pendingSnapshots.ToArray())
+                foreach (var item in pendingSnapshots)
                 {
                     if (pendingSnapshots.TryRemove(item.Key, out EngineSnapshot snapshot))
                     {
@@ -328,23 +331,20 @@ namespace Automation
                 Thread.Sleep(milliSecond);
                 return;
             }
-            int start = Environment.TickCount;
+            Stopwatch stopwatch = Stopwatch.StartNew();
             int remaining = milliSecond;
+            WaitHandle waitHandle = evt.CancellationToken.WaitHandle;
             while (remaining > 0
                 && evt.State != ProcRunState.Stopped
                 && !evt.isThStop
                 && !evt.CancellationToken.IsCancellationRequested)
             {
                 int slice = remaining > 20 ? 20 : remaining;
-                try
-                {
-                    Task.Delay(slice, evt.CancellationToken).GetAwaiter().GetResult();
-                }
-                catch (TaskCanceledException)
+                if (waitHandle.WaitOne(slice))
                 {
                     break;
                 }
-                remaining = milliSecond - Math.Abs(Environment.TickCount - start);
+                remaining = milliSecond - (int)stopwatch.ElapsedMilliseconds;
             }
         }
         public void StartProc(Proc proc, int procIndex)
@@ -716,12 +716,16 @@ namespace Automation
                 }
                 if (!queue.TryAdd(command))
                 {
-                    if (command.Type == EngineCommandType.Start
-                        || command.Type == EngineCommandType.StartAt
-                        || command.Type == EngineCommandType.RunSingleOpOnce)
+                    if (queue.IsAddingCompleted)
                     {
-                        ClearQueue();
-                        queue.TryAdd(command);
+                        return;
+                    }
+                    while (!queue.TryAdd(command))
+                    {
+                        if (!queue.TryTake(out _))
+                        {
+                            break;
+                        }
                     }
                 }
             }
@@ -819,7 +823,20 @@ namespace Automation
                 StopCurrent(true);
                 if (!runningContext.Thread.Join(engine.StopJoinTimeout))
                 {
+                    const string timeoutMessage = "停止超时";
                     engine.Logger?.Log($"流程{procIndex}停止超时，拒绝再次启动。", LogLevel.Error);
+                    ProcHandle timeoutHandle = runningContext.Handle;
+                    if (timeoutHandle != null)
+                    {
+                        timeoutHandle.isAlarm = true;
+                        timeoutHandle.alarmMsg = timeoutMessage;
+                        engine.UpdateSnapshot(procIndex, timeoutHandle.procName, timeoutHandle.State, timeoutHandle.stepNum,
+                            timeoutHandle.opsNum, timeoutHandle.isBreakpoint, true, timeoutMessage, true);
+                    }
+                    else
+                    {
+                        engine.UpdateSnapshot(procIndex, proc.head?.Name, ProcRunState.Stopped, -1, -1, false, true, timeoutMessage, true);
+                    }
                     return;
                 }
             }
