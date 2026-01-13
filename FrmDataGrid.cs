@@ -227,12 +227,7 @@ namespace Automation
             //输出Ops信息到属性窗体上并输出当前选择行数
             if (e.RowIndex >= 0 && SF.frmProc.SelectedProcNum >= 0 && e.Button == MouseButtons.Left)
             {
-                //dataGridView1.Rows[e.RowIndex].Selected = true;
-                //SF.frmDataGrid.OperationTemp = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[e.RowIndex];
-                //SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[e.RowIndex];
-                //SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[e.RowIndex].evtRP();
-                //SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmPropertyGrid.propertyGrid1.SelectedObject;
-                //string selectedValue = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[e.RowIndex].OperaType;
+                
 
                 SF.frmDataGrid.OperationTemp = (OperationType)(SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[e.RowIndex]).Clone();
                 dataGridView1.Rows[e.RowIndex].Selected = true;
@@ -265,7 +260,6 @@ namespace Automation
             try
             {
                 SF.mainfrm.SaveAsJson(SF.workPath, ProcIndex.ToString(), SF.frmProc.procsList[ProcIndex]);
-
             }
             catch (Exception ex)
             {

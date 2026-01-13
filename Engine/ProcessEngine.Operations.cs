@@ -421,27 +421,31 @@ namespace Automation
                     }
                     if (value == itemValue)
                     {
-                        string[] key = item.Goto.Split('-');
-                        evt.stepNum = int.Parse(key[1]);
-                        evt.opsNum = int.Parse(key[2]);
+                        if (!TryExecuteGoto(item.Goto, evt, out string gotoError))
+                        {
+                            evt.isAlarm = true;
+                            evt.alarmMsg = gotoError;
+                            return false;
+                        }
                         evt.isGoto = true;
                         return true;
                     }
                 }
             }
-            if (gotoParam.DefaultGoto != null)
+            if (!string.IsNullOrWhiteSpace(gotoParam.DefaultGoto))
             {
-                string[] key = gotoParam.DefaultGoto.Split('-');
-                evt.stepNum = int.Parse(key[1]);
-                evt.opsNum = int.Parse(key[2]);
+                if (!TryExecuteGoto(gotoParam.DefaultGoto, evt, out string defaultGotoError))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = defaultGotoError;
+                    return false;
+                }
                 evt.isGoto = true;
+                return true;
             }
-            if (evt.isGoto == false)
-            {
-                evt.isAlarm = true;
-                return false;
-            }
-            return true;
+            evt.isAlarm = true;
+            evt.alarmMsg = "跳转失败：未匹配到跳转条件且默认跳转为空";
+            return false;
         }
         public bool RunParamGoto(ProcHandle evt, ParamGoto paramGoto)
         {
@@ -523,13 +527,14 @@ namespace Automation
                         }
                     }
                 }
-                string[] key = outPut ? paramGoto.goto1?.Split('-') : paramGoto.goto2?.Split('-');
-                if (key != null)
+                string gotoTarget = outPut ? paramGoto.goto1 : paramGoto.goto2;
+                if (!TryExecuteGoto(gotoTarget, evt, out string gotoError))
                 {
-                    evt.stepNum = int.Parse(key[1]);
-                    evt.opsNum = int.Parse(key[2]);
-                    evt.isGoto = true;
+                    evt.isAlarm = true;
+                    evt.alarmMsg = gotoError;
+                    return false;
                 }
+                evt.isGoto = true;
             }
 
             return true;

@@ -32,6 +32,10 @@ namespace Automation
         private readonly object agentLock = new object();
         private readonly TimeSpan stopJoinTimeout = TimeSpan.FromSeconds(2);
         private int snapshotThrottleMilliseconds = 50;
+        private readonly ConcurrentDictionary<int, EngineSnapshot> pendingSnapshots = new ConcurrentDictionary<int, EngineSnapshot>();
+        private readonly object snapshotDispatchLock = new object();
+        private System.Threading.Timer snapshotTimer;
+        private int snapshotFlushRunning;
         public EngineContext Context { get; }
         public IAlarmHandler AlarmHandler { get; set; }
         public ILogger Logger { get; set; }
@@ -39,7 +43,16 @@ namespace Automation
         public int SnapshotThrottleMilliseconds
         {
             get => snapshotThrottleMilliseconds;
-            set => snapshotThrottleMilliseconds = value < 0 ? 0 : value;
+            set
+            {
+                int normalized = value < 0 ? 0 : value;
+                if (snapshotThrottleMilliseconds == normalized)
+                {
+                    return;
+                }
+                snapshotThrottleMilliseconds = normalized;
+                UpdateSnapshotTimer();
+            }
         }
 
         public ProcessEngine(EngineContext context)
@@ -49,6 +62,7 @@ namespace Automation
             {
                 EnsureCapacity(Context.Procs.Count - 1);
             }
+            UpdateSnapshotTimer();
         }
         public EngineSnapshot GetSnapshot(int procIndex)
         {
@@ -166,7 +180,11 @@ namespace Automation
                     if (elapsed < snapshotThrottleMilliseconds
                         && current.State == state
                         && current.IsAlarm == isAlarm
-                        && current.IsBreakpoint == isBreakpoint)
+                        && current.IsBreakpoint == isBreakpoint
+                        && current.StepIndex == stepIndex
+                        && current.OpIndex == opIndex
+                        && string.Equals(current.ProcName, procName, StringComparison.Ordinal)
+                        && string.Equals(current.AlarmMessage, alarmMessage, StringComparison.Ordinal))
                     {
                         return;
                     }
@@ -175,9 +193,60 @@ namespace Automation
             EngineSnapshot snapshot = new EngineSnapshot(procIndex, procName, state, stepIndex, opIndex, isBreakpoint,
                 isAlarm, alarmMessage, DateTime.Now);
             Volatile.Write(ref snapshots[procIndex], snapshot);
-            if (raiseEvent)
+            EnqueueSnapshot(snapshot);
+        }
+        private void UpdateSnapshotTimer()
+        {
+            lock (snapshotDispatchLock)
+            {
+                if (snapshotThrottleMilliseconds <= 0)
+                {
+                    snapshotTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+                    return;
+                }
+                if (snapshotTimer == null)
+                {
+                    snapshotTimer = new System.Threading.Timer(_ => FlushPendingSnapshots(), null, snapshotThrottleMilliseconds, snapshotThrottleMilliseconds);
+                    return;
+                }
+                snapshotTimer.Change(snapshotThrottleMilliseconds, snapshotThrottleMilliseconds);
+            }
+        }
+        private void EnqueueSnapshot(EngineSnapshot snapshot)
+        {
+            if (snapshot == null)
+            {
+                return;
+            }
+            pendingSnapshots[snapshot.ProcIndex] = snapshot;
+            if (snapshotThrottleMilliseconds <= 0)
             {
                 RaiseSnapshotChanged(snapshot);
+            }
+        }
+        private void FlushPendingSnapshots()
+        {
+            if (pendingSnapshots.IsEmpty)
+            {
+                return;
+            }
+            if (Interlocked.Exchange(ref snapshotFlushRunning, 1) == 1)
+            {
+                return;
+            }
+            try
+            {
+                foreach (var item in pendingSnapshots.ToArray())
+                {
+                    if (pendingSnapshots.TryRemove(item.Key, out EngineSnapshot snapshot))
+                    {
+                        RaiseSnapshotChanged(snapshot);
+                    }
+                }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref snapshotFlushRunning, 0);
             }
         }
         private void RaiseSnapshotChanged(EngineSnapshot snapshot)
@@ -191,11 +260,64 @@ namespace Automation
                 Logger?.Log(ex.Message, LogLevel.Error);
             }
         }
-        public void ExecuteGoto(string GOTO, ProcHandle evt)
+        private bool TryExecuteGoto(string gotoText, ProcHandle evt, out string errorMessage)
         {
-            string[] key = GOTO.Split('-');
-            evt.stepNum = int.Parse(key[1]);
-            evt.opsNum = int.Parse(key[2]);
+            errorMessage = null;
+            if (evt == null)
+            {
+                errorMessage = "跳转失败：流程句柄为空";
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(gotoText))
+            {
+                errorMessage = "跳转失败：跳转位置为空";
+                return false;
+            }
+            string[] key = gotoText.Split('-');
+            if (key.Length < 3)
+            {
+                errorMessage = $"跳转失败：格式错误 {gotoText}";
+                return false;
+            }
+            if (!int.TryParse(key[0], out int procIndex)
+                || !int.TryParse(key[1], out int stepIndex)
+                || !int.TryParse(key[2], out int opIndex))
+            {
+                errorMessage = $"跳转失败：索引解析失败 {gotoText}";
+                return false;
+            }
+            if (procIndex != evt.procNum)
+            {
+                errorMessage = $"跳转失败：流程索引不一致 {gotoText}";
+                return false;
+            }
+            if (stepIndex < 0 || opIndex < 0)
+            {
+                errorMessage = $"跳转失败：索引无效 {gotoText}";
+                return false;
+            }
+            Proc proc = null;
+            if (Context?.Procs != null && evt.procNum >= 0 && evt.procNum < Context.Procs.Count)
+            {
+                proc = Context.Procs[evt.procNum];
+            }
+            if (proc != null)
+            {
+                if (proc.steps == null || stepIndex >= proc.steps.Count)
+                {
+                    errorMessage = $"跳转失败：步骤索引超界 {gotoText}";
+                    return false;
+                }
+                Step step = proc.steps[stepIndex];
+                if (step?.Ops == null || opIndex >= step.Ops.Count)
+                {
+                    errorMessage = $"跳转失败：操作索引超界 {gotoText}";
+                    return false;
+                }
+            }
+            evt.stepNum = stepIndex;
+            evt.opsNum = opIndex;
+            return true;
         }
         public void Delay(int milliSecond, ProcHandle evt)
         {
@@ -515,15 +637,30 @@ namespace Automation
                     break;
                 case AlarmDecision.Goto1:
                     evt.isGoto = true;
-                    ExecuteGoto(operation.Goto1, evt);
+                    if (!TryExecuteGoto(operation.Goto1, evt, out string goto1Error))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto1Error : $"{evt.alarmMsg}; {goto1Error}";
+                        evt.isThStop = true;
+                    }
                     break;
                 case AlarmDecision.Goto2:
                     evt.isGoto = true;
-                    ExecuteGoto(operation.Goto2, evt);
+                    if (!TryExecuteGoto(operation.Goto2, evt, out string goto2Error))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto2Error : $"{evt.alarmMsg}; {goto2Error}";
+                        evt.isThStop = true;
+                    }
                     break;
                 case AlarmDecision.Goto3:
                     evt.isGoto = true;
-                    ExecuteGoto(operation.Goto3, evt);
+                    if (!TryExecuteGoto(operation.Goto3, evt, out string goto3Error))
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto3Error : $"{evt.alarmMsg}; {goto3Error}";
+                        evt.isThStop = true;
+                    }
                     break;
             }
         }
