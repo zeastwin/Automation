@@ -323,7 +323,7 @@ namespace Automation
             btnIOMonitor.Text = enabled ? "停止监视" : "IO监视";
         }
 
-        private void btnPause_Click(object sender, EventArgs e)
+        private async void btnPause_Click(object sender, EventArgs e)
         {
             int procIndex = SF.frmProc.SelectedProcNum;
             if (procIndex < 0)
@@ -338,8 +338,57 @@ namespace Automation
             }
             else if (snapshot != null && (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep))
             {
-                SF.DR.Resume(procIndex);
-                btnPause.Text = "暂停";
+                Proc proc = null;
+                if (SF.frmProc?.procsList != null && procIndex >= 0 && procIndex < SF.frmProc.procsList.Count)
+                {
+                    proc = SF.frmProc.procsList[procIndex];
+                }
+                string procName = snapshot.ProcName ?? proc?.head?.Name ?? $"索引{procIndex}";
+                int stepIndex = snapshot.StepIndex;
+                int opIndex = snapshot.OpIndex;
+                string position = $"{procIndex}-{stepIndex}-{opIndex}";
+                string opName = null;
+                string opType = null;
+                if (proc?.steps != null && stepIndex >= 0 && stepIndex < proc.steps.Count)
+                {
+                    Step step = proc.steps[stepIndex];
+                    if (step?.Ops != null && opIndex >= 0 && opIndex < step.Ops.Count)
+                    {
+                        OperationType op = step.Ops[opIndex];
+                        opName = op?.Name;
+                        opType = op?.OperaType;
+                    }
+                }
+                string opText = opIndex >= 0
+                    ? $"{opIndex}{(string.IsNullOrWhiteSpace(opType) ? "" : $"({opType})")}{(string.IsNullOrWhiteSpace(opName) ? "" : $" {opName}")}"
+                    : "未知";
+                string message = $"位置: {position}\r\n操作: {opText}";
+                btnPause.Enabled = false;
+                try
+                {
+                    var tcs = new TaskCompletionSource<bool>();
+                    Message confirmForm = new Message(
+                        "继续运行确认",
+                        message,
+                        () => tcs.TrySetResult(true),
+                        () => tcs.TrySetResult(false),
+                        "继续",
+                        "取消",
+                        false);
+                    confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
+                    confirmForm.txtMsg.ForeColor = Color.Red;
+                    bool confirmed = await tcs.Task;
+                    if (!confirmed)
+                    {
+                        return;
+                    }
+                    SF.DR.Resume(procIndex);
+                    btnPause.Text = "暂停";
+                }
+                finally
+                {
+                    btnPause.Enabled = true;
+                }
             }
         }
 
