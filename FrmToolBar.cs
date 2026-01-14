@@ -105,9 +105,28 @@ namespace Automation
                         MessageBox.Show(gotoError);
                         return;
                     }
+                    DataGridView grid = SF.frmDataGrid.dataGridView1;
+                    int firstDisplayedRow = -1;
+                    int selectedRow = SF.frmDataGrid.iSelectedRow;
+                    if (grid != null && grid.RowCount > 0)
+                    {
+                        firstDisplayedRow = grid.FirstDisplayedScrollingRowIndex;
+                    }
                     SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[SF.frmDataGrid.iSelectedRow] = SF.frmDataGrid.OperationTemp;
                     SF.frmDataGrid.SaveSingleProc(SF.frmProc.SelectedProcNum);
                     SF.frmProc.bindingSource.ResetBindings(true);
+                    if (grid != null && grid.RowCount > 0)
+                    {
+                        if (firstDisplayedRow >= 0 && firstDisplayedRow < grid.RowCount)
+                        {
+                            grid.FirstDisplayedScrollingRowIndex = firstDisplayedRow;
+                        }
+                        if (selectedRow >= 0 && selectedRow < grid.RowCount)
+                        {
+                            grid.ClearSelection();
+                            grid.Rows[selectedRow].Selected = true;
+                        }
+                    }
                 }
                 else if (SF.isModify == ModifyKind.Proc)
                 {

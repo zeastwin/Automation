@@ -37,6 +37,7 @@ namespace Automation
         private readonly object snapshotDispatchLock = new object();
         private System.Threading.Timer snapshotTimer;
         private int snapshotFlushRunning;
+        private readonly ConcurrentDictionary<int, long> pendingStartMeasureTicks = new ConcurrentDictionary<int, long>();
         private int disposed;
         public EngineContext Context { get; }
         public IAlarmHandler AlarmHandler { get; set; }
@@ -366,6 +367,7 @@ namespace Automation
             {
                 return;
             }
+            pendingStartMeasureTicks[procIndex] = Stopwatch.GetTimestamp();
             EngineCommand command = EngineCommand.Start(procIndex, proc, stepIndex, opIndex, startState);
             EnqueueCommand(procIndex, command);
         }
@@ -375,6 +377,7 @@ namespace Automation
         }
         public void Resume(int procIndex)
         {
+            pendingStartMeasureTicks[procIndex] = Stopwatch.GetTimestamp();
             EnqueueCommand(procIndex, EngineCommand.Resume(procIndex));
         }
         public void Step(int procIndex)
@@ -546,6 +549,11 @@ namespace Automation
                     return false;
                 try
                 {
+                    if (pendingStartMeasureTicks.TryRemove(evt.procNum, out long startTicks))
+                    {
+                        double elapsedMs = (Stopwatch.GetTimestamp() - startTicks) * stopwatchTickToMilliseconds;
+                        Logger?.Log($"流程启动耗时:{elapsedMs:0.###}ms，启动点:{evt.procNum}-{evt.stepNum}-{evt.opsNum}", LogLevel.Normal);
+                    }
                     ExecuteOperation(evt, steps.Ops[i]);
                     if (evt.isAlarm)
                     {
@@ -757,6 +765,7 @@ namespace Automation
                 }
             }
             pendingSnapshots.Clear();
+            pendingStartMeasureTicks.Clear();
             GC.SuppressFinalize(this);
         }
 

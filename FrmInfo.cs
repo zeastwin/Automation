@@ -28,6 +28,11 @@ namespace Automation
            
         }
 
+        private void btnClearInfo_Click(object sender, EventArgs e)
+        {
+            ReceiveTextBox.Clear();
+        }
+
         [Browsable(false)]
         [JsonIgnore]
         public Level level { get; set; } = 0;

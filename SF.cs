@@ -56,6 +56,7 @@ namespace Automation
         public static IProcessEngineStore procStore;
         public static CommunicationHub comm;
 
+
         //编辑状态
         public static ModifyKind isModify = ModifyKind.None;
 

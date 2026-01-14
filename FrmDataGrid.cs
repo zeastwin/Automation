@@ -344,7 +344,6 @@ namespace Automation
                 SF.DR.Stop(SF.frmProc.SelectedProcNum);
             }
 
-
             SF.DR.StartProcAt(
                 SF.frmProc.procsList[SF.frmProc.SelectedProcNum],
                 SF.frmProc.SelectedProcNum,
