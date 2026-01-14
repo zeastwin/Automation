@@ -197,6 +197,23 @@ namespace Automation
             return false;
         }
 
+        public bool TryReceiveTcp(string name, int timeoutMs, CancellationToken cancellationToken, out string message)
+        {
+            message = null;
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return false;
+            }
+
+            if (_tcpChannels.TryGetValue(name, out TcpChannel channel))
+            {
+                return channel.TryReceive(timeoutMs, cancellationToken, out message);
+            }
+
+            return false;
+        }
+
         public void ClearTcpMessages(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -320,6 +337,23 @@ namespace Automation
             if (_serialChannels.TryGetValue(name, out SerialPortChannel channel))
             {
                 return channel.TryReceive(timeoutMs, out message);
+            }
+
+            return false;
+        }
+
+        public bool TryReceiveSerial(string name, int timeoutMs, CancellationToken cancellationToken, out string message)
+        {
+            message = null;
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return false;
+            }
+
+            if (_serialChannels.TryGetValue(name, out SerialPortChannel channel))
+            {
+                return channel.TryReceive(timeoutMs, cancellationToken, out message);
             }
 
             return false;
@@ -598,6 +632,28 @@ namespace Automation
             }
         }
 
+        public bool TryReceive(int timeoutMs, CancellationToken cancellationToken, out string message)
+        {
+            message = null;
+            if (timeoutMs < 0)
+            {
+                timeoutMs = 0;
+            }
+
+            try
+            {
+                return _messages.TryTake(out message, timeoutMs, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public void ClearMessages()
         {
             while (_messages.TryTake(out _))
@@ -842,6 +898,28 @@ namespace Automation
             try
             {
                 return _messages.TryTake(out message, timeoutMs);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public bool TryReceive(int timeoutMs, CancellationToken cancellationToken, out string message)
+        {
+            message = null;
+            if (timeoutMs < 0)
+            {
+                timeoutMs = 0;
+            }
+
+            try
+            {
+                return _messages.TryTake(out message, timeoutMs, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
             }
             catch
             {

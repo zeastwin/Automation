@@ -1324,25 +1324,19 @@ namespace Automation
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             Context.Comm.ClearTcpMessages(receoveTcpMsg.ID);
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            while (!evt.isThStop
-                && !evt.CancellationToken.IsCancellationRequested
-                && stopwatch.ElapsedMilliseconds < receoveTcpMsg.TImeOut)
+            if (Context.Comm.TryReceiveTcp(receoveTcpMsg.ID, receoveTcpMsg.TImeOut, evt.CancellationToken, out string msg))
             {
-                if (Context.Comm.TryReceiveTcp(receoveTcpMsg.ID, 50, out string msg))
+                if (receoveTcpMsg.isConVert && int.TryParse(msg, out int number))
                 {
-                    if (receoveTcpMsg.isConVert && int.TryParse(msg, out int number))
-                    {
-                        msg = Convert.ToString(number, 16).ToUpper();
-                    }
-                    if (!Context.ValueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg))
-                    {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = $"保存TCP接收变量失败:{receoveTcpMsg.MsgSaveValue}";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
-                    }
-                    return true;
-                    }
+                    msg = Convert.ToString(number, 16).ToUpper();
+                }
+                if (!Context.ValueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存TCP接收变量失败:{receoveTcpMsg.MsgSaveValue}";
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                }
+                return true;
             }
             if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
             {
@@ -1408,25 +1402,19 @@ namespace Automation
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             Context.Comm.ClearSerialMessages(receoveSerialPortMsg.ID);
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            while (!evt.isThStop
-                && !evt.CancellationToken.IsCancellationRequested
-                && stopwatch.ElapsedMilliseconds < receoveSerialPortMsg.TImeOut)
+            if (Context.Comm.TryReceiveSerial(receoveSerialPortMsg.ID, receoveSerialPortMsg.TImeOut, evt.CancellationToken, out string msg))
             {
-                if (Context.Comm.TryReceiveSerial(receoveSerialPortMsg.ID, 50, out string msg))
+                if (int.TryParse(msg, out int number))
                 {
-                    if (int.TryParse(msg, out int number))
-                    {
-                        msg = Convert.ToString(number, 16).ToUpper();
-                    }
-                    if (!Context.ValueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg))
-                    {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = $"保存串口接收变量失败:{receoveSerialPortMsg.MsgSaveValue}";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
-                    }
-                    return true;
-                    }
+                    msg = Convert.ToString(number, 16).ToUpper();
+                }
+                if (!Context.ValueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg))
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"保存串口接收变量失败:{receoveSerialPortMsg.MsgSaveValue}";
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                }
+                return true;
             }
             if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
             {
@@ -1495,28 +1483,22 @@ namespace Automation
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
 
-                Stopwatch stopwatch = Stopwatch.StartNew();
-                while (!evt.isThStop
-                    && !evt.CancellationToken.IsCancellationRequested
-                    && stopwatch.ElapsedMilliseconds < sendReceoveCommMsg.TimeOut)
+                if (Context.Comm.TryReceiveTcp(sendReceoveCommMsg.ID, sendReceoveCommMsg.TimeOut, evt.CancellationToken, out string msg))
                 {
-                    if (Context.Comm.TryReceiveTcp(sendReceoveCommMsg.ID, 50, out string msg))
+                    if (sendReceoveCommMsg.ReceiveConvert && int.TryParse(msg, out int number))
                     {
-                        if (sendReceoveCommMsg.ReceiveConvert && int.TryParse(msg, out int number))
-                        {
-                            msg = Convert.ToString(number, 16).ToUpper();
-                        }
-                        if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
-                        {
-                            if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
-                            {
-                                evt.isAlarm = true;
-                                evt.alarmMsg = $"保存TCP接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
-                                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
-                            }
-                        }
-                        return true;
+                        msg = Convert.ToString(number, 16).ToUpper();
                     }
+                    if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
+                    {
+                        if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
+                        {
+                            evt.isAlarm = true;
+                            evt.alarmMsg = $"保存TCP接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
+                            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        }
+                    }
+                    return true;
                 }
                 if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
                 {
@@ -1564,28 +1546,22 @@ namespace Automation
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
 
-                Stopwatch stopwatch = Stopwatch.StartNew();
-                while (!evt.isThStop
-                    && !evt.CancellationToken.IsCancellationRequested
-                    && stopwatch.ElapsedMilliseconds < sendReceoveCommMsg.TimeOut)
+                if (Context.Comm.TryReceiveSerial(sendReceoveCommMsg.ID, sendReceoveCommMsg.TimeOut, evt.CancellationToken, out string msg))
                 {
-                    if (Context.Comm.TryReceiveSerial(sendReceoveCommMsg.ID, 50, out string msg))
+                    if (sendReceoveCommMsg.ReceiveConvert && int.TryParse(msg, out int number))
                     {
-                        if (sendReceoveCommMsg.ReceiveConvert && int.TryParse(msg, out int number))
-                        {
-                            msg = Convert.ToString(number, 16).ToUpper();
-                        }
-                        if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
-                        {
-                            if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
-                            {
-                                evt.isAlarm = true;
-                                evt.alarmMsg = $"保存串口接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
-                                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
-                            }
-                        }
-                        return true;
+                        msg = Convert.ToString(number, 16).ToUpper();
                     }
+                    if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
+                    {
+                        if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
+                        {
+                            evt.isAlarm = true;
+                            evt.alarmMsg = $"保存串口接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
+                            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        }
+                    }
+                    return true;
                 }
                 if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
                 {
