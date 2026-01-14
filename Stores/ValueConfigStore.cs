@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 using Newtonsoft.Json;
 
@@ -14,9 +15,16 @@ namespace Automation
         private readonly object valueLock = new object();
         private readonly DicValue[] values = new DicValue[ValueCapacity];
         private readonly Dictionary<string, int> nameIndex = new Dictionary<string, int>();
+        private readonly object[] valueLocks;
+        private volatile Dictionary<string, int> nameIndexSnapshot = new Dictionary<string, int>();
 
         public ValueConfigStore()
         {
+            valueLocks = new object[64];
+            for (int i = 0; i < valueLocks.Length; i++)
+            {
+                valueLocks[i] = new object();
+            }
             ResetValues();
         }
 
@@ -73,9 +81,16 @@ namespace Automation
         {
             for (int i = 0; i < ValueCapacity; i++)
             {
-                values[i] = new DicValue { Index = i };
+                values[i] = new DicValue
+                {
+                    Index = i,
+                    Type = "string",
+                    ConfigValue = string.Empty
+                };
+                values[i].ResetRuntimeFromConfig();
             }
             nameIndex.Clear();
+            nameIndexSnapshot = new Dictionary<string, int>();
         }
 
         private void LoadFromDictionary(Dictionary<string, DicValue> source)
@@ -111,9 +126,11 @@ namespace Automation
                     {
                         item.Value.Type = "string";
                     }
+                    item.Value.ResetRuntimeFromConfig();
                     values[index] = item.Value;
                     nameIndex[item.Key] = index;
                 }
+                nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
             }
         }
 
@@ -123,14 +140,12 @@ namespace Automation
             {
                 throw new ArgumentOutOfRangeException(nameof(index), $"索引超出范围:{index}");
             }
-            lock (valueLock)
+            DicValue value = values[index];
+            if (value == null || string.IsNullOrEmpty(value.Name))
             {
-                if (string.IsNullOrEmpty(values[index].Name))
-                {
-                    throw new KeyNotFoundException($"未找到索引变量:{index}");
-                }
-                return values[index];
+                throw new KeyNotFoundException($"未找到索引变量:{index}");
             }
+            return value;
         }
 
         public DicValue GetValueByName(string key)
@@ -139,14 +154,12 @@ namespace Automation
             {
                 throw new ArgumentException("变量名不能为空", nameof(key));
             }
-            lock (valueLock)
+            Dictionary<string, int> snapshot = nameIndexSnapshot;
+            if (!snapshot.TryGetValue(key, out int index))
             {
-                if (!nameIndex.TryGetValue(key, out int index))
-                {
-                    throw new KeyNotFoundException($"未找到变量:{key}");
-                }
-                return values[index];
+                throw new KeyNotFoundException($"未找到变量:{key}");
             }
+            return GetValueByIndex(index);
         }
 
         public bool TryGetValueByIndex(int index, out DicValue value)
@@ -156,15 +169,13 @@ namespace Automation
             {
                 return false;
             }
-            lock (valueLock)
+            value = values[index];
+            if (value == null || string.IsNullOrEmpty(value.Name))
             {
-                if (string.IsNullOrEmpty(values[index].Name))
-                {
-                    return false;
-                }
-                value = values[index];
-                return true;
+                value = null;
+                return false;
             }
+            return true;
         }
 
         public bool TryGetValueByName(string key, out DicValue value)
@@ -174,23 +185,18 @@ namespace Automation
             {
                 return false;
             }
-            lock (valueLock)
+            Dictionary<string, int> snapshot = nameIndexSnapshot;
+            if (!snapshot.TryGetValue(key, out int index))
             {
-                if (!nameIndex.TryGetValue(key, out int index))
-                {
-                    return false;
-                }
-                value = values[index];
-                return true;
+                return false;
             }
+            return TryGetValueByIndex(index, out value);
         }
 
         public List<string> GetValueNames()
         {
-            lock (valueLock)
-            {
-                return nameIndex.Keys.ToList();
-            }
+            Dictionary<string, int> snapshot = nameIndexSnapshot;
+            return snapshot.Keys.ToList();
         }
 
         public Dictionary<string, DicValue> BuildSaveData()
@@ -233,8 +239,10 @@ namespace Automation
                 currentValue.Index = index;
                 currentValue.Type = type;
                 currentValue.Note = note;
+                currentValue.ConfigValue = value;
                 currentValue.Value = value;
                 nameIndex[name] = index;
+                nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
                 return true;
             }
         }
@@ -277,71 +285,99 @@ namespace Automation
 
         public double get_D_ValueByIndex(int index)
         {
-            double result;
-            if (index < 0 || index >= ValueCapacity)
-            {
-                return -97654321;
-            }
-            lock (valueLock)
-            {
-                if (double.TryParse(values[index].Value, out result))
-                {
-                    return result;
-                }
-                else
-                {
-                    return -97654321;
-                }
-            }
+            DicValue value = GetValueByIndex(index);
+            return value.GetDValue();
         }
 
         public string get_Str_ValueByIndex(int index)
         {
-            if (index < 0 || index >= ValueCapacity)
-            {
-                return null;
-            }
-            lock (valueLock)
-            {
-                return values[index].Value;
-            }
+            DicValue value = GetValueByIndex(index);
+            return value.GetCValue();
         }
 
         public double get_D_ValueByName(string key)
         {
-            if (string.IsNullOrEmpty(key))
-            {
-                return -97654321;
-            }
-            lock (valueLock)
-            {
-                if (nameIndex.TryGetValue(key, out int index))
-                {
-                    double result;
-                    if (double.TryParse(values[index].Value, out result))
-                    {
-                        return result;
-                    }
-                }
-                return -97654321;
-            }
+            DicValue value = GetValueByName(key);
+            return value.GetDValue();
         }
 
         public string get_Str_ValueByName(string key)
         {
-            if (string.IsNullOrEmpty(key))
-            {
-                return null;
-            }
-            lock (valueLock)
-            {
-                if (nameIndex.TryGetValue(key, out int index))
-                {
-                    return values[index].Value;
-                }
-            }
-            return null;
+            DicValue value = GetValueByName(key);
+            return value.GetCValue();
 
+        }
+
+        private bool TryValidateRuntimeValue(DicValue value, string runtimeValue, out string error)
+        {
+            error = null;
+            if (value == null || string.IsNullOrEmpty(value.Name))
+            {
+                error = "变量不存在";
+                return false;
+            }
+            if (runtimeValue == null)
+            {
+                error = "运行值为空";
+                return false;
+            }
+            if (string.Equals(value.Type, "double", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(runtimeValue) || !double.TryParse(runtimeValue, out _))
+                {
+                    error = $"变量{value.Name}运行值不是有效数字";
+                    return false;
+                }
+                return true;
+            }
+            if (!string.Equals(value.Type, "string", StringComparison.OrdinalIgnoreCase))
+            {
+                error = $"变量{value.Name}类型非法:{value.Type}";
+                return false;
+            }
+            return true;
+        }
+
+        public bool TryModifyValueByIndex(int index, Func<string, string> updater, out string error)
+        {
+            error = null;
+            if (index < 0 || index >= ValueCapacity)
+            {
+                error = $"索引超出范围:{index}";
+                return false;
+            }
+            if (updater == null)
+            {
+                error = "更新函数为空";
+                return false;
+            }
+            DicValue value = values[index];
+            if (value == null || string.IsNullOrEmpty(value.Name))
+            {
+                error = $"未找到索引变量:{index}";
+                return false;
+            }
+            object lockObj = valueLocks[index & (valueLocks.Length - 1)];
+            lock (lockObj)
+            {
+                string current = value.Value;
+                string updated;
+                try
+                {
+                    updated = updater(current);
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                    return false;
+                }
+                if (!TryValidateRuntimeValue(value, updated, out error))
+                {
+                    return false;
+                }
+                value.Value = updated;
+                return true;
+            }
         }
 
         public bool setValueByName(string key, object newValue)
@@ -350,16 +386,12 @@ namespace Automation
             {
                 return false;
             }
-            lock (valueLock)
+            Dictionary<string, int> snapshot = nameIndexSnapshot;
+            if (!snapshot.TryGetValue(key, out int index))
             {
-                if (nameIndex.TryGetValue(key, out int index))
-                {
-                    DicValue value = values[index];
-                    value.Value = newValue.ToString();
-                    return true;
-                }
                 return false;
             }
+            return setValueByIndex(index, newValue);
         }
 
         public bool setValueByIndex(int index, object newValue)
@@ -368,13 +400,20 @@ namespace Automation
             {
                 return false;
             }
-            lock (valueLock)
+            DicValue value = values[index];
+            if (value == null || string.IsNullOrEmpty(value.Name))
             {
-                if (string.IsNullOrEmpty(values[index].Name))
+                return false;
+            }
+            string runtimeValue = newValue.ToString();
+            object lockObj = valueLocks[index & (valueLocks.Length - 1)];
+            lock (lockObj)
+            {
+                if (!TryValidateRuntimeValue(value, runtimeValue, out _))
                 {
                     return false;
                 }
-                values[index].Value = newValue.ToString();
+                value.Value = runtimeValue;
                 return true;
             }
         }
@@ -388,19 +427,62 @@ namespace Automation
 
         public string Name { get; set; }
 
-        public string Value { get; set; }
+        [JsonProperty("Value")]
+        public string ConfigValue { get; set; }
+
+        [JsonIgnore]
+        public string Value
+        {
+            get => Volatile.Read(ref runtimeValue);
+            set => Volatile.Write(ref runtimeValue, value);
+        }
+
+        [JsonIgnore]
+        private string runtimeValue;
 
         public string Note { get; set; }
         public bool isMark { get; set; }
 
+        public void ResetRuntimeFromConfig()
+        {
+            Value = ConfigValue;
+        }
+
         public double GetDValue()
         {
-            return double.Parse(Value);
+            if (!string.Equals(Type, "double", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"变量{DisplayName()}类型不是double");
+            }
+            string current = Value;
+            if (string.IsNullOrWhiteSpace(current))
+            {
+                throw new InvalidOperationException($"变量{DisplayName()}值为空");
+            }
+            if (!double.TryParse(current, out double result))
+            {
+                throw new InvalidOperationException($"变量{DisplayName()}值不是有效数字:{current}");
+            }
+            return result;
         }
 
         public string GetCValue()
         {
-            return Value;
+            if (!string.Equals(Type, "string", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"变量{DisplayName()}类型不是string");
+            }
+            string current = Value;
+            if (current == null)
+            {
+                throw new InvalidOperationException($"变量{DisplayName()}值为空");
+            }
+            return current;
+        }
+
+        private string DisplayName()
+        {
+            return string.IsNullOrEmpty(Name) ? $"索引{Index}" : Name;
         }
     }
 }
