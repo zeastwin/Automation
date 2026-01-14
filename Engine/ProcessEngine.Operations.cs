@@ -1281,7 +1281,7 @@ namespace Automation
             {
                 return true;
             }
-            Task<bool> sendTask = Context.Comm.SendTcpAsync(sendTcpMsg.ID, Context.ValueStore.get_Str_ValueByName(sendTcpMsg.Msg), sendTcpMsg.isConVert);
+            Task<bool> sendTask = Context.Comm.SendTcpAsync(sendTcpMsg.ID, Context.ValueStore.get_Str_ValueByName(sendTcpMsg.Msg), sendTcpMsg.isConVert, evt.CancellationToken);
             Task completed = Task.WhenAny(sendTask, Task.Delay(sendTcpMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
             if (!ReferenceEquals(completed, sendTask))
             {
@@ -1297,6 +1297,10 @@ namespace Automation
             bool success = sendTask.GetAwaiter().GetResult();
             if (!success)
             {
+                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return true;
+                }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"TCP发送失败:{sendTcpMsg.ID}";
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
@@ -1362,7 +1366,7 @@ namespace Automation
             {
                 return true;
             }
-            Task<bool> sendTask = Context.Comm.SendSerialAsync(sendSerialPortMsg.ID, Context.ValueStore.get_Str_ValueByName(sendSerialPortMsg.Msg), sendSerialPortMsg.isConVert);
+            Task<bool> sendTask = Context.Comm.SendSerialAsync(sendSerialPortMsg.ID, Context.ValueStore.get_Str_ValueByName(sendSerialPortMsg.Msg), sendSerialPortMsg.isConVert, evt.CancellationToken);
             Task completed = Task.WhenAny(sendTask, Task.Delay(sendSerialPortMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
             if (!ReferenceEquals(completed, sendTask))
             {
@@ -1378,6 +1382,10 @@ namespace Automation
             bool success = sendTask.GetAwaiter().GetResult();
             if (!success)
             {
+                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return true;
+                }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"串口发送失败:{sendSerialPortMsg.ID}";
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
@@ -1462,7 +1470,7 @@ namespace Automation
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 Context.Comm.ClearTcpMessages(sendReceoveCommMsg.ID);
-                Task<bool> sendTask = Context.Comm.SendTcpAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert);
+                Task<bool> sendTask = Context.Comm.SendTcpAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert, evt.CancellationToken);
                 Task completed = Task.WhenAny(sendTask, Task.Delay(sendReceoveCommMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
                 if (!ReferenceEquals(completed, sendTask))
                 {
@@ -1478,6 +1486,10 @@ namespace Automation
                 bool sendSuccess = sendTask.GetAwaiter().GetResult();
                 if (!sendSuccess)
                 {
+                    if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                    {
+                        return true;
+                    }
                     evt.isAlarm = true;
                     evt.alarmMsg = $"TCP发送失败:{sendReceoveCommMsg.ID}";
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
@@ -1527,7 +1539,7 @@ namespace Automation
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 Context.Comm.ClearSerialMessages(sendReceoveCommMsg.ID);
-                Task<bool> sendTask = Context.Comm.SendSerialAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert);
+                Task<bool> sendTask = Context.Comm.SendSerialAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert, evt.CancellationToken);
                 Task completed = Task.WhenAny(sendTask, Task.Delay(sendReceoveCommMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
                 if (!ReferenceEquals(completed, sendTask))
                 {
@@ -1543,6 +1555,10 @@ namespace Automation
                 bool sendSuccess = sendTask.GetAwaiter().GetResult();
                 if (!sendSuccess)
                 {
+                    if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                    {
+                        return true;
+                    }
                     evt.isAlarm = true;
                     evt.alarmMsg = $"串口发送失败:{sendReceoveCommMsg.ID}";
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");

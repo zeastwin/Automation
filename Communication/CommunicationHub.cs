@@ -146,7 +146,7 @@ namespace Automation
             return GetTcpStatus(name).IsRunning;
         }
 
-        public async Task<bool> SendTcpAsync(string name, string message, bool convertHex)
+        public async Task<bool> SendTcpAsync(string name, string message, bool convertHex, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -164,9 +164,14 @@ namespace Automation
 
             try
             {
-                await channel.SendAsync(sendMessage).ConfigureAwait(false);
+                await channel.SendAsync(sendMessage, cancellationToken).ConfigureAwait(false);
                 RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Send, name, sendMessage, null, null));
                 return true;
+            }
+            catch (OperationCanceledException)
+            {
+                RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Error, name, "TCP发送已取消", null, null));
+                return false;
             }
             catch (Exception ex)
             {
@@ -269,7 +274,7 @@ namespace Automation
             return GetSerialStatus(name).IsOpen;
         }
 
-        public async Task<bool> SendSerialAsync(string name, string message, bool convertHex)
+        public async Task<bool> SendSerialAsync(string name, string message, bool convertHex, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -287,9 +292,14 @@ namespace Automation
 
             try
             {
-                await channel.SendAsync(sendMessage).ConfigureAwait(false);
+                await channel.SendAsync(sendMessage, cancellationToken).ConfigureAwait(false);
                 RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Send, name, sendMessage, channel.PortName, null));
                 return true;
+            }
+            catch (OperationCanceledException)
+            {
+                RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, name, "串口发送已取消", channel.PortName, null));
+                return false;
             }
             catch (Exception ex)
             {
@@ -498,14 +508,14 @@ namespace Automation
             return Task.CompletedTask;
         }
 
-        public async Task SendAsync(string message)
+        public async Task SendAsync(string message, CancellationToken cancellationToken)
         {
             if (!_isRunning)
             {
                 throw new InvalidOperationException("TCP 未连接");
             }
 
-            await _sendGate.WaitAsync().ConfigureAwait(false);
+            await _sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 if (!_isRunning)
@@ -530,7 +540,7 @@ namespace Automation
                         try
                         {
                             NetworkStream stream = client.GetStream();
-                            await stream.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+                            await stream.WriteAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
                         }
                         catch
                         {
@@ -561,7 +571,7 @@ namespace Automation
                     }
 
                     NetworkStream stream = _client.GetStream();
-                    await stream.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+                    await stream.WriteAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
                 }
             }
             finally
@@ -704,6 +714,7 @@ namespace Automation
         private readonly Action<CommLogEventArgs> _log;
         private readonly BlockingCollection<string> _messages = new BlockingCollection<string>(new ConcurrentQueue<string>());
         private readonly object _sync = new object();
+        private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
         private CancellationTokenSource _cts;
         private SerialPort _serialPort;
         private volatile bool _isOpen;
@@ -791,19 +802,33 @@ namespace Automation
             return Task.CompletedTask;
         }
 
-        public Task SendAsync(string message)
+        public async Task SendAsync(string message, CancellationToken cancellationToken)
         {
-            lock (_sync)
+            await _sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                if (_serialPort == null || !_serialPort.IsOpen)
+                SerialPort port;
+                string newLine;
+                Encoding encoding;
+                lock (_sync)
                 {
-                    throw new InvalidOperationException("串口未打开");
+                    port = _serialPort;
+                    if (port == null || !port.IsOpen)
+                    {
+                        throw new InvalidOperationException("串口未打开");
+                    }
+                    newLine = port.NewLine;
+                    encoding = port.Encoding;
                 }
 
-                _serialPort.WriteLine(message ?? string.Empty);
+                string payload = (message ?? string.Empty) + newLine;
+                byte[] buffer = encoding.GetBytes(payload);
+                await port.BaseStream.WriteAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
             }
-
-            return Task.CompletedTask;
+            finally
+            {
+                _sendGate.Release();
+            }
         }
 
         public bool TryReceive(int timeoutMs, out string message)
