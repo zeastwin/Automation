@@ -159,7 +159,6 @@ namespace Automation
 
         public bool RunCustomFunc(ProcHandle evt, CallCustomFunc callCustomFunc)
         {
-            long startTicks = Stopwatch.GetTimestamp();
             string funcName = callCustomFunc.Name;
 
             if (Context.CustomFunc == null)
@@ -175,11 +174,6 @@ namespace Automation
                 evt.isAlarm = true;
                 evt.alarmMsg = $"找不到自定义函数:{funcName}";
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
-            }
-            if (Logger != null)
-            {
-                double elapsedMs = (Stopwatch.GetTimestamp() - startTicks) * 1000.0 / Stopwatch.Frequency;
-                Logger.Log($"指令耗时:自定义方法 {funcName} {elapsedMs:0.###}ms", LogLevel.Normal);
             }
             return true;
         }
@@ -409,7 +403,6 @@ namespace Automation
         }
         public bool RunGoto(ProcHandle evt, Goto gotoParam)
         {
-            long startTicks = Stopwatch.GetTimestamp();
             if (gotoParam.Params != null)
             {
                 string value = "";
@@ -457,11 +450,6 @@ namespace Automation
                             throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                         }
                         evt.isGoto = true;
-                        if (Logger != null)
-                        {
-                            double elapsedMs = (Stopwatch.GetTimestamp() - startTicks) * 1000.0 / Stopwatch.Frequency;
-                            Logger.Log($"指令耗时:跳转 {evt?.procNum}-{evt?.stepNum}-{evt?.opsNum} {elapsedMs:0.###}ms", LogLevel.Normal);
-                        }
                         return true;
                     }
                 }
@@ -475,11 +463,6 @@ namespace Automation
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 evt.isGoto = true;
-                if (Logger != null)
-                {
-                    double elapsedMs = (Stopwatch.GetTimestamp() - startTicks) * 1000.0 / Stopwatch.Frequency;
-                    Logger.Log($"指令耗时:跳转 {evt?.procNum}-{evt?.stepNum}-{evt?.opsNum} {elapsedMs:0.###}ms", LogLevel.Normal);
-                }
                 return true;
             }
             evt.isAlarm = true;
@@ -488,7 +471,6 @@ namespace Automation
         }
         public bool RunParamGoto(ProcHandle evt, ParamGoto paramGoto)
         {
-            long startTicks = Stopwatch.GetTimestamp();
             if (paramGoto.Params != null)
             {
                 bool isFirst = true;
@@ -576,11 +558,6 @@ namespace Automation
                 }
                 evt.isGoto = true;
             }
-            if (Logger != null)
-            {
-                double elapsedMs = (Stopwatch.GetTimestamp() - startTicks) * 1000.0 / Stopwatch.Frequency;
-                Logger.Log($"指令耗时:跳转 {evt?.procNum}-{evt?.stepNum}-{evt?.opsNum} {elapsedMs:0.###}ms", LogLevel.Normal);
-            }
             return true;
         }
         public bool RunDelay(ProcHandle evt, Delay delay)
@@ -664,7 +641,6 @@ namespace Automation
 
         public bool RunModifyValue(ProcHandle evt, ModifyValue ops)
         {
-            long startTicks = Stopwatch.GetTimestamp();
             //==============================================GetSourceValue=====================================//
             string SourceValue = null;
             if (!string.IsNullOrEmpty(ops.ValueSourceIndex))
@@ -808,11 +784,6 @@ namespace Automation
                     evt.alarmMsg = $"保存变量失败:索引{index}";
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
-            }
-            if (Logger != null)
-            {
-                double elapsedMs = (Stopwatch.GetTimestamp() - startTicks) * 1000.0 / Stopwatch.Frequency;
-                Logger.Log($"指令耗时:修改寄存器 {ops?.Name} {elapsedMs:0.###}ms", LogLevel.Normal);
             }
             return true;
 

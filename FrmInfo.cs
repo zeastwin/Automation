@@ -25,13 +25,13 @@ namespace Automation
 
         private void FrmInfo_Load(object sender, EventArgs e)
         {
-           
         }
 
         private void btnClearInfo_Click(object sender, EventArgs e)
         {
             ReceiveTextBox.Clear();
         }
+
 
         [Browsable(false)]
         [JsonIgnore]
