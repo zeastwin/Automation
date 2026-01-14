@@ -1418,6 +1418,7 @@ namespace Automation
         public SendTcpMsg()
         {
             OperaType = "发送TCP通讯消息";
+            TimeOut = 3000;
         }
 
         [DisplayName("ID"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(TcpItem))]
@@ -1429,6 +1430,9 @@ namespace Automation
 
         [DisplayName("是否16进制发送"), Category("参数"), Description(""), ReadOnly(false)]
         public bool isConVert { get; set; }
+
+        [DisplayName("超时"), Category("参数"), Description(""), ReadOnly(false)]
+        public int TimeOut { get; set; }
 
     }
 
@@ -1572,6 +1576,7 @@ namespace Automation
         public SendSerialPortMsg()
         {
             OperaType = "发送串口通讯消息";
+            TimeOut = 3000;
         }
 
         [DisplayName("ID"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(SerialPortItem))]
@@ -1583,6 +1588,9 @@ namespace Automation
 
         [DisplayName("是否16进制发送"), Category("参数"), Description(""), ReadOnly(false)]
         public bool isConVert { get; set; }
+
+        [DisplayName("超时"), Category("参数"), Description(""), ReadOnly(false)]
+        public int TimeOut { get; set; }
 
     }
 

@@ -215,6 +215,13 @@ namespace Automation
             {
                 timeOut = (int)Context.ValueStore.GetValueByName(ioCheck.timeOutC.TimeOutValue).GetDValue();
             }
+            if (timeOut <= 0)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = "IO检测超时配置无效";
+                evt.isThStop = true;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            }
 
             //time = ioParam.delayBefore;
             //if (time <= 0 && ioParam.delayBeforeV != "")
@@ -224,7 +231,6 @@ namespace Automation
             //Delay(time, evt);
             Stopwatch stopwatch = Stopwatch.StartNew();
             while (evt.State != ProcRunState.Stopped
-                && timeOut > 0
                 && !evt.isThStop
                 && !evt.CancellationToken.IsCancellationRequested)
             {
@@ -259,6 +265,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = "检测超时";
+                    evt.isThStop = true;
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
@@ -326,6 +333,13 @@ namespace Automation
             {
                 timeOut = (int)Context.ValueStore.GetValueByName(waitProc.timeOutC.TimeOutValue).GetDValue();
             }
+            if (timeOut <= 0)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = "等待流程超时配置无效";
+                evt.isThStop = true;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            }
             int DelayAfter;
             DelayAfter = waitProc.delayAfter;
             if (DelayAfter <= 0 && !string.IsNullOrEmpty(waitProc.delayAfterV))
@@ -337,14 +351,12 @@ namespace Automation
                 && !evt.isThStop
                 && !evt.CancellationToken.IsCancellationRequested)
             {
-                if (timeOut > 0)
+                if (stopwatch.ElapsedMilliseconds > timeOut)
                 {
-                    if (stopwatch.ElapsedMilliseconds > timeOut)
-                    {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = "等待超时";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
-                    }
+                    evt.isAlarm = true;
+                    evt.alarmMsg = "等待超时";
+                    evt.isThStop = true;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 bool isWaitOff = true;
 
@@ -1224,29 +1236,65 @@ namespace Automation
         {
             foreach (var op in waitTcp.Params)
             {
+                if (op.TimeOut <= 0)
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"等待TCP连接超时配置无效:{op.Name}";
+                    evt.isThStop = true;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                }
                 Stopwatch stopwatch = Stopwatch.StartNew();
                 while (!evt.isThStop
-                    && !evt.CancellationToken.IsCancellationRequested
-                    && stopwatch.ElapsedMilliseconds < op.TimeOut)
+                    && !evt.CancellationToken.IsCancellationRequested)
                 {
+                    if (stopwatch.ElapsedMilliseconds > op.TimeOut)
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"等待TCP连接超时:{op.Name}";
+                        evt.isThStop = true;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    }
                     if (Context.Comm.IsTcpActive(op.Name))
                     {
                         return true;
                     }
                     Delay(5, evt);
                 }
-                evt.isAlarm = true;
-                evt.alarmMsg = $"等待TCP连接超时:{op.Name}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return true;
+                }
             }
             return true;
         }
 
         public bool RunSendTcpMsg(ProcHandle evt, SendTcpMsg sendTcpMsg)
         {
-            bool success = Context.Comm.SendTcpAsync(sendTcpMsg.ID, Context.ValueStore.get_Str_ValueByName(sendTcpMsg.Msg), sendTcpMsg.isConVert)
-                .GetAwaiter()
-                .GetResult();
+            if (sendTcpMsg.TimeOut <= 0)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"TCP发送超时配置无效:{sendTcpMsg.ID}";
+                evt.isThStop = true;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            }
+            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+            {
+                return true;
+            }
+            Task<bool> sendTask = Context.Comm.SendTcpAsync(sendTcpMsg.ID, Context.ValueStore.get_Str_ValueByName(sendTcpMsg.Msg), sendTcpMsg.isConVert);
+            Task completed = Task.WhenAny(sendTask, Task.Delay(sendTcpMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
+            if (!ReferenceEquals(completed, sendTask))
+            {
+                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return true;
+                }
+                evt.isAlarm = true;
+                evt.alarmMsg = $"TCP发送超时:{sendTcpMsg.ID}";
+                evt.isThStop = true;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            }
+            bool success = sendTask.GetAwaiter().GetResult();
             if (!success)
             {
                 evt.isAlarm = true;
@@ -1262,6 +1310,13 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"TCP未连接:{receoveTcpMsg.ID}";
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            }
+            if (receoveTcpMsg.TImeOut <= 0)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"TCP接收超时配置无效:{receoveTcpMsg.ID}";
+                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             Context.Comm.ClearTcpMessages(receoveTcpMsg.ID);
@@ -1285,15 +1340,42 @@ namespace Automation
                     return true;
                     }
             }
+            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+            {
+                return true;
+            }
             evt.isAlarm = true;
             evt.alarmMsg = $"TCP接收超时:{receoveTcpMsg.ID}";
+            evt.isThStop = true;
             throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
         }
         public bool RunSendSerialPortMsg(ProcHandle evt, SendSerialPortMsg sendSerialPortMsg)
         {
-            bool success = Context.Comm.SendSerialAsync(sendSerialPortMsg.ID, Context.ValueStore.get_Str_ValueByName(sendSerialPortMsg.Msg), sendSerialPortMsg.isConVert)
-                .GetAwaiter()
-                .GetResult();
+            if (sendSerialPortMsg.TimeOut <= 0)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"串口发送超时配置无效:{sendSerialPortMsg.ID}";
+                evt.isThStop = true;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            }
+            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+            {
+                return true;
+            }
+            Task<bool> sendTask = Context.Comm.SendSerialAsync(sendSerialPortMsg.ID, Context.ValueStore.get_Str_ValueByName(sendSerialPortMsg.Msg), sendSerialPortMsg.isConVert);
+            Task completed = Task.WhenAny(sendTask, Task.Delay(sendSerialPortMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
+            if (!ReferenceEquals(completed, sendTask))
+            {
+                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return true;
+                }
+                evt.isAlarm = true;
+                evt.alarmMsg = $"串口发送超时:{sendSerialPortMsg.ID}";
+                evt.isThStop = true;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            }
+            bool success = sendTask.GetAwaiter().GetResult();
             if (!success)
             {
                 evt.isAlarm = true;
@@ -1308,6 +1390,13 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"串口未打开:{receoveSerialPortMsg.ID}";
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            }
+            if (receoveSerialPortMsg.TImeOut <= 0)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"串口接收超时配置无效:{receoveSerialPortMsg.ID}";
+                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             Context.Comm.ClearSerialMessages(receoveSerialPortMsg.ID);
@@ -1331,8 +1420,13 @@ namespace Automation
                     return true;
                     }
             }
+            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+            {
+                return true;
+            }
             evt.isAlarm = true;
             evt.alarmMsg = $"串口接收超时:{receoveSerialPortMsg.ID}";
+            evt.isThStop = true;
             throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
         }
 
@@ -1343,6 +1437,17 @@ namespace Automation
                 evt.isAlarm = true;
                 evt.alarmMsg = "通讯参数无效";
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            }
+            if (sendReceoveCommMsg.TimeOut <= 0)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"通讯超时配置无效:{sendReceoveCommMsg.ID}";
+                evt.isThStop = true;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            }
+            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+            {
+                return true;
             }
 
             string sendValue = Context.ValueStore.get_Str_ValueByName(sendReceoveCommMsg.SendMsg);
@@ -1357,9 +1462,20 @@ namespace Automation
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 Context.Comm.ClearTcpMessages(sendReceoveCommMsg.ID);
-                bool sendSuccess = Context.Comm.SendTcpAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert)
-                    .GetAwaiter()
-                    .GetResult();
+                Task<bool> sendTask = Context.Comm.SendTcpAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert);
+                Task completed = Task.WhenAny(sendTask, Task.Delay(sendReceoveCommMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
+                if (!ReferenceEquals(completed, sendTask))
+                {
+                    if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                    {
+                        return true;
+                    }
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"TCP发送超时:{sendReceoveCommMsg.ID}";
+                    evt.isThStop = true;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                }
+                bool sendSuccess = sendTask.GetAwaiter().GetResult();
                 if (!sendSuccess)
                 {
                     evt.isAlarm = true;
@@ -1390,8 +1506,13 @@ namespace Automation
                         return true;
                     }
                 }
+                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return true;
+                }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"TCP接收超时:{sendReceoveCommMsg.ID}";
+                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
@@ -1406,9 +1527,20 @@ namespace Automation
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 Context.Comm.ClearSerialMessages(sendReceoveCommMsg.ID);
-                bool sendSuccess = Context.Comm.SendSerialAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert)
-                    .GetAwaiter()
-                    .GetResult();
+                Task<bool> sendTask = Context.Comm.SendSerialAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert);
+                Task completed = Task.WhenAny(sendTask, Task.Delay(sendReceoveCommMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
+                if (!ReferenceEquals(completed, sendTask))
+                {
+                    if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                    {
+                        return true;
+                    }
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"串口发送超时:{sendReceoveCommMsg.ID}";
+                    evt.isThStop = true;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                }
+                bool sendSuccess = sendTask.GetAwaiter().GetResult();
                 if (!sendSuccess)
                 {
                     evt.isAlarm = true;
@@ -1439,8 +1571,13 @@ namespace Automation
                         return true;
                     }
                 }
+                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return true;
+                }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"串口接收超时:{sendReceoveCommMsg.ID}";
+                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
@@ -1478,6 +1615,13 @@ namespace Automation
         {
             foreach (var op in waitSerialPort.Params)
             {
+                if (op.TimeOut <= 0)
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = $"等待串口连接超时配置无效:{op.Name}";
+                    evt.isThStop = true;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                }
                 Stopwatch stopwatch = Stopwatch.StartNew();
                 while (!evt.isThStop
                     && !evt.CancellationToken.IsCancellationRequested
@@ -1489,8 +1633,13 @@ namespace Automation
                     }
                     Delay(5, evt);
                 }
+                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return true;
+                }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"等待串口连接超时:{op.Name}";
+                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             return true;
@@ -1712,6 +1861,15 @@ namespace Automation
 
                             time = Context.ValueStore.GetValueByName(stationRunPos.timeOutV).GetDValue();
                         }
+                        if (time <= 0)
+                        {
+                            evt.isAlarm = true;
+                            evt.alarmMsg = $"{stationRunPos.Name}超时配置无效";
+                            evt.isThStop = true;
+                            Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                            station.SetState(DataStation.Status.NotReady);
+                            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        }
 
                         while (evt.isThStop == false
                             && !evt.CancellationToken.IsCancellationRequested
@@ -1861,6 +2019,15 @@ namespace Automation
                     {
 
                         time = Context.ValueStore.GetValueByName(stationRunRel.timeOutV).GetDValue();
+                    }
+                    if (time <= 0)
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = $"{stationRunRel.Name}超时配置无效";
+                        evt.isThStop = true;
+                        Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                        station.SetState(DataStation.Status.NotReady);
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                     while (evt.isThStop == false
                         && !evt.CancellationToken.IsCancellationRequested
@@ -2067,6 +2234,14 @@ namespace Automation
             {
 
                 time = Context.ValueStore.GetValueByName(waitStationStop.timeOutV).GetDValue();
+            }
+            if (time <= 0)
+            {
+                evt.isAlarm = true;
+                evt.alarmMsg = $"{waitStationStop.Name}超时配置无效";
+                evt.isThStop = true;
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             while (evt.isThStop == false
                 && !evt.CancellationToken.IsCancellationRequested
