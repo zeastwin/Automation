@@ -28,119 +28,132 @@ namespace Automation
     {
         public bool ExecuteOperation(ProcHandle evt, object operation)
         {
-            if (operation == null)
+            try
             {
-                throw new ArgumentNullException(nameof(operation), "操作为空");
+                if (operation == null)
+                {
+                    throw new ArgumentNullException(nameof(operation), "操作为空");
+                }
+                switch (operation)
+                {
+                    case CallCustomFunc customFunc:
+                        return RunCustomFunc(evt, customFunc);
+
+                    case IoOperate ioOperate:
+                        return RunIoOperate(evt, ioOperate);
+
+                    case IoCheck ioCheck:
+                        return RunIoCheck(evt, ioCheck);
+
+                    case ProcOps procOps:
+                        return RunProcOps(evt, procOps);
+
+                    case WaitProc waitProc:
+                        return RunWaitProc(evt, waitProc);
+
+                    case Goto gotoOperation:
+                        return RunGoto(evt, gotoOperation);
+
+                    case ParamGoto paramGoto:
+                        return RunParamGoto(evt, paramGoto);
+
+                    case SetDataStructItem setDataStructItem:
+                        return RunSetDataStructItem(evt, setDataStructItem);
+
+                    case Delay delay:
+                        return RunDelay(evt, delay);
+
+                    case GetDataStructItem getDataStructItem:
+                        return RunGetDataStructItem(evt, getDataStructItem);
+
+                    case CopyDataStructItem copyDataStructItem:
+                        return RunCopyDataStructItem(evt, copyDataStructItem);
+
+                    case InsertDataStructItem insertDataStructItem:
+                        return RunInsertDataStructItem(evt, insertDataStructItem);
+
+                    case DelDataStructItem delDataStructItem:
+                        return RunDelDataStructItem(evt, delDataStructItem);
+
+                    case FindDataStructItem findDataStructItem:
+                        return RunFindDataStructItem(evt, findDataStructItem);
+
+                    case GetDataStructCount getDataStructCount:
+                        return RunGetDataStructCount(evt, getDataStructCount);
+
+                    case GetValue getValue:
+                        return RunGetValue(evt, getValue);
+
+                    case ModifyValue modifyValue:
+                        return RunModifyValue(evt, modifyValue);
+
+                    case StringFormat stringFormat:
+                        return RunStringFormat(evt, stringFormat);
+
+                    case Split split:
+                        return RunSplit(evt, split);
+
+                    case Replace replace:
+                        return RunReplace(evt, replace);
+
+                    case TcpOps tcpOps:
+                        return RunTcpOps(evt, tcpOps);
+
+                    case WaitTcp waitTcp:
+                        return RunWaitTcp(evt, waitTcp);
+
+                    case SendTcpMsg sendTcpMsg:
+                        return RunSendTcpMsg(evt, sendTcpMsg);
+
+                    case ReceoveTcpMsg receoveTcpMsg:
+                        return RunReceoveTcpMsg(evt, receoveTcpMsg);
+
+                    case SendSerialPortMsg sendSerialPortMsg:
+                        return RunSendSerialPortMsg(evt, sendSerialPortMsg);
+
+                    case ReceoveSerialPortMsg receoveSerialPortMsg:
+                        return RunReceoveSerialPortMsg(evt, receoveSerialPortMsg);
+
+                    case SendReceoveCommMsg sendReceoveCommMsg:
+                        return RunSendReceoveCommMsg(evt, sendReceoveCommMsg);
+
+                    case SerialPortOps serialPortOps:
+                        return RunSerialPortOps(evt, serialPortOps);
+
+                    case WaitSerialPort waitSerialPort:
+                        return RunWaitSerialPort(evt, waitSerialPort);
+
+                    case HomeRun homeRun:
+                        return RunHomeRun(evt, homeRun);
+
+                    case StationRunPos stationRunPos:
+                        return RunStationRunPos(evt, stationRunPos);
+
+                    case StationRunRel stationRunRel:
+                        return RunStationRunRel(evt, stationRunRel);
+
+                    case SetStationVel setStationVel:
+                        return RunSetStationVel(evt, setStationVel);
+
+                    case StationStop stationStop:
+                        return RunStationStop(evt, stationStop);
+
+                    case WaitStationStop waitStationStop:
+                        return RunWaitStationStop(evt, waitStationStop);
+
+                    default:
+                        throw new NotSupportedException($"操作类型不支持:{operation.GetType().Name}");
+                }
             }
-            switch (operation)
+            catch (Exception ex)
             {
-                case CallCustomFunc customFunc:
-                    return RunCustomFunc(evt, customFunc);
-
-                case IoOperate ioOperate:
-                    return RunIoOperate(evt, ioOperate);
-
-                case IoCheck ioCheck:
-                    return RunIoCheck(evt, ioCheck);
-
-                case ProcOps procOps:
-                    return RunProcOps(evt, procOps);
-
-                case WaitProc waitProc:
-                    return RunWaitProc(evt, waitProc);
-
-                case Goto gotoOperation:
-                    return RunGoto(evt, gotoOperation);
-
-                case ParamGoto paramGoto:
-                    return RunParamGoto(evt, paramGoto);
-
-                case SetDataStructItem setDataStructItem:
-                    return RunSetDataStructItem(evt, setDataStructItem);
-
-                case Delay delay:
-                    return RunDelay(evt, delay);
-
-                case GetDataStructItem getDataStructItem:
-                    return RunGetDataStructItem(evt, getDataStructItem);
-
-                case CopyDataStructItem copyDataStructItem:
-                    return RunCopyDataStructItem(evt, copyDataStructItem);
-
-                case InsertDataStructItem insertDataStructItem:
-                    return RunInsertDataStructItem(evt, insertDataStructItem);
-
-                case DelDataStructItem delDataStructItem:
-                    return RunDelDataStructItem(evt, delDataStructItem);
-
-                case FindDataStructItem findDataStructItem:
-                    return RunFindDataStructItem(evt, findDataStructItem);
-
-                case GetDataStructCount getDataStructCount:
-                    return RunGetDataStructCount(evt, getDataStructCount);
-
-                case GetValue getValue:
-                    return RunGetValue(evt, getValue);
-
-                case ModifyValue modifyValue:
-                    return RunModifyValue(evt, modifyValue);
-
-                case StringFormat stringFormat:
-                    return RunStringFormat(evt, stringFormat);
-
-                case Split split:
-                    return RunSplit(evt, split);
-
-                case Replace replace:
-                    return RunReplace(evt, replace);
-
-                case TcpOps tcpOps:
-                    return RunTcpOps(evt, tcpOps);
-
-                case WaitTcp waitTcp:
-                    return RunWaitTcp(evt, waitTcp);
-
-                case SendTcpMsg sendTcpMsg:
-                    return RunSendTcpMsg(evt, sendTcpMsg);
-
-                case ReceoveTcpMsg receoveTcpMsg:
-                    return RunReceoveTcpMsg(evt, receoveTcpMsg);
-
-                case SendSerialPortMsg sendSerialPortMsg:
-                    return RunSendSerialPortMsg(evt, sendSerialPortMsg);
-
-                case ReceoveSerialPortMsg receoveSerialPortMsg:
-                    return RunReceoveSerialPortMsg(evt, receoveSerialPortMsg);
-
-                case SendReceoveCommMsg sendReceoveCommMsg:
-                    return RunSendReceoveCommMsg(evt, sendReceoveCommMsg);
-
-                case SerialPortOps serialPortOps:
-                    return RunSerialPortOps(evt, serialPortOps);
-
-                case WaitSerialPort waitSerialPort:
-                    return RunWaitSerialPort(evt, waitSerialPort);
-
-                case HomeRun homeRun:
-                    return RunHomeRun(evt, homeRun);
-
-                case StationRunPos stationRunPos:
-                    return RunStationRunPos(evt, stationRunPos);
-
-                case StationRunRel stationRunRel:
-                    return RunStationRunRel(evt, stationRunRel);
-
-                case SetStationVel setStationVel:
-                    return RunSetStationVel(evt, setStationVel);
-
-                case StationStop stationStop:
-                    return RunStationStop(evt, stationStop);
-
-                case WaitStationStop waitStationStop:
-                    return RunWaitStationStop(evt, waitStationStop);
-
-                default:
-                    throw new NotSupportedException($"操作类型不支持:{operation.GetType().Name}");
+                if (evt != null)
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = ex.Message;
+                }
+                Logger?.Log(ex.Message, LogLevel.Error);
+                return false;
             }
         }
 
@@ -152,7 +165,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "自定义函数未初始化";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
             bool success = Context.CustomFunc.RunFunc(funcName);
@@ -160,6 +173,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"找不到自定义函数:{funcName}";
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
             return true;
@@ -178,7 +192,8 @@ namespace Automation
                 if (!Context.Motion.SetIO(Context.IoMap[ioParam.IOName], ioParam.value))
                 {
                     evt.isAlarm = true;
-                    return false;
+                    evt.alarmMsg = $"IO输出失败:{ioParam.IOName}";
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 time = ioParam.delayAfter;
                 if (time <= 0 && !string.IsNullOrEmpty(ioParam.delayAfterV))
@@ -244,7 +259,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = "检测超时";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             //time = ioParam.delayAfter;
@@ -272,7 +287,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = "找不到流程";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 if (procParam.value == "运行")
                 {
@@ -281,7 +296,8 @@ namespace Automation
                     if (targetState != ProcRunState.Stopped)
                     {
                         evt.isAlarm = true;
-                        return false;
+                        evt.alarmMsg = $"流程未停止:{proc?.head?.Name}";
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                     StartProcAuto(proc, index);
                 }
@@ -292,7 +308,8 @@ namespace Automation
                     if (targetState == ProcRunState.Stopped)
                     {
                         evt.isAlarm = true;
-                        return false;
+                        evt.alarmMsg = $"流程已停止:{proc?.head?.Name}";
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                     Stop(index);
                 }
@@ -326,7 +343,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = "等待超时";
-                        break;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                 }
                 bool isWaitOff = true;
@@ -344,7 +361,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = "找不到流程";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                     int index = Context.Procs.IndexOf(proc);
                     if (procParam.value == "运行")
@@ -398,7 +415,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = "匹配不到变量";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 foreach (var item in gotoParam.Params)
                 {
@@ -419,7 +436,7 @@ namespace Automation
                         {
                             evt.isAlarm = true;
                             evt.alarmMsg = gotoError;
-                            return false;
+                            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                         }
                         evt.isGoto = true;
                         return true;
@@ -432,14 +449,14 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = defaultGotoError;
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 evt.isGoto = true;
                 return true;
             }
             evt.isAlarm = true;
             evt.alarmMsg = "跳转失败：未匹配到跳转条件且默认跳转为空";
-            return false;
+            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
         }
         public bool RunParamGoto(ProcHandle evt, ParamGoto paramGoto)
         {
@@ -526,7 +543,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = gotoError;
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 evt.isGoto = true;
             }
@@ -575,7 +592,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:索引{item.ValueSaveIndex}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveIndex2Index))
@@ -585,7 +602,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:索引{index}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveName))
@@ -594,7 +611,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:{item.ValueSaveName}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveName2Index))
@@ -604,7 +621,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:索引{index}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                 }
                 
@@ -636,7 +653,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "找不到源变量";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
             //==============================================GetChangeValue=====================================//
@@ -665,7 +682,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "找不到修改变量";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
             string output = "";
@@ -711,7 +728,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:索引{ops.OutputValueIndex}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             else if (!string.IsNullOrEmpty(ops.OutputValueIndex2Index))
@@ -721,7 +738,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:索引{index}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             else if (!string.IsNullOrEmpty(ops.OutputValueName))
@@ -730,7 +747,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:{ops.OutputValueName}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             else if (!string.IsNullOrEmpty(ops.OutputValueName2Index))
@@ -740,7 +757,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:索引{index}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
 
@@ -772,7 +789,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"格式化结果保存失败:索引{stringFormat.OutputValueIndex}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                 }
                 else if (!string.IsNullOrEmpty(stringFormat.OutputValueName))
@@ -781,7 +798,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"格式化结果保存失败:{stringFormat.OutputValueName}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                 }
                
@@ -790,7 +807,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = ex.Message;
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             return true;
 
@@ -832,7 +849,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:索引{i}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             return true;
@@ -851,7 +868,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "找不到源变量";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
         
             string replaceStr = "";
@@ -869,7 +886,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "找不到被替换字符";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
             string newStr = "";
@@ -887,7 +904,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "找不到新字符";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
             string str = "";
@@ -910,7 +927,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:索引{replace.OutputIndex}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             else if (!string.IsNullOrEmpty(replace.Output))
@@ -919,14 +936,14 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:{replace.Output}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             else
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "找不到保存变量";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             return true;
 
@@ -942,7 +959,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"设置数据结构失败:结构{structIndex},项{itemIndex},值{valueIndex}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             return true;
@@ -963,13 +980,13 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"读取数据结构失败:结构{structIndex},项{itemIndex},值{i}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                     if (!Context.ValueStore.setValueByIndex(startIndex + i, obj))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:索引{startIndex + i}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                 }
             }
@@ -982,7 +999,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"读取数据结构失败:结构{structIndex},项{itemIndex},值{valueIndex}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
 
                     string valueName = "";
@@ -995,7 +1012,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存变量失败:{valueName}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                 }
             }
@@ -1009,7 +1026,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"复制数据结构失败:源{copyDataStructItem.SourceStructIndex}-{copyDataStructItem.SourceItemIndex},目标{copyDataStructItem.TargetStructIndex}-{copyDataStructItem.TargetItemIndex}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             else
@@ -1020,25 +1037,24 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"读取数据结构失败:结构{copyDataStructItem.SourceStructIndex},项{copyDataStructItem.SourceItemIndex},值{copyDataStructItem.Params[i].SourcevalueIndex}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
 
                     if (obj == null)
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"数据结构值为空:结构{copyDataStructItem.SourceStructIndex},项{copyDataStructItem.SourceItemIndex},值{copyDataStructItem.Params[i].SourcevalueIndex}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
 
                     if (!Context.DataStructStore.TrySetItemValueByIndex(int.Parse(copyDataStructItem.TargetStructIndex), int.Parse(copyDataStructItem.TargetItemIndex), int.Parse(copyDataStructItem.Params[i].Targetvalue), obj.ToString(), valueType))
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"设置数据结构失败:结构{copyDataStructItem.TargetStructIndex},项{copyDataStructItem.TargetItemIndex},值{copyDataStructItem.Params[i].Targetvalue}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
 
                 }
-
             }
             return true;
         }
@@ -1073,7 +1089,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"插入数据结构失败:结构{insertDataStructItem.TargetStructIndex},项{insertDataStructItem.TargetItemIndex}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             return true;
         }
@@ -1100,7 +1116,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"删除数据结构失败:结构{structIndex},项{itemIndex}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             return true;
         }
@@ -1113,13 +1129,13 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 if (!Context.ValueStore.setValueByName(findDataStructItem.save, value))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:{findDataStructItem.save}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             else if (findDataStructItem.Type == "字符串等于key")
@@ -1128,13 +1144,13 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 if (!Context.ValueStore.setValueByName(findDataStructItem.save, value))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:{findDataStructItem.save}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             else if (findDataStructItem.Type == "数值等于key")
@@ -1143,19 +1159,19 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"查找数值key无效:{findDataStructItem.key}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 if (!Context.DataStructStore.TryFindItemByNumberValue(int.Parse(findDataStructItem.TargetStructIndex), keyValue, out double value))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 if (!Context.ValueStore.setValueByName(findDataStructItem.save, value))
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"保存变量失败:{findDataStructItem.save}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
             return true;
@@ -1167,13 +1183,13 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"保存变量失败:{getDataStructCount.StructCount}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             if (!Context.ValueStore.setValueByName(getDataStructCount.ItemCount, Context.DataStructStore.GetItemCount(int.Parse(getDataStructCount.TargetStructIndex))))
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"保存变量失败:{getDataStructCount.ItemCount}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
             return true;
@@ -1187,7 +1203,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"TCP配置不存在:{op.Name}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 if (op.Ops == "启动")
                 {
@@ -1221,7 +1237,7 @@ namespace Automation
                 }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"等待TCP连接超时:{op.Name}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             return true;
         }
@@ -1235,7 +1251,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"TCP发送失败:{sendTcpMsg.ID}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             return true;
         }
@@ -1246,7 +1262,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"TCP未连接:{receoveTcpMsg.ID}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             Context.Comm.ClearTcpMessages(receoveTcpMsg.ID);
             Stopwatch stopwatch = Stopwatch.StartNew();
@@ -1264,14 +1280,14 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存TCP接收变量失败:{receoveTcpMsg.MsgSaveValue}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                     return true;
                     }
             }
             evt.isAlarm = true;
             evt.alarmMsg = $"TCP接收超时:{receoveTcpMsg.ID}";
-            return true;
+            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
         }
         public bool RunSendSerialPortMsg(ProcHandle evt, SendSerialPortMsg sendSerialPortMsg)
         {
@@ -1282,7 +1298,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"串口发送失败:{sendSerialPortMsg.ID}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             return true;
         }
@@ -1292,7 +1308,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"串口未打开:{receoveSerialPortMsg.ID}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             Context.Comm.ClearSerialMessages(receoveSerialPortMsg.ID);
             Stopwatch stopwatch = Stopwatch.StartNew();
@@ -1310,14 +1326,14 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"保存串口接收变量失败:{receoveSerialPortMsg.MsgSaveValue}";
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                     return true;
                     }
             }
             evt.isAlarm = true;
             evt.alarmMsg = $"串口接收超时:{receoveSerialPortMsg.ID}";
-            return true;
+            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
         }
 
         public bool RunSendReceoveCommMsg(ProcHandle evt, SendReceoveCommMsg sendReceoveCommMsg)
@@ -1326,7 +1342,7 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "通讯参数无效";
-                return true;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
             string sendValue = Context.ValueStore.get_Str_ValueByName(sendReceoveCommMsg.SendMsg);
@@ -1338,7 +1354,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"TCP未连接:{sendReceoveCommMsg.ID}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 Context.Comm.ClearTcpMessages(sendReceoveCommMsg.ID);
                 bool sendSuccess = Context.Comm.SendTcpAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert)
@@ -1348,7 +1364,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"TCP发送失败:{sendReceoveCommMsg.ID}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
 
                 Stopwatch stopwatch = Stopwatch.StartNew();
@@ -1368,7 +1384,7 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"保存TCP接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
-                                return false;
+                                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                             }
                         }
                         return true;
@@ -1376,7 +1392,7 @@ namespace Automation
                 }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"TCP接收超时:{sendReceoveCommMsg.ID}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
             if (string.Equals(commType, "串口", StringComparison.OrdinalIgnoreCase) ||
@@ -1387,7 +1403,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"串口未打开:{sendReceoveCommMsg.ID}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 Context.Comm.ClearSerialMessages(sendReceoveCommMsg.ID);
                 bool sendSuccess = Context.Comm.SendSerialAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert)
@@ -1397,7 +1413,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"串口发送失败:{sendReceoveCommMsg.ID}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
 
                 Stopwatch stopwatch = Stopwatch.StartNew();
@@ -1417,7 +1433,7 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"保存串口接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
-                                return false;
+                                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                             }
                         }
                         return true;
@@ -1425,12 +1441,12 @@ namespace Automation
                 }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"串口接收超时:{sendReceoveCommMsg.ID}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
             evt.isAlarm = true;
             evt.alarmMsg = $"通讯类型不支持:{sendReceoveCommMsg.CommType}";
-            return true;
+            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
         }
 
         public bool RunSerialPortOps(ProcHandle evt, SerialPortOps serialPortOps)
@@ -1442,7 +1458,7 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"串口配置不存在:{op.Name}";
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 if (op.Ops == "启动")
                 {
@@ -1475,7 +1491,7 @@ namespace Automation
                 }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"等待串口连接超时:{op.Name}";
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             return true;
         }
@@ -1489,7 +1505,7 @@ namespace Automation
                 evt.alarmMsg = "工站列表为空";
                 evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             if (homeRun.StationIndex != -1)
             {
@@ -1499,7 +1515,7 @@ namespace Automation
                     evt.alarmMsg = $"工站索引无效:{homeRun.StationIndex}";
                     evt.isThStop = true;
                     Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 station = Context.Stations[homeRun.StationIndex];
             }
@@ -1513,7 +1529,7 @@ namespace Automation
                 evt.alarmMsg = $"找不到工站:{homeRun.StationName}";
                 evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             station.SetState(DataStation.Status.Run);
                 int stationIndex = Context.Stations.IndexOf(station);
@@ -1547,7 +1563,7 @@ namespace Automation
                                 evt.isThStop = true;
                                 Logger?.Log(homeRun.Name + "运动超时！", LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
-                                return false;
+                                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                             }
                             for (int i = 0; i < 6; i++)
                             {
@@ -1592,7 +1608,7 @@ namespace Automation
                 evt.alarmMsg = $"找不到工站:{stationRunPos.StationName}";
                 evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             station.SetState(DataStation.Status.Run);
             DataPos posItems;
@@ -1611,7 +1627,7 @@ namespace Automation
                 evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 station.SetState(DataStation.Status.NotReady);
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
                     List<double> Poses = posItems.GetAllValues();
@@ -1638,7 +1654,7 @@ namespace Automation
                                 evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
-                                return false;
+                                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                             }
                             if (stationRunPos.ChangeVel == "改变速度")
                             {
@@ -1709,7 +1725,7 @@ namespace Automation
                                 evt.isThStop = true;
                                 Logger?.Log(stationRunPos.Name + "运动超时！", LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
-                                return false;
+                                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                             }
                             for (int i = 0; i < cardNums.Count; i++)
                             {
@@ -1737,7 +1753,7 @@ namespace Automation
                                     evt.alarmMsg = $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
                                     evt.isThStop = true;
                                     Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                                    return false;
+                                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                                 }
                                 if (((Context.Motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - TargetPos[i])) > 0.01)
                                 {
@@ -1745,6 +1761,7 @@ namespace Automation
                                     evt.alarmMsg = $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位";
                                     evt.isThStop = true;
                                     Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                                 }
                             }
                         }
@@ -1771,7 +1788,7 @@ namespace Automation
                 evt.alarmMsg = $"找不到工站:{stationRunRel.StationName}";
                 evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             station.SetState(DataStation.Status.Run);
                 double Vel = 0;
@@ -1800,7 +1817,7 @@ namespace Automation
                             evt.isThStop = true;
                             Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
-                            return false;
+                            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                         }
                         if (stationRunRel.ChangeVel == "改变速度")
                         {
@@ -1856,7 +1873,7 @@ namespace Automation
                             evt.isThStop = true;
                             Logger?.Log(stationRunRel.Name + "运动超时！", LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
-                            return false;
+                            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                         }
                         for (int i = 0; i < cardNums.Count; i++)
                         {
@@ -1884,7 +1901,7 @@ namespace Automation
                                 evt.alarmMsg = $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
                                 evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                                return false;
+                                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                             }
                             if (((Context.Motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - TargetPos[i])) > 0.01)
                             {
@@ -1892,13 +1909,13 @@ namespace Automation
                                 evt.alarmMsg = $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位";
                                 evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                             }
                         }
                     }
 
                 }
 
-            }
             return true;
         }
         public bool RunSetStationVel(ProcHandle evt, SetStationVel setStationVel)
@@ -1919,7 +1936,7 @@ namespace Automation
                 evt.alarmMsg = $"找不到工站:{setStationVel.StationName}";
                 evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             double Vel = 0;
             double Acc = 0;
@@ -1944,7 +1961,7 @@ namespace Automation
                                 evt.alarmMsg = $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在";
                                 evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                                return false;
+                                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                             }
                             axisInfo.SpeedRun = Vel;
                             axisInfo.AccRun = Acc;
@@ -1961,7 +1978,7 @@ namespace Automation
                         evt.alarmMsg = $"工站：{setStationVel.StationName} 轴配置不存在";
                         evt.isThStop = true;
                         Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                     int cardNum = int.Parse(axisInfo.CardNum);
                     int axisNum = axisInfo.axis.AxisNum;
@@ -1971,7 +1988,7 @@ namespace Automation
                         evt.alarmMsg = $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在";
                         evt.isThStop = true;
                         Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                        return false;
+                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                     axisConfig.SpeedRun = Vel;
                     axisConfig.AccRun = Acc;
@@ -1989,7 +2006,7 @@ namespace Automation
                 evt.alarmMsg = $"找不到工站:{stationStop.StationName}";
                 evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             if (stationStop.isAllStop)
             {
@@ -2027,7 +2044,7 @@ namespace Automation
                 evt.alarmMsg = $"找不到工站:{waitStationStop.StationName}";
                 evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                return false;
+                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             station.SetState(DataStation.Status.Run);
             List<ushort> cardNums = new List<ushort>();
@@ -2063,7 +2080,7 @@ namespace Automation
                     evt.alarmMsg = waitStationStop.Name + "等待超时";
                     evt.isThStop = true;
                     Logger?.Log(waitStationStop.Name + "等待超时！", LogLevel.Error);
-                    return false;
+                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 for (int i = 0; i < cardNums.Count; i++)
                 {
@@ -2075,7 +2092,7 @@ namespace Automation
                             evt.alarmMsg = $"工站：{waitStationStop.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
                             evt.isThStop = true;
                             Logger?.Log(evt.alarmMsg, LogLevel.Error);
-                            return false;
+                            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                         }
                         if (Context.Motion.HomeStatus(cardNums[i], axisNums[i]) && axisInfo.GetState() == Axis.Status.Ready)
                         {
