@@ -128,10 +128,6 @@ namespace Automation
 
                     SetRowColor(rowIndex, Color.LightBlue);
                     dataGridView1.InvalidateRow(rowIndex);
-                    if (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep)
-                    {
-                        ScrollRowToCenter(rowIndex);
-                    }
                     lastHighlightActive = true;
                     lastHighlightedRow = rowIndex;
                     lastHighlightedProc = selectedProc;

@@ -118,19 +118,10 @@ namespace Automation
             {
                 return true;
             }
-            if (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep)
+            if (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming)
             {
-                return true;
-            }
-            IReadOnlyList<EngineSnapshot> snapshots = DR.GetSnapshots();
-            for (int i = 0; i < snapshots.Count; i++)
-            {
-                EngineSnapshot item = snapshots[i];
-                if (item != null && (item.State == ProcRunState.Running || item.State == ProcRunState.Alarming))
-                {
-                    MessageBox.Show("流程运行中禁止编辑，请先暂停或单步。");
-                    return false;
-                }
+                MessageBox.Show("当前流程运行中禁止编辑，请先停止。");
+                return false;
             }
             return true;
         }
