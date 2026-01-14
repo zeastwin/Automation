@@ -666,24 +666,24 @@ namespace Automation
         {
             long startTicks = Stopwatch.GetTimestamp();
             //==============================================GetSourceValue=====================================//
-            string SourceValue = "";
+            string SourceValue = null;
             if (!string.IsNullOrEmpty(ops.ValueSourceIndex))
-                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(ops.ValueSourceIndex)).Value.ToString();
+                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(ops.ValueSourceIndex)).Value;
             else if (!string.IsNullOrEmpty(ops.ValueSourceIndex2Index))
             {
-                string index = Context.ValueStore.GetValueByIndex(int.Parse(ops.ValueSourceIndex2Index)).Value.ToString();
-                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                string index = Context.ValueStore.GetValueByIndex(int.Parse(ops.ValueSourceIndex2Index)).Value;
+                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value;
             }
             else if (!string.IsNullOrEmpty(ops.ValueSourceName))
             {
-                SourceValue = Context.ValueStore.GetValueByName(ops.ValueSourceName).Value.ToString();
+                SourceValue = Context.ValueStore.GetValueByName(ops.ValueSourceName).Value;
             }
             else if (!string.IsNullOrEmpty(ops.ValueSourceName2Index))
             {
-                string index = Context.ValueStore.GetValueByName(ops.ValueSourceName2Index).Value.ToString();
-                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                string index = Context.ValueStore.GetValueByName(ops.ValueSourceName2Index).Value;
+                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value;
             }
-            if(SourceValue == "")
+            if (string.IsNullOrEmpty(SourceValue))
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "找不到源变量";
@@ -691,28 +691,28 @@ namespace Automation
             }
 
             //==============================================GetChangeValue=====================================//
-            string ChangeValue = "";
+            string ChangeValue = null;
             if (!string.IsNullOrEmpty(ops.ChangeValue))
             {
                 ChangeValue = ops.ChangeValue;
             }
             else if (!string.IsNullOrEmpty(ops.ChangeValueIndex))
-                ChangeValue = Context.ValueStore.GetValueByIndex(int.Parse(ops.ChangeValueIndex)).Value.ToString();
+                ChangeValue = Context.ValueStore.GetValueByIndex(int.Parse(ops.ChangeValueIndex)).Value;
             else if (!string.IsNullOrEmpty(ops.ChangeValueIndex2Index))
             {
-                string index = Context.ValueStore.GetValueByIndex(int.Parse(ops.ChangeValueIndex2Index)).Value.ToString();
-                ChangeValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                string index = Context.ValueStore.GetValueByIndex(int.Parse(ops.ChangeValueIndex2Index)).Value;
+                ChangeValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value;
             }
             else if (!string.IsNullOrEmpty(ops.ChangeValueName))
             {
-                ChangeValue = Context.ValueStore.GetValueByName(ops.ChangeValueName).Value.ToString();
+                ChangeValue = Context.ValueStore.GetValueByName(ops.ChangeValueName).Value;
             }
             else if (!string.IsNullOrEmpty(ops.ChangeValueName2Index))
             {
-                string index = Context.ValueStore.GetValueByName(ops.ChangeValueName2Index).Value.ToString();
-                ChangeValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                string index = Context.ValueStore.GetValueByName(ops.ChangeValueName2Index).Value;
+                ChangeValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value;
             }
-            if (ChangeValue == "")
+            if (string.IsNullOrEmpty(ChangeValue))
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "找不到修改变量";
@@ -720,6 +720,21 @@ namespace Automation
             }
 
             string output = "";
+            bool needNumeric = ops.ModifyType == "叠加"
+                || ops.ModifyType == "乘法"
+                || ops.ModifyType == "除法"
+                || ops.ModifyType == "求余"
+                || ops.ModifyType == "绝对值";
+            double sourceNumber = 0;
+            double changeNumber = 0;
+            if (needNumeric)
+            {
+                sourceNumber = double.Parse(SourceValue);
+                if (ops.ModifyType != "绝对值")
+                {
+                    changeNumber = double.Parse(ChangeValue);
+                }
+            }
             if (ops.ModifyType == "替换")
             {
                  output = ChangeValue;
@@ -729,30 +744,30 @@ namespace Automation
                 double sourceR = ops.sourceR ? -1 : 1;
                 double changeR = ops.ChangeR ? -1 : 1;
 
-                output = (sourceR * double.Parse(SourceValue) + changeR * double.Parse(ChangeValue)).ToString();
+                output = (sourceR * sourceNumber + changeR * changeNumber).ToString();
             }
             else if (ops.ModifyType == "乘法")
             {
                 double sourceR = ops.sourceR ? -1 : 1;
                 double changeR = ops.ChangeR ? -1 : 1;
 
-                output = (sourceR * double.Parse(SourceValue) * changeR * double.Parse(ChangeValue)).ToString();
+                output = (sourceR * sourceNumber * changeR * changeNumber).ToString();
             }
             else if (ops.ModifyType == "除法")
             {
                 double sourceR = ops.sourceR ? -1 : 1;
                 double changeR = ops.ChangeR ? -1 : 1;
 
-                output = ((sourceR * double.Parse(SourceValue)) / (changeR * double.Parse(ChangeValue))).ToString();
+                output = ((sourceR * sourceNumber) / (changeR * changeNumber)).ToString();
             }
             else if (ops.ModifyType == "求余")
             {
 
-                output = (double.Parse(SourceValue) %double.Parse(ChangeValue)).ToString();
+                output = (sourceNumber % changeNumber).ToString();
             }
             else if (ops.ModifyType == "绝对值")
             {
-                output = Math.Abs(double.Parse(SourceValue)).ToString();
+                output = Math.Abs(sourceNumber).ToString();
             }
 
             //==============================================OutputValue=====================================//
