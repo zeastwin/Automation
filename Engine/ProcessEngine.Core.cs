@@ -281,17 +281,58 @@ namespace Automation
                 errorMessage = "跳转失败：跳转位置为空";
                 return false;
             }
-            string[] key = gotoText.Split('-');
-            if (key.Length < 3)
+            int length = gotoText.Length;
+            int index = 0;
+            bool TryReadNumber(out int value)
+            {
+                value = 0;
+                if (index >= length)
+                {
+                    return false;
+                }
+                long acc = 0;
+                if (gotoText[index] < '0' || gotoText[index] > '9')
+                {
+                    return false;
+                }
+                while (index < length)
+                {
+                    char c = gotoText[index];
+                    if (c < '0' || c > '9')
+                    {
+                        break;
+                    }
+                    acc = acc * 10 + (c - '0');
+                    if (acc > int.MaxValue)
+                    {
+                        return false;
+                    }
+                    index++;
+                }
+                value = (int)acc;
+                return true;
+            }
+
+            if (!TryReadNumber(out int procIndex) || index >= length || gotoText[index] != '-')
             {
                 errorMessage = $"跳转失败：格式错误 {gotoText}";
                 return false;
             }
-            if (!int.TryParse(key[0], out int procIndex)
-                || !int.TryParse(key[1], out int stepIndex)
-                || !int.TryParse(key[2], out int opIndex))
+            index++;
+            if (!TryReadNumber(out int stepIndex) || index >= length || gotoText[index] != '-')
+            {
+                errorMessage = $"跳转失败：格式错误 {gotoText}";
+                return false;
+            }
+            index++;
+            if (!TryReadNumber(out int opIndex))
             {
                 errorMessage = $"跳转失败：索引解析失败 {gotoText}";
+                return false;
+            }
+            if (index != length)
+            {
+                errorMessage = $"跳转失败：格式错误 {gotoText}";
                 return false;
             }
             if (procIndex != evt.procNum)
