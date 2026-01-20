@@ -98,6 +98,14 @@
     <Compile Include="CustomFunc.cs" />
     <Compile Include="DataStructModels.cs" />
     <Compile Include="Engine\\ProcessEngine.Core.cs" />
+    <Compile Include="Engine\\ProcessEngine.Operations.Comm.cs" />
+    <Compile Include="Engine\\ProcessEngine.Operations.Custom.cs" />
+    <Compile Include="Engine\\ProcessEngine.Operations.DataStruct.cs" />
+    <Compile Include="Engine\\ProcessEngine.Operations.Io.cs" />
+    <Compile Include="Engine\\ProcessEngine.Operations.Motion.cs" />
+    <Compile Include="Engine\\ProcessEngine.Operations.Proc.cs" />
+    <Compile Include="Engine\\ProcessEngine.Operations.String.cs" />
+    <Compile Include="Engine\\ProcessEngine.Operations.Value.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.cs" />
     <Compile Include="Engine\\ProcessEngine.Models.cs" />
     <Compile Include="Stores\\DataStructStore.cs" />
