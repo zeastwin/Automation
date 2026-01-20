@@ -45,8 +45,6 @@ namespace Automation
         public ProcRunState State = ProcRunState.Stopped;
         //断点标志
         public bool isBreakpoint;
-        //线程终止标志位
-        public bool isThStop;
         //标志是否发生了跳转
         public bool isGoto;
         //标志是否发生了报警
@@ -57,6 +55,7 @@ namespace Automation
         public int singleOpStep;
         public int singleOpOp;
         public CancellationToken CancellationToken { get; set; }
+        internal ProcessControl Control { get; set; }
         public ConcurrentBag<Task> RunningTasks { get; } = new ConcurrentBag<Task>();
 
     }

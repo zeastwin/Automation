@@ -382,7 +382,6 @@ namespace Automation
             WaitHandle waitHandle = evt.CancellationToken.WaitHandle;
             while (remaining > 0
                 && evt.State != ProcRunState.Stopped
-                && !evt.isThStop
                 && !evt.CancellationToken.IsCancellationRequested)
             {
                 int slice = remaining > 20 ? 20 : remaining;
@@ -485,14 +484,14 @@ namespace Automation
             UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
             for (int i = evt.stepNum; i < proc.steps.Count; i++)
             {
-                if (evt.isThStop || control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                 {
                     break;
                 }
                 evt.stepNum = i;
                 UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
                 RunStep(proc.steps[i], evt, control);
-                if (evt.isThStop || control.IsStopRequested)
+                if (control.IsStopRequested)
                     break;
                 if (evt.isGoto)
                 {
@@ -547,7 +546,7 @@ namespace Automation
                 evt.isAlarm = false;
                 evt.isGoto = false;
                 evt.alarmMsg = null;
-                if (evt.isThStop || control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                     return false;
                 evt.opsNum = i;
                 UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
@@ -566,7 +565,7 @@ namespace Automation
                     UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                 }
                 control.WaitForRun();
-                if (evt.isThStop || control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                 {
                     return false;
                 }
@@ -574,7 +573,7 @@ namespace Automation
                 {
                     control.WaitForStep();
                 }
-                if (evt.isThStop || control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                 {
                     return false;
                 }
@@ -583,7 +582,7 @@ namespace Automation
                     evt.isBreakpoint = false;
                     UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                 }
-                if (evt.isThStop || control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                     return false;
                 try
                 {
@@ -598,7 +597,7 @@ namespace Automation
                     }
                     if (evt.singleOpOnce && evt.stepNum == evt.singleOpStep && evt.opsNum == evt.singleOpOp)
                     {
-                        evt.isThStop = true;
+                        control.RequestStop();
                         return false;
                     }
                 }
@@ -608,7 +607,7 @@ namespace Automation
                     evt.alarmMsg = ex.Message;
                     Logger?.Log(ex.Message, LogLevel.Error);
                     HandleAlarm(steps.Ops[i], evt);
-                    evt.isThStop = true;
+                    control.RequestStop();
                     return false;
                 }
             }
@@ -635,7 +634,7 @@ namespace Automation
 
             if (evt.State == ProcRunState.Alarming)
             {
-                evt.State = evt.isThStop ? ProcRunState.Stopped : lastState;
+                evt.State = evt.CancellationToken.IsCancellationRequested ? ProcRunState.Stopped : lastState;
                 evt.isBreakpoint = evt.State == ProcRunState.Paused ? lastBreakpoint : false;
                 UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
             }
@@ -686,7 +685,7 @@ namespace Automation
                     }
                     catch (OperationCanceledException)
                     {
-                        if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                        if (evt.CancellationToken.IsCancellationRequested)
                         {
                             return AlarmDecision.Stop;
                         }
@@ -737,7 +736,7 @@ namespace Automation
             switch (decision)
             {
                 case AlarmDecision.Stop:
-                    evt.isThStop = true;
+                    evt.Control?.RequestStop();
                     break;
                 case AlarmDecision.Ignore:
                     break;
@@ -747,7 +746,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto1Error : $"{evt.alarmMsg}; {goto1Error}";
-                        evt.isThStop = true;
+                        evt.Control?.RequestStop();
                     }
                     break;
                 case AlarmDecision.Goto2:
@@ -756,7 +755,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto2Error : $"{evt.alarmMsg}; {goto2Error}";
-                        evt.isThStop = true;
+                        evt.Control?.RequestStop();
                     }
                     break;
                 case AlarmDecision.Goto3:
@@ -765,7 +764,7 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto3Error : $"{evt.alarmMsg}; {goto3Error}";
-                        evt.isThStop = true;
+                        evt.Control?.RequestStop();
                     }
                     break;
             }
@@ -1005,12 +1004,12 @@ namespace Automation
                 procNum = procIndex,
                 stepNum = command.StepIndex,
                 opsNum = command.OpIndex,
-                isThStop = false,
                 procName = proc.head?.Name,
                 singleOpOnce = command.SingleOpOnce,
                 singleOpStep = command.StepIndex,
                 singleOpOp = command.OpIndex,
-                CancellationToken = control.CancellationToken
+                CancellationToken = control.CancellationToken,
+                Control = control
             };
             handle.State = command.StartState;
             handle.isBreakpoint = false;
@@ -1131,7 +1130,6 @@ namespace Automation
             {
                 return;
             }
-            handle.isThStop = true;
             handle.State = ProcRunState.Stopped;
             handle.isBreakpoint = false;
             control.RequestStop();
@@ -1152,7 +1150,6 @@ namespace Automation
             {
                 runHandle.isAlarm = true;
                 runHandle.alarmMsg = ex.Message;
-                runHandle.isThStop = true;
                 runHandle.State = ProcRunState.Stopped;
                 runControl?.RequestStop();
                 engine.UpdateSnapshot(runHandle.procNum, runHandle.procName, runHandle.State, runHandle.stepNum, runHandle.opsNum,

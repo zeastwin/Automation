@@ -35,7 +35,6 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = message;
-                    evt.isThStop = true;
                 }
                 Logger?.Log(message, LogLevel.Error);
                 return false;
@@ -156,7 +155,6 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = message;
-                                evt.isThStop = true;
                             }
                             Logger?.Log(message, LogLevel.Error);
                             return false;
@@ -236,7 +234,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "IO检测超时配置无效";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
@@ -248,7 +245,6 @@ namespace Automation
             //Delay(time, evt);
             Stopwatch stopwatch = Stopwatch.StartNew();
             while (evt.State != ProcRunState.Stopped
-                && !evt.isThStop
                 && !evt.CancellationToken.IsCancellationRequested)
             {
                 if (stopwatch.ElapsedMilliseconds < timeOut)
@@ -282,7 +278,6 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = "检测超时";
-                    evt.isThStop = true;
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
             }
@@ -354,7 +349,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "等待流程超时配置无效";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             int DelayAfter;
@@ -365,14 +359,12 @@ namespace Automation
             }
             Stopwatch stopwatch = Stopwatch.StartNew();
             while (evt.State != ProcRunState.Stopped
-                && !evt.isThStop
                 && !evt.CancellationToken.IsCancellationRequested)
             {
                 if (stopwatch.ElapsedMilliseconds > timeOut)
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = "等待超时";
-                    evt.isThStop = true;
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 bool isWaitOff = true;
@@ -1393,18 +1385,15 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"等待TCP连接超时配置无效:{op.Name}";
-                    evt.isThStop = true;
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 Stopwatch stopwatch = Stopwatch.StartNew();
-                while (!evt.isThStop
-                    && !evt.CancellationToken.IsCancellationRequested)
+                while (!evt.CancellationToken.IsCancellationRequested)
                 {
                     if (stopwatch.ElapsedMilliseconds > op.TimeOut)
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"等待TCP连接超时:{op.Name}";
-                        evt.isThStop = true;
                         throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
                     if (Context.Comm.IsTcpActive(op.Name))
@@ -1413,7 +1402,7 @@ namespace Automation
                     }
                     Delay(5, evt);
                 }
-                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return true;
                 }
@@ -1427,10 +1416,9 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"TCP发送超时配置无效:{sendTcpMsg.ID}";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
-            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+            if (evt.CancellationToken.IsCancellationRequested)
             {
                 return true;
             }
@@ -1438,19 +1426,18 @@ namespace Automation
             Task completed = Task.WhenAny(sendTask, Task.Delay(sendTcpMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
             if (!ReferenceEquals(completed, sendTask))
             {
-                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return true;
                 }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"TCP发送超时:{sendTcpMsg.ID}";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             bool success = sendTask.GetAwaiter().GetResult();
             if (!success)
             {
-                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return true;
                 }
@@ -1473,7 +1460,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"TCP接收超时配置无效:{receoveTcpMsg.ID}";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             Context.Comm.ClearTcpMessages(receoveTcpMsg.ID);
@@ -1491,13 +1477,12 @@ namespace Automation
                 }
                 return true;
             }
-            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+            if (evt.CancellationToken.IsCancellationRequested)
             {
                 return true;
             }
             evt.isAlarm = true;
             evt.alarmMsg = $"TCP接收超时:{receoveTcpMsg.ID}";
-            evt.isThStop = true;
             throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
         }
         public bool RunSendSerialPortMsg(ProcHandle evt, SendSerialPortMsg sendSerialPortMsg)
@@ -1506,10 +1491,9 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"串口发送超时配置无效:{sendSerialPortMsg.ID}";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
-            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+            if (evt.CancellationToken.IsCancellationRequested)
             {
                 return true;
             }
@@ -1517,19 +1501,18 @@ namespace Automation
             Task completed = Task.WhenAny(sendTask, Task.Delay(sendSerialPortMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
             if (!ReferenceEquals(completed, sendTask))
             {
-                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return true;
                 }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"串口发送超时:{sendSerialPortMsg.ID}";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             bool success = sendTask.GetAwaiter().GetResult();
             if (!success)
             {
-                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return true;
                 }
@@ -1551,7 +1534,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"串口接收超时配置无效:{receoveSerialPortMsg.ID}";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             Context.Comm.ClearSerialMessages(receoveSerialPortMsg.ID);
@@ -1569,13 +1551,12 @@ namespace Automation
                 }
                 return true;
             }
-            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+            if (evt.CancellationToken.IsCancellationRequested)
             {
                 return true;
             }
             evt.isAlarm = true;
             evt.alarmMsg = $"串口接收超时:{receoveSerialPortMsg.ID}";
-            evt.isThStop = true;
             throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
         }
 
@@ -1591,10 +1572,9 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"通讯超时配置无效:{sendReceoveCommMsg.ID}";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
-            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+            if (evt.CancellationToken.IsCancellationRequested)
             {
                 return true;
             }
@@ -1615,19 +1595,18 @@ namespace Automation
                 Task completed = Task.WhenAny(sendTask, Task.Delay(sendReceoveCommMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
                 if (!ReferenceEquals(completed, sendTask))
                 {
-                    if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                    if (evt.CancellationToken.IsCancellationRequested)
                     {
                         return true;
                     }
                     evt.isAlarm = true;
                     evt.alarmMsg = $"TCP发送超时:{sendReceoveCommMsg.ID}";
-                    evt.isThStop = true;
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 bool sendSuccess = sendTask.GetAwaiter().GetResult();
                 if (!sendSuccess)
                 {
-                    if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                    if (evt.CancellationToken.IsCancellationRequested)
                     {
                         return true;
                     }
@@ -1653,13 +1632,12 @@ namespace Automation
                     }
                     return true;
                 }
-                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return true;
                 }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"TCP接收超时:{sendReceoveCommMsg.ID}";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
@@ -1678,19 +1656,18 @@ namespace Automation
                 Task completed = Task.WhenAny(sendTask, Task.Delay(sendReceoveCommMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
                 if (!ReferenceEquals(completed, sendTask))
                 {
-                    if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                    if (evt.CancellationToken.IsCancellationRequested)
                     {
                         return true;
                     }
                     evt.isAlarm = true;
                     evt.alarmMsg = $"串口发送超时:{sendReceoveCommMsg.ID}";
-                    evt.isThStop = true;
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 bool sendSuccess = sendTask.GetAwaiter().GetResult();
                 if (!sendSuccess)
                 {
-                    if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                    if (evt.CancellationToken.IsCancellationRequested)
                     {
                         return true;
                     }
@@ -1716,13 +1693,12 @@ namespace Automation
                     }
                     return true;
                 }
-                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return true;
                 }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"串口接收超时:{sendReceoveCommMsg.ID}";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
 
@@ -1764,12 +1740,10 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"等待串口连接超时配置无效:{op.Name}";
-                    evt.isThStop = true;
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
                 Stopwatch stopwatch = Stopwatch.StartNew();
-                while (!evt.isThStop
-                    && !evt.CancellationToken.IsCancellationRequested
+                while (!evt.CancellationToken.IsCancellationRequested
                     && stopwatch.ElapsedMilliseconds < op.TimeOut)
                 {
                     if (Context.Comm.IsSerialOpen(op.Name))
@@ -1778,13 +1752,12 @@ namespace Automation
                     }
                     Delay(5, evt);
                 }
-                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return true;
                 }
                 evt.isAlarm = true;
                 evt.alarmMsg = $"等待串口连接超时:{op.Name}";
-                evt.isThStop = true;
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
             return true;
@@ -1797,7 +1770,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "工站列表为空";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
@@ -1807,7 +1779,6 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = $"工站索引无效:{homeRun.StationIndex}";
-                    evt.isThStop = true;
                     Logger?.Log(evt.alarmMsg, LogLevel.Error);
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
@@ -1821,7 +1792,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"找不到工站:{homeRun.StationName}";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
@@ -1831,7 +1801,7 @@ namespace Automation
                 {
                     Task task = Task.Run(() =>
                     {
-                        if (evt.CancellationToken.IsCancellationRequested || evt.isThStop)
+                        if (evt.CancellationToken.IsCancellationRequested)
                         {
                             return;
                         }
@@ -1846,7 +1816,7 @@ namespace Automation
                     {
                         Stopwatch stopwatch = Stopwatch.StartNew();
                         bool isInPos = false;
-                        while (evt.isThStop == false
+                        while (evt.CancellationToken.IsCancellationRequested == false
                             && !evt.CancellationToken.IsCancellationRequested
                             && station.GetState() == DataStation.Status.Run)
                         {
@@ -1854,7 +1824,6 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = homeRun.Name + "运动超时";
-                                evt.isThStop = true;
                                 Logger?.Log(homeRun.Name + "运动超时！", LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
@@ -1900,7 +1869,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"找不到工站:{stationRunPos.StationName}";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
@@ -1918,7 +1886,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"工站点位不存在:{stationRunPos.PosName}";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 station.SetState(DataStation.Status.NotReady);
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
@@ -1945,7 +1912,6 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"工站：{stationRunPos.Name} {cardNum}号卡{axisNum}号轴配置不存在";
-                                evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
@@ -2010,13 +1976,12 @@ namespace Automation
                         {
                             evt.isAlarm = true;
                             evt.alarmMsg = $"{stationRunPos.Name}超时配置无效";
-                            evt.isThStop = true;
                             Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
                             throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                         }
 
-                        while (evt.isThStop == false
+                        while (evt.CancellationToken.IsCancellationRequested == false
                             && !evt.CancellationToken.IsCancellationRequested
                             && cardNums.Count != 0
                             && station.GetState() == DataStation.Status.Run)
@@ -2025,7 +1990,6 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = stationRunPos.Name + "运动超时";
-                                evt.isThStop = true;
                                 Logger?.Log(stationRunPos.Name + "运动超时！", LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
@@ -2054,7 +2018,6 @@ namespace Automation
                                 {
                                     evt.isAlarm = true;
                                     evt.alarmMsg = $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
-                                    evt.isThStop = true;
                                     Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                                 }
@@ -2062,7 +2025,6 @@ namespace Automation
                                 {
                                     evt.isAlarm = true;
                                     evt.alarmMsg = $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位";
-                                    evt.isThStop = true;
                                     Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                                 }
@@ -2089,7 +2051,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"找不到工站:{stationRunRel.StationName}";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
@@ -2117,7 +2078,6 @@ namespace Automation
                         {
                             evt.isAlarm = true;
                             evt.alarmMsg = $"工站：{stationRunRel.Name} {cardNum}号卡{axisNum}号轴配置不存在";
-                            evt.isThStop = true;
                             Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
                             throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
@@ -2169,12 +2129,11 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"{stationRunRel.Name}超时配置无效";
-                        evt.isThStop = true;
                         Logger?.Log(evt.alarmMsg, LogLevel.Error);
                         station.SetState(DataStation.Status.NotReady);
                         throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
-                    while (evt.isThStop == false
+                    while (evt.CancellationToken.IsCancellationRequested == false
                         && !evt.CancellationToken.IsCancellationRequested
                         && station.GetState() == DataStation.Status.Run)
                     {
@@ -2182,7 +2141,6 @@ namespace Automation
                         {
                             evt.isAlarm = true;
                             evt.alarmMsg = stationRunRel.Name + "运动超时";
-                            evt.isThStop = true;
                             Logger?.Log(stationRunRel.Name + "运动超时！", LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
                             throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
@@ -2211,7 +2169,6 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
-                                evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                             }
@@ -2219,7 +2176,6 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位";
-                                evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                             }
@@ -2246,7 +2202,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"找不到工站:{setStationVel.StationName}";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
@@ -2271,7 +2226,6 @@ namespace Automation
                             {
                                 evt.isAlarm = true;
                                 evt.alarmMsg = $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在";
-                                evt.isThStop = true;
                                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                             }
@@ -2288,7 +2242,6 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"工站：{setStationVel.StationName} 轴配置不存在";
-                        evt.isThStop = true;
                         Logger?.Log(evt.alarmMsg, LogLevel.Error);
                         throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
@@ -2298,7 +2251,6 @@ namespace Automation
                     {
                         evt.isAlarm = true;
                         evt.alarmMsg = $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在";
-                        evt.isThStop = true;
                         Logger?.Log(evt.alarmMsg, LogLevel.Error);
                         throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                     }
@@ -2316,7 +2268,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"找不到工站:{stationStop.StationName}";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
@@ -2354,7 +2305,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"找不到工站:{waitStationStop.StationName}";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
@@ -2384,11 +2334,10 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"{waitStationStop.Name}超时配置无效";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
             }
-            while (evt.isThStop == false
+            while (evt.CancellationToken.IsCancellationRequested == false
                 && !evt.CancellationToken.IsCancellationRequested
                 && station.GetState() == DataStation.Status.Run)
             {
@@ -2398,7 +2347,6 @@ namespace Automation
                 {
                     evt.isAlarm = true;
                     evt.alarmMsg = waitStationStop.Name + "等待超时";
-                    evt.isThStop = true;
                     Logger?.Log(waitStationStop.Name + "等待超时！", LogLevel.Error);
                     throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                 }
@@ -2410,7 +2358,6 @@ namespace Automation
                         {
                             evt.isAlarm = true;
                             evt.alarmMsg = $"工站：{waitStationStop.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在";
-                            evt.isThStop = true;
                             Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
                         }
@@ -2478,7 +2425,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"工站索引无效:{dataStationIndex}";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 return;
             }
@@ -2486,13 +2432,13 @@ namespace Automation
             List<AxisName> seq = station.homeSeq.axisSeq;
             for (int i = 0; i < 6; i++)
             {
-                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return;
                 }
                 foreach (var item in station.dataAxis.axisConfigs)
                 {
-                    if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                    if (evt.CancellationToken.IsCancellationRequested)
                     {
                         return;
                     }
@@ -2503,7 +2449,6 @@ namespace Automation
                         {
                             evt.isAlarm = true;
                             evt.alarmMsg = $"卡{item.CardNum}轴{i}配置不存在，工站回零动作终止。";
-                            evt.isThStop = true;
                             Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             return;
                         }
@@ -2512,7 +2457,6 @@ namespace Automation
                         {
                             evt.isAlarm = true;
                             evt.alarmMsg = $"卡{item.CardNum}轴{i}回零失败,工站回零动作终止。";
-                            evt.isThStop = true;
                             Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             return;
                         }
@@ -2530,7 +2474,7 @@ namespace Automation
                 {
                     Task task = Task.Run(() =>
                     {
-                        if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                        if (evt.CancellationToken.IsCancellationRequested)
                         {
                             return;
                         }
@@ -2548,14 +2492,13 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"工站索引无效:{dataStationIndex}";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 return;
             }
             DataStation station = Context.Stations[dataStationIndex];
             for (int j = 0; j < station.dataAxis.axisConfigs.Count; j++)
             {
-                if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return;
                 }
@@ -2564,7 +2507,7 @@ namespace Automation
                 {
                     Task task = Task.Run(() =>
                     {
-                        if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+                        if (evt.CancellationToken.IsCancellationRequested)
                         {
                             return;
                         }
@@ -2582,11 +2525,10 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = "运动控制未初始化";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 return;
             }
-            if (evt.isThStop || evt.CancellationToken.IsCancellationRequested)
+            if (evt.CancellationToken.IsCancellationRequested)
             {
                 return;
             }
@@ -2594,7 +2536,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"轴未到位，禁止回零:{cardNum}-{axis}";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 return;
             }
@@ -2603,7 +2544,6 @@ namespace Automation
             {
                 evt.isAlarm = true;
                 evt.alarmMsg = $"轴配置不存在:{cardNum}-{axis}";
-                evt.isThStop = true;
                 Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 return;
             }
@@ -2622,7 +2562,6 @@ namespace Automation
             int IOindexTemp = IOindex == 2 ? 3 : 2;
 
             while (axisInfo.State == Axis.Status.Run
-                && !evt.isThStop
                 && !evt.CancellationToken.IsCancellationRequested)
             {
                 switch (sfc)
@@ -2653,7 +2592,6 @@ namespace Automation
                                 Logger?.Log("限位方向错误，回零失败。", LogLevel.Error);
                                 evt.isAlarm = true;
                                 evt.alarmMsg = "限位方向错误，回零失败。";
-                                evt.isThStop = true;
                                 axisInfo.State = Axis.Status.NotReady;
                                 return;
                             }
@@ -2696,7 +2634,6 @@ namespace Automation
                                 Logger?.Log("限位方向错误，回零失败。", LogLevel.Error);
                                 evt.isAlarm = true;
                                 evt.alarmMsg = "限位方向错误，回零失败。";
-                                evt.isThStop = true;
                                 axisInfo.State = Axis.Status.NotReady;
                                 sfc = 0;
                                 return;
