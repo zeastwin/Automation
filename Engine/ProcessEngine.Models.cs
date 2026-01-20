@@ -61,7 +61,6 @@ namespace Automation
     }
     public enum EngineCommandType
     {
-        Start = 0,
         StartAt = 1,
         RunSingleOpOnce = 2,
         Pause = 3,
@@ -153,6 +152,16 @@ namespace Automation
         public string AlarmMessage { get; }
         public DateTime UpdateTime { get; }
         public long UpdateTicks { get; }
+    }
+
+    public enum AlarmTypeKind
+    {
+        Stop = 0,
+        Ignore = 1,
+        AutoHandle = 2,
+        Confirm = 3,
+        ConfirmYesNo = 4,
+        ConfirmYesNoCancel = 5
     }
 
     public enum AlarmDecision

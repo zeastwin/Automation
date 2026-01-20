@@ -646,17 +646,50 @@ namespace Automation
             {
                 return AlarmDecision.Stop;
             }
+            AlarmTypeKind alarmTypeKind;
             switch (operation.AlarmType)
             {
                 case "报警停止":
-                    return AlarmDecision.Stop;
+                    alarmTypeKind = AlarmTypeKind.Stop;
+                    break;
                 case "报警忽略":
-                    return AlarmDecision.Ignore;
+                    alarmTypeKind = AlarmTypeKind.Ignore;
+                    break;
                 case "自动处理":
-                    return AlarmDecision.Goto1;
+                    alarmTypeKind = AlarmTypeKind.AutoHandle;
+                    break;
                 case "弹框确定":
+                    alarmTypeKind = AlarmTypeKind.Confirm;
+                    break;
                 case "弹框确定与否":
+                    alarmTypeKind = AlarmTypeKind.ConfirmYesNo;
+                    break;
                 case "弹框确定与否与取消":
+                    alarmTypeKind = AlarmTypeKind.ConfirmYesNoCancel;
+                    break;
+                default:
+                    string invalidType = string.IsNullOrWhiteSpace(operation.AlarmType) ? "<空>" : operation.AlarmType;
+                    string invalidMessage = $"报警类型无效:{invalidType}";
+                    if (evt != null)
+                    {
+                        evt.isAlarm = true;
+                        evt.alarmMsg = string.IsNullOrWhiteSpace(evt.alarmMsg) ? invalidMessage : $"{evt.alarmMsg}; {invalidMessage}";
+                    }
+                    Logger?.Log(invalidMessage, LogLevel.Error);
+                    return AlarmDecision.Stop;
+            }
+
+            switch (alarmTypeKind)
+            {
+                case AlarmTypeKind.Stop:
+                    return AlarmDecision.Stop;
+                case AlarmTypeKind.Ignore:
+                    return AlarmDecision.Ignore;
+                case AlarmTypeKind.AutoHandle:
+                    return AlarmDecision.Goto1;
+                case AlarmTypeKind.Confirm:
+                case AlarmTypeKind.ConfirmYesNo:
+                case AlarmTypeKind.ConfirmYesNoCancel:
                     return RequestAlarmDecision(operation, evt);
                 default:
                     return AlarmDecision.Stop;
@@ -843,8 +876,7 @@ namespace Automation
             lock (queueLock)
             {
                 command.Generation = Volatile.Read(ref generation);
-                if (command.Type == EngineCommandType.Start
-                    || command.Type == EngineCommandType.StartAt
+                if (command.Type == EngineCommandType.StartAt
                     || command.Type == EngineCommandType.RunSingleOpOnce)
                 {
                     ClearQueue();
@@ -937,7 +969,6 @@ namespace Automation
             }
             switch (command.Type)
             {
-                case EngineCommandType.Start:
                 case EngineCommandType.StartAt:
                 case EngineCommandType.RunSingleOpOnce:
                     StartInternal(command);
