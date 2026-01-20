@@ -1152,7 +1152,9 @@ namespace Automation
             {
                 runHandle.isAlarm = true;
                 runHandle.alarmMsg = ex.Message;
+                runHandle.isThStop = true;
                 runHandle.State = ProcRunState.Stopped;
+                runControl?.RequestStop();
                 engine.UpdateSnapshot(runHandle.procNum, runHandle.procName, runHandle.State, runHandle.stepNum, runHandle.opsNum,
                     runHandle.isBreakpoint, runHandle.isAlarm, runHandle.alarmMsg, true);
                 engine.Logger?.Log(ex.Message, LogLevel.Error);

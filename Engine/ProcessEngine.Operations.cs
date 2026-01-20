@@ -28,12 +28,20 @@ namespace Automation
     {
         public bool ExecuteOperation(ProcHandle evt, object operation)
         {
+            if (operation == null)
+            {
+                string message = "操作为空";
+                if (evt != null)
+                {
+                    evt.isAlarm = true;
+                    evt.alarmMsg = message;
+                    evt.isThStop = true;
+                }
+                Logger?.Log(message, LogLevel.Error);
+                return false;
+            }
             try
             {
-                if (operation == null)
-                {
-                    throw new ArgumentNullException(nameof(operation), "操作为空");
-                }
                 switch (operation)
                 {
                     case CallCustomFunc customFunc:
@@ -142,7 +150,17 @@ namespace Automation
                         return RunWaitStationStop(evt, waitStationStop);
 
                     default:
-                        throw new NotSupportedException($"操作类型不支持:{operation.GetType().Name}");
+                        {
+                            string message = $"操作类型不支持:{operation.GetType().Name}";
+                            if (evt != null)
+                            {
+                                evt.isAlarm = true;
+                                evt.alarmMsg = message;
+                                evt.isThStop = true;
+                            }
+                            Logger?.Log(message, LogLevel.Error);
+                            return false;
+                        }
                 }
             }
             catch (Exception ex)
