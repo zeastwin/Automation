@@ -53,9 +53,8 @@ namespace Automation
                 {
                     if (!Context.ValueStore.setValueByIndex(int.Parse(item.ValueSaveIndex), value))
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = $"保存变量失败:索引{item.ValueSaveIndex}";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        MarkAlarm(evt, $"保存变量失败:索引{item.ValueSaveIndex}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveIndex2Index))
@@ -63,18 +62,16 @@ namespace Automation
                     string index = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueSaveIndex2Index)).Value.ToString();
                     if (!Context.ValueStore.setValueByIndex(int.Parse(index), value))
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = $"保存变量失败:索引{index}";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        MarkAlarm(evt, $"保存变量失败:索引{index}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveName))
                 {
                     if (!Context.ValueStore.setValueByName(item.ValueSaveName, value))
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = $"保存变量失败:{item.ValueSaveName}";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        MarkAlarm(evt, $"保存变量失败:{item.ValueSaveName}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                 }
                 else if (!string.IsNullOrEmpty(item.ValueSaveName2Index))
@@ -82,9 +79,8 @@ namespace Automation
                     string index = Context.ValueStore.GetValueByName(item.ValueSaveName2Index).Value.ToString();
                     if (!Context.ValueStore.setValueByIndex(int.Parse(index), value))
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = $"保存变量失败:索引{index}";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        MarkAlarm(evt, $"保存变量失败:索引{index}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                 }
                 
@@ -126,9 +122,8 @@ namespace Automation
             }
             if (string.IsNullOrEmpty(sourceValue))
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "找不到源变量";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, "找不到源变量");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
             //==============================================GetChangeValue=====================================//
@@ -167,9 +162,8 @@ namespace Automation
             }
             if (string.IsNullOrEmpty(changeValue))
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "找不到修改变量";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, "找不到修改变量");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
             bool needNumeric = ops.ModifyType == "叠加"
@@ -181,16 +175,14 @@ namespace Automation
             {
                 if (sourceItem != null && !string.Equals(sourceItem.Type, "double", StringComparison.OrdinalIgnoreCase))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"变量类型不匹配:{sourceItem.Name}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"变量类型不匹配:{sourceItem.Name}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 if (ops.ModifyType != "绝对值" && changeItem != null
                     && !string.Equals(changeItem.Type, "double", StringComparison.OrdinalIgnoreCase))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"变量类型不匹配:{changeItem.Name}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"变量类型不匹配:{changeItem.Name}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
 
@@ -221,9 +213,8 @@ namespace Automation
             if (needNumeric && outputItem != null
                 && !string.Equals(outputItem.Type, "double", StringComparison.OrdinalIgnoreCase))
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = $"变量类型不匹配:{outputItem.Name}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"变量类型不匹配:{outputItem.Name}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
             string CalculateOutput(string sourceText, string changeText)
@@ -279,9 +270,8 @@ namespace Automation
                     return CalculateOutput(actualSource, actualChange);
                 }, out string modifyError))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = string.IsNullOrWhiteSpace(modifyError) ? "保存变量失败" : modifyError;
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, string.IsNullOrWhiteSpace(modifyError) ? "保存变量失败" : modifyError);
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 return true;
             }
@@ -291,11 +281,10 @@ namespace Automation
             {
                 if (!Context.ValueStore.setValueByIndex(outputIndex, output))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = string.IsNullOrEmpty(outputItem?.Name)
+                    MarkAlarm(evt, string.IsNullOrEmpty(outputItem?.Name)
                         ? $"保存变量失败:索引{outputIndex}"
-                        : $"保存变量失败:{outputItem.Name}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        : $"保存变量失败:{outputItem.Name}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 return true;
             }
@@ -305,9 +294,8 @@ namespace Automation
             {
                 if (!Context.ValueStore.setValueByName(ops.OutputValueName, output))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"保存变量失败:{ops.OutputValueName}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"保存变量失败:{ops.OutputValueName}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
             else if (!string.IsNullOrEmpty(ops.OutputValueName2Index))
@@ -315,9 +303,8 @@ namespace Automation
                 string index = Context.ValueStore.GetValueByName(ops.OutputValueName2Index).Value.ToString();
                 if (!Context.ValueStore.setValueByIndex(int.Parse(index), output))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"保存变量失败:索引{index}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"保存变量失败:索引{index}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
             return true;

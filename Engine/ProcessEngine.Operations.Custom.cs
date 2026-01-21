@@ -32,17 +32,15 @@ namespace Automation
 
             if (Context.CustomFunc == null)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "自定义函数未初始化";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, "自定义函数未初始化");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
             bool success = Context.CustomFunc.RunFunc(funcName);
             if (!success)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = $"找不到自定义函数:{funcName}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"找不到自定义函数:{funcName}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             return true;
         }

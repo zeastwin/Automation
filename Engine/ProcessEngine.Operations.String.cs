@@ -49,27 +49,24 @@ namespace Automation
                 {
                     if (!Context.ValueStore.setValueByIndex(int.Parse(stringFormat.OutputValueIndex), formattedStr))
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = $"格式化结果保存失败:索引{stringFormat.OutputValueIndex}";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        MarkAlarm(evt, $"格式化结果保存失败:索引{stringFormat.OutputValueIndex}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                 }
                 else if (!string.IsNullOrEmpty(stringFormat.OutputValueName))
                 {
                     if (!Context.ValueStore.setValueByName(stringFormat.OutputValueName, formattedStr))
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = $"格式化结果保存失败:{stringFormat.OutputValueName}";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        MarkAlarm(evt, $"格式化结果保存失败:{stringFormat.OutputValueName}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                 }
                
             }
             catch (Exception ex)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = ex.Message;
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, ex.Message);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             return true;
 
@@ -109,9 +106,8 @@ namespace Automation
             {
                 if (!Context.ValueStore.setValueByIndex(i, splitArray[Startindex + i - SaveIndex]))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"保存变量失败:索引{i}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"保存变量失败:索引{i}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
             return true;
@@ -128,9 +124,8 @@ namespace Automation
             }
             if (SourceValue == "")
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "找不到源变量";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, "找不到源变量");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
         
             string replaceStr = "";
@@ -146,9 +141,8 @@ namespace Automation
             }
             if (replaceStr == "")
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "找不到被替换字符";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, "找不到被替换字符");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
             string newStr = "";
@@ -164,9 +158,8 @@ namespace Automation
             }
             if (newStr == "")
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "找不到新字符";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, "找不到新字符");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
             string str = "";
@@ -187,25 +180,22 @@ namespace Automation
             {
                 if (!Context.ValueStore.setValueByIndex(int.Parse(replace.OutputIndex),str))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"保存变量失败:索引{replace.OutputIndex}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"保存变量失败:索引{replace.OutputIndex}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
             else if (!string.IsNullOrEmpty(replace.Output))
             {
                 if (!Context.ValueStore.setValueByName(replace.Output, str))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"保存变量失败:{replace.Output}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"保存变量失败:{replace.Output}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
             else
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "找不到保存变量";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, "找不到保存变量");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             return true;
 

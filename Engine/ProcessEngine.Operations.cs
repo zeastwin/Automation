@@ -31,11 +31,7 @@ namespace Automation
             if (operation == null)
             {
                 string message = "操作为空";
-                if (evt != null)
-                {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = message;
-                }
+                MarkAlarm(evt, message);
                 Logger?.Log(message, LogLevel.Error);
                 return false;
             }
@@ -151,11 +147,7 @@ namespace Automation
                     default:
                         {
                             string message = $"操作类型不支持:{operation.GetType().Name}";
-                            if (evt != null)
-                            {
-                                evt.isAlarm = true;
-                                evt.alarmMsg = message;
-                            }
+                            MarkAlarm(evt, message);
                             Logger?.Log(message, LogLevel.Error);
                             return false;
                         }
@@ -163,11 +155,7 @@ namespace Automation
             }
             catch (Exception ex)
             {
-                if (evt != null)
-                {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = ex.Message;
-                }
+                MarkAlarm(evt, ex.Message);
                 Logger?.Log(ex.Message, LogLevel.Error);
                 return false;
             }

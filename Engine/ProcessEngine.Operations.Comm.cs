@@ -33,9 +33,8 @@ namespace Automation
                 SocketInfo socketInfo = Context.SocketInfos.FirstOrDefault(sc => sc.Name == op.Name);
                 if (socketInfo == null)
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"TCP配置不存在:{op.Name}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"TCP配置不存在:{op.Name}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 if (op.Ops == "启动")
                 {
@@ -58,18 +57,16 @@ namespace Automation
             {
                 if (op.TimeOut <= 0)
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"等待TCP连接超时配置无效:{op.Name}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"等待TCP连接超时配置无效:{op.Name}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 Stopwatch stopwatch = Stopwatch.StartNew();
                 while (!evt.CancellationToken.IsCancellationRequested)
                 {
                     if (stopwatch.ElapsedMilliseconds > op.TimeOut)
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = $"等待TCP连接超时:{op.Name}";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        MarkAlarm(evt, $"等待TCP连接超时:{op.Name}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     if (Context.Comm.IsTcpActive(op.Name))
                     {
@@ -89,9 +86,8 @@ namespace Automation
         {
             if (sendTcpMsg.TimeOut <= 0)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = $"TCP发送超时配置无效:{sendTcpMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"TCP发送超时配置无效:{sendTcpMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (evt.CancellationToken.IsCancellationRequested)
             {
@@ -105,9 +101,8 @@ namespace Automation
                 {
                     return true;
                 }
-                evt.isAlarm = true;
-                evt.alarmMsg = $"TCP发送超时:{sendTcpMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"TCP发送超时:{sendTcpMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             bool success = sendTask.GetAwaiter().GetResult();
             if (!success)
@@ -116,9 +111,8 @@ namespace Automation
                 {
                     return true;
                 }
-                evt.isAlarm = true;
-                evt.alarmMsg = $"TCP发送失败:{sendTcpMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"TCP发送失败:{sendTcpMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             return true;
         }
@@ -127,15 +121,13 @@ namespace Automation
         {
             if (!Context.Comm.IsTcpActive(receoveTcpMsg.ID))
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = $"TCP未连接:{receoveTcpMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"TCP未连接:{receoveTcpMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (receoveTcpMsg.TImeOut <= 0)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = $"TCP接收超时配置无效:{receoveTcpMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"TCP接收超时配置无效:{receoveTcpMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             Context.Comm.ClearTcpMessages(receoveTcpMsg.ID);
             if (Context.Comm.TryReceiveTcp(receoveTcpMsg.ID, receoveTcpMsg.TImeOut, evt.CancellationToken, out string msg))
@@ -146,9 +138,8 @@ namespace Automation
                 }
                 if (!Context.ValueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"保存TCP接收变量失败:{receoveTcpMsg.MsgSaveValue}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"保存TCP接收变量失败:{receoveTcpMsg.MsgSaveValue}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 return true;
             }
@@ -156,17 +147,15 @@ namespace Automation
             {
                 return true;
             }
-            evt.isAlarm = true;
-            evt.alarmMsg = $"TCP接收超时:{receoveTcpMsg.ID}";
-            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            MarkAlarm(evt, $"TCP接收超时:{receoveTcpMsg.ID}");
+            throw CreateAlarmException(evt, evt?.alarmMsg);
         }
         public bool RunSendSerialPortMsg(ProcHandle evt, SendSerialPortMsg sendSerialPortMsg)
         {
             if (sendSerialPortMsg.TimeOut <= 0)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = $"串口发送超时配置无效:{sendSerialPortMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"串口发送超时配置无效:{sendSerialPortMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (evt.CancellationToken.IsCancellationRequested)
             {
@@ -180,9 +169,8 @@ namespace Automation
                 {
                     return true;
                 }
-                evt.isAlarm = true;
-                evt.alarmMsg = $"串口发送超时:{sendSerialPortMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"串口发送超时:{sendSerialPortMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             bool success = sendTask.GetAwaiter().GetResult();
             if (!success)
@@ -191,9 +179,8 @@ namespace Automation
                 {
                     return true;
                 }
-                evt.isAlarm = true;
-                evt.alarmMsg = $"串口发送失败:{sendSerialPortMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"串口发送失败:{sendSerialPortMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             return true;
         }
@@ -201,15 +188,13 @@ namespace Automation
         {
             if (!Context.Comm.IsSerialOpen(receoveSerialPortMsg.ID))
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = $"串口未打开:{receoveSerialPortMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"串口未打开:{receoveSerialPortMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (receoveSerialPortMsg.TImeOut <= 0)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = $"串口接收超时配置无效:{receoveSerialPortMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"串口接收超时配置无效:{receoveSerialPortMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             Context.Comm.ClearSerialMessages(receoveSerialPortMsg.ID);
             if (Context.Comm.TryReceiveSerial(receoveSerialPortMsg.ID, receoveSerialPortMsg.TImeOut, evt.CancellationToken, out string msg))
@@ -220,9 +205,8 @@ namespace Automation
                 }
                 if (!Context.ValueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"保存串口接收变量失败:{receoveSerialPortMsg.MsgSaveValue}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"保存串口接收变量失败:{receoveSerialPortMsg.MsgSaveValue}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 return true;
             }
@@ -230,24 +214,21 @@ namespace Automation
             {
                 return true;
             }
-            evt.isAlarm = true;
-            evt.alarmMsg = $"串口接收超时:{receoveSerialPortMsg.ID}";
-            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            MarkAlarm(evt, $"串口接收超时:{receoveSerialPortMsg.ID}");
+            throw CreateAlarmException(evt, evt?.alarmMsg);
         }
 
         public bool RunSendReceoveCommMsg(ProcHandle evt, SendReceoveCommMsg sendReceoveCommMsg)
         {
             if (sendReceoveCommMsg == null || Context.Comm == null || string.IsNullOrEmpty(sendReceoveCommMsg.ID))
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "通讯参数无效";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, "通讯参数无效");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (sendReceoveCommMsg.TimeOut <= 0)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = $"通讯超时配置无效:{sendReceoveCommMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"通讯超时配置无效:{sendReceoveCommMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (evt.CancellationToken.IsCancellationRequested)
             {
@@ -261,9 +242,8 @@ namespace Automation
             {
                 if (!Context.Comm.IsTcpActive(sendReceoveCommMsg.ID))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"TCP未连接:{sendReceoveCommMsg.ID}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"TCP未连接:{sendReceoveCommMsg.ID}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 Context.Comm.ClearTcpMessages(sendReceoveCommMsg.ID);
                 Task<bool> sendTask = Context.Comm.SendTcpAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert, evt.CancellationToken);
@@ -274,9 +254,8 @@ namespace Automation
                     {
                         return true;
                     }
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"TCP发送超时:{sendReceoveCommMsg.ID}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"TCP发送超时:{sendReceoveCommMsg.ID}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 bool sendSuccess = sendTask.GetAwaiter().GetResult();
                 if (!sendSuccess)
@@ -285,9 +264,8 @@ namespace Automation
                     {
                         return true;
                     }
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"TCP发送失败:{sendReceoveCommMsg.ID}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"TCP发送失败:{sendReceoveCommMsg.ID}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
 
                 if (Context.Comm.TryReceiveTcp(sendReceoveCommMsg.ID, sendReceoveCommMsg.TimeOut, evt.CancellationToken, out string msg))
@@ -300,9 +278,8 @@ namespace Automation
                     {
                         if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
                         {
-                            evt.isAlarm = true;
-                            evt.alarmMsg = $"保存TCP接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
-                            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                            MarkAlarm(evt, $"保存TCP接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}");
+                            throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
                     }
                     return true;
@@ -311,9 +288,8 @@ namespace Automation
                 {
                     return true;
                 }
-                evt.isAlarm = true;
-                evt.alarmMsg = $"TCP接收超时:{sendReceoveCommMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"TCP接收超时:{sendReceoveCommMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
             if (string.Equals(commType, "串口", StringComparison.OrdinalIgnoreCase) ||
@@ -322,9 +298,8 @@ namespace Automation
             {
                 if (!Context.Comm.IsSerialOpen(sendReceoveCommMsg.ID))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"串口未打开:{sendReceoveCommMsg.ID}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"串口未打开:{sendReceoveCommMsg.ID}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 Context.Comm.ClearSerialMessages(sendReceoveCommMsg.ID);
                 Task<bool> sendTask = Context.Comm.SendSerialAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert, evt.CancellationToken);
@@ -335,9 +310,8 @@ namespace Automation
                     {
                         return true;
                     }
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"串口发送超时:{sendReceoveCommMsg.ID}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"串口发送超时:{sendReceoveCommMsg.ID}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 bool sendSuccess = sendTask.GetAwaiter().GetResult();
                 if (!sendSuccess)
@@ -346,9 +320,8 @@ namespace Automation
                     {
                         return true;
                     }
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"串口发送失败:{sendReceoveCommMsg.ID}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"串口发送失败:{sendReceoveCommMsg.ID}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
 
                 if (Context.Comm.TryReceiveSerial(sendReceoveCommMsg.ID, sendReceoveCommMsg.TimeOut, evt.CancellationToken, out string msg))
@@ -361,9 +334,8 @@ namespace Automation
                     {
                         if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
                         {
-                            evt.isAlarm = true;
-                            evt.alarmMsg = $"保存串口接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}";
-                            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                            MarkAlarm(evt, $"保存串口接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}");
+                            throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
                     }
                     return true;
@@ -372,14 +344,12 @@ namespace Automation
                 {
                     return true;
                 }
-                evt.isAlarm = true;
-                evt.alarmMsg = $"串口接收超时:{sendReceoveCommMsg.ID}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"串口接收超时:{sendReceoveCommMsg.ID}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
-            evt.isAlarm = true;
-            evt.alarmMsg = $"通讯类型不支持:{sendReceoveCommMsg.CommType}";
-            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            MarkAlarm(evt, $"通讯类型不支持:{sendReceoveCommMsg.CommType}");
+            throw CreateAlarmException(evt, evt?.alarmMsg);
         }
 
         public bool RunSerialPortOps(ProcHandle evt, SerialPortOps serialPortOps)
@@ -389,9 +359,8 @@ namespace Automation
                 SerialPortInfo serialPortInfo = Context.SerialPortInfos.FirstOrDefault(sc => sc.Name == op.Name);
                 if (serialPortInfo == null)
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"串口配置不存在:{op.Name}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"串口配置不存在:{op.Name}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 if (op.Ops == "启动")
                 {
@@ -413,9 +382,8 @@ namespace Automation
             {
                 if (op.TimeOut <= 0)
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"等待串口连接超时配置无效:{op.Name}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"等待串口连接超时配置无效:{op.Name}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 Stopwatch stopwatch = Stopwatch.StartNew();
                 while (!evt.CancellationToken.IsCancellationRequested
@@ -431,9 +399,8 @@ namespace Automation
                 {
                     return true;
                 }
-                evt.isAlarm = true;
-                evt.alarmMsg = $"等待串口连接超时:{op.Name}";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, $"等待串口连接超时:{op.Name}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             return true;
         }

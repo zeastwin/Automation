@@ -40,9 +40,8 @@ namespace Automation
                 }
                 if(proc == null)
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = "找不到流程";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, "找不到流程");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 if (procParam.value == "运行")
                 {
@@ -50,9 +49,8 @@ namespace Automation
                     ProcRunState targetState = GetProcState(index);
                     if (targetState != ProcRunState.Stopped)
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = $"流程未停止:{proc?.head?.Name}";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        MarkAlarm(evt, $"流程未停止:{proc?.head?.Name}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     StartProcAuto(proc, index);
                 }
@@ -62,9 +60,8 @@ namespace Automation
                     ProcRunState targetState = GetProcState(index);
                     if (targetState == ProcRunState.Stopped)
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = $"流程已停止:{proc?.head?.Name}";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        MarkAlarm(evt, $"流程已停止:{proc?.head?.Name}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     Stop(index);
                 }
@@ -83,9 +80,8 @@ namespace Automation
             }
             if (timeOut <= 0)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "等待流程超时配置无效";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, "等待流程超时配置无效");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             int DelayAfter;
             DelayAfter = waitProc.delayAfter;
@@ -99,9 +95,8 @@ namespace Automation
             {
                 if (stopwatch.ElapsedMilliseconds > timeOut)
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = "等待超时";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, "等待超时");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 bool isWaitOff = true;
 
@@ -116,9 +111,8 @@ namespace Automation
                     }
                     if (proc == null)
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = "找不到流程";
-                        throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                        MarkAlarm(evt, "找不到流程");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     int index = Context.Procs.IndexOf(proc);
                     if (procParam.value == "运行")
@@ -170,9 +164,8 @@ namespace Automation
                 }
                 if(value == "")
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = "匹配不到变量";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, "匹配不到变量");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 foreach (var item in gotoParam.Params)
                 {
@@ -191,9 +184,8 @@ namespace Automation
                     {
                         if (!TryExecuteGoto(item.Goto, evt, out string gotoError))
                         {
-                            evt.isAlarm = true;
-                            evt.alarmMsg = gotoError;
-                            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                            MarkAlarm(evt, gotoError);
+                            throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
                         evt.isGoto = true;
                         return true;
@@ -204,16 +196,14 @@ namespace Automation
             {
                 if (!TryExecuteGoto(gotoParam.DefaultGoto, evt, out string defaultGotoError))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = defaultGotoError;
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, defaultGotoError);
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 evt.isGoto = true;
                 return true;
             }
-            evt.isAlarm = true;
-            evt.alarmMsg = "跳转失败：未匹配到跳转条件且默认跳转为空";
-            throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+            MarkAlarm(evt, "跳转失败：未匹配到跳转条件且默认跳转为空");
+            throw CreateAlarmException(evt, evt?.alarmMsg);
         }
         public bool RunParamGoto(ProcHandle evt, ParamGoto paramGoto)
         {
@@ -279,7 +269,7 @@ namespace Automation
                     }
                     if (!hasValueSource)
                     {
-                        throw new InvalidOperationException("找不到判断变量");
+                        throw CreateAlarmException(evt, "找不到判断变量");
                     }
                     bool tempValue = false;
                     if (item.JudgeMode == "值在区间左")
@@ -339,9 +329,8 @@ namespace Automation
                 string gotoTarget = outPut ? paramGoto.goto1 : paramGoto.goto2;
                 if (!TryExecuteGoto(gotoTarget, evt, out string gotoError))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = gotoError;
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, gotoError);
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 evt.isGoto = true;
             }

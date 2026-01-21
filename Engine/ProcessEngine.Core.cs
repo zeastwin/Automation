@@ -268,6 +268,33 @@ namespace Automation
                 Logger?.Log(ex.Message, LogLevel.Error);
             }
         }
+        private void MarkAlarm(ProcHandle evt, string message)
+        {
+            if (evt == null)
+            {
+                return;
+            }
+            string normalized = string.IsNullOrWhiteSpace(message) ? "执行失败" : message;
+            evt.isAlarm = true;
+            evt.alarmMsg = normalized;
+        }
+        private InvalidOperationException CreateAlarmException(ProcHandle evt, string message, Exception innerException = null)
+        {
+            string normalized = message;
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                normalized = evt?.alarmMsg;
+            }
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                normalized = "执行失败";
+            }
+            if (evt != null)
+            {
+                MarkAlarm(evt, normalized);
+            }
+            return innerException == null ? new InvalidOperationException(normalized) : new InvalidOperationException(normalized, innerException);
+        }
         private bool TryExecuteGoto(string gotoText, ProcHandle evt, out string errorMessage)
         {
             errorMessage = null;
@@ -456,22 +483,19 @@ namespace Automation
             }
             if (proc == null)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "运行流程失败：流程为空";
+                MarkAlarm(evt, "运行流程失败：流程为空");
                 HandleAlarm(null, evt);
                 return;
             }
             if (proc.steps == null || proc.steps.Count == 0)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "运行流程失败：步骤为空";
+                MarkAlarm(evt, "运行流程失败：步骤为空");
                 HandleAlarm(null, evt);
                 return;
             }
             if (evt.stepNum < 0 || evt.stepNum >= proc.steps.Count)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = $"运行流程失败：步骤索引超界 {evt.stepNum}";
+                MarkAlarm(evt, $"运行流程失败：步骤索引超界 {evt.stepNum}");
                 HandleAlarm(null, evt);
                 return;
             }
@@ -516,15 +540,13 @@ namespace Automation
             }
             if (steps == null)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "运行步骤失败：步骤为空";
+                MarkAlarm(evt, "运行步骤失败：步骤为空");
                 HandleAlarm(null, evt);
                 return false;
             }
             if (steps.Ops == null)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "运行步骤失败：操作列表为空";
+                MarkAlarm(evt, "运行步骤失败：操作列表为空");
                 HandleAlarm(null, evt);
                 return false;
             }
@@ -536,8 +558,7 @@ namespace Automation
             }
             if (evt.opsNum < 0 || evt.opsNum >= steps.Ops.Count)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = $"运行步骤失败：操作索引超界 {evt.opsNum}";
+                MarkAlarm(evt, $"运行步骤失败：操作索引超界 {evt.opsNum}");
                 HandleAlarm(null, evt);
                 return false;
             }
@@ -603,8 +624,7 @@ namespace Automation
                 }
                 catch (Exception ex)
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = ex.Message;
+                    MarkAlarm(evt, ex.Message);
                     Logger?.Log(ex.Message, LogLevel.Error);
                     HandleAlarm(steps.Ops[i], evt);
                     control.RequestStop();
@@ -670,11 +690,7 @@ namespace Automation
                 default:
                     string invalidType = string.IsNullOrWhiteSpace(operation.AlarmType) ? "<空>" : operation.AlarmType;
                     string invalidMessage = $"报警类型无效:{invalidType}";
-                    if (evt != null)
-                    {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = string.IsNullOrWhiteSpace(evt.alarmMsg) ? invalidMessage : $"{evt.alarmMsg}; {invalidMessage}";
-                    }
+                    MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? invalidMessage : $"{evt.alarmMsg}; {invalidMessage}");
                     Logger?.Log(invalidMessage, LogLevel.Error);
                     return AlarmDecision.Stop;
             }
@@ -777,8 +793,7 @@ namespace Automation
                     evt.isGoto = true;
                     if (!TryExecuteGoto(operation.Goto1, evt, out string goto1Error))
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto1Error : $"{evt.alarmMsg}; {goto1Error}";
+                        MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto1Error : $"{evt.alarmMsg}; {goto1Error}");
                         evt.Control?.RequestStop();
                     }
                     break;
@@ -786,8 +801,7 @@ namespace Automation
                     evt.isGoto = true;
                     if (!TryExecuteGoto(operation.Goto2, evt, out string goto2Error))
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto2Error : $"{evt.alarmMsg}; {goto2Error}";
+                        MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto2Error : $"{evt.alarmMsg}; {goto2Error}");
                         evt.Control?.RequestStop();
                     }
                     break;
@@ -795,8 +809,7 @@ namespace Automation
                     evt.isGoto = true;
                     if (!TryExecuteGoto(operation.Goto3, evt, out string goto3Error))
                     {
-                        evt.isAlarm = true;
-                        evt.alarmMsg = string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto3Error : $"{evt.alarmMsg}; {goto3Error}";
+                        MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto3Error : $"{evt.alarmMsg}; {goto3Error}");
                         evt.Control?.RequestStop();
                     }
                     break;

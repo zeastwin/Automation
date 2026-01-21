@@ -39,9 +39,8 @@ namespace Automation
                 Delay(time, evt);
                 if (!Context.Motion.SetIO(Context.IoMap[ioParam.IOName], ioParam.value))
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = $"IO输出失败:{ioParam.IOName}";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, $"IO输出失败:{ioParam.IOName}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 time = ioParam.delayAfter;
                 if (time <= 0 && !string.IsNullOrEmpty(ioParam.delayAfterV))
@@ -65,9 +64,8 @@ namespace Automation
             }
             if (timeOut <= 0)
             {
-                evt.isAlarm = true;
-                evt.alarmMsg = "IO检测超时配置无效";
-                throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                MarkAlarm(evt, "IO检测超时配置无效");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
             //time = ioParam.delayBefore;
@@ -109,9 +107,8 @@ namespace Automation
                 }
                 else
                 {
-                    evt.isAlarm = true;
-                    evt.alarmMsg = "检测超时";
-                    throw new InvalidOperationException(evt?.alarmMsg ?? "执行失败");
+                    MarkAlarm(evt, "检测超时");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
             //time = ioParam.delayAfter;
