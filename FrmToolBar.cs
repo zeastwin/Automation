@@ -421,6 +421,8 @@ namespace Automation
                     && (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep))
                 {
                     SF.DR.Step(procIndex);
+                    SF.isSingleStepFollowPending = true;
+                    SF.singleStepFollowProcIndex = procIndex;
                 }
             }
                 

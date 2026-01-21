@@ -75,6 +75,8 @@ namespace Automation
         public static bool isFinBulidFrmValue = false;
         //标志是否完成编辑
         public static bool isEndEdit = true;
+        public static bool isSingleStepFollowPending = false;
+        public static int singleStepFollowProcIndex = -1;
      
         //指示当前页面
         public static int curPage = 0;

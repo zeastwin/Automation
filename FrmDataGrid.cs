@@ -256,14 +256,30 @@ namespace Automation
                     return;
                 }
 
-                if ((snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep) && SF.frmProc.SelectedStepNum != snapshot.StepIndex)
+                if (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep)
                 {
-                    if (snapshot.StepIndex >= 0
-                        && selectedProc >= 0
-                        && selectedProc < SF.frmProc.proc_treeView.Nodes.Count
-                        && snapshot.StepIndex < SF.frmProc.proc_treeView.Nodes[selectedProc].Nodes.Count)
+                    if (SF.isSingleStepFollowPending)
                     {
-                        SelectChildNode(selectedProc, snapshot.StepIndex);
+                        if (selectedProc != SF.singleStepFollowProcIndex)
+                        {
+                            SF.isSingleStepFollowPending = false;
+                            SF.singleStepFollowProcIndex = -1;
+                        }
+                        else
+                        {
+                            if (SF.frmProc.SelectedStepNum != snapshot.StepIndex)
+                            {
+                                if (snapshot.StepIndex >= 0
+                                    && selectedProc >= 0
+                                    && selectedProc < SF.frmProc.proc_treeView.Nodes.Count
+                                    && snapshot.StepIndex < SF.frmProc.proc_treeView.Nodes[selectedProc].Nodes.Count)
+                                {
+                                    SelectChildNode(selectedProc, snapshot.StepIndex);
+                                }
+                            }
+                            SF.isSingleStepFollowPending = false;
+                            SF.singleStepFollowProcIndex = -1;
+                        }
                     }
                 }
 
