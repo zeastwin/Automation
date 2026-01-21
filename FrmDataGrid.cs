@@ -554,6 +554,7 @@ namespace Automation
                     if (dataItem.Enable)
                     {
                         SetRowColor(e.RowIndex, Color.Gray);
+                        e.CellStyle.BackColor = Color.Gray;
                     }
                     else
                     {
@@ -567,6 +568,8 @@ namespace Automation
                             e.CellStyle.BackColor = dataGridView1.DefaultCellStyle.BackColor;
                         }
                     }
+                    e.CellStyle.SelectionBackColor = e.CellStyle.BackColor;
+                    e.CellStyle.SelectionForeColor = e.CellStyle.ForeColor;
                 }
             }
         }
