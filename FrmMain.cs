@@ -562,6 +562,66 @@ namespace Automation
                 }
                 e.Handled = true; // 防止其他控件处理该键按下事件
             }
+            if (e.KeyCode == Keys.D && e.Control)
+            {
+                if (SF.curPage != 0)
+                {
+                    if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                    {
+                        SF.frmInfo.PrintInfo("快捷键：仅支持在流程界面设为启动点。", FrmInfo.Level.Error);
+                    }
+                    e.Handled = true;
+                    return;
+                }
+
+                if (SF.frmProc == null || SF.frmDataGrid == null || SF.DR == null)
+                {
+                    if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                    {
+                        SF.frmInfo.PrintInfo("快捷键：流程组件未就绪，无法设为启动点。", FrmInfo.Level.Error);
+                    }
+                    e.Handled = true;
+                    return;
+                }
+
+                int procIndex = SF.frmProc.SelectedProcNum;
+                int stepIndex = SF.frmProc.SelectedStepNum;
+                int opIndex = SF.frmDataGrid.iSelectedRow;
+                if (opIndex < 0 && SF.frmDataGrid.dataGridView1.CurrentCell != null)
+                {
+                    opIndex = SF.frmDataGrid.dataGridView1.CurrentCell.RowIndex;
+                    SF.frmDataGrid.iSelectedRow = opIndex;
+                }
+
+                if (procIndex < 0 || stepIndex < 0 || opIndex < 0 || opIndex >= SF.frmDataGrid.dataGridView1.Rows.Count)
+                {
+                    if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                    {
+                        SF.frmInfo.PrintInfo("快捷键：未选择指令，无法设为启动点。", FrmInfo.Level.Error);
+                    }
+                    e.Handled = true;
+                    return;
+                }
+
+                SF.DR.Stop(procIndex);
+                SF.DR.StartProcAt(
+                    SF.frmProc.procsList[procIndex],
+                    procIndex,
+                    stepIndex,
+                    opIndex,
+                    ProcRunState.Paused);
+
+                if (SF.frmToolBar != null && !SF.frmToolBar.IsDisposed)
+                {
+                    SF.frmToolBar.btnPause.Text = "继续";
+                }
+
+                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                {
+                    SF.frmInfo.PrintInfo($"快捷键：设为启动点（流程 {procIndex}，步骤 {stepIndex}，指令 {opIndex}）。", FrmInfo.Level.Normal);
+                }
+                e.Handled = true;
+            }
         }
 
         private void FrmMain_FormClosing(object sender, FormClosingEventArgs e)

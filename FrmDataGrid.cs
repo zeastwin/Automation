@@ -12,6 +12,7 @@ using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using System.Drawing.Drawing2D;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using static Automation.OperationTypePartial;
 using System.Diagnostics;
@@ -21,6 +22,8 @@ namespace Automation
 {
     public partial class FrmDataGrid : Form
     {
+        private const int MenuIconSize = 20;
+
         //临时保存操作对象
         public OperationType OperationTemp;
         //鼠标选定的行数
@@ -44,6 +47,9 @@ namespace Automation
             dataGridView1.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
             dataGridView1.RowHeadersVisible = false;
             dataGridView1.AutoGenerateColumns = false;
+            InitContextMenuIcons();
+            contextMenuStrip2.KeyDown += contextMenuStrip2_KeyDown;
+            contextMenuStrip2.Opening += contextMenuStrip2_Opening;
 
             Type dgvType = this.dataGridView1.GetType();
             PropertyInfo pi = dgvType.GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -51,6 +57,165 @@ namespace Automation
 
             dataGridView1.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
+        }
+
+        private void InitContextMenuIcons()
+        {
+            SetStartOps.Image = CreateMenuIcon(MenuIconType.StartPoint);
+            Add.Image = CreateMenuIcon(MenuIconType.Add);
+            Modify.Image = CreateMenuIcon(MenuIconType.Edit);
+            SetStopPoint.Image = CreateMenuIcon(MenuIconType.Breakpoint);
+            Enable.Image = CreateMenuIcon(MenuIconType.Toggle);
+            SetStopPoint.ShortcutKeyDisplayString = "X";
+            Enable.ShortcutKeyDisplayString = "U";
+        }
+
+        private enum MenuIconType
+        {
+            StartPoint,
+            Add,
+            Edit,
+            Breakpoint,
+            Toggle
+        }
+
+        private static Bitmap CreateMenuIcon(MenuIconType iconType)
+        {
+            Bitmap bitmap = new Bitmap(MenuIconSize, MenuIconSize);
+            using (Graphics g = Graphics.FromImage(bitmap))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                using (Pen pen = new Pen(Color.DimGray, 2))
+                using (Brush brush = new SolidBrush(Color.DimGray))
+                {
+                    switch (iconType)
+                    {
+                        case MenuIconType.StartPoint:
+                            g.DrawLine(pen, 6, 3, 6, 17);
+                            g.FillPolygon(brush, new[] { new Point(6, 4), new Point(15, 7), new Point(6, 10) });
+                            break;
+                        case MenuIconType.Add:
+                            g.DrawLine(pen, 10, 4, 10, 16);
+                            g.DrawLine(pen, 4, 10, 16, 10);
+                            break;
+                        case MenuIconType.Edit:
+                            g.DrawLine(pen, 5, 15, 15, 5);
+                            g.FillPolygon(brush, new[] { new Point(14, 4), new Point(17, 3), new Point(16, 6) });
+                            break;
+                        case MenuIconType.Breakpoint:
+                            g.DrawEllipse(pen, 4, 4, 12, 12);
+                            g.FillEllipse(brush, 8, 8, 4, 4);
+                            break;
+                        case MenuIconType.Toggle:
+                            g.DrawArc(pen, 4, 4, 12, 12, 40, 280);
+                            g.DrawLine(pen, 10, 2, 10, 8);
+                            break;
+                    }
+                }
+            }
+            return bitmap;
+        }
+
+        private void contextMenuStrip2_Opening(object sender, CancelEventArgs e)
+        {
+            if (dataGridView1 == null)
+            {
+                return;
+            }
+
+            Point clientPoint = dataGridView1.PointToClient(Cursor.Position);
+            DataGridView.HitTestInfo hitTest = dataGridView1.HitTest(clientPoint.X, clientPoint.Y);
+            int rowIndex = hitTest.RowIndex;
+            if (rowIndex < 0 && dataGridView1.CurrentCell != null)
+            {
+                rowIndex = dataGridView1.CurrentCell.RowIndex;
+            }
+
+            if (rowIndex >= 0 && rowIndex < dataGridView1.Rows.Count)
+            {
+                iSelectedRow = rowIndex;
+                if (!dataGridView1.Rows[rowIndex].Selected)
+                {
+                    dataGridView1.ClearSelection();
+                    dataGridView1.Rows[rowIndex].Selected = true;
+                }
+            }
+        }
+
+        private void contextMenuStrip2_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode != Keys.X && e.KeyCode != Keys.U)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+
+            if (SF.frmProc == null)
+            {
+                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                {
+                    SF.frmInfo.PrintInfo("快捷键：流程界面未初始化，无法操作。", FrmInfo.Level.Error);
+                }
+                return;
+            }
+
+            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            {
+                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                {
+                    SF.frmInfo.PrintInfo("快捷键：未选择流程或步骤。", FrmInfo.Level.Error);
+                }
+                return;
+            }
+
+            if (iSelectedRow < 0 || iSelectedRow >= dataGridView1.Rows.Count)
+            {
+                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                {
+                    SF.frmInfo.PrintInfo("快捷键：未选择指令。", FrmInfo.Level.Error);
+                }
+                return;
+            }
+
+            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            {
+                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                {
+                    SF.frmInfo.PrintInfo("快捷键：当前流程运行中禁止编辑。", FrmInfo.Level.Error);
+                }
+                return;
+            }
+
+            OperationType dataItem = dataGridView1.Rows[iSelectedRow].DataBoundItem as OperationType;
+            if (dataItem == null)
+            {
+                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                {
+                    SF.frmInfo.PrintInfo("快捷键：指令数据为空，无法操作。", FrmInfo.Level.Error);
+                }
+                return;
+            }
+
+            if (e.KeyCode == Keys.X)
+            {
+                SetStopPoint_Click(sender, EventArgs.Empty);
+                string action = dataItem.isStopPoint ? "已设置断点" : "已取消断点";
+                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                {
+                    SF.frmInfo.PrintInfo($"快捷键：{action}（流程 {SF.frmProc.SelectedProcNum}，步骤 {SF.frmProc.SelectedStepNum}，指令 {iSelectedRow}）。", FrmInfo.Level.Normal);
+                }
+                return;
+            }
+
+            Enable_Click(sender, EventArgs.Empty);
+            string enableAction = dataItem.Enable ? "已禁用" : "已启用";
+            if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            {
+                SF.frmInfo.PrintInfo($"快捷键：{enableAction}（流程 {SF.frmProc.SelectedProcNum}，步骤 {SF.frmProc.SelectedStepNum}，指令 {iSelectedRow}）。", FrmInfo.Level.Normal);
+            }
         }
 
         public void UpdateHighlight(EngineSnapshot snapshot)
