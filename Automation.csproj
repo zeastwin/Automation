@@ -103,6 +103,7 @@
     <Compile Include="Engine\\ProcessEngine.Operations.DataStruct.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Io.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Motion.cs" />
+    <Compile Include="Engine\\ProcessEngine.Operations.Popup.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Proc.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.String.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Value.cs" />

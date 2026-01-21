@@ -660,6 +660,217 @@ namespace Automation
 
     }
     [Serializable]
+    public class PopupDialog : OperationType
+    {
+        public PopupDialog()
+        {
+            OperaType = "弹框";
+            popupType = "弹是";
+            infoType = "自定义提示信息";
+            alarmLightEnable = "禁用";
+            buzzerTimeType = "自定义时间";
+            PopupBackColor = Color.White;
+            PopupFontColor = Color.Black;
+            Btn1Text = "是";
+            Btn2Text = "否";
+            Btn3Text = "取消";
+            evtRP += RefleshPropertyPopup;
+            RefleshPropertyPopup();
+        }
+
+        private string popupType;
+        [DisplayName("弹框类型"), Category("弹框相关设置"), Description(""), ReadOnly(false), TypeConverter(typeof(PopupTypeItem))]
+        public string PopupType
+        {
+            get => popupType;
+            set
+            {
+                if (popupType != value)
+                {
+                    popupType = value;
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    {
+                        RefleshPropertyPopup();
+                    }
+                }
+            }
+        }
+
+        [DisplayName("弹框背景颜色"), Category("弹框相关设置"), Description(""), ReadOnly(false)]
+        public Color PopupBackColor { get; set; }
+
+        [DisplayName("弹框字体颜色"), Category("弹框相关设置"), Description(""), ReadOnly(false)]
+        public Color PopupFontColor { get; set; }
+
+        [DisplayName("按钮1文本"), Category("弹框相关设置"), Description(""), ReadOnly(false)]
+        public string Btn1Text { get; set; }
+
+        [Browsable(false)]
+        [DisplayName("按钮2文本"), Category("弹框相关设置"), Description(""), ReadOnly(false)]
+        public string Btn2Text { get; set; }
+
+        [Browsable(false)]
+        [DisplayName("按钮3文本"), Category("弹框相关设置"), Description(""), ReadOnly(false)]
+        public string Btn3Text { get; set; }
+
+        [DisplayName("确定跳转"), Category("弹框跳转设置"), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("标识的跳转属性")]
+        public string PopupGoto1 { get; set; }
+
+        [Browsable(false)]
+        [DisplayName("否跳转"), Category("弹框跳转设置"), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("标识的跳转属性")]
+        public string PopupGoto2 { get; set; }
+
+        [Browsable(false)]
+        [DisplayName("取消跳转"), Category("弹框跳转设置"), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("标识的跳转属性")]
+        public string PopupGoto3 { get; set; }
+
+        private string infoType;
+        [DisplayName("提示信息类型"), Category("弹框信息设置"), Description(""), ReadOnly(false), TypeConverter(typeof(PopupInfoTypeItem))]
+        public string InfoType
+        {
+            get => infoType;
+            set
+            {
+                if (infoType != value)
+                {
+                    infoType = value;
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    {
+                        RefleshPropertyPopup();
+                    }
+                }
+            }
+        }
+
+        [DisplayName("弹框提示信息"), Category("弹框信息设置"), Description(""), ReadOnly(false)]
+        public string PopupMessage { get; set; }
+
+        [Browsable(false)]
+        [DisplayName("报警信息ID"), Category("弹框信息设置"), Description(""), ReadOnly(false), TypeConverter(typeof(AlarmInfoItem))]
+        public string PopupAlarmInfoID { get; set; }
+
+        [DisplayName("延时后关闭"), Category("弹框操作"), Description(""), ReadOnly(false)]
+        public bool DelayClose
+        {
+            get => delayClose;
+            set
+            {
+                if (delayClose != value)
+                {
+                    delayClose = value;
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    {
+                        RefleshPropertyPopup();
+                    }
+                }
+            }
+        }
+
+        [Browsable(false)]
+        [DisplayName("延时关闭时间(ms)"), Category("弹框操作"), Description(""), ReadOnly(false)]
+        public int DelayCloseTimeMs { get; set; }
+
+        [DisplayName("保存到报警文件"), Category("弹框操作"), Description(""), ReadOnly(false)]
+        public bool SaveToAlarmFile { get; set; }
+
+        [DisplayName("弹框前上报信息"), Category("弹框操作"), Description(""), ReadOnly(false)]
+        public bool ReportBeforePopup { get; set; }
+
+        [DisplayName("保存耗时时间(ms)"), Category("弹框操作"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string CostTimeValue { get; set; }
+
+        private string alarmLightEnable;
+        [DisplayName("启动报警灯"), Category("启动报警灯"), Description(""), ReadOnly(false), TypeConverter(typeof(EnableItem))]
+        public string AlarmLightEnable
+        {
+            get => alarmLightEnable;
+            set
+            {
+                if (alarmLightEnable != value)
+                {
+                    alarmLightEnable = value;
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    {
+                        RefleshPropertyPopup();
+                    }
+                }
+            }
+        }
+
+        [Browsable(false)]
+        [DisplayName("蜂鸣器IO"), Category("启动报警灯"), Description(""), ReadOnly(false), TypeConverter(typeof(IoOutItem))]
+        public string BuzzerIo { get; set; }
+
+        [Browsable(false)]
+        [DisplayName("红灯IO"), Category("启动报警灯"), Description(""), ReadOnly(false), TypeConverter(typeof(IoOutItem))]
+        public string RedLightIo { get; set; }
+
+        [Browsable(false)]
+        [DisplayName("黄灯IO"), Category("启动报警灯"), Description(""), ReadOnly(false), TypeConverter(typeof(IoOutItem))]
+        public string YellowLightIo { get; set; }
+
+        [Browsable(false)]
+        [DisplayName("绿灯IO"), Category("启动报警灯"), Description(""), ReadOnly(false), TypeConverter(typeof(IoOutItem))]
+        public string GreenLightIo { get; set; }
+
+        private string buzzerTimeType;
+        [DisplayName("蜂鸣时间类型"), Category("蜂鸣时间设置"), Description(""), ReadOnly(false), TypeConverter(typeof(BuzzerTimeTypeItem))]
+        public string BuzzerTimeType
+        {
+            get => buzzerTimeType;
+            set
+            {
+                if (buzzerTimeType != value)
+                {
+                    buzzerTimeType = value;
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    {
+                        RefleshPropertyPopup();
+                    }
+                }
+            }
+        }
+
+        [Browsable(false)]
+        [DisplayName("蜂鸣时间(ms)"), Category("蜂鸣时间设置"), Description(""), ReadOnly(false)]
+        public int BuzzerTimeMs { get; set; } = 1000;
+
+        private bool delayClose;
+
+        private void RefleshPropertyPopup()
+        {
+            bool isTwoButton = popupType == "弹是与否" || popupType == "弹是与否与取消";
+            bool isThreeButton = popupType == "弹是与否与取消";
+            bool useAlarmInfo = infoType == "报警信息库";
+
+            SetPropertyAttribute(this, "PopupGoto2", typeof(BrowsableAttribute), "browsable", isTwoButton);
+            SetPropertyAttribute(this, "PopupGoto3", typeof(BrowsableAttribute), "browsable", isThreeButton);
+
+            SetPropertyAttribute(this, "PopupAlarmInfoID", typeof(BrowsableAttribute), "browsable", useAlarmInfo);
+            SetPropertyAttribute(this, "PopupMessage", typeof(BrowsableAttribute), "browsable", !useAlarmInfo);
+
+            bool showBtnText = !useAlarmInfo;
+            SetPropertyAttribute(this, "Btn1Text", typeof(BrowsableAttribute), "browsable", showBtnText);
+            SetPropertyAttribute(this, "Btn2Text", typeof(BrowsableAttribute), "browsable", showBtnText && isTwoButton);
+            SetPropertyAttribute(this, "Btn3Text", typeof(BrowsableAttribute), "browsable", showBtnText && isThreeButton);
+
+            SetPropertyAttribute(this, "DelayCloseTimeMs", typeof(BrowsableAttribute), "browsable", delayClose);
+
+            bool lightEnabled = alarmLightEnable == "启用";
+            SetPropertyAttribute(this, "BuzzerIo", typeof(BrowsableAttribute), "browsable", lightEnabled);
+            SetPropertyAttribute(this, "RedLightIo", typeof(BrowsableAttribute), "browsable", lightEnabled);
+            SetPropertyAttribute(this, "YellowLightIo", typeof(BrowsableAttribute), "browsable", lightEnabled);
+            SetPropertyAttribute(this, "GreenLightIo", typeof(BrowsableAttribute), "browsable", lightEnabled);
+
+            bool showBuzzerTime = lightEnabled && buzzerTimeType == "自定义时间";
+            SetPropertyAttribute(this, "BuzzerTimeMs", typeof(BrowsableAttribute), "browsable", showBuzzerTime);
+
+        }
+    }
+    [Serializable]
     public class GetValue : OperationType
     {
         public GetValue()

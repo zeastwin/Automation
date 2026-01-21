@@ -40,6 +40,7 @@ namespace Automation
         private int disposed;
         public EngineContext Context { get; }
         public IAlarmHandler AlarmHandler { get; set; }
+        public Control UiInvoker { get; set; }
         public ILogger Logger { get; set; }
         public event Action<EngineSnapshot> SnapshotChanged;
         public int SnapshotThrottleMilliseconds

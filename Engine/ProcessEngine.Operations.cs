@@ -66,6 +66,9 @@ namespace Automation
                     case Delay delay:
                         return RunDelay(evt, delay);
 
+                    case PopupDialog popupDialog:
+                        return RunPopupDialog(evt, popupDialog);
+
                     case GetDataStructItem getDataStructItem:
                         return RunGetDataStructItem(evt, getDataStructItem);
 

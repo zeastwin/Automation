@@ -44,6 +44,7 @@ namespace Automation
             OperationTypeList.Add(new Goto());
             OperationTypeList.Add(new ParamGoto());
             OperationTypeList.Add(new Delay());
+            OperationTypeList.Add(new PopupDialog());
             OperationTypeList.Add(new GetValue());
             OperationTypeList.Add(new ModifyValue());
             OperationTypeList.Add(new StringFormat());
