@@ -39,7 +39,6 @@
             this.operaType = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.Note = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.contextMenuStrip2 = new System.Windows.Forms.ContextMenuStrip(this.components);
-            this.OneSetp = new System.Windows.Forms.ToolStripMenuItem();
             this.Add = new System.Windows.Forms.ToolStripMenuItem();
             this.Modify = new System.Windows.Forms.ToolStripMenuItem();
             this.Delete = new System.Windows.Forms.ToolStripMenuItem();
@@ -136,7 +135,6 @@
             // 
             this.contextMenuStrip2.ImageScalingSize = new System.Drawing.Size(20, 20);
             this.contextMenuStrip2.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.OneSetp,
             this.SetStartOps,
             this.Add,
             this.Modify,
@@ -148,13 +146,6 @@
             this.Others});
             this.contextMenuStrip2.Name = "contextMenuStrip1";
             this.contextMenuStrip2.Size = new System.Drawing.Size(181, 246);
-            // 
-            // OneSetp
-            // 
-            this.OneSetp.Name = "OneSetp";
-            this.OneSetp.Size = new System.Drawing.Size(180, 22);
-            this.OneSetp.Text = "单步执行";
-            this.OneSetp.Click += new System.EventHandler(this.OneSetp_Click);
             // 
             // Add
             // 
@@ -265,7 +256,6 @@
         private System.Windows.Forms.ToolStripMenuItem SetStopPoint;
         private System.Windows.Forms.ToolStripMenuItem copy;
         private System.Windows.Forms.ToolStripMenuItem paste;
-        private System.Windows.Forms.ToolStripMenuItem OneSetp;
         private System.Windows.Forms.ToolStripMenuItem Enable;
         private System.Windows.Forms.ToolStripMenuItem Others;
         private System.Windows.Forms.ToolStripMenuItem CProgramCopy;

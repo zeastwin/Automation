@@ -555,19 +555,6 @@ namespace Automation
             }
         }
 
-        private void OneSetp_Click(object sender, EventArgs e)
-        {
-            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0 || iSelectedRow < 0)
-            {
-                return;
-            }
-            SF.DR.RunSingleOpOnce(
-                SF.frmProc.procsList[SF.frmProc.SelectedProcNum],
-                SF.frmProc.SelectedProcNum,
-                SF.frmProc.SelectedStepNum,
-                iSelectedRow);
-        }
-
         private void Enable_Click(object sender, EventArgs e)
         {
             if (iSelectedRow >= 0)
