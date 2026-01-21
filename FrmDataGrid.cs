@@ -203,18 +203,20 @@ namespace Automation
             {
                 SetStopPoint_Click(sender, EventArgs.Empty);
                 string action = dataItem.isStopPoint ? "已设置断点" : "已取消断点";
+                string opName = string.IsNullOrWhiteSpace(dataItem.Name) ? "未命名" : dataItem.Name;
                 if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
                 {
-                    SF.frmInfo.PrintInfo($"快捷键：{action}（流程 {SF.frmProc.SelectedProcNum}，步骤 {SF.frmProc.SelectedStepNum}，指令 {iSelectedRow}）。", FrmInfo.Level.Normal);
+                    SF.frmInfo.PrintInfo($"快捷键：{SF.frmProc.SelectedProcNum}-{SF.frmProc.SelectedStepNum}-{iSelectedRow} {opName} {action}", FrmInfo.Level.Normal);
                 }
                 return;
             }
 
             Enable_Click(sender, EventArgs.Empty);
             string enableAction = dataItem.Enable ? "已禁用" : "已启用";
+            string enableOpName = string.IsNullOrWhiteSpace(dataItem.Name) ? "未命名" : dataItem.Name;
             if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
             {
-                SF.frmInfo.PrintInfo($"快捷键：{enableAction}（流程 {SF.frmProc.SelectedProcNum}，步骤 {SF.frmProc.SelectedStepNum}，指令 {iSelectedRow}）。", FrmInfo.Level.Normal);
+                SF.frmInfo.PrintInfo($"快捷键：{SF.frmProc.SelectedProcNum}-{SF.frmProc.SelectedStepNum}-{iSelectedRow} {enableOpName} {enableAction}", FrmInfo.Level.Normal);
             }
         }
 
@@ -553,16 +555,17 @@ namespace Automation
                     {
                         SetRowColor(e.RowIndex, Color.Gray);
                     }
-                    else if (dataItem.isStopPoint)
-                    {
-                        //  SetRowColor(e.RowIndex, dataGridView1.DefaultCellStyle.BackColor);
-                        e.CellStyle.BackColor = Color.Red;
-                    }
                     else
                     {
-                        // 如果不是断点，保持默认颜色
-                        // SetRowColor(e.RowIndex, dataGridView1.DefaultCellStyle.BackColor);
-                        e.CellStyle.BackColor = dataGridView1.DefaultCellStyle.BackColor;
+                        ClearRowColor(e.RowIndex);
+                        if (dataItem.isStopPoint)
+                        {
+                            e.CellStyle.BackColor = Color.Red;
+                        }
+                        else
+                        {
+                            e.CellStyle.BackColor = dataGridView1.DefaultCellStyle.BackColor;
+                        }
                     }
                 }
             }
@@ -749,6 +752,7 @@ namespace Automation
                 if (dataItem != null)
                 {
                     dataItem.Enable = !dataItem.Enable;
+                    dataGridView1.InvalidateRow(iSelectedRow);
                 }
             }
         }

@@ -603,6 +603,20 @@ namespace Automation
                     return;
                 }
 
+                string opName = null;
+                if (SF.frmProc?.procsList != null && procIndex >= 0 && procIndex < SF.frmProc.procsList.Count)
+                {
+                    Step step = SF.frmProc.procsList[procIndex]?.steps?[stepIndex];
+                    if (step?.Ops != null && opIndex >= 0 && opIndex < step.Ops.Count)
+                    {
+                        opName = step.Ops[opIndex]?.Name;
+                    }
+                }
+                if (string.IsNullOrWhiteSpace(opName))
+                {
+                    opName = "未命名";
+                }
+
                 SF.DR.Stop(procIndex);
                 SF.DR.StartProcAt(
                     SF.frmProc.procsList[procIndex],
@@ -618,7 +632,7 @@ namespace Automation
 
                 if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
                 {
-                    SF.frmInfo.PrintInfo($"快捷键：设为启动点（流程 {procIndex}，步骤 {stepIndex}，指令 {opIndex}）。", FrmInfo.Level.Normal);
+                    SF.frmInfo.PrintInfo($"快捷键：{procIndex}-{stepIndex}-{opIndex} {opName} 设为启动点", FrmInfo.Level.Normal);
                 }
                 e.Handled = true;
             }
