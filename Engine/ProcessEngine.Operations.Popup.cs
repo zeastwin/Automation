@@ -60,40 +60,7 @@ namespace Automation
             string btn1Text = null;
             string btn2Text = null;
             string btn3Text = null;
-            if (popup.InfoType == "自定义提示信息")
-            {
-                messageText = popup.PopupMessage;
-                if (string.IsNullOrWhiteSpace(messageText))
-                {
-                    MarkAlarm(evt, "弹框提示信息为空");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
-                }
-                btn1Text = popup.Btn1Text;
-                if (string.IsNullOrWhiteSpace(btn1Text))
-                {
-                    MarkAlarm(evt, "按钮1文本为空");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
-                }
-                if (hasSecondButton)
-                {
-                    btn2Text = popup.Btn2Text;
-                    if (string.IsNullOrWhiteSpace(btn2Text))
-                    {
-                        MarkAlarm(evt, "按钮2文本为空");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-                }
-                if (hasThirdButton)
-                {
-                    btn3Text = popup.Btn3Text;
-                    if (string.IsNullOrWhiteSpace(btn3Text))
-                    {
-                        MarkAlarm(evt, "按钮3文本为空");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-                }
-            }
-            else if (popup.InfoType == "报警信息库")
+            if (popup.InfoType == "报警信息库")
             {
                 if (Context.AlarmInfoStore == null)
                 {
@@ -127,10 +94,77 @@ namespace Automation
                 btn2Text = string.IsNullOrWhiteSpace(alarmInfo.Btn2) ? "否" : alarmInfo.Btn2;
                 btn3Text = string.IsNullOrWhiteSpace(alarmInfo.Btn3) ? "取消" : alarmInfo.Btn3;
             }
+            else if (popup.InfoType == "自定义提示信息")
+            {
+                messageText = popup.PopupMessage;
+                if (string.IsNullOrWhiteSpace(messageText))
+                {
+                    MarkAlarm(evt, "弹框提示信息为空");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+            }
+            else if (popup.InfoType == "变量类型")
+            {
+                if (Context.ValueStore == null)
+                {
+                    MarkAlarm(evt, "变量库未初始化");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (string.IsNullOrWhiteSpace(popup.PopupMessageValue))
+                {
+                    MarkAlarm(evt, "提示变量为空");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (!Context.ValueStore.TryGetValueByName(popup.PopupMessageValue, out DicValue value) || value == null)
+                {
+                    MarkAlarm(evt, $"提示变量不存在:{popup.PopupMessageValue}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (!string.Equals(value.Type, "string", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(value.Type, "double", StringComparison.OrdinalIgnoreCase))
+                {
+                    MarkAlarm(evt, $"提示变量类型无效:{popup.PopupMessageValue}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                messageText = value.Value;
+                if (string.IsNullOrWhiteSpace(messageText))
+                {
+                    MarkAlarm(evt, "提示变量内容为空");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+            }
             else
             {
                 MarkAlarm(evt, $"提示信息类型无效:{popup.InfoType}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            if (popup.InfoType != "报警信息库")
+            {
+                btn1Text = popup.Btn1Text;
+                if (string.IsNullOrWhiteSpace(btn1Text))
+                {
+                    MarkAlarm(evt, "按钮1文本为空");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (hasSecondButton)
+                {
+                    btn2Text = popup.Btn2Text;
+                    if (string.IsNullOrWhiteSpace(btn2Text))
+                    {
+                        MarkAlarm(evt, "按钮2文本为空");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
+                }
+                if (hasThirdButton)
+                {
+                    btn3Text = popup.Btn3Text;
+                    if (string.IsNullOrWhiteSpace(btn3Text))
+                    {
+                        MarkAlarm(evt, "按钮3文本为空");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
+                }
             }
 
             if (popup.DelayClose && popup.DelayCloseTimeMs <= 0)
@@ -139,10 +173,6 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
-            if (popup.ReportBeforePopup)
-            {
-                Logger?.Log($"弹框提示:{messageText}", LogLevel.Normal);
-            }
             if (popup.SaveToAlarmFile)
             {
                 Logger?.Log($"弹框提示:{messageText}", LogLevel.Error);
@@ -202,7 +232,6 @@ namespace Automation
 
             var tcs = new TaskCompletionSource<AlarmDecision>();
             Message dialog = null;
-            Stopwatch stopwatch = Stopwatch.StartNew();
 
             void ShowDialog()
             {
@@ -306,27 +335,6 @@ namespace Automation
                     SetOutput(popup.RedLightIo, false, "红灯IO");
                     SetOutput(popup.YellowLightIo, false, "黄灯IO");
                     SetOutput(popup.GreenLightIo, false, "绿灯IO");
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(popup.CostTimeValue))
-            {
-                if (Context.ValueStore == null
-                    || !Context.ValueStore.TryGetValueByName(popup.CostTimeValue, out DicValue costValue))
-                {
-                    MarkAlarm(evt, $"耗时保存变量无效:{popup.CostTimeValue}");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
-                }
-                string elapsedText = stopwatch.ElapsedMilliseconds.ToString();
-                if (string.Equals(costValue.Type, "double", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(costValue.Type, "string", StringComparison.OrdinalIgnoreCase))
-                {
-                    costValue.Value = elapsedText;
-                }
-                else
-                {
-                    MarkAlarm(evt, $"耗时保存变量类型无效:{popup.CostTimeValue}");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
 

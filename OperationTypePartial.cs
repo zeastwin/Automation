@@ -136,7 +136,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(new List<string>() { "自定义提示信息", "报警信息库" });
+                return new StandardValuesCollection(new List<string>() { "自定义提示信息", "变量类型", "报警信息库" });
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {

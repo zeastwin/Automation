@@ -680,6 +680,7 @@ namespace Automation
 
         private string popupType;
         [DisplayName("弹框类型"), Category("弹框相关设置"), Description(""), ReadOnly(false), TypeConverter(typeof(PopupTypeItem))]
+        [Browsable(true)]
         public string PopupType
         {
             get => popupType;
@@ -696,12 +697,15 @@ namespace Automation
             }
         }
 
+        [Browsable(true)]
         [DisplayName("弹框背景颜色"), Category("弹框相关设置"), Description(""), ReadOnly(false)]
         public Color PopupBackColor { get; set; }
 
+        [Browsable(true)]
         [DisplayName("弹框字体颜色"), Category("弹框相关设置"), Description(""), ReadOnly(false)]
         public Color PopupFontColor { get; set; }
 
+        [Browsable(true)]
         [DisplayName("按钮1文本"), Category("弹框相关设置"), Description(""), ReadOnly(false)]
         public string Btn1Text { get; set; }
 
@@ -713,6 +717,7 @@ namespace Automation
         [DisplayName("按钮3文本"), Category("弹框相关设置"), Description(""), ReadOnly(false)]
         public string Btn3Text { get; set; }
 
+        [Browsable(true)]
         [DisplayName("确定跳转"), Category("弹框跳转设置"), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
         [MarkedGoto("标识的跳转属性")]
         public string PopupGoto1 { get; set; }
@@ -729,6 +734,7 @@ namespace Automation
 
         private string infoType;
         [DisplayName("提示信息类型"), Category("弹框信息设置"), Description(""), ReadOnly(false), TypeConverter(typeof(PopupInfoTypeItem))]
+        [Browsable(true)]
         public string InfoType
         {
             get => infoType;
@@ -745,13 +751,19 @@ namespace Automation
             }
         }
 
+        [Browsable(true)]
         [DisplayName("弹框提示信息"), Category("弹框信息设置"), Description(""), ReadOnly(false)]
         public string PopupMessage { get; set; }
+
+        [Browsable(false)]
+        [DisplayName("提示变量"), Category("弹框信息设置"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string PopupMessageValue { get; set; }
 
         [Browsable(false)]
         [DisplayName("报警信息ID"), Category("弹框信息设置"), Description(""), ReadOnly(false), TypeConverter(typeof(AlarmInfoItem))]
         public string PopupAlarmInfoID { get; set; }
 
+        [Browsable(true)]
         [DisplayName("延时后关闭"), Category("弹框操作"), Description(""), ReadOnly(false)]
         public bool DelayClose
         {
@@ -776,14 +788,9 @@ namespace Automation
         [DisplayName("保存到报警文件"), Category("弹框操作"), Description(""), ReadOnly(false)]
         public bool SaveToAlarmFile { get; set; }
 
-        [DisplayName("弹框前上报信息"), Category("弹框操作"), Description(""), ReadOnly(false)]
-        public bool ReportBeforePopup { get; set; }
-
-        [DisplayName("保存耗时时间(ms)"), Category("弹框操作"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string CostTimeValue { get; set; }
-
         private string alarmLightEnable;
         [DisplayName("启动报警灯"), Category("启动报警灯"), Description(""), ReadOnly(false), TypeConverter(typeof(EnableItem))]
+        [Browsable(true)]
         public string AlarmLightEnable
         {
             get => alarmLightEnable;
@@ -818,6 +825,7 @@ namespace Automation
 
         private string buzzerTimeType;
         [DisplayName("蜂鸣时间类型"), Category("蜂鸣时间设置"), Description(""), ReadOnly(false), TypeConverter(typeof(BuzzerTimeTypeItem))]
+        [Browsable(true)]
         public string BuzzerTimeType
         {
             get => buzzerTimeType;
@@ -845,12 +853,15 @@ namespace Automation
             bool isTwoButton = popupType == "弹是与否" || popupType == "弹是与否与取消";
             bool isThreeButton = popupType == "弹是与否与取消";
             bool useAlarmInfo = infoType == "报警信息库";
+            bool useValueInfo = infoType == "变量类型";
+            bool useCustomInfo = infoType == "自定义提示信息";
 
             SetPropertyAttribute(this, "PopupGoto2", typeof(BrowsableAttribute), "browsable", isTwoButton);
             SetPropertyAttribute(this, "PopupGoto3", typeof(BrowsableAttribute), "browsable", isThreeButton);
 
             SetPropertyAttribute(this, "PopupAlarmInfoID", typeof(BrowsableAttribute), "browsable", useAlarmInfo);
-            SetPropertyAttribute(this, "PopupMessage", typeof(BrowsableAttribute), "browsable", !useAlarmInfo);
+            SetPropertyAttribute(this, "PopupMessage", typeof(BrowsableAttribute), "browsable", useCustomInfo);
+            SetPropertyAttribute(this, "PopupMessageValue", typeof(BrowsableAttribute), "browsable", useValueInfo);
 
             bool showBtnText = !useAlarmInfo;
             SetPropertyAttribute(this, "Btn1Text", typeof(BrowsableAttribute), "browsable", showBtnText);
