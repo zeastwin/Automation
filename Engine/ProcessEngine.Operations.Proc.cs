@@ -145,40 +145,49 @@ namespace Automation
         {
             if (gotoParam.Params != null)
             {
-                string value = "";
-                if (!string.IsNullOrEmpty(gotoParam.ValueIndex))
-                    value = Context.ValueStore.GetValueByIndex(int.Parse(gotoParam.ValueIndex)).Value.ToString();
-                else if (!string.IsNullOrEmpty(gotoParam.ValueIndex2Index))
+                ValueConfigStore valueStore = Context?.ValueStore;
+                if (!ValueRef.TryCreate(gotoParam.ValueIndex, gotoParam.ValueIndex2Index, gotoParam.ValueName, gotoParam.ValueName2Index, false, "跳转变量", out ValueRef sourceRef, out string sourceError))
                 {
-                    string index = Context.ValueStore.GetValueByIndex(int.Parse(gotoParam.ValueIndex2Index)).Value.ToString();
-                    value = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
+                    throw CreateAlarmException(evt, sourceError);
                 }
-                else if (!string.IsNullOrEmpty(gotoParam.ValueName))
+                if (!sourceRef.TryResolveValue(valueStore, "跳转变量", out DicValue sourceItem, out string sourceResolveError))
                 {
-                    value = Context.ValueStore.GetValueByName(gotoParam.ValueName).Value.ToString();
+                    throw CreateAlarmException(evt, sourceResolveError);
                 }
-                else if (!string.IsNullOrEmpty(gotoParam.ValueName2Index))
+                string value = sourceItem.Value;
+                if (string.IsNullOrEmpty(value))
                 {
-                    string index = Context.ValueStore.GetValueByName(gotoParam.ValueName2Index).Value.ToString();
-                    value = Context.ValueStore.GetValueByIndex(int.Parse(index)).Value.ToString();
-                }
-                if(value == "")
-                {
-                    MarkAlarm(evt, "匹配不到变量");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                    throw CreateAlarmException(evt, "匹配不到变量");
                 }
                 foreach (var item in gotoParam.Params)
                 {
-                    string itemValue = "";
-                    if (!string.IsNullOrEmpty(item.MatchValue))
-                        itemValue = item.MatchValue;
-                    else if (!string.IsNullOrEmpty(item.MatchValueIndex))
+                    string itemValue = null;
+                    bool hasMatchLiteral = !string.IsNullOrEmpty(item.MatchValue);
+                    bool hasMatchRef = !string.IsNullOrEmpty(item.MatchValueIndex)
+                        || !string.IsNullOrEmpty(item.MatchValueV);
+                    if (hasMatchLiteral && hasMatchRef)
                     {
-                        itemValue = Context.ValueStore.GetValueByIndex(int.Parse(item.MatchValueIndex)).Value.ToString();
+                        throw CreateAlarmException(evt, "匹配值配置冲突");
                     }
-                    else if (!string.IsNullOrEmpty(item.MatchValueV))
+                    if (hasMatchLiteral)
                     {
-                        itemValue = Context.ValueStore.GetValueByName(item.MatchValueV).Value.ToString();
+                        itemValue = item.MatchValue;
+                    }
+                    else
+                    {
+                        if (!ValueRef.TryCreate(item.MatchValueIndex, null, item.MatchValueV, null, false, "匹配值", out ValueRef matchRef, out string matchError))
+                        {
+                            throw CreateAlarmException(evt, matchError);
+                        }
+                        if (!matchRef.TryResolveValue(valueStore, "匹配值", out DicValue matchItem, out string matchResolveError))
+                        {
+                            throw CreateAlarmException(evt, matchResolveError);
+                        }
+                        itemValue = matchItem.Value;
+                    }
+                    if (itemValue == null)
+                    {
+                        throw CreateAlarmException(evt, "匹配值为空");
                     }
                     if (value == itemValue)
                     {
@@ -211,65 +220,41 @@ namespace Automation
             {
                 bool isFirst = true;
                 bool outPut = true;
+                ValueConfigStore valueStore = Context?.ValueStore;
                 foreach (var item in paramGoto.Params)
                 {
                     bool isNumericJudge = item.JudgeMode != "等于特征字符";
                     double numericValue = 0;
                     string textValue = null;
-                    bool hasValueSource = false;
+                    if (!ValueRef.TryCreate(item.ValueIndex, item.ValueIndex2Index, item.ValueName, item.ValueName2Index, false, "判断变量", out ValueRef valueRef, out string valueError))
+                    {
+                        throw CreateAlarmException(evt, valueError);
+                    }
+                    if (!valueRef.TryResolveValue(valueStore, "判断变量", out DicValue valueItem, out string valueResolveError))
+                    {
+                        throw CreateAlarmException(evt, valueResolveError);
+                    }
                     if (isNumericJudge)
                     {
-                        if (!string.IsNullOrEmpty(item.ValueIndex))
+                        try
                         {
-                            numericValue = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueIndex)).GetDValue();
-                            hasValueSource = true;
+                            numericValue = valueItem.GetDValue();
                         }
-                        else if (!string.IsNullOrEmpty(item.ValueIndex2Index))
+                        catch (Exception ex)
                         {
-                            string index = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueIndex2Index)).Value.ToString();
-                            numericValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).GetDValue();
-                            hasValueSource = true;
-                        }
-                        else if (!string.IsNullOrEmpty(item.ValueName))
-                        {
-                            numericValue = Context.ValueStore.GetValueByName(item.ValueName).GetDValue();
-                            hasValueSource = true;
-                        }
-                        else if (!string.IsNullOrEmpty(item.ValueName2Index))
-                        {
-                            string index = Context.ValueStore.GetValueByName(item.ValueName2Index).Value.ToString();
-                            numericValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).GetDValue();
-                            hasValueSource = true;
+                            throw CreateAlarmException(evt, ex.Message);
                         }
                     }
                     else
                     {
-                        if (!string.IsNullOrEmpty(item.ValueIndex))
+                        try
                         {
-                            textValue = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueIndex)).GetCValue();
-                            hasValueSource = true;
+                            textValue = valueItem.GetCValue();
                         }
-                        else if (!string.IsNullOrEmpty(item.ValueIndex2Index))
+                        catch (Exception ex)
                         {
-                            string index = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueIndex2Index)).Value.ToString();
-                            textValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).GetCValue();
-                            hasValueSource = true;
+                            throw CreateAlarmException(evt, ex.Message);
                         }
-                        else if (!string.IsNullOrEmpty(item.ValueName))
-                        {
-                            textValue = Context.ValueStore.GetValueByName(item.ValueName).GetCValue();
-                            hasValueSource = true;
-                        }
-                        else if (!string.IsNullOrEmpty(item.ValueName2Index))
-                        {
-                            string index = Context.ValueStore.GetValueByName(item.ValueName2Index).Value.ToString();
-                            textValue = Context.ValueStore.GetValueByIndex(int.Parse(index)).GetCValue();
-                            hasValueSource = true;
-                        }
-                    }
-                    if (!hasValueSource)
-                    {
-                        throw CreateAlarmException(evt, "找不到判断变量");
                     }
                     bool tempValue = false;
                     if (item.JudgeMode == "值在区间左")

@@ -28,38 +28,36 @@ namespace Automation
     {
         public bool RunStringFormat(ProcHandle evt, StringFormat stringFormat)
         {
+            ValueConfigStore valueStore = Context?.ValueStore;
             List<string> values = new List<string>();
             foreach (var item in stringFormat.Params)
             {
-                //==============================================GetSourceValue=====================================//
-                string SourceValue = "";
-                if (!string.IsNullOrEmpty(item.ValueSourceIndex))
-                    SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(item.ValueSourceIndex)).Value.ToString();
-                else if (!string.IsNullOrEmpty(item.ValueSourceName))
+                if (!ValueRef.TryCreate(item.ValueSourceIndex, null, item.ValueSourceName, null, false, "源变量", out ValueRef sourceRef, out string sourceError))
                 {
-                    SourceValue = Context.ValueStore.GetValueByName(item.ValueSourceName).Value.ToString();
+                    throw CreateAlarmException(evt, sourceError);
                 }
-                values.Add(SourceValue);
+                if (!sourceRef.TryResolveValue(valueStore, "源变量", out DicValue sourceItem, out string sourceResolveError))
+                {
+                    throw CreateAlarmException(evt, sourceResolveError);
+                }
+                values.Add(sourceItem.Value ?? string.Empty);
             }
             try
             {
                 string formattedStr = string.Format(stringFormat.Format, values.ToArray());
 
-                if (!string.IsNullOrEmpty(stringFormat.OutputValueIndex))
+                if (!ValueRef.TryCreate(stringFormat.OutputValueIndex, null, stringFormat.OutputValueName, null, false, "存储变量", out ValueRef outputRef, out string outputError))
                 {
-                    if (!Context.ValueStore.setValueByIndex(int.Parse(stringFormat.OutputValueIndex), formattedStr))
-                    {
-                        MarkAlarm(evt, $"格式化结果保存失败:索引{stringFormat.OutputValueIndex}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
+                    throw CreateAlarmException(evt, outputError);
                 }
-                else if (!string.IsNullOrEmpty(stringFormat.OutputValueName))
+                if (!outputRef.TryResolveValue(valueStore, "存储变量", out DicValue outputItem, out string outputResolveError))
                 {
-                    if (!Context.ValueStore.setValueByName(stringFormat.OutputValueName, formattedStr))
-                    {
-                        MarkAlarm(evt, $"格式化结果保存失败:{stringFormat.OutputValueName}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
+                    throw CreateAlarmException(evt, outputResolveError);
+                }
+                if (!valueStore.setValueByIndex(outputItem.Index, formattedStr))
+                {
+                    string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputItem.Index}" : outputItem.Name;
+                    throw CreateAlarmException(evt, $"格式化结果保存失败:{outputName}");
                 }
                
             }
@@ -74,25 +72,31 @@ namespace Automation
 
         public bool RunSplit(ProcHandle evt, Split split)
         {
-            string SourceValue = "";
-            if (!string.IsNullOrEmpty(split.SourceValueIndex))
-                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(split.SourceValueIndex)).Value.ToString();
-            else if (!string.IsNullOrEmpty(split.SourceValue))
+            ValueConfigStore valueStore = Context?.ValueStore;
+            if (!ValueRef.TryCreate(split.SourceValueIndex, null, split.SourceValue, null, false, "源变量", out ValueRef sourceRef, out string sourceError))
             {
-                SourceValue = Context.ValueStore.GetValueByName(split.SourceValue).Value.ToString();
+                throw CreateAlarmException(evt, sourceError);
             }
+            if (!sourceRef.TryResolveValue(valueStore, "源变量", out DicValue sourceItem, out string sourceResolveError))
+            {
+                throw CreateAlarmException(evt, sourceResolveError);
+            }
+            string SourceValue = sourceItem.Value ?? string.Empty;
 
             string[] splitArray = SourceValue.Split(split.SplitMark);
 
             int Startindex = int.Parse(split.startIndex);
 
             int SaveIndex = 0;
-            if (!string.IsNullOrEmpty(split.OutputIndex))
-                SaveIndex = int.Parse(split.OutputIndex);
-            else if (!string.IsNullOrEmpty(split.Output))
+            if (!ValueRef.TryCreate(split.OutputIndex, null, split.Output, null, false, "结果变量", out ValueRef outputRef, out string outputError))
             {
-                SaveIndex = Context.ValueStore.GetValueByName(split.Output).Index;
+                throw CreateAlarmException(evt, outputError);
             }
+            if (!outputRef.TryResolveValue(valueStore, "结果变量", out DicValue outputItem, out string outputResolveError))
+            {
+                throw CreateAlarmException(evt, outputResolveError);
+            }
+            SaveIndex = outputItem.Index;
             int Count = 0;
             if(!string.IsNullOrEmpty(split.Count))
             {
@@ -104,7 +108,7 @@ namespace Automation
             }
             for (int i = SaveIndex; i < SaveIndex + Count; i++)
             {
-                if (!Context.ValueStore.setValueByIndex(i, splitArray[Startindex + i - SaveIndex]))
+                if (!valueStore.setValueByIndex(i, splitArray[Startindex + i - SaveIndex]))
                 {
                     MarkAlarm(evt, $"保存变量失败:索引{i}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -115,51 +119,54 @@ namespace Automation
         }
         public bool RunReplace(ProcHandle evt, Replace replace)
         {
-            string SourceValue = "";
-            if (!string.IsNullOrEmpty(replace.SourceValueIndex))
-                SourceValue = Context.ValueStore.GetValueByIndex(int.Parse(replace.SourceValueIndex)).Value.ToString();
-            else if (!string.IsNullOrEmpty(replace.SourceValue))
+            ValueConfigStore valueStore = Context?.ValueStore;
+            if (!ValueRef.TryCreate(replace.SourceValueIndex, null, replace.SourceValue, null, false, "源变量", out ValueRef sourceRef, out string sourceError))
             {
-                SourceValue = Context.ValueStore.GetValueByName(replace.SourceValue).Value.ToString();
+                throw CreateAlarmException(evt, sourceError);
             }
-            if (SourceValue == "")
+            if (!sourceRef.TryResolveValue(valueStore, "源变量", out DicValue sourceItem, out string sourceResolveError))
             {
-                MarkAlarm(evt, "找不到源变量");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                throw CreateAlarmException(evt, sourceResolveError);
             }
-        
-            string replaceStr = "";
-            if (!string.IsNullOrEmpty(replace.ReplaceStr))
+            string SourceValue = sourceItem.Value;
+            if (string.IsNullOrEmpty(SourceValue))
             {
-                replaceStr = replace.ReplaceStr;
-            }
-            else if (!string.IsNullOrEmpty(replace.ReplaceStrIndex))
-                replaceStr = Context.ValueStore.GetValueByIndex(int.Parse(replace.ReplaceStrIndex)).Value.ToString();
-            else if (!string.IsNullOrEmpty(replace.ReplaceStrV))
-            {
-                replaceStr = Context.ValueStore.GetValueByName(replace.ReplaceStrV).Value.ToString();
-            }
-            if (replaceStr == "")
-            {
-                MarkAlarm(evt, "找不到被替换字符");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                throw CreateAlarmException(evt, "找不到源变量");
             }
 
-            string newStr = "";
-            if (!string.IsNullOrEmpty(replace.NewStr))
+            string ResolveTextValue(string literal, string index, string name, string label)
             {
-                newStr = replace.NewStr;
+                bool hasLiteral = !string.IsNullOrEmpty(literal);
+                bool hasRef = !string.IsNullOrEmpty(index) || !string.IsNullOrEmpty(name);
+                if (hasLiteral && hasRef)
+                {
+                    throw CreateAlarmException(evt, $"{label}配置冲突");
+                }
+                if (hasLiteral)
+                {
+                    return literal;
+                }
+                if (!ValueRef.TryCreate(index, null, name, null, false, label, out ValueRef valueRef, out string refError))
+                {
+                    throw CreateAlarmException(evt, refError);
+                }
+                if (!valueRef.TryResolveValue(valueStore, label, out DicValue valueItem, out string resolveError))
+                {
+                    throw CreateAlarmException(evt, resolveError);
+                }
+                return valueItem.Value;
             }
-            else if (!string.IsNullOrEmpty(replace.NewStrIndex))
-                newStr = Context.ValueStore.GetValueByIndex(int.Parse(replace.NewStrIndex)).Value.ToString();
-            else if (!string.IsNullOrEmpty(replace.NewStrV))
+
+            string replaceStr = ResolveTextValue(replace.ReplaceStr, replace.ReplaceStrIndex, replace.ReplaceStrV, "被替换字符");
+            if (string.IsNullOrEmpty(replaceStr))
             {
-                newStr = Context.ValueStore.GetValueByName(replace.NewStrV).Value.ToString();
+                throw CreateAlarmException(evt, "找不到被替换字符");
             }
-            if (newStr == "")
+
+            string newStr = ResolveTextValue(replace.NewStr, replace.NewStrIndex, replace.NewStrV, "新字符");
+            if (string.IsNullOrEmpty(newStr))
             {
-                MarkAlarm(evt, "找不到新字符");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                throw CreateAlarmException(evt, "找不到新字符");
             }
 
             string str = "";
@@ -176,26 +183,18 @@ namespace Automation
                 str = beforeSubstring + newStr + afterSubstring;
             }
 
-            if (!string.IsNullOrEmpty(replace.OutputIndex))
+            if (!ValueRef.TryCreate(replace.OutputIndex, null, replace.Output, null, false, "结果变量", out ValueRef outputRef, out string outputError))
             {
-                if (!Context.ValueStore.setValueByIndex(int.Parse(replace.OutputIndex),str))
-                {
-                    MarkAlarm(evt, $"保存变量失败:索引{replace.OutputIndex}");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
-                }
+                throw CreateAlarmException(evt, outputError);
             }
-            else if (!string.IsNullOrEmpty(replace.Output))
+            if (!outputRef.TryResolveValue(valueStore, "结果变量", out DicValue outputItem, out string outputResolveError))
             {
-                if (!Context.ValueStore.setValueByName(replace.Output, str))
-                {
-                    MarkAlarm(evt, $"保存变量失败:{replace.Output}");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
-                }
+                throw CreateAlarmException(evt, outputResolveError);
             }
-            else
+            if (!valueStore.setValueByIndex(outputItem.Index, str))
             {
-                MarkAlarm(evt, "找不到保存变量");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputItem.Index}" : outputItem.Name;
+                throw CreateAlarmException(evt, $"保存变量失败:{outputName}");
             }
             return true;
 

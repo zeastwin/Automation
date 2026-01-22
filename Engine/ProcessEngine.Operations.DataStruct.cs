@@ -44,12 +44,16 @@ namespace Automation
 
         public bool RunGetDataStructItem(ProcHandle evt, GetDataStructItem getDataStructItem)
         {
-
+            ValueConfigStore valueStore = Context?.ValueStore;
+            if (valueStore == null)
+            {
+                throw CreateAlarmException(evt, "变量库未初始化");
+            }
             int structIndex = int.Parse(getDataStructItem.StructIndex);
             int itemIndex = int.Parse(getDataStructItem.ItemIndex);
             if (getDataStructItem.IsAllItem)
             {
-                int startIndex = Context.ValueStore.GetValueByName(getDataStructItem.StartValue).Index;
+                int startIndex = valueStore.GetValueByName(getDataStructItem.StartValue).Index;
                 int count = Context.DataStructStore.GetItemValueCount(structIndex, itemIndex);
                 for (int i = 0; i < count; i++)
                 {
@@ -58,7 +62,7 @@ namespace Automation
                         MarkAlarm(evt, $"读取数据结构失败:结构{structIndex},项{itemIndex},值{i}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    if (!Context.ValueStore.setValueByIndex(startIndex + i, obj))
+                    if (!valueStore.setValueByIndex(startIndex + i, obj))
                     {
                         MarkAlarm(evt, $"保存变量失败:索引{startIndex + i}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -76,13 +80,16 @@ namespace Automation
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
 
-                    string valueName = "";
-                    if (!string.IsNullOrEmpty(getDataStructItem.Params[i].ValueIndex))
-                        valueName = Context.ValueStore.GetValueByIndex(int.Parse(getDataStructItem.Params[i].ValueIndex)).Value.ToString();
-                    else
-                        valueName = Context.ValueStore.GetValueByName(getDataStructItem.Params[i].ValueName).Value.ToString();
-
-                    if (!Context.ValueStore.setValueByName(valueName, obj))
+                    if (!ValueRef.TryCreate(getDataStructItem.Params[i].ValueIndex, null, getDataStructItem.Params[i].ValueName, null, false, "变量名称", out ValueRef nameRef, out string nameError))
+                    {
+                        throw CreateAlarmException(evt, nameError);
+                    }
+                    if (!nameRef.TryResolveValue(valueStore, "变量名称", out DicValue nameItem, out string nameResolveError))
+                    {
+                        throw CreateAlarmException(evt, nameResolveError);
+                    }
+                    string valueName = nameItem.Value;
+                    if (!valueStore.setValueByName(valueName, obj))
                     {
                         MarkAlarm(evt, $"保存变量失败:{valueName}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);

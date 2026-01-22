@@ -93,6 +93,7 @@
   <ItemGroup>
     <Compile Include="Communication\\CommunicationHub.cs" />
     <Compile Include="Communication\\CommunicationModels.cs" />
+    <Compile Include="Engine\ValueRef.cs" />
     <Compile Include="Stores\\AlarmInfoStore.cs" />
     <Compile Include="Stores\\CardConfigStore.cs" />
     <Compile Include="CustomFunc.cs" />
