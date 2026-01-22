@@ -36,7 +36,6 @@
             this.StructData_Page = new System.Windows.Forms.Button();
             this.Card_Page = new System.Windows.Forms.Button();
             this.value_Page = new System.Windows.Forms.Button();
-            this.Test_Page = new System.Windows.Forms.Button();
             this.panel1.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -118,7 +117,6 @@
             // 
             // panel1
             // 
-            this.panel1.Controls.Add(this.Test_Page);
             this.panel1.Controls.Add(this.StructData_Page);
             this.panel1.Controls.Add(this.Card_Page);
             this.panel1.Controls.Add(this.value_Page);
@@ -189,25 +187,6 @@
             this.value_Page.UseVisualStyleBackColor = false;
             this.value_Page.Click += new System.EventHandler(this.value_Page_Click);
             // 
-            // Test_Page
-            // 
-            this.Test_Page.BackColor = System.Drawing.Color.DarkSlateGray;
-            this.Test_Page.Dock = System.Windows.Forms.DockStyle.Left;
-            this.Test_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Test_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Test_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
-            this.Test_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.Test_Page.Font = new System.Drawing.Font("黑体", 14.75F);
-            this.Test_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
-            this.Test_Page.Location = new System.Drawing.Point(1001, 0);
-            this.Test_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
-            this.Test_Page.Name = "Test_Page";
-            this.Test_Page.Size = new System.Drawing.Size(143, 129);
-            this.Test_Page.TabIndex = 14;
-            this.Test_Page.Text = "测试";
-            this.Test_Page.UseVisualStyleBackColor = false;
-            this.Test_Page.Click += new System.EventHandler(this.Test_Page_Click);
-            // 
             // FrmMenu
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
@@ -231,6 +210,5 @@
         private System.Windows.Forms.Button Card_Page;
         private System.Windows.Forms.Button value_Page;
         private System.Windows.Forms.Button StructData_Page;
-        private System.Windows.Forms.Button Test_Page;
     }
 }

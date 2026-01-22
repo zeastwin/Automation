@@ -49,7 +49,7 @@
 - 导航/菜单：`FrmMenu`。
 - 流程编辑：`FrmProc`、`FrmDataGrid`、`FrmPropertyGrid`、`FrmToolBar`（新增/保存/取消/运行/暂停/单步/标记）。
 - 变量/IO/卡/工站/数据结构编辑：`FrmValue`、`FrmIO`、`FrmCard`、`FrmStation`、`FrmDataStruct`、`FrmIODebug`。
-- 监控/搜索：`FrmState`、`FrmSearch`/`FrmSearch4Value`、`FrmInfo`、`FrmTest`。
+- 监控/搜索：`FrmState`、`FrmSearch`/`FrmSearch4Value`、`FrmInfo`。
 
 ## 扩展指引
 - 新增操作：继承 `OperationType` 定义属性/转换器/报警行为，在 `ProcessEngine.ExecuteOperation` 添加分支并实现执行函数。

@@ -219,12 +219,6 @@
     <Compile Include="FrmStation.Designer.cs">
       <DependentUpon>FrmStation.cs</DependentUpon>
     </Compile>
-    <Compile Include="FrmTest.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="FrmTest.Designer.cs">
-      <DependentUpon>FrmTest.cs</DependentUpon>
-    </Compile>
     <Compile Include="FrmToolBar.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -307,9 +301,6 @@
     </EmbeddedResource>
     <EmbeddedResource Include="FrmStation.resx">
       <DependentUpon>FrmStation.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="FrmTest.resx">
-      <DependentUpon>FrmTest.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="FrmToolBar.resx">
       <DependentUpon>FrmToolBar.cs</DependentUpon>

@@ -205,13 +205,6 @@ namespace Automation
             }
         }
 
-        private void Test_Page_Click(object sender, EventArgs e)
-        {
-            SF.frmTest.StartPosition = FormStartPosition.CenterScreen;
-            SF.frmTest.Show();
-            SF.frmTest.BringToFront();
-            SF.frmTest.WindowState = FormWindowState.Normal;
-        }
     }
   
 }
