@@ -1,26 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Net.NetworkInformation;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using Automation.MotionControl;
-using static Automation.FrmProc;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
-using static Automation.FrmCard;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.TaskbarClock;
 using System.Diagnostics;
-using Newtonsoft.Json.Linq;
-using System.Numerics;
 
 namespace Automation
 {
@@ -68,12 +47,6 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
-            //time = ioParam.delayBefore;
-            //if (time <= 0 && ioParam.delayBeforeV != "")
-            //{
-            //    time = (int)Context.ValueStore.GetValueByName(ioParam.delayBeforeV).GetDValue();
-            //}
-            //Delay(time, evt);
             Stopwatch stopwatch = Stopwatch.StartNew();
             while (evt.State != ProcRunState.Stopped
                 && !evt.CancellationToken.IsCancellationRequested)
@@ -125,13 +98,6 @@ namespace Automation
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
-            //time = ioParam.delayAfter;
-            //if (time <= 0 && ioParam.delayAfterV != "")
-            //{
-            //    time = (int)Context.ValueStore.GetValueByName(ioParam.delayAfterV).GetDValue();
-            //}
-            //Delay(time, evt);
-
             return true;
         }
     }

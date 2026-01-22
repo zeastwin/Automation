@@ -1,15 +1,8 @@
 ﻿using Automation.MotionControl;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing;
-using System.Linq;
-using System.Net.Sockets;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
 
 namespace Automation
 {
@@ -69,9 +62,6 @@ namespace Automation
         public static int SysState = -1;
 
         public static bool isAddOps = false;
-
-
-        public static bool isDeleteOps = false;
         public static bool isFinBulidFrmValue = false;
         //标志是否完成编辑
         public static bool isEndEdit = true;
@@ -97,15 +87,6 @@ namespace Automation
             }
         }
 
-
-        public static void Delay2(int milliSecond)
-        {
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            while (stopwatch.ElapsedMilliseconds < milliSecond)//毫秒
-            {
-                Application.DoEvents();
-            }
-        }
 
         public static bool CanEditProc(int procIndex)
         {

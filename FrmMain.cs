@@ -2,23 +2,12 @@
 using csLTDMC;
 using Newtonsoft.Json;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Diagnostics;
-using System.Drawing;
 using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Security.Policy;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using static System.Collections.Specialized.BitVector32;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace Automation
 {
@@ -124,12 +113,6 @@ namespace Automation
 
         
 
-        void setDoubleBuffered()
-        {
-            SetStyle(ControlStyles.ResizeRedraw, true);
-            SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
-            SetStyle(ControlStyles.AllPaintingInWmPaint, true);
-        }
         private void FrmMain_Load(object sender, EventArgs e)
         {
             SF.frmValue.RefreshDic();
@@ -555,29 +538,6 @@ namespace Automation
             }
         }
 
-        public void CheckThreadStatus(Task task)
-        {
-            if (task == null)
-                return;
-            // 检查任务的状态
-            if (task.Status == TaskStatus.RanToCompletion)
-            {
-                Console.WriteLine("Task has finished successfully.");
-            }
-            else if (task.Status == TaskStatus.Faulted)
-            {
-                Console.WriteLine("Task encountered an error.");
-            }
-            else if (task.Status == TaskStatus.Canceled)
-            {
-                Console.WriteLine("Task was canceled.");
-            }
-            else if (task.Status == TaskStatus.Running)
-            {
-                Console.WriteLine("Task is running.");
-            }
-            Thread.Sleep(1000);
-        }
         public void loadFillForm(Panel panel, System.Windows.Forms.Form frm)
         {
             if (frm != null && panel != null)
