@@ -61,14 +61,24 @@ namespace Automation
                 {
                     Task task = Task.Run(() =>
                     {
-                        if (evt.CancellationToken.IsCancellationRequested)
+                        try
                         {
-                            return;
+                            if (evt.CancellationToken.IsCancellationRequested)
+                            {
+                                return;
+                            }
+                            if (homeRun.StationHomeType == "轴按优先顺序回")
+                                HomeStationBySeq(stationIndex, evt, homeRun.isUnWait);
+                            else
+                                HomeStationByAll(stationIndex, evt, homeRun.isUnWait);
                         }
-                        if (homeRun.StationHomeType == "轴按优先顺序回")
-                            HomeStationBySeq(stationIndex, evt);
-                        else
-                            HomeStationByAll(stationIndex, evt);
+                        catch (OperationCanceledException)
+                        {
+                        }
+                        catch (Exception ex)
+                        {
+                            ReportHomeAlarm(evt, ex.Message, homeRun.isUnWait);
+                        }
                     }, evt.CancellationToken);
                     evt.RunningTasks.Add(task);
                     Delay(500, evt);
@@ -656,12 +666,21 @@ namespace Automation
             Context.Motion?.StopOneAxis((ushort)card, (ushort)axis, 0);
         }
 
-        private void HomeStationBySeq(int dataStationIndex, ProcHandle evt)
+        private void ReportHomeAlarm(ProcHandle evt, string message, bool stopOnAlarm)
+        {
+            MarkAlarm(evt, message);
+            Logger?.Log(message, LogLevel.Error);
+            if (stopOnAlarm && evt != null)
+            {
+                HandleAlarm(null, evt);
+            }
+        }
+
+        private void HomeStationBySeq(int dataStationIndex, ProcHandle evt, bool stopOnAlarm)
         {
             if (Context.Stations == null || dataStationIndex < 0 || dataStationIndex >= Context.Stations.Count)
             {
-                MarkAlarm(evt, $"工站索引无效:{dataStationIndex}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                ReportHomeAlarm(evt, $"工站索引无效:{dataStationIndex}", stopOnAlarm);
                 return;
             }
             DataStation station = Context.Stations[dataStationIndex];
@@ -680,18 +699,16 @@ namespace Automation
                     }
                     if (item.AxisName == seq[i].Name && item.AxisName != "-1")
                     {
-                        HomeSingleAxis(ushort.Parse(item.CardNum), (ushort)item.axis.AxisNum, evt);
+                        HomeSingleAxis(ushort.Parse(item.CardNum), (ushort)item.axis.AxisNum, evt, stopOnAlarm);
                         if (Context.CardStore == null || !Context.CardStore.TryGetAxis(int.Parse(item.CardNum), i, out Axis axisInfo))
                         {
-                            MarkAlarm(evt, $"卡{item.CardNum}轴{i}配置不存在，工站回零动作终止。");
-                            Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                            ReportHomeAlarm(evt, $"卡{item.CardNum}轴{i}配置不存在，工站回零动作终止。", stopOnAlarm);
                             return;
                         }
 
                         if (axisInfo.State == Axis.Status.NotReady)
                         {
-                            MarkAlarm(evt, $"卡{item.CardNum}轴{i}回零失败,工站回零动作终止。");
-                            Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                            ReportHomeAlarm(evt, $"卡{item.CardNum}轴{i}回零失败,工站回零动作终止。", stopOnAlarm);
                             return;
                         }
                         break;
@@ -713,19 +730,18 @@ namespace Automation
                             return;
                         }
                         HomeSingleAxis(ushort.Parse(station.dataAxis.axisConfigs[index].CardNum),
-                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum, evt);
+                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum, evt, stopOnAlarm);
                     }, evt.CancellationToken);
                     evt.RunningTasks.Add(task);
                 }
             }
         }
 
-        private void HomeStationByAll(int dataStationIndex, ProcHandle evt)
+        private void HomeStationByAll(int dataStationIndex, ProcHandle evt, bool stopOnAlarm)
         {
             if (Context.Stations == null || dataStationIndex < 0 || dataStationIndex >= Context.Stations.Count)
             {
-                MarkAlarm(evt, $"工站索引无效:{dataStationIndex}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                ReportHomeAlarm(evt, $"工站索引无效:{dataStationIndex}", stopOnAlarm);
                 return;
             }
             DataStation station = Context.Stations[dataStationIndex];
@@ -745,19 +761,18 @@ namespace Automation
                             return;
                         }
                         HomeSingleAxis(ushort.Parse(station.dataAxis.axisConfigs[index].CardNum),
-                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum, evt);
+                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum, evt, stopOnAlarm);
                     }, evt.CancellationToken);
                     evt.RunningTasks.Add(task);
                 }
             }
         }
 
-        private void HomeSingleAxis(ushort cardNum, ushort axis, ProcHandle evt)
+        private void HomeSingleAxis(ushort cardNum, ushort axis, ProcHandle evt, bool stopOnAlarm)
         {
             if (Context.Motion == null || Context.CardStore == null)
             {
-                MarkAlarm(evt, "运动控制未初始化");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                ReportHomeAlarm(evt, "运动控制未初始化", stopOnAlarm);
                 return;
             }
             if (evt.CancellationToken.IsCancellationRequested)
@@ -766,15 +781,13 @@ namespace Automation
             }
             if (!Context.Motion.GetInPos(cardNum, axis))
             {
-                MarkAlarm(evt, $"轴未到位，禁止回零:{cardNum}-{axis}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                ReportHomeAlarm(evt, $"轴未到位，禁止回零:{cardNum}-{axis}", stopOnAlarm);
                 return;
             }
             ushort dir = 0;
             if (!Context.CardStore.TryGetAxis(cardNum, axis, out Axis axisInfo))
             {
-                MarkAlarm(evt, $"轴配置不存在:{cardNum}-{axis}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                ReportHomeAlarm(evt, $"轴配置不存在:{cardNum}-{axis}", stopOnAlarm);
                 return;
             }
             axisInfo.State = Axis.Status.Run;
@@ -819,8 +832,7 @@ namespace Automation
                             }
                             if (GetAxisStateBit(cardNum, axis, IOindexTemp))
                             {
-                                Logger?.Log("限位方向错误，回零失败。", LogLevel.Error);
-                                MarkAlarm(evt, "限位方向错误，回零失败。");
+                                ReportHomeAlarm(evt, "限位方向错误，回零失败。", stopOnAlarm);
                                 axisInfo.State = Axis.Status.NotReady;
                                 return;
                             }
@@ -860,8 +872,7 @@ namespace Automation
                             }
                             else
                             {
-                                Logger?.Log("限位方向错误，回零失败。", LogLevel.Error);
-                                MarkAlarm(evt, "限位方向错误，回零失败。");
+                                ReportHomeAlarm(evt, "限位方向错误，回零失败。", stopOnAlarm);
                                 axisInfo.State = Axis.Status.NotReady;
                                 sfc = 0;
                                 return;

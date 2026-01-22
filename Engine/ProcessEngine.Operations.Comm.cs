@@ -224,7 +224,7 @@ namespace Automation
             Context.Comm.ClearSerialMessages(receoveSerialPortMsg.ID);
             if (Context.Comm.TryReceiveSerial(receoveSerialPortMsg.ID, receoveSerialPortMsg.TImeOut, evt.CancellationToken, out string msg))
             {
-                if (int.TryParse(msg, out int number))
+                if (receoveSerialPortMsg.isConVert && int.TryParse(msg, out int number))
                 {
                     msg = Convert.ToString(number, 16).ToUpper();
                 }
@@ -455,6 +455,11 @@ namespace Automation
                     MarkAlarm(evt, $"等待串口连接超时配置无效:{op.Name}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
+                if (Context.SerialPortInfos == null || !Context.SerialPortInfos.Any(info => info != null && info.Name == op.Name))
+                {
+                    MarkAlarm(evt, $"串口配置不存在:{op.Name}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
                 Stopwatch stopwatch = Stopwatch.StartNew();
                 while (!evt.CancellationToken.IsCancellationRequested
                     && stopwatch.ElapsedMilliseconds < op.TimeOut)
@@ -468,6 +473,10 @@ namespace Automation
                 if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return true;
+                }
+                if (Context.Comm.IsSerialOpen(op.Name))
+                {
+                    continue;
                 }
                 MarkAlarm(evt, $"等待串口连接超时:{op.Name}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
