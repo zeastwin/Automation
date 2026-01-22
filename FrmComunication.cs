@@ -1,22 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Data;
 using System.Drawing;
 using System.Linq;
-using System.Net.Sockets;
-using System.Net;
-using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.Security.Policy;
-using System.Net.Http;
 using System.Reflection;
 using System.IO;
-using System.Collections;
-using System.Runtime.InteropServices.ComTypes;
-using static System.Net.Mime.MediaTypeNames;
-using static System.Windows.Forms.AxHost;
 
 namespace Automation
 {

@@ -69,12 +69,6 @@ namespace Automation
         }
 
 
-        public void AddPanel(Panel parent,Panel panel,DockStyle dockStyle)
-        {
-            parent.Controls.Add(panel);
-            panel.BringToFront();
-            panel.Dock = dockStyle;
-        }
         private void process_Page_Click(object sender, EventArgs e)
         {
             if (SF.curPage != 0)

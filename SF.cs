@@ -53,13 +53,6 @@ namespace Automation
         //编辑状态
         public static ModifyKind isModify = ModifyKind.None;
 
-        /*
-       * 0 停止
-       * 1 暂停
-       * 2 运行
-       */
-        public static int SysState = -1;
-
         public static bool isAddOps = false;
         public static bool isFinBulidFrmValue = false;
         //标志是否完成编辑
