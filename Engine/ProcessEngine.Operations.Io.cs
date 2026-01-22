@@ -83,15 +83,29 @@ namespace Automation
                     bool isCheckOff = true;
                     foreach (IoCheckParam ioParam in ioCheck.IoParams)
                     {
-                        if (Context.IoMap[ioParam.IOName].IOType == "通用输入")
+                        if (Context?.IoMap == null || !Context.IoMap.TryGetValue(ioParam.IOName, out IO io) || io == null)
                         {
-                            Context.Motion.GetInIO(Context.IoMap[ioParam.IOName], ref value);
-
+                            MarkAlarm(evt, $"IO映射不存在:{ioParam.IOName}");
+                            throw CreateAlarmException(evt, evt?.alarmMsg);
+                        }
+                        bool ok;
+                        if (io.IOType == "通用输入")
+                        {
+                            ok = Context.Motion != null && Context.Motion.GetInIO(io, ref value);
+                        }
+                        else if (io.IOType == "通用输出")
+                        {
+                            ok = Context.Motion != null && Context.Motion.GetOutIO(io, ref value);
                         }
                         else
                         {
-                            Context.Motion.GetOutIO(Context.IoMap[ioParam.IOName], ref value);
-
+                            MarkAlarm(evt, $"IO类型无效:{ioParam.IOName}");
+                            throw CreateAlarmException(evt, evt?.alarmMsg);
+                        }
+                        if (!ok)
+                        {
+                            MarkAlarm(evt, $"IO读取失败:{ioParam.IOName}");
+                            throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
                         if (value != ioParam.value)
                         {

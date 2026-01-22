@@ -6,6 +6,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -49,6 +50,9 @@ namespace Automation
         private bool[] snapshotDirty = Array.Empty<bool>();
         private readonly object snapshotLock = new object();
         private System.Windows.Forms.Timer snapshotTimer;
+        private CancellationTokenSource axisMonitorCts;
+        private Task axisMonitorTask;
+        private volatile bool axisMonitorFaulted;
 
         public FrmMain()
         {
@@ -180,22 +184,30 @@ namespace Automation
         public void Monitor()
         {
             ReflshDgv();
-            Task.Run(() =>
+            axisMonitorFaulted = false;
+            axisMonitorCts?.Cancel();
+            axisMonitorCts = new CancellationTokenSource();
+            CancellationToken token = axisMonitorCts.Token;
+            axisMonitorTask = Task.Run(() =>
             {
-                while (true)
+                while (!token.IsCancellationRequested)
                 {
                     try
                     {
-                        if (SF.isModify != ModifyKind.ControlCard && !SF.frmCard.IsNewCard)
+                        if (SF.isModify != ModifyKind.ControlCard && SF.frmCard != null && !SF.frmCard.IsNewCard)
                         {
-                            
-
-                            for (int i = 0; i < SF.cardStore.GetControlCardCount(); i++)
+                            if (SF.cardStore == null)
                             {
-                                for (int j = 0; j < SF.cardStore.GetAxisCount(i); j++)
+                                throw new InvalidOperationException("运动卡配置未初始化");
+                            }
+                            int cardCount = SF.cardStore.GetControlCardCount();
+                            for (int i = 0; i < cardCount; i++)
+                            {
+                                int axisCount = SF.cardStore.GetAxisCount(i);
+                                for (int j = 0; j < axisCount; j++)
                                 {
-                                    uint Number = csLTDMC.LTDMC.dmc_axis_io_status((ushort)i, (ushort)j);
-                                    char[] state = Convert.ToString(Number, 2).PadLeft(16, '0').ToCharArray();
+                                    uint number = csLTDMC.LTDMC.dmc_axis_io_status((ushort)i, (ushort)j);
+                                    char[] state = Convert.ToString(number, 2).PadLeft(16, '0').ToCharArray();
                                     lock (StateDicLock)
                                     {
                                         if (i >= StateDic.Count)
@@ -214,13 +226,18 @@ namespace Automation
                             }
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
-
+                        axisMonitorFaulted = true;
+                        HandleAxisMonitorFailure(ex);
+                        break;
                     }
-                    Thread.Sleep(1);
+                    if (token.WaitHandle.WaitOne(10))
+                    {
+                        break;
+                    }
                 }
-            });
+            }, token);
         }
        
         public void ReflshDgv()
@@ -236,9 +253,95 @@ namespace Automation
             }
         }
 
+        private void HandleAxisMonitorFailure(Exception ex)
+        {
+            string message = $"轴IO监视线程异常:{ex.Message}";
+            StopAllProcsForSafety(message);
+            TryStopMotion();
+            lock (StateDicLock)
+            {
+                StateDic.Clear();
+            }
+        }
+
+        private void StopAllProcsForSafety(string reason)
+        {
+            if (!string.IsNullOrWhiteSpace(reason))
+            {
+                dataRun?.Logger?.Log(reason, LogLevel.Error);
+                if (frmInfo != null && !frmInfo.IsDisposed)
+                {
+                    frmInfo.PrintInfo(reason, FrmInfo.Level.Error);
+                }
+            }
+            if (SF.DR == null)
+            {
+                return;
+            }
+            int count = SF.frmProc?.procsList?.Count ?? 0;
+            for (int i = 0; i < count; i++)
+            {
+                SF.DR.Stop(i);
+            }
+        }
+
+        private void TryStopMotion()
+        {
+            try
+            {
+                motion?.StopConnect();
+            }
+            catch (Exception ex)
+            {
+                string message = $"停止运动控制失败:{ex.Message}";
+                dataRun?.Logger?.Log(message, LogLevel.Error);
+                if (frmInfo != null && !frmInfo.IsDisposed)
+                {
+                    frmInfo.PrintInfo(message, FrmInfo.Level.Error);
+                }
+            }
+        }
+
+        private void WaitForAllProcsStopped(int timeoutMs)
+        {
+            if (SF.DR == null)
+            {
+                return;
+            }
+            int count = SF.frmProc?.procsList?.Count ?? 0;
+            if (count <= 0)
+            {
+                return;
+            }
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            while (stopwatch.ElapsedMilliseconds < timeoutMs)
+            {
+                bool allStopped = true;
+                for (int i = 0; i < count; i++)
+                {
+                    EngineSnapshot snapshot = SF.DR.GetSnapshot(i);
+                    if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+                    {
+                        allStopped = false;
+                        break;
+                    }
+                }
+                if (allStopped)
+                {
+                    return;
+                }
+                Thread.Sleep(20);
+            }
+            dataRun?.Logger?.Log("等待流程停止超时，继续关闭。", LogLevel.Error);
+        }
+
         public bool TryGetAxisStateBit(ushort cardNum, ushort axis, int bitIndex)
         {
             if (bitIndex <= 0)
+            {
+                return false;
+            }
+            if (axisMonitorFaulted || axisMonitorCts == null || axisMonitorCts.IsCancellationRequested)
             {
                 return false;
             }
@@ -640,6 +743,32 @@ namespace Automation
 
         private void FrmMain_FormClosing(object sender, FormClosingEventArgs e)
         {
+            axisMonitorCts?.Cancel();
+            if (axisMonitorTask != null)
+            {
+                try
+                {
+                    axisMonitorTask.Wait(1000);
+                }
+                catch (Exception ex)
+                {
+                    dataRun?.Logger?.Log($"等待轴IO监视线程退出失败:{ex.Message}", LogLevel.Error);
+                }
+            }
+
+            StopAllProcsForSafety("系统关闭，停止所有流程。");
+            WaitForAllProcsStopped(2000);
+            try
+            {
+                SF.comm?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                dataRun?.Logger?.Log($"关闭通讯失败:{ex.Message}", LogLevel.Error);
+            }
+            TryStopMotion();
+            dataRun?.Dispose();
+
             if (SF.frmProc != null && SF.frmProc.isStopPointDirty)
             {
                 if (!Directory.Exists(SF.workPath))
@@ -661,7 +790,6 @@ namespace Automation
                 snapshotTimer.Dispose();
                 snapshotTimer = null;
             }
-            Environment.Exit(0);
         }
     }
 
