@@ -28,8 +28,23 @@ namespace Automation
     {
         public bool RunTcpOps(ProcHandle evt, TcpOps tcpOps)
         {
+            if (tcpOps == null || tcpOps.Params == null)
+            {
+                MarkAlarm(evt, "TCP操作参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (Context?.Comm == null || Context.SocketInfos == null)
+            {
+                MarkAlarm(evt, "通讯未初始化");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             foreach (var op in tcpOps.Params)
             {
+                if (string.IsNullOrWhiteSpace(op.Name))
+                {
+                    MarkAlarm(evt, "TCP对象名称为空");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
                 SocketInfo socketInfo = Context.SocketInfos.FirstOrDefault(sc => sc.Name == op.Name);
                 if (socketInfo == null)
                 {
@@ -38,12 +53,26 @@ namespace Automation
                 }
                 if (op.Ops == "启动")
                 {
-                    _ = Context.Comm.StartTcpAsync(socketInfo);
+                    Context.Comm.StartTcpAsync(socketInfo).GetAwaiter().GetResult();
+                    if (!Context.Comm.IsTcpActive(op.Name))
+                    {
+                        MarkAlarm(evt, $"TCP启动失败:{op.Name}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
+                }
+                else if (op.Ops == "断开")
+                {
+                    Context.Comm.StopTcpAsync(op.Name).GetAwaiter().GetResult();
+                    if (Context.Comm.IsTcpActive(op.Name))
+                    {
+                        MarkAlarm(evt, $"TCP断开失败:{op.Name}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
                 }
                 else
                 {
-                    _ = Context.Comm.StopTcpAsync(op.Name);
-
+                    MarkAlarm(evt, $"TCP操作类型无效:{op.Ops}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
 
             }
@@ -53,8 +82,23 @@ namespace Automation
 
         public bool RunWaitTcp(ProcHandle evt, WaitTcp waitTcp)
         {
+            if (waitTcp == null || waitTcp.Params == null)
+            {
+                MarkAlarm(evt, "等待TCP参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (Context?.Comm == null)
+            {
+                MarkAlarm(evt, "通讯未初始化");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             foreach (var op in waitTcp.Params)
             {
+                if (string.IsNullOrWhiteSpace(op.Name))
+                {
+                    MarkAlarm(evt, "TCP对象名称为空");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
                 if (op.TimeOut <= 0)
                 {
                     MarkAlarm(evt, $"等待TCP连接超时配置无效:{op.Name}");
@@ -70,7 +114,7 @@ namespace Automation
                     }
                     if (Context.Comm.IsTcpActive(op.Name))
                     {
-                        return true;
+                        break;
                     }
                     Delay(5, evt);
                 }
@@ -354,8 +398,23 @@ namespace Automation
 
         public bool RunSerialPortOps(ProcHandle evt, SerialPortOps serialPortOps)
         {
+            if (serialPortOps == null || serialPortOps.Params == null)
+            {
+                MarkAlarm(evt, "串口操作参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (Context?.Comm == null || Context.SerialPortInfos == null)
+            {
+                MarkAlarm(evt, "通讯未初始化");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             foreach (var op in serialPortOps.Params)
             {
+                if (string.IsNullOrWhiteSpace(op.Name))
+                {
+                    MarkAlarm(evt, "串口对象名称为空");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
                 SerialPortInfo serialPortInfo = Context.SerialPortInfos.FirstOrDefault(sc => sc.Name == op.Name);
                 if (serialPortInfo == null)
                 {
@@ -364,11 +423,26 @@ namespace Automation
                 }
                 if (op.Ops == "启动")
                 {
-                    _ = Context.Comm.StartSerialAsync(serialPortInfo);
+                    Context.Comm.StartSerialAsync(serialPortInfo).GetAwaiter().GetResult();
+                    if (!Context.Comm.IsSerialOpen(op.Name))
+                    {
+                        MarkAlarm(evt, $"串口启动失败:{op.Name}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
+                }
+                else if (op.Ops == "断开")
+                {
+                    Context.Comm.StopSerialAsync(op.Name).GetAwaiter().GetResult();
+                    if (Context.Comm.IsSerialOpen(op.Name))
+                    {
+                        MarkAlarm(evt, $"串口断开失败:{op.Name}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
                 }
                 else
                 {
-                    _ = Context.Comm.StopSerialAsync(op.Name);
+                    MarkAlarm(evt, $"串口操作类型无效:{op.Ops}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
 
             }
@@ -378,8 +452,23 @@ namespace Automation
 
         public bool RunWaitSerialPort(ProcHandle evt, WaitSerialPort waitSerialPort)
         {
+            if (waitSerialPort == null || waitSerialPort.Params == null)
+            {
+                MarkAlarm(evt, "等待串口参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (Context?.Comm == null)
+            {
+                MarkAlarm(evt, "通讯未初始化");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             foreach (var op in waitSerialPort.Params)
             {
+                if (string.IsNullOrWhiteSpace(op.Name))
+                {
+                    MarkAlarm(evt, "串口对象名称为空");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
                 if (op.TimeOut <= 0)
                 {
                     MarkAlarm(evt, $"等待串口连接超时配置无效:{op.Name}");
@@ -391,7 +480,7 @@ namespace Automation
                 {
                     if (Context.Comm.IsSerialOpen(op.Name))
                     {
-                        return true;
+                        break;
                     }
                     Delay(5, evt);
                 }

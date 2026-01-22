@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.IO.Ports;
 using System.Linq;
 using System.Net;
@@ -8,6 +9,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 
 namespace Automation
 {
@@ -73,6 +75,47 @@ namespace Automation
         }
 
         public bool IsOpen { get; }
+    }
+
+    internal static class RuntimeConfig
+    {
+        private const string ConfigFileName = "AppConfig.json";
+        private const string QueueSizeKey = "CommMaxMessageQueueSize";
+        private static readonly int maxMessageQueueSize = LoadQueueSize();
+
+        public static int MaxMessageQueueSize => maxMessageQueueSize;
+
+        private static int LoadQueueSize()
+        {
+            string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFileName);
+            if (!File.Exists(configPath))
+            {
+                throw new InvalidOperationException($"应用配置文件不存在:{configPath}");
+            }
+            try
+            {
+                string json = File.ReadAllText(configPath, Encoding.UTF8);
+                JObject obj = JObject.Parse(json);
+                if (!obj.TryGetValue(QueueSizeKey, StringComparison.Ordinal, out JToken token))
+                {
+                    throw new InvalidOperationException($"应用配置缺少字段:{QueueSizeKey}");
+                }
+                if (token.Type != JTokenType.Integer)
+                {
+                    throw new InvalidOperationException($"通讯接收队列长度类型无效:{token}");
+                }
+                int value = token.Value<int>();
+                if (value <= 0)
+                {
+                    throw new InvalidOperationException($"通讯接收队列长度配置无效:{value}");
+                }
+                return value;
+            }
+            catch (Exception ex) when (!(ex is InvalidOperationException))
+            {
+                throw new InvalidOperationException($"读取应用配置失败:{ex.Message}");
+            }
+        }
     }
 
     public sealed class CommunicationHub : IDisposable
@@ -409,7 +452,7 @@ namespace Automation
     {
         private readonly SocketInfo _info;
         private readonly Action<CommLogEventArgs> _log;
-        private readonly BlockingCollection<string> _messages = new BlockingCollection<string>(new ConcurrentQueue<string>());
+        private readonly BlockingCollection<string> _messages = new BlockingCollection<string>(new ConcurrentQueue<string>(), RuntimeConfig.MaxMessageQueueSize);
         private readonly object _clientLock = new object();
         private readonly Encoding _encoding = Encoding.UTF8;
         private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
@@ -748,7 +791,19 @@ namespace Automation
                 }
 
                 string received = _encoding.GetString(buffer, 0, bytesRead);
-                _messages.Add(received);
+                if (!_messages.TryAdd(received))
+                {
+                    _log?.Invoke(new CommLogEventArgs(Kind, CommDirection.Error, _info.Name, "TCP接收队列已满，通讯已停止", remoteEndPoint, null));
+                    try
+                    {
+                        StopAsync().GetAwaiter().GetResult();
+                    }
+                    catch (Exception ex)
+                    {
+                        _log?.Invoke(new CommLogEventArgs(Kind, CommDirection.Error, _info.Name, ex.Message, remoteEndPoint, ex));
+                    }
+                    break;
+                }
                 _log?.Invoke(new CommLogEventArgs(Kind, CommDirection.Receive, _info.Name, received, remoteEndPoint, null));
             }
 
@@ -768,7 +823,7 @@ namespace Automation
     {
         private readonly SerialPortInfo _info;
         private readonly Action<CommLogEventArgs> _log;
-        private readonly BlockingCollection<string> _messages = new BlockingCollection<string>(new ConcurrentQueue<string>());
+        private readonly BlockingCollection<string> _messages = new BlockingCollection<string>(new ConcurrentQueue<string>(), RuntimeConfig.MaxMessageQueueSize);
         private readonly object _sync = new object();
         private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
         private CancellationTokenSource _cts;
@@ -978,7 +1033,19 @@ namespace Automation
                     received = _serialPort.Encoding.GetString(buffer, 0, bytesRead);
                 }
 
-                _messages.Add(received);
+                if (!_messages.TryAdd(received))
+                {
+                    _log?.Invoke(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, _info.Name, "串口接收队列已满，通讯已停止", _info.Port, null));
+                    try
+                    {
+                        StopAsync().GetAwaiter().GetResult();
+                    }
+                    catch (Exception ex)
+                    {
+                        _log?.Invoke(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, _info.Name, ex.Message, _info.Port, ex));
+                    }
+                    break;
+                }
                 _log?.Invoke(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Receive, _info.Name, received, _info.Port, null));
             }
 
