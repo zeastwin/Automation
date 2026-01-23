@@ -7,23 +7,37 @@ namespace Automation
 {
     public partial class FrmValue : Form
     {  //存放变量对象
+        private sealed class CommonValueItem
+        {
+            public int Index { get; set; }
+            public string Name { get; set; }
+
+            public override string ToString()
+            {
+                string text = string.IsNullOrWhiteSpace(Name) ? $"索引{Index}" : Name;
+                return $"{Index:D3}  {text}";
+            }
+        }
 
         public FrmValue()
         {
             InitializeComponent();
+            Font uiFont = new Font("黑体", 12F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
+            dgvValue.Font = uiFont;
+            dgvValue.ColumnHeadersDefaultCellStyle.Font = new Font("黑体", 12F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134)));
             dgvValue.SelectionMode = DataGridViewSelectionMode.ColumnHeaderSelect;
             dgvValue.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
             dgvValue.Columns[0].ReadOnly = true;
             dgvValue.RowHeadersVisible = false;
             dgvValue.AutoGenerateColumns = false;
-        
+
 
             Type dgvType = this.dgvValue.GetType();
             PropertyInfo pi = dgvType.GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
             pi.SetValue(this.dgvValue, true, null);
 
             dgvValue.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-            dgvValue.RowTemplate.Height = 20;
+            dgvValue.RowTemplate.Height = 28;
         }
 
         private void FrmValue_FormClosing(object sender, FormClosingEventArgs e)
@@ -59,6 +73,7 @@ namespace Automation
                     dgvValue.Rows[i].Cells[4].Value = cachedValue.Note;
                 }
             }
+            RefreshCommonList();
         }
         //刷新变量界面
         public void FreshFrmValue()
@@ -74,6 +89,7 @@ namespace Automation
                     dgvValue.Rows[i].Cells[4].Value = cachedValue.Note;
                 }
             }
+            RefreshCommonList();
 
         }
         /*=============================================================================================*/
@@ -213,6 +229,7 @@ namespace Automation
                 {
                     SF.valueStore.ToggleMark(selectedRowIndex);
                     SF.valueStore.Save(SF.ConfigPath);
+                    RefreshCommonList();
                 }
             }
             else
@@ -295,6 +312,7 @@ namespace Automation
             SF.valueStore.ClearMarks();
             SF.valueStore.Save(SF.ConfigPath);
             dgvValue.Refresh();
+            RefreshCommonList();
         }
 
         private void dgvValue_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
@@ -326,6 +344,53 @@ namespace Automation
             SF.frmSearch4Value.BringToFront();
             SF.frmSearch4Value.WindowState = FormWindowState.Normal;
             SF.frmSearch4Value.textBox1.Focus();
+        }
+
+        private void RefreshCommonList()
+        {
+            if (listCommon == null)
+            {
+                return;
+            }
+            listCommon.BeginUpdate();
+            listCommon.Items.Clear();
+            int count = 0;
+            for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
+            {
+                if (!SF.valueStore.IsMarked(i))
+                {
+                    continue;
+                }
+                string name = null;
+                if (SF.valueStore.TryGetValueByIndex(i, out DicValue value))
+                {
+                    name = value?.Name;
+                }
+                listCommon.Items.Add(new CommonValueItem
+                {
+                    Index = i,
+                    Name = name
+                });
+                count++;
+            }
+            labelCommon.Text = $"常用变量({count})";
+            listCommon.EndUpdate();
+        }
+
+        private void listCommon_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (listCommon.SelectedItem is CommonValueItem item)
+            {
+                int index = item.Index;
+                if (index >= 0 && index < dgvValue.Rows.Count)
+                {
+                    currentIndex = index;
+                    dgvValue.ClearSelection();
+                    dgvValue.CurrentCell = dgvValue.Rows[index].Cells[0];
+                    dgvValue.Rows[index].Selected = true;
+                    dgvValue.FirstDisplayedScrollingRowIndex = index;
+                }
+            }
         }
 
     }

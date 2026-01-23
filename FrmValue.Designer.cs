@@ -39,6 +39,9 @@
             this.btnPrevious = new System.Windows.Forms.Button();
             this.BtnNext = new System.Windows.Forms.Button();
             this.btnSet = new System.Windows.Forms.Button();
+            this.panelCommon = new System.Windows.Forms.Panel();
+            this.listCommon = new System.Windows.Forms.ListBox();
+            this.labelCommon = new System.Windows.Forms.Label();
             this.dgvValue = new System.Windows.Forms.DataGridView();
             this.index = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.name = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -46,6 +49,7 @@
             this.value = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.Note = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.panel1.SuspendLayout();
+            this.panelCommon.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dgvValue)).BeginInit();
             this.SuspendLayout();
             // 
@@ -60,20 +64,21 @@
             this.panel1.Dock = System.Windows.Forms.DockStyle.Top;
             this.panel1.Location = new System.Drawing.Point(0, 0);
             this.panel1.Name = "panel1";
-            this.panel1.Size = new System.Drawing.Size(1018, 36);
+            this.panel1.Size = new System.Drawing.Size(1520, 48);
             this.panel1.TabIndex = 3;
             // 
             // btnSearch
             // 
             this.btnSearch.BackColor = System.Drawing.Color.WhiteSmoke;
+            this.btnSearch.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
             this.btnSearch.FlatAppearance.BorderColor = System.Drawing.Color.White;
             this.btnSearch.FlatAppearance.BorderSize = 2;
             this.btnSearch.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnSearch.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
-            this.btnSearch.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnSearch.Location = new System.Drawing.Point(963, 2);
+            this.btnSearch.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnSearch.Location = new System.Drawing.Point(1356, 6);
             this.btnSearch.Name = "btnSearch";
-            this.btnSearch.Size = new System.Drawing.Size(52, 33);
+            this.btnSearch.Size = new System.Drawing.Size(72, 36);
             this.btnSearch.TabIndex = 101;
             this.btnSearch.Text = "查找";
             this.btnSearch.UseVisualStyleBackColor = false;
@@ -87,14 +92,14 @@
             this.btnCancel.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnCancel.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
             this.btnCancel.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnCancel.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnCancel.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnCancel.ForeColor = System.Drawing.SystemColors.ControlText;
-            this.btnCancel.Location = new System.Drawing.Point(248, -1);
+            this.btnCancel.Location = new System.Drawing.Point(290, 6);
             this.btnCancel.Margin = new System.Windows.Forms.Padding(2);
             this.btnCancel.Name = "btnCancel";
-            this.btnCancel.Size = new System.Drawing.Size(81, 35);
+            this.btnCancel.Size = new System.Drawing.Size(110, 36);
             this.btnCancel.TabIndex = 15;
-            this.btnCancel.Text = "×";
+            this.btnCancel.Text = "清除常用";
             this.btnCancel.UseVisualStyleBackColor = false;
             this.btnCancel.Click += new System.EventHandler(this.btnCancel_Click);
             // 
@@ -106,12 +111,12 @@
             this.btnPrevious.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnPrevious.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
             this.btnPrevious.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnPrevious.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnPrevious.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnPrevious.ForeColor = System.Drawing.SystemColors.ControlText;
-            this.btnPrevious.Location = new System.Drawing.Point(84, -1);
+            this.btnPrevious.Location = new System.Drawing.Point(130, 6);
             this.btnPrevious.Margin = new System.Windows.Forms.Padding(2);
             this.btnPrevious.Name = "btnPrevious";
-            this.btnPrevious.Size = new System.Drawing.Size(81, 35);
+            this.btnPrevious.Size = new System.Drawing.Size(76, 36);
             this.btnPrevious.TabIndex = 14;
             this.btnPrevious.Text = "←";
             this.btnPrevious.UseVisualStyleBackColor = false;
@@ -125,12 +130,12 @@
             this.BtnNext.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.BtnNext.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
             this.BtnNext.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.BtnNext.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.BtnNext.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.BtnNext.ForeColor = System.Drawing.SystemColors.ControlText;
-            this.BtnNext.Location = new System.Drawing.Point(166, -1);
+            this.BtnNext.Location = new System.Drawing.Point(208, 6);
             this.BtnNext.Margin = new System.Windows.Forms.Padding(2);
             this.BtnNext.Name = "BtnNext";
-            this.BtnNext.Size = new System.Drawing.Size(81, 35);
+            this.BtnNext.Size = new System.Drawing.Size(76, 36);
             this.BtnNext.TabIndex = 13;
             this.BtnNext.Text = "→";
             this.BtnNext.UseVisualStyleBackColor = false;
@@ -144,16 +149,52 @@
             this.btnSet.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnSet.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
             this.btnSet.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnSet.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnSet.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnSet.ForeColor = System.Drawing.SystemColors.ControlText;
-            this.btnSet.Location = new System.Drawing.Point(2, -1);
+            this.btnSet.Location = new System.Drawing.Point(10, 6);
             this.btnSet.Margin = new System.Windows.Forms.Padding(2);
             this.btnSet.Name = "btnSet";
-            this.btnSet.Size = new System.Drawing.Size(81, 35);
+            this.btnSet.Size = new System.Drawing.Size(110, 36);
             this.btnSet.TabIndex = 12;
-            this.btnSet.Text = "√";
+            this.btnSet.Text = "设常用";
             this.btnSet.UseVisualStyleBackColor = false;
             this.btnSet.Click += new System.EventHandler(this.btnSet_Click);
+            // 
+            // panelCommon
+            // 
+            this.panelCommon.BackColor = System.Drawing.SystemColors.ControlLightLight;
+            this.panelCommon.Controls.Add(this.listCommon);
+            this.panelCommon.Controls.Add(this.labelCommon);
+            this.panelCommon.Dock = System.Windows.Forms.DockStyle.Left;
+            this.panelCommon.Location = new System.Drawing.Point(0, 48);
+            this.panelCommon.Name = "panelCommon";
+            this.panelCommon.Size = new System.Drawing.Size(240, 812);
+            this.panelCommon.TabIndex = 5;
+            // 
+            // listCommon
+            // 
+            this.listCommon.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.listCommon.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.listCommon.FormattingEnabled = true;
+            this.listCommon.IntegralHeight = false;
+            this.listCommon.ItemHeight = 16;
+            this.listCommon.Location = new System.Drawing.Point(0, 36);
+            this.listCommon.Name = "listCommon";
+            this.listCommon.Size = new System.Drawing.Size(240, 776);
+            this.listCommon.TabIndex = 1;
+            this.listCommon.SelectedIndexChanged += new System.EventHandler(this.listCommon_SelectedIndexChanged);
+            // 
+            // labelCommon
+            // 
+            this.labelCommon.BackColor = System.Drawing.SystemColors.ControlLight;
+            this.labelCommon.Dock = System.Windows.Forms.DockStyle.Top;
+            this.labelCommon.Font = new System.Drawing.Font("黑体", 12.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.labelCommon.Location = new System.Drawing.Point(0, 0);
+            this.labelCommon.Name = "labelCommon";
+            this.labelCommon.Size = new System.Drawing.Size(240, 36);
+            this.labelCommon.TabIndex = 0;
+            this.labelCommon.Text = "常用变量";
+            this.labelCommon.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             // 
             // dgvValue
             // 
@@ -161,7 +202,7 @@
             this.dgvValue.AllowUserToResizeRows = false;
             this.dgvValue.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
             this.dgvValue.BackgroundColor = System.Drawing.SystemColors.ControlLight;
-            this.dgvValue.ColumnHeadersHeight = 22;
+            this.dgvValue.ColumnHeadersHeight = 32;
             this.dgvValue.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
             this.dgvValue.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this.index,
@@ -170,13 +211,13 @@
             this.value,
             this.Note});
             this.dgvValue.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.dgvValue.Location = new System.Drawing.Point(0, 36);
+            this.dgvValue.Location = new System.Drawing.Point(240, 48);
             this.dgvValue.Name = "dgvValue";
             this.dgvValue.RowHeadersVisible = false;
             this.dgvValue.RowHeadersWidth = 20;
-            this.dgvValue.RowTemplate.Height = 23;
+            this.dgvValue.RowTemplate.Height = 28;
             this.dgvValue.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
-            this.dgvValue.Size = new System.Drawing.Size(1018, 588);
+            this.dgvValue.Size = new System.Drawing.Size(1200, 812);
             this.dgvValue.TabIndex = 4;
             this.dgvValue.CellEndEdit += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvValue_CellEndEdit);
             this.dgvValue.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.dgvValue_CellFormatting);
@@ -188,9 +229,9 @@
             // 
             dataGridViewCellStyle1.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
             this.index.DefaultCellStyle = dataGridViewCellStyle1;
-            this.index.FillWeight = 15F;
+            this.index.FillWeight = 25F;
             this.index.HeaderText = "编号";
-            this.index.MinimumWidth = 6;
+            this.index.MinimumWidth = 60;
             this.index.Name = "index";
             this.index.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
             // 
@@ -240,16 +281,18 @@
             // 
             // FrmValue
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
+            this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 14F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(1018, 624);
+            this.ClientSize = new System.Drawing.Size(1520, 860);
             this.Controls.Add(this.dgvValue);
+            this.Controls.Add(this.panelCommon);
             this.Controls.Add(this.panel1);
             this.Name = "FrmValue";
             this.Text = "变量表";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.FrmValue_FormClosing);
             this.Load += new System.EventHandler(this.FrmValue_Load);
             this.panel1.ResumeLayout(false);
+            this.panelCommon.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.dgvValue)).EndInit();
             this.ResumeLayout(false);
 
@@ -263,6 +306,9 @@
         public System.Windows.Forms.Button btnSet;
         public System.Windows.Forms.Button btnSearch;
         public System.Windows.Forms.DataGridView dgvValue;
+        private System.Windows.Forms.Panel panelCommon;
+        private System.Windows.Forms.ListBox listCommon;
+        private System.Windows.Forms.Label labelCommon;
         private System.Windows.Forms.DataGridViewTextBoxColumn index;
         private System.Windows.Forms.DataGridViewTextBoxColumn name;
         private System.Windows.Forms.DataGridViewComboBoxColumn type;
