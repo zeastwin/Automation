@@ -20,6 +20,7 @@ namespace Automation
 
             index.DataPropertyName = nameof(AlarmInfo.Index);
             name.DataPropertyName = nameof(AlarmInfo.Name);
+            category.DataPropertyName = nameof(AlarmInfo.Category);
             operaType.DataPropertyName = nameof(AlarmInfo.Btn1);
             btn2.DataPropertyName = nameof(AlarmInfo.Btn2);
             btn3.DataPropertyName = nameof(AlarmInfo.Btn3);
@@ -123,6 +124,7 @@ namespace Automation
 
             alarm.Index = e.RowIndex;
             alarm.Name = alarm.Name?.Trim();
+            alarm.Category = alarm.Category?.Trim();
             alarm.Note = alarm.Note?.Trim();
             alarm.Btn1 = alarm.Btn1?.Trim();
             alarm.Btn2 = alarm.Btn2?.Trim();

@@ -34,9 +34,11 @@
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle22 = new System.Windows.Forms.DataGridViewCellStyle();
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle23 = new System.Windows.Forms.DataGridViewCellStyle();
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle24 = new System.Windows.Forms.DataGridViewCellStyle();
+            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle25 = new System.Windows.Forms.DataGridViewCellStyle();
             this.dataGridView1 = new System.Windows.Forms.DataGridView();
             this.index = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.name = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.category = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.operaType = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.btn2 = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.btn3 = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -56,6 +58,7 @@
             this.dataGridView1.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this.index,
             this.name,
+            this.category,
             this.operaType,
             this.btn2,
             this.btn3,
@@ -92,10 +95,20 @@
             this.name.Name = "name";
             this.name.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
             // 
-            // operaType
+            // category
             // 
             dataGridViewCellStyle21.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.operaType.DefaultCellStyle = dataGridViewCellStyle21;
+            this.category.DefaultCellStyle = dataGridViewCellStyle21;
+            this.category.FillWeight = 35F;
+            this.category.HeaderText = "报警类别";
+            this.category.MinimumWidth = 6;
+            this.category.Name = "category";
+            this.category.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            // 
+            // operaType
+            // 
+            dataGridViewCellStyle22.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
+            this.operaType.DefaultCellStyle = dataGridViewCellStyle22;
             this.operaType.FillWeight = 30F;
             this.operaType.HeaderText = "按钮1提示";
             this.operaType.MinimumWidth = 6;
@@ -104,8 +117,8 @@
             // 
             // btn2
             // 
-            dataGridViewCellStyle22.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.btn2.DefaultCellStyle = dataGridViewCellStyle22;
+            dataGridViewCellStyle23.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
+            this.btn2.DefaultCellStyle = dataGridViewCellStyle23;
             this.btn2.FillWeight = 30F;
             this.btn2.HeaderText = "按钮2提示";
             this.btn2.Name = "btn2";
@@ -113,8 +126,8 @@
             // 
             // btn3
             // 
-            dataGridViewCellStyle23.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.btn3.DefaultCellStyle = dataGridViewCellStyle23;
+            dataGridViewCellStyle24.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
+            this.btn3.DefaultCellStyle = dataGridViewCellStyle24;
             this.btn3.FillWeight = 30F;
             this.btn3.HeaderText = "按钮3提示";
             this.btn3.Name = "btn3";
@@ -123,8 +136,8 @@
             // Note
             // 
             this.Note.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
-            dataGridViewCellStyle24.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.Note.DefaultCellStyle = dataGridViewCellStyle24;
+            dataGridViewCellStyle25.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
+            this.Note.DefaultCellStyle = dataGridViewCellStyle25;
             this.Note.FillWeight = 146.5714F;
             this.Note.HeaderText = "信息";
             this.Note.MinimumWidth = 6;
@@ -150,6 +163,7 @@
         public System.Windows.Forms.DataGridView dataGridView1;
         private System.Windows.Forms.DataGridViewTextBoxColumn index;
         private System.Windows.Forms.DataGridViewTextBoxColumn name;
+        private System.Windows.Forms.DataGridViewTextBoxColumn category;
         private System.Windows.Forms.DataGridViewTextBoxColumn operaType;
         private System.Windows.Forms.DataGridViewTextBoxColumn btn2;
         private System.Windows.Forms.DataGridViewTextBoxColumn btn3;

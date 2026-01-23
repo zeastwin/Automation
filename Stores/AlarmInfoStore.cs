@@ -89,34 +89,36 @@ namespace Automation
 
         private void LoadFromList(List<AlarmInfo> source)
         {
+            if (source == null)
+            {
+                throw new InvalidDataException("报警信息配置为空。");
+            }
+            if (source.Count != AlarmCapacity)
+            {
+                throw new InvalidDataException($"报警信息数量必须为 {AlarmCapacity}。");
+            }
+            for (int i = 0; i < AlarmCapacity; i++)
+            {
+                AlarmInfo item = source[i];
+                if (item == null)
+                {
+                    throw new InvalidDataException($"报警信息[{i}]为空。");
+                }
+                if (item.Index != i)
+                {
+                    throw new InvalidDataException($"报警信息编号不匹配，当前:{item.Index}，期望:{i}。");
+                }
+            }
             lock (alarmLock)
             {
                 ResetAlarms();
-                if (source == null)
-                {
-                    return;
-                }
-                bool[] occupied = new bool[AlarmCapacity];
-                for (int i = 0; i < source.Count && i < AlarmCapacity; i++)
+                for (int i = 0; i < AlarmCapacity; i++)
                 {
                     AlarmInfo item = source[i];
-                    if (item == null)
-                    {
-                        continue;
-                    }
-                    int index = item.Index;
-                    if (index < 0 || index >= AlarmCapacity || occupied[index])
-                    {
-                        index = i;
-                        if (index < 0 || index >= AlarmCapacity || occupied[index])
-                        {
-                            continue;
-                        }
-                    }
-                    occupied[index] = true;
-                    AlarmInfo target = alarms[index];
-                    target.Index = index;
+                    AlarmInfo target = alarms[i];
+                    target.Index = i;
                     target.Name = item.Name;
+                    target.Category = item.Category;
                     target.Btn1 = item.Btn1;
                     target.Btn2 = item.Btn2;
                     target.Btn3 = item.Btn3;
@@ -155,6 +157,8 @@ namespace Automation
         public int Index { get; set; }
 
         public string Name { get; set; }
+
+        public string Category { get; set; }
 
         public string Btn1 { get; set; }
 
