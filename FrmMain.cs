@@ -48,6 +48,7 @@ namespace Automation
             SF.cardStore = new CardConfigStore();
             SF.valueStore = new ValueConfigStore();
             SF.dataStructStore = new DataStructStore();
+            SF.trayPointStore = new TrayPointStore();
             SF.alarmInfoStore = new AlarmInfoStore();
             SF.comm = new CommunicationHub();
             SF.mainfrm = this;
@@ -56,6 +57,7 @@ namespace Automation
                 Procs = frmProc.procsList,
                 ValueStore = SF.valueStore,
                 DataStructStore = SF.dataStructStore,
+                TrayPointStore = SF.trayPointStore,
                 CardStore = SF.cardStore,
                 Motion = motion,
                 Comm = SF.comm,

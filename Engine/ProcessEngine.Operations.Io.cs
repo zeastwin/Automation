@@ -100,5 +100,100 @@ namespace Automation
             }
             return true;
         }
+
+        public bool RunIoLogicGoto(ProcHandle evt, IoLogicGoto ioLogicGoto)
+        {
+            if (ioLogicGoto == null)
+            {
+                MarkAlarm(evt, "IO逻辑跳转参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (ioLogicGoto.IoParams == null || ioLogicGoto.IoParams.Count == 0)
+            {
+                MarkAlarm(evt, "IO逻辑跳转参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (ioLogicGoto.InvalidDelayMs < 0)
+            {
+                MarkAlarm(evt, $"失效延时无效:{ioLogicGoto.InvalidDelayMs}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            bool EvaluateLogic()
+            {
+                bool isFirst = true;
+                bool output = false;
+                foreach (IoLogicGotoParam ioParam in ioLogicGoto.IoParams)
+                {
+                    if (string.IsNullOrWhiteSpace(ioParam.IOName))
+                    {
+                        throw CreateAlarmException(evt, "IO名称为空");
+                    }
+                    if (Context?.IoMap == null || !Context.IoMap.TryGetValue(ioParam.IOName, out IO io) || io == null)
+                    {
+                        MarkAlarm(evt, $"IO映射不存在:{ioParam.IOName}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
+                    bool value = false;
+                    bool ok;
+                    if (io.IOType == "通用输入")
+                    {
+                        ok = Context.Motion != null && Context.Motion.GetInIO(io, ref value);
+                    }
+                    else if (io.IOType == "通用输出")
+                    {
+                        ok = Context.Motion != null && Context.Motion.GetOutIO(io, ref value);
+                    }
+                    else
+                    {
+                        MarkAlarm(evt, $"IO类型无效:{ioParam.IOName}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
+                    if (!ok)
+                    {
+                        MarkAlarm(evt, $"IO读取失败:{ioParam.IOName}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
+
+                    bool match = value == ioParam.Target;
+                    if (isFirst)
+                    {
+                        output = match;
+                        isFirst = false;
+                        continue;
+                    }
+
+                    if (ioParam.Logic == "与")
+                    {
+                        output = output && match;
+                    }
+                    else if (ioParam.Logic == "或")
+                    {
+                        output = output || match;
+                    }
+                    else
+                    {
+                        throw CreateAlarmException(evt, $"逻辑无效:{ioParam.Logic}");
+                    }
+                }
+                return output;
+            }
+
+            bool result = EvaluateLogic();
+            if (!result && ioLogicGoto.InvalidDelayMs > 0)
+            {
+                Delay(ioLogicGoto.InvalidDelayMs, evt);
+                result = EvaluateLogic();
+            }
+
+            string gotoTarget = result ? ioLogicGoto.TrueGoto : ioLogicGoto.FalseGoto;
+            if (!TryExecuteGoto(gotoTarget, evt, out string gotoError))
+            {
+                MarkAlarm(evt, gotoError);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            evt.isGoto = true;
+            return true;
+        }
     }
 }

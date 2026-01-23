@@ -678,12 +678,12 @@ namespace Automation
         }
         public DataPos(int index)
         {
-            X = -1;
-            Y = -1;
-            Z = -1;
-            U = -1;
-            V = -1;
-            W = -1;
+            X = 0;
+            Y = 0;
+            Z = 0;
+            U = 0;
+            V = 0;
+            W = 0;
             Index = index;
             Name = "";
          

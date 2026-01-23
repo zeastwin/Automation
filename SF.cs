@@ -44,6 +44,7 @@ namespace Automation
         public static CardConfigStore cardStore;
         public static ValueConfigStore valueStore;
         public static DataStructStore dataStructStore;
+        public static TrayPointStore trayPointStore;
         public static AlarmInfoStore alarmInfoStore;
         public static IProcessEngineStore procStore;
         public static CommunicationHub comm;

@@ -296,6 +296,394 @@ namespace Automation
 
             return true;
         }
+
+        public bool RunCreateTray(ProcHandle evt, CreateTray createTray)
+        {
+            if (createTray == null)
+            {
+                MarkAlarm(evt, "创建料盘参数为空");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (Context.Stations == null)
+            {
+                MarkAlarm(evt, "工站列表为空");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (string.IsNullOrWhiteSpace(createTray.StationName))
+            {
+                MarkAlarm(evt, "工站名称为空");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            DataStation station = Context.Stations.FirstOrDefault(sc => sc.Name == createTray.StationName);
+            if (station == null)
+            {
+                MarkAlarm(evt, $"找不到工站:{createTray.StationName}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (createTray.RowCount <= 0 || createTray.ColCount <= 0)
+            {
+                MarkAlarm(evt, $"料盘行列数无效:行{createTray.RowCount},列{createTray.ColCount}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (createTray.TrayId < 0)
+            {
+                MarkAlarm(evt, $"料盘ID无效:{createTray.TrayId}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            if (string.IsNullOrWhiteSpace(createTray.PX1)
+                || string.IsNullOrWhiteSpace(createTray.PX2)
+                || string.IsNullOrWhiteSpace(createTray.PY1)
+                || string.IsNullOrWhiteSpace(createTray.PY2))
+            {
+                MarkAlarm(evt, "料盘格点名称未完整设置");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            if (station.ListDataPos == null || station.ListDataPos.Count == 0)
+            {
+                MarkAlarm(evt, $"工站点位列表为空:{createTray.StationName}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            DataPos px1 = station.ListDataPos.FirstOrDefault(pos => pos != null && pos.Name == createTray.PX1);
+            DataPos px2 = station.ListDataPos.FirstOrDefault(pos => pos != null && pos.Name == createTray.PX2);
+            DataPos py1 = station.ListDataPos.FirstOrDefault(pos => pos != null && pos.Name == createTray.PY1);
+            DataPos py2 = station.ListDataPos.FirstOrDefault(pos => pos != null && pos.Name == createTray.PY2);
+
+            if (px1 == null || px2 == null || py1 == null || py2 == null)
+            {
+                MarkAlarm(evt, $"料盘参考点不存在:左上={createTray.PX1},右上={createTray.PX2},左下={createTray.PY1},右下={createTray.PY2}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            List<double> px1Values = px1.GetAllValues();
+            List<double> px2Values = px2.GetAllValues();
+            List<double> py1Values = py1.GetAllValues();
+            List<double> py2Values = py2.GetAllValues();
+            if (px1Values.Count != 6 || px2Values.Count != 6 || py1Values.Count != 6 || py2Values.Count != 6)
+            {
+                MarkAlarm(evt, "料盘参考点轴数量异常");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            double posTolerance = 1e-6;
+            bool sameOrigin = true;
+            for (int i = 0; i < 6; i++)
+            {
+                if (Math.Abs(px1Values[i] - py1Values[i]) > posTolerance)
+                {
+                    sameOrigin = false;
+                    break;
+                }
+            }
+
+            int totalCount;
+            try
+            {
+                totalCount = checked(createTray.RowCount * createTray.ColCount);
+            }
+            catch (OverflowException)
+            {
+                MarkAlarm(evt, "料盘点位数量溢出");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (totalCount <= 0)
+            {
+                MarkAlarm(evt, $"料盘点位数量无效:{totalCount}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (Context.TrayPointStore == null)
+            {
+                MarkAlarm(evt, "料盘缓存未初始化");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            List<TrayPoint> points = new List<TrayPoint>(totalCount);
+            double colDen = Math.Max(1, createTray.ColCount - 1);
+            double rowDen = Math.Max(1, createTray.RowCount - 1);
+
+            for (int row = 0; row < createTray.RowCount; row++)
+            {
+                double v = createTray.RowCount == 1 ? 0 : row / (double)(createTray.RowCount - 1);
+                for (int col = 0; col < createTray.ColCount; col++)
+                {
+                    double u = createTray.ColCount == 1 ? 0 : col / (double)(createTray.ColCount - 1);
+                    int order = row * createTray.ColCount + col + 1;
+                    TrayPoint point;
+                    if (sameOrigin)
+                    {
+                        point = new TrayPoint(
+                            order,
+                            row + 1,
+                            col + 1,
+                            px1Values[0] + (px2Values[0] - px1Values[0]) / colDen * col + (py2Values[0] - py1Values[0]) / rowDen * row,
+                            px1Values[1] + (px2Values[1] - px1Values[1]) / colDen * col + (py2Values[1] - py1Values[1]) / rowDen * row,
+                            px1Values[2] + (px2Values[2] - px1Values[2]) / colDen * col + (py2Values[2] - py1Values[2]) / rowDen * row,
+                            px1Values[3] + (px2Values[3] - px1Values[3]) / colDen * col + (py2Values[3] - py1Values[3]) / rowDen * row,
+                            px1Values[4] + (px2Values[4] - px1Values[4]) / colDen * col + (py2Values[4] - py1Values[4]) / rowDen * row,
+                            px1Values[5] + (px2Values[5] - px1Values[5]) / colDen * col + (py2Values[5] - py1Values[5]) / rowDen * row);
+                    }
+                    else
+                    {
+                        double u1 = 1 - u;
+                        double v1 = 1 - v;
+                        double uv00 = u1 * v1;
+                        double uv10 = u * v1;
+                        double uv01 = u1 * v;
+                        double uv11 = u * v;
+                        point = new TrayPoint(
+                            order,
+                            row + 1,
+                            col + 1,
+                            px1Values[0] * uv00 + px2Values[0] * uv10 + py1Values[0] * uv01 + py2Values[0] * uv11,
+                            px1Values[1] * uv00 + px2Values[1] * uv10 + py1Values[1] * uv01 + py2Values[1] * uv11,
+                            px1Values[2] * uv00 + px2Values[2] * uv10 + py1Values[2] * uv01 + py2Values[2] * uv11,
+                            px1Values[3] * uv00 + px2Values[3] * uv10 + py1Values[3] * uv01 + py2Values[3] * uv11,
+                            px1Values[4] * uv00 + px2Values[4] * uv10 + py1Values[4] * uv01 + py2Values[4] * uv11,
+                            px1Values[5] * uv00 + px2Values[5] * uv10 + py1Values[5] * uv01 + py2Values[5] * uv11);
+                    }
+                    points.Add(point);
+                }
+            }
+
+            TrayPointGrid grid = new TrayPointGrid(createTray.StationName, createTray.TrayId, createTray.RowCount, createTray.ColCount, points);
+            if (!Context.TrayPointStore.TrySave(grid, out string cacheError))
+            {
+                MarkAlarm(evt, $"料盘缓存失败:{cacheError}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            return true;
+        }
+
+        public bool RunTrayRunPos(ProcHandle evt, TrayRunPos trayRunPos)
+        {
+            if (trayRunPos == null)
+            {
+                MarkAlarm(evt, "走料盘点参数为空");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (Context.Stations == null)
+            {
+                MarkAlarm(evt, "工站列表为空");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (string.IsNullOrWhiteSpace(trayRunPos.StationName))
+            {
+                MarkAlarm(evt, "工站名称为空");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (Context.TrayPointStore == null)
+            {
+                MarkAlarm(evt, "料盘缓存未初始化");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            int trayId = trayRunPos.TrayId;
+            int trayPos = trayRunPos.TrayPos;
+            ValueConfigStore valueStore = Context.ValueStore;
+            bool hasTrayIdRef = !string.IsNullOrWhiteSpace(trayRunPos.TrayIdValueIndex)
+                || !string.IsNullOrWhiteSpace(trayRunPos.TrayIdValueIndex2Index)
+                || !string.IsNullOrWhiteSpace(trayRunPos.TrayIdValueName)
+                || !string.IsNullOrWhiteSpace(trayRunPos.TrayIdValueName2Index);
+            if (hasTrayIdRef)
+            {
+                if (trayRunPos.TrayId != 0)
+                {
+                    throw CreateAlarmException(evt, "料盘号配置冲突");
+                }
+                if (!ValueRef.TryCreate(trayRunPos.TrayIdValueIndex, trayRunPos.TrayIdValueIndex2Index, trayRunPos.TrayIdValueName, trayRunPos.TrayIdValueName2Index, false, "料盘号", out ValueRef trayIdRef, out string trayIdRefError))
+                {
+                    throw CreateAlarmException(evt, trayIdRefError);
+                }
+                if (!trayIdRef.TryResolveValue(valueStore, "料盘号", out DicValue trayIdValue, out string trayIdResolveError))
+                {
+                    throw CreateAlarmException(evt, trayIdResolveError);
+                }
+                string trayIdText = trayIdValue?.Value;
+                if (string.IsNullOrWhiteSpace(trayIdText))
+                {
+                    throw CreateAlarmException(evt, "料盘号变量值为空");
+                }
+                if (!int.TryParse(trayIdText, out trayId))
+                {
+                    throw CreateAlarmException(evt, $"料盘号变量值不是有效整数:{trayIdText}");
+                }
+            }
+            bool hasTrayPosRef = !string.IsNullOrWhiteSpace(trayRunPos.TrayPosValueIndex)
+                || !string.IsNullOrWhiteSpace(trayRunPos.TrayPosValueIndex2Index)
+                || !string.IsNullOrWhiteSpace(trayRunPos.TrayPosValueName)
+                || !string.IsNullOrWhiteSpace(trayRunPos.TrayPosValueName2Index);
+            if (hasTrayPosRef)
+            {
+                if (trayRunPos.TrayPos != 0)
+                {
+                    throw CreateAlarmException(evt, "料盘位置配置冲突");
+                }
+                if (!ValueRef.TryCreate(trayRunPos.TrayPosValueIndex, trayRunPos.TrayPosValueIndex2Index, trayRunPos.TrayPosValueName, trayRunPos.TrayPosValueName2Index, false, "料盘位置", out ValueRef trayPosRef, out string trayPosRefError))
+                {
+                    throw CreateAlarmException(evt, trayPosRefError);
+                }
+                if (!trayPosRef.TryResolveValue(valueStore, "料盘位置", out DicValue trayPosValue, out string trayPosResolveError))
+                {
+                    throw CreateAlarmException(evt, trayPosResolveError);
+                }
+                string trayPosText = trayPosValue?.Value;
+                if (string.IsNullOrWhiteSpace(trayPosText))
+                {
+                    throw CreateAlarmException(evt, "料盘位置变量值为空");
+                }
+                if (!int.TryParse(trayPosText, out trayPos))
+                {
+                    throw CreateAlarmException(evt, $"料盘位置变量值不是有效整数:{trayPosText}");
+                }
+            }
+
+            if (trayId < 0)
+            {
+                MarkAlarm(evt, $"料盘号无效:{trayId}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (trayPos <= 0)
+            {
+                MarkAlarm(evt, $"料盘位置无效:{trayPos}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            DataStation station = Context.Stations.FirstOrDefault(sc => sc.Name == trayRunPos.StationName);
+            if (station == null)
+            {
+                MarkAlarm(evt, $"找不到工站:{trayRunPos.StationName}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (!Context.TrayPointStore.TryGet(trayRunPos.StationName, trayId, out TrayPointGrid grid) || grid == null)
+            {
+                MarkAlarm(evt, $"料盘缓存不存在:工站{trayRunPos.StationName},料盘号{trayId}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (grid.Points == null || grid.Points.Count == 0)
+            {
+                MarkAlarm(evt, $"料盘点位为空:工站{trayRunPos.StationName},料盘号{trayId}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            bool hasTarget = false;
+            TrayPoint target = default;
+            foreach (TrayPoint point in grid.Points)
+            {
+                if (point.Order == trayPos)
+                {
+                    target = point;
+                    hasTarget = true;
+                    break;
+                }
+            }
+            if (!hasTarget)
+            {
+                MarkAlarm(evt, $"料盘位置超出范围:{trayPos}");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            if (Context.Motion == null || Context.CardStore == null)
+            {
+                MarkAlarm(evt, "运动控制未初始化");
+                Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            station.SetState(DataStation.Status.Run);
+            List<double> targetPos = new List<double> { target.X, target.Y, target.Z, target.U, target.V, target.W };
+            List<ushort> cardNums = new List<ushort>();
+            List<ushort> axisNums = new List<ushort>();
+
+            for (int i = 0; i < 6; i++)
+            {
+                if (station.dataAxis.axisConfigs[i].AxisName != "-1")
+                {
+                    ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
+                    ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
+                    if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
+                    {
+                        MarkAlarm(evt, $"工站：{trayRunPos.Name} {cardNum}号卡{axisNum}号轴配置不存在");
+                        Logger?.Log(evt.alarmMsg, LogLevel.Error);
+                        station.SetState(DataStation.Status.NotReady);
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
+                    double vel = axisInfo.SpeedMax * (axisInfo.SpeedRun / 100);
+                    double acc = axisInfo.AccMax / (axisInfo.AccRun / 100);
+                    double dec = axisInfo.DecMax / (axisInfo.DecRun / 100);
+                    Context.Motion.SetMovParam(cardNum, axisNum, 0, vel, acc, dec, 0, 0, axisInfo.PulseToMM);
+                    Context.Motion.Mov(cardNum, axisNum, targetPos[i], 1, false);
+                    cardNums.Add(cardNum);
+                    axisNums.Add(axisNum);
+                }
+            }
+
+            if (!trayRunPos.isUnWait)
+            {
+                Stopwatch stopwatch = Stopwatch.StartNew();
+                const int timeout = 120000;
+                bool isInPos = false;
+                while (evt.CancellationToken.IsCancellationRequested == false
+                    && !evt.CancellationToken.IsCancellationRequested
+                    && cardNums.Count != 0
+                    && station.GetState() == DataStation.Status.Run)
+                {
+                    if (stopwatch.ElapsedMilliseconds > timeout)
+                    {
+                        MarkAlarm(evt, trayRunPos.Name + "运动超时");
+                        Logger?.Log(trayRunPos.Name + "运动超时！", LogLevel.Error);
+                        station.SetState(DataStation.Status.NotReady);
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
+                    for (int i = 0; i < cardNums.Count; i++)
+                    {
+                        if (Context.Motion.GetInPos(cardNums[i], axisNums[i]))
+                        {
+                            isInPos = true;
+                        }
+                        else
+                        {
+                            isInPos = false;
+                            break;
+                        }
+                    }
+                    if (isInPos)
+                    {
+                        break;
+                    }
+                    Delay(5, evt);
+                }
+            }
+
+            return true;
+        }
+
         public bool RunStationRunRel(ProcHandle evt, StationRunRel stationRunRel)
         {
 

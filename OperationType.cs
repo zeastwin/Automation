@@ -335,6 +335,74 @@ namespace Automation
         public CustomList<IoCheckParam> IoParams { get; set; }
 
     }
+
+    [Serializable]
+    public class IoLogicGoto : OperationType
+    {
+        public IoLogicGoto()
+        {
+            OperaType = "IO逻辑跳转";
+            ParamListConverter<IoLogicGotoParam>.Name = "IO";
+        }
+
+        private string iOCount;
+        [DisplayName("IO数量"), Category("B判断参数"), Description(""), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
+        public string IOCount
+        {
+            get { return iOCount; }
+            set
+            {
+                iOCount = value;
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                {
+                    int num = int.Parse(IOCount);
+                    ((IoLogicGoto)SF.frmDataGrid.OperationTemp).IoParams = new CustomList<IoLogicGotoParam>();
+                    CustomList<IoLogicGotoParam> temp = ((IoLogicGoto)SF.frmDataGrid.OperationTemp).IoParams;
+                    temp.Clear();
+                    for (int i = 0; i < num; i++)
+                    {
+                        temp.Add(new IoLogicGotoParam());
+                    }
+                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
+                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
+                }
+            }
+        }
+
+        [DisplayName("失败延时(ms)"), Category("B判断参数"), Description(""), ReadOnly(false)]
+        public int InvalidDelayMs { get; set; }
+
+        [DisplayName("IO设置"), Category("B判断参数"), Description(""), ReadOnly(false)]
+        [TypeConverter(typeof(ParamListConverter<IoLogicGotoParam>))]
+        public CustomList<IoLogicGotoParam> IoParams { get; set; }
+
+        [DisplayName("true跳转"), Category("A跳转位置"), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("标识的跳转属性")]
+        public string TrueGoto { get; set; }
+
+        [DisplayName("false跳转"), Category("A跳转位置"), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("标识的跳转属性")]
+        public string FalseGoto { get; set; }
+    }
+
+    [TypeConverter(typeof(SerializableExpandableObjectConverter))]
+    [Serializable]
+    public class IoLogicGotoParam
+    {
+        [DisplayName("名称"), Category("IO参数"), Description(""), ReadOnly(false), TypeConverter(typeof(IoItem))]
+        public string IOName { get; set; }
+
+        [DisplayName("目标"), Category("IO参数"), Description(""), ReadOnly(false)]
+        public bool Target { get; set; }
+
+        [DisplayName("逻辑"), Category("IO参数"), Description(""), ReadOnly(false), TypeConverter(typeof(LogicOperator))]
+        public string Logic { get; set; } = "与";
+
+        public override string ToString()
+        {
+            return "";
+        }
+    }
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
     public class IoCheckParam
@@ -1871,6 +1939,84 @@ namespace Automation
 
         [DisplayName("超时时间"), Category("参数"), Description(""), ReadOnly(false)]
         public int TimeOut { get; set; }
+    }
+
+    [Serializable]
+    public class CreateTray : OperationType
+    {
+        public CreateTray()
+        {
+            OperaType = "创建料盘";
+        }
+
+        [DisplayName("工站名称"), Category("料盘参数设置"), Description(""), ReadOnly(false), TypeConverter(typeof(StationtItem))]
+        public string StationName { get; set; }
+
+        [DisplayName("料盘ID"), Category("料盘参数设置"), Description(""), ReadOnly(false)]
+        public int TrayId { get; set; }
+
+        [DisplayName("行数"), Category("料盘参数设置"), Description(""), ReadOnly(false)]
+        public int RowCount { get; set; }
+
+        [DisplayName("列数"), Category("料盘参数设置"), Description(""), ReadOnly(false)]
+        public int ColCount { get; set; }
+
+        [DisplayName("左上"), Category("料盘格点设置"), Description(""), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string PX1 { get; set; }
+
+        [DisplayName("右上"), Category("料盘格点设置"), Description(""), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string PX2 { get; set; }
+
+        [DisplayName("左下"), Category("料盘格点设置"), Description(""), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string PY1 { get; set; }
+
+        [DisplayName("右下"), Category("料盘格点设置"), Description(""), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string PY2 { get; set; }
+    }
+
+    [Serializable]
+    public class TrayRunPos : OperationType
+    {
+        public TrayRunPos()
+        {
+            OperaType = "走料盘点";
+        }
+
+        [DisplayName("工站名称"), Category("料盘参数设置"), Description(""), ReadOnly(false), TypeConverter(typeof(StationtItem))]
+        public string StationName { get; set; }
+
+        [DisplayName("料盘号"), Category("料盘参数设置"), Description(""), ReadOnly(false)]
+        public int TrayId { get; set; }
+
+        [DisplayName("料盘号索引"), Category("料盘参数设置"), Description(""), ReadOnly(false)]
+        public string TrayIdValueIndex { get; set; }
+
+        [DisplayName("料盘号索引二级"), Category("料盘参数设置"), Description(""), ReadOnly(false)]
+        public string TrayIdValueIndex2Index { get; set; }
+
+        [DisplayName("料盘号变量名称"), Category("料盘参数设置"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string TrayIdValueName { get; set; }
+
+        [DisplayName("料盘号变量名称二级"), Category("料盘参数设置"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string TrayIdValueName2Index { get; set; }
+
+        [DisplayName("料盘位置"), Category("料盘参数设置"), Description(""), ReadOnly(false)]
+        public int TrayPos { get; set; }
+
+        [DisplayName("料盘位置索引"), Category("料盘参数设置"), Description(""), ReadOnly(false)]
+        public string TrayPosValueIndex { get; set; }
+
+        [DisplayName("料盘位置索引二级"), Category("料盘参数设置"), Description(""), ReadOnly(false)]
+        public string TrayPosValueIndex2Index { get; set; }
+
+        [DisplayName("料盘位置变量名称"), Category("料盘参数设置"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string TrayPosValueName { get; set; }
+
+        [DisplayName("料盘位置变量名称二级"), Category("料盘参数设置"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string TrayPosValueName2Index { get; set; }
+
+        [DisplayName("不等待"), Category("料盘参数设置"), Description(""), ReadOnly(false)]
+        public bool isUnWait { get; set; }
     }
 
     [Serializable]

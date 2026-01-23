@@ -32,6 +32,8 @@ namespace Automation
             
             OperationTypeList.Add(new HomeRun());
             OperationTypeList.Add(new StationRunPos());
+            OperationTypeList.Add(new CreateTray());
+            OperationTypeList.Add(new TrayRunPos());
             OperationTypeList.Add(new StationRunRel());
             OperationTypeList.Add(new SetStationVel());
             OperationTypeList.Add(new StationStop());
@@ -39,6 +41,7 @@ namespace Automation
             OperationTypeList.Add(new CallCustomFunc());
             OperationTypeList.Add(new IoOperate());
             OperationTypeList.Add(new IoCheck());
+            OperationTypeList.Add(new IoLogicGoto());
             OperationTypeList.Add(new ProcOps());
             OperationTypeList.Add(new WaitProc());
             OperationTypeList.Add(new Goto());

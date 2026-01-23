@@ -48,6 +48,9 @@ namespace Automation
                     case IoCheck ioCheck:
                         return RunIoCheck(evt, ioCheck);
 
+                    case IoLogicGoto ioLogicGoto:
+                        return RunIoLogicGoto(evt, ioLogicGoto);
+
                     case ProcOps procOps:
                         return RunProcOps(evt, procOps);
 
@@ -128,6 +131,12 @@ namespace Automation
 
                     case WaitSerialPort waitSerialPort:
                         return RunWaitSerialPort(evt, waitSerialPort);
+
+                    case CreateTray createTray:
+                        return RunCreateTray(evt, createTray);
+
+                    case TrayRunPos trayRunPos:
+                        return RunTrayRunPos(evt, trayRunPos);
 
                     case HomeRun homeRun:
                         return RunHomeRun(evt, homeRun);

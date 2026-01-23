@@ -543,6 +543,22 @@ namespace Automation
                 return false;
             }
         }
+        public class LogicOperator : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(new List<string>() { "与", "或" });
+            }
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+        }
         public class GotoItem : StringConverter
         {
             List<string> Item()
@@ -793,11 +809,20 @@ namespace Automation
                 {
                     return posItems;
                 }
-                if (!(SF.frmDataGrid?.OperationTemp is StationRunPos stationRunPos) || string.IsNullOrEmpty(stationRunPos.StationName))
+                string stationName = null;
+                if (SF.frmDataGrid?.OperationTemp is StationRunPos stationRunPos)
+                {
+                    stationName = stationRunPos.StationName;
+                }
+                else if (SF.frmDataGrid?.OperationTemp is CreateTray createTray)
+                {
+                    stationName = createTray.StationName;
+                }
+                if (string.IsNullOrEmpty(stationName))
                 {
                     return posItems;
                 }
-                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == stationRunPos.StationName);
+                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == stationName);
 
                 if (station != null)
                 {

@@ -221,6 +221,7 @@ namespace Automation
         public IList<Proc> Procs { get; set; }
         public ValueConfigStore ValueStore { get; set; }
         public DataStructStore DataStructStore { get; set; }
+        public TrayPointStore TrayPointStore { get; set; }
         public CardConfigStore CardStore { get; set; }
         public MotionCtrl Motion { get; set; }
         public CommunicationHub Comm { get; set; }

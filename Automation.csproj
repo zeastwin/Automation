@@ -109,6 +109,7 @@
     <Compile Include="Stores\\DataStructStore.cs" />
     <Compile Include="Stores\\ProcessEngineLogger.cs" />
     <Compile Include="Stores\\ProcessEngineStore.cs" />
+    <Compile Include="Stores\\TrayPointStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="Runtime\\AppConfigStorage.cs" />
     <Compile Include="FrmAppConfig.cs">
