@@ -110,6 +110,10 @@
     <Compile Include="Stores\\ProcessEngineLogger.cs" />
     <Compile Include="Stores\\ProcessEngineStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
+    <Compile Include="Runtime\\AppConfigStorage.cs" />
+    <Compile Include="FrmAppConfig.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="FrmAlarmConfig.cs">
       <SubType>Form</SubType>
     </Compile>

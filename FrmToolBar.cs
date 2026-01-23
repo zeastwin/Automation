@@ -31,6 +31,14 @@ namespace Automation
             btnIOMonitor.Visible = false;
 
         }
+
+        private void btnAppConfig_Click(object sender, EventArgs e)
+        {
+            using (FrmAppConfig frm = new FrmAppConfig())
+            {
+                frm.ShowDialog(this);
+            }
+        }
       
         private void btnSave_Click(object sender, EventArgs e)
         {

@@ -79,42 +79,17 @@ namespace Automation
 
     internal static class RuntimeConfig
     {
-        private const string ConfigFileName = "AppConfig.json";
-        private const string QueueSizeKey = "CommMaxMessageQueueSize";
         private static readonly int maxMessageQueueSize = LoadQueueSize();
 
         public static int MaxMessageQueueSize => maxMessageQueueSize;
 
         private static int LoadQueueSize()
         {
-            string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFileName);
-            if (!File.Exists(configPath))
+            if (!AppConfigStorage.TryLoad(out AppConfig config, out string error))
             {
-                throw new InvalidOperationException($"应用配置文件不存在:{configPath}");
+                throw new InvalidOperationException(error);
             }
-            try
-            {
-                string json = File.ReadAllText(configPath, Encoding.UTF8);
-                JObject obj = JObject.Parse(json);
-                if (!obj.TryGetValue(QueueSizeKey, StringComparison.Ordinal, out JToken token))
-                {
-                    throw new InvalidOperationException($"应用配置缺少字段:{QueueSizeKey}");
-                }
-                if (token.Type != JTokenType.Integer)
-                {
-                    throw new InvalidOperationException($"通讯接收队列长度类型无效:{token}");
-                }
-                int value = token.Value<int>();
-                if (value <= 0)
-                {
-                    throw new InvalidOperationException($"通讯接收队列长度配置无效:{value}");
-                }
-                return value;
-            }
-            catch (Exception ex) when (!(ex is InvalidOperationException))
-            {
-                throw new InvalidOperationException($"读取应用配置失败:{ex.Message}");
-            }
+            return config.CommMaxMessageQueueSize;
         }
     }
 
@@ -239,6 +214,7 @@ namespace Automation
 
             return false;
         }
+
 
         public bool TryReceiveTcp(string name, int timeoutMs, CancellationToken cancellationToken, out string message)
         {
