@@ -10,9 +10,71 @@ namespace Automation
 {
     public partial class ProcessEngine
     {
-        private const string WarmDisplayLogFilePath = @"D:\AutomationLogs\WarmDisplyLog";
+        private const string WarmDisplayLogDirectory = @"D:\AutomationLogs\WarmDisplyLog";
         private const string WarmDisplayLogHeader = "报警代码\t报警内容\t报警类别\t开始时间\t结束时间\t报警时间(s)\t报警位置(x-x-x)";
         private static readonly object warmDisplayLogLock = new object();
+
+        private void WriteWarmDisplayLog(ProcHandle evt, string alarmCode, string alarmContent, string alarmCategory, DateTime alarmStartTime, DateTime alarmEndTime)
+        {
+            if (evt == null)
+            {
+                throw new InvalidOperationException("报警位置为空");
+            }
+
+            TimeSpan alarmDuration = alarmEndTime - alarmStartTime;
+            string alarmLocation = $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+            string startText = alarmStartTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+            string endText = alarmEndTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+            string durationText = alarmDuration.TotalSeconds.ToString("F3", CultureInfo.InvariantCulture);
+
+            string EscapeField(string value)
+            {
+                if (string.IsNullOrEmpty(value))
+                {
+                    return string.Empty;
+                }
+                bool needQuote = value.IndexOfAny(new[] { '"', '\t', '\r', '\n' }) >= 0;
+                string escaped = value.Replace("\"", "\"\"");
+                return needQuote ? $"\"{escaped}\"" : escaped;
+            }
+
+            string logLine = string.Join("\t", new[]
+            {
+                EscapeField(alarmCode ?? string.Empty),
+                EscapeField(alarmContent ?? string.Empty),
+                EscapeField(alarmCategory ?? string.Empty),
+                EscapeField(startText),
+                EscapeField(endText),
+                EscapeField(durationText),
+                EscapeField(alarmLocation)
+            });
+
+            lock (warmDisplayLogLock)
+            {
+                if (string.IsNullOrWhiteSpace(WarmDisplayLogDirectory))
+                {
+                    throw new InvalidOperationException("报警提示日志路径无效");
+                }
+                Directory.CreateDirectory(WarmDisplayLogDirectory);
+                string filePath = BuildWarmDisplayLogFilePath(alarmStartTime);
+                bool needHeader = !File.Exists(filePath) || new FileInfo(filePath).Length == 0;
+                using (FileStream stream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.Read))
+                using (StreamWriter writer = new StreamWriter(stream, Encoding.UTF8))
+                {
+                    if (needHeader)
+                    {
+                        writer.WriteLine(WarmDisplayLogHeader);
+                    }
+                    writer.WriteLine(logLine);
+                }
+            }
+        }
+
+        private string BuildWarmDisplayLogFilePath(DateTime alarmStartTime)
+        {
+            string fileName = alarmStartTime.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + ".csv";
+            return Path.Combine(WarmDisplayLogDirectory, fileName);
+        }
 
         public bool RunPopupDialog(ProcHandle evt, PopupDialog popup)
         {
@@ -278,6 +340,7 @@ namespace Automation
 
             AlarmDecision decision = AlarmDecision.Ignore;
             Task<AlarmDecision> decisionTask = tcs.Task;
+            bool isCanceled = false;
 
             try
             {
@@ -315,7 +378,7 @@ namespace Automation
                     }
                 }
                 tcs.TrySetResult(AlarmDecision.Ignore);
-                return false;
+                isCanceled = true;
             }
             finally
             {
@@ -330,72 +393,26 @@ namespace Automation
 
             if (popup.SaveToAlarmFile)
             {
-                if (evt == null)
-                {
-                    MarkAlarm(null, "报警位置为空");
-                    throw CreateAlarmException(null, "报警位置为空");
-                }
-
-                DateTime alarmEndTime = DateTime.Now;
-                TimeSpan alarmDuration = alarmEndTime - alarmStartTime;
-                string alarmCode = alarmInfo?.Name ?? string.Empty;
-                string alarmContent = messageText ?? string.Empty;
-                string alarmCategory = alarmInfo?.Category ?? string.Empty;
-                string alarmLocation = $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
-                string startText = alarmStartTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
-                string endText = alarmEndTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
-                string durationText = alarmDuration.TotalSeconds.ToString("F3", CultureInfo.InvariantCulture);
-
-                string EscapeField(string value)
-                {
-                    if (string.IsNullOrEmpty(value))
-                    {
-                        return string.Empty;
-                    }
-                    bool needQuote = value.IndexOfAny(new[] { '"', '\t', '\r', '\n' }) >= 0;
-                    string escaped = value.Replace("\"", "\"\"");
-                    return needQuote ? $"\"{escaped}\"" : escaped;
-                }
-
-                string logLine = string.Join("\t", new[]
-                {
-                    EscapeField(alarmCode),
-                    EscapeField(alarmContent),
-                    EscapeField(alarmCategory),
-                    EscapeField(startText),
-                    EscapeField(endText),
-                    EscapeField(durationText),
-                    EscapeField(alarmLocation)
-                });
-
                 try
                 {
-                    lock (warmDisplayLogLock)
-                    {
-                        string logDirectory = Path.GetDirectoryName(WarmDisplayLogFilePath);
-                        if (string.IsNullOrWhiteSpace(logDirectory))
-                        {
-                            throw new InvalidOperationException("报警提示日志路径无效");
-                        }
-                        Directory.CreateDirectory(logDirectory);
-                        string filePath = WarmDisplayLogFilePath;
-                        bool needHeader = !File.Exists(filePath) || new FileInfo(filePath).Length == 0;
-                        using (FileStream stream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.Read))
-                        using (StreamWriter writer = new StreamWriter(stream, Encoding.UTF8))
-                        {
-                            if (needHeader)
-                            {
-                                writer.WriteLine(WarmDisplayLogHeader);
-                            }
-                            writer.WriteLine(logLine);
-                        }
-                    }
+                    WriteWarmDisplayLog(
+                        evt,
+                        alarmInfo?.Name ?? string.Empty,
+                        messageText ?? string.Empty,
+                        alarmInfo?.Category ?? string.Empty,
+                        alarmStartTime,
+                        DateTime.Now);
                 }
                 catch (Exception ex)
                 {
                     MarkAlarm(evt, $"报警提示日志写入失败:{ex.Message}");
                     throw CreateAlarmException(evt, evt?.alarmMsg, ex);
                 }
+            }
+
+            if (isCanceled)
+            {
+                return false;
             }
 
             switch (decision)

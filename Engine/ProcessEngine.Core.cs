@@ -720,11 +720,15 @@ namespace Automation
                 return AlarmDecision.Stop;
             }
             AlarmContext context = BuildAlarmContext(operation, evt);
+            AlarmInfo alarmInfo = TryGetAlarmInfo(operation);
+            DateTime alarmStartTime = DateTime.Now;
+            bool needLog = true;
             try
             {
                 Task<AlarmDecision> decisionTask = AlarmHandler.HandleAsync(context);
                 if (decisionTask == null)
                 {
+                    needLog = false;
                     return AlarmDecision.Stop;
                 }
                 if (evt != null && evt.CancellationToken.CanBeCanceled)
@@ -753,17 +757,54 @@ namespace Automation
                 Logger?.Log(ex.Message, LogLevel.Error);
                 return AlarmDecision.Stop;
             }
+            finally
+            {
+                if (needLog)
+                {
+                    try
+                    {
+                        WriteWarmDisplayLog(
+                            evt,
+                            alarmInfo?.Name ?? string.Empty,
+                            context?.Note ?? string.Empty,
+                            alarmInfo?.Category ?? string.Empty,
+                            alarmStartTime,
+                            DateTime.Now);
+                    }
+                    catch (Exception ex)
+                    {
+                        MarkAlarm(evt, $"报警提示日志写入失败:{ex.Message}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg, ex);
+                    }
+                }
+            }
+        }
+
+        private AlarmInfo TryGetAlarmInfo(OperationType operation)
+        {
+            if (operation == null)
+            {
+                return null;
+            }
+            if (string.IsNullOrWhiteSpace(operation.AlarmInfoID))
+            {
+                return null;
+            }
+            if (!int.TryParse(operation.AlarmInfoID, out int alarmIndex))
+            {
+                return null;
+            }
+            if (Context.AlarmInfoStore == null)
+            {
+                return null;
+            }
+            Context.AlarmInfoStore.TryGetByIndex(alarmIndex, out AlarmInfo alarmInfo);
+            return alarmInfo;
         }
 
         private AlarmContext BuildAlarmContext(OperationType operation, ProcHandle evt)
         {
-            AlarmInfo alarmInfo = null;
-            if (!string.IsNullOrWhiteSpace(operation.AlarmInfoID)
-                && int.TryParse(operation.AlarmInfoID, out int alarmIndex)
-                && Context.AlarmInfoStore != null)
-            {
-                Context.AlarmInfoStore.TryGetByIndex(alarmIndex, out alarmInfo);
-            }
+            AlarmInfo alarmInfo = TryGetAlarmInfo(operation);
             string note = !string.IsNullOrEmpty(alarmInfo?.Note) ? alarmInfo.Note : (evt.alarmMsg ?? "发生报警");
             string btn1 = !string.IsNullOrEmpty(alarmInfo?.Btn1) ? alarmInfo.Btn1 : "确定";
             string btn2 = !string.IsNullOrEmpty(alarmInfo?.Btn2) ? alarmInfo.Btn2 : "否";
