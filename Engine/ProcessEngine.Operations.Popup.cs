@@ -1,31 +1,19 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Diagnostics;
-using System.Drawing;
-using System.Linq;
-using System.Net.NetworkInformation;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
+using System.Globalization;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Automation.MotionControl;
-using static Automation.FrmProc;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
-using static Automation.FrmCard;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.TaskbarClock;
-using Newtonsoft.Json.Linq;
-using System.Numerics;
 
 namespace Automation
 {
     public partial class ProcessEngine
     {
+        private const string WarmDisplayLogFilePath = @"D:\AutomationLogs\WarmDisplyLog";
+        private const string WarmDisplayLogHeader = "报警代码\t报警内容\t报警类别\t开始时间\t结束时间\t报警时间(s)\t报警位置(x-x-x)";
+        private static readonly object warmDisplayLogLock = new object();
+
         public bool RunPopupDialog(ProcHandle evt, PopupDialog popup)
         {
             if (popup == null)
@@ -34,6 +22,7 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             CancellationToken token = evt?.CancellationToken ?? CancellationToken.None;
+            AlarmInfo alarmInfo = null;
 
             bool hasSecondButton;
             bool hasThirdButton;
@@ -77,7 +66,7 @@ namespace Automation
                     MarkAlarm(evt, $"报警信息ID无效:{popup.PopupAlarmInfoID}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.AlarmInfoStore.TryGetByIndex(alarmIndex, out AlarmInfo alarmInfo)
+                if (!Context.AlarmInfoStore.TryGetByIndex(alarmIndex, out alarmInfo)
                     || alarmInfo == null
                     || string.IsNullOrWhiteSpace(alarmInfo.Name))
                 {
@@ -277,6 +266,7 @@ namespace Automation
                 }
             }
 
+            DateTime alarmStartTime = DateTime.Now;
             if (invoker.InvokeRequired)
             {
                 invoker.BeginInvoke((Action)ShowDialog);
@@ -335,6 +325,76 @@ namespace Automation
                     SetOutput(popup.RedLightIo, false, "红灯IO");
                     SetOutput(popup.YellowLightIo, false, "黄灯IO");
                     SetOutput(popup.GreenLightIo, false, "绿灯IO");
+                }
+            }
+
+            if (popup.SaveToAlarmFile)
+            {
+                if (evt == null)
+                {
+                    MarkAlarm(null, "报警位置为空");
+                    throw CreateAlarmException(null, "报警位置为空");
+                }
+
+                DateTime alarmEndTime = DateTime.Now;
+                TimeSpan alarmDuration = alarmEndTime - alarmStartTime;
+                string alarmCode = alarmInfo?.Name ?? string.Empty;
+                string alarmContent = messageText ?? string.Empty;
+                string alarmCategory = alarmInfo?.Category ?? string.Empty;
+                string alarmLocation = $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+                string startText = alarmStartTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+                string endText = alarmEndTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+                string durationText = alarmDuration.TotalSeconds.ToString("F3", CultureInfo.InvariantCulture);
+
+                string EscapeField(string value)
+                {
+                    if (string.IsNullOrEmpty(value))
+                    {
+                        return string.Empty;
+                    }
+                    bool needQuote = value.IndexOfAny(new[] { '"', '\t', '\r', '\n' }) >= 0;
+                    string escaped = value.Replace("\"", "\"\"");
+                    return needQuote ? $"\"{escaped}\"" : escaped;
+                }
+
+                string logLine = string.Join("\t", new[]
+                {
+                    EscapeField(alarmCode),
+                    EscapeField(alarmContent),
+                    EscapeField(alarmCategory),
+                    EscapeField(startText),
+                    EscapeField(endText),
+                    EscapeField(durationText),
+                    EscapeField(alarmLocation)
+                });
+
+                try
+                {
+                    lock (warmDisplayLogLock)
+                    {
+                        string logDirectory = Path.GetDirectoryName(WarmDisplayLogFilePath);
+                        if (string.IsNullOrWhiteSpace(logDirectory))
+                        {
+                            throw new InvalidOperationException("报警提示日志路径无效");
+                        }
+                        Directory.CreateDirectory(logDirectory);
+                        string filePath = WarmDisplayLogFilePath;
+                        bool needHeader = !File.Exists(filePath) || new FileInfo(filePath).Length == 0;
+                        using (FileStream stream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.Read))
+                        using (StreamWriter writer = new StreamWriter(stream, Encoding.UTF8))
+                        {
+                            if (needHeader)
+                            {
+                                writer.WriteLine(WarmDisplayLogHeader);
+                            }
+                            writer.WriteLine(logLine);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MarkAlarm(evt, $"报警提示日志写入失败:{ex.Message}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg, ex);
                 }
             }
 
