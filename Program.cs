@@ -11,7 +11,7 @@ namespace Automation
         [STAThread]
         static void Main(string[] args)
         {
-            if (args != null && args.Length > 0 && string.Equals(args[0], "aiflow", StringComparison.Ordinal))
+            if (AIFlow.AiFlowCli.TryHandle(args))
             {
                 SF.AiFlowEnabled = false;
             }
