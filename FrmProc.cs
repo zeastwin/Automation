@@ -52,6 +52,7 @@ namespace Automation
             NewProcNum = -1;
             NewStepNum = -1;
             this.proc_treeView.HideSelection = false;
+            proc_treeView.BeforeSelect += proc_treeView_BeforeSelect;
         }
 
         public void NewProcSave()
@@ -428,8 +429,47 @@ namespace Automation
             }
         }
 
+        private void proc_treeView_BeforeSelect(object sender, TreeViewCancelEventArgs e)
+        {
+            if (SF.isAddOps || SF.isModify == ModifyKind.Operation)
+            {
+                if (proc_treeView.SelectedNode != e.Node)
+                {
+                    e.Cancel = true;
+                    if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                    {
+                        SF.frmInfo.PrintInfo("新增或编辑指令中，禁止切换流程。", FrmInfo.Level.Error);
+                    }
+                    else
+                    {
+                        MessageBox.Show("新增或编辑指令中，禁止切换流程。");
+                    }
+                }
+            }
+        }
+
         private void proc_treeView_MouseDown(object sender, MouseEventArgs e)
         {
+            if (SF.isAddOps || SF.isModify == ModifyKind.Operation)
+            {
+                if (e.Button == MouseButtons.Left || e.Button == MouseButtons.Right)
+                {
+                    var treeView = (System.Windows.Forms.TreeView)sender;
+                    var clickedNode = treeView.GetNodeAt(e.Location);
+                    if (clickedNode == null || clickedNode != treeView.SelectedNode)
+                    {
+                        if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                        {
+                            SF.frmInfo.PrintInfo("新增或编辑指令中，禁止切换流程。", FrmInfo.Level.Error);
+                        }
+                        else
+                        {
+                            MessageBox.Show("新增或编辑指令中，禁止切换流程。");
+                        }
+                        return;
+                    }
+                }
+            }
             if (e.Button == MouseButtons.Left || e.Button == MouseButtons.Right)
             {
                 var treeView = (System.Windows.Forms.TreeView)sender;
