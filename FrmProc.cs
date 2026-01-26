@@ -367,7 +367,7 @@ namespace Automation
 
         }
 
-        private void Remove_Click(object sender, EventArgs e)
+        private async void Remove_Click(object sender, EventArgs e)
         {
             TreeNode selectnode = proc_treeView.SelectedNode;
             TreeNode parentnode = selectnode.Parent;
@@ -377,12 +377,80 @@ namespace Automation
                 {
                     return;
                 }
-                procsList.RemoveAt(SelectedProcNum);
+                int procIndex = SelectedProcNum;
+                if (procIndex < 0 || procIndex >= procsList.Count)
+                {
+                    return;
+                }
+                string procName = procsList[procIndex]?.head?.Name;
+                if (string.IsNullOrWhiteSpace(procName))
+                {
+                    procName = $"索引{procIndex}";
+                }
+                string warnMsg = $"警告：即将删除流程【{procName}】\r\n此操作不可恢复，确认删除？";
+                var tcs = new TaskCompletionSource<bool>();
+                Message confirmForm = new Message(
+                    "删除流程确认",
+                    warnMsg,
+                    () => tcs.TrySetResult(true),
+                    () => tcs.TrySetResult(false),
+                    "删除",
+                    "取消",
+                    false);
+                confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
+                confirmForm.txtMsg.ForeColor = Color.Red;
+                bool confirmed = await tcs.Task;
+                if (!confirmed)
+                {
+                    return;
+                }
+                if (procIndex < 0 || procIndex >= procsList.Count)
+                {
+                    return;
+                }
+                procsList.RemoveAt(procIndex);
                 RebuildWorkConfig();
             }
             else
             {
                 if (!SF.CanEditProc(SelectedProcNum))
+                {
+                    return;
+                }
+                int procIndex = SelectedProcNum;
+                int stepIndex = SelectedStepNum;
+                if (procIndex < 0 || procIndex >= procsList.Count)
+                {
+                    return;
+                }
+                if (stepIndex < 0 || stepIndex >= procsList[procIndex].steps.Count)
+                {
+                    return;
+                }
+                string procName = procsList[procIndex]?.head?.Name;
+                if (string.IsNullOrWhiteSpace(procName))
+                {
+                    procName = $"索引{procIndex}";
+                }
+                string stepName = procsList[procIndex].steps[stepIndex]?.Name;
+                if (string.IsNullOrWhiteSpace(stepName))
+                {
+                    stepName = $"索引{stepIndex}";
+                }
+                string warnMsg = $"警告：即将删除步骤【{stepName}】\r\n所属流程：【{procName}】\r\n此操作不可恢复，确认删除？";
+                var tcs = new TaskCompletionSource<bool>();
+                Message confirmForm = new Message(
+                    "删除步骤确认",
+                    warnMsg,
+                    () => tcs.TrySetResult(true),
+                    () => tcs.TrySetResult(false),
+                    "删除",
+                    "取消",
+                    false);
+                confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
+                confirmForm.txtMsg.ForeColor = Color.Red;
+                bool confirmed = await tcs.Task;
+                if (!confirmed)
                 {
                     return;
                 }
