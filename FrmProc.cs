@@ -422,6 +422,7 @@ namespace Automation
                     bindingSource.DataSource = null;
 
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject = procsList[SelectedProcNum].head;
+                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
 
 
                 }
