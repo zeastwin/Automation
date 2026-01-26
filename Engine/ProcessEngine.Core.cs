@@ -768,7 +768,7 @@ namespace Automation
                     return false;
                 evt.opsNum = i;
                 UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
-                if (steps.Ops[i].Enable)
+                if (steps.Ops[i].Disable)
                 {
                     continue;
                 }

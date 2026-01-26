@@ -212,7 +212,7 @@ namespace Automation
             }
 
             Enable_Click(sender, EventArgs.Empty);
-            string enableAction = dataItem.Enable ? "已禁用" : "已启用";
+            string enableAction = dataItem.Disable ? "已禁用" : "已启用";
             string enableOpName = string.IsNullOrWhiteSpace(dataItem.Name) ? "未命名" : dataItem.Name;
             if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
             {
@@ -556,7 +556,7 @@ namespace Automation
             if (e.ColumnIndex == statusMark.Index)
             {
                 string mark = string.Empty;
-                if (dataItem.Enable)
+                if (dataItem.Disable)
                 {
                     mark += "X";
                 }
@@ -579,7 +579,7 @@ namespace Automation
             {
                 e.CellStyle.BackColor = rowColor;
             }
-            else if (dataItem.Enable)
+            else if (dataItem.Disable)
             {
                 e.CellStyle.BackColor = Color.Gray;
             }
@@ -770,7 +770,7 @@ namespace Automation
 
                 if (dataItem != null)
                 {
-                    dataItem.Enable = !dataItem.Enable;
+                    dataItem.Disable = !dataItem.Disable;
                     dataGridView1.InvalidateRow(iSelectedRow);
                 }
             }

@@ -188,7 +188,8 @@ namespace Automation
 
         [Browsable(true)]
         [DisplayName("禁用"), Category("常规"), Description(""), ReadOnly(false)]
-        public bool Enable { get; set; }
+        public bool Disable { get; set; }
+
         public object Clone()
         {
             using (MemoryStream memoryStream = new MemoryStream())
