@@ -52,6 +52,7 @@ namespace Automation
         public static CommunicationHub comm;
 
 
+        public static bool AiFlowEnabled = true;
 
         //编辑状态
         public static ModifyKind isModify = ModifyKind.None;

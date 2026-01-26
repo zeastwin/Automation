@@ -1,7 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Automation
@@ -14,9 +11,9 @@ namespace Automation
         [STAThread]
         static void Main(string[] args)
         {
-            if (AIFlow.AiFlowCli.TryHandle(args))
+            if (args != null && args.Length > 0 && string.Equals(args[0], "aiflow", StringComparison.Ordinal))
             {
-                return;
+                SF.AiFlowEnabled = false;
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);

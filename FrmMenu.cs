@@ -8,6 +8,11 @@ namespace Automation
         public FrmMenu()
         {
             InitializeComponent();
+            if (!SF.AiFlowEnabled)
+            {
+                AI_Page.Visible = false;
+                AI_Page.Enabled = false;
+            }
         }
 
         private void value_Page_Click(object sender, EventArgs e)
@@ -255,6 +260,11 @@ namespace Automation
 
         private void AI_Page_Click(object sender, EventArgs e)
         {
+            if (!SF.AiFlowEnabled)
+            {
+                MessageBox.Show("AI功能已禁用。");
+                return;
+            }
             if (SF.frmAiAssistant == null || SF.frmAiAssistant.IsDisposed)
             {
                 SF.frmAiAssistant = new FrmAiAssistant();
