@@ -206,6 +206,12 @@
     <Compile Include="FrmMessage.Designer.cs">
       <DependentUpon>FrmMessage.cs</DependentUpon>
     </Compile>
+    <Compile Include="FrmAiAssistant.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmAiAssistant.Designer.cs">
+      <DependentUpon>FrmAiAssistant.cs</DependentUpon>
+    </Compile>
     <Compile Include="FrmProc.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -309,6 +315,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="FrmMessage.resx">
       <DependentUpon>FrmMessage.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FrmAiAssistant.resx">
+      <DependentUpon>FrmAiAssistant.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="FrmProc.resx">
       <DependentUpon>FrmProc.cs</DependentUpon>

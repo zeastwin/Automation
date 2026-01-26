@@ -34,6 +34,7 @@ namespace Automation
         public FrmSearch frmSearch = new FrmSearch();
         public FrmSearch4Value frmSearch4Value = new FrmSearch4Value();
         public FrmInfo frmInfo = new FrmInfo();
+        public FrmAiAssistant frmAiAssistant = new FrmAiAssistant();
         public MotionCtrl motion = new MotionCtrl();
         private EngineSnapshot[] snapshotCache = Array.Empty<EngineSnapshot>();
         private bool[] snapshotDirty = Array.Empty<bool>();
@@ -100,6 +101,7 @@ namespace Automation
             SF.frmSearch = frmSearch;
             SF.frmSearch4Value = frmSearch4Value;
             SF.frmInfo = frmInfo;
+            SF.frmAiAssistant = frmAiAssistant;
 
             StartPosition = FormStartPosition.CenterScreen;
 

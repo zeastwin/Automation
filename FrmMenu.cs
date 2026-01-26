@@ -5,8 +5,6 @@ namespace Automation
 {
     public partial class FrmMenu : Form
     {
-        private Form aiAssistantForm;
-     
         public FrmMenu()
         {
             InitializeComponent();
@@ -257,28 +255,14 @@ namespace Automation
 
         private void AI_Page_Click(object sender, EventArgs e)
         {
-            if (aiAssistantForm == null || aiAssistantForm.IsDisposed)
+            if (SF.frmAiAssistant == null || SF.frmAiAssistant.IsDisposed)
             {
-                aiAssistantForm = new Form
-                {
-                    Text = "AI流程助手",
-                    StartPosition = FormStartPosition.CenterScreen,
-                    Width = 520,
-                    Height = 260
-                };
-                Label label = new Label
-                {
-                    Dock = DockStyle.Fill,
-                    Text = "AI流程助手已接入UI，功能待配置。",
-                    TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
-                    Font = new System.Drawing.Font("黑体", 12F)
-                };
-                aiAssistantForm.Controls.Add(label);
+                SF.frmAiAssistant = new FrmAiAssistant();
             }
-
-            aiAssistantForm.Show();
-            aiAssistantForm.BringToFront();
-            aiAssistantForm.WindowState = FormWindowState.Normal;
+            SF.frmAiAssistant.StartPosition = FormStartPosition.CenterScreen;
+            SF.frmAiAssistant.Show();
+            SF.frmAiAssistant.BringToFront();
+            SF.frmAiAssistant.WindowState = FormWindowState.Normal;
         }
 
     }
