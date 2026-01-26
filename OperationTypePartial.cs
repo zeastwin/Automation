@@ -559,6 +559,22 @@ namespace Automation
                 return true;
             }
         }
+        public class PointModifyType : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(new List<string>() { "叠加", "替换" });
+            }
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+        }
         public class GotoItem : StringConverter
         {
             List<string> Item()
@@ -818,6 +834,10 @@ namespace Automation
                 {
                     stationName = createTray.StationName;
                 }
+                else if (SF.frmDataGrid?.OperationTemp is ModifyStationPos modifyStationPos)
+                {
+                    stationName = modifyStationPos.StationName;
+                }
                 if (string.IsNullOrEmpty(stationName))
                 {
                     return posItems;
@@ -840,6 +860,65 @@ namespace Automation
                     }
                 }
             
+                return posItems;
+            }
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(Item());
+            }
+        }
+
+        public class StationPosWithSpecial : StringConverter
+        {
+            List<string> Item()
+            {
+                List<string> posItems = new List<string> { "当前位置", "自定义坐标" };
+                if (SF.frmCard == null || SF.frmCard.dataStation == null)
+                {
+                    return posItems;
+                }
+                string stationName = null;
+                if (SF.frmDataGrid?.OperationTemp is ModifyStationPos modifyStationPos)
+                {
+                    stationName = modifyStationPos.StationName;
+                }
+                if (string.IsNullOrEmpty(stationName))
+                {
+                    return posItems;
+                }
+                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == stationName);
+                if (station != null)
+                {
+                    int stationIndex = SF.frmCard.dataStation.IndexOf(station);
+                    if (stationIndex != -1)
+                    {
+                        var posList = SF.frmCard.dataStation[stationIndex].ListDataPos;
+                        if (posList != null)
+                        {
+                            foreach (var info in posList)
+                            {
+                                if (info == null || string.IsNullOrEmpty(info.Name))
+                                {
+                                    continue;
+                                }
+                                if (!posItems.Contains(info.Name))
+                                {
+                                    posItems.Add(info.Name);
+                                }
+                            }
+                        }
+                    }
+                }
                 return posItems;
             }
             public override bool GetStandardValuesSupported(ITypeDescriptorContext context)

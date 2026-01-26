@@ -2275,6 +2275,74 @@ namespace Automation
         }
     }
     [Serializable]
+    public class ModifyStationPos : OperationType
+    {
+        public ModifyStationPos()
+        {
+            OperaType = "点位修改";
+            ModifyType = "叠加";
+            evtRP += RefleshRefPosMode;
+        }
+
+        [DisplayName("工站名称"), Category("A修改参数"), Description(""), ReadOnly(false), TypeConverter(typeof(StationtItem))]
+        public string StationName { get; set; }
+
+        private string refPosName;
+        [DisplayName("参考点"), Category("A修改参数"), Description(""), ReadOnly(false), TypeConverter(typeof(StationPosWithSpecial))]
+        public string RefPosName
+        {
+            get => refPosName;
+            set
+            {
+                if (refPosName != value)
+                {
+                    refPosName = value;
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    {
+                        RefleshRefPosMode();
+                    }
+                }
+            }
+        }
+
+        [DisplayName("目标点"), Category("A修改参数"), Description(""), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string TargetPosName { get; set; }
+
+        [DisplayName("修改方式"), Category("B修改参数"), Description(""), ReadOnly(false), TypeConverter(typeof(PointModifyType))]
+        public string ModifyType { get; set; }
+
+        [Browsable(false)]
+        [DisplayName("X"), Category("B修改参数"), Description(""), ReadOnly(false)]
+        public double CustomX { get; set; }
+        [Browsable(false)]
+        [DisplayName("Y"), Category("B修改参数"), Description(""), ReadOnly(false)]
+        public double CustomY { get; set; }
+        [Browsable(false)]
+        [DisplayName("Z"), Category("B修改参数"), Description(""), ReadOnly(false)]
+        public double CustomZ { get; set; }
+        [Browsable(false)]
+        [DisplayName("U"), Category("B修改参数"), Description(""), ReadOnly(false)]
+        public double CustomU { get; set; }
+        [Browsable(false)]
+        [DisplayName("V"), Category("B修改参数"), Description(""), ReadOnly(false)]
+        public double CustomV { get; set; }
+        [Browsable(false)]
+        [DisplayName("W"), Category("B修改参数"), Description(""), ReadOnly(false)]
+        public double CustomW { get; set; }
+
+        public void RefleshRefPosMode()
+        {
+            bool useCustom = refPosName == "自定义坐标";
+            SetPropertyAttribute(this, "CustomX", typeof(BrowsableAttribute), "browsable", useCustom);
+            SetPropertyAttribute(this, "CustomY", typeof(BrowsableAttribute), "browsable", useCustom);
+            SetPropertyAttribute(this, "CustomZ", typeof(BrowsableAttribute), "browsable", useCustom);
+            SetPropertyAttribute(this, "CustomU", typeof(BrowsableAttribute), "browsable", useCustom);
+            SetPropertyAttribute(this, "CustomV", typeof(BrowsableAttribute), "browsable", useCustom);
+            SetPropertyAttribute(this, "CustomW", typeof(BrowsableAttribute), "browsable", useCustom);
+        }
+    }
+
+    [Serializable]
     public class StationRunRel : OperationType
     {
         public StationRunRel()

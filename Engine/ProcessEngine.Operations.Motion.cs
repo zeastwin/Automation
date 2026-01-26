@@ -684,6 +684,186 @@ namespace Automation
             return true;
         }
 
+        public bool RunModifyStationPos(ProcHandle evt, ModifyStationPos modifyStationPos)
+        {
+            if (Context?.Stations == null)
+            {
+                throw CreateAlarmException(evt, "工站列表为空");
+            }
+            if (modifyStationPos == null)
+            {
+                throw CreateAlarmException(evt, "点位修改参数为空");
+            }
+            if (string.IsNullOrWhiteSpace(modifyStationPos.StationName))
+            {
+                throw CreateAlarmException(evt, "工站名称为空");
+            }
+            if (string.IsNullOrWhiteSpace(modifyStationPos.RefPosName))
+            {
+                throw CreateAlarmException(evt, "参考点为空");
+            }
+            if (string.IsNullOrWhiteSpace(modifyStationPos.TargetPosName))
+            {
+                throw CreateAlarmException(evt, "目标点为空");
+            }
+            if (string.IsNullOrWhiteSpace(modifyStationPos.ModifyType))
+            {
+                throw CreateAlarmException(evt, "修改方式为空");
+            }
+
+            DataStation station = Context.Stations.FirstOrDefault(sc => sc.Name == modifyStationPos.StationName);
+            if (station == null)
+            {
+                throw CreateAlarmException(evt, $"找不到工站:{modifyStationPos.StationName}");
+            }
+            if (station.ListDataPos == null || station.ListDataPos.Count == 0)
+            {
+                throw CreateAlarmException(evt, $"工站点位列表为空:{modifyStationPos.StationName}");
+            }
+
+            DataPos targetPos = station.ListDataPos.FirstOrDefault(sc => sc != null && sc.Name == modifyStationPos.TargetPosName);
+            if (targetPos == null)
+            {
+                throw CreateAlarmException(evt, $"目标点不存在:{modifyStationPos.TargetPosName}");
+            }
+
+            double[] refValues = new double[6];
+            bool[] refAvailable = new bool[6];
+            if (modifyStationPos.RefPosName == "自定义坐标")
+            {
+                refValues[0] = modifyStationPos.CustomX;
+                refValues[1] = modifyStationPos.CustomY;
+                refValues[2] = modifyStationPos.CustomZ;
+                refValues[3] = modifyStationPos.CustomU;
+                refValues[4] = modifyStationPos.CustomV;
+                refValues[5] = modifyStationPos.CustomW;
+                for (int i = 0; i < 6; i++)
+                {
+                    refAvailable[i] = true;
+                }
+            }
+            else if (modifyStationPos.RefPosName == "当前位置")
+            {
+                if (Context.Motion == null || Context.CardStore == null)
+                {
+                    throw CreateAlarmException(evt, "运动控制未初始化");
+                }
+                if (station.dataAxis == null || station.dataAxis.axisConfigs == null || station.dataAxis.axisConfigs.Count < 6)
+                {
+                    throw CreateAlarmException(evt, $"工站轴配置无效:{modifyStationPos.StationName}");
+                }
+                for (int i = 0; i < 6; i++)
+                {
+                    AxisConfig axisConfig = station.dataAxis.axisConfigs[i];
+                    if (axisConfig == null)
+                    {
+                        throw CreateAlarmException(evt, $"工站轴配置为空:{modifyStationPos.StationName}");
+                    }
+                    if (axisConfig.AxisName == "-1")
+                    {
+                        refValues[i] = 0;
+                        refAvailable[i] = false;
+                        continue;
+                    }
+                    if (!ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
+                    {
+                        throw CreateAlarmException(evt, $"工站：{modifyStationPos.StationName} 轴卡号无效:{axisConfig.CardNum}");
+                    }
+                    Axis axisInfo = axisConfig.axis;
+                    if (axisInfo == null)
+                    {
+                        if (!Context.CardStore.TryGetAxisByName(cardNum, axisConfig.AxisName, out axisInfo))
+                        {
+                            throw CreateAlarmException(evt, $"工站：{modifyStationPos.StationName} 轴配置不存在:{axisConfig.AxisName}");
+                        }
+                    }
+                    int axisNum = axisInfo.AxisNum;
+                    if (axisNum < 0)
+                    {
+                        throw CreateAlarmException(evt, $"工站：{modifyStationPos.StationName} 轴索引无效:{axisConfig.AxisName}");
+                    }
+                    double axisPos;
+                    try
+                    {
+                        axisPos = Context.Motion.GetAxisPos(cardNum, (ushort)axisNum);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw CreateAlarmException(evt, $"读取当前位置失败:{axisConfig.AxisName}", ex);
+                    }
+                    refValues[i] = axisPos;
+                    refAvailable[i] = true;
+                }
+            }
+            else
+            {
+                DataPos refPos = station.ListDataPos.FirstOrDefault(sc => sc != null && sc.Name == modifyStationPos.RefPosName);
+                if (refPos == null)
+                {
+                    throw CreateAlarmException(evt, $"参考点不存在:{modifyStationPos.RefPosName}");
+                }
+                List<double> posValues = refPos.GetAllValues();
+                if (posValues == null || posValues.Count < 6)
+                {
+                    throw CreateAlarmException(evt, $"参考点数据无效:{modifyStationPos.RefPosName}");
+                }
+                for (int i = 0; i < 6; i++)
+                {
+                    refValues[i] = posValues[i];
+                    refAvailable[i] = true;
+                }
+            }
+
+            double[] targetValues = new double[6]
+            {
+                targetPos.X,
+                targetPos.Y,
+                targetPos.Z,
+                targetPos.U,
+                targetPos.V,
+                targetPos.W
+            };
+
+            if (modifyStationPos.ModifyType == "替换")
+            {
+                for (int i = 0; i < 6; i++)
+                {
+                    if (refAvailable[i])
+                    {
+                        targetValues[i] = refValues[i];
+                    }
+                }
+            }
+            else if (modifyStationPos.ModifyType == "叠加")
+            {
+                for (int i = 0; i < 6; i++)
+                {
+                    if (refAvailable[i])
+                    {
+                        targetValues[i] += refValues[i];
+                    }
+                }
+            }
+            else
+            {
+                throw CreateAlarmException(evt, $"修改方式无效:{modifyStationPos.ModifyType}");
+            }
+
+            targetPos.X = targetValues[0];
+            targetPos.Y = targetValues[1];
+            targetPos.Z = targetValues[2];
+            targetPos.U = targetValues[3];
+            targetPos.V = targetValues[4];
+            targetPos.W = targetValues[5];
+
+            if (station.dicDataPos != null && !string.IsNullOrWhiteSpace(targetPos.Name))
+            {
+                station.dicDataPos[targetPos.Name] = targetPos;
+            }
+
+            return true;
+        }
+
         public bool RunStationRunRel(ProcHandle evt, StationRunRel stationRunRel)
         {
 

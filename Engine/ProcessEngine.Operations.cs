@@ -144,6 +144,9 @@ namespace Automation
                     case StationRunPos stationRunPos:
                         return RunStationRunPos(evt, stationRunPos);
 
+                    case ModifyStationPos modifyStationPos:
+                        return RunModifyStationPos(evt, modifyStationPos);
+
                     case StationRunRel stationRunRel:
                         return RunStationRunRel(evt, stationRunRel);
 
