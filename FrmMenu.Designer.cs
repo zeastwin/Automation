@@ -33,6 +33,7 @@
             this.station_Page = new System.Windows.Forms.Button();
             this.communication_Page = new System.Windows.Forms.Button();
             this.panel1 = new System.Windows.Forms.Panel();
+            this.AI_Page = new System.Windows.Forms.Button();
             this.StructData_Page = new System.Windows.Forms.Button();
             this.Card_Page = new System.Windows.Forms.Button();
             this.valueDebug_Page = new System.Windows.Forms.Button();
@@ -118,6 +119,7 @@
             // 
             // panel1
             // 
+            this.panel1.Controls.Add(this.AI_Page);
             this.panel1.Controls.Add(this.StructData_Page);
             this.panel1.Controls.Add(this.Card_Page);
             this.panel1.Controls.Add(this.valueDebug_Page);
@@ -126,11 +128,32 @@
             this.panel1.Controls.Add(this.Io_Page);
             this.panel1.Controls.Add(this.station_Page);
             this.panel1.Controls.Add(this.process_Page);
+            this.panel1.AutoScroll = true;
+            this.panel1.AutoScrollMinSize = new System.Drawing.Size(1287, 0);
             this.panel1.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panel1.Location = new System.Drawing.Point(0, 0);
             this.panel1.Name = "panel1";
             this.panel1.Size = new System.Drawing.Size(1205, 129);
             this.panel1.TabIndex = 12;
+            // 
+            // AI按钮
+            // 
+            this.AI_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.AI_Page.Dock = System.Windows.Forms.DockStyle.Left;
+            this.AI_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.AI_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.AI_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.AI_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.AI_Page.Font = new System.Drawing.Font("黑体", 14.75F);
+            this.AI_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.AI_Page.Location = new System.Drawing.Point(1001, 0);
+            this.AI_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
+            this.AI_Page.Name = "AI_Page";
+            this.AI_Page.Size = new System.Drawing.Size(143, 129);
+            this.AI_Page.TabIndex = 15;
+            this.AI_Page.Text = "AI";
+            this.AI_Page.UseVisualStyleBackColor = false;
+            this.AI_Page.Click += new System.EventHandler(this.AI_Page_Click);
             // 
             // StructData_Page
             // 
@@ -142,7 +165,7 @@
             this.StructData_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.StructData_Page.Font = new System.Drawing.Font("黑体", 14.75F);
             this.StructData_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
-            this.StructData_Page.Location = new System.Drawing.Point(858, 0);
+            this.StructData_Page.Location = new System.Drawing.Point(1144, 0);
             this.StructData_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
             this.StructData_Page.Name = "StructData_Page";
             this.StructData_Page.Size = new System.Drawing.Size(143, 129);
@@ -232,5 +255,6 @@
         private System.Windows.Forms.Button valueDebug_Page;
         private System.Windows.Forms.Button value_Page;
         private System.Windows.Forms.Button StructData_Page;
+        private System.Windows.Forms.Button AI_Page;
     }
 }

@@ -5,6 +5,7 @@ namespace Automation
 {
     public partial class FrmMenu : Form
     {
+        private Form aiAssistantForm;
      
         public FrmMenu()
         {
@@ -252,6 +253,32 @@ namespace Automation
                 SF.frmIO.StopIOMonitor();
                 SF.frmToolBar.btnIOMonitor.Text = "IO监视";
             }
+        }
+
+        private void AI_Page_Click(object sender, EventArgs e)
+        {
+            if (aiAssistantForm == null || aiAssistantForm.IsDisposed)
+            {
+                aiAssistantForm = new Form
+                {
+                    Text = "AI流程助手",
+                    StartPosition = FormStartPosition.CenterScreen,
+                    Width = 520,
+                    Height = 260
+                };
+                Label label = new Label
+                {
+                    Dock = DockStyle.Fill,
+                    Text = "AI流程助手已接入UI，功能待配置。",
+                    TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
+                    Font = new System.Drawing.Font("黑体", 12F)
+                };
+                aiAssistantForm.Controls.Add(label);
+            }
+
+            aiAssistantForm.Show();
+            aiAssistantForm.BringToFront();
+            aiAssistantForm.WindowState = FormWindowState.Normal;
         }
 
     }

@@ -89,6 +89,22 @@
   <ItemGroup>
     <Compile Include="Communication\\CommunicationHub.cs" />
     <Compile Include="Communication\\CommunicationModels.cs" />
+    <Compile Include="AIFlow\\AiFlowCli.cs" />
+    <Compile Include="AIFlow\\AiFlowIo.cs" />
+    <Compile Include="AIFlow\\Collaboration\\AiFlowCollaborationAnalyzer.cs" />
+    <Compile Include="AIFlow\\Contracts\\AiFlowContracts.cs" />
+    <Compile Include="AIFlow\\Decompiler\\AiFlowDecompiler.cs" />
+    <Compile Include="AIFlow\\Delta\\AiFlowDeltaApplier.cs" />
+    <Compile Include="AIFlow\\Delta\\AiFlowDeltaModels.cs" />
+    <Compile Include="AIFlow\\Diff\\AiFlowDiff.cs" />
+    <Compile Include="AIFlow\\Revision\\AiFlowRevision.cs" />
+    <Compile Include="AIFlow\\Simulator\\AiFlowScenario.cs" />
+    <Compile Include="AIFlow\\Simulator\\AiFlowTrace.cs" />
+    <Compile Include="AIFlow\\Simulator\\AiFlowSimulator.cs" />
+    <Compile Include="AIFlow\\Verifier\\AiFlowVerifier.cs" />
+    <Compile Include="AIFlow\\Telemetry\\AiFlowTelemetryRecorder.cs" />
+    <Compile Include="AIFlow\\Compiler\\AiFlowCompiler.cs" />
+    <Compile Include="AIFlow\\Contracts\\AiFlowModels.cs" />
     <Compile Include="Engine\ValueRef.cs" />
     <Compile Include="Stores\\AlarmInfoStore.cs" />
     <Compile Include="Stores\\CardConfigStore.cs" />
