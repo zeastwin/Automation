@@ -36,6 +36,7 @@ namespace Automation
         public static FrmIODebug frmIODebug;
         public static FrmComunication frmComunication;
         public static FrmState frmState;
+        public static FrmValueDebug frmValueDebug;
         public static CustomFunc customFunc;
         public static FrmAlarmConfig frmAlarmConfig;
         public static FrmSearch frmSearch;

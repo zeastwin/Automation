@@ -52,6 +52,10 @@ namespace Automation
                 {
                     SF.frmStation.Visible = false;
                 }
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
+                {
+                    SF.frmValueDebug.Visible = false;
+                }
 
                 SF.frmCard.BringToFront();
                 SF.frmIO.BringToFront();
@@ -107,6 +111,10 @@ namespace Automation
                 {
                     SF.frmStation.Visible = false;
                 }
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
+                {
+                    SF.frmValueDebug.Visible = false;
+                }
 
                 SF.frmToolBar.btnPause.Visible = true;
                 SF.frmToolBar.btnStop.Visible = true;
@@ -159,6 +167,10 @@ namespace Automation
                 {
                     SF.frmCard.Visible = false;
                 }
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
+                {
+                    SF.frmValueDebug.Visible = false;
+                }
                 
                 SF.frmControl.comboBox1.DisplayMember = "Name";
                 SF.frmControl.comboBox1.DataSource = SF.frmCard.dataStation;
@@ -196,6 +208,49 @@ namespace Automation
                 SF.frmIODebug.WindowState = FormWindowState.Normal;
 
 
+            }
+        }
+
+        private void valueDebug_Page_Click(object sender, EventArgs e)
+        {
+            if (SF.curPage != 6)
+            {
+                SF.curPage = 6;
+                if (!SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
+                {
+                    SF.mainfrm.loadFillForm(SF.mainfrm.main_panel, SF.frmValueDebug);
+                }
+                SF.frmValueDebug.RefreshCheckList();
+                SF.frmValueDebug.RefreshEditList();
+
+                SF.mainfrm.ToolBar_panel.Visible = false;
+                SF.mainfrm.treeView_panel.Visible = false;
+                SF.mainfrm.propertyGrid_panel.Visible = false;
+                SF.mainfrm.DataGrid_panel.Visible = false;
+                SF.mainfrm.panel_Info.Visible = false;
+                SF.mainfrm.state_panel.Visible = false;
+
+                SF.frmValueDebug.Visible = true;
+                SF.frmValueDebug.BringToFront();
+
+                SF.frmDataGrid.Visible = false;
+                SF.frmProc.Visible = false;
+                if (SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
+                {
+                    SF.frmIO.Visible = false;
+                }
+                if (SF.mainfrm.treeView_panel.Controls.Contains(SF.frmCard))
+                {
+                    SF.frmCard.Visible = false;
+                }
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
+                {
+                    SF.frmStation.Visible = false;
+                }
+
+                SF.frmToolBar.btnIOMonitor.Visible = false;
+                SF.frmIO.StopIOMonitor();
+                SF.frmToolBar.btnIOMonitor.Text = "IO监视";
             }
         }
 

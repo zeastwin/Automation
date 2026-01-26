@@ -35,6 +35,7 @@
             this.panel1 = new System.Windows.Forms.Panel();
             this.StructData_Page = new System.Windows.Forms.Button();
             this.Card_Page = new System.Windows.Forms.Button();
+            this.valueDebug_Page = new System.Windows.Forms.Button();
             this.value_Page = new System.Windows.Forms.Button();
             this.panel1.SuspendLayout();
             this.SuspendLayout();
@@ -119,6 +120,7 @@
             // 
             this.panel1.Controls.Add(this.StructData_Page);
             this.panel1.Controls.Add(this.Card_Page);
+            this.panel1.Controls.Add(this.valueDebug_Page);
             this.panel1.Controls.Add(this.value_Page);
             this.panel1.Controls.Add(this.communication_Page);
             this.panel1.Controls.Add(this.Io_Page);
@@ -168,6 +170,25 @@
             this.Card_Page.UseVisualStyleBackColor = false;
             this.Card_Page.Click += new System.EventHandler(this.Card_Page_Click);
             // 
+            // valueDebug_Page
+            // 
+            this.valueDebug_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.valueDebug_Page.Dock = System.Windows.Forms.DockStyle.Left;
+            this.valueDebug_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.valueDebug_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.valueDebug_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.valueDebug_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.valueDebug_Page.Font = new System.Drawing.Font("黑体", 14.75F);
+            this.valueDebug_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.valueDebug_Page.Location = new System.Drawing.Point(715, 0);
+            this.valueDebug_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
+            this.valueDebug_Page.Name = "valueDebug_Page";
+            this.valueDebug_Page.Size = new System.Drawing.Size(143, 129);
+            this.valueDebug_Page.TabIndex = 14;
+            this.valueDebug_Page.Text = "变量调试";
+            this.valueDebug_Page.UseVisualStyleBackColor = false;
+            this.valueDebug_Page.Click += new System.EventHandler(this.valueDebug_Page_Click);
+            // 
             // value_Page
             // 
             this.value_Page.BackColor = System.Drawing.Color.DarkSlateGray;
@@ -208,6 +229,7 @@
         private System.Windows.Forms.Button process_Page;
         private System.Windows.Forms.Panel panel1;
         private System.Windows.Forms.Button Card_Page;
+        private System.Windows.Forms.Button valueDebug_Page;
         private System.Windows.Forms.Button value_Page;
         private System.Windows.Forms.Button StructData_Page;
     }

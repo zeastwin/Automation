@@ -232,6 +232,12 @@
     <Compile Include="FrmValue.Designer.cs">
       <DependentUpon>FrmValue.cs</DependentUpon>
     </Compile>
+    <Compile Include="FrmValueDebug.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmValueDebug.Designer.cs">
+      <DependentUpon>FrmValueDebug.cs</DependentUpon>
+    </Compile>
     <Compile Include="MotionControl\LeiSei3000.cs" />
     <Compile Include="MotionControl\LTDMC.cs" />
     <Compile Include="MotionControl\MotionCtrl.cs" />
@@ -308,6 +314,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="FrmValue.resx">
       <DependentUpon>FrmValue.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FrmValueDebug.resx">
+      <DependentUpon>FrmValueDebug.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="ParamFrm\FrmDataStructSet.resx">
       <DependentUpon>FrmDataStructSet.cs</DependentUpon>

@@ -19,6 +19,7 @@ namespace Automation
         public FrmPropertyGrid frmPropertyGrid = new FrmPropertyGrid();
         public FrmToolBar frmToolBar = new FrmToolBar();
         public FrmValue frmValue = new FrmValue();
+        public FrmValueDebug frmValueDebug = new FrmValueDebug();
         public FrmIO  frmIO = new FrmIO();
         public FrmCard  frmCard = new FrmCard();
         public ProcessEngine dataRun;
@@ -83,6 +84,7 @@ namespace Automation
             SF.frmPropertyGrid = frmPropertyGrid;
             SF.frmToolBar = frmToolBar;
             SF.frmValue = frmValue;
+            SF.frmValueDebug = frmValueDebug;
             SF.frmIO = frmIO;
             SF.frmCard = frmCard;
             SF.DR = dataRun;
