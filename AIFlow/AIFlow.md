@@ -28,7 +28,7 @@
 - `AIFlow/Diff/`
   - `AiFlowDiff.cs`：Core 差异分析
 - `AIFlow/Revision/`
-  - `AiFlowRevision.cs`：回滚点管理（Work 目录快照）
+- `AiFlowRevision.cs`：回滚点管理（Work 目录快照，仅允许 `Config\\Work`）
 - `AIFlow/Simulator/`
   - `AiFlowScenario.cs`：场景输入
   - `AiFlowTrace.cs`：Trace 输出
@@ -174,29 +174,30 @@
 
 支持的界面功能：
 - 自动选择当前流程（从 `FrmProc.SelectedProcNum` 读取）
-- 显示 Work 目录（默认 `SF.workPath`，落盘后更新）
+- 显示 Work 目录（固定为 `SF.workPath`，仅允许 `Config\\Work`）
 - 联动日志面板（`FrmInfo.PrintInfo`）
 
 ## 10. CLI 使用
 ```bash
-Automation.exe aiflow compile --core <core.json> --out-dir <Work目录>
-Automation.exe aiflow compile --spec <spec.json> --out-dir <Work目录>
+Automation.exe aiflow compile --core <core.json> --out-dir <Config\\Work目录>
+Automation.exe aiflow compile --spec <spec.json> --out-dir <Config\\Work目录>
 
 Automation.exe aiflow verify --core <core.json>
 Automation.exe aiflow verify --spec <spec.json>
 
-Automation.exe aiflow delta-apply --base-core <core.json> --delta <delta.json> --out-core <core.json> [--diff <diff.json>] [--out-work <Work目录>] [--save-revision [note]]
+Automation.exe aiflow delta-apply --base-core <core.json> --delta <delta.json> --out-core <core.json> [--diff <diff.json>] [--out-work <Config\\Work目录>] [--save-revision [note]]
 Automation.exe aiflow diff --base-core <core.json> --target-core <core.json> [--out <diff.json>]
-Automation.exe aiflow rollback --work-dir <Work目录> --revision <id>
+Automation.exe aiflow rollback --work-dir <Config\\Work目录> --revision <id>
 
 Automation.exe aiflow simulate --core <core.json> --scenario <scenario.json> --out-trace <trace.json>
 Automation.exe aiflow collab-verify --core <core.json> --contracts <contracts.json>
-Automation.exe aiflow decompile --work-dir <Work目录> --out-core <core.json> [--out-spec <spec.json>]
+Automation.exe aiflow decompile --work-dir <Config\\Work目录> --out-core <core.json> [--out-spec <spec.json>]
 ```
 
 ## 11. 回滚说明
 - 回滚点目录：`Config/Work_revisions/<revisionId>`
 - 目前只快照 **Work 目录**，不包含 `value.json`/`DataStruct.json` 等其他配置文件。
+- 为防止误删，落盘/回滚仅允许 `Config\\Work`，UI 只能选择 `Config` 目录。
 
 ## 12. 注意事项
 - 校验未包含资源存在性（IO/变量/通讯对象）的全量检查，需结合业务配置补充。
@@ -207,4 +208,3 @@ Automation.exe aiflow decompile --work-dir <Work目录> --out-core <core.json> [
 - 接入流程编辑器 Diff 可视化（对比 JSON 或结构树）
 - 协作协议库扩展（Event/Lock/多状态机）
 - 运行期 Trace + 场景回放
-

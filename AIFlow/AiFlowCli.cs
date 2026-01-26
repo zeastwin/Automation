@@ -872,20 +872,20 @@ namespace Automation.AIFlow
         private static void PrintUsage()
         {
             Console.WriteLine("用法:");
-            Console.WriteLine("  Automation.exe aiflow compile --core <core.json> --out-dir <Work目录>");
-            Console.WriteLine("  Automation.exe aiflow compile --spec <spec.json> --out-dir <Work目录>");
+            Console.WriteLine("  Automation.exe aiflow compile --core <core.json> --out-dir <Config\\\\Work目录>");
+            Console.WriteLine("  Automation.exe aiflow compile --spec <spec.json> --out-dir <Config\\\\Work目录>");
             Console.WriteLine("  Automation.exe aiflow verify --core <core.json>");
             Console.WriteLine("  Automation.exe aiflow verify --spec <spec.json>");
-            Console.WriteLine("  Automation.exe aiflow delta-apply --base-core <core.json> --delta <delta.json> --out-core <core.json> [--diff <diff.json>] [--out-work <Work目录>] [--save-revision [note]]");
+            Console.WriteLine("  Automation.exe aiflow delta-apply --base-core <core.json> --delta <delta.json> --out-core <core.json> [--diff <diff.json>] [--out-work <Config\\\\Work目录>] [--save-revision [note]]");
             Console.WriteLine("  Automation.exe aiflow diff --base-core <core.json> --target-core <core.json> [--out <diff.json>]");
             Console.WriteLine("  Automation.exe aiflow simulate --core <core.json> --scenario <scenario.json> --out-trace <trace.json>");
             Console.WriteLine("  Automation.exe aiflow collab-verify --core <core.json> --contracts <contracts.json>");
-            Console.WriteLine("  Automation.exe aiflow decompile --work-dir <Work目录> --out-core <core.json> [--out-spec <spec.json>]");
-            Console.WriteLine("  Automation.exe aiflow rollback --work-dir <Work目录> --revision <id>");
+            Console.WriteLine("  Automation.exe aiflow decompile --work-dir <Config\\\\Work目录> --out-core <core.json> [--out-spec <spec.json>]");
+            Console.WriteLine("  Automation.exe aiflow rollback --work-dir <Config\\\\Work目录> --revision <id>");
             Console.WriteLine("参数:");
             Console.WriteLine("  --core    指定 core.json (core-1)");
             Console.WriteLine("  --spec    指定 spec.json (spec-1, kind=core)");
-            Console.WriteLine("  --out-dir 输出 Work 目录路径");
+            Console.WriteLine("  --out-dir 输出 Config\\\\Work 目录路径");
         }
     }
 }

@@ -330,6 +330,38 @@ namespace Automation.AIFlow
                 issues.Add(new AiFlowIssue("APPLY_PATH_EMPTY", "输出路径为空", "apply"));
                 return false;
             }
+            string expectedWork;
+            try
+            {
+                expectedWork = Path.GetFullPath(SF.workPath ?? string.Empty)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch (Exception ex)
+            {
+                issues.Add(new AiFlowIssue("APPLY_PATH_INVALID", $"Config 路径无效:{ex.Message}", "apply"));
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(expectedWork))
+            {
+                issues.Add(new AiFlowIssue("APPLY_PATH_INVALID", "Config 路径为空", "apply"));
+                return false;
+            }
+            string actualWork;
+            try
+            {
+                actualWork = Path.GetFullPath(workPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch (Exception ex)
+            {
+                issues.Add(new AiFlowIssue("APPLY_PATH_INVALID", $"Work 路径无效:{ex.Message}", "apply"));
+                return false;
+            }
+            if (!string.Equals(actualWork, expectedWork, StringComparison.OrdinalIgnoreCase))
+            {
+                issues.Add(new AiFlowIssue("APPLY_PATH_FORBIDDEN", $"只允许使用 Config\\\\Work 路径:{expectedWork}", "apply"));
+                return false;
+            }
 
             try
             {

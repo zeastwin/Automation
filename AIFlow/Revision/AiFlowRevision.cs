@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Automation;
 using Newtonsoft.Json;
 
 namespace Automation.AIFlow
@@ -21,6 +22,38 @@ namespace Automation.AIFlow
             if (string.IsNullOrWhiteSpace(workPath))
             {
                 issues.Add(new AiFlowIssue("REV_PATH_EMPTY", "Work 路径为空", "revision"));
+                return false;
+            }
+            string expectedWork;
+            try
+            {
+                expectedWork = Path.GetFullPath(SF.workPath ?? string.Empty)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch (Exception ex)
+            {
+                issues.Add(new AiFlowIssue("REV_PATH_INVALID", $"Config 路径无效:{ex.Message}", "revision"));
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(expectedWork))
+            {
+                issues.Add(new AiFlowIssue("REV_PATH_INVALID", "Config 路径为空", "revision"));
+                return false;
+            }
+            string normalizedWork;
+            try
+            {
+                normalizedWork = Path.GetFullPath(workPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch (Exception ex)
+            {
+                issues.Add(new AiFlowIssue("REV_PATH_INVALID", $"Work 路径无效:{ex.Message}", "revision"));
+                return false;
+            }
+            if (!string.Equals(normalizedWork, expectedWork, StringComparison.OrdinalIgnoreCase))
+            {
+                issues.Add(new AiFlowIssue("REV_PATH_FORBIDDEN", $"只允许使用 Config\\\\Work 路径:{expectedWork}", "revision"));
                 return false;
             }
 
@@ -68,6 +101,38 @@ namespace Automation.AIFlow
             if (string.IsNullOrWhiteSpace(revisionId))
             {
                 issues.Add(new AiFlowIssue("REV_ID_EMPTY", "revisionId 为空", "rollback"));
+                return false;
+            }
+            string expectedWork;
+            try
+            {
+                expectedWork = Path.GetFullPath(SF.workPath ?? string.Empty)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch (Exception ex)
+            {
+                issues.Add(new AiFlowIssue("REV_PATH_INVALID", $"Config 路径无效:{ex.Message}", "rollback"));
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(expectedWork))
+            {
+                issues.Add(new AiFlowIssue("REV_PATH_INVALID", "Config 路径为空", "rollback"));
+                return false;
+            }
+            string normalizedWork;
+            try
+            {
+                normalizedWork = Path.GetFullPath(workPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch (Exception ex)
+            {
+                issues.Add(new AiFlowIssue("REV_PATH_INVALID", $"Work 路径无效:{ex.Message}", "rollback"));
+                return false;
+            }
+            if (!string.Equals(normalizedWork, expectedWork, StringComparison.OrdinalIgnoreCase))
+            {
+                issues.Add(new AiFlowIssue("REV_PATH_FORBIDDEN", $"只允许使用 Config\\\\Work 路径:{expectedWork}", "rollback"));
                 return false;
             }
 

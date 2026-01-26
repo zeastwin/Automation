@@ -224,14 +224,47 @@ namespace Automation
                 ShowIssues("落盘失败", "未加载 Core/Spec");
                 return;
             }
+            string configRoot;
+            try
+            {
+                configRoot = Path.GetFullPath(SF.ConfigPath ?? string.Empty)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch (Exception ex)
+            {
+                ShowIssues("落盘失败", $"Config 路径无效:{ex.Message}");
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(configRoot))
+            {
+                ShowIssues("落盘失败", "Config 路径为空");
+                return;
+            }
             using (FolderBrowserDialog dialog = new FolderBrowserDialog())
             {
-                dialog.Description = "选择 Work 目录";
+                dialog.Description = "选择 Config 目录";
+                dialog.SelectedPath = configRoot;
                 if (dialog.ShowDialog() != DialogResult.OK)
                 {
                     return;
                 }
-                lastWorkDir = dialog.SelectedPath;
+                string selected;
+                try
+                {
+                    selected = Path.GetFullPath(dialog.SelectedPath ?? string.Empty)
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+                catch (Exception ex)
+                {
+                    ShowIssues("落盘失败", $"选择路径无效:{ex.Message}");
+                    return;
+                }
+                if (!string.Equals(selected, configRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    ShowIssues("落盘失败", $"只能选择 Config 目录:{configRoot}");
+                    return;
+                }
+                lastWorkDir = Path.Combine(configRoot, "Work");
             }
 
             AiFlowCompileResult compile = AiFlowCompiler.CompileCore(currentCore);
@@ -266,14 +299,47 @@ namespace Automation
             string revisionId = listRevisions.SelectedItem.ToString();
             if (string.IsNullOrWhiteSpace(lastWorkDir))
             {
+                string configRoot;
+                try
+                {
+                    configRoot = Path.GetFullPath(SF.ConfigPath ?? string.Empty)
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+                catch (Exception ex)
+                {
+                    ShowIssues("回滚失败", $"Config 路径无效:{ex.Message}");
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(configRoot))
+                {
+                    ShowIssues("回滚失败", "Config 路径为空");
+                    return;
+                }
                 using (FolderBrowserDialog dialog = new FolderBrowserDialog())
                 {
-                    dialog.Description = "选择 Work 目录";
+                    dialog.Description = "选择 Config 目录";
+                    dialog.SelectedPath = configRoot;
                     if (dialog.ShowDialog() != DialogResult.OK)
                     {
                         return;
                     }
-                    lastWorkDir = dialog.SelectedPath;
+                    string selected;
+                    try
+                    {
+                        selected = Path.GetFullPath(dialog.SelectedPath ?? string.Empty)
+                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    }
+                    catch (Exception ex)
+                    {
+                        ShowIssues("回滚失败", $"选择路径无效:{ex.Message}");
+                        return;
+                    }
+                    if (!string.Equals(selected, configRoot, StringComparison.OrdinalIgnoreCase))
+                    {
+                        ShowIssues("回滚失败", $"只能选择 Config 目录:{configRoot}");
+                        return;
+                    }
+                    lastWorkDir = Path.Combine(configRoot, "Work");
                 }
             }
             if (!AiFlowRevision.Rollback(lastWorkDir, revisionId, out List<AiFlowIssue> issues))
