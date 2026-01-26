@@ -1,0 +1,18 @@
+{
+  "version": "scenario-1",
+  "start": {
+    "procId": "proc-main",
+    "stepId": "step-main",
+    "opId": "op-set"
+  },
+  "valuesByIndex": {
+    "0": "1"
+  },
+  "decisions": {
+    "proc-main/step-main/op-judge": {
+      "type": "result",
+      "result": false,
+      "note": "force fail branch"
+    }
+  }
+}

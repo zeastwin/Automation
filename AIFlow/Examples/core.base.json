@@ -1,0 +1,64 @@
+{
+  "version": "core-1",
+  "procs": [
+    {
+      "id": "proc-main",
+      "name": "SampleProc",
+      "autoStart": false,
+      "steps": [
+        {
+          "id": "step-main",
+          "name": "MainStep",
+          "ops": [
+            {
+              "id": "op-set",
+              "opCode": "ModifyValue",
+              "name": "SetValue",
+              "args": {
+                "ModifyType": "替换",
+                "ValueSourceIndex": "0",
+                "ChangeValue": "5",
+                "OutputValueIndex": "0"
+              }
+            },
+            {
+              "id": "op-judge",
+              "opCode": "ParamGoto",
+              "name": "JudgeValue",
+              "args": {
+                "goto1": "0-0-2",
+                "goto2": "0-0-3",
+                "Params": [
+                  {
+                    "ValueIndex": "0",
+                    "JudgeMode": "值在区间内",
+                    "Down": 4,
+                    "Up": 6,
+                    "equal": true,
+                    "Operator": "且"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "op-delay-ok",
+              "opCode": "Delay",
+              "name": "DelayOk",
+              "args": {
+                "timeMiniSecond": "100"
+              }
+            },
+            {
+              "id": "op-delay-ng",
+              "opCode": "Delay",
+              "name": "DelayNg",
+              "args": {
+                "timeMiniSecond": "100"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

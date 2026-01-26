@@ -1,0 +1,20 @@
+{
+  "version": "delta-1",
+  "baseRevision": "example-1",
+  "ops": [
+    {
+      "type": "add_op",
+      "procId": "proc-main",
+      "stepId": "step-main",
+      "index": 4,
+      "op": {
+        "id": "op-delay-extra",
+        "opCode": "Delay",
+        "name": "DelayExtra",
+        "args": {
+          "timeMiniSecond": "50"
+        }
+      }
+    }
+  ]
+}
