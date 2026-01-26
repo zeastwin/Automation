@@ -542,36 +542,37 @@ namespace Automation
 
         private void dataGridView1_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {
-            // 只关心第一列（索引为0）的单元格
-            if (e.ColumnIndex == 0 && e.RowIndex >= 0)
+            if (e.RowIndex < 0)
             {
-                // 获取当前行对应的数据项
-                OperationType dataItem = dataGridView1.Rows[e.RowIndex].DataBoundItem as OperationType;
-
-
-                if (dataItem != null)
-                {
-                    if (dataItem.Enable)
-                    {
-                        SetRowColor(e.RowIndex, Color.Gray);
-                        e.CellStyle.BackColor = Color.Gray;
-                    }
-                    else
-                    {
-                        ClearRowColor(e.RowIndex);
-                        if (dataItem.isStopPoint)
-                        {
-                            e.CellStyle.BackColor = Color.Red;
-                        }
-                        else
-                        {
-                            e.CellStyle.BackColor = dataGridView1.DefaultCellStyle.BackColor;
-                        }
-                    }
-                    e.CellStyle.SelectionBackColor = e.CellStyle.BackColor;
-                    e.CellStyle.SelectionForeColor = e.CellStyle.ForeColor;
-                }
+                return;
             }
+
+            OperationType dataItem = dataGridView1.Rows[e.RowIndex].DataBoundItem as OperationType;
+            if (dataItem == null)
+            {
+                return;
+            }
+
+            Color rowColor = dataGridView1.Rows[e.RowIndex].DefaultCellStyle.BackColor;
+            bool hasRowColor = !rowColor.IsEmpty;
+            if (hasRowColor)
+            {
+                e.CellStyle.BackColor = rowColor;
+            }
+            else if (dataItem.Enable)
+            {
+                e.CellStyle.BackColor = Color.Gray;
+            }
+            else if (dataItem.isStopPoint && e.ColumnIndex == 0)
+            {
+                e.CellStyle.BackColor = Color.Red;
+            }
+            else
+            {
+                e.CellStyle.BackColor = dataGridView1.DefaultCellStyle.BackColor;
+            }
+
+            // 保持系统默认选中颜色，避免选中状态不可见
         }
 
         private void SetStopPoint_Click(object sender, EventArgs e)
