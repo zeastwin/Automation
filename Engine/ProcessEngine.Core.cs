@@ -420,6 +420,200 @@ namespace Automation
                 remaining = milliSecond - (int)stopwatch.ElapsedMilliseconds;
             }
         }
+
+        private bool HandlePauseSignal(ProcHandle evt, ProcessControl control)
+        {
+            if (evt == null || control == null)
+            {
+                return false;
+            }
+            if (evt.State == ProcRunState.Alarming)
+            {
+                return true;
+            }
+            if (evt.State == ProcRunState.SingleStep)
+            {
+                return true;
+            }
+            ProcHead head = evt.Proc?.head;
+            if (head == null)
+            {
+                return true;
+            }
+            bool hasPauseIo = !string.IsNullOrWhiteSpace(head.PauseIoCount);
+            bool hasPauseValue = !string.IsNullOrWhiteSpace(head.PauseValueCount)
+                || (head.PauseValueParams != null && head.PauseValueParams.Count > 0);
+            if (!hasPauseIo && !hasPauseValue)
+            {
+                return true;
+            }
+
+            while (true)
+            {
+                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return false;
+                }
+                if (!TryEvaluatePauseSignal(head, out bool pauseActive, out string error))
+                {
+                    MarkAlarm(evt, error);
+                    HandleAlarm(null, evt);
+                    control.RequestStop();
+                    return false;
+                }
+                if (!pauseActive)
+                {
+                    if (evt.PauseBySignal && evt.State == ProcRunState.Paused)
+                    {
+                        evt.State = ProcRunState.Running;
+                        evt.isBreakpoint = false;
+                        evt.PauseBySignal = false;
+                        control.SetRunning();
+                        UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                    }
+                    return true;
+                }
+                if (!evt.PauseBySignal)
+                {
+                    evt.State = ProcRunState.Paused;
+                    evt.isBreakpoint = false;
+                    evt.PauseBySignal = true;
+                    control.SetPaused();
+                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                }
+                Delay(50, evt);
+            }
+        }
+
+        private bool TryEvaluatePauseSignal(ProcHead head, out bool pauseActive, out string error)
+        {
+            pauseActive = false;
+            error = null;
+            if (head == null)
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(head.PauseIoCount))
+            {
+                if (!int.TryParse(head.PauseIoCount, out int ioCount) || ioCount < 0)
+                {
+                    error = $"暂停IO数无效:{head.PauseIoCount}";
+                    return false;
+                }
+                if (ioCount > 0)
+                {
+                    if (head.PauseIoParams == null || head.PauseIoParams.Count < ioCount)
+                    {
+                        error = "暂停IO配置不足";
+                        return false;
+                    }
+                    for (int i = 0; i < ioCount; i++)
+                    {
+                        PauseIoParam param = head.PauseIoParams[i];
+                        if (param == null || string.IsNullOrWhiteSpace(param.IOName))
+                        {
+                            error = $"暂停IO{i + 1}名称为空";
+                            return false;
+                        }
+                        if (Context?.IoMap == null || !Context.IoMap.TryGetValue(param.IOName, out IO io) || io == null)
+                        {
+                            error = $"IO映射不存在:{param.IOName}";
+                            return false;
+                        }
+                        bool value = false;
+                        bool ok;
+                        if (io.IOType == "通用输入")
+                        {
+                            ok = Context.Motion != null && Context.Motion.GetInIO(io, ref value);
+                        }
+                        else if (io.IOType == "通用输出")
+                        {
+                            ok = Context.Motion != null && Context.Motion.GetOutIO(io, ref value);
+                        }
+                        else
+                        {
+                            error = $"IO类型无效:{param.IOName}";
+                            return false;
+                        }
+                        if (!ok)
+                        {
+                            error = $"IO读取失败:{param.IOName}";
+                            return false;
+                        }
+                        if (value)
+                        {
+                            pauseActive = true;
+                        }
+                    }
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(head.PauseValueCount) || (head.PauseValueParams != null && head.PauseValueParams.Count > 0))
+            {
+                if (Context?.ValueStore == null)
+                {
+                    error = "变量库未初始化";
+                    return false;
+                }
+                int valueCount = 0;
+                if (!string.IsNullOrWhiteSpace(head.PauseValueCount))
+                {
+                    if (!int.TryParse(head.PauseValueCount, out valueCount) || valueCount < 0)
+                    {
+                        error = $"暂停变量数无效:{head.PauseValueCount}";
+                        return false;
+                    }
+                }
+                else if (head.PauseValueParams != null)
+                {
+                    valueCount = head.PauseValueParams.Count;
+                }
+                if (valueCount > 0)
+                {
+                    if (head.PauseValueParams == null || head.PauseValueParams.Count < valueCount)
+                    {
+                        error = "暂停变量配置不足";
+                        return false;
+                    }
+                    for (int i = 0; i < valueCount; i++)
+                    {
+                        PauseValueParam param = head.PauseValueParams[i];
+                        if (param == null || string.IsNullOrWhiteSpace(param.ValueName))
+                        {
+                            error = $"暂停变量{i + 1}名称为空";
+                            return false;
+                        }
+                        if (!Context.ValueStore.TryGetValueByName(param.ValueName, out DicValue valueItem) || valueItem == null)
+                        {
+                            error = $"暂停变量不存在:{param.ValueName}";
+                            return false;
+                        }
+                        if (!string.Equals(valueItem.Type, "double", StringComparison.OrdinalIgnoreCase))
+                        {
+                            error = $"暂停变量类型不是double:{param.ValueName}";
+                            return false;
+                        }
+                        double value;
+                        try
+                        {
+                            value = valueItem.GetDValue();
+                        }
+                        catch (Exception ex)
+                        {
+                            error = ex.Message;
+                            return false;
+                        }
+                        if (value != 0)
+                        {
+                            pauseActive = true;
+                        }
+                    }
+                }
+            }
+
+            return true;
+        }
         public void StartProc(Proc proc, int procIndex)
         {
             StartProcAt(proc, procIndex, 0, 0, ProcRunState.Running);
@@ -505,6 +699,8 @@ namespace Automation
                 evt.State = ProcRunState.Running;
                 control.SetRunning();
             }
+            evt.PauseBySignal = false;
+            evt.Proc = proc;
             evt.isBreakpoint = false;
             UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
             for (int i = evt.stepNum; i < proc.steps.Count; i++)
@@ -603,6 +799,12 @@ namespace Automation
                 {
                     evt.isBreakpoint = false;
                     UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                }
+                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                    return false;
+                if (!HandlePauseSignal(evt, control))
+                {
+                    return false;
                 }
                 if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                     return false;
@@ -1150,6 +1352,7 @@ namespace Automation
             }
             handle.State = ProcRunState.Paused;
             handle.isBreakpoint = false;
+            handle.PauseBySignal = false;
             control.SetPaused();
             engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
                 handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
@@ -1174,6 +1377,7 @@ namespace Automation
             }
             handle.State = ProcRunState.Running;
             handle.isBreakpoint = false;
+            handle.PauseBySignal = false;
             control.SetRunning();
             engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
                 handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
@@ -1198,6 +1402,7 @@ namespace Automation
             }
             handle.State = ProcRunState.SingleStep;
             handle.isBreakpoint = false;
+            handle.PauseBySignal = false;
             control.RequestStep();
             engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
                 handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);

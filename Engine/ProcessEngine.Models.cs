@@ -57,6 +57,8 @@ namespace Automation
         public CancellationToken CancellationToken { get; set; }
         internal ProcessControl Control { get; set; }
         public ConcurrentBag<Task> RunningTasks { get; } = new ConcurrentBag<Task>();
+        public bool PauseBySignal { get; set; }
+        public Proc Proc { get; set; }
 
     }
     public enum EngineCommandType
