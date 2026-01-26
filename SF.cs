@@ -151,6 +151,7 @@ namespace Automation
             if (frmPropertyGrid != null)
             {
                 frmPropertyGrid.Enabled = true;
+                frmPropertyGrid.OperationType.Enabled = kind == ModifyKind.Operation || isAddOps;
             }
             if (frmToolBar != null)
             {
@@ -165,6 +166,7 @@ namespace Automation
             if (frmPropertyGrid != null)
             {
                 frmPropertyGrid.Enabled = false;
+                frmPropertyGrid.OperationType.Enabled = false;
             }
             if (frmToolBar != null)
             {
