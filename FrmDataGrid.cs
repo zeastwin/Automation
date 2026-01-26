@@ -553,6 +553,26 @@ namespace Automation
                 return;
             }
 
+            if (e.ColumnIndex == statusMark.Index)
+            {
+                string mark = string.Empty;
+                if (dataItem.Enable)
+                {
+                    mark += "X";
+                }
+                if (dataItem.isStopPoint)
+                {
+                    mark += "●";
+                }
+                e.Value = mark;
+                if (dataItem.isStopPoint)
+                {
+                    e.CellStyle.BackColor = Color.Red;
+                    // 断点标记列保持红底，不再走后续行色逻辑
+                    return;
+                }
+            }
+
             Color rowColor = dataGridView1.Rows[e.RowIndex].DefaultCellStyle.BackColor;
             bool hasRowColor = !rowColor.IsEmpty;
             if (hasRowColor)
@@ -562,10 +582,6 @@ namespace Automation
             else if (dataItem.Enable)
             {
                 e.CellStyle.BackColor = Color.Gray;
-            }
-            else if (dataItem.isStopPoint && e.ColumnIndex == 0)
-            {
-                e.CellStyle.BackColor = Color.Red;
             }
             else
             {
@@ -593,7 +609,6 @@ namespace Automation
                 if (dataItem != null)
                 {
                     dataItem.isStopPoint = !dataItem.isStopPoint;
-                    SF.frmProc.bindingSource.ResetBindings(true);
                     SF.frmProc.isStopPointDirty = true;
                     dataGridView1.InvalidateRow(iSelectedRow);
                 }
