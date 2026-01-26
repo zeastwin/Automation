@@ -49,6 +49,7 @@ namespace Automation
             {
                 throw CreateAlarmException(evt, "变量库未初始化");
             }
+            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
             int structIndex = int.Parse(getDataStructItem.StructIndex);
             int itemIndex = int.Parse(getDataStructItem.ItemIndex);
             if (getDataStructItem.IsAllItem)
@@ -62,7 +63,7 @@ namespace Automation
                         MarkAlarm(evt, $"读取数据结构失败:结构{structIndex},项{itemIndex},值{i}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    if (!valueStore.setValueByIndex(startIndex + i, obj))
+                    if (!valueStore.setValueByIndex(startIndex + i, obj, source))
                     {
                         MarkAlarm(evt, $"保存变量失败:索引{startIndex + i}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -89,7 +90,7 @@ namespace Automation
                         throw CreateAlarmException(evt, nameResolveError);
                     }
                     string valueName = nameItem.Value;
-                    if (!valueStore.setValueByName(valueName, obj))
+                    if (!valueStore.setValueByName(valueName, obj, source))
                     {
                         MarkAlarm(evt, $"保存变量失败:{valueName}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -197,6 +198,7 @@ namespace Automation
 
         public bool RunFindDataStructItem(ProcHandle evt, FindDataStructItem findDataStructItem)
         {
+            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
             if (findDataStructItem.Type == "名称等于key")
             {
                 if (!Context.DataStructStore.TryFindItemByName(int.Parse(findDataStructItem.TargetStructIndex), findDataStructItem.key, out string value))
@@ -204,7 +206,7 @@ namespace Automation
                     MarkAlarm(evt, $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value))
+                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value, source))
                 {
                     MarkAlarm(evt, $"保存变量失败:{findDataStructItem.save}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -217,7 +219,7 @@ namespace Automation
                     MarkAlarm(evt, $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value))
+                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value, source))
                 {
                     MarkAlarm(evt, $"保存变量失败:{findDataStructItem.save}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -235,7 +237,7 @@ namespace Automation
                     MarkAlarm(evt, $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value))
+                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value, source))
                 {
                     MarkAlarm(evt, $"保存变量失败:{findDataStructItem.save}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -246,12 +248,13 @@ namespace Automation
 
         public bool RunGetDataStructCount(ProcHandle evt, GetDataStructCount getDataStructCount)
         {
-            if (!Context.ValueStore.setValueByName(getDataStructCount.StructCount, Context.DataStructStore.Count))
+            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+            if (!Context.ValueStore.setValueByName(getDataStructCount.StructCount, Context.DataStructStore.Count, source))
             {
                 MarkAlarm(evt, $"保存变量失败:{getDataStructCount.StructCount}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!Context.ValueStore.setValueByName(getDataStructCount.ItemCount, Context.DataStructStore.GetItemCount(int.Parse(getDataStructCount.TargetStructIndex))))
+            if (!Context.ValueStore.setValueByName(getDataStructCount.ItemCount, Context.DataStructStore.GetItemCount(int.Parse(getDataStructCount.TargetStructIndex)), source))
             {
                 MarkAlarm(evt, $"保存变量失败:{getDataStructCount.ItemCount}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);

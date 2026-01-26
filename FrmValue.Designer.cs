@@ -39,6 +39,12 @@
             this.btnPrevious = new System.Windows.Forms.Button();
             this.BtnNext = new System.Windows.Forms.Button();
             this.btnSet = new System.Windows.Forms.Button();
+            this.btnMonitor = new System.Windows.Forms.Button();
+            this.btnMonitorAdd = new System.Windows.Forms.Button();
+            this.btnMonitorRemove = new System.Windows.Forms.Button();
+            this.btnCopy = new System.Windows.Forms.Button();
+            this.btnPaste = new System.Windows.Forms.Button();
+            this.btnClearData = new System.Windows.Forms.Button();
             this.panelCommon = new System.Windows.Forms.Panel();
             this.listCommon = new System.Windows.Forms.ListBox();
             this.labelCommon = new System.Windows.Forms.Label();
@@ -57,6 +63,12 @@
             // 
             this.panel1.BackColor = System.Drawing.SystemColors.HighlightText;
             this.panel1.Controls.Add(this.btnSearch);
+            this.panel1.Controls.Add(this.btnMonitor);
+            this.panel1.Controls.Add(this.btnMonitorAdd);
+            this.panel1.Controls.Add(this.btnMonitorRemove);
+            this.panel1.Controls.Add(this.btnCopy);
+            this.panel1.Controls.Add(this.btnPaste);
+            this.panel1.Controls.Add(this.btnClearData);
             this.panel1.Controls.Add(this.btnCancel);
             this.panel1.Controls.Add(this.btnPrevious);
             this.panel1.Controls.Add(this.BtnNext);
@@ -64,7 +76,7 @@
             this.panel1.Dock = System.Windows.Forms.DockStyle.Top;
             this.panel1.Location = new System.Drawing.Point(0, 0);
             this.panel1.Name = "panel1";
-            this.panel1.Size = new System.Drawing.Size(1520, 48);
+            this.panel1.Size = new System.Drawing.Size(1760, 48);
             this.panel1.TabIndex = 3;
             // 
             // btnSearch
@@ -76,7 +88,7 @@
             this.btnSearch.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnSearch.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.btnSearch.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnSearch.Location = new System.Drawing.Point(1356, 6);
+            this.btnSearch.Location = new System.Drawing.Point(1596, 6);
             this.btnSearch.Name = "btnSearch";
             this.btnSearch.Size = new System.Drawing.Size(72, 36);
             this.btnSearch.TabIndex = 101;
@@ -159,6 +171,120 @@
             this.btnSet.Text = "设常用";
             this.btnSet.UseVisualStyleBackColor = false;
             this.btnSet.Click += new System.EventHandler(this.btnSet_Click);
+            // 
+            // btnMonitor
+            // 
+            this.btnMonitor.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnMonitor.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnMonitor.FlatAppearance.BorderSize = 2;
+            this.btnMonitor.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnMonitor.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnMonitor.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnMonitor.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnMonitor.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnMonitor.Location = new System.Drawing.Point(410, 6);
+            this.btnMonitor.Margin = new System.Windows.Forms.Padding(2);
+            this.btnMonitor.Name = "btnMonitor";
+            this.btnMonitor.Size = new System.Drawing.Size(110, 36);
+            this.btnMonitor.TabIndex = 16;
+            this.btnMonitor.Text = "监控窗口";
+            this.btnMonitor.UseVisualStyleBackColor = false;
+            this.btnMonitor.Click += new System.EventHandler(this.btnMonitor_Click);
+            // 
+            // btnMonitorAdd
+            // 
+            this.btnMonitorAdd.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnMonitorAdd.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnMonitorAdd.FlatAppearance.BorderSize = 2;
+            this.btnMonitorAdd.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnMonitorAdd.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnMonitorAdd.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnMonitorAdd.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnMonitorAdd.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnMonitorAdd.Location = new System.Drawing.Point(522, 6);
+            this.btnMonitorAdd.Margin = new System.Windows.Forms.Padding(2);
+            this.btnMonitorAdd.Name = "btnMonitorAdd";
+            this.btnMonitorAdd.Size = new System.Drawing.Size(110, 36);
+            this.btnMonitorAdd.TabIndex = 17;
+            this.btnMonitorAdd.Text = "加入监控";
+            this.btnMonitorAdd.UseVisualStyleBackColor = false;
+            this.btnMonitorAdd.Click += new System.EventHandler(this.btnMonitorAdd_Click);
+            // 
+            // btnMonitorRemove
+            // 
+            this.btnMonitorRemove.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnMonitorRemove.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnMonitorRemove.FlatAppearance.BorderSize = 2;
+            this.btnMonitorRemove.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnMonitorRemove.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnMonitorRemove.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnMonitorRemove.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnMonitorRemove.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnMonitorRemove.Location = new System.Drawing.Point(634, 6);
+            this.btnMonitorRemove.Margin = new System.Windows.Forms.Padding(2);
+            this.btnMonitorRemove.Name = "btnMonitorRemove";
+            this.btnMonitorRemove.Size = new System.Drawing.Size(110, 36);
+            this.btnMonitorRemove.TabIndex = 18;
+            this.btnMonitorRemove.Text = "取消监控";
+            this.btnMonitorRemove.UseVisualStyleBackColor = false;
+            this.btnMonitorRemove.Click += new System.EventHandler(this.btnMonitorRemove_Click);
+            // 
+            // btnCopy
+            // 
+            this.btnCopy.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnCopy.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnCopy.FlatAppearance.BorderSize = 2;
+            this.btnCopy.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnCopy.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnCopy.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnCopy.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnCopy.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnCopy.Location = new System.Drawing.Point(746, 6);
+            this.btnCopy.Margin = new System.Windows.Forms.Padding(2);
+            this.btnCopy.Name = "btnCopy";
+            this.btnCopy.Size = new System.Drawing.Size(100, 36);
+            this.btnCopy.TabIndex = 19;
+            this.btnCopy.Text = "复制";
+            this.btnCopy.UseVisualStyleBackColor = false;
+            this.btnCopy.Click += new System.EventHandler(this.btnCopy_Click);
+            // 
+            // btnPaste
+            // 
+            this.btnPaste.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnPaste.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnPaste.FlatAppearance.BorderSize = 2;
+            this.btnPaste.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnPaste.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnPaste.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnPaste.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnPaste.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnPaste.Location = new System.Drawing.Point(850, 6);
+            this.btnPaste.Margin = new System.Windows.Forms.Padding(2);
+            this.btnPaste.Name = "btnPaste";
+            this.btnPaste.Size = new System.Drawing.Size(100, 36);
+            this.btnPaste.TabIndex = 20;
+            this.btnPaste.Text = "粘贴";
+            this.btnPaste.UseVisualStyleBackColor = false;
+            this.btnPaste.Click += new System.EventHandler(this.btnPaste_Click);
+            // 
+            // btnClearData
+            // 
+            this.btnClearData.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnClearData.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnClearData.FlatAppearance.BorderSize = 2;
+            this.btnClearData.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnClearData.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnClearData.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnClearData.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnClearData.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnClearData.Location = new System.Drawing.Point(954, 6);
+            this.btnClearData.Margin = new System.Windows.Forms.Padding(2);
+            this.btnClearData.Name = "btnClearData";
+            this.btnClearData.Size = new System.Drawing.Size(110, 36);
+            this.btnClearData.TabIndex = 21;
+            this.btnClearData.Text = "清除数据";
+            this.btnClearData.UseVisualStyleBackColor = false;
+            this.btnClearData.Click += new System.EventHandler(this.btnClearData_Click);
             // 
             // panelCommon
             // 
@@ -283,7 +409,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 14F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(1520, 860);
+            this.ClientSize = new System.Drawing.Size(1760, 860);
             this.Controls.Add(this.dgvValue);
             this.Controls.Add(this.panelCommon);
             this.Controls.Add(this.panel1);
@@ -304,6 +430,12 @@
         public System.Windows.Forms.Button btnPrevious;
         public System.Windows.Forms.Button BtnNext;
         public System.Windows.Forms.Button btnSet;
+        public System.Windows.Forms.Button btnMonitor;
+        public System.Windows.Forms.Button btnMonitorAdd;
+        public System.Windows.Forms.Button btnMonitorRemove;
+        public System.Windows.Forms.Button btnCopy;
+        public System.Windows.Forms.Button btnPaste;
+        public System.Windows.Forms.Button btnClearData;
         public System.Windows.Forms.Button btnSearch;
         public System.Windows.Forms.DataGridView dgvValue;
         private System.Windows.Forms.Panel panelCommon;

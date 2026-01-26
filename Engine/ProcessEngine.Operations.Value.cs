@@ -29,6 +29,7 @@ namespace Automation
         public bool RunGetValue(ProcHandle evt, GetValue getValue)
         {
             ValueConfigStore valueStore = Context?.ValueStore;
+            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
             foreach (var item in getValue.Params)
             {
                 if (!ValueRef.TryCreate(item.ValueSourceIndex, item.ValueSourceIndex2Index, item.ValueSourceName, item.ValueSourceName2Index, false, "源变量", out ValueRef sourceRef, out string sourceError))
@@ -49,7 +50,7 @@ namespace Automation
                 {
                     throw CreateAlarmException(evt, saveResolveError);
                 }
-                if (!valueStore.setValueByIndex(saveItem.Index, value))
+                if (!valueStore.setValueByIndex(saveItem.Index, value, source))
                 {
                     string saveName = string.IsNullOrWhiteSpace(saveItem.Name) ? $"索引{saveItem.Index}" : saveItem.Name;
                     throw CreateAlarmException(evt, $"保存变量失败:{saveName}");
@@ -61,6 +62,7 @@ namespace Automation
         public bool RunModifyValue(ProcHandle evt, ModifyValue ops)
         {
             ValueConfigStore valueStore = Context?.ValueStore;
+            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
             if (!ValueRef.TryCreate(ops.ValueSourceIndex, ops.ValueSourceIndex2Index, ops.ValueSourceName, ops.ValueSourceName2Index, false, "源变量", out ValueRef sourceRef, out string sourceError))
             {
                 throw CreateAlarmException(evt, sourceError);
@@ -205,7 +207,7 @@ namespace Automation
                     string actualSource = sourceIndex == outputIndex ? current : sourceValue;
                     string actualChange = changeIndex == outputIndex ? current : changeValue;
                     return CalculateOutput(actualSource, actualChange);
-                }, out string modifyError))
+                }, out string modifyError, source))
                 {
                     throw CreateAlarmException(evt, string.IsNullOrWhiteSpace(modifyError) ? "保存变量失败" : modifyError);
                 }
@@ -215,7 +217,7 @@ namespace Automation
             string output = CalculateOutput(sourceValue, changeValue);
             if (outputIndex >= 0)
             {
-                if (!valueStore.setValueByIndex(outputIndex, output))
+                if (!valueStore.setValueByIndex(outputIndex, output, source))
                 {
                     string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputIndex}" : outputItem.Name;
                     throw CreateAlarmException(evt, $"保存变量失败:{outputName}");

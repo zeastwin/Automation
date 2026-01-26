@@ -161,7 +161,8 @@ namespace Automation
                 {
                     msg = Convert.ToString(number, 16).ToUpper();
                 }
-                if (!Context.ValueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg))
+                string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+                if (!Context.ValueStore.setValueByName(receoveTcpMsg.MsgSaveValue, msg, source))
                 {
                     MarkAlarm(evt, $"保存TCP接收变量失败:{receoveTcpMsg.MsgSaveValue}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -228,7 +229,8 @@ namespace Automation
                 {
                     msg = Convert.ToString(number, 16).ToUpper();
                 }
-                if (!Context.ValueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg))
+                string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+                if (!Context.ValueStore.setValueByName(receoveSerialPortMsg.MsgSaveValue, msg, source))
                 {
                     MarkAlarm(evt, $"保存串口接收变量失败:{receoveSerialPortMsg.MsgSaveValue}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -301,7 +303,8 @@ namespace Automation
                     }
                     if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
                     {
-                        if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
+                        string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+                        if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg, source))
                         {
                             MarkAlarm(evt, $"保存TCP接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}");
                             throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -357,7 +360,8 @@ namespace Automation
                     }
                     if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
                     {
-                        if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg))
+                        string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+                        if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg, source))
                         {
                             MarkAlarm(evt, $"保存串口接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}");
                             throw CreateAlarmException(evt, evt?.alarmMsg);

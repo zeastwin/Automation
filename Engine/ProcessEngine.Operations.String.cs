@@ -29,6 +29,7 @@ namespace Automation
         public bool RunStringFormat(ProcHandle evt, StringFormat stringFormat)
         {
             ValueConfigStore valueStore = Context?.ValueStore;
+            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
             List<string> values = new List<string>();
             foreach (var item in stringFormat.Params)
             {
@@ -54,7 +55,7 @@ namespace Automation
                 {
                     throw CreateAlarmException(evt, outputResolveError);
                 }
-                if (!valueStore.setValueByIndex(outputItem.Index, formattedStr))
+                if (!valueStore.setValueByIndex(outputItem.Index, formattedStr, source))
                 {
                     string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputItem.Index}" : outputItem.Name;
                     throw CreateAlarmException(evt, $"格式化结果保存失败:{outputName}");
@@ -73,6 +74,7 @@ namespace Automation
         public bool RunSplit(ProcHandle evt, Split split)
         {
             ValueConfigStore valueStore = Context?.ValueStore;
+            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
             if (!ValueRef.TryCreate(split.SourceValueIndex, null, split.SourceValue, null, false, "源变量", out ValueRef sourceRef, out string sourceError))
             {
                 throw CreateAlarmException(evt, sourceError);
@@ -108,7 +110,7 @@ namespace Automation
             }
             for (int i = SaveIndex; i < SaveIndex + Count; i++)
             {
-                if (!valueStore.setValueByIndex(i, splitArray[Startindex + i - SaveIndex]))
+                if (!valueStore.setValueByIndex(i, splitArray[Startindex + i - SaveIndex], source))
                 {
                     MarkAlarm(evt, $"保存变量失败:索引{i}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -120,6 +122,7 @@ namespace Automation
         public bool RunReplace(ProcHandle evt, Replace replace)
         {
             ValueConfigStore valueStore = Context?.ValueStore;
+            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
             if (!ValueRef.TryCreate(replace.SourceValueIndex, null, replace.SourceValue, null, false, "源变量", out ValueRef sourceRef, out string sourceError))
             {
                 throw CreateAlarmException(evt, sourceError);
@@ -191,7 +194,7 @@ namespace Automation
             {
                 throw CreateAlarmException(evt, outputResolveError);
             }
-            if (!valueStore.setValueByIndex(outputItem.Index, str))
+            if (!valueStore.setValueByIndex(outputItem.Index, str, source))
             {
                 string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputItem.Index}" : outputItem.Name;
                 throw CreateAlarmException(evt, $"保存变量失败:{outputName}");

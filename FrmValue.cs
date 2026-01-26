@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Reflection;
 using System.Windows.Forms;
@@ -18,6 +19,145 @@ namespace Automation
                 return $"{Index:D3}  {text}";
             }
         }
+
+        private sealed class ValueClipboardItem
+        {
+            public string Name { get; set; }
+            public string Type { get; set; }
+            public string Value { get; set; }
+            public string Note { get; set; }
+        }
+
+        private sealed class ValueMonitorForm : Form
+        {
+            private readonly FrmValue owner;
+            private readonly Panel topPanel;
+            private readonly Button btnAdd;
+            private readonly Button btnRemove;
+            private readonly Label labelTitle;
+            private readonly DataGridView dgvMonitor;
+
+            public ValueMonitorForm(FrmValue owner)
+            {
+                this.owner = owner;
+                Font uiFont = new Font("黑体", 12F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
+                Text = "变量监控";
+                StartPosition = FormStartPosition.CenterScreen;
+                Size = new Size(780, 520);
+                MinimumSize = new Size(680, 400);
+
+                topPanel = new Panel
+                {
+                    Dock = DockStyle.Top,
+                    Height = 40,
+                    BackColor = SystemColors.ControlLight
+                };
+
+                labelTitle = new Label
+                {
+                    Dock = DockStyle.Left,
+                    Width = 180,
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Font = new Font("黑体", 12.5F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134))),
+                    Text = "变量监控(0)"
+                };
+
+                btnAdd = new Button
+                {
+                    Text = "添加当前",
+                    Font = uiFont,
+                    Size = new Size(96, 30),
+                    Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                    Location = new Point(300, 5)
+                };
+                btnAdd.Click += (s, e) => owner.AddMonitorFromSelection();
+
+                btnRemove = new Button
+                {
+                    Text = "移除选中",
+                    Font = uiFont,
+                    Size = new Size(96, 30),
+                    Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                    Location = new Point(400, 5)
+                };
+                btnRemove.Click += (s, e) => owner.RemoveMonitorFromMonitorSelection();
+
+                topPanel.Controls.Add(btnRemove);
+                topPanel.Controls.Add(btnAdd);
+                topPanel.Controls.Add(labelTitle);
+
+                dgvMonitor = new DataGridView
+                {
+                    Dock = DockStyle.Fill,
+                    AllowUserToAddRows = false,
+                    AllowUserToResizeRows = false,
+                    AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                    BackgroundColor = SystemColors.ControlLight,
+                    ColumnHeadersHeight = 32,
+                    ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
+                    ReadOnly = true,
+                    RowHeadersVisible = false,
+                    RowTemplate = { Height = 26 },
+                    SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                    Font = uiFont
+                };
+                dgvMonitor.ColumnHeadersDefaultCellStyle.Font = new Font("黑体", 12F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134)));
+                dgvMonitor.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+                dgvMonitor.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    Name = "monitorIndex",
+                    HeaderText = "编号",
+                    MinimumWidth = 60,
+                    FillWeight = 12
+                });
+                dgvMonitor.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    Name = "monitorName",
+                    HeaderText = "名称",
+                    MinimumWidth = 90,
+                    FillWeight = 18
+                });
+                dgvMonitor.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    Name = "monitorValue",
+                    HeaderText = "值",
+                    MinimumWidth = 80,
+                    FillWeight = 16
+                });
+                dgvMonitor.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    Name = "monitorSource",
+                    HeaderText = "来源",
+                    MinimumWidth = 120,
+                    FillWeight = 24
+                });
+                dgvMonitor.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    Name = "monitorTime",
+                    HeaderText = "时间",
+                    MinimumWidth = 140,
+                    FillWeight = 30
+                });
+
+                Controls.Add(dgvMonitor);
+                Controls.Add(topPanel);
+            }
+
+            public DataGridView Grid => dgvMonitor;
+            public Label TitleLabel => labelTitle;
+
+            protected override void OnFormClosing(FormClosingEventArgs e)
+            {
+                e.Cancel = true;
+                owner.StopAllMonitor();
+                Hide();
+            }
+        }
+
+        private readonly HashSet<int> monitorIndexSet = new HashSet<int>();
+        private ValueClipboardItem clipboardItem;
+        private bool isValueStoreHooked;
+        private ValueMonitorForm monitorForm;
 
         public FrmValue()
         {
@@ -44,11 +184,17 @@ namespace Automation
         {
             e.Cancel = true;
             this.Hide();
+            if (monitorForm != null && !monitorForm.IsDisposed)
+            {
+                StopAllMonitor();
+                monitorForm.Hide();
+            }
         }
         //从文件更新变量表
         public void RefreshDic()
         {
             SF.valueStore.Load(SF.ConfigPath);
+            EnsureValueStoreHooked();
 
             RefreshValue();
 
@@ -74,6 +220,8 @@ namespace Automation
                 }
             }
             RefreshCommonList();
+            RefreshMonitorTitle();
+            RefreshMonitorRows();
         }
         //刷新变量界面
         public void FreshFrmValue()
@@ -90,12 +238,14 @@ namespace Automation
                 }
             }
             RefreshCommonList();
+            RefreshMonitorTitle();
+            RefreshMonitorRows();
 
         }
         /*=============================================================================================*/
         private void FrmValue_Load(object sender, EventArgs e)
         {
-          
+            EnsureValueStoreHooked();
         }
 
         private void dgvValue_CellValueChanged(object sender, DataGridViewCellEventArgs e)
@@ -121,7 +271,205 @@ namespace Automation
             if (e.KeyCode == Keys.Enter)
             {
                 e.Handled = true; // 阻止默认行为 防止选择条向下切换
+                return;
+            }
+            if (dgvValue.IsCurrentCellInEditMode)
+            {
+                return;
+            }
+            if (e.Control && e.KeyCode == Keys.C)
+            {
+                CopySelectedValueRow();
+                e.Handled = true;
+                return;
+            }
+            if (e.Control && e.KeyCode == Keys.V)
+            {
+                PasteToSelectedValueRow();
+                e.Handled = true;
+                return;
+            }
+            if (e.KeyCode == Keys.Delete)
+            {
+                ClearSelectedValueRows();
+                e.Handled = true;
+                return;
+            }
+        }
 
+        private bool TryGetSingleSelectedRowIndex(out int rowIndex)
+        {
+            rowIndex = -1;
+            if (dgvValue.SelectedRows != null && dgvValue.SelectedRows.Count > 0)
+            {
+                if (dgvValue.SelectedRows.Count > 1)
+                {
+                    MessageBox.Show("一次只能操作一行");
+                    return false;
+                }
+                rowIndex = dgvValue.SelectedRows[0].Index;
+                return rowIndex >= 0;
+            }
+            if (dgvValue.CurrentCell == null)
+            {
+                MessageBox.Show("没有选定的变量");
+                return false;
+            }
+            rowIndex = dgvValue.CurrentCell.RowIndex;
+            return rowIndex >= 0;
+        }
+
+        private List<int> GetSelectedRowIndexes()
+        {
+            HashSet<int> indexes = new HashSet<int>();
+            if (dgvValue.SelectedRows != null && dgvValue.SelectedRows.Count > 0)
+            {
+                foreach (DataGridViewRow row in dgvValue.SelectedRows)
+                {
+                    if (row != null && row.Index >= 0)
+                    {
+                        indexes.Add(row.Index);
+                    }
+                }
+            }
+            else if (dgvValue.CurrentCell != null)
+            {
+                indexes.Add(dgvValue.CurrentCell.RowIndex);
+            }
+            return new List<int>(indexes);
+        }
+
+        private bool TryValidateClipboardData(string name, string type, string value, out string error)
+        {
+            error = null;
+            if (string.IsNullOrEmpty(name))
+            {
+                error = "名称为空";
+                return false;
+            }
+            if (type != "double" && type != "string")
+            {
+                error = "类型无效";
+                return false;
+            }
+            if (string.IsNullOrEmpty(value))
+            {
+                error = "值为空";
+                return false;
+            }
+            if (type == "double" && !double.TryParse(value, out _))
+            {
+                error = "值不是有效数字";
+                return false;
+            }
+            return true;
+        }
+
+        private void CopySelectedValueRow()
+        {
+            if (!TryGetSingleSelectedRowIndex(out int rowIndex))
+            {
+                return;
+            }
+            if (!SF.valueStore.TryGetValueByIndex(rowIndex, out DicValue value))
+            {
+                MessageBox.Show("当前行没有可复制的变量");
+                return;
+            }
+            if (!TryValidateClipboardData(value.Name, value.Type, value.Value, out string error))
+            {
+                MessageBox.Show($"复制失败:{error}");
+                return;
+            }
+            clipboardItem = new ValueClipboardItem
+            {
+                Name = value.Name,
+                Type = value.Type,
+                Value = value.Value,
+                Note = value.Note
+            };
+        }
+
+        private void PasteToSelectedValueRow()
+        {
+            if (clipboardItem == null)
+            {
+                MessageBox.Show("没有可粘贴的数据");
+                return;
+            }
+            if (!TryGetSingleSelectedRowIndex(out int rowIndex))
+            {
+                return;
+            }
+            DataGridViewRow row = dgvValue.Rows[rowIndex];
+            string nameToUse = BuildPasteName(clipboardItem.Name);
+            if (string.IsNullOrEmpty(nameToUse))
+            {
+                MessageBox.Show("粘贴名称无效");
+                return;
+            }
+            if (!TryValidateClipboardData(nameToUse, clipboardItem.Type, clipboardItem.Value, out string error))
+            {
+                MessageBox.Show($"粘贴失败:{error}");
+                return;
+            }
+            if (!SF.valueStore.TrySetValue(rowIndex, nameToUse, clipboardItem.Type, clipboardItem.Value, clipboardItem.Note, "变量表粘贴"))
+            {
+                MessageBox.Show("粘贴失败:名称已存在或数据无效");
+                return;
+            }
+            row.Cells[1].Value = nameToUse;
+            row.Cells[2].Value = clipboardItem.Type;
+            row.Cells[3].Value = clipboardItem.Value;
+            row.Cells[4].Value = clipboardItem.Note;
+        }
+
+        private string BuildPasteName(string baseName)
+        {
+            if (string.IsNullOrWhiteSpace(baseName))
+            {
+                return null;
+            }
+            string name = baseName.Trim();
+            int suffix = 1;
+            while (suffix < 100000)
+            {
+                string candidate = $"{name}{suffix}";
+                if (!SF.valueStore.TryGetValueByName(candidate, out _))
+                {
+                    return candidate;
+                }
+                suffix++;
+            }
+            return null;
+        }
+
+        private void ClearSelectedValueRows()
+        {
+            List<int> indexes = GetSelectedRowIndexes();
+            if (indexes.Count == 0)
+            {
+                MessageBox.Show("没有选定的变量");
+                return;
+            }
+            bool hasFailure = false;
+            foreach (int index in indexes)
+            {
+                if (!SF.valueStore.ClearValueByIndex(index, "变量表清除"))
+                {
+                    hasFailure = true;
+                    continue;
+                }
+                DataGridViewRow row = dgvValue.Rows[index];
+                row.Cells[1].Value = null;
+                row.Cells[2].Value = null;
+                row.Cells[3].Value = null;
+                row.Cells[4].Value = null;
+            }
+            RefreshCommonList();
+            if (hasFailure)
+            {
+                MessageBox.Show("清除数据失败");
             }
         }
 
@@ -198,7 +546,7 @@ namespace Automation
                                 return;
                             }
                         }
-                        if (!SF.valueStore.TrySetValue(num, key, type, value, note))
+                        if (!SF.valueStore.TrySetValue(num, key, type, value, note, "变量表编辑"))
                         {
                             dgvValue[1, e.RowIndex].Value = null;
                             dgvValue[2, e.RowIndex].Value = null;
@@ -315,6 +663,21 @@ namespace Automation
             RefreshCommonList();
         }
 
+        private void btnCopy_Click(object sender, EventArgs e)
+        {
+            CopySelectedValueRow();
+        }
+
+        private void btnPaste_Click(object sender, EventArgs e)
+        {
+            PasteToSelectedValueRow();
+        }
+
+        private void btnClearData_Click(object sender, EventArgs e)
+        {
+            ClearSelectedValueRows();
+        }
+
         private void dgvValue_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {
             dgvValue[e.ColumnIndex, e.RowIndex].Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
@@ -375,6 +738,205 @@ namespace Automation
             }
             labelCommon.Text = $"常用变量({count})";
             listCommon.EndUpdate();
+        }
+
+        private void EnsureValueStoreHooked()
+        {
+            if (isValueStoreHooked)
+            {
+                return;
+            }
+            if (SF.valueStore == null)
+            {
+                return;
+            }
+            SF.valueStore.ValueChanged += ValueStore_ValueChanged;
+            isValueStoreHooked = true;
+        }
+
+        private void EnsureMonitorForm()
+        {
+            if (monitorForm != null && !monitorForm.IsDisposed)
+            {
+                return;
+            }
+            monitorForm = new ValueMonitorForm(this);
+            monitorForm.Owner = this;
+        }
+
+        private void ValueStore_ValueChanged(object sender, ValueChangedEventArgs e)
+        {
+            if (IsHandleCreated && InvokeRequired)
+            {
+                BeginInvoke(new Action<object, ValueChangedEventArgs>(ValueStore_ValueChanged), sender, e);
+                return;
+            }
+            if (e == null)
+            {
+                return;
+            }
+            if (!monitorIndexSet.Contains(e.Index))
+            {
+                return;
+            }
+            if (monitorForm == null || monitorForm.IsDisposed)
+            {
+                return;
+            }
+            DataGridView grid = monitorForm.Grid;
+            int rowIndex = grid.Rows.Add();
+            DataGridViewRow row = grid.Rows[rowIndex];
+            row.Cells[0].Value = e.Index;
+            row.Cells[1].Value = e.Name;
+            row.Cells[2].Value = e.NewValue;
+            row.Cells[3].Value = e.Source;
+            row.Cells[4].Value = e.ChangedAt.ToString("yyyy-MM-dd HH:mm:ss");
+        }
+
+        private void RefreshMonitorTitle()
+        {
+            if (monitorForm == null || monitorForm.IsDisposed)
+            {
+                return;
+            }
+            monitorForm.TitleLabel.Text = $"变量监控({monitorIndexSet.Count})";
+        }
+
+        private void RefreshMonitorRows()
+        {
+            if (monitorForm == null || monitorForm.IsDisposed)
+            {
+                return;
+            }
+            // 监控改为记录历史，不刷新既有记录
+        }
+
+        private void AddMonitor(int index)
+        {
+            if (index < 0 || index >= ValueConfigStore.ValueCapacity)
+            {
+                return;
+            }
+            EnsureMonitorForm();
+            DataGridView grid = monitorForm.Grid;
+            if (monitorIndexSet.Contains(index))
+            {
+                return;
+            }
+            if (!SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+            {
+                return;
+            }
+            SF.valueStore.SetMonitorFlag(index, true);
+            monitorIndexSet.Add(index);
+            int rowIndex = grid.Rows.Add();
+            DataGridViewRow row = grid.Rows[rowIndex];
+            row.Cells[0].Value = index;
+            row.Cells[1].Value = value?.Name;
+            row.Cells[2].Value = value?.Value;
+            row.Cells[3].Value = value?.LastChangedBy;
+            row.Cells[4].Value = value != null && value.LastChangedAt != default
+                ? value.LastChangedAt.ToString("yyyy-MM-dd HH:mm:ss")
+                : string.Empty;
+            RefreshMonitorTitle();
+        }
+
+        private void RemoveMonitor(int index)
+        {
+            if (!monitorIndexSet.Contains(index))
+            {
+                return;
+            }
+            monitorIndexSet.Remove(index);
+            SF.valueStore.SetMonitorFlag(index, false);
+            RefreshMonitorTitle();
+        }
+
+        private void StopAllMonitor()
+        {
+            if (monitorIndexSet.Count == 0)
+            {
+                RefreshMonitorTitle();
+                SF.valueStore.SetMonitorEnabled(false);
+                return;
+            }
+            List<int> indexes = new List<int>(monitorIndexSet);
+            foreach (int index in indexes)
+            {
+                SF.valueStore.SetMonitorFlag(index, false);
+            }
+            monitorIndexSet.Clear();
+            if (monitorForm != null && !monitorForm.IsDisposed)
+            {
+                monitorForm.Grid.Rows.Clear();
+            }
+            RefreshMonitorTitle();
+            SF.valueStore.SetMonitorEnabled(false);
+        }
+
+        private void btnMonitor_Click(object sender, EventArgs e)
+        {
+            EnsureMonitorForm();
+            SF.valueStore.SetMonitorEnabled(true);
+            monitorForm.Show();
+            monitorForm.BringToFront();
+            RefreshMonitorTitle();
+            RefreshMonitorRows();
+        }
+
+        private void btnMonitorAdd_Click(object sender, EventArgs e)
+        {
+            AddMonitorFromSelection();
+            if (monitorForm != null && !monitorForm.IsDisposed)
+            {
+                SF.valueStore.SetMonitorEnabled(true);
+                monitorForm.Show();
+                monitorForm.BringToFront();
+            }
+        }
+
+        private void btnMonitorRemove_Click(object sender, EventArgs e)
+        {
+            if (dgvValue.CurrentCell == null)
+            {
+                MessageBox.Show("没有选定的变量");
+                return;
+            }
+            int rowIndex = dgvValue.CurrentCell.RowIndex;
+            RemoveMonitor(rowIndex);
+        }
+
+        private void AddMonitorFromSelection()
+        {
+            if (dgvValue.CurrentCell == null)
+            {
+                MessageBox.Show("没有选定的变量");
+                return;
+            }
+            int rowIndex = dgvValue.CurrentCell.RowIndex;
+            AddMonitor(rowIndex);
+        }
+
+        private void RemoveMonitorFromMonitorSelection()
+        {
+            if (monitorForm == null || monitorForm.IsDisposed)
+            {
+                MessageBox.Show("监控窗口未打开");
+                return;
+            }
+            DataGridView grid = monitorForm.Grid;
+            if (grid.CurrentRow == null)
+            {
+                MessageBox.Show("没有选定的监控项");
+                return;
+            }
+            object cellValue = grid.CurrentRow.Cells[0].Value;
+            if (cellValue == null || !int.TryParse(cellValue.ToString(), out int index))
+            {
+                MessageBox.Show("监控项编号无效");
+                return;
+            }
+            RemoveMonitor(index);
         }
 
         private void listCommon_SelectedIndexChanged(object sender, EventArgs e)

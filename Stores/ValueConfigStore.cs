@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -17,6 +18,11 @@ namespace Automation
         private readonly Dictionary<string, int> nameIndex = new Dictionary<string, int>();
         private readonly object[] valueLocks;
         private volatile Dictionary<string, int> nameIndexSnapshot = new Dictionary<string, int>();
+        private readonly object monitorLock = new object();
+        private readonly bool[] monitorFlags = new bool[ValueCapacity];
+        private volatile bool monitorEnabled;
+
+        public event EventHandler<ValueChangedEventArgs> ValueChanged;
 
         public ValueConfigStore()
         {
@@ -26,6 +32,35 @@ namespace Automation
                 valueLocks[i] = new object();
             }
             ResetValues();
+        }
+
+        public void SetMonitorFlag(int index, bool isMonitored)
+        {
+            if (index < 0 || index >= ValueCapacity)
+            {
+                return;
+            }
+            lock (monitorLock)
+            {
+                monitorFlags[index] = isMonitored;
+            }
+        }
+
+        public void SetMonitorEnabled(bool enabled)
+        {
+            monitorEnabled = enabled;
+        }
+
+        public bool IsMonitored(int index)
+        {
+            if (index < 0 || index >= ValueCapacity)
+            {
+                return false;
+            }
+            lock (monitorLock)
+            {
+                return monitorFlags[index];
+            }
         }
 
         public bool Load(string configPath)
@@ -217,7 +252,7 @@ namespace Automation
             return data;
         }
 
-        public bool TrySetValue(int index, string name, string type, string value, string note)
+        public bool TrySetValue(int index, string name, string type, string value, string note, string source = null)
         {
             if (index < 0 || index >= ValueCapacity || string.IsNullOrEmpty(name))
             {
@@ -231,6 +266,7 @@ namespace Automation
                 }
 
                 DicValue currentValue = values[index];
+                string oldRuntime = currentValue.Value;
                 if (!string.IsNullOrEmpty(currentValue.Name) && currentValue.Name != name)
                 {
                     nameIndex.Remove(currentValue.Name);
@@ -243,6 +279,44 @@ namespace Automation
                 currentValue.Value = value;
                 nameIndex[name] = index;
                 nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
+                if (!string.Equals(oldRuntime, value, StringComparison.Ordinal))
+                {
+                    RaiseValueChanged(currentValue, oldRuntime, value, source);
+                }
+                return true;
+            }
+        }
+
+        public bool ClearValueByIndex(int index, string source = null)
+        {
+            if (index < 0 || index >= ValueCapacity)
+            {
+                return false;
+            }
+            lock (valueLock)
+            {
+                DicValue currentValue = values[index];
+                if (currentValue == null)
+                {
+                    return false;
+                }
+                string oldName = currentValue.Name;
+                string oldRuntime = currentValue.Value;
+                if (!string.IsNullOrEmpty(oldName))
+                {
+                    nameIndex.Remove(oldName);
+                }
+                currentValue.Name = string.Empty;
+                currentValue.Type = "string";
+                currentValue.Note = string.Empty;
+                currentValue.ConfigValue = string.Empty;
+                currentValue.Value = string.Empty;
+                currentValue.isMark = false;
+                nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
+                if (!string.IsNullOrEmpty(oldRuntime))
+                {
+                    RaiseValueChanged(currentValue, oldRuntime, currentValue.Value, source);
+                }
                 return true;
             }
         }
@@ -338,7 +412,7 @@ namespace Automation
             return true;
         }
 
-        public bool TryModifyValueByIndex(int index, Func<string, string> updater, out string error)
+        public bool TryModifyValueByIndex(int index, Func<string, string> updater, out string error, string source = null)
         {
             error = null;
             if (index < 0 || index >= ValueCapacity)
@@ -371,16 +445,21 @@ namespace Automation
                     error = ex.Message;
                     return false;
                 }
+                if (string.Equals(current, updated, StringComparison.Ordinal))
+                {
+                    return true;
+                }
                 if (!TryValidateRuntimeValue(value, updated, out error))
                 {
                     return false;
                 }
                 value.Value = updated;
+                RaiseValueChanged(value, current, updated, source);
                 return true;
             }
         }
 
-        public bool setValueByName(string key, object newValue)
+        public bool setValueByName(string key, object newValue, string source = null)
         {
             if (string.IsNullOrEmpty(key) || newValue == null)
             {
@@ -391,10 +470,10 @@ namespace Automation
             {
                 return false;
             }
-            return setValueByIndex(index, newValue);
+            return setValueByIndex(index, newValue, source);
         }
 
-        public bool setValueByIndex(int index, object newValue)
+        public bool setValueByIndex(int index, object newValue, string source = null)
         {
             if (index < 0 || index >= ValueCapacity || newValue == null)
             {
@@ -409,13 +488,97 @@ namespace Automation
             object lockObj = valueLocks[index & (valueLocks.Length - 1)];
             lock (lockObj)
             {
+                string current = value.Value;
+                if (string.Equals(current, runtimeValue, StringComparison.Ordinal))
+                {
+                    return true;
+                }
                 if (!TryValidateRuntimeValue(value, runtimeValue, out _))
                 {
                     return false;
                 }
                 value.Value = runtimeValue;
+                RaiseValueChanged(value, current, runtimeValue, source);
                 return true;
             }
+        }
+
+        private void RaiseValueChanged(DicValue value, string oldValue, string newValue, string source)
+        {
+            if (value == null)
+            {
+                return;
+            }
+            if (!monitorEnabled || !IsMonitored(value.Index))
+            {
+                return;
+            }
+            string resolvedSource = ResolveSource(value.Index, source);
+            DateTime time = DateTime.Now;
+            value.LastChangedAt = time;
+            value.LastChangedBy = resolvedSource;
+            value.LastChangedOldValue = oldValue;
+            value.LastChangedNewValue = newValue;
+            EventHandler<ValueChangedEventArgs> handler = ValueChanged;
+            if (handler == null)
+            {
+                return;
+            }
+            try
+            {
+                handler.Invoke(this, new ValueChangedEventArgs
+                {
+                    Index = value.Index,
+                    Name = value.Name,
+                    OldValue = oldValue,
+                    NewValue = newValue,
+                    Source = resolvedSource,
+                    ChangedAt = time
+                });
+            }
+            catch
+            {
+                // 忽略事件异常，避免影响主流程
+            }
+        }
+
+        private string ResolveSource(int index, string source)
+        {
+            if (!monitorEnabled || !IsMonitored(index))
+            {
+                return string.Empty;
+            }
+            if (!string.IsNullOrWhiteSpace(source))
+            {
+                return source;
+            }
+            try
+            {
+                StackTrace trace = new StackTrace(2, false);
+                StackFrame[] frames = trace.GetFrames();
+                if (frames == null)
+                {
+                    return "代码接口";
+                }
+                foreach (StackFrame frame in frames)
+                {
+                    var method = frame.GetMethod();
+                    if (method == null)
+                    {
+                        continue;
+                    }
+                    var type = method.DeclaringType;
+                    if (type == null || type == typeof(ValueConfigStore))
+                    {
+                        continue;
+                    }
+                    return $"{type.Name}.{method.Name}";
+                }
+            }
+            catch
+            {
+            }
+            return "代码接口";
         }
     }
 
@@ -442,6 +605,18 @@ namespace Automation
 
         public string Note { get; set; }
         public bool isMark { get; set; }
+
+        [JsonIgnore]
+        public DateTime LastChangedAt { get; set; }
+
+        [JsonIgnore]
+        public string LastChangedBy { get; set; }
+
+        [JsonIgnore]
+        public string LastChangedOldValue { get; set; }
+
+        [JsonIgnore]
+        public string LastChangedNewValue { get; set; }
 
         public void ResetRuntimeFromConfig()
         {
@@ -484,5 +659,15 @@ namespace Automation
         {
             return string.IsNullOrEmpty(Name) ? $"索引{Index}" : Name;
         }
+    }
+
+    public sealed class ValueChangedEventArgs : EventArgs
+    {
+        public int Index { get; set; }
+        public string Name { get; set; }
+        public string OldValue { get; set; }
+        public string NewValue { get; set; }
+        public string Source { get; set; }
+        public DateTime ChangedAt { get; set; }
     }
 }
