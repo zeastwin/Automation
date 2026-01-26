@@ -32,6 +32,8 @@ namespace Automation
         public List<System.Windows.Forms.PictureBox> pictureBoxes = new List<System.Windows.Forms.PictureBox>();
         public List<System.Windows.Forms.Label> VelLabel = new List<System.Windows.Forms.Label>();
         public List<System.Windows.Forms.Label> StateLabel = new List<System.Windows.Forms.Label>();
+        private bool suppressStationChange = false;
+        private int lastStationIndex = -1;
         public FrmControl()
         {
             InitializeComponent();
@@ -72,6 +74,22 @@ namespace Automation
         public DataStation temp;
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
+            if (suppressStationChange)
+            {
+                return;
+            }
+            if (SF.frmStation != null && SF.frmStation.IsPointEditing)
+            {
+                if (comboBox1.SelectedIndex == lastStationIndex)
+                {
+                    return;
+                }
+                suppressStationChange = true;
+                comboBox1.SelectedIndex = lastStationIndex;
+                suppressStationChange = false;
+                MessageBox.Show("编辑状态下不允许切换工站，请先保存或取消。");
+                return;
+            }
             if (comboBox1.SelectedIndex != -1)
             {
                 temp = (DataStation)(comboBox1.SelectedItem);
@@ -156,6 +174,7 @@ namespace Automation
                 }
 
                 SF.frmStation.RefleshDgvState();
+                lastStationIndex = comboBox1.SelectedIndex;
 
             }
 

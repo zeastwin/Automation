@@ -26,6 +26,11 @@ namespace Automation
         private bool stateTimerErrorReported = false;
         private string axisConfigSignature = string.Empty;
         private int[] axisRowMap = Array.Empty<int>();
+        private bool isPointEditing = false;
+        private List<DataPos> pointSnapshot = new List<DataPos>();
+        private DataStation pointEditStation;
+        private int pointEditStationIndex = -1;
+        public bool IsPointEditing => isPointEditing;
         //public int SelectCard = 0;
         public FrmStation()
         {
@@ -38,7 +43,7 @@ namespace Automation
             dataGridView1.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
             dataGridView1.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            dataGridView1.ReadOnly = false;
+            dataGridView1.ReadOnly = true;
 
             Type dgvType2 = this.dataGridView2.GetType();
             PropertyInfo pi2 = dgvType2.GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -51,6 +56,8 @@ namespace Automation
             FormClosing += FrmStation_FormClosing;
             VisibleChanged += FrmStation_VisibleChanged;
             ParentChanged += FrmStation_ParentChanged;
+
+            SetPointEditMode(false);
         }
 
         private void FrmStation_Load(object sender, EventArgs e)
@@ -379,11 +386,192 @@ namespace Automation
 
         }
 
+        private void SetPointEditMode(bool enable)
+        {
+            isPointEditing = enable;
+            if (dataGridView1 != null)
+            {
+                dataGridView1.ReadOnly = !enable;
+            }
+            if (index != null)
+            {
+                index.ReadOnly = true;
+            }
+            if (btnPointEdit != null)
+            {
+                btnPointEdit.Enabled = !enable;
+            }
+            if (btnPointSave != null)
+            {
+                btnPointSave.Enabled = enable;
+            }
+            if (btnPointCancel != null)
+            {
+                btnPointCancel.Enabled = enable;
+            }
+            if (Touch != null)
+            {
+                Touch.Enabled = enable;
+            }
+            if (ClearData != null)
+            {
+                ClearData.Enabled = enable;
+            }
+            if (Paste != null)
+            {
+                Paste.Enabled = enable;
+            }
+        }
+
+        private List<DataPos> CloneDataPosList(List<DataPos> source)
+        {
+            if (source == null)
+            {
+                return new List<DataPos>();
+            }
+            List<DataPos> clone = new List<DataPos>(source.Count);
+            for (int i = 0; i < source.Count; i++)
+            {
+                DataPos item = source[i];
+                clone.Add(item == null ? null : (DataPos)item.Clone());
+            }
+            return clone;
+        }
+
+        private Dictionary<string, DataPos> BuildDataPosDictionary(List<DataPos> source)
+        {
+            Dictionary<string, DataPos> dict = new Dictionary<string, DataPos>();
+            if (source == null)
+            {
+                return dict;
+            }
+            foreach (DataPos pos in source)
+            {
+                if (pos == null || string.IsNullOrWhiteSpace(pos.Name))
+                {
+                    continue;
+                }
+                dict[pos.Name] = pos;
+            }
+            return dict;
+        }
+
+        private void ResetPointBinding(List<DataPos> list)
+        {
+            if (SF.frmControl?.bindingSource != null)
+            {
+                SF.frmControl.bindingSource.DataSource = list;
+                SF.frmControl.bindingSource.ResetBindings(false);
+                dataGridView1.DataSource = SF.frmControl.bindingSource;
+                return;
+            }
+            dataGridView1.DataSource = null;
+            dataGridView1.DataSource = list;
+        }
+
+        private void CapturePointSnapshot()
+        {
+            if (SF.frmControl?.temp == null)
+            {
+                pointSnapshot.Clear();
+                pointEditStation = null;
+                pointEditStationIndex = -1;
+                return;
+            }
+            pointSnapshot = CloneDataPosList(SF.frmControl.temp.ListDataPos);
+            pointEditStation = SF.frmControl.temp;
+            pointEditStationIndex = SF.frmControl.comboBox1.SelectedIndex;
+        }
+
+        private void RestorePointSnapshot()
+        {
+            if (pointEditStation == null)
+            {
+                return;
+            }
+            pointEditStation.ListDataPos = CloneDataPosList(pointSnapshot);
+            pointEditStation.dicDataPos = BuildDataPosDictionary(pointEditStation.ListDataPos);
+            if (SF.frmControl?.temp == pointEditStation || SF.frmControl?.comboBox1?.SelectedIndex == pointEditStationIndex)
+            {
+                ResetPointBinding(pointEditStation.ListDataPos);
+            }
+        }
+
+        private void RebuildPointDictionary(DataStation station)
+        {
+            if (station == null)
+            {
+                return;
+            }
+            station.dicDataPos = BuildDataPosDictionary(station.ListDataPos);
+        }
+
+        private void ClearPointSnapshot()
+        {
+            pointSnapshot.Clear();
+            pointEditStation = null;
+            pointEditStationIndex = -1;
+        }
+
+        private void btnPointEdit_Click(object sender, EventArgs e)
+        {
+            if (isPointEditing)
+            {
+                return;
+            }
+            if (SF.frmControl?.temp == null)
+            {
+                MessageBox.Show("未选择工站，无法编辑。");
+                return;
+            }
+            CapturePointSnapshot();
+            SetPointEditMode(true);
+        }
+
+        private void btnPointSave_Click(object sender, EventArgs e)
+        {
+            if (!isPointEditing)
+            {
+                return;
+            }
+            dataGridView1.EndEdit();
+            SF.frmControl?.bindingSource?.EndEdit();
+            DataStation station = pointEditStation ?? SF.frmControl?.temp;
+            if (station == null)
+            {
+                MessageBox.Show("未选择工站，无法保存。");
+                SetPointEditMode(false);
+                ClearPointSnapshot();
+                return;
+            }
+            RebuildPointDictionary(station);
+            SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
+            SetPointEditMode(false);
+            ClearPointSnapshot();
+        }
+
+        private void btnPointCancel_Click(object sender, EventArgs e)
+        {
+            if (!isPointEditing)
+            {
+                return;
+            }
+            dataGridView1.CancelEdit();
+            SF.frmControl?.bindingSource?.CancelEdit();
+            RestorePointSnapshot();
+            SetPointEditMode(false);
+            ClearPointSnapshot();
+        }
+
 
         private void dataGridView1_CellEndEdit(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
             {
+                if (!isPointEditing)
+                {
+                    return;
+                }
                 DataGridView dataGridView = (DataGridView)sender;
                 if (SF.frmControl.temp == null)
                 {
@@ -428,12 +616,16 @@ namespace Automation
                 {
                     SF.frmControl.temp.ListDataPos[dataPos.Index] = dataPos;
                 }
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
             }
         }
 
         private void Touch_Click(object sender, EventArgs e)
         {
+            if (!isPointEditing)
+            {
+                MessageBox.Show("请先点击编辑。");
+                return;
+            }
             if (SF.frmControl.temp == null)
             {
                 return;
@@ -465,7 +657,6 @@ namespace Automation
                 }
                 dataGridView1.Rows[iSelectedRow].Cells[2 + i].Value = SF.motion.GetAxisPos(cardNum, (ushort)axisNum).ToString();
             }
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
             if (hasInvalid)
             {
                 MessageBox.Show("存在无效轴配置，已跳过部分轴取点。");
@@ -525,6 +716,11 @@ namespace Automation
 
         private void ClearData_Click(object sender, EventArgs e)
         {
+            if (!isPointEditing)
+            {
+                MessageBox.Show("请先点击编辑。");
+                return;
+            }
             if (iSelectedRow < 0 || iSelectedRow >= dataGridView1.Rows.Count)
             {
                 return;
@@ -555,8 +751,6 @@ namespace Automation
             {
                 rowToClear.Cells[i].Value = null;
             }
-
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
         }
 
         private void Copy_Click(object sender, EventArgs e)
@@ -602,6 +796,11 @@ namespace Automation
         }
         public void Pastes()
         {
+            if (!isPointEditing)
+            {
+                MessageBox.Show("请先点击编辑。");
+                return;
+            }
             if (SF.frmControl.temp == null)
             {
                 return;
@@ -669,8 +868,6 @@ namespace Automation
                 SF.frmControl.temp.dicDataPos[deepCopy[i].Name] = deepCopy[i];
                 SF.frmControl.temp.ListDataPos[targetIndex] = deepCopy[i];
             }
-
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
             int rowCountAfterPaste = iSelectedRow + deepCopy.Count;
             for (int i = iSelectedRow; i < rowCountAfterPaste && i < dataGridView1.Rows.Count; i++)
             {
