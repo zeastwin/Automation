@@ -2343,6 +2343,182 @@ namespace Automation
     }
 
     [Serializable]
+    public class GetStationPos : OperationType
+    {
+        public GetStationPos()
+        {
+            OperaType = "获取工站位置";
+            SourceType = "当前位置";
+            SaveType = "保存到点位";
+            evtRP += RefleshProperty;
+            RefleshProperty();
+        }
+
+        [DisplayName("工站名称"), Category("A获取参数"), Description(""), ReadOnly(false), TypeConverter(typeof(StationtItem))]
+        public string StationName { get; set; }
+
+        private string sourceType;
+        [DisplayName("获取方式"), Category("A获取参数"), Description(""), ReadOnly(false), TypeConverter(typeof(StationPosSourceType))]
+        public string SourceType
+        {
+            get => sourceType;
+            set
+            {
+                if (sourceType != value)
+                {
+                    sourceType = value;
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    {
+                        RefleshProperty();
+                    }
+                }
+            }
+        }
+
+        [DisplayName("指定点位"), Category("A获取参数"), Description(""), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string SourcePosName { get; set; }
+
+        private string saveType;
+        [DisplayName("保存方式"), Category("B保存参数"), Description(""), ReadOnly(false), TypeConverter(typeof(StationPosSaveType))]
+        public string SaveType
+        {
+            get => saveType;
+            set
+            {
+                if (saveType != value)
+                {
+                    saveType = value;
+                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    {
+                        RefleshProperty();
+                    }
+                }
+            }
+        }
+
+        [DisplayName("保存到点位"), Category("B保存参数"), Description(""), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string TargetPosName { get; set; }
+
+        [DisplayName("X变量索引"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputXIndex { get; set; }
+        [DisplayName("X变量索引二级"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputXIndex2Index { get; set; }
+        [DisplayName("X变量名称"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputXName { get; set; }
+        [DisplayName("X变量名称二级"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputXName2Index { get; set; }
+
+        [DisplayName("Y变量索引"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputYIndex { get; set; }
+        [DisplayName("Y变量索引二级"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputYIndex2Index { get; set; }
+        [DisplayName("Y变量名称"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputYName { get; set; }
+        [DisplayName("Y变量名称二级"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputYName2Index { get; set; }
+
+        [DisplayName("Z变量索引"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputZIndex { get; set; }
+        [DisplayName("Z变量索引二级"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputZIndex2Index { get; set; }
+        [DisplayName("Z变量名称"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputZName { get; set; }
+        [DisplayName("Z变量名称二级"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputZName2Index { get; set; }
+
+        [DisplayName("U变量索引"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputUIndex { get; set; }
+        [DisplayName("U变量索引二级"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputUIndex2Index { get; set; }
+        [DisplayName("U变量名称"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputUName { get; set; }
+        [DisplayName("U变量名称二级"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputUName2Index { get; set; }
+
+        [DisplayName("V变量索引"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputVIndex { get; set; }
+        [DisplayName("V变量索引二级"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputVIndex2Index { get; set; }
+        [DisplayName("V变量名称"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputVName { get; set; }
+        [DisplayName("V变量名称二级"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputVName2Index { get; set; }
+
+        [DisplayName("W变量索引"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputWIndex { get; set; }
+        [DisplayName("W变量索引二级"), Category("C保存到变量"), Description(""), ReadOnly(false)]
+        [Browsable(false)]
+        public string OutputWIndex2Index { get; set; }
+        [DisplayName("W变量名称"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputWName { get; set; }
+        [DisplayName("W变量名称二级"), Category("C保存到变量"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [Browsable(false)]
+        public string OutputWName2Index { get; set; }
+
+        public void RefleshProperty()
+        {
+            bool useSourcePos = sourceType == "指定点位";
+            SetPropertyAttribute(this, "SourcePosName", typeof(BrowsableAttribute), "browsable", useSourcePos);
+
+            bool saveToPoint = saveType == "保存到点位";
+            SetPropertyAttribute(this, "TargetPosName", typeof(BrowsableAttribute), "browsable", saveToPoint);
+
+            bool saveToValue = saveType == "保存到变量";
+            SetPropertyAttribute(this, "OutputXIndex", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputXIndex2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputXName", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputXName2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+
+            SetPropertyAttribute(this, "OutputYIndex", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputYIndex2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputYName", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputYName2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+
+            SetPropertyAttribute(this, "OutputZIndex", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputZIndex2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputZName", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputZName2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+
+            SetPropertyAttribute(this, "OutputUIndex", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputUIndex2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputUName", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputUName2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+
+            SetPropertyAttribute(this, "OutputVIndex", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputVIndex2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputVName", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputVName2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+
+            SetPropertyAttribute(this, "OutputWIndex", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputWIndex2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputWName", typeof(BrowsableAttribute), "browsable", saveToValue);
+            SetPropertyAttribute(this, "OutputWName2Index", typeof(BrowsableAttribute), "browsable", saveToValue);
+        }
+    }
+
+    [Serializable]
     public class StationRunRel : OperationType
     {
         public StationRunRel()

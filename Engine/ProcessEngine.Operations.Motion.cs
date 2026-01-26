@@ -864,6 +864,216 @@ namespace Automation
             return true;
         }
 
+        public bool RunGetStationPos(ProcHandle evt, GetStationPos getStationPos)
+        {
+            if (Context?.Stations == null)
+            {
+                throw CreateAlarmException(evt, "工站列表为空");
+            }
+            if (getStationPos == null)
+            {
+                throw CreateAlarmException(evt, "获取工站位置参数为空");
+            }
+            if (string.IsNullOrWhiteSpace(getStationPos.StationName))
+            {
+                throw CreateAlarmException(evt, "工站名称为空");
+            }
+            if (string.IsNullOrWhiteSpace(getStationPos.SourceType))
+            {
+                throw CreateAlarmException(evt, "获取方式为空");
+            }
+            if (string.IsNullOrWhiteSpace(getStationPos.SaveType))
+            {
+                throw CreateAlarmException(evt, "保存方式为空");
+            }
+
+            DataStation station = Context.Stations.FirstOrDefault(sc => sc.Name == getStationPos.StationName);
+            if (station == null)
+            {
+                throw CreateAlarmException(evt, $"找不到工站:{getStationPos.StationName}");
+            }
+
+            double[] values = new double[6];
+            bool[] available = new bool[6];
+            if (getStationPos.SourceType == "当前位置")
+            {
+                if (Context.Motion == null || Context.CardStore == null)
+                {
+                    throw CreateAlarmException(evt, "运动控制未初始化");
+                }
+                if (station.dataAxis == null || station.dataAxis.axisConfigs == null || station.dataAxis.axisConfigs.Count < 6)
+                {
+                    throw CreateAlarmException(evt, $"工站轴配置无效:{getStationPos.StationName}");
+                }
+                for (int i = 0; i < 6; i++)
+                {
+                    AxisConfig axisConfig = station.dataAxis.axisConfigs[i];
+                    if (axisConfig == null)
+                    {
+                        throw CreateAlarmException(evt, $"工站轴配置为空:{getStationPos.StationName}");
+                    }
+                    if (axisConfig.AxisName == "-1")
+                    {
+                        available[i] = false;
+                        continue;
+                    }
+                    if (!ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
+                    {
+                        throw CreateAlarmException(evt, $"工站：{getStationPos.StationName} 轴卡号无效:{axisConfig.CardNum}");
+                    }
+                    Axis axisInfo = axisConfig.axis;
+                    if (axisInfo == null)
+                    {
+                        if (!Context.CardStore.TryGetAxisByName(cardNum, axisConfig.AxisName, out axisInfo))
+                        {
+                            throw CreateAlarmException(evt, $"工站：{getStationPos.StationName} 轴配置不存在:{axisConfig.AxisName}");
+                        }
+                    }
+                    int axisNum = axisInfo.AxisNum;
+                    if (axisNum < 0)
+                    {
+                        throw CreateAlarmException(evt, $"工站：{getStationPos.StationName} 轴索引无效:{axisConfig.AxisName}");
+                    }
+                    double axisPos;
+                    try
+                    {
+                        axisPos = Context.Motion.GetAxisPos(cardNum, (ushort)axisNum);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw CreateAlarmException(evt, $"读取当前位置失败:{axisConfig.AxisName}", ex);
+                    }
+                    values[i] = axisPos;
+                    available[i] = true;
+                }
+            }
+            else if (getStationPos.SourceType == "指定点位")
+            {
+                if (string.IsNullOrWhiteSpace(getStationPos.SourcePosName))
+                {
+                    throw CreateAlarmException(evt, "指定点位为空");
+                }
+                if (station.ListDataPos == null || station.ListDataPos.Count == 0)
+                {
+                    throw CreateAlarmException(evt, $"工站点位列表为空:{getStationPos.StationName}");
+                }
+                DataPos sourcePos = station.ListDataPos.FirstOrDefault(sc => sc != null && sc.Name == getStationPos.SourcePosName);
+                if (sourcePos == null)
+                {
+                    throw CreateAlarmException(evt, $"指定点位不存在:{getStationPos.SourcePosName}");
+                }
+                List<double> sourceValues = sourcePos.GetAllValues();
+                if (sourceValues == null || sourceValues.Count < 6)
+                {
+                    throw CreateAlarmException(evt, $"指定点位数据无效:{getStationPos.SourcePosName}");
+                }
+                for (int i = 0; i < 6; i++)
+                {
+                    values[i] = sourceValues[i];
+                    available[i] = true;
+                }
+            }
+            else
+            {
+                throw CreateAlarmException(evt, $"获取方式无效:{getStationPos.SourceType}");
+            }
+
+            if (getStationPos.SaveType == "保存到点位")
+            {
+                if (string.IsNullOrWhiteSpace(getStationPos.TargetPosName))
+                {
+                    throw CreateAlarmException(evt, "保存点位为空");
+                }
+                if (station.ListDataPos == null || station.ListDataPos.Count == 0)
+                {
+                    throw CreateAlarmException(evt, $"工站点位列表为空:{getStationPos.StationName}");
+                }
+                DataPos targetPos = station.ListDataPos.FirstOrDefault(sc => sc != null && sc.Name == getStationPos.TargetPosName);
+                if (targetPos == null)
+                {
+                    throw CreateAlarmException(evt, $"保存点位不存在:{getStationPos.TargetPosName}");
+                }
+                if (getStationPos.SourceType == "当前位置")
+                {
+                    if (available[0]) targetPos.X = values[0];
+                    if (available[1]) targetPos.Y = values[1];
+                    if (available[2]) targetPos.Z = values[2];
+                    if (available[3]) targetPos.U = values[3];
+                    if (available[4]) targetPos.V = values[4];
+                    if (available[5]) targetPos.W = values[5];
+                }
+                else
+                {
+                    targetPos.X = values[0];
+                    targetPos.Y = values[1];
+                    targetPos.Z = values[2];
+                    targetPos.U = values[3];
+                    targetPos.V = values[4];
+                    targetPos.W = values[5];
+                }
+                if (targetPos.Index >= 0 && targetPos.Index < station.ListDataPos.Count)
+                {
+                    station.ListDataPos[targetPos.Index] = targetPos;
+                }
+                if (station.dicDataPos != null && !string.IsNullOrWhiteSpace(targetPos.Name))
+                {
+                    station.dicDataPos[targetPos.Name] = targetPos;
+                }
+                return true;
+            }
+
+            if (getStationPos.SaveType == "保存到变量")
+            {
+                ValueConfigStore valueStore = Context.ValueStore;
+                if (valueStore == null)
+                {
+                    throw CreateAlarmException(evt, "变量库未初始化");
+                }
+                string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+
+                bool SaveAxisValue(string label, bool hasValue, double axisValue, string index, string index2Index, string name, string name2Index)
+                {
+                    if (!ValueRef.TryCreate(index, index2Index, name, name2Index, true, label, out ValueRef valueRef, out string refError))
+                    {
+                        throw CreateAlarmException(evt, refError);
+                    }
+                    if (valueRef.IsEmpty)
+                    {
+                        return false;
+                    }
+                    if (!hasValue)
+                    {
+                        throw CreateAlarmException(evt, $"{label}无法获取当前位置");
+                    }
+                    if (!valueRef.TryResolveValue(valueStore, label, out DicValue valueItem, out string resolveError))
+                    {
+                        throw CreateAlarmException(evt, resolveError);
+                    }
+                    if (!valueStore.setValueByIndex(valueItem.Index, axisValue.ToString(), source))
+                    {
+                        string valueName = string.IsNullOrWhiteSpace(valueItem.Name) ? $"索引{valueItem.Index}" : valueItem.Name;
+                        throw CreateAlarmException(evt, $"保存变量失败:{valueName}");
+                    }
+                    return true;
+                }
+
+                bool savedAny = false;
+                savedAny |= SaveAxisValue("X变量", available[0], values[0], getStationPos.OutputXIndex, getStationPos.OutputXIndex2Index, getStationPos.OutputXName, getStationPos.OutputXName2Index);
+                savedAny |= SaveAxisValue("Y变量", available[1], values[1], getStationPos.OutputYIndex, getStationPos.OutputYIndex2Index, getStationPos.OutputYName, getStationPos.OutputYName2Index);
+                savedAny |= SaveAxisValue("Z变量", available[2], values[2], getStationPos.OutputZIndex, getStationPos.OutputZIndex2Index, getStationPos.OutputZName, getStationPos.OutputZName2Index);
+                savedAny |= SaveAxisValue("U变量", available[3], values[3], getStationPos.OutputUIndex, getStationPos.OutputUIndex2Index, getStationPos.OutputUName, getStationPos.OutputUName2Index);
+                savedAny |= SaveAxisValue("V变量", available[4], values[4], getStationPos.OutputVIndex, getStationPos.OutputVIndex2Index, getStationPos.OutputVName, getStationPos.OutputVName2Index);
+                savedAny |= SaveAxisValue("W变量", available[5], values[5], getStationPos.OutputWIndex, getStationPos.OutputWIndex2Index, getStationPos.OutputWName, getStationPos.OutputWName2Index);
+                if (!savedAny)
+                {
+                    throw CreateAlarmException(evt, "保存变量未配置");
+                }
+                return true;
+            }
+
+            throw CreateAlarmException(evt, $"保存方式无效:{getStationPos.SaveType}");
+        }
+
         public bool RunStationRunRel(ProcHandle evt, StationRunRel stationRunRel)
         {
 

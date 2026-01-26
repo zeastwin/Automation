@@ -838,6 +838,10 @@ namespace Automation
                 {
                     stationName = modifyStationPos.StationName;
                 }
+                else if (SF.frmDataGrid?.OperationTemp is GetStationPos getStationPos)
+                {
+                    stationName = getStationPos.StationName;
+                }
                 if (string.IsNullOrEmpty(stationName))
                 {
                     return posItems;
@@ -875,6 +879,40 @@ namespace Automation
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
                 return new StandardValuesCollection(Item());
+            }
+        }
+
+        public class StationPosSourceType : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(new List<string>() { "当前位置", "指定点位" });
+            }
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+        }
+
+        public class StationPosSaveType : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(new List<string>() { "保存到点位", "保存到变量" });
+            }
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
             }
         }
 
