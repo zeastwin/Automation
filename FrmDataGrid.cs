@@ -11,6 +11,7 @@ using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Drawing.Drawing2D;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
@@ -451,7 +452,7 @@ namespace Automation
             }
         }
 
-        private void Delete_Click(object sender, EventArgs e)
+        private async void Delete_Click(object sender, EventArgs e)
         {
             if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
             {
@@ -468,6 +469,47 @@ namespace Automation
                 selectedRowIndexes4Del.Add(selectedRow.Index);
             }
             selectedRowIndexes4Del.Sort();
+            if (selectedRowIndexes4Del.Count == 0)
+            {
+                return;
+            }
+
+            int procIndex = SF.frmProc.SelectedProcNum;
+            int stepIndex = SF.frmProc.SelectedStepNum;
+            Proc proc = SF.frmProc.procsList[procIndex];
+            Step step = proc.steps[stepIndex];
+            string procName = string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"索引{procIndex}" : proc.head.Name;
+            string stepName = string.IsNullOrWhiteSpace(step?.Name) ? $"索引{stepIndex}" : step.Name;
+            string warnMsg;
+            if (selectedRowIndexes4Del.Count == 1)
+            {
+                int opIndex = selectedRowIndexes4Del[0];
+                OperationType op = step?.Ops != null && opIndex >= 0 && opIndex < step.Ops.Count ? step.Ops[opIndex] : null;
+                string opType = op?.OperaType ?? "未知类型";
+                string opName = string.IsNullOrWhiteSpace(op?.Name) ? "未命名" : op.Name;
+                string opText = $"{opIndex}({opType}) {opName}";
+                warnMsg = $"警告：即将删除指令【{opText}】\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n此操作不可恢复，确认删除？";
+            }
+            else
+            {
+                warnMsg = $"警告：即将删除{selectedRowIndexes4Del.Count}条指令\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n此操作不可恢复，确认删除？";
+            }
+            var tcs = new TaskCompletionSource<bool>();
+            Message confirmForm = new Message(
+                "删除指令确认",
+                warnMsg,
+                () => tcs.TrySetResult(true),
+                () => tcs.TrySetResult(false),
+                "删除",
+                "取消",
+                false);
+            confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
+            confirmForm.txtMsg.ForeColor = Color.Red;
+            bool confirmed = await tcs.Task;
+            if (!confirmed)
+            {
+                return;
+            }
 
             for (int i = selectedRowIndexes4Del.Count - 1; i >= 0; i--)
             {

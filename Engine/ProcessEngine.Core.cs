@@ -1372,10 +1372,15 @@ namespace Automation
             {
                 return;
             }
+            bool resumeFromSingleStep = handle.State == ProcRunState.SingleStep;
             handle.State = ProcRunState.Running;
             handle.isBreakpoint = false;
             handle.PauseBySignal = false;
             control.SetRunning();
+            if (resumeFromSingleStep)
+            {
+                control.RequestStep();
+            }
             engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
                 handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
         }
