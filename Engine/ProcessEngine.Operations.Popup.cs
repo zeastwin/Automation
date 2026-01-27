@@ -55,6 +55,11 @@ namespace Automation
                 {
                     throw new InvalidOperationException("报警提示日志路径无效");
                 }
+                if (File.Exists(WarmDisplayLogDirectory) && !Directory.Exists(WarmDisplayLogDirectory))
+                {
+                    string backupName = $"{WarmDisplayLogDirectory}_{DateTime.Now:yyyyMMddHHmmssfff}.bak";
+                    File.Move(WarmDisplayLogDirectory, backupName);
+                }
                 Directory.CreateDirectory(WarmDisplayLogDirectory);
                 string filePath = BuildWarmDisplayLogFilePath(alarmStartTime);
                 bool needHeader = !File.Exists(filePath) || new FileInfo(filePath).Length == 0;

@@ -458,7 +458,6 @@ namespace Automation
                 {
                     MarkAlarm(evt, error);
                     HandleAlarm(null, evt);
-                    control.RequestStop();
                     return false;
                 }
                 if (!pauseActive)
@@ -719,6 +718,11 @@ namespace Automation
                     i = evt.stepNum - 1;
                     continue;
                 }
+                if (evt.State == ProcRunState.Alarming)
+                {
+                    i = evt.stepNum - 1;
+                    continue;
+                }
                 if (i != proc.steps.Count - 1)
                     evt.opsNum = 0;
             }
@@ -761,9 +765,12 @@ namespace Automation
             }
             for (int i = evt.opsNum; i < steps.Ops.Count; i++)
             {
-                evt.isAlarm = false;
                 evt.isGoto = false;
-                evt.alarmMsg = null;
+                if (evt.State != ProcRunState.Alarming)
+                {
+                    evt.isAlarm = false;
+                    evt.alarmMsg = null;
+                }
                 if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                     return false;
                 evt.opsNum = i;
@@ -819,6 +826,10 @@ namespace Automation
                     {
                         return true;
                     }
+                    if (evt.State == ProcRunState.Alarming)
+                    {
+                        return false;
+                    }
                     if (evt.singleOpOnce && evt.stepNum == evt.singleOpStep && evt.opsNum == evt.singleOpOp)
                     {
                         control.RequestStop();
@@ -830,7 +841,6 @@ namespace Automation
                     MarkAlarm(evt, ex.Message);
                     Logger?.Log(ex.Message, LogLevel.Error);
                     HandleAlarm(steps.Ops[i], evt);
-                    control.RequestStop();
                     return false;
                 }
             }
@@ -844,23 +854,15 @@ namespace Automation
 
         private void HandleAlarm(OperationType operation, ProcHandle evt)
         {
-            ProcRunState lastState = evt.State;
-            bool lastBreakpoint = evt.isBreakpoint;
             evt.State = ProcRunState.Alarming;
             evt.isBreakpoint = false;
+            evt.Control?.SetPaused();
             UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
 
             Logger?.Log($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum} {evt.alarmMsg}", LogLevel.Error);
 
             AlarmDecision decision = ResolveAlarmDecision(operation, evt);
             ApplyAlarmDecision(operation, evt, decision);
-
-            if (evt.State == ProcRunState.Alarming)
-            {
-                evt.State = evt.CancellationToken.IsCancellationRequested ? ProcRunState.Stopped : lastState;
-                evt.isBreakpoint = evt.State == ProcRunState.Paused ? lastBreakpoint : false;
-                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
-            }
         }
 
         private AlarmDecision ResolveAlarmDecision(OperationType operation, ProcHandle evt)
@@ -1029,7 +1031,6 @@ namespace Automation
             switch (decision)
             {
                 case AlarmDecision.Stop:
-                    evt.Control?.RequestStop();
                     break;
                 case AlarmDecision.Ignore:
                     break;
@@ -1038,7 +1039,6 @@ namespace Automation
                     if (!TryExecuteGoto(operation.Goto1, evt, out string goto1Error))
                     {
                         MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto1Error : $"{evt.alarmMsg}; {goto1Error}");
-                        evt.Control?.RequestStop();
                     }
                     break;
                 case AlarmDecision.Goto2:
@@ -1046,7 +1046,6 @@ namespace Automation
                     if (!TryExecuteGoto(operation.Goto2, evt, out string goto2Error))
                     {
                         MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto2Error : $"{evt.alarmMsg}; {goto2Error}");
-                        evt.Control?.RequestStop();
                     }
                     break;
                 case AlarmDecision.Goto3:
@@ -1054,7 +1053,6 @@ namespace Automation
                     if (!TryExecuteGoto(operation.Goto3, evt, out string goto3Error))
                     {
                         MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto3Error : $"{evt.alarmMsg}; {goto3Error}");
-                        evt.Control?.RequestStop();
                     }
                     break;
             }

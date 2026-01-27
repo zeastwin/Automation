@@ -9,10 +9,14 @@ namespace Automation
 {
     public partial class FrmInfo : Form
     {
-        private readonly List<ProcStatusRowCache> statusRowCache = new List<ProcStatusRowCache>();
+        private readonly List<ProcStatusCellCache> statusCellCache = new List<ProcStatusCellCache>();
         private System.Windows.Forms.Timer statusTimer;
         private bool statusPageActive;
         private bool statusPageInitialized;
+        private int statusGroupCount = 1;
+        private int lastStatusProcCount = -1;
+        private const int StatusColumnsPerGroup = 4;
+        private const int StatusMinGroupWidth = 320;
 
         public FrmInfo()
         {
@@ -88,6 +92,8 @@ namespace Automation
             tabControl1.SelectedIndexChanged += tabControl1_SelectedIndexChanged;
             VisibleChanged += FrmInfo_VisibleChanged;
             dgvProcStatus.CellDoubleClick += dgvProcStatus_CellDoubleClick;
+            dgvProcStatus.SizeChanged += dgvProcStatus_SizeChanged;
+            RebuildStatusColumns(GetStatusGroupCount(0));
             UpdateStatusTimerState();
         }
 
@@ -102,6 +108,15 @@ namespace Automation
         }
 
         private void StatusTimer_Tick(object sender, EventArgs e)
+        {
+            if (!statusPageActive)
+            {
+                return;
+            }
+            RefreshProcStatus();
+        }
+
+        private void dgvProcStatus_SizeChanged(object sender, EventArgs e)
         {
             if (!statusPageActive)
             {
@@ -158,13 +173,33 @@ namespace Automation
                     ClearStatusRows();
                     return;
                 }
+                int procCount = snapshots.Count;
+                int groupCount = GetStatusGroupCount(procCount);
+                bool layoutChanged = groupCount != statusGroupCount;
+                bool countChanged = procCount != lastStatusProcCount;
+                if (layoutChanged)
+                {
+                    statusGroupCount = groupCount;
+                    RebuildStatusColumns(groupCount);
+                }
                 dgvProcStatus.SuspendLayout();
                 layoutSuspended = true;
-                EnsureStatusRowCount(snapshots.Count);
-                for (int i = 0; i < snapshots.Count; i++)
+                int rowCount = GetRowCount(procCount, groupCount);
+                EnsureStatusRowCount(rowCount);
+                if (layoutChanged || countChanged)
                 {
-                    UpdateStatusRow(i, snapshots[i]);
+                    ResetStatusCellCache(procCount);
+                    ClearStatusCells();
                 }
+                else
+                {
+                    EnsureStatusCellCache(procCount);
+                }
+                for (int i = 0; i < procCount; i++)
+                {
+                    UpdateStatusCell(i, snapshots[i]);
+                }
+                lastStatusProcCount = procCount;
             }
             catch (Exception ex)
             {
@@ -184,6 +219,63 @@ namespace Automation
             }
         }
 
+        private int GetRowCount(int procCount, int groupCount)
+        {
+            if (groupCount <= 0)
+            {
+                throw new InvalidOperationException("流程状态列布局异常");
+            }
+            if (procCount <= 0)
+            {
+                return 0;
+            }
+            return (procCount + groupCount - 1) / groupCount;
+        }
+
+        private int GetStatusGroupCount(int procCount)
+        {
+            int width = dgvProcStatus.ClientSize.Width;
+            if (width <= 0)
+            {
+                return 1;
+            }
+            int groupCount = Math.Max(1, width / StatusMinGroupWidth);
+            if (procCount > 0)
+            {
+                groupCount = Math.Min(groupCount, procCount);
+            }
+            return Math.Max(1, groupCount);
+        }
+
+        private void RebuildStatusColumns(int groupCount)
+        {
+            if (groupCount <= 0)
+            {
+                throw new InvalidOperationException("流程状态列布局异常");
+            }
+            dgvProcStatus.Columns.Clear();
+            for (int i = 0; i < groupCount; i++)
+            {
+                AddStatusColumn(i, StatusColumnKind.Proc, "流程", 25F, DataGridViewContentAlignment.MiddleLeft);
+                AddStatusColumn(i, StatusColumnKind.State, "状态", 15F, DataGridViewContentAlignment.MiddleCenter);
+                AddStatusColumn(i, StatusColumnKind.Position, "位置", 20F, DataGridViewContentAlignment.MiddleCenter);
+                AddStatusColumn(i, StatusColumnKind.OpName, "指令", 40F, DataGridViewContentAlignment.MiddleLeft);
+            }
+        }
+
+        private void AddStatusColumn(int groupIndex, StatusColumnKind kind, string headerText, float fillWeight,
+            DataGridViewContentAlignment alignment)
+        {
+            DataGridViewTextBoxColumn column = new DataGridViewTextBoxColumn();
+            column.ReadOnly = true;
+            column.SortMode = DataGridViewColumnSortMode.NotSortable;
+            column.HeaderText = headerText;
+            column.FillWeight = fillWeight;
+            column.Tag = new StatusColumnTag(groupIndex, kind);
+            column.DefaultCellStyle.Alignment = alignment;
+            dgvProcStatus.Columns.Add(column);
+        }
+
         private void EnsureStatusRowCount(int targetCount)
         {
             if (targetCount < 0)
@@ -192,17 +284,33 @@ namespace Automation
             }
             while (dgvProcStatus.Rows.Count < targetCount)
             {
-                int rowIndex = dgvProcStatus.Rows.Add();
-                DataGridViewRow row = dgvProcStatus.Rows[rowIndex];
-                ProcStatusRowCache cache = new ProcStatusRowCache();
-                statusRowCache.Add(cache);
-                row.Tag = cache;
+                dgvProcStatus.Rows.Add();
             }
             while (dgvProcStatus.Rows.Count > targetCount)
             {
                 int lastIndex = dgvProcStatus.Rows.Count - 1;
                 dgvProcStatus.Rows.RemoveAt(lastIndex);
-                statusRowCache.RemoveAt(lastIndex);
+            }
+        }
+
+        private void ResetStatusCellCache(int procCount)
+        {
+            statusCellCache.Clear();
+            for (int i = 0; i < procCount; i++)
+            {
+                statusCellCache.Add(new ProcStatusCellCache());
+            }
+        }
+
+        private void EnsureStatusCellCache(int procCount)
+        {
+            while (statusCellCache.Count < procCount)
+            {
+                statusCellCache.Add(new ProcStatusCellCache());
+            }
+            while (statusCellCache.Count > procCount)
+            {
+                statusCellCache.RemoveAt(statusCellCache.Count - 1);
             }
         }
 
@@ -213,48 +321,87 @@ namespace Automation
                 return;
             }
             dgvProcStatus.Rows.Clear();
-            statusRowCache.Clear();
+            statusCellCache.Clear();
+            lastStatusProcCount = -1;
         }
 
-        private void UpdateStatusRow(int rowIndex, EngineSnapshot snapshot)
+        private void ClearStatusCells()
         {
-            if (snapshot == null || rowIndex < 0 || rowIndex >= dgvProcStatus.Rows.Count)
+            if (dgvProcStatus.Rows.Count == 0 || dgvProcStatus.Columns.Count == 0)
+            {
+                return;
+            }
+            foreach (DataGridViewRow row in dgvProcStatus.Rows)
+            {
+                foreach (DataGridViewCell cell in row.Cells)
+                {
+                    cell.Value = null;
+                    cell.Style.ForeColor = Color.Empty;
+                    cell.Style.SelectionForeColor = Color.Empty;
+                    cell.Style.BackColor = Color.Empty;
+                    cell.Style.SelectionBackColor = Color.Empty;
+                }
+            }
+        }
+
+        private void UpdateStatusCell(int procIndex, EngineSnapshot snapshot)
+        {
+            if (snapshot == null || procIndex < 0 || procIndex >= statusCellCache.Count)
+            {
+                return;
+            }
+            int groupIndex = statusGroupCount <= 0 ? 0 : procIndex % statusGroupCount;
+            int rowIndex = statusGroupCount <= 0 ? 0 : procIndex / statusGroupCount;
+            int baseColumn = groupIndex * StatusColumnsPerGroup;
+            if (rowIndex < 0 || rowIndex >= dgvProcStatus.Rows.Count)
+            {
+                return;
+            }
+            if (baseColumn < 0 || baseColumn + StatusColumnsPerGroup - 1 >= dgvProcStatus.Columns.Count)
             {
                 return;
             }
             DataGridViewRow row = dgvProcStatus.Rows[rowIndex];
-            ProcStatusRowCache cache = statusRowCache[rowIndex];
+            ProcStatusCellCache cache = statusCellCache[procIndex];
 
             string procName = GetProcDisplayName(snapshot.ProcIndex, snapshot.ProcName);
             string stateText = GetStateText(snapshot.State);
             string positionText = GetPositionText(snapshot);
             string opName = GetOpName(snapshot.ProcIndex, snapshot.StepIndex, snapshot.OpIndex);
             Color stateColor = GetStateColor(snapshot.State);
+            Color stateBackColor = GetStateBackColor(snapshot.State);
 
             if (!string.Equals(cache.ProcName, procName, StringComparison.Ordinal))
             {
-                row.Cells[colProc.Index].Value = procName;
+                row.Cells[baseColumn + 0].Value = procName;
                 cache.ProcName = procName;
             }
             if (!string.Equals(cache.StateText, stateText, StringComparison.Ordinal))
             {
-                row.Cells[colState.Index].Value = stateText;
+                row.Cells[baseColumn + 1].Value = stateText;
                 cache.StateText = stateText;
             }
             if (!string.Equals(cache.PositionText, positionText, StringComparison.Ordinal))
             {
-                row.Cells[colPosition.Index].Value = positionText;
+                row.Cells[baseColumn + 2].Value = positionText;
                 cache.PositionText = positionText;
             }
             if (!string.Equals(cache.OpName, opName, StringComparison.Ordinal))
             {
-                row.Cells[colOpName.Index].Value = opName;
+                row.Cells[baseColumn + 3].Value = opName;
                 cache.OpName = opName;
             }
             if (cache.StateColor != stateColor)
             {
-                row.Cells[colState.Index].Style.ForeColor = stateColor;
+                row.Cells[baseColumn + 1].Style.ForeColor = stateColor;
+                row.Cells[baseColumn + 1].Style.SelectionForeColor = stateColor;
                 cache.StateColor = stateColor;
+            }
+            if (cache.StateBackColor != stateBackColor)
+            {
+                row.Cells[baseColumn + 1].Style.BackColor = stateBackColor;
+                row.Cells[baseColumn + 1].Style.SelectionBackColor = stateBackColor;
+                cache.StateBackColor = stateBackColor;
             }
 
             cache.ProcIndex = snapshot.ProcIndex;
@@ -314,6 +461,24 @@ namespace Automation
             }
         }
 
+        private Color GetStateBackColor(ProcRunState state)
+        {
+            switch (state)
+            {
+                case ProcRunState.Running:
+                    return Color.FromArgb(220, 245, 228);
+                case ProcRunState.Paused:
+                case ProcRunState.SingleStep:
+                    return Color.FromArgb(255, 236, 208);
+                case ProcRunState.Alarming:
+                    return Color.FromArgb(255, 214, 214);
+                case ProcRunState.Stopped:
+                    return Color.FromArgb(238, 238, 238);
+                default:
+                    return Color.FromArgb(238, 238, 238);
+            }
+        }
+
         private string GetPositionText(EngineSnapshot snapshot)
         {
             if (snapshot == null)
@@ -369,16 +534,22 @@ namespace Automation
             {
                 return;
             }
-            if (dgvProcStatus.Columns[e.ColumnIndex] != colPosition)
+            StatusColumnTag tag = dgvProcStatus.Columns[e.ColumnIndex].Tag as StatusColumnTag;
+            if (tag == null || tag.Kind != StatusColumnKind.Position)
             {
                 return;
             }
-            ProcStatusRowCache cache = dgvProcStatus.Rows[e.RowIndex].Tag as ProcStatusRowCache;
-            if (cache == null)
+            if (statusGroupCount <= 0)
+            {
+                return;
+            }
+            int procIndex = e.RowIndex * statusGroupCount + tag.GroupIndex;
+            if (procIndex < 0 || procIndex >= statusCellCache.Count)
             {
                 PrintInfo("当前位置数据无效，无法跳转。", Level.Error);
                 return;
             }
+            ProcStatusCellCache cache = statusCellCache[procIndex];
             JumpToOperation(cache.ProcIndex, cache.StepIndex, cache.OpIndex);
         }
 
@@ -493,7 +664,7 @@ namespace Automation
             return true;
         }
 
-        private sealed class ProcStatusRowCache
+        private sealed class ProcStatusCellCache
         {
             public int ProcIndex = -1;
             public int StepIndex = -1;
@@ -503,6 +674,27 @@ namespace Automation
             public string PositionText;
             public string OpName;
             public Color StateColor = Color.Empty;
+            public Color StateBackColor = Color.Empty;
+        }
+
+        private enum StatusColumnKind
+        {
+            Proc = 0,
+            State = 1,
+            Position = 2,
+            OpName = 3
+        }
+
+        private sealed class StatusColumnTag
+        {
+            public StatusColumnTag(int groupIndex, StatusColumnKind kind)
+            {
+                GroupIndex = groupIndex;
+                Kind = kind;
+            }
+
+            public int GroupIndex { get; }
+            public StatusColumnKind Kind { get; }
         }
     }
 }

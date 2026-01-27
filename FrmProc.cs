@@ -511,10 +511,22 @@ namespace Automation
                     {
                         SF.frmToolBar.btnPause.Text = "暂停";
                     }
+                    if (snapshot != null)
+                    {
+                        SF.frmToolBar.btnPause.Enabled = snapshot.State != ProcRunState.Paused;
+                        SF.frmToolBar.SingleRun.Enabled = snapshot.State == ProcRunState.SingleStep;
+                    }
+                    else
+                    {
+                        SF.frmToolBar.btnPause.Enabled = true;
+                        SF.frmToolBar.SingleRun.Enabled = true;
+                    }
                 }
                 else
                 {
                     SF.frmToolBar.btnPause.Text = "暂停";
+                    SF.frmToolBar.btnPause.Enabled = true;
+                    SF.frmToolBar.SingleRun.Enabled = true;
                 }
               
             }

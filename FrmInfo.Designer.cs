@@ -40,16 +40,10 @@
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle1 = new System.Windows.Forms.DataGridViewCellStyle();
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle2 = new System.Windows.Forms.DataGridViewCellStyle();
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle3 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle4 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle5 = new System.Windows.Forms.DataGridViewCellStyle();
             this.tabControl1 = new System.Windows.Forms.TabControl();
             this.tabPage2 = new System.Windows.Forms.TabPage();
             this.tabPageStatus = new System.Windows.Forms.TabPage();
             this.dgvProcStatus = new System.Windows.Forms.DataGridView();
-            this.colProc = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.colState = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.colPosition = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.colOpName = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.panelStatusTools = new System.Windows.Forms.Panel();
             this.lblStatusTip = new System.Windows.Forms.Label();
             this.panelInfoTools = new System.Windows.Forms.Panel();
@@ -105,6 +99,7 @@
             // 
             this.dgvProcStatus.AllowUserToAddRows = false;
             this.dgvProcStatus.AllowUserToDeleteRows = false;
+            this.dgvProcStatus.AllowUserToResizeColumns = false;
             this.dgvProcStatus.AllowUserToResizeRows = false;
             this.dgvProcStatus.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
             this.dgvProcStatus.BackgroundColor = System.Drawing.Color.White;
@@ -113,22 +108,17 @@
             this.dgvProcStatus.ColumnHeadersBorderStyle = System.Windows.Forms.DataGridViewHeaderBorderStyle.Single;
             dataGridViewCellStyle1.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
             dataGridViewCellStyle1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
-            dataGridViewCellStyle1.Font = new System.Drawing.Font("微软雅黑", 10F, System.Drawing.FontStyle.Bold);
+            dataGridViewCellStyle1.Font = new System.Drawing.Font("微软雅黑", 9F, System.Drawing.FontStyle.Bold);
             dataGridViewCellStyle1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(64)))), ((int)(((byte)(64)))), ((int)(((byte)(64)))));
             dataGridViewCellStyle1.SelectionBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
             dataGridViewCellStyle1.SelectionForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(64)))), ((int)(((byte)(64)))), ((int)(((byte)(64)))));
             dataGridViewCellStyle1.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
             this.dgvProcStatus.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle1;
-            this.dgvProcStatus.ColumnHeadersHeight = 32;
+            this.dgvProcStatus.ColumnHeadersHeight = 28;
             this.dgvProcStatus.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
-            this.dgvProcStatus.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
-            this.colProc,
-            this.colState,
-            this.colPosition,
-            this.colOpName});
             dataGridViewCellStyle2.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
             dataGridViewCellStyle2.BackColor = System.Drawing.Color.White;
-            dataGridViewCellStyle2.Font = new System.Drawing.Font("微软雅黑", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            dataGridViewCellStyle2.Font = new System.Drawing.Font("微软雅黑", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             dataGridViewCellStyle2.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(30)))), ((int)(((byte)(30)))));
             dataGridViewCellStyle2.SelectionBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(221)))), ((int)(((byte)(235)))), ((int)(((byte)(247)))));
             dataGridViewCellStyle2.SelectionForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(30)))), ((int)(((byte)(30)))));
@@ -145,46 +135,11 @@
             this.dgvProcStatus.RowHeadersVisible = false;
             dataGridViewCellStyle3.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(250)))), ((int)(((byte)(250)))), ((int)(((byte)(250)))));
             this.dgvProcStatus.AlternatingRowsDefaultCellStyle = dataGridViewCellStyle3;
-            this.dgvProcStatus.RowTemplate.Height = 28;
-            this.dgvProcStatus.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+            this.dgvProcStatus.RowTemplate.Height = 24;
+            this.dgvProcStatus.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.CellSelect;
+            this.dgvProcStatus.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
             this.dgvProcStatus.Size = new System.Drawing.Size(786, 382);
             this.dgvProcStatus.TabIndex = 2;
-            // 
-            // colProc
-            // 
-            this.colProc.FillWeight = 25F;
-            this.colProc.HeaderText = "流程";
-            this.colProc.Name = "colProc";
-            this.colProc.ReadOnly = true;
-            this.colProc.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
-            // 
-            // colState
-            // 
-            dataGridViewCellStyle4.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.colState.DefaultCellStyle = dataGridViewCellStyle4;
-            this.colState.FillWeight = 15F;
-            this.colState.HeaderText = "状态";
-            this.colState.Name = "colState";
-            this.colState.ReadOnly = true;
-            this.colState.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
-            // 
-            // colPosition
-            // 
-            dataGridViewCellStyle5.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.colPosition.DefaultCellStyle = dataGridViewCellStyle5;
-            this.colPosition.FillWeight = 20F;
-            this.colPosition.HeaderText = "当前位置";
-            this.colPosition.Name = "colPosition";
-            this.colPosition.ReadOnly = true;
-            this.colPosition.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
-            // 
-            // colOpName
-            // 
-            this.colOpName.FillWeight = 40F;
-            this.colOpName.HeaderText = "指令";
-            this.colOpName.Name = "colOpName";
-            this.colOpName.ReadOnly = true;
-            this.colOpName.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
             // 
             // panelStatusTools
             // 
@@ -274,9 +229,5 @@
         private System.Windows.Forms.Panel panelStatusTools;
         private System.Windows.Forms.Label lblStatusTip;
         private System.Windows.Forms.Button btnClearInfo;
-        private System.Windows.Forms.DataGridViewTextBoxColumn colProc;
-        private System.Windows.Forms.DataGridViewTextBoxColumn colState;
-        private System.Windows.Forms.DataGridViewTextBoxColumn colPosition;
-        private System.Windows.Forms.DataGridViewTextBoxColumn colOpName;
     }
 }

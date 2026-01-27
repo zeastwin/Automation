@@ -522,6 +522,13 @@ namespace Automation
 
         private void SetStartOps_Click(object sender, EventArgs e)
         {
+            ProcRunState startState = ProcRunState.SingleStep;
+            EngineSnapshot startSnapshot = SF.DR.GetSnapshot(SF.frmProc.SelectedProcNum);
+            if (startSnapshot != null && startSnapshot.State == ProcRunState.Paused)
+            {
+                startState = ProcRunState.Paused;
+            }
+
             if (SF.frmProc.SelectedProcNum >= 0)
             {
                 SF.DR.Stop(SF.frmProc.SelectedProcNum);
@@ -532,11 +539,13 @@ namespace Automation
                 SF.frmProc.SelectedProcNum,
                 SF.frmProc.SelectedStepNum,
                 iSelectedRow,
-                ProcRunState.Paused);
+                startState);
 
             Invoke(new Action(() =>
             {
                 SF.frmToolBar.btnPause.Text = "继续";
+                SF.frmToolBar.btnPause.Enabled = startState != ProcRunState.Paused;
+                SF.frmToolBar.SingleRun.Enabled = startState == ProcRunState.SingleStep;
             }));
         }
 

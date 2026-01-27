@@ -3,6 +3,7 @@ using csLTDMC;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -527,7 +528,29 @@ namespace Automation
                 {
                     procName = SF.frmProc.procsList[procNum].head.Name;
                 }
-                SF.frmProc.proc_treeView.Nodes[procNum].Text = procName + result;
+                TreeNode node = SF.frmProc.proc_treeView.Nodes[procNum];
+                node.Text = procName + result;
+                switch (snapshot.State)
+                {
+                    case ProcRunState.Running:
+                        node.ForeColor = Color.ForestGreen;
+                        break;
+                    case ProcRunState.Paused:
+                        node.ForeColor = Color.Goldenrod;
+                        break;
+                    case ProcRunState.SingleStep:
+                        node.ForeColor = Color.DodgerBlue;
+                        break;
+                    case ProcRunState.Alarming:
+                        node.ForeColor = Color.Red;
+                        break;
+                    case ProcRunState.Stopped:
+                        node.ForeColor = Color.DimGray;
+                        break;
+                    default:
+                        node.ForeColor = Color.Black;
+                        break;
+                }
             }
             if (SF.frmProc.proc_treeView.InvokeRequired)
             {
@@ -541,9 +564,13 @@ namespace Automation
             if (SF.frmToolBar?.btnPause != null && procNum == SF.frmProc.SelectedProcNum)
             {
                 string buttonText = (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming) ? "暂停" : "继续";
+                bool allowResume = snapshot.State != ProcRunState.Paused;
+                bool allowSingleStep = snapshot.State == ProcRunState.SingleStep;
                 void ApplyPauseText()
                 {
                     SF.frmToolBar.btnPause.Text = buttonText;
+                    SF.frmToolBar.btnPause.Enabled = allowResume;
+                    SF.frmToolBar.SingleRun.Enabled = allowSingleStep;
                 }
                 if (SF.frmToolBar.btnPause.InvokeRequired)
                 {
@@ -698,17 +725,26 @@ namespace Automation
                     opName = "未命名";
                 }
 
+                ProcRunState startState = ProcRunState.SingleStep;
+                EngineSnapshot startSnapshot = SF.DR.GetSnapshot(procIndex);
+                if (startSnapshot != null && startSnapshot.State == ProcRunState.Paused)
+                {
+                    startState = ProcRunState.Paused;
+                }
+
                 SF.DR.Stop(procIndex);
                 SF.DR.StartProcAt(
                     SF.frmProc.procsList[procIndex],
                     procIndex,
                     stepIndex,
                     opIndex,
-                    ProcRunState.Paused);
+                    startState);
 
                 if (SF.frmToolBar != null && !SF.frmToolBar.IsDisposed)
                 {
                     SF.frmToolBar.btnPause.Text = "继续";
+                    SF.frmToolBar.btnPause.Enabled = startState != ProcRunState.Paused;
+                    SF.frmToolBar.SingleRun.Enabled = startState == ProcRunState.SingleStep;
                 }
 
                 if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)

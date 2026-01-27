@@ -359,7 +359,15 @@ namespace Automation
                 SF.DR.Pause(procIndex);
                 btnPause.Text = "继续";
             }
-            else if (snapshot != null && (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep))
+            else if (snapshot != null && snapshot.State == ProcRunState.Paused)
+            {
+                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                {
+                    SF.frmInfo.PrintInfo("流程已暂停，禁止继续运行。", FrmInfo.Level.Error);
+                }
+                return;
+            }
+            else if (snapshot != null && snapshot.State == ProcRunState.SingleStep)
             {
                 Proc proc = null;
                 if (SF.frmProc?.procsList != null && procIndex >= 0 && procIndex < SF.frmProc.procsList.Count)
@@ -421,8 +429,16 @@ namespace Automation
             if (procIndex != -1)
             {
                 EngineSnapshot snapshot = SF.DR.GetSnapshot(procIndex);
+                if (snapshot != null && snapshot.State == ProcRunState.Paused)
+                {
+                    if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                    {
+                        SF.frmInfo.PrintInfo("流程已暂停，禁止单步继续。", FrmInfo.Level.Error);
+                    }
+                    return;
+                }
                 if (SF.frmProc.SelectedStepNum != -1 && snapshot != null
-                    && (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep))
+                    && snapshot.State == ProcRunState.SingleStep)
                 {
                     SF.DR.Step(procIndex);
                     SF.isSingleStepFollowPending = true;
