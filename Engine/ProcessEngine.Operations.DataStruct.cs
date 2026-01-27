@@ -139,7 +139,11 @@ namespace Automation
         {
             DataStructItem dataStructItem = new DataStructItem
             {
-                Name = insertDataStructItem.Name
+                Name = insertDataStructItem.Name ?? string.Empty,
+                FieldNames = new Dictionary<int, string>(),
+                FieldTypes = new Dictionary<int, DataStructValueType>(),
+                str = new Dictionary<int, string>(),
+                num = new Dictionary<int, double>()
             };
             for (int i = 0; i < insertDataStructItem.Params.Count; i++)
             {
@@ -151,6 +155,8 @@ namespace Automation
                     else
                         num = double.Parse(insertDataStructItem.Params[i].Value);
                     dataStructItem.num[i] = num;
+                    dataStructItem.FieldTypes[i] = DataStructValueType.Number;
+                    dataStructItem.FieldNames[i] = $"字段{i}";
                 }
                 else
                 {
@@ -160,6 +166,8 @@ namespace Automation
                     else
                         str = insertDataStructItem.Params[i].Value.ToString();
                     dataStructItem.str[i] = str;
+                    dataStructItem.FieldTypes[i] = DataStructValueType.Text;
+                    dataStructItem.FieldNames[i] = $"字段{i}";
                 }
             }
             if (!Context.DataStructStore.TryInsertItem(int.Parse(insertDataStructItem.TargetStructIndex), int.Parse(insertDataStructItem.TargetItemIndex), dataStructItem))

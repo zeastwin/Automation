@@ -30,148 +30,177 @@
         {
             this.components = new System.ComponentModel.Container();
             this.treeView1 = new System.Windows.Forms.TreeView();
-            this.contextMenuStrip1 = new System.Windows.Forms.ContextMenuStrip(this.components);
-            this.AddDataStruct = new System.Windows.Forms.ToolStripMenuItem();
-            this.ModifyDataStruct = new System.Windows.Forms.ToolStripMenuItem();
-            this.RemoveDataStruct = new System.Windows.Forms.ToolStripMenuItem();
-            this.panel2 = new System.Windows.Forms.Panel();
-            this.btnTrack = new System.Windows.Forms.Button();
-            this.panel1 = new System.Windows.Forms.Panel();
-            this.contextMenuStrip2 = new System.Windows.Forms.ContextMenuStrip(this.components);
-            this.NewItem = new System.Windows.Forms.ToolStripMenuItem();
-            this.ModifyItem = new System.Windows.Forms.ToolStripMenuItem();
-            this.RemoveItem = new System.Windows.Forms.ToolStripMenuItem();
-            this.contextMenuStrip1.SuspendLayout();
-            this.panel2.SuspendLayout();
-            this.contextMenuStrip2.SuspendLayout();
+            this.contextMenuRoot = new System.Windows.Forms.ContextMenuStrip(this.components);
+            this.menuAddStruct = new System.Windows.Forms.ToolStripMenuItem();
+            this.contextMenuStruct = new System.Windows.Forms.ContextMenuStrip(this.components);
+            this.menuStructAddItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuStructRename = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuStructDelete = new System.Windows.Forms.ToolStripMenuItem();
+            this.contextMenuItem = new System.Windows.Forms.ContextMenuStrip(this.components);
+            this.menuItemAddField = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuItemRename = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuItemDelete = new System.Windows.Forms.ToolStripMenuItem();
+            this.contextMenuField = new System.Windows.Forms.ContextMenuStrip(this.components);
+            this.menuFieldEdit = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuFieldRename = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuFieldTypeText = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuFieldTypeNumber = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuFieldDelete = new System.Windows.Forms.ToolStripMenuItem();
+            this.contextMenuRoot.SuspendLayout();
+            this.contextMenuStruct.SuspendLayout();
+            this.contextMenuItem.SuspendLayout();
+            this.contextMenuField.SuspendLayout();
             this.SuspendLayout();
             // 
             // treeView1
             // 
-            this.treeView1.ContextMenuStrip = this.contextMenuStrip1;
-            this.treeView1.Dock = System.Windows.Forms.DockStyle.Left;
-            this.treeView1.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.treeView1.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.treeView1.Font = new System.Drawing.Font("微软雅黑", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.treeView1.FullRowSelect = true;
             this.treeView1.Location = new System.Drawing.Point(0, 0);
             this.treeView1.Name = "treeView1";
-            this.treeView1.ShowLines = false;
-            this.treeView1.Size = new System.Drawing.Size(197, 705);
-            this.treeView1.TabIndex = 3;
-            this.treeView1.BeforeSelect += new System.Windows.Forms.TreeViewCancelEventHandler(this.treeView1_BeforeSelect);
-            this.treeView1.AfterSelect += new System.Windows.Forms.TreeViewEventHandler(this.treeView1_AfterSelect);
+            this.treeView1.ShowLines = true;
+            this.treeView1.Size = new System.Drawing.Size(1195, 705);
+            this.treeView1.TabIndex = 0;
+            this.treeView1.BeforeExpand += new System.Windows.Forms.TreeViewCancelEventHandler(this.treeView1_BeforeExpand);
+            this.treeView1.NodeMouseClick += new System.Windows.Forms.TreeNodeMouseClickEventHandler(this.treeView1_NodeMouseClick);
             this.treeView1.NodeMouseDoubleClick += new System.Windows.Forms.TreeNodeMouseClickEventHandler(this.treeView1_NodeMouseDoubleClick);
             this.treeView1.MouseDown += new System.Windows.Forms.MouseEventHandler(this.treeView1_MouseDown);
             // 
-            // contextMenuStrip1
+            // contextMenuRoot
             // 
-            this.contextMenuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.AddDataStruct,
-            this.ModifyDataStruct,
-            this.RemoveDataStruct});
-            this.contextMenuStrip1.Name = "contextMenuStrip2";
-            this.contextMenuStrip1.Size = new System.Drawing.Size(101, 70);
+            this.contextMenuRoot.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.menuAddStruct});
+            this.contextMenuRoot.Name = "contextMenuRoot";
+            this.contextMenuRoot.Size = new System.Drawing.Size(125, 26);
             // 
-            // AddDataStruct
+            // menuAddStruct
             // 
-            this.AddDataStruct.Name = "AddDataStruct";
-            this.AddDataStruct.Size = new System.Drawing.Size(100, 22);
-            this.AddDataStruct.Text = "新建";
-            this.AddDataStruct.Click += new System.EventHandler(this.AddDataStruct_Click);
+            this.menuAddStruct.Name = "menuAddStruct";
+            this.menuAddStruct.Size = new System.Drawing.Size(124, 22);
+            this.menuAddStruct.Text = "新建结构体";
+            this.menuAddStruct.Click += new System.EventHandler(this.menuAddStruct_Click);
             // 
-            // ModifyDataStruct
+            // contextMenuStruct
             // 
-            this.ModifyDataStruct.Name = "ModifyDataStruct";
-            this.ModifyDataStruct.Size = new System.Drawing.Size(100, 22);
-            this.ModifyDataStruct.Text = "修改";
-            this.ModifyDataStruct.Click += new System.EventHandler(this.ModifyDataStruct_Click);
+            this.contextMenuStruct.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.menuStructAddItem,
+            this.menuStructRename,
+            this.menuStructDelete});
+            this.contextMenuStruct.Name = "contextMenuStruct";
+            this.contextMenuStruct.Size = new System.Drawing.Size(137, 70);
             // 
-            // RemoveDataStruct
+            // menuStructAddItem
             // 
-            this.RemoveDataStruct.Name = "RemoveDataStruct";
-            this.RemoveDataStruct.Size = new System.Drawing.Size(100, 22);
-            this.RemoveDataStruct.Text = "删除";
-            this.RemoveDataStruct.Click += new System.EventHandler(this.RemoveDataStruct_Click);
+            this.menuStructAddItem.Name = "menuStructAddItem";
+            this.menuStructAddItem.Size = new System.Drawing.Size(136, 22);
+            this.menuStructAddItem.Text = "新增数据项";
+            this.menuStructAddItem.Click += new System.EventHandler(this.menuStructAddItem_Click);
             // 
-            // panel2
+            // menuStructRename
             // 
-            this.panel2.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.panel2.Controls.Add(this.btnTrack);
-            this.panel2.Dock = System.Windows.Forms.DockStyle.Top;
-            this.panel2.Location = new System.Drawing.Point(197, 0);
-            this.panel2.Name = "panel2";
-            this.panel2.Size = new System.Drawing.Size(998, 45);
-            this.panel2.TabIndex = 5;
+            this.menuStructRename.Name = "menuStructRename";
+            this.menuStructRename.Size = new System.Drawing.Size(136, 22);
+            this.menuStructRename.Text = "重命名结构体";
+            this.menuStructRename.Click += new System.EventHandler(this.menuStructRename_Click);
             // 
-            // btnTrack
+            // menuStructDelete
             // 
-            this.btnTrack.BackColor = System.Drawing.Color.WhiteSmoke;
-            this.btnTrack.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.btnTrack.FlatAppearance.BorderSize = 2;
-            this.btnTrack.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnTrack.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
-            this.btnTrack.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnTrack.Location = new System.Drawing.Point(6, 7);
-            this.btnTrack.Name = "btnTrack";
-            this.btnTrack.Size = new System.Drawing.Size(78, 35);
-            this.btnTrack.TabIndex = 96;
-            this.btnTrack.Text = "监控";
-            this.btnTrack.UseVisualStyleBackColor = false;
-            this.btnTrack.Click += new System.EventHandler(this.btnTrack_Click);
+            this.menuStructDelete.Name = "menuStructDelete";
+            this.menuStructDelete.Size = new System.Drawing.Size(136, 22);
+            this.menuStructDelete.Text = "删除结构体";
+            this.menuStructDelete.Click += new System.EventHandler(this.menuStructDelete_Click);
             // 
-            // panel1
+            // contextMenuItem
             // 
-            this.panel1.AutoScroll = true;
-            this.panel1.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.panel1.Location = new System.Drawing.Point(197, 45);
-            this.panel1.Name = "panel1";
-            this.panel1.Size = new System.Drawing.Size(998, 660);
-            this.panel1.TabIndex = 6;
+            this.contextMenuItem.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.menuItemAddField,
+            this.menuItemRename,
+            this.menuItemDelete});
+            this.contextMenuItem.Name = "contextMenuItem";
+            this.contextMenuItem.Size = new System.Drawing.Size(125, 70);
             // 
-            // contextMenuStrip2
+            // menuItemAddField
             // 
-            this.contextMenuStrip2.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.NewItem,
-            this.ModifyItem,
-            this.RemoveItem});
-            this.contextMenuStrip2.Name = "contextMenuStrip2";
-            this.contextMenuStrip2.Size = new System.Drawing.Size(101, 70);
+            this.menuItemAddField.Name = "menuItemAddField";
+            this.menuItemAddField.Size = new System.Drawing.Size(124, 22);
+            this.menuItemAddField.Text = "新增字段";
+            this.menuItemAddField.Click += new System.EventHandler(this.menuItemAddField_Click);
             // 
-            // NewItem
+            // menuItemRename
             // 
-            this.NewItem.Name = "NewItem";
-            this.NewItem.Size = new System.Drawing.Size(180, 22);
-            this.NewItem.Text = "新建";
-            this.NewItem.Click += new System.EventHandler(this.NewItem_Click);
+            this.menuItemRename.Name = "menuItemRename";
+            this.menuItemRename.Size = new System.Drawing.Size(124, 22);
+            this.menuItemRename.Text = "重命名数据项";
+            this.menuItemRename.Click += new System.EventHandler(this.menuItemRename_Click);
             // 
-            // ModifyItem
+            // menuItemDelete
             // 
-            this.ModifyItem.Name = "ModifyItem";
-            this.ModifyItem.Size = new System.Drawing.Size(180, 22);
-            this.ModifyItem.Text = "修改";
-            this.ModifyItem.Click += new System.EventHandler(this.ModifyItem_Click);
+            this.menuItemDelete.Name = "menuItemDelete";
+            this.menuItemDelete.Size = new System.Drawing.Size(124, 22);
+            this.menuItemDelete.Text = "删除数据项";
+            this.menuItemDelete.Click += new System.EventHandler(this.menuItemDelete_Click);
             // 
-            // RemoveItem
+            // contextMenuField
             // 
-            this.RemoveItem.Name = "RemoveItem";
-            this.RemoveItem.Size = new System.Drawing.Size(180, 22);
-            this.RemoveItem.Text = "删除";
-            this.RemoveItem.Click += new System.EventHandler(this.RemoveItem_Click);
+            this.contextMenuField.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.menuFieldEdit,
+            this.menuFieldRename,
+            this.menuFieldTypeText,
+            this.menuFieldTypeNumber,
+            this.menuFieldDelete});
+            this.contextMenuField.Name = "contextMenuField";
+            this.contextMenuField.Size = new System.Drawing.Size(149, 114);
+            // 
+            // menuFieldEdit
+            // 
+            this.menuFieldEdit.Name = "menuFieldEdit";
+            this.menuFieldEdit.Size = new System.Drawing.Size(148, 22);
+            this.menuFieldEdit.Text = "编辑字段";
+            this.menuFieldEdit.Click += new System.EventHandler(this.menuFieldEdit_Click);
+            // 
+            // menuFieldRename
+            // 
+            this.menuFieldRename.Name = "menuFieldRename";
+            this.menuFieldRename.Size = new System.Drawing.Size(148, 22);
+            this.menuFieldRename.Text = "重命名字段";
+            this.menuFieldRename.Click += new System.EventHandler(this.menuFieldRename_Click);
+            // 
+            // menuFieldTypeText
+            // 
+            this.menuFieldTypeText.Name = "menuFieldTypeText";
+            this.menuFieldTypeText.Size = new System.Drawing.Size(148, 22);
+            this.menuFieldTypeText.Text = "类型改为 string";
+            this.menuFieldTypeText.Click += new System.EventHandler(this.menuFieldTypeText_Click);
+            // 
+            // menuFieldTypeNumber
+            // 
+            this.menuFieldTypeNumber.Name = "menuFieldTypeNumber";
+            this.menuFieldTypeNumber.Size = new System.Drawing.Size(148, 22);
+            this.menuFieldTypeNumber.Text = "类型改为 double";
+            this.menuFieldTypeNumber.Click += new System.EventHandler(this.menuFieldTypeNumber_Click);
+            // 
+            // menuFieldDelete
+            // 
+            this.menuFieldDelete.Name = "menuFieldDelete";
+            this.menuFieldDelete.Size = new System.Drawing.Size(148, 22);
+            this.menuFieldDelete.Text = "删除字段";
+            this.menuFieldDelete.Click += new System.EventHandler(this.menuFieldDelete_Click);
             // 
             // FrmDataStruct
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(1195, 705);
-            this.Controls.Add(this.panel1);
-            this.Controls.Add(this.panel2);
             this.Controls.Add(this.treeView1);
             this.Name = "FrmDataStruct";
             this.Text = "数据结构";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.FrmDataStruct_FormClosing);
             this.Load += new System.EventHandler(this.FrmDataStruct_Load);
-            this.contextMenuStrip1.ResumeLayout(false);
-            this.panel2.ResumeLayout(false);
-            this.contextMenuStrip2.ResumeLayout(false);
+            this.contextMenuRoot.ResumeLayout(false);
+            this.contextMenuStruct.ResumeLayout(false);
+            this.contextMenuItem.ResumeLayout(false);
+            this.contextMenuField.ResumeLayout(false);
             this.ResumeLayout(false);
 
         }
@@ -179,16 +208,21 @@
         #endregion
 
         public System.Windows.Forms.TreeView treeView1;
-        private System.Windows.Forms.ContextMenuStrip contextMenuStrip1;
-        private System.Windows.Forms.ToolStripMenuItem AddDataStruct;
-        private System.Windows.Forms.ToolStripMenuItem ModifyDataStruct;
-        private System.Windows.Forms.ToolStripMenuItem RemoveDataStruct;
-        private System.Windows.Forms.Panel panel2;
-        private System.Windows.Forms.Panel panel1;
-        public System.Windows.Forms.Button btnTrack;
-        private System.Windows.Forms.ContextMenuStrip contextMenuStrip2;
-        private System.Windows.Forms.ToolStripMenuItem NewItem;
-        private System.Windows.Forms.ToolStripMenuItem ModifyItem;
-        private System.Windows.Forms.ToolStripMenuItem RemoveItem;
+        private System.Windows.Forms.ContextMenuStrip contextMenuRoot;
+        private System.Windows.Forms.ToolStripMenuItem menuAddStruct;
+        private System.Windows.Forms.ContextMenuStrip contextMenuStruct;
+        private System.Windows.Forms.ToolStripMenuItem menuStructAddItem;
+        private System.Windows.Forms.ToolStripMenuItem menuStructRename;
+        private System.Windows.Forms.ToolStripMenuItem menuStructDelete;
+        private System.Windows.Forms.ContextMenuStrip contextMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem menuItemAddField;
+        private System.Windows.Forms.ToolStripMenuItem menuItemRename;
+        private System.Windows.Forms.ToolStripMenuItem menuItemDelete;
+        private System.Windows.Forms.ContextMenuStrip contextMenuField;
+        private System.Windows.Forms.ToolStripMenuItem menuFieldEdit;
+        private System.Windows.Forms.ToolStripMenuItem menuFieldRename;
+        private System.Windows.Forms.ToolStripMenuItem menuFieldTypeText;
+        private System.Windows.Forms.ToolStripMenuItem menuFieldTypeNumber;
+        private System.Windows.Forms.ToolStripMenuItem menuFieldDelete;
     }
 }

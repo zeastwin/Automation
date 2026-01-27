@@ -112,7 +112,6 @@
     <Compile Include="Stores\\AlarmInfoStore.cs" />
     <Compile Include="Stores\\CardConfigStore.cs" />
     <Compile Include="CustomFunc.cs" />
-    <Compile Include="DataStructModels.cs" />
     <Compile Include="Engine\\ProcessEngine.Core.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Comm.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Custom.cs" />
@@ -268,11 +267,11 @@
     <Compile Include="MotionControl\MotionCtrl.cs" />
     <Compile Include="OperationType.cs" />
     <Compile Include="OperationTypePartial.cs" />
-    <Compile Include="ParamFrm\FrmDataStructSet.cs">
+    <Compile Include="ParamFrm\FrmDataStructFieldEdit.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="ParamFrm\FrmDataStructSet.Designer.cs">
-      <DependentUpon>FrmDataStructSet.cs</DependentUpon>
+    <Compile Include="ParamFrm\FrmTextInput.cs">
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -345,9 +344,6 @@
     </EmbeddedResource>
     <EmbeddedResource Include="FrmValueDebug.resx">
       <DependentUpon>FrmValueDebug.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="ParamFrm\FrmDataStructSet.resx">
-      <DependentUpon>FrmDataStructSet.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
