@@ -354,7 +354,7 @@
             // 
             this.dgvValue.AllowUserToAddRows = false;
             this.dgvValue.AllowUserToResizeRows = false;
-            this.dgvValue.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dgvValue.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.None;
             this.dgvValue.BackgroundColor = System.Drawing.SystemColors.ControlLight;
             this.dgvValue.ColumnHeadersHeight = 32;
             this.dgvValue.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
@@ -370,6 +370,7 @@
             this.dgvValue.RowHeadersVisible = false;
             this.dgvValue.RowHeadersWidth = 20;
             this.dgvValue.RowTemplate.Height = 28;
+            this.dgvValue.ScrollBars = System.Windows.Forms.ScrollBars.Both;
             this.dgvValue.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
             this.dgvValue.Size = new System.Drawing.Size(1080, 812);
             this.dgvValue.TabIndex = 4;
@@ -383,11 +384,12 @@
             // 
             dataGridViewCellStyle1.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
             this.index.DefaultCellStyle = dataGridViewCellStyle1;
-            this.index.FillWeight = 18F;
+            this.index.FillWeight = 9F;
             this.index.HeaderText = "编号";
-            this.index.MinimumWidth = 60;
+            this.index.MinimumWidth = 50;
             this.index.Name = "index";
             this.index.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.index.Width = 50;
             // 
             // name
             // 
@@ -398,6 +400,7 @@
             this.name.MinimumWidth = 6;
             this.name.Name = "name";
             this.name.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.name.Width = 200;
             // 
             // type
             // 
@@ -411,6 +414,7 @@
             "string"});
             this.type.MinimumWidth = 6;
             this.type.Name = "type";
+            this.type.Width = 100;
             // 
             // value
             // 
@@ -421,17 +425,19 @@
             this.value.MinimumWidth = 6;
             this.value.Name = "value";
             this.value.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.value.Width = 200;
             // 
             // Note
             // 
-            this.Note.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
+            this.Note.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.None;
             dataGridViewCellStyle5.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
             this.Note.DefaultCellStyle = dataGridViewCellStyle5;
-            this.Note.FillWeight = 90F;
+            this.Note.FillWeight = 450F;
             this.Note.HeaderText = "备注";
             this.Note.MinimumWidth = 6;
             this.Note.Name = "Note";
             this.Note.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.Note.Width = 1000;
             // 
             // panelStructHost
             // 
