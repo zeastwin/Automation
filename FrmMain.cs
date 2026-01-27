@@ -77,7 +77,7 @@ namespace Automation
             };
             dataRun = new ProcessEngine(engineContext);
             ILogger uiLogger = new FrmInfoLogger(frmInfo);
-            ILogger fileLogger = new LocalFileLogger(@"D:\AutomationLogs");
+            ILogger fileLogger = new LocalFileLogger(@"D:\AutomationLogs\ProcessLog");
             dataRun.Logger = new CompositeLogger(uiLogger, fileLogger);
             dataRun.AlarmHandler = new WinFormsAlarmHandler(this);
             dataRun.UiInvoker = this;
