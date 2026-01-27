@@ -1943,6 +1943,39 @@ namespace Automation
     }
 
     [Serializable]
+    public class PlcReadWrite : OperationType
+    {
+        public PlcReadWrite()
+        {
+            OperaType = "PLC读写";
+            DataType = "Float";
+            DataOps = "读PLC";
+            Quantity = 1;
+        }
+
+        [DisplayName("PLC名字"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(PlcItem))]
+        public string PlcName { get; set; }
+
+        [DisplayName("数据类型"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(PlcDataTypeItem))]
+        public string DataType { get; set; }
+
+        [DisplayName("数据读写"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(PlcDirectionItem))]
+        public string DataOps { get; set; }
+
+        [DisplayName("PLC首地址"), Category("参数"), Description(""), ReadOnly(false)]
+        public string PlcAddress { get; set; }
+
+        [DisplayName("写入常量"), Category("参数"), Description(""), ReadOnly(false)]
+        public string WriteConst { get; set; }
+
+        [DisplayName("变量首地址"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string ValueName { get; set; }
+
+        [DisplayName("数据数量"), Category("参数"), Description(""), ReadOnly(false)]
+        public int Quantity { get; set; }
+    }
+
+    [Serializable]
     public class CreateTray : OperationType
     {
         public CreateTray()

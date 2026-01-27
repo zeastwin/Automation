@@ -267,6 +267,18 @@ namespace Automation
             SF.frmAiAssistant.WindowState = FormWindowState.Normal;
         }
 
+        private void Plc_Page_Click(object sender, EventArgs e)
+        {
+            if (SF.frmPlc == null || SF.frmPlc.IsDisposed)
+            {
+                SF.frmPlc = new FrmPlc();
+            }
+            SF.frmPlc.StartPosition = FormStartPosition.CenterScreen;
+            SF.frmPlc.Show();
+            SF.frmPlc.BringToFront();
+            SF.frmPlc.WindowState = FormWindowState.Normal;
+        }
+
     }
   
 }

@@ -126,6 +126,9 @@ namespace Automation
                     case SendReceoveCommMsg sendReceoveCommMsg:
                         return RunSendReceoveCommMsg(evt, sendReceoveCommMsg);
 
+                    case PlcReadWrite plcReadWrite:
+                        return RunPlcReadWrite(evt, plcReadWrite);
+
                     case SerialPortOps serialPortOps:
                         return RunSerialPortOps(evt, serialPortOps);
 

@@ -37,6 +37,7 @@
             this.Card_Page = new System.Windows.Forms.Button();
             this.valueDebug_Page = new System.Windows.Forms.Button();
             this.value_Page = new System.Windows.Forms.Button();
+            this.Plc_Page = new System.Windows.Forms.Button();
             this.panel1.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -116,12 +117,32 @@
             this.communication_Page.UseVisualStyleBackColor = false;
             this.communication_Page.Click += new System.EventHandler(this.communication_Page_Click);
             // 
+            // Plc_Page
+            // 
+            this.Plc_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.Plc_Page.Dock = System.Windows.Forms.DockStyle.Left;
+            this.Plc_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.Plc_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.Plc_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.Plc_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.Plc_Page.Font = new System.Drawing.Font("黑体", 14.75F);
+            this.Plc_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.Plc_Page.Location = new System.Drawing.Point(572, 0);
+            this.Plc_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 3);
+            this.Plc_Page.Name = "Plc_Page";
+            this.Plc_Page.Size = new System.Drawing.Size(143, 129);
+            this.Plc_Page.TabIndex = 16;
+            this.Plc_Page.Text = "PLC";
+            this.Plc_Page.UseVisualStyleBackColor = false;
+            this.Plc_Page.Click += new System.EventHandler(this.Plc_Page_Click);
+            // 
             // panel1
             // 
             this.panel1.Controls.Add(this.AI_Page);
             this.panel1.Controls.Add(this.Card_Page);
             this.panel1.Controls.Add(this.valueDebug_Page);
             this.panel1.Controls.Add(this.value_Page);
+            this.panel1.Controls.Add(this.Plc_Page);
             this.panel1.Controls.Add(this.communication_Page);
             this.panel1.Controls.Add(this.Io_Page);
             this.panel1.Controls.Add(this.station_Page);
@@ -234,5 +255,6 @@
         private System.Windows.Forms.Button valueDebug_Page;
         private System.Windows.Forms.Button value_Page;
         private System.Windows.Forms.Button AI_Page;
+        private System.Windows.Forms.Button Plc_Page;
     }
 }

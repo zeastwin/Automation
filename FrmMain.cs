@@ -34,6 +34,7 @@ namespace Automation
         public FrmSearch frmSearch = new FrmSearch();
         public FrmSearch4Value frmSearch4Value = new FrmSearch4Value();
         public FrmInfo frmInfo = new FrmInfo();
+        public FrmPlc frmPlc = new FrmPlc();
         public FrmAiAssistant frmAiAssistant;
         public MotionCtrl motion = new MotionCtrl();
         private EngineSnapshot[] snapshotCache = Array.Empty<EngineSnapshot>();
@@ -53,6 +54,7 @@ namespace Automation
             SF.trayPointStore = new TrayPointStore();
             SF.alarmInfoStore = new AlarmInfoStore();
             SF.comm = new CommunicationHub();
+            SF.plcStore = new PlcConfigStore();
             SF.mainfrm = this;
             EngineContext engineContext = new EngineContext
             {
@@ -63,6 +65,7 @@ namespace Automation
                 CardStore = SF.cardStore,
                 Motion = motion,
                 Comm = SF.comm,
+                PlcStore = SF.plcStore,
                 AlarmInfoStore = SF.alarmInfoStore,
                 IoMap = frmIO.DicIO,
                 Stations = frmCard.dataStation,
@@ -101,6 +104,7 @@ namespace Automation
             SF.frmSearch = frmSearch;
             SF.frmSearch4Value = frmSearch4Value;
             SF.frmInfo = frmInfo;
+            SF.frmPlc = frmPlc;
             if (SF.AiFlowEnabled)
             {
                 frmAiAssistant = new FrmAiAssistant();
@@ -138,6 +142,7 @@ namespace Automation
             SF.frmComunication.RefreshSerialPortInfo();
             SF.frmAlarmConfig.RefreshAlarmInfo();
             SF.frmIODebug.RefleshIODebug();
+            SF.plcStore.Load(SF.ConfigPath);
             if (SF.DR?.Context != null)
             {
                 SF.DR.Context.Procs = SF.frmProc.procsList;
@@ -145,6 +150,7 @@ namespace Automation
                 SF.DR.Context.SocketInfos = SF.frmComunication.socketInfos;
                 SF.DR.Context.SerialPortInfos = SF.frmComunication.serialPortInfos;
                 SF.DR.Context.IoMap = SF.frmIO.DicIO;
+                SF.DR.Context.PlcStore = SF.plcStore;
             }
             //初始化运动控制相关
             SF.motion.InitCardType();

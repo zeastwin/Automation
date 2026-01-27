@@ -122,8 +122,13 @@
     <Compile Include="Engine\\ProcessEngine.Operations.Proc.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.String.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Value.cs" />
+    <Compile Include="Engine\\ProcessEngine.Operations.Plc.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.cs" />
     <Compile Include="Engine\\ProcessEngine.Models.cs" />
+    <Compile Include="PLC\\PlcModels.cs" />
+    <Compile Include="Stores\\PlcConfigStore.cs" />
+    <Compile Include="PLC\\PlcHub.cs" />
+    <Compile Include="PLC\\ModbusTcpClient.cs" />
     <Compile Include="Stores\\DataStructStore.cs" />
     <Compile Include="Stores\\ProcessEngineLogger.cs" />
     <Compile Include="Stores\\ProcessEngineStore.cs" />
@@ -197,6 +202,9 @@
       <DependentUpon>FrmMain.cs</DependentUpon>
     </Compile>
     <Compile Include="FrmMenu.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmPlc.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FrmMenu.Designer.cs">

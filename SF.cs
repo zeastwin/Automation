@@ -43,6 +43,7 @@ namespace Automation
         public static FrmSearch4Value frmSearch4Value;
         public static FrmInfo frmInfo;
         public static FrmAiAssistant frmAiAssistant;
+        public static FrmPlc frmPlc;
         public static CardConfigStore cardStore;
         public static ValueConfigStore valueStore;
         public static DataStructStore dataStructStore;
@@ -50,6 +51,7 @@ namespace Automation
         public static AlarmInfoStore alarmInfoStore;
         public static IProcessEngineStore procStore;
         public static CommunicationHub comm;
+        public static PlcConfigStore plcStore;
 
 
         public static bool AiFlowEnabled = true;

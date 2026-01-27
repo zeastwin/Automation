@@ -559,6 +559,64 @@ namespace Automation
                 return true;
             }
         }
+
+        public class PlcItem : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                if (SF.plcStore == null)
+                {
+                    return new StandardValuesCollection(new List<string>());
+                }
+                return new StandardValuesCollection(SF.plcStore.Devices.Select(device => device.Name).Where(name => !string.IsNullOrWhiteSpace(name)).ToList());
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+        }
+
+        public class PlcDataTypeItem : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(PlcConstants.DataTypes.ToList());
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+        }
+
+        public class PlcDirectionItem : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(PlcConstants.Directions.ToList());
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+        }
         public class PointModifyType : StringConverter
         {
             public override bool GetStandardValuesSupported(ITypeDescriptorContext context)

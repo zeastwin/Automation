@@ -227,6 +227,7 @@ namespace Automation
         public CardConfigStore CardStore { get; set; }
         public MotionCtrl Motion { get; set; }
         public CommunicationHub Comm { get; set; }
+        public PlcConfigStore PlcStore { get; set; }
         public AlarmInfoStore AlarmInfoStore { get; set; }
         public IDictionary<string, IO> IoMap { get; set; }
         public IList<DataStation> Stations { get; set; }
