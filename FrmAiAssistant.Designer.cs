@@ -50,6 +50,27 @@ namespace Automation
             this.txtOutput = new System.Windows.Forms.TextBox();
             this.groupContext = new System.Windows.Forms.GroupBox();
             this.txtContext = new System.Windows.Forms.TextBox();
+            this.groupConfig = new System.Windows.Forms.GroupBox();
+            this.layoutConfig = new System.Windows.Forms.TableLayoutPanel();
+            this.lblAiEndpoint = new System.Windows.Forms.Label();
+            this.txtAiEndpoint = new System.Windows.Forms.TextBox();
+            this.lblAiKey = new System.Windows.Forms.Label();
+            this.txtAiKey = new System.Windows.Forms.TextBox();
+            this.lblAiModel = new System.Windows.Forms.Label();
+            this.txtAiModel = new System.Windows.Forms.TextBox();
+            this.lblAiAuthHeader = new System.Windows.Forms.Label();
+            this.txtAiAuthHeader = new System.Windows.Forms.TextBox();
+            this.lblAiAuthPrefix = new System.Windows.Forms.Label();
+            this.txtAiAuthPrefix = new System.Windows.Forms.TextBox();
+            this.lblAiTimeout = new System.Windows.Forms.Label();
+            this.numAiTimeout = new System.Windows.Forms.NumericUpDown();
+            this.lblAiOutputKind = new System.Windows.Forms.Label();
+            this.cmbAiOutputKind = new System.Windows.Forms.ComboBox();
+            this.panelAiActions = new System.Windows.Forms.FlowLayoutPanel();
+            this.chkAiShowKey = new System.Windows.Forms.CheckBox();
+            this.btnAiLoadConfig = new System.Windows.Forms.Button();
+            this.btnAiSaveConfig = new System.Windows.Forms.Button();
+            this.btnAiGenerate = new System.Windows.Forms.Button();
             this.tabVerify = new System.Windows.Forms.TabPage();
             this.layoutVerify = new System.Windows.Forms.TableLayoutPanel();
             this.groupRules = new System.Windows.Forms.GroupBox();
@@ -91,6 +112,10 @@ namespace Automation
             this.layoutPropose.SuspendLayout();
             this.groupRequest.SuspendLayout();
             this.groupOutput.SuspendLayout();
+            this.groupConfig.SuspendLayout();
+            this.layoutConfig.SuspendLayout();
+            this.panelAiActions.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.numAiTimeout)).BeginInit();
             this.groupContext.SuspendLayout();
             this.tabVerify.SuspendLayout();
             this.layoutVerify.SuspendLayout();
@@ -426,13 +451,15 @@ namespace Automation
             this.layoutPropose.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
             this.layoutPropose.Controls.Add(this.groupRequest, 0, 0);
             this.layoutPropose.Controls.Add(this.groupOutput, 1, 0);
-            this.layoutPropose.Controls.Add(this.groupContext, 0, 1);
+            this.layoutPropose.Controls.Add(this.groupConfig, 0, 1);
+            this.layoutPropose.Controls.Add(this.groupContext, 0, 2);
             this.layoutPropose.Dock = System.Windows.Forms.DockStyle.Fill;
             this.layoutPropose.Location = new System.Drawing.Point(3, 3);
             this.layoutPropose.Name = "layoutPropose";
-            this.layoutPropose.RowCount = 2;
-            this.layoutPropose.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 60F));
-            this.layoutPropose.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 40F));
+            this.layoutPropose.RowCount = 3;
+            this.layoutPropose.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 55F));
+            this.layoutPropose.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 180F));
+            this.layoutPropose.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 45F));
             this.layoutPropose.Size = new System.Drawing.Size(962, 568);
             this.layoutPropose.TabIndex = 0;
             // 
@@ -482,16 +509,275 @@ namespace Automation
             this.txtOutput.Size = new System.Drawing.Size(469, 311);
             this.txtOutput.TabIndex = 0;
             // 
+            // groupConfig
+            // 
+            this.layoutPropose.SetColumnSpan(this.groupConfig, 2);
+            this.groupConfig.Controls.Add(this.layoutConfig);
+            this.groupConfig.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.groupConfig.Font = new System.Drawing.Font("黑体", 11F);
+            this.groupConfig.Location = new System.Drawing.Point(3, 343);
+            this.groupConfig.Name = "groupConfig";
+            this.groupConfig.Size = new System.Drawing.Size(956, 174);
+            this.groupConfig.TabIndex = 2;
+            this.groupConfig.TabStop = false;
+            this.groupConfig.Text = "AI 接口配置";
+            // 
+            // layoutConfig
+            // 
+            this.layoutConfig.ColumnCount = 4;
+            this.layoutConfig.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 90F));
+            this.layoutConfig.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.layoutConfig.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 90F));
+            this.layoutConfig.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.layoutConfig.Controls.Add(this.lblAiEndpoint, 0, 0);
+            this.layoutConfig.Controls.Add(this.txtAiEndpoint, 1, 0);
+            this.layoutConfig.Controls.Add(this.lblAiKey, 0, 1);
+            this.layoutConfig.Controls.Add(this.txtAiKey, 1, 1);
+            this.layoutConfig.Controls.Add(this.lblAiModel, 2, 1);
+            this.layoutConfig.Controls.Add(this.txtAiModel, 3, 1);
+            this.layoutConfig.Controls.Add(this.lblAiAuthHeader, 0, 2);
+            this.layoutConfig.Controls.Add(this.txtAiAuthHeader, 1, 2);
+            this.layoutConfig.Controls.Add(this.lblAiAuthPrefix, 2, 2);
+            this.layoutConfig.Controls.Add(this.txtAiAuthPrefix, 3, 2);
+            this.layoutConfig.Controls.Add(this.lblAiTimeout, 0, 3);
+            this.layoutConfig.Controls.Add(this.numAiTimeout, 1, 3);
+            this.layoutConfig.Controls.Add(this.lblAiOutputKind, 2, 3);
+            this.layoutConfig.Controls.Add(this.cmbAiOutputKind, 3, 3);
+            this.layoutConfig.Controls.Add(this.panelAiActions, 0, 4);
+            this.layoutConfig.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.layoutConfig.Location = new System.Drawing.Point(3, 20);
+            this.layoutConfig.Name = "layoutConfig";
+            this.layoutConfig.RowCount = 5;
+            this.layoutConfig.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 28F));
+            this.layoutConfig.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 28F));
+            this.layoutConfig.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 28F));
+            this.layoutConfig.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 28F));
+            this.layoutConfig.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.layoutConfig.Size = new System.Drawing.Size(950, 151);
+            this.layoutConfig.TabIndex = 0;
+            // 
+            // lblAiEndpoint
+            // 
+            this.lblAiEndpoint.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.lblAiEndpoint.AutoSize = true;
+            this.lblAiEndpoint.Font = new System.Drawing.Font("黑体", 10F);
+            this.lblAiEndpoint.Location = new System.Drawing.Point(3, 7);
+            this.lblAiEndpoint.Name = "lblAiEndpoint";
+            this.lblAiEndpoint.Size = new System.Drawing.Size(63, 14);
+            this.lblAiEndpoint.TabIndex = 0;
+            this.lblAiEndpoint.Text = "接口地址";
+            // 
+            // txtAiEndpoint
+            // 
+            this.layoutConfig.SetColumnSpan(this.txtAiEndpoint, 3);
+            this.txtAiEndpoint.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.txtAiEndpoint.Font = new System.Drawing.Font("黑体", 10F);
+            this.txtAiEndpoint.Location = new System.Drawing.Point(93, 3);
+            this.txtAiEndpoint.Name = "txtAiEndpoint";
+            this.txtAiEndpoint.Size = new System.Drawing.Size(854, 23);
+            this.txtAiEndpoint.TabIndex = 1;
+            // 
+            // lblAiKey
+            // 
+            this.lblAiKey.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.lblAiKey.AutoSize = true;
+            this.lblAiKey.Font = new System.Drawing.Font("黑体", 10F);
+            this.lblAiKey.Location = new System.Drawing.Point(3, 35);
+            this.lblAiKey.Name = "lblAiKey";
+            this.lblAiKey.Size = new System.Drawing.Size(28, 14);
+            this.lblAiKey.TabIndex = 2;
+            this.lblAiKey.Text = "Key";
+            // 
+            // txtAiKey
+            // 
+            this.txtAiKey.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.txtAiKey.Font = new System.Drawing.Font("黑体", 10F);
+            this.txtAiKey.Location = new System.Drawing.Point(93, 31);
+            this.txtAiKey.Name = "txtAiKey";
+            this.txtAiKey.Size = new System.Drawing.Size(382, 23);
+            this.txtAiKey.TabIndex = 3;
+            this.txtAiKey.UseSystemPasswordChar = true;
+            // 
+            // lblAiModel
+            // 
+            this.lblAiModel.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.lblAiModel.AutoSize = true;
+            this.lblAiModel.Font = new System.Drawing.Font("黑体", 10F);
+            this.lblAiModel.Location = new System.Drawing.Point(481, 35);
+            this.lblAiModel.Name = "lblAiModel";
+            this.lblAiModel.Size = new System.Drawing.Size(35, 14);
+            this.lblAiModel.TabIndex = 4;
+            this.lblAiModel.Text = "模型";
+            // 
+            // txtAiModel
+            // 
+            this.txtAiModel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.txtAiModel.Font = new System.Drawing.Font("黑体", 10F);
+            this.txtAiModel.Location = new System.Drawing.Point(571, 31);
+            this.txtAiModel.Name = "txtAiModel";
+            this.txtAiModel.Size = new System.Drawing.Size(376, 23);
+            this.txtAiModel.TabIndex = 5;
+            // 
+            // lblAiAuthHeader
+            // 
+            this.lblAiAuthHeader.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.lblAiAuthHeader.AutoSize = true;
+            this.lblAiAuthHeader.Font = new System.Drawing.Font("黑体", 10F);
+            this.lblAiAuthHeader.Location = new System.Drawing.Point(3, 63);
+            this.lblAiAuthHeader.Name = "lblAiAuthHeader";
+            this.lblAiAuthHeader.Size = new System.Drawing.Size(63, 14);
+            this.lblAiAuthHeader.TabIndex = 6;
+            this.lblAiAuthHeader.Text = "鉴权头";
+            // 
+            // txtAiAuthHeader
+            // 
+            this.txtAiAuthHeader.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.txtAiAuthHeader.Font = new System.Drawing.Font("黑体", 10F);
+            this.txtAiAuthHeader.Location = new System.Drawing.Point(93, 59);
+            this.txtAiAuthHeader.Name = "txtAiAuthHeader";
+            this.txtAiAuthHeader.Size = new System.Drawing.Size(382, 23);
+            this.txtAiAuthHeader.TabIndex = 7;
+            // 
+            // lblAiAuthPrefix
+            // 
+            this.lblAiAuthPrefix.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.lblAiAuthPrefix.AutoSize = true;
+            this.lblAiAuthPrefix.Font = new System.Drawing.Font("黑体", 10F);
+            this.lblAiAuthPrefix.Location = new System.Drawing.Point(481, 63);
+            this.lblAiAuthPrefix.Name = "lblAiAuthPrefix";
+            this.lblAiAuthPrefix.Size = new System.Drawing.Size(63, 14);
+            this.lblAiAuthPrefix.TabIndex = 8;
+            this.lblAiAuthPrefix.Text = "鉴权前缀";
+            // 
+            // txtAiAuthPrefix
+            // 
+            this.txtAiAuthPrefix.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.txtAiAuthPrefix.Font = new System.Drawing.Font("黑体", 10F);
+            this.txtAiAuthPrefix.Location = new System.Drawing.Point(571, 59);
+            this.txtAiAuthPrefix.Name = "txtAiAuthPrefix";
+            this.txtAiAuthPrefix.Size = new System.Drawing.Size(376, 23);
+            this.txtAiAuthPrefix.TabIndex = 9;
+            // 
+            // lblAiTimeout
+            // 
+            this.lblAiTimeout.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.lblAiTimeout.AutoSize = true;
+            this.lblAiTimeout.Font = new System.Drawing.Font("黑体", 10F);
+            this.lblAiTimeout.Location = new System.Drawing.Point(3, 91);
+            this.lblAiTimeout.Name = "lblAiTimeout";
+            this.lblAiTimeout.Size = new System.Drawing.Size(70, 14);
+            this.lblAiTimeout.TabIndex = 10;
+            this.lblAiTimeout.Text = "超时(秒)";
+            // 
+            // numAiTimeout
+            // 
+            this.numAiTimeout.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.numAiTimeout.Font = new System.Drawing.Font("黑体", 10F);
+            this.numAiTimeout.Location = new System.Drawing.Point(93, 87);
+            this.numAiTimeout.Maximum = new decimal(new int[] {
+            600,
+            0,
+            0,
+            0});
+            this.numAiTimeout.Minimum = new decimal(new int[] {
+            1,
+            0,
+            0,
+            0});
+            this.numAiTimeout.Name = "numAiTimeout";
+            this.numAiTimeout.Size = new System.Drawing.Size(382, 23);
+            this.numAiTimeout.TabIndex = 11;
+            this.numAiTimeout.Value = new decimal(new int[] {
+            60,
+            0,
+            0,
+            0});
+            // 
+            // lblAiOutputKind
+            // 
+            this.lblAiOutputKind.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.lblAiOutputKind.AutoSize = true;
+            this.lblAiOutputKind.Font = new System.Drawing.Font("黑体", 10F);
+            this.lblAiOutputKind.Location = new System.Drawing.Point(481, 91);
+            this.lblAiOutputKind.Name = "lblAiOutputKind";
+            this.lblAiOutputKind.Size = new System.Drawing.Size(63, 14);
+            this.lblAiOutputKind.TabIndex = 12;
+            this.lblAiOutputKind.Text = "输出类型";
+            // 
+            // cmbAiOutputKind
+            // 
+            this.cmbAiOutputKind.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.cmbAiOutputKind.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbAiOutputKind.Font = new System.Drawing.Font("黑体", 10F);
+            this.cmbAiOutputKind.FormattingEnabled = true;
+            this.cmbAiOutputKind.Location = new System.Drawing.Point(571, 87);
+            this.cmbAiOutputKind.Name = "cmbAiOutputKind";
+            this.cmbAiOutputKind.Size = new System.Drawing.Size(376, 21);
+            this.cmbAiOutputKind.TabIndex = 13;
+            // 
+            // panelAiActions
+            // 
+            this.layoutConfig.SetColumnSpan(this.panelAiActions, 4);
+            this.panelAiActions.Controls.Add(this.chkAiShowKey);
+            this.panelAiActions.Controls.Add(this.btnAiLoadConfig);
+            this.panelAiActions.Controls.Add(this.btnAiSaveConfig);
+            this.panelAiActions.Controls.Add(this.btnAiGenerate);
+            this.panelAiActions.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.panelAiActions.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
+            this.panelAiActions.Location = new System.Drawing.Point(3, 115);
+            this.panelAiActions.Name = "panelAiActions";
+            this.panelAiActions.Size = new System.Drawing.Size(944, 33);
+            this.panelAiActions.TabIndex = 14;
+            // 
+            // chkAiShowKey
+            // 
+            this.chkAiShowKey.AutoSize = true;
+            this.chkAiShowKey.Font = new System.Drawing.Font("黑体", 10F);
+            this.chkAiShowKey.Location = new System.Drawing.Point(3, 8);
+            this.chkAiShowKey.Margin = new System.Windows.Forms.Padding(3, 8, 10, 3);
+            this.chkAiShowKey.Name = "chkAiShowKey";
+            this.chkAiShowKey.Size = new System.Drawing.Size(82, 18);
+            this.chkAiShowKey.TabIndex = 0;
+            this.chkAiShowKey.Text = "显示Key";
+            this.chkAiShowKey.UseVisualStyleBackColor = true;
+            // 
+            // btnAiLoadConfig
+            // 
+            this.btnAiLoadConfig.Location = new System.Drawing.Point(98, 3);
+            this.btnAiLoadConfig.Name = "btnAiLoadConfig";
+            this.btnAiLoadConfig.Size = new System.Drawing.Size(90, 27);
+            this.btnAiLoadConfig.TabIndex = 1;
+            this.btnAiLoadConfig.Text = "加载配置";
+            this.btnAiLoadConfig.UseVisualStyleBackColor = true;
+            // 
+            // btnAiSaveConfig
+            // 
+            this.btnAiSaveConfig.Location = new System.Drawing.Point(194, 3);
+            this.btnAiSaveConfig.Name = "btnAiSaveConfig";
+            this.btnAiSaveConfig.Size = new System.Drawing.Size(90, 27);
+            this.btnAiSaveConfig.TabIndex = 2;
+            this.btnAiSaveConfig.Text = "保存配置";
+            this.btnAiSaveConfig.UseVisualStyleBackColor = true;
+            // 
+            // btnAiGenerate
+            // 
+            this.btnAiGenerate.Location = new System.Drawing.Point(290, 3);
+            this.btnAiGenerate.Name = "btnAiGenerate";
+            this.btnAiGenerate.Size = new System.Drawing.Size(90, 27);
+            this.btnAiGenerate.TabIndex = 3;
+            this.btnAiGenerate.Text = "生成";
+            this.btnAiGenerate.UseVisualStyleBackColor = true;
+            // 
             // groupContext
             // 
             this.layoutPropose.SetColumnSpan(this.groupContext, 2);
             this.groupContext.Controls.Add(this.txtContext);
             this.groupContext.Dock = System.Windows.Forms.DockStyle.Fill;
             this.groupContext.Font = new System.Drawing.Font("黑体", 11F);
-            this.groupContext.Location = new System.Drawing.Point(3, 343);
+            this.groupContext.Location = new System.Drawing.Point(3, 523);
             this.groupContext.Name = "groupContext";
             this.groupContext.Size = new System.Drawing.Size(956, 222);
-            this.groupContext.TabIndex = 2;
+            this.groupContext.TabIndex = 3;
             this.groupContext.TabStop = false;
             this.groupContext.Text = "上下文/资源";
             // 
@@ -847,6 +1133,12 @@ namespace Automation
             this.groupRequest.PerformLayout();
             this.groupOutput.ResumeLayout(false);
             this.groupOutput.PerformLayout();
+            this.groupConfig.ResumeLayout(false);
+            this.layoutConfig.ResumeLayout(false);
+            this.layoutConfig.PerformLayout();
+            this.panelAiActions.ResumeLayout(false);
+            this.panelAiActions.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.numAiTimeout)).EndInit();
             this.groupContext.ResumeLayout(false);
             this.groupContext.PerformLayout();
             this.tabVerify.ResumeLayout(false);
@@ -909,6 +1201,27 @@ namespace Automation
         private System.Windows.Forms.TextBox txtRequest;
         private System.Windows.Forms.GroupBox groupOutput;
         private System.Windows.Forms.TextBox txtOutput;
+        private System.Windows.Forms.GroupBox groupConfig;
+        private System.Windows.Forms.TableLayoutPanel layoutConfig;
+        private System.Windows.Forms.Label lblAiEndpoint;
+        private System.Windows.Forms.TextBox txtAiEndpoint;
+        private System.Windows.Forms.Label lblAiKey;
+        private System.Windows.Forms.TextBox txtAiKey;
+        private System.Windows.Forms.Label lblAiModel;
+        private System.Windows.Forms.TextBox txtAiModel;
+        private System.Windows.Forms.Label lblAiAuthHeader;
+        private System.Windows.Forms.TextBox txtAiAuthHeader;
+        private System.Windows.Forms.Label lblAiAuthPrefix;
+        private System.Windows.Forms.TextBox txtAiAuthPrefix;
+        private System.Windows.Forms.Label lblAiTimeout;
+        private System.Windows.Forms.NumericUpDown numAiTimeout;
+        private System.Windows.Forms.Label lblAiOutputKind;
+        private System.Windows.Forms.ComboBox cmbAiOutputKind;
+        private System.Windows.Forms.FlowLayoutPanel panelAiActions;
+        private System.Windows.Forms.CheckBox chkAiShowKey;
+        private System.Windows.Forms.Button btnAiLoadConfig;
+        private System.Windows.Forms.Button btnAiSaveConfig;
+        private System.Windows.Forms.Button btnAiGenerate;
         private System.Windows.Forms.GroupBox groupContext;
         private System.Windows.Forms.TextBox txtContext;
         private System.Windows.Forms.TabPage tabVerify;

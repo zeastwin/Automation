@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Newtonsoft.Json;
 using Automation.AIFlow;
@@ -20,6 +21,7 @@ namespace Automation
         private string verifyState = "未执行";
         private string simState = "未执行";
         private int diffCount;
+        private AiFlowAiConfig aiConfig;
 
         public FrmAiAssistant()
         {
@@ -61,6 +63,10 @@ namespace Automation
             btnApply.Click += BtnApply_Click;
             btnRollback.Click += BtnRollback_Click;
             btnExportTrace.Click += BtnExportTrace_Click;
+            btnAiLoadConfig.Click += BtnAiLoadConfig_Click;
+            btnAiSaveConfig.Click += BtnAiSaveConfig_Click;
+            btnAiGenerate.Click += BtnAiGenerate_Click;
+            chkAiShowKey.CheckedChanged += ChkAiShowKey_CheckedChanged;
             Load += FrmAiAssistant_Load;
             FormClosing += FrmAiAssistant_FormClosing;
         }
@@ -69,6 +75,8 @@ namespace Automation
         {
             lastWorkDir = SF.workPath;
             TryStartTelemetry();
+            InitAiConfigUi();
+            LoadAiConfigToUi(false);
             UpdateQuickInfo();
             SetStatus("就绪");
         }
@@ -129,6 +137,10 @@ namespace Automation
                 UpdateQuickInfo();
                 txtContext.Text = JsonConvert.SerializeObject(currentCore, Formatting.Indented);
                 ClearDiff();
+                if (cmbAiOutputKind.Items.Count > 0)
+                {
+                    cmbAiOutputKind.SelectedIndex = 0;
+                }
                 LogInfo("加载 Core/Spec 完成。", FrmInfo.Level.Normal);
                 SetStatus("已加载 Core/Spec");
             }
@@ -376,6 +388,215 @@ namespace Automation
                 LogInfo($"Trace 已导出:{dialog.FileName}", FrmInfo.Level.Normal);
                 SetStatus("已导出 Trace");
             }
+        }
+
+        private void BtnAiLoadConfig_Click(object sender, EventArgs e)
+        {
+            LoadAiConfigToUi(true);
+        }
+
+        private void BtnAiSaveConfig_Click(object sender, EventArgs e)
+        {
+            if (!TryBuildAiConfigFromUi(out AiFlowAiConfig config, out string message))
+            {
+                ShowIssues("保存配置失败", message);
+                return;
+            }
+            if (!AiFlowAiConfigStore.TrySave(config, out List<AiFlowIssue> issues))
+            {
+                ShowIssues("保存配置失败", FormatIssues(issues));
+                return;
+            }
+            aiConfig = config;
+            LogInfo("AI配置已保存。", FrmInfo.Level.Normal);
+            SetStatus("AI配置已保存");
+        }
+
+        private async void BtnAiGenerate_Click(object sender, EventArgs e)
+        {
+            if (!TryBuildAiConfigFromUi(out AiFlowAiConfig config, out string message))
+            {
+                ShowIssues("生成失败", message);
+                return;
+            }
+            string outputKind = GetSelectedOutputKind();
+            if (string.IsNullOrWhiteSpace(outputKind))
+            {
+                ShowIssues("生成失败", "未选择输出类型");
+                return;
+            }
+            if (string.Equals(outputKind, "FlowDelta", StringComparison.Ordinal) && baseCore == null)
+            {
+                ShowIssues("生成失败", "FlowDelta 需要先加载 Core/Spec 作为基线");
+                return;
+            }
+
+            btnAiGenerate.Enabled = false;
+            SetStatus("AI生成中...");
+            LogInfo("开始调用AI生成。", FrmInfo.Level.Normal);
+
+            AiFlowAiResult result = await AiFlowAiClient.RequestAsync(config, txtRequest.Text, txtContext.Text, outputKind);
+            if (!result.Success)
+            {
+                ShowIssues("生成失败", FormatIssues(result.Issues));
+                if (!string.IsNullOrWhiteSpace(result.RawResponse))
+                {
+                    txtOutput.Text = result.RawResponse;
+                }
+                btnAiGenerate.Enabled = true;
+                SetStatus("生成失败");
+                return;
+            }
+
+            txtOutput.Text = result.Content;
+            if (!TryApplyAiOutput(outputKind, result.Content, out string applyMessage))
+            {
+                ShowIssues("生成成功但解析失败", applyMessage);
+                btnAiGenerate.Enabled = true;
+                SetStatus("生成完成(解析失败)");
+                return;
+            }
+
+            btnAiGenerate.Enabled = true;
+            LogInfo("AI生成完成。", FrmInfo.Level.Normal);
+            SetStatus("生成完成");
+        }
+
+        private void ChkAiShowKey_CheckedChanged(object sender, EventArgs e)
+        {
+            txtAiKey.UseSystemPasswordChar = !chkAiShowKey.Checked;
+        }
+
+        private void InitAiConfigUi()
+        {
+            cmbAiOutputKind.Items.Clear();
+            cmbAiOutputKind.Items.Add("FlowDelta");
+            cmbAiOutputKind.Items.Add("Core");
+            cmbAiOutputKind.SelectedIndex = baseCore == null ? 1 : 0;
+        }
+
+        private void LoadAiConfigToUi(bool showMessage)
+        {
+            if (AiFlowAiConfigStore.TryLoad(out AiFlowAiConfig config, out List<AiFlowIssue> issues))
+            {
+                aiConfig = config;
+                ApplyAiConfigToUi(config);
+                if (showMessage)
+                {
+                    LogInfo("AI配置已加载。", FrmInfo.Level.Normal);
+                    SetStatus("AI配置已加载");
+                }
+                return;
+            }
+
+            aiConfig = null;
+            if (showMessage)
+            {
+                ShowIssues("加载配置失败", FormatIssues(issues));
+            }
+            else
+            {
+                AiFlowAiConfig defaults = AiFlowAiConfigStore.CreateDefault();
+                ApplyAiConfigToUi(defaults);
+            }
+        }
+
+        private void ApplyAiConfigToUi(AiFlowAiConfig config)
+        {
+            if (config == null)
+            {
+                return;
+            }
+            txtAiEndpoint.Text = config.Endpoint ?? string.Empty;
+            txtAiKey.Text = config.ApiKey ?? string.Empty;
+            txtAiModel.Text = config.Model ?? string.Empty;
+            txtAiAuthHeader.Text = config.AuthHeader ?? string.Empty;
+            txtAiAuthPrefix.Text = config.AuthPrefix ?? string.Empty;
+            if (config.TimeoutSeconds > 0 && config.TimeoutSeconds <= (int)numAiTimeout.Maximum)
+            {
+                numAiTimeout.Value = config.TimeoutSeconds;
+            }
+            if (cmbAiOutputKind.SelectedIndex < 0)
+            {
+                cmbAiOutputKind.SelectedIndex = baseCore == null ? 1 : 0;
+            }
+        }
+
+        private bool TryBuildAiConfigFromUi(out AiFlowAiConfig config, out string message)
+        {
+            config = new AiFlowAiConfig
+            {
+                Version = AiFlowAiConfig.ConfigVersion,
+                Endpoint = txtAiEndpoint.Text?.Trim(),
+                ApiKey = txtAiKey.Text,
+                Model = txtAiModel.Text?.Trim(),
+                TimeoutSeconds = (int)numAiTimeout.Value,
+                AuthHeader = txtAiAuthHeader.Text?.Trim(),
+                AuthPrefix = txtAiAuthPrefix.Text?.Trim(),
+                Temperature = aiConfig?.Temperature ?? 0.2
+            };
+            List<AiFlowIssue> issues = AiFlowAiConfigStore.Validate(config);
+            if (issues.Count > 0)
+            {
+                message = FormatIssues(issues);
+                return false;
+            }
+            message = null;
+            return true;
+        }
+
+        private string GetSelectedOutputKind()
+        {
+            if (cmbAiOutputKind.SelectedItem == null)
+            {
+                return null;
+            }
+            return cmbAiOutputKind.SelectedItem.ToString();
+        }
+
+        private bool TryApplyAiOutput(string outputKind, string content, out string message)
+        {
+            message = null;
+            if (string.Equals(outputKind, "FlowDelta", StringComparison.Ordinal))
+            {
+                if (!AiFlowAiClient.TryParseDelta(content, out AiFlowDelta delta, out List<AiFlowIssue> issues))
+                {
+                    message = FormatIssues(issues);
+                    return false;
+                }
+                currentDelta = delta;
+                currentCore = AiFlowDeltaApplier.Apply(baseCore, currentDelta, out issues);
+                if (issues.Count > 0 || currentCore == null)
+                {
+                    message = FormatIssues(issues);
+                    return false;
+                }
+                currentDiff = AiFlowDiff.Build(baseCore, currentCore);
+                RenderDiff(currentDiff);
+                diffCount = CountDiffOps(currentDiff);
+                txtContext.Text = JsonConvert.SerializeObject(currentCore, Formatting.Indented);
+                UpdateQuickInfo();
+                return true;
+            }
+
+            if (string.Equals(outputKind, "Core", StringComparison.Ordinal))
+            {
+                if (!AiFlowAiClient.TryParseCore(content, out AiCoreFlow core, out List<AiFlowIssue> issues))
+                {
+                    message = FormatIssues(issues);
+                    return false;
+                }
+                baseCore = core;
+                currentCore = core;
+                currentDelta = null;
+                currentDiff = null;
+                txtContext.Text = JsonConvert.SerializeObject(currentCore, Formatting.Indented);
+                ClearDiff();
+                UpdateQuickInfo();
+                return true;
+            }
+            message = "输出类型未知";
+            return false;
         }
 
         private bool TryLoadCoreOrSpec(string path, out string message)

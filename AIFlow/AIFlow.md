@@ -41,6 +41,8 @@
   - `AiFlowTelemetryRecorder.cs`：运行期 Snapshot Trace 采集
 - `AIFlow/AiFlowCli.cs`：CLI 入口
 - `AIFlow/AiFlowIo.cs`：读写工具
+- `AIFlow/AiFlowAiConfig.cs`：AI 接口配置（`AIFlowAi.json`）
+- `AIFlow/AiFlowAiClient.cs`：AI 调用与响应解析
 
 ## 4. 核心契约
 ### 4.1 Core（core-1）
@@ -176,6 +178,19 @@
 - 自动选择当前流程（从 `FrmProc.SelectedProcNum` 读取）
 - 显示 Work 目录（固定为 `SF.workPath`，仅允许 `Config\\Work`）
 - 联动日志面板（`FrmInfo.PrintInfo`）
+- AI 接口配置与生成：在“提案”页配置接口并直接生成 `FlowDelta/Core`
+
+### 9.1 AI 接口配置
+- 配置文件：`Config/AIFlowAi.json`
+- 字段（`ai-1`）：
+  - `endpoint`：OpenAI 兼容 Chat Completions 接口地址
+  - `apiKey`：鉴权密钥
+  - `model`：模型名
+  - `authHeader`：鉴权头（默认 `Authorization`）
+  - `authPrefix`：鉴权前缀（默认 `Bearer`，可为空）
+  - `timeoutSeconds`：超时秒数
+  - `temperature`：温度（0~2）
+- 生成逻辑：基于“需求描述 + 上下文”调用接口，要求**仅输出 JSON**，并按 `FlowDelta/Core` 解析。
 
 ## 10. CLI 使用
 ```bash
