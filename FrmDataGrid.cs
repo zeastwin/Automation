@@ -32,6 +32,7 @@ namespace Automation
         private int lastHighlightedRow = -1;
         private int lastHighlightedProc = -1;
         private int lastHighlightedStep = -1;
+        private ProcRunState lastHighlightedState = ProcRunState.Stopped;
         private bool lastHighlightActive = false;
 
         //记录要复制行的index
@@ -301,7 +302,8 @@ namespace Automation
                 if (!lastHighlightActive
                     || rowIndex != lastHighlightedRow
                     || selectedProc != lastHighlightedProc
-                    || snapshot.StepIndex != lastHighlightedStep)
+                    || snapshot.StepIndex != lastHighlightedStep
+                    || snapshot.State != lastHighlightedState)
                 {
                     if (lastHighlightActive && lastHighlightedRow >= 0 && lastHighlightedRow < dataGridView1.RowCount)
                     {
@@ -309,12 +311,14 @@ namespace Automation
                         dataGridView1.InvalidateRow(lastHighlightedRow);
                     }
 
-                    SetRowColor(rowIndex, Color.LightBlue);
+                    Color highlightColor = snapshot.State == ProcRunState.Alarming ? Color.Red : Color.LightBlue;
+                    SetRowColor(rowIndex, highlightColor);
                     dataGridView1.InvalidateRow(rowIndex);
                     lastHighlightActive = true;
                     lastHighlightedRow = rowIndex;
                     lastHighlightedProc = selectedProc;
                     lastHighlightedStep = snapshot.StepIndex;
+                    lastHighlightedState = snapshot.State;
                 }
             }
             catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
@@ -337,6 +341,7 @@ namespace Automation
             lastHighlightedRow = -1;
             lastHighlightedProc = -1;
             lastHighlightedStep = -1;
+            lastHighlightedState = ProcRunState.Stopped;
         }
 
         public void SelectChildNode(int parentIndex, int childIndex)
@@ -686,7 +691,7 @@ namespace Automation
                 int rowCountBeforePaste = iSelectedRow + 1;
                 for (int i = rowCountBeforePaste; i < rowCountAfterPaste; i++)
                 {
-                    dataGridView1.Rows[i].DefaultCellStyle.BackColor = Color.Red;
+                    dataGridView1.Rows[i].DefaultCellStyle.BackColor = Color.LightGreen;
                 }
             }
 
@@ -861,7 +866,7 @@ namespace Automation
                     int rowCountBeforePaste = iSelectedRow + 1;
                     for (int i = rowCountBeforePaste; i < rowCountAfterPaste; i++)
                     {
-                        dataGridView1.Rows[i].DefaultCellStyle.BackColor = Color.Red;
+                        dataGridView1.Rows[i].DefaultCellStyle.BackColor = Color.LightGreen;
                     }
                 }
             }

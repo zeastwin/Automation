@@ -32,7 +32,6 @@ namespace Automation
             {
                 string message = "操作为空";
                 MarkAlarm(evt, message);
-                Logger?.Log(message, LogLevel.Error);
                 return false;
             }
             try
@@ -169,7 +168,6 @@ namespace Automation
                         {
                             string message = $"操作类型不支持:{operation.GetType().Name}";
                             MarkAlarm(evt, message);
-                            Logger?.Log(message, LogLevel.Error);
                             return false;
                         }
                 }
@@ -177,7 +175,6 @@ namespace Automation
             catch (Exception ex)
             {
                 MarkAlarm(evt, ex.Message);
-                Logger?.Log(ex.Message, LogLevel.Error);
                 return false;
             }
         }

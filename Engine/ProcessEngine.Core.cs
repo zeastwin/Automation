@@ -839,7 +839,6 @@ namespace Automation
                 catch (Exception ex)
                 {
                     MarkAlarm(evt, ex.Message);
-                    Logger?.Log(ex.Message, LogLevel.Error);
                     HandleAlarm(steps.Ops[i], evt);
                     return false;
                 }

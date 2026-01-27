@@ -32,7 +32,6 @@ namespace Automation
             if (Context.Stations == null)
             {
                 MarkAlarm(evt, "工站列表为空");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (homeRun.StationIndex != -1)
@@ -40,7 +39,6 @@ namespace Automation
                 if (homeRun.StationIndex < 0 || homeRun.StationIndex >= Context.Stations.Count)
                 {
                     MarkAlarm(evt, $"工站索引无效:{homeRun.StationIndex}");
-                    Logger?.Log(evt.alarmMsg, LogLevel.Error);
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 station = Context.Stations[homeRun.StationIndex];
@@ -52,7 +50,6 @@ namespace Automation
             if (station == null)
             {
                 MarkAlarm(evt, $"找不到工站:{homeRun.StationName}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             station.SetState(DataStation.Status.Run);
@@ -93,7 +90,6 @@ namespace Automation
                             if (stopwatch.ElapsedMilliseconds > 120000)
                             {
                                 MarkAlarm(evt, homeRun.Name + "运动超时");
-                                Logger?.Log(homeRun.Name + "运动超时！", LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 throw CreateAlarmException(evt, evt?.alarmMsg);
                             }
@@ -137,7 +133,6 @@ namespace Automation
             if (station == null)
             {
                 MarkAlarm(evt, $"找不到工站:{stationRunPos.StationName}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             station.SetState(DataStation.Status.Run);
@@ -153,7 +148,6 @@ namespace Automation
             if (posItems == null)
             {
                 MarkAlarm(evt, $"工站点位不存在:{stationRunPos.PosName}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 station.SetState(DataStation.Status.NotReady);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
@@ -178,7 +172,6 @@ namespace Automation
                             if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                             {
                                 MarkAlarm(evt, $"工站：{stationRunPos.Name} {cardNum}号卡{axisNum}号轴配置不存在");
-                                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 throw CreateAlarmException(evt, evt?.alarmMsg);
                             }
@@ -241,7 +234,6 @@ namespace Automation
                         if (time <= 0)
                         {
                             MarkAlarm(evt, $"{stationRunPos.Name}超时配置无效");
-                            Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
                             throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
@@ -254,7 +246,6 @@ namespace Automation
                             if (stopwatch.ElapsedMilliseconds > time)
                             {
                                 MarkAlarm(evt, stationRunPos.Name + "运动超时");
-                                Logger?.Log(stationRunPos.Name + "运动超时！", LogLevel.Error);
                                 station.SetState(DataStation.Status.NotReady);
                                 throw CreateAlarmException(evt, evt?.alarmMsg);
                             }
@@ -281,13 +272,11 @@ namespace Automation
                                 if (!Context.CardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
                                 {
                                     MarkAlarm(evt, $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在");
-                                    Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                     throw CreateAlarmException(evt, evt?.alarmMsg);
                                 }
                                 if (((Context.Motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - TargetPos[i])) > 0.01)
                                 {
                                     MarkAlarm(evt, $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位");
-                                    Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                     throw CreateAlarmException(evt, evt?.alarmMsg);
                                 }
                             }
@@ -302,19 +291,16 @@ namespace Automation
             if (createTray == null)
             {
                 MarkAlarm(evt, "创建料盘参数为空");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (Context.Stations == null)
             {
                 MarkAlarm(evt, "工站列表为空");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (string.IsNullOrWhiteSpace(createTray.StationName))
             {
                 MarkAlarm(evt, "工站名称为空");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -322,19 +308,16 @@ namespace Automation
             if (station == null)
             {
                 MarkAlarm(evt, $"找不到工站:{createTray.StationName}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (createTray.RowCount <= 0 || createTray.ColCount <= 0)
             {
                 MarkAlarm(evt, $"料盘行列数无效:行{createTray.RowCount},列{createTray.ColCount}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (createTray.TrayId < 0)
             {
                 MarkAlarm(evt, $"料盘ID无效:{createTray.TrayId}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -344,14 +327,12 @@ namespace Automation
                 || string.IsNullOrWhiteSpace(createTray.PY2))
             {
                 MarkAlarm(evt, "料盘格点名称未完整设置");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
             if (station.ListDataPos == null || station.ListDataPos.Count == 0)
             {
                 MarkAlarm(evt, $"工站点位列表为空:{createTray.StationName}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -363,7 +344,6 @@ namespace Automation
             if (px1 == null || px2 == null || py1 == null || py2 == null)
             {
                 MarkAlarm(evt, $"料盘参考点不存在:左上={createTray.PX1},右上={createTray.PX2},左下={createTray.PY1},右下={createTray.PY2}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -374,7 +354,6 @@ namespace Automation
             if (px1Values.Count != 6 || px2Values.Count != 6 || py1Values.Count != 6 || py2Values.Count != 6)
             {
                 MarkAlarm(evt, "料盘参考点轴数量异常");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -397,19 +376,16 @@ namespace Automation
             catch (OverflowException)
             {
                 MarkAlarm(evt, "料盘点位数量溢出");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (totalCount <= 0)
             {
                 MarkAlarm(evt, $"料盘点位数量无效:{totalCount}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (Context.TrayPointStore == null)
             {
                 MarkAlarm(evt, "料盘缓存未初始化");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -465,7 +441,6 @@ namespace Automation
             if (!Context.TrayPointStore.TrySave(grid, out string cacheError))
             {
                 MarkAlarm(evt, $"料盘缓存失败:{cacheError}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -477,25 +452,21 @@ namespace Automation
             if (trayRunPos == null)
             {
                 MarkAlarm(evt, "走料盘点参数为空");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (Context.Stations == null)
             {
                 MarkAlarm(evt, "工站列表为空");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (string.IsNullOrWhiteSpace(trayRunPos.StationName))
             {
                 MarkAlarm(evt, "工站名称为空");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (Context.TrayPointStore == null)
             {
                 MarkAlarm(evt, "料盘缓存未初始化");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -562,13 +533,11 @@ namespace Automation
             if (trayId < 0)
             {
                 MarkAlarm(evt, $"料盘号无效:{trayId}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (trayPos <= 0)
             {
                 MarkAlarm(evt, $"料盘位置无效:{trayPos}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -576,19 +545,16 @@ namespace Automation
             if (station == null)
             {
                 MarkAlarm(evt, $"找不到工站:{trayRunPos.StationName}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (!Context.TrayPointStore.TryGet(trayRunPos.StationName, trayId, out TrayPointGrid grid) || grid == null)
             {
                 MarkAlarm(evt, $"料盘缓存不存在:工站{trayRunPos.StationName},料盘号{trayId}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (grid.Points == null || grid.Points.Count == 0)
             {
                 MarkAlarm(evt, $"料盘点位为空:工站{trayRunPos.StationName},料盘号{trayId}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             bool hasTarget = false;
@@ -605,14 +571,12 @@ namespace Automation
             if (!hasTarget)
             {
                 MarkAlarm(evt, $"料盘位置超出范围:{trayPos}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
             if (Context.Motion == null || Context.CardStore == null)
             {
                 MarkAlarm(evt, "运动控制未初始化");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -630,7 +594,6 @@ namespace Automation
                     if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                     {
                         MarkAlarm(evt, $"工站：{trayRunPos.Name} {cardNum}号卡{axisNum}号轴配置不存在");
-                        Logger?.Log(evt.alarmMsg, LogLevel.Error);
                         station.SetState(DataStation.Status.NotReady);
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
@@ -657,7 +620,6 @@ namespace Automation
                     if (stopwatch.ElapsedMilliseconds > timeout)
                     {
                         MarkAlarm(evt, trayRunPos.Name + "运动超时");
-                        Logger?.Log(trayRunPos.Name + "运动超时！", LogLevel.Error);
                         station.SetState(DataStation.Status.NotReady);
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
@@ -1090,7 +1052,6 @@ namespace Automation
             if (station == null)
             {
                 MarkAlarm(evt, $"找不到工站:{stationRunRel.StationName}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             station.SetState(DataStation.Status.Run);
@@ -1116,7 +1077,6 @@ namespace Automation
                         if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                         {
                             MarkAlarm(evt, $"工站：{stationRunRel.Name} {cardNum}号卡{axisNum}号轴配置不存在");
-                            Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
                             throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
@@ -1166,7 +1126,6 @@ namespace Automation
                     if (time <= 0)
                     {
                         MarkAlarm(evt, $"{stationRunRel.Name}超时配置无效");
-                        Logger?.Log(evt.alarmMsg, LogLevel.Error);
                         station.SetState(DataStation.Status.NotReady);
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
@@ -1177,7 +1136,6 @@ namespace Automation
                         if (stopwatch.ElapsedMilliseconds > time)
                         {
                             MarkAlarm(evt, stationRunRel.Name + "运动超时");
-                            Logger?.Log(stationRunRel.Name + "运动超时！", LogLevel.Error);
                             station.SetState(DataStation.Status.NotReady);
                             throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
@@ -1204,13 +1162,11 @@ namespace Automation
                             if (!Context.CardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
                             {
                                 MarkAlarm(evt, $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在");
-                                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 throw CreateAlarmException(evt, evt?.alarmMsg);
                             }
                             if (((Context.Motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - TargetPos[i])) > 0.01)
                             {
                                 MarkAlarm(evt, $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位");
-                                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 throw CreateAlarmException(evt, evt?.alarmMsg);
                             }
                         }
@@ -1235,7 +1191,6 @@ namespace Automation
             if (station == null)
             {
                 MarkAlarm(evt, $"找不到工站:{setStationVel.StationName}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             double Vel = 0;
@@ -1258,7 +1213,6 @@ namespace Automation
                             if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                             {
                                 MarkAlarm(evt, $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在");
-                                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                                 throw CreateAlarmException(evt, evt?.alarmMsg);
                             }
                             axisInfo.SpeedRun = Vel;
@@ -1273,7 +1227,6 @@ namespace Automation
                     if (axisInfo == null)
                     {
                         MarkAlarm(evt, $"工站：{setStationVel.StationName} 轴配置不存在");
-                        Logger?.Log(evt.alarmMsg, LogLevel.Error);
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     int cardNum = int.Parse(axisInfo.CardNum);
@@ -1281,7 +1234,6 @@ namespace Automation
                     if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisConfig))
                     {
                         MarkAlarm(evt, $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在");
-                        Logger?.Log(evt.alarmMsg, LogLevel.Error);
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     axisConfig.SpeedRun = Vel;
@@ -1297,7 +1249,6 @@ namespace Automation
             if (station == null)
             {
                 MarkAlarm(evt, $"找不到工站:{stationStop.StationName}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (stationStop.isAllStop)
@@ -1333,7 +1284,6 @@ namespace Automation
             if (station == null)
             {
                 MarkAlarm(evt, $"找不到工站:{waitStationStop.StationName}");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             station.SetState(DataStation.Status.Run);
@@ -1361,7 +1311,6 @@ namespace Automation
             if (time <= 0)
             {
                 MarkAlarm(evt, $"{waitStationStop.Name}超时配置无效");
-                Logger?.Log(evt.alarmMsg, LogLevel.Error);
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             while (evt.CancellationToken.IsCancellationRequested == false
@@ -1373,7 +1322,6 @@ namespace Automation
                 if (stopwatch.ElapsedMilliseconds > time)
                 {
                     MarkAlarm(evt, waitStationStop.Name + "等待超时");
-                    Logger?.Log(waitStationStop.Name + "等待超时！", LogLevel.Error);
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 for (int i = 0; i < cardNums.Count; i++)
@@ -1383,7 +1331,6 @@ namespace Automation
                         if (!Context.CardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
                         {
                             MarkAlarm(evt, $"工站：{waitStationStop.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在");
-                            Logger?.Log(evt.alarmMsg, LogLevel.Error);
                             throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
                         if (Context.Motion.HomeStatus(cardNums[i], axisNums[i]) && axisInfo.GetState() == Axis.Status.Ready)
@@ -1447,11 +1394,12 @@ namespace Automation
         private void ReportHomeAlarm(ProcHandle evt, string message, bool stopOnAlarm)
         {
             MarkAlarm(evt, message);
-            Logger?.Log(message, LogLevel.Error);
             if (stopOnAlarm && evt != null)
             {
                 HandleAlarm(null, evt);
+                return;
             }
+            Logger?.Log(message, LogLevel.Error);
         }
 
         private void HomeStationBySeq(int dataStationIndex, ProcHandle evt, bool stopOnAlarm)

@@ -52,6 +52,7 @@
             this.Others = new System.Windows.Forms.ToolStripMenuItem();
             this.CProgramCopy = new System.Windows.Forms.ToolStripMenuItem();
             this.CProgramPaste = new System.Windows.Forms.ToolStripMenuItem();
+            this.separatorStartOps = new System.Windows.Forms.ToolStripSeparator();
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).BeginInit();
             this.contextMenuStrip2.SuspendLayout();
             this.SuspendLayout();
@@ -150,7 +151,6 @@
             // 
             this.contextMenuStrip2.ImageScalingSize = new System.Drawing.Size(20, 20);
             this.contextMenuStrip2.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.SetStartOps,
             this.Add,
             this.Modify,
             this.Delete,
@@ -158,7 +158,9 @@
             this.Enable,
             this.copy,
             this.paste,
-            this.Others});
+            this.Others,
+            this.separatorStartOps,
+            this.SetStartOps});
             this.contextMenuStrip2.Name = "contextMenuStrip1";
             this.contextMenuStrip2.Size = new System.Drawing.Size(181, 246);
             // 
@@ -218,6 +220,11 @@
             this.SetStartOps.Text = "设为启动点";
             this.SetStartOps.Click += new System.EventHandler(this.SetStartOps_Click);
             // 
+            // separatorStartOps
+            // 
+            this.separatorStartOps.Name = "separatorStartOps";
+            this.separatorStartOps.Size = new System.Drawing.Size(177, 6);
+            // 
             // Others
             // 
             this.Others.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
@@ -276,5 +283,6 @@
         private System.Windows.Forms.ToolStripMenuItem Others;
         private System.Windows.Forms.ToolStripMenuItem CProgramCopy;
         private System.Windows.Forms.ToolStripMenuItem CProgramPaste;
+        private System.Windows.Forms.ToolStripSeparator separatorStartOps;
     }
 }
