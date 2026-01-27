@@ -149,12 +149,6 @@ namespace Automation
             treeView1.BeginUpdate();
             treeView1.Nodes.Clear();
 
-            TreeNode rootNode = new TreeNode("结构体")
-            {
-                Tag = new DataStructNodeTag { NodeType = DataStructNodeType.Root }
-            };
-            treeView1.Nodes.Add(rootNode);
-
             List<DataStruct> snapshot = SF.dataStructStore.GetSnapshot();
             if (snapshot != null)
             {
@@ -162,11 +156,10 @@ namespace Automation
                 {
                     DataStruct dataStruct = snapshot[i];
                     TreeNode structNode = BuildStructNode(i, dataStruct);
-                    rootNode.Nodes.Add(structNode);
+                    treeView1.Nodes.Add(structNode);
                 }
             }
 
-            rootNode.Expand();
             treeView1.EndUpdate();
         }
 
@@ -352,10 +345,6 @@ namespace Automation
         private void menuCollapseAll_Click(object sender, EventArgs e)
         {
             treeView1.CollapseAll();
-            if (treeView1.Nodes.Count > 0)
-            {
-                treeView1.Nodes[0].Expand();
-            }
         }
 
         private void menuCopy_Click(object sender, EventArgs e)
@@ -1054,16 +1043,11 @@ namespace Automation
 
         private TreeNode GetStructNode(int structIndex)
         {
-            if (treeView1.Nodes.Count == 0)
+            if (structIndex < 0 || structIndex >= treeView1.Nodes.Count)
             {
                 return null;
             }
-            TreeNode root = treeView1.Nodes[0];
-            if (structIndex < 0 || structIndex >= root.Nodes.Count)
-            {
-                return null;
-            }
-            return root.Nodes[structIndex];
+            return treeView1.Nodes[structIndex];
         }
 
         private void UpdateItemNodeTexts(TreeNode structNode, DataStruct dataStruct, int startIndex)
