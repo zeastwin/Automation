@@ -130,10 +130,14 @@ namespace Automation
                 SF.frmToolBar.btnIOMonitor.Visible = false;
                 SF.frmIO.StopIOMonitor();
                 SF.frmToolBar.btnIOMonitor.Text = "IO监视";
-                if(SF.isAddOps)
+                if (SF.isAddOps)
+                {
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
+                }
                 else
-                SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
+                {
+                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
+                }
             }
         }
 
