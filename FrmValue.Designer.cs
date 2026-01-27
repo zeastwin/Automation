@@ -437,6 +437,7 @@
             this.Note.MinimumWidth = 6;
             this.Note.Name = "Note";
             this.Note.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.Note.HeaderCell.Style.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
             this.Note.Width = 1000;
             // 
             // panelStructHost
