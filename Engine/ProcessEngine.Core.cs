@@ -864,6 +864,19 @@ namespace Automation
             ApplyAlarmDecision(operation, evt, decision);
         }
 
+        private void RaiseAlarmState(ProcHandle evt)
+        {
+            if (evt == null)
+            {
+                return;
+            }
+            evt.State = ProcRunState.Alarming;
+            evt.isBreakpoint = false;
+            evt.Control?.SetPaused();
+            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+            Logger?.Log($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum} {evt.alarmMsg}", LogLevel.Error);
+        }
+
         private AlarmDecision ResolveAlarmDecision(OperationType operation, ProcHandle evt)
         {
             if (operation == null)
@@ -1038,6 +1051,7 @@ namespace Automation
                     if (!TryExecuteGoto(operation.Goto1, evt, out string goto1Error))
                     {
                         MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto1Error : $"{evt.alarmMsg}; {goto1Error}");
+                        RaiseAlarmState(evt);
                     }
                     break;
                 case AlarmDecision.Goto2:
@@ -1045,6 +1059,7 @@ namespace Automation
                     if (!TryExecuteGoto(operation.Goto2, evt, out string goto2Error))
                     {
                         MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto2Error : $"{evt.alarmMsg}; {goto2Error}");
+                        RaiseAlarmState(evt);
                     }
                     break;
                 case AlarmDecision.Goto3:
@@ -1052,6 +1067,7 @@ namespace Automation
                     if (!TryExecuteGoto(operation.Goto3, evt, out string goto3Error))
                     {
                         MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto3Error : $"{evt.alarmMsg}; {goto3Error}");
+                        RaiseAlarmState(evt);
                     }
                     break;
             }
