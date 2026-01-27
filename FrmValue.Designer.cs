@@ -45,6 +45,7 @@
             this.btnCopy = new System.Windows.Forms.Button();
             this.btnPaste = new System.Windows.Forms.Button();
             this.btnClearData = new System.Windows.Forms.Button();
+            this.splitContainerMain = new System.Windows.Forms.SplitContainer();
             this.panelCommon = new System.Windows.Forms.Panel();
             this.listCommon = new System.Windows.Forms.ListBox();
             this.labelCommon = new System.Windows.Forms.Label();
@@ -54,7 +55,12 @@
             this.type = new System.Windows.Forms.DataGridViewComboBoxColumn();
             this.value = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.Note = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.panelStructHost = new System.Windows.Forms.Panel();
             this.panel1.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.splitContainerMain)).BeginInit();
+            this.splitContainerMain.Panel1.SuspendLayout();
+            this.splitContainerMain.Panel2.SuspendLayout();
+            this.splitContainerMain.SuspendLayout();
             this.panelCommon.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dgvValue)).BeginInit();
             this.SuspendLayout();
@@ -286,13 +292,35 @@
             this.btnClearData.UseVisualStyleBackColor = false;
             this.btnClearData.Click += new System.EventHandler(this.btnClearData_Click);
             // 
+            // splitContainerMain
+            // 
+            this.splitContainerMain.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.splitContainerMain.Location = new System.Drawing.Point(0, 48);
+            this.splitContainerMain.Name = "splitContainerMain";
+            this.splitContainerMain.Orientation = System.Windows.Forms.Orientation.Vertical;
+            // 
+            // splitContainerMain.Panel1
+            // 
+            this.splitContainerMain.Panel1.Controls.Add(this.dgvValue);
+            this.splitContainerMain.Panel1.Controls.Add(this.panelCommon);
+            this.splitContainerMain.Panel1MinSize = 600;
+            // 
+            // splitContainerMain.Panel2
+            // 
+            this.splitContainerMain.Panel2.Controls.Add(this.panelStructHost);
+            this.splitContainerMain.Panel2MinSize = 240;
+            this.splitContainerMain.Size = new System.Drawing.Size(1760, 812);
+            this.splitContainerMain.SplitterDistance = 1320;
+            this.splitContainerMain.SplitterWidth = 6;
+            this.splitContainerMain.TabIndex = 6;
+            // 
             // panelCommon
             // 
             this.panelCommon.BackColor = System.Drawing.SystemColors.ControlLightLight;
             this.panelCommon.Controls.Add(this.listCommon);
             this.panelCommon.Controls.Add(this.labelCommon);
             this.panelCommon.Dock = System.Windows.Forms.DockStyle.Left;
-            this.panelCommon.Location = new System.Drawing.Point(0, 48);
+            this.panelCommon.Location = new System.Drawing.Point(0, 0);
             this.panelCommon.Name = "panelCommon";
             this.panelCommon.Size = new System.Drawing.Size(240, 812);
             this.panelCommon.TabIndex = 5;
@@ -337,13 +365,13 @@
             this.value,
             this.Note});
             this.dgvValue.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.dgvValue.Location = new System.Drawing.Point(240, 48);
+            this.dgvValue.Location = new System.Drawing.Point(240, 0);
             this.dgvValue.Name = "dgvValue";
             this.dgvValue.RowHeadersVisible = false;
             this.dgvValue.RowHeadersWidth = 20;
             this.dgvValue.RowTemplate.Height = 28;
             this.dgvValue.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
-            this.dgvValue.Size = new System.Drawing.Size(1200, 812);
+            this.dgvValue.Size = new System.Drawing.Size(1080, 812);
             this.dgvValue.TabIndex = 4;
             this.dgvValue.CellEndEdit += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvValue_CellEndEdit);
             this.dgvValue.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.dgvValue_CellFormatting);
@@ -355,7 +383,7 @@
             // 
             dataGridViewCellStyle1.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
             this.index.DefaultCellStyle = dataGridViewCellStyle1;
-            this.index.FillWeight = 25F;
+            this.index.FillWeight = 18F;
             this.index.HeaderText = "编号";
             this.index.MinimumWidth = 60;
             this.index.Name = "index";
@@ -399,25 +427,36 @@
             this.Note.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
             dataGridViewCellStyle5.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
             this.Note.DefaultCellStyle = dataGridViewCellStyle5;
-            this.Note.FillWeight = 126.5467F;
+            this.Note.FillWeight = 90F;
             this.Note.HeaderText = "备注";
             this.Note.MinimumWidth = 6;
             this.Note.Name = "Note";
             this.Note.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            // 
+            // panelStructHost
+            // 
+            this.panelStructHost.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.panelStructHost.Location = new System.Drawing.Point(0, 0);
+            this.panelStructHost.Name = "panelStructHost";
+            this.panelStructHost.Size = new System.Drawing.Size(434, 812);
+            this.panelStructHost.TabIndex = 0;
             // 
             // FrmValue
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 14F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(1760, 860);
-            this.Controls.Add(this.dgvValue);
-            this.Controls.Add(this.panelCommon);
+            this.Controls.Add(this.splitContainerMain);
             this.Controls.Add(this.panel1);
             this.Name = "FrmValue";
             this.Text = "变量表";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.FrmValue_FormClosing);
             this.Load += new System.EventHandler(this.FrmValue_Load);
             this.panel1.ResumeLayout(false);
+            this.splitContainerMain.Panel1.ResumeLayout(false);
+            this.splitContainerMain.Panel2.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.splitContainerMain)).EndInit();
+            this.splitContainerMain.ResumeLayout(false);
             this.panelCommon.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.dgvValue)).EndInit();
             this.ResumeLayout(false);
@@ -438,9 +477,11 @@
         public System.Windows.Forms.Button btnClearData;
         public System.Windows.Forms.Button btnSearch;
         public System.Windows.Forms.DataGridView dgvValue;
+        private System.Windows.Forms.SplitContainer splitContainerMain;
         private System.Windows.Forms.Panel panelCommon;
         private System.Windows.Forms.ListBox listCommon;
         private System.Windows.Forms.Label labelCommon;
+        private System.Windows.Forms.Panel panelStructHost;
         private System.Windows.Forms.DataGridViewTextBoxColumn index;
         private System.Windows.Forms.DataGridViewTextBoxColumn name;
         private System.Windows.Forms.DataGridViewComboBoxColumn type;

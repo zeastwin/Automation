@@ -34,7 +34,6 @@
             this.communication_Page = new System.Windows.Forms.Button();
             this.panel1 = new System.Windows.Forms.Panel();
             this.AI_Page = new System.Windows.Forms.Button();
-            this.StructData_Page = new System.Windows.Forms.Button();
             this.Card_Page = new System.Windows.Forms.Button();
             this.valueDebug_Page = new System.Windows.Forms.Button();
             this.value_Page = new System.Windows.Forms.Button();
@@ -120,7 +119,6 @@
             // panel1
             // 
             this.panel1.Controls.Add(this.AI_Page);
-            this.panel1.Controls.Add(this.StructData_Page);
             this.panel1.Controls.Add(this.Card_Page);
             this.panel1.Controls.Add(this.valueDebug_Page);
             this.panel1.Controls.Add(this.value_Page);
@@ -154,25 +152,6 @@
             this.AI_Page.Text = "AI";
             this.AI_Page.UseVisualStyleBackColor = false;
             this.AI_Page.Click += new System.EventHandler(this.AI_Page_Click);
-            // 
-            // StructData_Page
-            // 
-            this.StructData_Page.BackColor = System.Drawing.Color.DarkSlateGray;
-            this.StructData_Page.Dock = System.Windows.Forms.DockStyle.Left;
-            this.StructData_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.StructData_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.StructData_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
-            this.StructData_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.StructData_Page.Font = new System.Drawing.Font("黑体", 14.75F);
-            this.StructData_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
-            this.StructData_Page.Location = new System.Drawing.Point(1144, 0);
-            this.StructData_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
-            this.StructData_Page.Name = "StructData_Page";
-            this.StructData_Page.Size = new System.Drawing.Size(143, 129);
-            this.StructData_Page.TabIndex = 13;
-            this.StructData_Page.Text = "数据结构";
-            this.StructData_Page.UseVisualStyleBackColor = false;
-            this.StructData_Page.Click += new System.EventHandler(this.StructData_Page_Click);
             // 
             // Card_Page
             // 
@@ -254,7 +233,6 @@
         private System.Windows.Forms.Button Card_Page;
         private System.Windows.Forms.Button valueDebug_Page;
         private System.Windows.Forms.Button value_Page;
-        private System.Windows.Forms.Button StructData_Page;
         private System.Windows.Forms.Button AI_Page;
     }
 }

@@ -186,14 +186,6 @@ namespace Automation
             }
         }
 
-        private void StructData_Page_Click(object sender, EventArgs e)
-        {
-            SF.frmdataStruct.StartPosition = FormStartPosition.CenterScreen;
-            SF.frmdataStruct.Show();
-            SF.frmdataStruct.BringToFront();
-            SF.frmdataStruct.WindowState = FormWindowState.Normal;
-        }
-
         private void communication_Page_Click(object sender, EventArgs e)
         {
             SF.frmComunication.StartPosition = FormStartPosition.CenterScreen;

@@ -158,6 +158,7 @@ namespace Automation
         private ValueClipboardItem clipboardItem;
         private bool isValueStoreHooked;
         private ValueMonitorForm monitorForm;
+        private bool isStructViewAttached;
 
         public FrmValue()
         {
@@ -246,6 +247,53 @@ namespace Automation
         private void FrmValue_Load(object sender, EventArgs e)
         {
             EnsureValueStoreHooked();
+            AttachDataStructView();
+            SetDefaultStructPanelRatio();
+        }
+
+        private void AttachDataStructView()
+        {
+            if (isStructViewAttached || panelStructHost == null)
+            {
+                return;
+            }
+            if (SF.frmdataStruct == null || SF.frmdataStruct.IsDisposed)
+            {
+                return;
+            }
+
+            SF.frmdataStruct.TopLevel = false;
+            SF.frmdataStruct.FormBorderStyle = FormBorderStyle.None;
+            SF.frmdataStruct.Dock = DockStyle.Fill;
+
+            if (!panelStructHost.Controls.Contains(SF.frmdataStruct))
+            {
+                panelStructHost.Controls.Add(SF.frmdataStruct);
+            }
+
+            SF.frmdataStruct.Show();
+            SF.frmdataStruct.BringToFront();
+            isStructViewAttached = true;
+        }
+
+        private void SetDefaultStructPanelRatio()
+        {
+            if (splitContainerMain == null || splitContainerMain.Width <= 0)
+            {
+                return;
+            }
+            int targetLeftWidth = (int)(splitContainerMain.Width * 0.75);
+            int minLeftWidth = splitContainerMain.Panel1MinSize;
+            int maxLeftWidth = splitContainerMain.Width - splitContainerMain.Panel2MinSize - splitContainerMain.SplitterWidth;
+            if (targetLeftWidth < minLeftWidth)
+            {
+                targetLeftWidth = minLeftWidth;
+            }
+            if (targetLeftWidth > maxLeftWidth)
+            {
+                targetLeftWidth = maxLeftWidth;
+            }
+            splitContainerMain.SplitterDistance = targetLeftWidth;
         }
 
         private void dgvValue_CellValueChanged(object sender, DataGridViewCellEventArgs e)
