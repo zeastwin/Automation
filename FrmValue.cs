@@ -728,7 +728,14 @@ namespace Automation
 
         private void dgvValue_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {
-            dgvValue[e.ColumnIndex, e.RowIndex].Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            if (e.ColumnIndex == 4)
+            {
+                dgvValue[e.ColumnIndex, e.RowIndex].Style.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            }
+            else
+            {
+                dgvValue[e.ColumnIndex, e.RowIndex].Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            }
 
             if (e.ColumnIndex == 0 && e.RowIndex >= 0)
             {
