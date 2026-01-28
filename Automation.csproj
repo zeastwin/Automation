@@ -109,7 +109,9 @@
     <Compile Include="AIFlow\\Compiler\\AiFlowCompiler.cs" />
     <Compile Include="AIFlow\\Contracts\\AiFlowModels.cs" />
     <Compile Include="Engine\ValueRef.cs" />
+    <Compile Include="Stores\UserLoginStore.cs" />
     <Compile Include="Stores\\AlarmInfoStore.cs" />
+    <Compile Include="Stores\\AccountStore.cs" />
     <Compile Include="Stores\\CardConfigStore.cs" />
     <Compile Include="CustomFunc.cs" />
     <Compile Include="Engine\\ProcessEngine.Core.cs" />
@@ -134,6 +136,9 @@
     <Compile Include="Stores\\ProcessEngineStore.cs" />
     <Compile Include="Stores\\TrayPointStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
+    <Compile Include="Stores\\UserContextStore.cs" />
+    <Compile Include="Security\\PermissionCatalog.cs" />
+    <Compile Include="Security\\UserAccount.cs" />
     <Compile Include="Runtime\\AppConfigStorage.cs" />
     <Compile Include="FrmAppConfig.cs">
       <SubType>Form</SubType>
@@ -193,6 +198,15 @@
       <DependentUpon>FrmIODebug.cs</DependentUpon>
     </Compile>
     <Compile Include="FrmIODebugConfig.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmLogin.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmChangePassword.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmAccountManager.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FrmMain.cs">

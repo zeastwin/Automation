@@ -13,10 +13,15 @@ namespace Automation
                 AI_Page.Visible = false;
                 AI_Page.Enabled = false;
             }
+            ApplyPermissions();
         }
 
         private void value_Page_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.ValueAccess, "进入变量模块"))
+            {
+                return;
+            }
            // SF.frmValue.Owner = this;
             SF.frmValue.StartPosition = FormStartPosition.CenterScreen;
             SF.frmValue.Show();
@@ -26,6 +31,10 @@ namespace Automation
 
         private void Card_Page_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.CardConfigAccess, "进入控制卡/IO配置"))
+            {
+                return;
+            }
             if (SF.curPage != 5)
             {
                 SF.curPage = 5;
@@ -72,6 +81,7 @@ namespace Automation
                 SF.frmToolBar.btnLocate.Visible = false;
                 SF.frmToolBar.btnSearch.Visible = false;
                 SF.frmToolBar.btnIOMonitor.Visible = true;
+                SF.frmToolBar.btnIOMonitor.Enabled = SF.HasPermission(PermissionKeys.IOMonitorUse);
                 SF.frmToolBar.btnIOMonitor.Text = SF.frmIO.IsIOMonitoring ? "停止监视" : "IO监视";
             }
         }
@@ -79,6 +89,10 @@ namespace Automation
 
         private void process_Page_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "进入流程模块"))
+            {
+                return;
+            }
             if (SF.curPage != 0)
             {
                 SF.curPage = 0;
@@ -120,6 +134,8 @@ namespace Automation
                     SF.frmValueDebug.Visible = false;
                 }
 
+                bool canRun = SF.HasPermission(PermissionKeys.ProcessRun);
+                bool canSearch = SF.HasPermission(PermissionKeys.ProcessSearch);
                 SF.frmToolBar.btnPause.Visible = true;
                 SF.frmToolBar.btnStop.Visible = true;
                 SF.frmToolBar.btnStopAll.Visible = true;
@@ -127,6 +143,14 @@ namespace Automation
                 SF.frmToolBar.btnAlarm.Visible = true;
                 SF.frmToolBar.btnLocate.Visible = true;
                 SF.frmToolBar.btnSearch.Visible = true;
+
+                SF.frmToolBar.btnPause.Enabled = canRun;
+                SF.frmToolBar.btnStop.Enabled = true;
+                SF.frmToolBar.btnStopAll.Enabled = true;
+                SF.frmToolBar.SingleRun.Enabled = canRun;
+                SF.frmToolBar.btnLocate.Enabled = canSearch;
+                SF.frmToolBar.btnSearch.Enabled = canSearch;
+                SF.frmToolBar.btnAlarm.Enabled = SF.HasPermission(PermissionKeys.AlarmConfigAccess);
                 SF.frmToolBar.btnIOMonitor.Visible = false;
                 SF.frmIO.StopIOMonitor();
                 SF.frmToolBar.btnIOMonitor.Text = "IO监视";
@@ -143,6 +167,10 @@ namespace Automation
 
         private void station_Page_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.StationAccess, "进入工站模块"))
+            {
+                return;
+            }
             if (SF.curPage != 1)
             {
                 SF.curPage = 1;
@@ -192,6 +220,10 @@ namespace Automation
 
         private void communication_Page_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.CommunicationAccess, "进入通讯模块"))
+            {
+                return;
+            }
             SF.frmComunication.StartPosition = FormStartPosition.CenterScreen;
             SF.frmComunication.Show();
             SF.frmComunication.BringToFront();
@@ -202,6 +234,10 @@ namespace Automation
         {
             if (SF.curPage != 2)
             {
+                if (!SF.EnsurePermission(PermissionKeys.IODebugAccess, "进入IO调试"))
+                {
+                    return;
+                }
                 SF.frmIODebug.StartPosition = FormStartPosition.CenterScreen;
                 SF.frmIODebug.Show();
                 SF.frmIODebug.BringToFront();
@@ -215,6 +251,10 @@ namespace Automation
         {
             if (SF.curPage != 6)
             {
+                if (!SF.EnsurePermission(PermissionKeys.ValueDebugAccess, "进入变量调试"))
+                {
+                    return;
+                }
                 SF.curPage = 6;
                 if (!SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
                 {
@@ -256,6 +296,10 @@ namespace Automation
 
         private void AI_Page_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.AiAccess, "进入AI助手"))
+            {
+                return;
+            }
             if (!SF.AiFlowEnabled)
             {
                 MessageBox.Show("AI功能已禁用。");
@@ -273,6 +317,10 @@ namespace Automation
 
         private void Plc_Page_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.PlcAccess, "进入PLC模块"))
+            {
+                return;
+            }
             if (SF.frmPlc == null || SF.frmPlc.IsDisposed)
             {
                 SF.frmPlc = new FrmPlc();
@@ -281,6 +329,29 @@ namespace Automation
             SF.frmPlc.Show();
             SF.frmPlc.BringToFront();
             SF.frmPlc.WindowState = FormWindowState.Normal;
+        }
+
+        public void ApplyPermissions()
+        {
+            process_Page.Visible = true;
+            station_Page.Visible = true;
+            Io_Page.Visible = true;
+            communication_Page.Visible = true;
+            value_Page.Visible = true;
+            valueDebug_Page.Visible = true;
+            Card_Page.Visible = true;
+            AI_Page.Visible = SF.AiFlowEnabled;
+            Plc_Page.Visible = true;
+
+            process_Page.Enabled = SF.HasPermission(PermissionKeys.ProcessAccess);
+            station_Page.Enabled = SF.HasPermission(PermissionKeys.StationAccess);
+            Io_Page.Enabled = SF.HasPermission(PermissionKeys.IODebugAccess);
+            communication_Page.Enabled = SF.HasPermission(PermissionKeys.CommunicationAccess);
+            value_Page.Enabled = SF.HasPermission(PermissionKeys.ValueAccess);
+            valueDebug_Page.Enabled = SF.HasPermission(PermissionKeys.ValueDebugAccess);
+            Card_Page.Enabled = SF.HasPermission(PermissionKeys.CardConfigAccess);
+            AI_Page.Enabled = SF.AiFlowEnabled && SF.HasPermission(PermissionKeys.AiAccess);
+            Plc_Page.Enabled = SF.HasPermission(PermissionKeys.PlcAccess);
         }
 
     }

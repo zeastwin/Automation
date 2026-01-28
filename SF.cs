@@ -52,6 +52,13 @@ namespace Automation
         public static IProcessEngineStore procStore;
         public static CommunicationHub comm;
         public static PlcConfigStore plcStore;
+        public static AccountStore accountStore;
+        public static UserSession userSession;
+        public static FrmAccountManager frmAccountManager;
+        public static IUserContextStore userContextStore;
+        public static IUserLoginStore userLoginStore;
+
+        private static bool securityLocked;
 
 
         public static bool AiFlowEnabled = true;
@@ -85,9 +92,153 @@ namespace Automation
             }
         }
 
+        public static bool SecurityLocked => securityLocked;
+
+        public static void SetSecurityLock(string reason)
+        {
+            securityLocked = true;
+            if (!string.IsNullOrWhiteSpace(reason))
+            {
+                DR?.Logger?.Log(reason, LogLevel.Error);
+                if (frmInfo != null && !frmInfo.IsDisposed)
+                {
+                    frmInfo.PrintInfo(reason, FrmInfo.Level.Error);
+                }
+            }
+            StopAllProcs(reason);
+            RefreshPermissionUi();
+        }
+
+        public static void ClearSecurityLock()
+        {
+            securityLocked = false;
+            RefreshPermissionUi();
+        }
+
+        public static void SetUserSession(UserSession session)
+        {
+            userSession = session;
+            RefreshPermissionUi();
+            if (mainfrm != null && !mainfrm.IsDisposed)
+            {
+                mainfrm.UpdateTitleWithUser();
+            }
+        }
+
+        public static void RefreshPermissionUi()
+        {
+            Control invoker = mainfrm as Control
+                ?? frmMenu as Control
+                ?? frmToolBar as Control
+                ?? frmValue as Control
+                ?? frmDataGrid as Control;
+            if (invoker != null && !invoker.IsDisposed && invoker.InvokeRequired)
+            {
+                invoker.BeginInvoke((Action)RefreshPermissionUi);
+                return;
+            }
+            if (frmMenu != null && !frmMenu.IsDisposed)
+            {
+                frmMenu.ApplyPermissions();
+            }
+            if (frmToolBar != null && !frmToolBar.IsDisposed)
+            {
+                frmToolBar.ApplyPermissions();
+            }
+            if (frmValue != null && !frmValue.IsDisposed)
+            {
+                frmValue.ApplyPermissions();
+            }
+            if (frmDataGrid != null && !frmDataGrid.IsDisposed)
+            {
+                frmDataGrid.ApplyPermissions();
+            }
+            if (frmAccountManager != null && !frmAccountManager.IsDisposed)
+            {
+                frmAccountManager.ApplyPermissions();
+            }
+        }
+
+        public static bool EnsurePermission(string permissionKey, string actionName)
+        {
+            if (SecurityLocked)
+            {
+                if (userSession != null && userSession.IsRecovery && userSession.HasPermission(permissionKey))
+                {
+                    return true;
+                }
+                MessageBox.Show($"系统处于锁定模式，禁止操作：{actionName}");
+                return false;
+            }
+            if (userSession == null)
+            {
+                string reason = $"未登录，禁止操作：{actionName}";
+                SetSecurityLock(reason);
+                MessageBox.Show(reason);
+                return false;
+            }
+            if (!PermissionCatalog.IsKnownKey(permissionKey))
+            {
+                string reason = $"权限配置异常，禁止操作：{actionName}";
+                SetSecurityLock(reason);
+                MessageBox.Show(reason);
+                return false;
+            }
+            if (!userSession.HasPermission(permissionKey))
+            {
+                MessageBox.Show($"当前账号无权限：{actionName}");
+                return false;
+            }
+            return true;
+        }
+
+        public static bool HasPermission(string permissionKey)
+        {
+            if (SecurityLocked)
+            {
+                return userSession != null && userSession.IsRecovery && userSession.HasPermission(permissionKey);
+            }
+            if (userSession == null)
+            {
+                return false;
+            }
+            if (!PermissionCatalog.IsKnownKey(permissionKey))
+            {
+                SetSecurityLock("权限配置异常，禁止运行。");
+                return false;
+            }
+            return userSession.HasPermission(permissionKey);
+        }
+
+        public static void StopAllProcs(string reason)
+        {
+            if (!string.IsNullOrWhiteSpace(reason))
+            {
+                DR?.Logger?.Log(reason, LogLevel.Error);
+                if (frmInfo != null && !frmInfo.IsDisposed)
+                {
+                    frmInfo.PrintInfo(reason, FrmInfo.Level.Error);
+                }
+            }
+            if (DR == null || frmProc?.procsList == null)
+            {
+                return;
+            }
+            int count = frmProc.procsList.Count;
+            for (int i = 0; i < count; i++)
+            {
+                DR.Stop(i);
+            }
+        }
+
 
         public static bool CanEditProc(int procIndex)
         {
+            if (!HasPermission(PermissionKeys.ProcessEdit))
+            {
+                MessageBox.Show("当前账号无流程编辑权限。");
+                return false;
+            }
             if (procIndex < 0)
             {
                 return true;
@@ -111,6 +262,11 @@ namespace Automation
 
         public static bool CanEditProcStructure()
         {
+            if (!HasPermission(PermissionKeys.ProcessEdit))
+            {
+                MessageBox.Show("当前账号无流程编辑权限。");
+                return false;
+            }
             if (frmProc?.procsList == null)
             {
                 return true;

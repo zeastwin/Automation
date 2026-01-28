@@ -37,6 +37,7 @@ namespace Automation
         public FrmInfo frmInfo = new FrmInfo();
         public FrmPlc frmPlc = new FrmPlc();
         public FrmAiAssistant frmAiAssistant;
+        public FrmAccountManager frmAccountManager = new FrmAccountManager();
         public MotionCtrl motion = new MotionCtrl();
         private EngineSnapshot[] snapshotCache = Array.Empty<EngineSnapshot>();
         private bool[] snapshotDirty = Array.Empty<bool>();
@@ -76,6 +77,7 @@ namespace Automation
                 AxisStateBitGetter = TryGetAxisStateBit
             };
             dataRun = new ProcessEngine(engineContext);
+            dataRun.PermissionChecker = key => SF.HasPermission(key);
             ILogger uiLogger = new FrmInfoLogger(frmInfo);
             ILogger fileLogger = new LocalFileLogger(@"D:\AutomationLogs\ProcessLog");
             dataRun.Logger = new CompositeLogger(uiLogger, fileLogger);
@@ -106,6 +108,7 @@ namespace Automation
             SF.frmSearch4Value = frmSearch4Value;
             SF.frmInfo = frmInfo;
             SF.frmPlc = frmPlc;
+            SF.frmAccountManager = frmAccountManager;
             if (SF.AiFlowEnabled)
             {
                 frmAiAssistant = new FrmAiAssistant();
@@ -126,6 +129,9 @@ namespace Automation
             loadFillForm(state_panel, SF.frmState);
             loadFillForm(panel_Info, SF.frmInfo);
             StartSnapshotTimer();
+            SF.RefreshPermissionUi();
+            UpdateTitleWithUser();
+            Shown += (s, e) => SF.RefreshPermissionUi();
         }
 
         
@@ -160,6 +166,11 @@ namespace Automation
             SF.motion.SetAllAxisSevonOn();
             SF.motion.SetAllAxisEquiv();
             Monitor();
+            if (SF.SecurityLocked)
+            {
+                SF.StopAllProcs("账户系统锁定，禁止自动启动流程。");
+                return;
+            }
             if (SF.frmProc?.procsList != null && SF.frmProc.procsList.Count > 0)
             {
                 for (int i = 0; i < SF.frmProc.procsList.Count; i++)
@@ -240,6 +251,12 @@ namespace Automation
                     }
                 }
             }, token);
+        }
+
+        public void UpdateTitleWithUser()
+        {
+            string userName = SF.userSession?.Account?.UserName;
+            Text = string.IsNullOrWhiteSpace(userName) ? "Automation" : $"Automation - {userName}";
         }
        
         public void ReflshDgv()

@@ -30,10 +30,15 @@ namespace Automation
             btnCancel.Enabled = false;
             btnIOMonitor.Visible = false;
 
+            ApplyPermissions();
         }
 
         private void btnAppConfig_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.AppConfigAccess, "程序设置"))
+            {
+                return;
+            }
             using (FrmAppConfig frm = new FrmAppConfig())
             {
                 frm.ShowDialog(this);
@@ -44,6 +49,10 @@ namespace Automation
         {
             if(SF.curPage == 0)
             {
+                if (!SF.EnsurePermission(PermissionKeys.ProcessEdit, "保存流程"))
+                {
+                    return;
+                }
                 if (SF.frmProc.NewProcNum != -1 && !SF.CanEditProcStructure())
                 {
                     SF.CancelProcEditing();
@@ -150,6 +159,10 @@ namespace Automation
             }
             if (SF.curPage == 5)
             {
+                if (!SF.EnsurePermission(PermissionKeys.CardConfigAccess, "保存控制卡/IO配置"))
+                {
+                    return;
+                }
                 if (SF.frmCard.IsNewCard)
                 {
                     int newCardIndex = SF.cardStore.AddControlCard(SF.frmCard.controlCardTemp);
@@ -322,6 +335,10 @@ namespace Automation
 
         private void button1_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.OpenConfigFolder, "打开程序文件夹"))
+            {
+                return;
+            }
             string path = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) + "\\Config";
             System.Diagnostics.Process.Start("explorer.exe", path);
 
@@ -329,6 +346,10 @@ namespace Automation
         
         private void btnSearch_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.ProcessSearch, "流程查找"))
+            {
+                return;
+            }
             SF.frmSearch.StartPosition = FormStartPosition.CenterScreen;
             SF.frmSearch.Show();
             SF.frmSearch.BringToFront();
@@ -338,6 +359,10 @@ namespace Automation
 
         private void btnIOMonitor_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.IOMonitorUse, "IO监视"))
+            {
+                return;
+            }
             if (SF.frmIO == null)
             {
                 return;
@@ -348,6 +373,10 @@ namespace Automation
 
         private async void btnPause_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.ProcessRun, "流程暂停/继续"))
+            {
+                return;
+            }
             int procIndex = SF.frmProc.SelectedProcNum;
             if (procIndex < 0)
             {
@@ -425,6 +454,10 @@ namespace Automation
 
         private void SingleRun_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.ProcessRun, "流程单步"))
+            {
+                return;
+            }
             int procIndex = SF.frmProc.SelectedProcNum;
             if (procIndex != -1)
             {
@@ -566,6 +599,10 @@ namespace Automation
 
         private void btnAlarm_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.AlarmConfigAccess, "报警配置"))
+            {
+                return;
+            }
             SF.frmAlarmConfig.StartPosition = FormStartPosition.CenterScreen;
             SF.frmAlarmConfig.Show();
             SF.frmAlarmConfig.BringToFront();
@@ -574,6 +611,10 @@ namespace Automation
 
         private void btnLocate_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.ProcessSearch, "流程定位"))
+            {
+                return;
+            }
             int procIndex = SF.frmProc.SelectedProcNum;
             if (procIndex < 0)
             {
@@ -587,6 +628,72 @@ namespace Automation
             SF.frmDataGrid.SelectChildNode(procIndex, snapshot.StepIndex);
             SF.frmDataGrid.ScrollRowToCenter(snapshot.OpIndex);
             SF.frmDataGrid.SetRowColor(snapshot.OpIndex, Color.LightBlue);
+        }
+
+        private void btnAccountManager_Click(object sender, EventArgs e)
+        {
+            if (!SF.EnsurePermission(PermissionKeys.AccountManage, "账户管理"))
+            {
+                return;
+            }
+            if (SF.frmAccountManager == null || SF.frmAccountManager.IsDisposed)
+            {
+                SF.frmAccountManager = new FrmAccountManager();
+            }
+            SF.frmAccountManager.StartPosition = FormStartPosition.CenterScreen;
+            SF.frmAccountManager.Show();
+            SF.frmAccountManager.BringToFront();
+            SF.frmAccountManager.WindowState = FormWindowState.Normal;
+        }
+
+        private void btnUserLogin_Click(object sender, EventArgs e)
+        {
+            if (SF.accountStore == null)
+            {
+                MessageBox.Show("账户系统未就绪。");
+                return;
+            }
+            if (SF.userSession != null)
+            {
+                string currentUser = SF.userSession.Account?.UserName ?? string.Empty;
+                DialogResult result = MessageBox.Show($"当前已登录：{currentUser}，是否切换账号？", "用户登录", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (result != DialogResult.Yes)
+                {
+                    return;
+                }
+            }
+            using (FrmLogin login = new FrmLogin(SF.accountStore))
+            {
+                if (login.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+                SF.SetUserSession(login.Session);
+            }
+        }
+
+
+        public void ApplyPermissions()
+        {
+            bool canSearch = SF.HasPermission(PermissionKeys.ProcessSearch);
+            bool canRun = SF.HasPermission(PermissionKeys.ProcessRun);
+            bool canMonitor = SF.HasPermission(PermissionKeys.IOMonitorUse);
+            bool canAlarm = SF.HasPermission(PermissionKeys.AlarmConfigAccess);
+            bool canAppConfig = SF.HasPermission(PermissionKeys.AppConfigAccess);
+            bool canOpenFolder = SF.HasPermission(PermissionKeys.OpenConfigFolder);
+            bool canAccountManage = SF.HasPermission(PermissionKeys.AccountManage) || (SF.SecurityLocked && SF.userSession?.IsRecovery == true);
+
+            btnSearch.Enabled = canSearch;
+            btnLocate.Enabled = canSearch;
+            btnPause.Enabled = canRun;
+            SingleRun.Enabled = canRun;
+            btnIOMonitor.Enabled = canMonitor;
+            btnAlarm.Enabled = canAlarm;
+            btnAppConfig.Enabled = canAppConfig;
+            button1.Enabled = canOpenFolder;
+            btnAccountManager.Enabled = canAccountManage;
+            btnUserLogin.Visible = true;
+            btnUserLogin.Enabled = true;
         }
     }
 }

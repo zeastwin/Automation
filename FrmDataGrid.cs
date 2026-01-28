@@ -59,6 +59,7 @@ namespace Automation
 
             dataGridView1.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
+            ApplyPermissions();
         }
 
         private void InitContextMenuIcons()
@@ -143,6 +144,19 @@ namespace Automation
                     dataGridView1.Rows[rowIndex].Selected = true;
                 }
             }
+            ApplyPermissions();
+        }
+
+        public void ApplyPermissions()
+        {
+            bool canEdit = SF.HasPermission(PermissionKeys.ProcessEdit);
+            bool canRun = SF.HasPermission(PermissionKeys.ProcessRun);
+            if (Add != null) Add.Enabled = canEdit;
+            if (Modify != null) Modify.Enabled = canEdit;
+            if (Delete != null) Delete.Enabled = canEdit;
+            if (Enable != null) Enable.Enabled = canEdit;
+            if (SetStopPoint != null) SetStopPoint.Enabled = canEdit;
+            if (SetStartOps != null) SetStartOps.Enabled = canRun;
         }
 
         private void contextMenuStrip2_KeyDown(object sender, KeyEventArgs e)
@@ -569,6 +583,10 @@ namespace Automation
 
         private void SetStartOps_Click(object sender, EventArgs e)
         {
+            if (!SF.EnsurePermission(PermissionKeys.ProcessRun, "流程设置启动点"))
+            {
+                return;
+            }
             ProcRunState startState = ProcRunState.SingleStep;
             EngineSnapshot startSnapshot = SF.DR.GetSnapshot(SF.frmProc.SelectedProcNum);
             if (startSnapshot != null && startSnapshot.State == ProcRunState.Paused)

@@ -39,6 +39,8 @@
             this.btnIOMonitor = new System.Windows.Forms.Button();
             this.button1 = new System.Windows.Forms.Button();
             this.btnAppConfig = new System.Windows.Forms.Button();
+            this.btnAccountManager = new System.Windows.Forms.Button();
+            this.btnUserLogin = new System.Windows.Forms.Button();
             this.btnCancel = new System.Windows.Forms.Button();
             this.btnSave = new System.Windows.Forms.Button();
             this.ToolBar_Panel.SuspendLayout();
@@ -56,6 +58,8 @@
             this.ToolBar_Panel.Controls.Add(this.btnIOMonitor);
             this.ToolBar_Panel.Controls.Add(this.button1);
             this.ToolBar_Panel.Controls.Add(this.btnAppConfig);
+            this.ToolBar_Panel.Controls.Add(this.btnAccountManager);
+            this.ToolBar_Panel.Controls.Add(this.btnUserLogin);
             this.ToolBar_Panel.Controls.Add(this.btnCancel);
             this.ToolBar_Panel.Controls.Add(this.btnSave);
             this.ToolBar_Panel.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -252,6 +256,42 @@
             this.btnAppConfig.UseVisualStyleBackColor = false;
             this.btnAppConfig.Click += new System.EventHandler(this.btnAppConfig_Click);
             // 
+            // btnAccountManager
+            // 
+            this.btnAccountManager.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnAccountManager.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnAccountManager.FlatAppearance.BorderSize = 2;
+            this.btnAccountManager.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnAccountManager.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnAccountManager.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnAccountManager.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnAccountManager.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnAccountManager.Location = new System.Drawing.Point(942, 5);
+            this.btnAccountManager.Name = "btnAccountManager";
+            this.btnAccountManager.Size = new System.Drawing.Size(90, 30);
+            this.btnAccountManager.TabIndex = 15;
+            this.btnAccountManager.Text = "账户管理";
+            this.btnAccountManager.UseVisualStyleBackColor = false;
+            this.btnAccountManager.Click += new System.EventHandler(this.btnAccountManager_Click);
+            // 
+            // btnUserLogin
+            // 
+            this.btnUserLogin.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnUserLogin.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnUserLogin.FlatAppearance.BorderSize = 2;
+            this.btnUserLogin.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnUserLogin.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnUserLogin.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnUserLogin.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnUserLogin.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnUserLogin.Location = new System.Drawing.Point(1036, 5);
+            this.btnUserLogin.Name = "btnUserLogin";
+            this.btnUserLogin.Size = new System.Drawing.Size(90, 30);
+            this.btnUserLogin.TabIndex = 16;
+            this.btnUserLogin.Text = "用户";
+            this.btnUserLogin.UseVisualStyleBackColor = false;
+            this.btnUserLogin.Click += new System.EventHandler(this.btnUserLogin_Click);
+            // 
             // btnCancel
             // 
             this.btnCancel.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
@@ -308,6 +348,8 @@
         private System.Windows.Forms.Panel ToolBar_Panel;
         private System.Windows.Forms.Button button1;
         private System.Windows.Forms.Button btnAppConfig;
+        private System.Windows.Forms.Button btnAccountManager;
+        private System.Windows.Forms.Button btnUserLogin;
         public System.Windows.Forms.Button btnSave;
         public System.Windows.Forms.Button btnStop;
         public System.Windows.Forms.Button btnStopAll;

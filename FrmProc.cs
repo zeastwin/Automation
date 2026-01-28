@@ -624,6 +624,10 @@ namespace Automation
         {
             if (SelectedProcNum != -1)
             {
+                if (!SF.EnsurePermission(PermissionKeys.ProcessRun, "启动流程"))
+                {
+                    return;
+                }
                 SF.DR.StartProc(SF.frmProc.procsList[SF.frmProc.SelectedProcNum], SF.frmProc.SelectedProcNum);
             }
         }

@@ -42,6 +42,7 @@ namespace Automation
         public IAlarmHandler AlarmHandler { get; set; }
         public Control UiInvoker { get; set; }
         public ILogger Logger { get; set; }
+        public Func<string, bool> PermissionChecker { get; set; }
         public event Action<EngineSnapshot> SnapshotChanged;
         public int SnapshotThrottleMilliseconds
         {
@@ -278,6 +279,40 @@ namespace Automation
             string normalized = string.IsNullOrWhiteSpace(message) ? "执行失败" : message;
             evt.isAlarm = true;
             evt.alarmMsg = normalized;
+        }
+
+        private bool CheckPermission(string permissionKey, string actionName, ProcHandle evt = null)
+        {
+            if (PermissionChecker == null)
+            {
+                return true;
+            }
+            bool allowed;
+            try
+            {
+                allowed = PermissionChecker(permissionKey);
+            }
+            catch (Exception ex)
+            {
+                string error = $"权限校验异常:{ex.Message}";
+                Logger?.Log(error, LogLevel.Error);
+                if (evt != null)
+                {
+                    MarkAlarm(evt, error);
+                }
+                return false;
+            }
+            if (allowed)
+            {
+                return true;
+            }
+            string message = $"权限不足:{actionName}";
+            Logger?.Log(message, LogLevel.Error);
+            if (evt != null)
+            {
+                MarkAlarm(evt, message);
+            }
+            return false;
         }
         private InvalidOperationException CreateAlarmException(ProcHandle evt, string message, Exception innerException = null)
         {
@@ -627,24 +662,44 @@ namespace Automation
             {
                 return;
             }
+            if (!CheckPermission(PermissionKeys.ProcessRun, "启动流程"))
+            {
+                return;
+            }
             EngineCommand command = EngineCommand.Start(procIndex, proc, stepIndex, opIndex, startState);
             EnqueueCommand(procIndex, command);
         }
         public void Pause(int procIndex)
         {
+            if (!CheckPermission(PermissionKeys.ProcessRun, "暂停流程"))
+            {
+                return;
+            }
             EnqueueCommand(procIndex, EngineCommand.Pause(procIndex));
         }
         public void Resume(int procIndex)
         {
+            if (!CheckPermission(PermissionKeys.ProcessRun, "继续流程"))
+            {
+                return;
+            }
             EnqueueCommand(procIndex, EngineCommand.Resume(procIndex));
         }
         public void Step(int procIndex)
         {
+            if (!CheckPermission(PermissionKeys.ProcessRun, "单步流程"))
+            {
+                return;
+            }
             EnqueueCommand(procIndex, EngineCommand.Step(procIndex));
         }
         public void RunSingleOpOnce(Proc proc, int procIndex, int stepIndex, int opIndex)
         {
             if (proc == null)
+            {
+                return;
+            }
+            if (!CheckPermission(PermissionKeys.ProcessRun, "单步执行指令"))
             {
                 return;
             }
