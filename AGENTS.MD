@@ -19,7 +19,7 @@
 - **配置布局**：`Config/Work/*.json` 存流程；`Config/value.json` 存变量；`Config/card.json`、`Config/IOMap.json`、`Config/DataStruct.json`、`Config/DataStation.json` 定义硬件/IO/数据结构；`Config/Account.json` 存账户权限（加密文本，前缀 `ENC:`）；`Config/MarkPoints.json` 记录标记点。
 - **全局入口**：`SF` 静态类持有所有窗体、运动控制器 `MotionCtrl`、运行器 `ProcessEngine` 以及路径 `workPath`、`ConfigPath`；同时维护账户系统（`accountStore`/`userSession`/`userContextStore`/`userLoginStore`）、安全锁定状态 `SecurityLocked`，UI/运行期均从此处获取依赖。
 
-## 核心概念
+## 核心概念 
 - **流程模型**：`Proc` → `Step` → `OperationType`。通过 `FrmProc`（树）、`FrmDataGrid`（操作列表）、`FrmPropertyGrid`（属性编辑）修改，序列化为 JSON（启用 `TypeNameHandling.All`）。
 - **运行引擎**：`ProcessEngine` 以 `ProcAgent` + 命令队列管理单流程执行，`ProcHandle` 仅在引擎内记录索引/状态，UI 通过 `EngineSnapshot` + `SnapshotChanged` 订阅状态。`RunProc`/`RunStep` 支持暂停、单步、跳转、报警；`ExecuteOperation` 将具体操作派发到对应执行函数。
 - **文件拆分**：引擎内核在 `Engine/ProcessEngine.Core.cs`，操作执行在 `Engine/ProcessEngine.Operations.cs`，模型在 `Engine/ProcessEngine.Models.cs`。
