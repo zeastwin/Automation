@@ -533,7 +533,7 @@ namespace Automation
                     string value = propertyInfo.GetValue(obj) as string;
                     if (!string.IsNullOrWhiteSpace(value))
                     {
-                        if (!TryParseGoto(value, out int gotoProc))
+                        if (!TryParseGoto(value, out int gotoProc, out int gotoStep, out int gotoOp))
                         {
                             error = $"跳转地址格式错误：{value}";
                             return false;
@@ -541,6 +541,11 @@ namespace Automation
                         if (gotoProc != procNum)
                         {
                             error = $"跳转地址不允许跨流程：{value}";
+                            return false;
+                        }
+                        if (!TryValidateGotoRange(procNum, gotoStep, gotoOp, out string rangeError))
+                        {
+                            error = rangeError;
                             return false;
                         }
                     }
@@ -584,17 +589,47 @@ namespace Automation
                 && converterAttr.ConverterTypeName.Contains("GotoItem", StringComparison.Ordinal);
         }
 
-        private bool TryParseGoto(string value, out int procNum)
+        private bool TryValidateGotoRange(int procNum, int stepIndex, int opIndex, out string error)
+        {
+            error = null;
+            if (SF.frmProc?.procsList == null)
+            {
+                error = "流程数据未就绪，无法校验跳转地址。";
+                return false;
+            }
+            if (procNum < 0 || procNum >= SF.frmProc.procsList.Count)
+            {
+                error = "跳转流程索引无效。";
+                return false;
+            }
+            Proc proc = SF.frmProc.procsList[procNum];
+            if (proc?.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
+            {
+                error = $"跳转地址步骤越界：{procNum}-{stepIndex}-{opIndex}";
+                return false;
+            }
+            Step step = proc.steps[stepIndex];
+            if (step?.Ops == null || opIndex < 0 || opIndex >= step.Ops.Count)
+            {
+                error = $"跳转地址指令越界：{procNum}-{stepIndex}-{opIndex}";
+                return false;
+            }
+            return true;
+        }
+
+        private bool TryParseGoto(string value, out int procNum, out int stepIndex, out int opIndex)
         {
             procNum = -1;
+            stepIndex = -1;
+            opIndex = -1;
             string[] parts = value.Split('-');
             if (parts.Length != 3)
             {
                 return false;
             }
             return int.TryParse(parts[0], out procNum)
-                && int.TryParse(parts[1], out _)
-                && int.TryParse(parts[2], out _);
+                && int.TryParse(parts[1], out stepIndex)
+                && int.TryParse(parts[2], out opIndex);
         }
 
         private void btnAlarm_Click(object sender, EventArgs e)

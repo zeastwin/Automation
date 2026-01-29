@@ -463,6 +463,11 @@ namespace Automation
         {
             try
             {
+                if (!TryValidateProcGotoTargets(ProcIndex, out string error))
+                {
+                    MessageBox.Show(error);
+                    return;
+                }
                 SF.mainfrm.SaveAsJson(SF.workPath, ProcIndex.ToString(), SF.frmProc.procsList[ProcIndex]);
             }
             catch (Exception ex)
@@ -783,6 +788,117 @@ namespace Automation
             {
                 AdaptGotoProcIndex(operation, procIndex);
             }
+        }
+
+        private bool TryValidateProcGotoTargets(int procIndex, out string error)
+        {
+            error = null;
+            if (SF.frmProc?.procsList == null)
+            {
+                error = "流程数据未就绪，无法保存。";
+                return false;
+            }
+            if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+            {
+                error = "流程索引无效，无法保存。";
+                return false;
+            }
+            Proc proc = SF.frmProc.procsList[procIndex];
+            if (proc?.steps == null)
+            {
+                error = "流程步骤为空，无法保存。";
+                return false;
+            }
+            for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
+            {
+                Step step = proc.steps[stepIndex];
+                if (step?.Ops == null)
+                {
+                    error = $"流程{procIndex}步骤{stepIndex}指令为空，无法保存。";
+                    return false;
+                }
+                for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
+                {
+                    OperationType op = step.Ops[opIndex];
+                    if (op == null)
+                    {
+                        error = $"流程{procIndex}步骤{stepIndex}指令{opIndex}为空，无法保存。";
+                        return false;
+                    }
+                    string context = $"流程{procIndex}步骤{stepIndex}指令{opIndex}";
+                    if (!ValidateGotoTargets(op, procIndex, proc, context, ref error))
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        private bool ValidateGotoTargets(object obj, int procIndex, Proc proc, string context, ref string error)
+        {
+            foreach (var propertyInfo in obj.GetType().GetProperties())
+            {
+                if (propertyInfo.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+                if (propertyInfo.PropertyType == typeof(string) && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
+                {
+                    string value = propertyInfo.GetValue(obj) as string;
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        if (!TryParseGotoKey(value, out int gotoProc, out int gotoStep, out int gotoOp))
+                        {
+                            error = $"{context}跳转地址格式错误：{value}";
+                            return false;
+                        }
+                        if (gotoProc != procIndex)
+                        {
+                            error = $"{context}跳转地址不允许跨流程：{value}";
+                            return false;
+                        }
+                        if (!TryValidateGotoRange(proc, procIndex, gotoStep, gotoOp, out string rangeError))
+                        {
+                            error = $"{context} {rangeError}";
+                            return false;
+                        }
+                    }
+                }
+                var propertyValue = propertyInfo.GetValue(obj);
+                if (propertyValue is IEnumerable enumerable && !(propertyValue is string))
+                {
+                    foreach (var item in enumerable)
+                    {
+                        if (item == null)
+                        {
+                            continue;
+                        }
+                        if (!ValidateGotoTargets(item, procIndex, proc, context, ref error))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        private bool TryValidateGotoRange(Proc proc, int procIndex, int stepIndex, int opIndex, out string error)
+        {
+            error = null;
+            if (proc?.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
+            {
+                error = $"跳转地址步骤越界：{procIndex}-{stepIndex}-{opIndex}";
+                return false;
+            }
+            Step step = proc.steps[stepIndex];
+            if (step?.Ops == null || opIndex < 0 || opIndex >= step.Ops.Count)
+            {
+                error = $"跳转地址指令越界：{procIndex}-{stepIndex}-{opIndex}";
+                return false;
+            }
+            return true;
         }
 
         private void AdaptGotoProcIndex(object obj, int procIndex)

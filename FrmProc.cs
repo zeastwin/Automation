@@ -314,12 +314,12 @@ namespace Automation
                 Step step = proc.steps[i];
                 for (int j = 0; j < step.Ops.Count; j++)
                 {
-                    ValidateGotoTargets(step.Ops[j], procIndex, errors, $"流程{procIndex}步骤{i}指令{j}");
+                    ValidateGotoTargets(step.Ops[j], procIndex, proc, errors, $"流程{procIndex}步骤{i}指令{j}");
                 }
             }
         }
 
-        private void ValidateGotoTargets(object obj, int procIndex, List<string> errors, string context)
+        private void ValidateGotoTargets(object obj, int procIndex, Proc proc, List<string> errors, string context)
         {
             foreach (var propertyInfo in obj.GetType().GetProperties())
             {
@@ -332,13 +332,17 @@ namespace Automation
                     string value = propertyInfo.GetValue(obj) as string;
                     if (!string.IsNullOrWhiteSpace(value))
                     {
-                        if (!TryParseGotoKey(value, out int gotoProc, out _, out _))
+                        if (!TryParseGotoKey(value, out int gotoProc, out int gotoStep, out int gotoOp))
                         {
                             errors.Add($"{context}跳转地址格式错误：{value}");
                         }
                         else if (gotoProc != procIndex)
                         {
                             errors.Add($"{context}跳转地址跨流程：{value}");
+                        }
+                        else if (!TryValidateGotoRange(proc, procIndex, gotoStep, gotoOp, out string rangeError))
+                        {
+                            errors.Add($"{context} {rangeError}");
                         }
                     }
                 }
@@ -352,10 +356,27 @@ namespace Automation
                         {
                             continue;
                         }
-                        ValidateGotoTargets(item, procIndex, errors, context);
+                        ValidateGotoTargets(item, procIndex, proc, errors, context);
                     }
                 }
             }
+        }
+
+        private bool TryValidateGotoRange(Proc proc, int procIndex, int stepIndex, int opIndex, out string error)
+        {
+            error = null;
+            if (proc?.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
+            {
+                error = $"跳转地址步骤越界：{procIndex}-{stepIndex}-{opIndex}";
+                return false;
+            }
+            Step step = proc.steps[stepIndex];
+            if (step?.Ops == null || opIndex < 0 || opIndex >= step.Ops.Count)
+            {
+                error = $"跳转地址指令越界：{procIndex}-{stepIndex}-{opIndex}";
+                return false;
+            }
+            return true;
         }
 
         private bool TryParseGotoKey(string value, out int procIndex, out int stepIndex, out int opIndex)
