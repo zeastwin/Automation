@@ -158,8 +158,10 @@ namespace Automation
         public void Refresh()
         {
             List<Proc> procsListTemp = new List<Proc>();
+            List<string> loadErrors = new List<string>();
 
             proc_treeView.Nodes.Clear();
+            SF.ProcConfigFaulted = false;
 
             string path = SF.workPath.TrimEnd('\\');
 
@@ -168,35 +170,61 @@ namespace Automation
                 Directory.CreateDirectory(path);
             }
 
-            List<int> indices = new List<int>();
+            Dictionary<int, string> indexMap = new Dictionary<int, string>();
+            int maxIndex = -1;
             foreach (string file in Directory.EnumerateFiles(path, "*.json"))
             {
                 string name = Path.GetFileNameWithoutExtension(file);
                 if (int.TryParse(name, out int index))
                 {
-                    indices.Add(index);
+                    indexMap[index] = file;
+                    if (index > maxIndex)
+                    {
+                        maxIndex = index;
+                    }
                 }
             }
-            indices.Sort();
-
-            for (int i = 0; i < indices.Count; i++)
+            if (indexMap.Count > 0)
             {
-                Proc proc = SF.mainfrm.ReadJson<Proc>(SF.workPath, indices[i].ToString());
+                if (!indexMap.ContainsKey(0))
+                {
+                    loadErrors.Add("流程文件索引必须从0开始。");
+                }
+                for (int i = 0; i <= maxIndex; i++)
+                {
+                    if (!indexMap.ContainsKey(i))
+                    {
+                        loadErrors.Add($"流程文件缺失：{i}.json");
+                    }
+                }
+            }
+
+            for (int i = 0; i <= maxIndex; i++)
+            {
+                Proc proc = null;
+                if (indexMap.ContainsKey(i))
+                {
+                    proc = SF.mainfrm.ReadJson<Proc>(SF.workPath, i.ToString());
+                }
                 if (proc == null)
                 {
-                    continue;
+                    loadErrors.Add($"流程文件加载失败：{i}.json");
+                    proc = new Proc();
                 }
 
+                NormalizeProc(i, proc, loadErrors);
                 procsListTemp.Add(proc);
 
-                TreeNode treeNode = new TreeNode(i + "：" + proc.head.Name);
+                string procName = string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"流程{i}" : proc.head.Name;
+                TreeNode treeNode = new TreeNode(i + "：" + procName);
                 proc_treeView.Nodes.Add(treeNode);
 
                 if (proc.steps != null)
                 {
                     for (int j = 0; j < proc.steps.Count; j++)
                     {
-                        TreeNode chnode = new TreeNode(j + "：" + proc.steps[j].Name);
+                        string stepName = string.IsNullOrWhiteSpace(proc.steps[j]?.Name) ? $"步骤{j}" : proc.steps[j].Name;
+                        TreeNode chnode = new TreeNode(j + "：" + stepName);
                         proc_treeView.Nodes[i].Nodes.Add(chnode);
                     }
                 }
@@ -208,13 +236,145 @@ namespace Automation
             procListItemCount.Clear();
             foreach (var item in SF.frmProc.procsList)
             {
-                procListItem.Add(item.head.Name);
-                procListItemCount.Add((procListItemCount.Count+1).ToString());
+                string procName = string.IsNullOrWhiteSpace(item?.head?.Name) ? $"流程{procListItemCount.Count}" : item.head.Name;
+                procListItem.Add(procName);
+                procListItemCount.Add((procListItemCount.Count + 1).ToString());
             }
             if (SF.DR?.Context != null)
             {
                 SF.DR.Context.Procs = procsList;
             }
+            if (loadErrors.Count > 0)
+            {
+                SF.ProcConfigFaulted = true;
+                string reason = "流程配置加载失败，已停机。\r\n" + string.Join("\r\n", loadErrors.Distinct());
+                SF.StopAllProcs(reason);
+                MessageBox.Show(reason, "流程配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void NormalizeProc(int procIndex, Proc proc, List<string> errors)
+        {
+            if (proc.head == null)
+            {
+                proc.head = new ProcHead();
+                errors.Add($"流程{procIndex}头信息缺失");
+            }
+            if (string.IsNullOrWhiteSpace(proc.head.Name))
+            {
+                proc.head.Name = $"流程{procIndex}";
+            }
+            if (proc.head.PauseIoParams == null)
+            {
+                proc.head.PauseIoParams = new CustomList<PauseIoParam>();
+            }
+            if (proc.head.PauseValueParams == null)
+            {
+                proc.head.PauseValueParams = new CustomList<PauseValueParam>();
+            }
+            if (proc.steps == null)
+            {
+                proc.steps = new List<Step>();
+                errors.Add($"流程{procIndex}步骤列表缺失");
+            }
+            for (int i = 0; i < proc.steps.Count; i++)
+            {
+                if (proc.steps[i] == null)
+                {
+                    proc.steps[i] = new Step();
+                    errors.Add($"流程{procIndex}步骤{i}为空");
+                }
+                Step step = proc.steps[i];
+                if (string.IsNullOrWhiteSpace(step.Name))
+                {
+                    step.Name = $"步骤{i}";
+                }
+                if (step.Ops == null)
+                {
+                    step.Ops = new List<OperationType>();
+                    errors.Add($"流程{procIndex}步骤{i}指令列表缺失");
+                }
+                for (int j = 0; j < step.Ops.Count; j++)
+                {
+                    if (step.Ops[j] == null)
+                    {
+                        step.Ops[j] = new OperationType
+                        {
+                            Name = "空指令",
+                            OperaType = "无效指令",
+                            Disable = true
+                        };
+                        errors.Add($"流程{procIndex}步骤{i}指令{j}为空");
+                    }
+                    step.Ops[j].Num = j;
+                }
+            }
+            for (int i = 0; i < proc.steps.Count; i++)
+            {
+                Step step = proc.steps[i];
+                for (int j = 0; j < step.Ops.Count; j++)
+                {
+                    ValidateGotoTargets(step.Ops[j], procIndex, errors, $"流程{procIndex}步骤{i}指令{j}");
+                }
+            }
+        }
+
+        private void ValidateGotoTargets(object obj, int procIndex, List<string> errors, string context)
+        {
+            foreach (var propertyInfo in obj.GetType().GetProperties())
+            {
+                if (propertyInfo.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+                if (propertyInfo.PropertyType == typeof(string) && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
+                {
+                    string value = propertyInfo.GetValue(obj) as string;
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        if (!TryParseGotoKey(value, out int gotoProc, out _, out _))
+                        {
+                            errors.Add($"{context}跳转地址格式错误：{value}");
+                        }
+                        else if (gotoProc != procIndex)
+                        {
+                            errors.Add($"{context}跳转地址跨流程：{value}");
+                        }
+                    }
+                }
+
+                var propertyValue = propertyInfo.GetValue(obj);
+                if (propertyValue is System.Collections.IEnumerable enumerable && !(propertyValue is string))
+                {
+                    foreach (var item in enumerable)
+                    {
+                        if (item == null)
+                        {
+                            continue;
+                        }
+                        ValidateGotoTargets(item, procIndex, errors, context);
+                    }
+                }
+            }
+        }
+
+        private bool TryParseGotoKey(string value, out int procIndex, out int stepIndex, out int opIndex)
+        {
+            procIndex = -1;
+            stepIndex = -1;
+            opIndex = -1;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+            string[] parts = value.Split('-');
+            if (parts.Length != 3)
+            {
+                return false;
+            }
+            return int.TryParse(parts[0], out procIndex)
+                && int.TryParse(parts[1], out stepIndex)
+                && int.TryParse(parts[2], out opIndex);
         }
 
         private void CaptureEditBackup()
@@ -370,6 +530,11 @@ namespace Automation
         private async void Remove_Click(object sender, EventArgs e)
         {
             TreeNode selectnode = proc_treeView.SelectedNode;
+            if (selectnode == null)
+            {
+                MessageBox.Show("请选择需要删除的流程或步骤");
+                return;
+            }
             TreeNode parentnode = selectnode.Parent;
             if (parentnode == null)
             {
@@ -654,6 +819,14 @@ namespace Automation
 
         public void RefleshGoto()
         {
+            if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
+            {
+                return;
+            }
+            if (SelectedStepNum < 0 || SelectedStepNum >= procsList[SelectedProcNum].steps.Count)
+            {
+                return;
+            }
             for (int i = 0; i < procsList[SelectedProcNum].steps.Count; i++)
             {
                 for (int j = 0; j < procsList[SelectedProcNum].steps[i].Ops.Count; j++)
@@ -670,14 +843,16 @@ namespace Automation
 
                             if (!string.IsNullOrEmpty(currentValue)) 
                             {
-                                string[] key = currentValue.Split('-');
-                                if(SelectedProcNum == int.Parse(key[0]) &&  SelectedStepNum == int.Parse(key[1]))
+                                if (TryParseGotoKey(currentValue, out int gotoProc, out int gotoStep, out int gotoOp))
                                 {
-                                    OperationType temp  = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.FirstOrDefault(sc => sc.Num == int.Parse(key[2]));
-                                    if (temp != null)
+                                    if (SelectedProcNum == gotoProc && SelectedStepNum == gotoStep)
                                     {
-                                        int tp = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.IndexOf(temp);
-                                        propertyInfo.SetValue(obj,$"{SelectedProcNum}-{SelectedStepNum}-{tp}");
+                                        OperationType temp = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.FirstOrDefault(sc => sc.Num == gotoOp);
+                                        if (temp != null)
+                                        {
+                                            int tp = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.IndexOf(temp);
+                                            propertyInfo.SetValue(obj, $"{SelectedProcNum}-{SelectedStepNum}-{tp}");
+                                        }
                                     }
                                 }
                                
@@ -700,14 +875,17 @@ namespace Automation
                                         // 获取标记了 MarkedGotoAttribute 的属性值
                                         var markedPropertyValue = listItemPropertyInfo.GetValue(listItem);
 
-                                        string[] key = markedPropertyValue.ToString().Split('-');
-                                        if (SelectedProcNum == int.Parse(key[0]) && SelectedStepNum == int.Parse(key[1]))
+                                        if (markedPropertyValue != null
+                                            && TryParseGotoKey(markedPropertyValue.ToString(), out int gotoProc, out int gotoStep, out int gotoOp))
                                         {
-                                            OperationType temp = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.FirstOrDefault(sc => sc.Num == int.Parse(key[2]));
-                                            if (temp != null)
+                                            if (SelectedProcNum == gotoProc && SelectedStepNum == gotoStep)
                                             {
-                                                int tp = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.IndexOf(temp);
-                                                listItemPropertyInfo.SetValue(listItem, $"{SelectedProcNum}-{SelectedStepNum}-{tp}");
+                                                OperationType temp = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.FirstOrDefault(sc => sc.Num == gotoOp);
+                                                if (temp != null)
+                                                {
+                                                    int tp = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.IndexOf(temp);
+                                                    listItemPropertyInfo.SetValue(listItem, $"{SelectedProcNum}-{SelectedStepNum}-{tp}");
+                                                }
 
                                             }
                                         }

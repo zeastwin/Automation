@@ -424,7 +424,12 @@ namespace Automation
         private void dataGridView1_CellMouseDown(object sender, DataGridViewCellMouseEventArgs e)
         {
             //输出Ops信息到属性窗体上并输出当前选择行数
-            if (e.RowIndex >= 0 && SF.frmProc.SelectedProcNum >= 0 && e.Button == MouseButtons.Left)
+            if (e.RowIndex >= 0
+                && SF.frmProc.SelectedProcNum >= 0
+                && SF.frmProc.SelectedStepNum >= 0
+                && SF.frmProc.SelectedProcNum < SF.frmProc.procsList.Count
+                && SF.frmProc.SelectedStepNum < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count
+                && e.Button == MouseButtons.Left)
             {
                 
 
@@ -724,6 +729,11 @@ namespace Automation
                 stream.Seek(0, SeekOrigin.Begin);
                 deepCopy = (List<OperationType>)formatter.Deserialize(stream);
             }
+            if (deepCopy == null)
+            {
+                return;
+            }
+            AdaptGotoProcIndex(deepCopy, SF.frmProc.SelectedProcNum);
             if (SF.frmDataGrid.dataGridView1.Rows.Count != 0)
             {
                 SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.InsertRange(iSelectedRow + 1, deepCopy);
@@ -762,6 +772,72 @@ namespace Automation
             {
                 Copy();
             }
+        }
+        private void AdaptGotoProcIndex(IEnumerable<OperationType> operations, int procIndex)
+        {
+            if (operations == null)
+            {
+                return;
+            }
+            foreach (var operation in operations)
+            {
+                AdaptGotoProcIndex(operation, procIndex);
+            }
+        }
+
+        private void AdaptGotoProcIndex(object obj, int procIndex)
+        {
+            if (obj == null)
+            {
+                return;
+            }
+            foreach (var propertyInfo in obj.GetType().GetProperties())
+            {
+                if (propertyInfo.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+                if (propertyInfo.PropertyType == typeof(string) && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
+                {
+                    string value = propertyInfo.GetValue(obj) as string;
+                    if (!string.IsNullOrWhiteSpace(value)
+                        && TryParseGotoKey(value, out _, out int stepIndex, out int opIndex))
+                    {
+                        propertyInfo.SetValue(obj, $"{procIndex}-{stepIndex}-{opIndex}");
+                    }
+                }
+                var propertyValue = propertyInfo.GetValue(obj);
+                if (propertyValue is IEnumerable enumerable && !(propertyValue is string))
+                {
+                    foreach (var item in enumerable)
+                    {
+                        if (item == null)
+                        {
+                            continue;
+                        }
+                        AdaptGotoProcIndex(item, procIndex);
+                    }
+                }
+            }
+        }
+
+        private bool TryParseGotoKey(string value, out int procIndex, out int stepIndex, out int opIndex)
+        {
+            procIndex = -1;
+            stepIndex = -1;
+            opIndex = -1;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+            string[] parts = value.Split('-');
+            if (parts.Length != 3)
+            {
+                return false;
+            }
+            return int.TryParse(parts[0], out procIndex)
+                && int.TryParse(parts[1], out stepIndex)
+                && int.TryParse(parts[2], out opIndex);
         }
         private void paste_Click(object sender, EventArgs e)
         {
@@ -901,6 +977,7 @@ namespace Automation
                 {
                     return;
                 }
+                AdaptGotoProcIndex(deepCopy, SF.frmProc.SelectedProcNum);
                 if (SF.frmDataGrid.dataGridView1.Rows.Count != 0)
                 {
                     SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.InsertRange(iSelectedRow + 1, deepCopy);

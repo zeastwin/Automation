@@ -81,6 +81,7 @@ namespace Automation
         //变量的储存路径
         public static string ConfigPath = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) + "\\Config\\";
 
+        public static bool ProcConfigFaulted { get; set; }
 
         public static void Delay(int milliSecond)
         {
@@ -161,6 +162,11 @@ namespace Automation
 
         public static bool EnsurePermission(string permissionKey, string actionName)
         {
+            if (permissionKey == PermissionKeys.ProcessRun && ProcConfigFaulted)
+            {
+                MessageBox.Show($"流程配置加载失败，禁止操作：{actionName}");
+                return false;
+            }
             if (SecurityLocked)
             {
                 if (userSession != null && userSession.IsRecovery && userSession.HasPermission(permissionKey))
@@ -194,6 +200,10 @@ namespace Automation
 
         public static bool HasPermission(string permissionKey)
         {
+            if (permissionKey == PermissionKeys.ProcessRun && ProcConfigFaulted)
+            {
+                return false;
+            }
             if (SecurityLocked)
             {
                 return userSession != null && userSession.IsRecovery && userSession.HasPermission(permissionKey);
