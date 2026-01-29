@@ -410,6 +410,17 @@ namespace Automation
             {
                 return;
             }
+            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            {
+                MessageBox.Show("请先选择流程步骤。");
+                return;
+            }
+            if (SF.frmProc.SelectedProcNum >= SF.frmProc.procsList.Count
+                || SF.frmProc.SelectedStepNum >= SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count)
+            {
+                MessageBox.Show("流程或步骤索引无效，无法新增指令。");
+                return;
+            }
             if (this.dataGridView1.SelectedRows.Count == 0)
                 iSelectedRow = -1;
             OperationTemp = new HomeRun() { Num = iSelectedRow == -1 ? this.dataGridView1.Rows.Count : iSelectedRow + 1 };
@@ -500,6 +511,16 @@ namespace Automation
 
             int procIndex = SF.frmProc.SelectedProcNum;
             int stepIndex = SF.frmProc.SelectedStepNum;
+            if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+            {
+                MessageBox.Show("流程索引无效，无法删除指令。");
+                return;
+            }
+            if (stepIndex < 0 || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count)
+            {
+                MessageBox.Show("步骤索引无效，无法删除指令。");
+                return;
+            }
             Proc proc = SF.frmProc.procsList[procIndex];
             Step step = proc.steps[stepIndex];
             string procName = string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"索引{procIndex}" : proc.head.Name;
@@ -560,6 +581,29 @@ namespace Automation
             {
                 return;
             }
+            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            {
+                MessageBox.Show("请先选择流程步骤。");
+                return;
+            }
+            int procIndex = SF.frmProc.SelectedProcNum;
+            int stepIndex = SF.frmProc.SelectedStepNum;
+            if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+            {
+                MessageBox.Show("流程索引无效，无法编辑指令。");
+                return;
+            }
+            if (stepIndex < 0 || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count)
+            {
+                MessageBox.Show("步骤索引无效，无法编辑指令。");
+                return;
+            }
+            int opCount = SF.frmProc.procsList[procIndex].steps[stepIndex].Ops.Count;
+            if (iSelectedRow < 0 || iSelectedRow >= opCount)
+            {
+                MessageBox.Show("请选择需要编辑的指令。");
+                return;
+            }
             SF.BeginEdit(ModifyKind.Operation);
             SF.frmDataGrid.dataGridView1.Enabled = false;
             SF.frmProc.Enabled = false;
@@ -595,6 +639,23 @@ namespace Automation
         {
             if (!SF.EnsurePermission(PermissionKeys.ProcessRun, "流程设置启动点"))
             {
+                return;
+            }
+            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            {
+                MessageBox.Show("请先选择流程步骤。");
+                return;
+            }
+            if (SF.frmProc.SelectedProcNum >= SF.frmProc.procsList.Count
+                || SF.frmProc.SelectedStepNum >= SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count)
+            {
+                MessageBox.Show("流程或步骤索引无效，无法设置启动点。");
+                return;
+            }
+            int opCount = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count;
+            if (iSelectedRow < 0 || iSelectedRow >= opCount)
+            {
+                MessageBox.Show("请先选择需要设为启动点的指令。");
                 return;
             }
             ProcRunState startState = ProcRunState.SingleStep;
@@ -710,7 +771,12 @@ namespace Automation
             selectedRowIndexes4Copy.Sort();
             for (int i = 0; i < selectedRowIndexes4Copy.Count; i++)
             {
-                OperationType dataItem = (OperationType)(dataGridView1.Rows[selectedRowIndexes4Copy[i]].DataBoundItem as OperationType).Clone();
+                OperationType boundItem = dataGridView1.Rows[selectedRowIndexes4Copy[i]].DataBoundItem as OperationType;
+                if (boundItem == null)
+                {
+                    continue;
+                }
+                OperationType dataItem = (OperationType)boundItem.Clone();
                 dataItem.Num = -1;
                 ListOperationType4Copy.Add(dataItem);
             }
@@ -723,6 +789,12 @@ namespace Automation
             }
             if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
             {
+                return;
+            }
+            if (SF.frmProc.SelectedProcNum >= SF.frmProc.procsList.Count
+                || SF.frmProc.SelectedStepNum >= SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count)
+            {
+                MessageBox.Show("流程或步骤索引无效，无法粘贴指令。");
                 return;
             }
             bool isEmptyRow = false;
@@ -739,9 +811,16 @@ namespace Automation
                 return;
             }
             AdaptGotoProcIndex(deepCopy, SF.frmProc.SelectedProcNum);
+            int insertIndex = iSelectedRow + 1;
+            int opCount = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count;
+            if (insertIndex < 0 || insertIndex > opCount)
+            {
+                MessageBox.Show("当前指令索引无效，无法粘贴。");
+                return;
+            }
             if (SF.frmDataGrid.dataGridView1.Rows.Count != 0)
             {
-                SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.InsertRange(iSelectedRow + 1, deepCopy);
+                SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.InsertRange(insertIndex, deepCopy);
 
             }
             else
@@ -1018,6 +1097,11 @@ namespace Automation
                 {
                     return;
                 }
+                if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+                {
+                    MessageBox.Show("请先选择流程步骤。");
+                    return;
+                }
                 SF.BeginEdit(ModifyKind.Operation);
                 SF.frmDataGrid.dataGridView1.Enabled = false;
                 SF.frmProc.Enabled = false;
@@ -1078,6 +1162,17 @@ namespace Automation
                 {
                     return;
                 }
+                if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+                {
+                    MessageBox.Show("请先选择流程步骤。");
+                    return;
+                }
+                if (SF.frmProc.SelectedProcNum >= SF.frmProc.procsList.Count
+                    || SF.frmProc.SelectedStepNum >= SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count)
+                {
+                    MessageBox.Show("流程或步骤索引无效，无法粘贴指令。");
+                    return;
+                }
                 bool isEmptyRow = false;
                 List<OperationType> deepCopy = null;
                 if (Clipboard.ContainsData("MyCustomDataFormat"))
@@ -1094,9 +1189,16 @@ namespace Automation
                     return;
                 }
                 AdaptGotoProcIndex(deepCopy, SF.frmProc.SelectedProcNum);
+                int insertIndex = iSelectedRow + 1;
+                int opCount = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count;
+                if (insertIndex < 0 || insertIndex > opCount)
+                {
+                    MessageBox.Show("当前指令索引无效，无法粘贴。");
+                    return;
+                }
                 if (SF.frmDataGrid.dataGridView1.Rows.Count != 0)
                 {
-                    SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.InsertRange(iSelectedRow + 1, deepCopy);
+                    SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.InsertRange(insertIndex, deepCopy);
 
                 }
                 else

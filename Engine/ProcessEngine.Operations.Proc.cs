@@ -29,6 +29,11 @@ namespace Automation
         public bool RunProcOps(ProcHandle evt, ProcOps procOps)
         {
             bool value = false;
+            if (procOps == null || procOps.procParams == null || procOps.procParams.Count == 0)
+            {
+                MarkAlarm(evt, "流程操作参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             foreach (procParam procParam in procOps.procParams)
             {
                 Proc proc = null;
@@ -77,6 +82,11 @@ namespace Automation
         {
             bool value = false;
             int timeOut;
+            if (waitProc == null || waitProc.Params == null || waitProc.Params.Count == 0)
+            {
+                MarkAlarm(evt, "等待流程参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             timeOut = waitProc.timeOutC.TimeOut;
             if (timeOut <= 0 && !string.IsNullOrEmpty(waitProc.timeOutC.TimeOutValue))
             {
@@ -147,7 +157,12 @@ namespace Automation
         }
         public bool RunGoto(ProcHandle evt, Goto gotoParam)
         {
-            if (gotoParam.Params != null)
+            if (gotoParam == null)
+            {
+                MarkAlarm(evt, "跳转参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (gotoParam.Params != null && gotoParam.Params.Count > 0)
             {
                 ValueConfigStore valueStore = Context?.ValueStore;
                 if (!ValueRef.TryCreate(gotoParam.ValueIndex, gotoParam.ValueIndex2Index, gotoParam.ValueName, gotoParam.ValueName2Index, false, "跳转变量", out ValueRef sourceRef, out string sourceError))
@@ -220,6 +235,11 @@ namespace Automation
         }
         public bool RunParamGoto(ProcHandle evt, ParamGoto paramGoto)
         {
+            if (paramGoto == null || paramGoto.Params == null || paramGoto.Params.Count == 0)
+            {
+                MarkAlarm(evt, "逻辑判断参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             if (paramGoto.Params != null)
             {
                 bool isFirst = true;
@@ -328,11 +348,27 @@ namespace Automation
         public bool RunDelay(ProcHandle evt, Delay delay)
         {
             int time = 0;
+            if (delay == null)
+            {
+                MarkAlarm(evt, "延时参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             if (!string.IsNullOrEmpty(delay.timeMiniSecond))
-                time = int.Parse(delay.timeMiniSecond);
+            {
+                if (!int.TryParse(delay.timeMiniSecond, out time) || time < 0)
+                {
+                    MarkAlarm(evt, $"延时时间无效:{delay.timeMiniSecond}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+            }
             else if (!string.IsNullOrEmpty(delay.timeMiniSecondV))
             {
-                time = int.Parse(Context.ValueStore.GetValueByName(delay.timeMiniSecondV).Value);
+                string valueText = Context.ValueStore.GetValueByName(delay.timeMiniSecondV).Value;
+                if (!int.TryParse(valueText, out time) || time < 0)
+                {
+                    MarkAlarm(evt, $"延时变量无效:{delay.timeMiniSecondV}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
             }
          
             Delay(time,evt);

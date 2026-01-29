@@ -7,6 +7,16 @@ namespace Automation
     {
         public bool RunIoOperate(ProcHandle evt, IoOperate ioOperate)
         {
+            if (ioOperate == null || ioOperate.IoParams == null || ioOperate.IoParams.Count == 0)
+            {
+                MarkAlarm(evt, "IO操作参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (Context?.Motion == null)
+            {
+                MarkAlarm(evt, "运动控制未初始化");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             int time;
             foreach (IoOutParam ioParam in ioOperate.IoParams)
             {
@@ -16,7 +26,12 @@ namespace Automation
                     time = (int)Context.ValueStore.GetValueByName(ioParam.delayBeforeV).GetDValue();
                 }
                 Delay(time, evt);
-                if (!Context.Motion.SetIO(Context.IoMap[ioParam.IOName], ioParam.value))
+                if (Context?.IoMap == null || !Context.IoMap.TryGetValue(ioParam.IOName, out IO io) || io == null)
+                {
+                    MarkAlarm(evt, $"IO映射不存在:{ioParam.IOName}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (!Context.Motion.SetIO(io, ioParam.value))
                 {
                     MarkAlarm(evt, $"IO输出失败:{ioParam.IOName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -36,6 +51,11 @@ namespace Automation
             //    int time;
             double timeOut;
 
+            if (ioCheck == null || ioCheck.IoParams == null || ioCheck.IoParams.Count == 0)
+            {
+                MarkAlarm(evt, "IO检测参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             timeOut = ioCheck.timeOutC.TimeOut;
             if (timeOut <= 0 && !string.IsNullOrEmpty(ioCheck.timeOutC.TimeOutValue))
             {

@@ -97,7 +97,12 @@ namespace Automation
                             {
                                 if (station.dataAxis.axisConfigs[i].AxisName == "-1")
                                     continue;
-                                if (Context.CardStore.TryGetAxis(int.Parse(station.dataAxis.axisConfigs[i].CardNum), i, out Axis axisInfo) && axisInfo.State == Axis.Status.Ready)
+                                if (!int.TryParse(station.dataAxis.axisConfigs[i].CardNum, out int cardNum))
+                                {
+                                    MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
+                                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                                }
+                                if (Context.CardStore.TryGetAxis(cardNum, i, out Axis axisInfo) && axisInfo.State == Axis.Status.Ready)
                                 {
                                     isInPos = true;
                                 }
@@ -167,7 +172,12 @@ namespace Automation
                         }
                         if (station.dataAxis.axisConfigs[i].AxisName != "-1")
                         {
-                            ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
+                            if (!ushort.TryParse(station.dataAxis.axisConfigs[i].CardNum, out ushort cardNum))
+                            {
+                                MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
+                                station.SetState(DataStation.Status.NotReady);
+                                throw CreateAlarmException(evt, evt?.alarmMsg);
+                            }
                             ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
                             if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                             {
@@ -198,7 +208,7 @@ namespace Automation
                             }
                             Context.Motion.SetMovParam(cardNum, axisNum, 0, Vel, Acc, Dec, 0, 0, axisInfo.PulseToMM);
 
-                            Context.Motion.Mov(ushort.Parse(station.dataAxis.axisConfigs[i].CardNum), (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum, Poses[i], 1, false);
+                            Context.Motion.Mov(cardNum, (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum, Poses[i], 1, false);
                         }
                     }
                     if (!stationRunPos.isUnWait)
@@ -214,7 +224,12 @@ namespace Automation
                             }
                             if (station.dataAxis.axisConfigs[i].AxisName != "-1")
                             {
-                                ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
+                                if (!ushort.TryParse(station.dataAxis.axisConfigs[i].CardNum, out ushort cardNum))
+                                {
+                                    MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
+                                    station.SetState(DataStation.Status.NotReady);
+                                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                                }
                                 ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
                                 cardNums.Add(cardNum);
                                 axisNums.Add(axisNum);
@@ -589,7 +604,12 @@ namespace Automation
             {
                 if (station.dataAxis.axisConfigs[i].AxisName != "-1")
                 {
-                    ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
+                    if (!ushort.TryParse(station.dataAxis.axisConfigs[i].CardNum, out ushort cardNum))
+                    {
+                        MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
+                        station.SetState(DataStation.Status.NotReady);
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
                     ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
                     if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
                     {
@@ -1070,7 +1090,12 @@ namespace Automation
                 {
                     if (station.dataAxis.axisConfigs[i].AxisName != "-1")
                     {
-                        ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
+                        if (!ushort.TryParse(station.dataAxis.axisConfigs[i].CardNum, out ushort cardNum))
+                        {
+                            MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
+                            station.SetState(DataStation.Status.NotReady);
+                            throw CreateAlarmException(evt, evt?.alarmMsg);
+                        }
                         ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
                         cardNums.Add(cardNum);
                         axisNums.Add(axisNum);
@@ -1107,7 +1132,7 @@ namespace Automation
                         double DistanceTemp = 0;
                         DistanceTemp = TargetPos[i] == 0 ? Context.ValueStore.GetValueByName(TargetPosV[i]).GetDValue() : TargetPos[i];
 
-                        Context.Motion.Mov(ushort.Parse(station.dataAxis.axisConfigs[i].CardNum), (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum, DistanceTemp, 0, false);
+                        Context.Motion.Mov(cardNum, (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum, DistanceTemp, 0, false);
                     }
                 }
                 if (!stationRunRel.isUnWait)
@@ -1207,7 +1232,11 @@ namespace Automation
                     {
                         if (station.dataAxis.axisConfigs[i].AxisName != "-1")
                         {
-                            ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
+                            if (!ushort.TryParse(station.dataAxis.axisConfigs[i].CardNum, out ushort cardNum))
+                            {
+                                MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
+                                throw CreateAlarmException(evt, evt?.alarmMsg);
+                            }
                             ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
 
                             if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
@@ -1229,7 +1258,11 @@ namespace Automation
                         MarkAlarm(evt, $"工站：{setStationVel.StationName} 轴配置不存在");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    int cardNum = int.Parse(axisInfo.CardNum);
+                    if (!int.TryParse(axisInfo.CardNum, out int cardNum))
+                    {
+                        MarkAlarm(evt, $"卡号无效:{axisInfo.CardNum}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
                     int axisNum = axisInfo.axis.AxisNum;
                     if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisConfig))
                     {
@@ -1262,7 +1295,11 @@ namespace Automation
                 {
                     if (AxisParams[i] == true)
                     {
-                        int cardNum = int.Parse(station.dataAxis.axisConfigs[i].CardNum);
+                        if (!int.TryParse(station.dataAxis.axisConfigs[i].CardNum, out int cardNum))
+                        {
+                            MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
+                            throw CreateAlarmException(evt, evt?.alarmMsg);
+                        }
                         int axisNum = station.dataAxis.axisConfigs[i].axis.AxisNum;
                         StopAxis(cardNum, axisNum);
                     }
@@ -1293,7 +1330,11 @@ namespace Automation
             {
                 if (station.dataAxis.axisConfigs[i].AxisName != "-1")
                 {
-                    ushort cardNum = ushort.Parse(station.dataAxis.axisConfigs[i].CardNum);
+                    if (!ushort.TryParse(station.dataAxis.axisConfigs[i].CardNum, out ushort cardNum))
+                    {
+                        MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
                     ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
                     cardNums.Add(cardNum);
                     axisNums.Add(axisNum);
@@ -1375,7 +1416,12 @@ namespace Automation
                 {
                     station.SetState(DataStation.Status.Ready);
                     station.dataAxis.axisConfigs[i].axis.SetState(Axis.Status.Ready);
-                    Context.Motion.StopOneAxis(ushort.Parse(station.dataAxis.axisConfigs[i].CardNum),
+                    if (!ushort.TryParse(station.dataAxis.axisConfigs[i].CardNum, out ushort cardNum))
+                    {
+                        Logger?.Log($"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}", LogLevel.Error);
+                        continue;
+                    }
+                    Context.Motion.StopOneAxis(cardNum,
                         (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum,
                         0);
                 }
@@ -1425,8 +1471,13 @@ namespace Automation
                     }
                     if (item.AxisName == seq[i].Name && item.AxisName != "-1")
                     {
-                        HomeSingleAxis(ushort.Parse(item.CardNum), (ushort)item.axis.AxisNum, evt, stopOnAlarm);
-                        if (Context.CardStore == null || !Context.CardStore.TryGetAxis(int.Parse(item.CardNum), i, out Axis axisInfo))
+                        if (!ushort.TryParse(item.CardNum, out ushort cardNum))
+                        {
+                            ReportHomeAlarm(evt, $"卡号无效:{item.CardNum}", stopOnAlarm);
+                            return;
+                        }
+                        HomeSingleAxis(cardNum, (ushort)item.axis.AxisNum, evt, stopOnAlarm);
+                        if (Context.CardStore == null || !Context.CardStore.TryGetAxis(cardNum, i, out Axis axisInfo))
                         {
                             ReportHomeAlarm(evt, $"卡{item.CardNum}轴{i}配置不存在，工站回零动作终止。", stopOnAlarm);
                             return;
@@ -1444,21 +1495,33 @@ namespace Automation
             for (int j = 0; j < station.dataAxis.axisConfigs.Count; j++)
             {
                 ushort index = (ushort)j;
-                if (station.dataAxis.axisConfigs[j].AxisName != "-1"
-                    && Context.Motion != null
-                    && !Context.Motion.HomeStatus(ushort.Parse(station.dataAxis.axisConfigs[index].CardNum),
-                        (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum))
+                if (station.dataAxis.axisConfigs[j].AxisName != "-1")
                 {
-                    Task task = Task.Run(() =>
+                    if (!ushort.TryParse(station.dataAxis.axisConfigs[index].CardNum, out ushort cardNum))
                     {
-                        if (evt.CancellationToken.IsCancellationRequested)
+                        ReportHomeAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[index].CardNum}", stopOnAlarm);
+                        return;
+                    }
+                    if (Context.Motion != null
+                        && !Context.Motion.HomeStatus(cardNum,
+                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum))
+                    {
+                        Task task = Task.Run(() =>
                         {
-                            return;
-                        }
-                        HomeSingleAxis(ushort.Parse(station.dataAxis.axisConfigs[index].CardNum),
-                            (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum, evt, stopOnAlarm);
-                    }, evt.CancellationToken);
-                    evt.RunningTasks.Add(task);
+                            if (evt.CancellationToken.IsCancellationRequested)
+                            {
+                                return;
+                            }
+                            if (!ushort.TryParse(station.dataAxis.axisConfigs[index].CardNum, out ushort innerCardNum))
+                            {
+                                ReportHomeAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[index].CardNum}", stopOnAlarm);
+                                return;
+                            }
+                            HomeSingleAxis(innerCardNum,
+                                (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum, evt, stopOnAlarm);
+                        }, evt.CancellationToken);
+                        evt.RunningTasks.Add(task);
+                    }
                 }
             }
         }
@@ -1486,7 +1549,12 @@ namespace Automation
                         {
                             return;
                         }
-                        HomeSingleAxis(ushort.Parse(station.dataAxis.axisConfigs[index].CardNum),
+                        if (!ushort.TryParse(station.dataAxis.axisConfigs[index].CardNum, out ushort cardNum))
+                        {
+                            ReportHomeAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[index].CardNum}", stopOnAlarm);
+                            return;
+                        }
+                        HomeSingleAxis(cardNum,
                             (ushort)station.dataAxis.axisConfigs[index].axis.AxisNum, evt, stopOnAlarm);
                     }, evt.CancellationToken);
                     evt.RunningTasks.Add(task);

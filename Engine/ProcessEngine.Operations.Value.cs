@@ -30,6 +30,11 @@ namespace Automation
         {
             ValueConfigStore valueStore = Context?.ValueStore;
             string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+            if (getValue == null || getValue.Params == null || getValue.Params.Count == 0)
+            {
+                MarkAlarm(evt, "获取变量参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             foreach (var item in getValue.Params)
             {
                 if (!ValueRef.TryCreate(item.ValueSourceIndex, item.ValueSourceIndex2Index, item.ValueSourceName, item.ValueSourceName2Index, false, "源变量", out ValueRef sourceRef, out string sourceError))

@@ -81,6 +81,22 @@ namespace Automation
 
                 if (SF.isAddOps == true && SF.frmProc.SelectedStepNum != -1)
                 {
+                    if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+                    {
+                        MessageBox.Show("请先选择流程步骤。");
+                        return;
+                    }
+                    if (SF.frmProc.SelectedProcNum >= SF.frmProc.procsList.Count
+                        || SF.frmProc.SelectedStepNum >= SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count)
+                    {
+                        MessageBox.Show("流程或步骤索引无效，无法新增指令。");
+                        return;
+                    }
+                    if (SF.frmDataGrid.OperationTemp == null)
+                    {
+                        MessageBox.Show("指令数据为空，无法保存。");
+                        return;
+                    }
                     if (!TryValidateGotoTargets(SF.frmDataGrid.OperationTemp, SF.frmProc.SelectedProcNum, out string gotoError))
                     {
                         MessageBox.Show(gotoError);
@@ -93,10 +109,17 @@ namespace Automation
                     }
                     else
                     {
-                        SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Insert(SF.frmDataGrid.iSelectedRow + 1, SF.frmDataGrid.OperationTemp);
+                        int insertIndex = SF.frmDataGrid.iSelectedRow + 1;
+                        int opCount = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count;
+                        if (insertIndex < 0 || insertIndex > opCount)
+                        {
+                            MessageBox.Show("指令索引无效，无法插入。");
+                            return;
+                        }
+                        SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Insert(insertIndex, SF.frmDataGrid.OperationTemp);
 
                         SF.frmProc.RefleshGoto();
-                        for (int i = SF.frmDataGrid.iSelectedRow + 2; i < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count; i++)
+                        for (int i = insertIndex + 1; i < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count; i++)
                         {
 
                             OperationType obj = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[i];
@@ -113,6 +136,28 @@ namespace Automation
                 }
                 if (SF.isModify == ModifyKind.Operation)
                 {
+                    if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+                    {
+                        MessageBox.Show("请先选择流程步骤。");
+                        return;
+                    }
+                    if (SF.frmProc.SelectedProcNum >= SF.frmProc.procsList.Count
+                        || SF.frmProc.SelectedStepNum >= SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count)
+                    {
+                        MessageBox.Show("流程或步骤索引无效，无法保存指令。");
+                        return;
+                    }
+                    int opCount = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count;
+                    if (SF.frmDataGrid.iSelectedRow < 0 || SF.frmDataGrid.iSelectedRow >= opCount)
+                    {
+                        MessageBox.Show("指令索引无效，无法保存。");
+                        return;
+                    }
+                    if (SF.frmDataGrid.OperationTemp == null)
+                    {
+                        MessageBox.Show("指令数据为空，无法保存。");
+                        return;
+                    }
                     if (!TryValidateGotoTargets(SF.frmDataGrid.OperationTemp, SF.frmProc.SelectedProcNum, out string gotoError))
                     {
                         MessageBox.Show(gotoError);
@@ -143,6 +188,11 @@ namespace Automation
                 }
                 else if (SF.isModify == ModifyKind.Proc)
                 {
+                    if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedProcNum >= SF.frmProc.procsList.Count)
+                    {
+                        MessageBox.Show("流程索引无效，无法保存。");
+                        return;
+                    }
                     SF.frmDataGrid.SaveSingleProc(SF.frmProc.SelectedProcNum);
                     SF.frmProc.bindingSource.ResetBindings(true);
                     SF.frmProc.Refresh();

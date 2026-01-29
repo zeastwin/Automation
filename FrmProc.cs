@@ -57,6 +57,11 @@ namespace Automation
 
         public void NewProcSave()
         {
+            if (HeadTemp == null)
+            {
+                MessageBox.Show("流程头信息为空，无法保存。");
+                return;
+            }
             Proc proc = new Proc();
             proc.head = HeadTemp;
 
@@ -67,6 +72,11 @@ namespace Automation
             }
             else
             {
+                if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
+                {
+                    MessageBox.Show("当前流程索引无效，无法插入流程。");
+                    return;
+                }
                 procsList.Insert(SelectedProcNum+1, proc);
                 RebuildWorkConfig();
             }
@@ -77,12 +87,27 @@ namespace Automation
        
         public void NewStepSave()
         {
+            if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
+            {
+                MessageBox.Show("当前流程索引无效，无法新增步骤。");
+                return;
+            }
+            if (StepTemp == null)
+            {
+                MessageBox.Show("步骤信息为空，无法保存。");
+                return;
+            }
             if (SelectedStepNum == -1)
             {
                 procsList[SelectedProcNum].steps.Add(StepTemp);
             }
             else
             {
+                if (SelectedStepNum < 0 || SelectedStepNum >= procsList[SelectedProcNum].steps.Count)
+                {
+                    MessageBox.Show("当前步骤索引无效，无法新增步骤。");
+                    return;
+                }
                 procsList[SelectedProcNum].steps.Insert(SelectedStepNum + 1, StepTemp);
             }
 
@@ -661,6 +686,25 @@ namespace Automation
 
                     SF.frmDataGrid.iSelectedRow = -1;
 
+                    if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
+                    {
+                        MessageBox.Show("流程索引无效，无法加载步骤。");
+                        SelectedProcNum = -1;
+                        SelectedStepNum = -1;
+                        bindingSource.DataSource = null;
+                        SF.frmDataGrid.dataGridView1.DataSource = null;
+                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
+                        return;
+                    }
+                    if (SelectedStepNum < 0 || SelectedStepNum >= procsList[SelectedProcNum].steps.Count)
+                    {
+                        MessageBox.Show("步骤索引无效，无法加载指令。");
+                        SelectedStepNum = -1;
+                        bindingSource.DataSource = null;
+                        SF.frmDataGrid.dataGridView1.DataSource = null;
+                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
+                        return;
+                    }
                     bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
 
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject =procsList[SelectedProcNum].steps[SF.frmProc.SelectedStepNum];
@@ -673,6 +717,15 @@ namespace Automation
 
                     SelectedStepNum = -1;
 
+                    if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
+                    {
+                        MessageBox.Show("流程索引无效，无法加载。");
+                        SelectedProcNum = -1;
+                        bindingSource.DataSource = null;
+                        SF.frmDataGrid.dataGridView1.DataSource = null;
+                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
+                        return;
+                    }
                     bindingSource.DataSource = null;
 
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject = procsList[SelectedProcNum].head;
