@@ -152,7 +152,7 @@ namespace Automation
                 SF.frmDataGrid.SelectChildNode(int.Parse(values[0]), int.Parse(values[1]));
                 SF.frmDataGrid.ScrollRowToCenter(int.Parse(values[2]));
                 SF.frmDataGrid.ClearAllRowColors();
-                SF.frmDataGrid.SetRowColor(int.Parse(values[2]), Color.Red);
+                SF.frmDataGrid.SetRowColor(int.Parse(values[2]), Color.Green);
             }
         }
 

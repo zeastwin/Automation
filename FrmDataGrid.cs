@@ -703,6 +703,17 @@ namespace Automation
                 return;
             }
 
+            if (dataGridView1.DataSource == null)
+            {
+                return;
+            }
+
+            CurrencyManager currencyManager = dataGridView1.BindingContext[dataGridView1.DataSource] as CurrencyManager;
+            if (currencyManager == null || e.RowIndex >= currencyManager.Count)
+            {
+                return;
+            }
+
             OperationType dataItem = dataGridView1.Rows[e.RowIndex].DataBoundItem as OperationType;
             if (dataItem == null)
             {
