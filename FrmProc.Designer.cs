@@ -58,10 +58,10 @@
             this.contextMenuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.AddProc,
             this.AddStep,
-            this.Remove,
             this.Modify,
             this.ToggleDisable,
-            this.startProc});
+            this.startProc,
+            this.Remove});
             this.contextMenuStrip1.Name = "contextMenuStrip1";
             this.contextMenuStrip1.Size = new System.Drawing.Size(125, 136);
             this.contextMenuStrip1.Opening += new System.ComponentModel.CancelEventHandler(this.contextMenuStrip1_Opening);

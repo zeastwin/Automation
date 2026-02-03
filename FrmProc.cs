@@ -287,7 +287,6 @@ namespace Automation
             }
             procsList = procsListTemp;
 
-            proc_treeView.ExpandAll();
             procListItem.Clear();
             procListItemCount.Clear();
             foreach (var item in SF.frmProc.procsList)
