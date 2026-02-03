@@ -392,6 +392,10 @@ namespace Automation
             {
                 return;
             }
+            if (MessageBox.Show("确认清除选中的IO配置？", "清除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
+                return;
+            }
 
             List<IO> cacheIOs = IOMap[cardIndex];
             foreach (int index in rowIndexes)

@@ -1,12 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Reflection.Emit;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Automation
@@ -14,17 +7,19 @@ namespace Automation
     public partial class FrmState : Form , INotifyPropertyChanged
     {
 
-        string _info;
-        public string Info
+        private string basicInfo;
+        private string displayInfo;
+
+        public string DisplayInfo
         {
             get
             {
-                return _info;
+                return displayInfo;
             }
-            set
+            private set
             {
-                _info = value;
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Info)));
+                displayInfo = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayInfo)));
             }
         }
 
@@ -37,7 +32,27 @@ namespace Automation
         }
         private void FrmState_Load(object sender, EventArgs e)
         {
-            SysInfo.DataBindings.Add(new Binding("Text", this, "Info"));
+            SysInfo.DataBindings.Add(new Binding("Text", this, "DisplayInfo"));
+            RefreshBasicInfo();
+        }
+
+        public void RefreshBasicInfo()
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)RefreshBasicInfo);
+                return;
+            }
+
+            string userName = "未登录";
+            UserContextSnapshot snapshot = SF.userContextStore?.GetSnapshot();
+            if (snapshot != null && snapshot.IsLoggedIn)
+            {
+                userName = snapshot.UserName;
+            }
+
+            basicInfo = $"用户:{userName}";
+            DisplayInfo = basicInfo;
         }
     }
 }

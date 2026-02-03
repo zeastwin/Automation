@@ -22,7 +22,6 @@ namespace Automation
             short num = LTDMC.dmc_board_init();//获取卡数量
             if (num <= 0 || num > 8)
             {
-                SF.frmState.Info = "初始卡失败!";
                 SF.frmInfo.PrintInfo("获取卡信息失败",FrmInfo.Level.Error);
             }
             ushort _num = 0;
@@ -31,7 +30,7 @@ namespace Automation
             short res = LTDMC.dmc_get_CardInfList(ref _num, cardtypes, cardids);
             if (res != 0)
             {
-                SF.frmState.Info = "获取卡信息失败!";
+                SF.frmInfo.PrintInfo("获取卡信息失败", FrmInfo.Level.Error);
             }
             return cardids[0];
         }

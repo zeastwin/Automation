@@ -302,6 +302,10 @@ namespace Automation
             {
                 return;
             }
+            if (MessageBox.Show("确认删除选中的PLC设备？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
+                return;
+            }
             deviceBinding.RemoveAt(row);
         }
 
@@ -323,6 +327,10 @@ namespace Automation
         {
             int row = dgvMaps.CurrentCell?.RowIndex ?? -1;
             if (row < 0 || row >= mapBinding.Count)
+            {
+                return;
+            }
+            if (MessageBox.Show("确认删除选中的PLC映射？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             {
                 return;
             }

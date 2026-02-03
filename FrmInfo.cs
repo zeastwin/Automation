@@ -30,6 +30,10 @@ namespace Automation
 
         private void btnClearInfo_Click(object sender, EventArgs e)
         {
+            if (MessageBox.Show("确认清空信息记录？", "清空确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
+                return;
+            }
             ReceiveTextBox.Clear();
         }
 

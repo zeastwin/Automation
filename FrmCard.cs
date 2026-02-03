@@ -415,6 +415,10 @@ namespace Automation
         {
             if (TryGetSelectedCardIndex(out int cardIndex))
             {
+                if (MessageBox.Show("确认删除选中的控制卡？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                {
+                    return;
+                }
                 if (!SF.cardStore.RemoveControlCardAt(cardIndex))
                 {
                     return;
@@ -479,6 +483,10 @@ namespace Automation
         {
             if (TryGetSelectedStationIndex(out int stationIndex))
             {
+                if (MessageBox.Show("确认删除选中的工站？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                {
+                    return;
+                }
                 dataStation.RemoveAt(stationIndex);
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", dataStation);
 

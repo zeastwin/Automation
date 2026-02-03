@@ -725,6 +725,10 @@ namespace Automation
             {
                 return;
             }
+            if (MessageBox.Show("确认清除选中的点位数据？", "清除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
+                return;
+            }
             DataGridViewRow rowToClear = dataGridView1.Rows[iSelectedRow];
             DataPos dataPos = rowToClear.DataBoundItem as DataPos;
             if (dataPos != null && SF.frmControl.temp != null)

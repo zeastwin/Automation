@@ -256,8 +256,7 @@ namespace Automation
 
         public void UpdateTitleWithUser()
         {
-            string userName = SF.userSession?.Account?.UserName;
-            Text = string.IsNullOrWhiteSpace(userName) ? "Automation" : $"Automation - {userName}";
+            Text = "Automation";
         }
        
         public void ReflshDgv()

@@ -497,7 +497,7 @@ namespace Automation
             return null;
         }
 
-        private void ClearSelectedValueRows()
+        private void ClearSelectedValueRows(bool requireConfirm = false)
         {
             if (!SF.EnsurePermission(PermissionKeys.ValueAccess, "变量清除"))
             {
@@ -508,6 +508,14 @@ namespace Automation
             {
                 MessageBox.Show("没有选定的变量");
                 return;
+            }
+            if (requireConfirm)
+            {
+                DialogResult result = MessageBox.Show("确认清除选中的变量数据？", "清除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (result != DialogResult.Yes)
+                {
+                    return;
+                }
             }
             bool hasFailure = false;
             foreach (int index in indexes)
@@ -736,7 +744,7 @@ namespace Automation
 
         private void btnClearData_Click(object sender, EventArgs e)
         {
-            ClearSelectedValueRows();
+            ClearSelectedValueRows(true);
         }
 
         private void dgvValue_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)

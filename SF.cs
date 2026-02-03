@@ -126,6 +126,10 @@ namespace Automation
             {
                 mainfrm.UpdateTitleWithUser();
             }
+            if (frmState != null && !frmState.IsDisposed)
+            {
+                frmState.RefreshBasicInfo();
+            }
         }
 
         public static void RefreshPermissionUi()

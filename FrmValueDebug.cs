@@ -195,6 +195,10 @@ namespace Automation
                 ShowCheckError(error);
                 return;
             }
+            if (MessageBox.Show("确认移除该调试项？", "移除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
+                return;
+            }
             checkIndexSet.Remove(index);
             dgvCheck.Rows.Remove(dgvCheck.CurrentRow);
             RemoveNoteIfUnused(index);
@@ -315,6 +319,10 @@ namespace Automation
             if (!TryGetEditRowIndex(dgvEdit.CurrentRow, out int index, out string error))
             {
                 ShowEditError(error);
+                return;
+            }
+            if (MessageBox.Show("确认移除该调试项？", "移除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
                 return;
             }
             editIndexSet.Remove(index);

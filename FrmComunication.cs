@@ -353,6 +353,10 @@ namespace Automation
         {
             if (iSelectedSocketRow != -1)
             {
+                if (MessageBox.Show("确认删除选中的TCP配置？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                {
+                    return;
+                }
                 socketInfos.RemoveAt(iSelectedSocketRow);
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "SocketInfo", socketInfos);
                 RefreshSocketMap();
@@ -464,6 +468,10 @@ namespace Automation
 
         private void ClearBoard_Click(object sender, EventArgs e)
         {
+            if (MessageBox.Show("确认清除通讯记录？", "清除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
+                return;
+            }
             ReceiveTextBox.Clear();
         }
 
@@ -544,6 +552,10 @@ namespace Automation
         {
             if (iSelectedSerialPortRow != -1)
             {
+                if (MessageBox.Show("确认删除选中的串口配置？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                {
+                    return;
+                }
                 serialPortInfos.RemoveAt(iSelectedSerialPortRow);
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "SerialPortInfo", serialPortInfos);
                 RefreshSerialPortInfo();

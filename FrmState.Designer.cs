@@ -34,7 +34,7 @@
             // SysInfo
             // 
             this.SysInfo.AutoSize = true;
-            this.SysInfo.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.SysInfo.Font = new System.Drawing.Font("微软雅黑", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.SysInfo.Location = new System.Drawing.Point(6, -1);
             this.SysInfo.Name = "SysInfo";
             this.SysInfo.Size = new System.Drawing.Size(0, 21);
