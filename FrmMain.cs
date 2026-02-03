@@ -181,6 +181,10 @@ namespace Automation
                     {
                         continue;
                     }
+                    if (proc?.head?.Disable == true)
+                    {
+                        continue;
+                    }
                     EngineSnapshot snapshot = SF.DR.GetSnapshot(i);
                     if (snapshot != null && snapshot.State != ProcRunState.Stopped)
                     {
@@ -535,27 +539,38 @@ namespace Automation
                     procName = SF.frmProc.procsList[procNum].head.Name;
                 }
                 TreeNode node = SF.frmProc.proc_treeView.Nodes[procNum];
-                node.Text = procName + result;
-                switch (snapshot.State)
+                bool isDisabled = procNum >= 0
+                    && procNum < SF.frmProc.procsList.Count
+                    && SF.frmProc.procsList[procNum]?.head?.Disable == true;
+                string disabledTag = isDisabled ? "[禁用]" : string.Empty;
+                node.Text = disabledTag + procName + result;
+                if (isDisabled)
                 {
-                    case ProcRunState.Running:
-                        node.ForeColor = Color.ForestGreen;
-                        break;
-                    case ProcRunState.Paused:
-                        node.ForeColor = Color.Goldenrod;
-                        break;
-                    case ProcRunState.SingleStep:
-                        node.ForeColor = Color.DodgerBlue;
-                        break;
-                    case ProcRunState.Alarming:
-                        node.ForeColor = Color.Red;
-                        break;
-                    case ProcRunState.Stopped:
-                        node.ForeColor = Color.Black;
-                        break;
-                    default:
-                        node.ForeColor = Color.Black;
-                        break;
+                    node.ForeColor = Color.Gainsboro;
+                }
+                else
+                {
+                    switch (snapshot.State)
+                    {
+                        case ProcRunState.Running:
+                            node.ForeColor = Color.ForestGreen;
+                            break;
+                        case ProcRunState.Paused:
+                            node.ForeColor = Color.Goldenrod;
+                            break;
+                        case ProcRunState.SingleStep:
+                            node.ForeColor = Color.DodgerBlue;
+                            break;
+                        case ProcRunState.Alarming:
+                            node.ForeColor = Color.Red;
+                            break;
+                        case ProcRunState.Stopped:
+                            node.ForeColor = Color.Black;
+                            break;
+                        default:
+                            node.ForeColor = Color.Black;
+                            break;
+                    }
                 }
             }
             if (SF.frmProc.proc_treeView.InvokeRequired)

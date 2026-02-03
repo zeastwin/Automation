@@ -840,6 +840,12 @@ namespace Automation
                 Logger?.Log("启动流程失败：流程为空。", LogLevel.Error);
                 return;
             }
+            if (proc.head?.Disable == true)
+            {
+                string name = string.IsNullOrWhiteSpace(proc.head?.Name) ? $"索引{procIndex}" : proc.head.Name;
+                Logger?.Log($"流程已禁用，禁止启动：{name}", LogLevel.Normal);
+                return;
+            }
             if (!CheckPermission(PermissionKeys.ProcessRun, "启动流程"))
             {
                 return;
@@ -921,6 +927,12 @@ namespace Automation
             }
             evt.Proc = proc;
             evt.procName = proc.head?.Name;
+            if (proc.head?.Disable == true)
+            {
+                string name = string.IsNullOrWhiteSpace(evt.procName) ? $"索引{evt.procNum}" : evt.procName;
+                Logger?.Log($"流程已禁用，禁止运行：{name}", LogLevel.Normal);
+                return;
+            }
             if (evt.State == ProcRunState.Stopped)
             {
                 evt.State = ProcRunState.Running;
@@ -957,6 +969,18 @@ namespace Automation
                     MarkAlarm(evt, $"运行流程失败：步骤索引超界 {evt.stepNum}");
                     HandleAlarm(null, evt);
                     break;
+                }
+                Step currentStep = currentProc.steps[evt.stepNum];
+                if (currentStep != null && currentStep.Disable)
+                {
+                    evt.opsNum = -1;
+                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
+                    if (evt.stepNum >= currentProc.steps.Count - 1)
+                    {
+                        break;
+                    }
+                    evt.stepNum++;
+                    continue;
                 }
                 evt.procName = currentProc.head?.Name;
                 UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);

@@ -40,6 +40,9 @@ namespace Automation
 
         public bool isStopPointDirty = false;
 
+        private static readonly Color DisabledNodeColor = Color.Gainsboro;
+        private const string DisabledTag = "[禁用]";
+
         private ProcHead editProcHeadBackup;
         private Step editStepBackup;
         private int editProcIndex = -1;
@@ -261,16 +264,23 @@ namespace Automation
                 NormalizeProc(i, proc, loadErrors);
                 procsListTemp.Add(proc);
 
-                string procName = string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"流程{i}" : proc.head.Name;
-                TreeNode treeNode = new TreeNode(i + "：" + procName);
+                TreeNode treeNode = new TreeNode(BuildProcNodeText(i, proc));
+                if (proc?.head?.Disable == true)
+                {
+                    treeNode.ForeColor = DisabledNodeColor;
+                }
                 proc_treeView.Nodes.Add(treeNode);
 
                 if (proc.steps != null)
                 {
                     for (int j = 0; j < proc.steps.Count; j++)
                     {
-                        string stepName = string.IsNullOrWhiteSpace(proc.steps[j]?.Name) ? $"步骤{j}" : proc.steps[j].Name;
-                        TreeNode chnode = new TreeNode(j + "：" + stepName);
+                        Step step = proc.steps[j];
+                        TreeNode chnode = new TreeNode(BuildStepNodeText(i, j, proc, step));
+                        if (proc?.head?.Disable == true || proc.steps[j]?.Disable == true)
+                        {
+                            chnode.ForeColor = DisabledNodeColor;
+                        }
                         proc_treeView.Nodes[i].Nodes.Add(chnode);
                     }
                 }
@@ -531,7 +541,7 @@ namespace Automation
                         }
                         else
                         {
-                            proc_treeView.Nodes[editProcIndex].Text = $"{editProcIndex}：{procsList[editProcIndex].head.Name}";
+                            proc_treeView.Nodes[editProcIndex].Text = BuildProcNodeText(editProcIndex);
                         }
                     }
                 }
@@ -547,7 +557,7 @@ namespace Automation
                 }
                 if (editProcIndex < proc_treeView.Nodes.Count && editStepIndex < proc_treeView.Nodes[editProcIndex].Nodes.Count)
                 {
-                    proc_treeView.Nodes[editProcIndex].Nodes[editStepIndex].Text = $"{editStepIndex}：{step.Name}";
+                    proc_treeView.Nodes[editProcIndex].Nodes[editStepIndex].Text = BuildStepNodeText(editProcIndex, editStepIndex);
                 }
             }
 
@@ -902,8 +912,210 @@ namespace Automation
                 {
                     return;
                 }
+                if (SelectedProcNum >= 0 && SelectedProcNum < procsList.Count && procsList[SelectedProcNum]?.head?.Disable == true)
+                {
+                    MessageBox.Show("流程已禁用，无法启动。");
+                    return;
+                }
                 SF.DR.StartProc(null, SF.frmProc.SelectedProcNum);
             }
+        }
+
+        private void contextMenuStrip1_Opening(object sender, CancelEventArgs e)
+        {
+            UpdateToggleDisableMenu();
+        }
+
+        private void UpdateToggleDisableMenu()
+        {
+            if (ToggleDisable == null)
+            {
+                return;
+            }
+            TreeNode node = proc_treeView.SelectedNode;
+            if (node == null)
+            {
+                ToggleDisable.Enabled = false;
+                ToggleDisable.Text = "禁用";
+                return;
+            }
+            bool isStep = node.Parent != null;
+            int procIndex = isStep ? node.Parent.Index : node.Index;
+            int stepIndex = isStep ? node.Index : -1;
+            bool isDisabled = false;
+            if (procIndex >= 0 && procIndex < procsList.Count)
+            {
+                if (isStep)
+                {
+                    if (stepIndex >= 0 && stepIndex < procsList[procIndex].steps.Count)
+                    {
+                        isDisabled = procsList[procIndex].steps[stepIndex]?.Disable == true;
+                    }
+                }
+                else
+                {
+                    isDisabled = procsList[procIndex]?.head?.Disable == true;
+                }
+            }
+            ToggleDisable.Text = isDisabled
+                ? (isStep ? "启用步骤" : "启用流程")
+                : (isStep ? "禁用步骤" : "禁用流程");
+            ToggleDisable.Enabled = SF.HasPermission(PermissionKeys.ProcessEdit);
+        }
+
+        private void ToggleDisable_Click(object sender, EventArgs e)
+        {
+            TreeNode node = proc_treeView.SelectedNode;
+            if (node == null)
+            {
+                return;
+            }
+            bool isStep = node.Parent != null;
+            int procIndex = isStep ? node.Parent.Index : node.Index;
+            int stepIndex = isStep ? node.Index : -1;
+            if (procIndex < 0 || procIndex >= procsList.Count)
+            {
+                return;
+            }
+            if (!SF.CanEditProc(procIndex))
+            {
+                return;
+            }
+            EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
+            if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+            {
+                MessageBox.Show("流程运行中禁止禁用或启用。");
+                return;
+            }
+            Proc proc = procsList[procIndex];
+            if (proc == null)
+            {
+                return;
+            }
+            if (isStep)
+            {
+                if (stepIndex < 0 || stepIndex >= proc.steps.Count)
+                {
+                    return;
+                }
+                Step step = proc.steps[stepIndex];
+                if (step == null)
+                {
+                    return;
+                }
+                step.Disable = !step.Disable;
+                UpdateStepNodeStyle(procIndex, stepIndex);
+            }
+            else
+            {
+                if (proc.head == null)
+                {
+                    proc.head = new ProcHead();
+                }
+                proc.head.Disable = !proc.head.Disable;
+                UpdateProcNodeStyle(procIndex);
+                UpdateStepNodeStylesForProc(procIndex);
+            }
+            SF.frmDataGrid.SaveSingleProc(procIndex);
+        }
+
+        private void UpdateProcNodeStyle(int procIndex)
+        {
+            if (procIndex < 0 || procIndex >= proc_treeView.Nodes.Count || procIndex >= procsList.Count)
+            {
+                return;
+            }
+            bool disabled = procsList[procIndex]?.head?.Disable == true;
+            TreeNode node = proc_treeView.Nodes[procIndex];
+            if (node != null)
+            {
+                node.ForeColor = disabled ? DisabledNodeColor : Color.Black;
+                node.Text = BuildProcNodeText(procIndex);
+            }
+        }
+
+        private void UpdateStepNodeStyle(int procIndex, int stepIndex)
+        {
+            if (procIndex < 0 || procIndex >= proc_treeView.Nodes.Count || procIndex >= procsList.Count)
+            {
+                return;
+            }
+            if (stepIndex < 0 || stepIndex >= procsList[procIndex].steps.Count)
+            {
+                return;
+            }
+            if (stepIndex >= proc_treeView.Nodes[procIndex].Nodes.Count)
+            {
+                return;
+            }
+            bool disabled = procsList[procIndex]?.head?.Disable == true || procsList[procIndex].steps[stepIndex]?.Disable == true;
+            TreeNode node = proc_treeView.Nodes[procIndex].Nodes[stepIndex];
+            if (node != null)
+            {
+                node.ForeColor = disabled ? DisabledNodeColor : Color.Black;
+                node.Text = BuildStepNodeText(procIndex, stepIndex);
+            }
+        }
+
+        private void UpdateStepNodeStylesForProc(int procIndex)
+        {
+            if (procIndex < 0 || procIndex >= procsList.Count)
+            {
+                return;
+            }
+            int stepCount = procsList[procIndex].steps.Count;
+            for (int i = 0; i < stepCount; i++)
+            {
+                UpdateStepNodeStyle(procIndex, i);
+            }
+        }
+
+        private string BuildProcNodeText(int procIndex)
+        {
+            if (procIndex < 0 || procIndex >= procsList.Count)
+            {
+                return string.Empty;
+            }
+            Proc proc = procsList[procIndex];
+            return BuildProcNodeText(procIndex, proc);
+        }
+
+        private string BuildStepNodeText(int procIndex, int stepIndex)
+        {
+            if (procIndex < 0 || procIndex >= procsList.Count)
+            {
+                return string.Empty;
+            }
+            if (stepIndex < 0 || stepIndex >= procsList[procIndex].steps.Count)
+            {
+                return string.Empty;
+            }
+            Step step = procsList[procIndex].steps[stepIndex];
+            Proc proc = procsList[procIndex];
+            return BuildStepNodeText(procIndex, stepIndex, proc, step);
+        }
+
+        private string BuildProcNodeText(int procIndex, Proc proc)
+        {
+            if (procIndex < 0)
+            {
+                return string.Empty;
+            }
+            string procName = string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"流程{procIndex}" : proc.head.Name;
+            string tag = proc?.head?.Disable == true ? DisabledTag : string.Empty;
+            return $"{procIndex}：{tag}{procName}";
+        }
+
+        private string BuildStepNodeText(int procIndex, int stepIndex, Proc proc, Step step)
+        {
+            if (procIndex < 0 || stepIndex < 0)
+            {
+                return string.Empty;
+            }
+            string stepName = string.IsNullOrWhiteSpace(step?.Name) ? $"步骤{stepIndex}" : step.Name;
+            bool disabled = proc?.head?.Disable == true || step?.Disable == true;
+            string tag = disabled ? DisabledTag : string.Empty;
+            return $"{stepIndex}：{tag}{stepName}";
         }
         public Tuple<int, int, int> FindOperationTypeIndex(OperationType hash)
         {
@@ -1034,6 +1246,9 @@ namespace Automation
         [DisplayName("自启动"), Category("流程信息"), Description("启动程序时自动运行"), ReadOnly(false)]
         public bool AutoStart { get; set; }
 
+        [DisplayName("禁用"), Category("流程信息"), Description(""), ReadOnly(false)]
+        public bool Disable { get; set; }
+
         private string pauseIoCount;
         [DisplayName("暂停IO数"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
         public string PauseIoCount
@@ -1143,6 +1358,9 @@ namespace Automation
 
         [DisplayName("步骤名称"), Category("步骤信息"), Description(""), ReadOnly(false)]
         public string Name { get; set; }
+
+        [DisplayName("禁用"), Category("步骤信息"), Description(""), ReadOnly(false)]
+        public bool Disable { get; set; }
 
         public List<OperationType> Ops = new List<OperationType>();
     }

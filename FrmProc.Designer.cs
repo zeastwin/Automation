@@ -35,6 +35,7 @@
             this.AddStep = new System.Windows.Forms.ToolStripMenuItem();
             this.Remove = new System.Windows.Forms.ToolStripMenuItem();
             this.Modify = new System.Windows.Forms.ToolStripMenuItem();
+            this.ToggleDisable = new System.Windows.Forms.ToolStripMenuItem();
             this.startProc = new System.Windows.Forms.ToolStripMenuItem();
             this.contextMenuStrip1.SuspendLayout();
             this.SuspendLayout();
@@ -59,9 +60,11 @@
             this.AddStep,
             this.Remove,
             this.Modify,
+            this.ToggleDisable,
             this.startProc});
             this.contextMenuStrip1.Name = "contextMenuStrip1";
-            this.contextMenuStrip1.Size = new System.Drawing.Size(125, 114);
+            this.contextMenuStrip1.Size = new System.Drawing.Size(125, 136);
+            this.contextMenuStrip1.Opening += new System.ComponentModel.CancelEventHandler(this.contextMenuStrip1_Opening);
             // 
             // AddProc
             // 
@@ -91,6 +94,13 @@
             this.Modify.Text = "修改";
             this.Modify.Click += new System.EventHandler(this.Modify_Click);
             // 
+            // ToggleDisable
+            // 
+            this.ToggleDisable.Name = "ToggleDisable";
+            this.ToggleDisable.Size = new System.Drawing.Size(124, 22);
+            this.ToggleDisable.Text = "禁用";
+            this.ToggleDisable.Click += new System.EventHandler(this.ToggleDisable_Click);
+            // 
             // startProc
             // 
             this.startProc.Name = "startProc";
@@ -119,6 +129,7 @@
         private System.Windows.Forms.ToolStripMenuItem AddStep;
         private System.Windows.Forms.ToolStripMenuItem Remove;
         private System.Windows.Forms.ToolStripMenuItem Modify;
+        private System.Windows.Forms.ToolStripMenuItem ToggleDisable;
         public System.Windows.Forms.TreeView proc_treeView;
         private System.Windows.Forms.ToolStripMenuItem startProc;
     }
