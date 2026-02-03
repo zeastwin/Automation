@@ -88,7 +88,7 @@ namespace Automation
                             && station.GetState() == DataStation.Status.Run)
                         {
                             if (stopwatch.ElapsedMilliseconds > 120000)
-                            {
+                            {    
                                 MarkAlarm(evt, homeRun.Name + "运动超时");
                                 station.SetState(DataStation.Status.NotReady);
                                 throw CreateAlarmException(evt, evt?.alarmMsg);

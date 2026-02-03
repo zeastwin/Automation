@@ -34,7 +34,9 @@ namespace Automation
         private static readonly double stopwatchTickToMilliseconds = 1000.0 / Stopwatch.Frequency;
         private int snapshotThrottleMilliseconds = 50;
         private readonly ConcurrentDictionary<int, EngineSnapshot> pendingSnapshots = new ConcurrentDictionary<int, EngineSnapshot>();
+        private readonly ConcurrentDictionary<int, Proc> pendingProcUpdates = new ConcurrentDictionary<int, Proc>();
         private readonly object snapshotDispatchLock = new object();
+        private readonly object procPublishLock = new object();
         private System.Threading.Timer snapshotTimer;
         private int snapshotFlushRunning;
         private int disposed;
@@ -122,6 +124,50 @@ namespace Automation
             }
             UpdateSnapshot(procIndex, procName, snapshot.State, snapshot.StepIndex, snapshot.OpIndex, snapshot.IsBreakpoint,
                 snapshot.IsAlarm, snapshot.AlarmMessage, true);
+        }
+        public bool PublishProc(int procIndex, Proc proc, out string error)
+        {
+            error = null;
+            if (procIndex < 0)
+            {
+                error = "流程索引无效";
+                return false;
+            }
+            if (proc == null)
+            {
+                error = "流程为空";
+                return false;
+            }
+            if (Context == null)
+            {
+                error = "引擎上下文为空";
+                return false;
+            }
+            EnsureCapacity(procIndex);
+            lock (procPublishLock)
+            {
+                IList<Proc> current = Context.Procs;
+                int newCount = Math.Max(procIndex + 1, current?.Count ?? 0);
+                List<Proc> next = current != null ? new List<Proc>(current) : new List<Proc>(newCount);
+                while (next.Count < newCount)
+                {
+                    next.Add(null);
+                }
+                next[procIndex] = proc;
+                Context.Procs = next;
+            }
+            pendingProcUpdates[procIndex] = proc;
+            EngineSnapshot snapshot = GetSnapshot(procIndex);
+            if (snapshot == null || snapshot.State == ProcRunState.Stopped)
+            {
+                UpdateSnapshot(procIndex, proc.head?.Name, ProcRunState.Stopped, -1, -1, false, false, null, true);
+            }
+            return true;
+        }
+
+        public void ClearPendingProcUpdates()
+        {
+            pendingProcUpdates.Clear();
         }
         private void EnsureCapacity(int procIndex)
         {
@@ -408,8 +454,8 @@ namespace Automation
                 errorMessage = $"跳转失败：索引无效 {gotoText}";
                 return false;
             }
-            Proc proc = null;
-            if (Context?.Procs != null && evt.procNum >= 0 && evt.procNum < Context.Procs.Count)
+            Proc proc = evt.Proc;
+            if (proc == null && Context?.Procs != null && evt.procNum >= 0 && evt.procNum < Context.Procs.Count)
             {
                 proc = Context.Procs[evt.procNum];
             }
@@ -517,6 +563,133 @@ namespace Automation
                 }
                 Delay(50, evt);
             }
+        }
+        private bool FailHotUpdate(ProcHandle evt, ProcessControl control, string error)
+        {
+            string message = string.IsNullOrWhiteSpace(error) ? "热更新失败" : $"热更新失败:{error}";
+            Logger?.Log(message, LogLevel.Error);
+            MarkAlarm(evt, message);
+            RaiseAlarmState(evt);
+            control?.RequestStop();
+            return false;
+        }
+
+        private bool TryApplyPendingProcUpdate(ProcHandle evt, ProcessControl control)
+        {
+            if (evt == null)
+            {
+                return false;
+            }
+            if (!pendingProcUpdates.TryRemove(evt.procNum, out Proc newProc))
+            {
+                return true;
+            }
+            if (newProc == null)
+            {
+                return true;
+            }
+            Proc oldProc = evt.Proc;
+            if (oldProc == null)
+            {
+                evt.Proc = newProc;
+                evt.procName = newProc.head?.Name;
+                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                return true;
+            }
+            if (!TryMapProcPosition(oldProc, newProc, evt.stepNum, evt.opsNum, out int newStepIndex, out int newOpIndex, out string error))
+            {
+                return FailHotUpdate(evt, control, error);
+            }
+            int newSingleStep = evt.singleOpStep;
+            int newSingleOp = evt.singleOpOp;
+            if (evt.singleOpOnce)
+            {
+                if (!TryMapProcPosition(oldProc, newProc, evt.singleOpStep, evt.singleOpOp, out newSingleStep, out newSingleOp, out string singleError))
+                {
+                    return FailHotUpdate(evt, control, singleError);
+                }
+            }
+            evt.Proc = newProc;
+            evt.procName = newProc.head?.Name;
+            evt.stepNum = newStepIndex;
+            evt.opsNum = newOpIndex;
+            if (evt.singleOpOnce)
+            {
+                evt.singleOpStep = newSingleStep;
+                evt.singleOpOp = newSingleOp;
+            }
+            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+            Logger?.Log($"流程{evt.procNum}热更新完成。", LogLevel.Normal);
+            return true;
+        }
+
+        private bool TryMapProcPosition(Proc oldProc, Proc newProc, int oldStepIndex, int oldOpIndex,
+            out int newStepIndex, out int newOpIndex, out string error)
+        {
+            newStepIndex = -1;
+            newOpIndex = -1;
+            error = null;
+            if (oldProc?.steps == null || newProc?.steps == null)
+            {
+                error = "流程步骤为空";
+                return false;
+            }
+            if (oldStepIndex < 0 || oldStepIndex >= oldProc.steps.Count)
+            {
+                error = $"当前步骤索引超界:{oldStepIndex}";
+                return false;
+            }
+            Step oldStep = oldProc.steps[oldStepIndex];
+            if (oldStep == null)
+            {
+                error = "当前步骤为空";
+                return false;
+            }
+            if (oldStep.Id == Guid.Empty)
+            {
+                error = "当前步骤缺少ID";
+                return false;
+            }
+            newStepIndex = newProc.steps.FindIndex(step => step != null && step.Id == oldStep.Id);
+            if (newStepIndex < 0)
+            {
+                error = "当前步骤已被删除或重建";
+                return false;
+            }
+            if (oldOpIndex < 0)
+            {
+                newOpIndex = oldOpIndex;
+                return true;
+            }
+            if (oldStep.Ops == null || oldOpIndex >= oldStep.Ops.Count)
+            {
+                error = $"当前指令索引超界:{oldOpIndex}";
+                return false;
+            }
+            OperationType oldOp = oldStep.Ops[oldOpIndex];
+            if (oldOp == null)
+            {
+                error = "当前指令为空";
+                return false;
+            }
+            if (oldOp.Id == Guid.Empty)
+            {
+                error = "当前指令缺少ID";
+                return false;
+            }
+            Step newStep = newProc.steps[newStepIndex];
+            if (newStep?.Ops == null)
+            {
+                error = "更新后指令列表为空";
+                return false;
+            }
+            newOpIndex = newStep.Ops.FindIndex(op => op != null && op.Id == oldOp.Id);
+            if (newOpIndex < 0)
+            {
+                error = "当前指令已被删除或重建";
+                return false;
+            }
+            return true;
         }
 
         private bool TryEvaluatePauseSignal(ProcHead head, out bool pauseActive, out string error)
@@ -658,8 +831,13 @@ namespace Automation
         }
         public void StartProcAt(Proc proc, int procIndex, int stepIndex, int opIndex, ProcRunState startState)
         {
+            if (proc == null && Context?.Procs != null && procIndex >= 0 && procIndex < Context.Procs.Count)
+            {
+                proc = Context.Procs[procIndex];
+            }
             if (proc == null)
             {
+                Logger?.Log("启动流程失败：流程为空。", LogLevel.Error);
                 return;
             }
             if (!CheckPermission(PermissionKeys.ProcessRun, "启动流程"))
@@ -695,8 +873,13 @@ namespace Automation
         }
         public void RunSingleOpOnce(Proc proc, int procIndex, int stepIndex, int opIndex)
         {
+            if (proc == null && Context?.Procs != null && procIndex >= 0 && procIndex < Context.Procs.Count)
+            {
+                proc = Context.Procs[procIndex];
+            }
             if (proc == null)
             {
+                Logger?.Log("单步执行指令失败：流程为空。", LogLevel.Error);
                 return;
             }
             if (!CheckPermission(PermissionKeys.ProcessRun, "单步执行指令"))
@@ -736,57 +919,80 @@ namespace Automation
                 HandleAlarm(null, evt);
                 return;
             }
-            if (proc.steps == null || proc.steps.Count == 0)
-            {
-                MarkAlarm(evt, "运行流程失败：步骤为空");
-                HandleAlarm(null, evt);
-                return;
-            }
-            if (evt.stepNum < 0 || evt.stepNum >= proc.steps.Count)
-            {
-                MarkAlarm(evt, $"运行流程失败：步骤索引超界 {evt.stepNum}");
-                HandleAlarm(null, evt);
-                return;
-            }
+            evt.Proc = proc;
+            evt.procName = proc.head?.Name;
             if (evt.State == ProcRunState.Stopped)
             {
                 evt.State = ProcRunState.Running;
                 control.SetRunning();
             }
             evt.PauseBySignal = false;
-            evt.Proc = proc;
             evt.isBreakpoint = false;
             UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
-            for (int i = evt.stepNum; i < proc.steps.Count; i++)
+            while (true)
             {
                 if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                 {
                     break;
                 }
-                evt.stepNum = i;
-                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
-                RunStep(proc.steps[i], evt, control);
-                if (control.IsStopRequested)
+                if (!TryApplyPendingProcUpdate(evt, control))
+                {
                     break;
+                }
+                Proc currentProc = evt.Proc;
+                if (currentProc == null)
+                {
+                    MarkAlarm(evt, "运行流程失败：流程为空");
+                    HandleAlarm(null, evt);
+                    break;
+                }
+                if (currentProc.steps == null || currentProc.steps.Count == 0)
+                {
+                    MarkAlarm(evt, "运行流程失败：步骤为空");
+                    HandleAlarm(null, evt);
+                    break;
+                }
+                if (evt.stepNum < 0 || evt.stepNum >= currentProc.steps.Count)
+                {
+                    MarkAlarm(evt, $"运行流程失败：步骤索引超界 {evt.stepNum}");
+                    HandleAlarm(null, evt);
+                    break;
+                }
+                evt.procName = currentProc.head?.Name;
+                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
+                RunStep(evt, control);
+                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
                 if (evt.isGoto)
                 {
-                    i = evt.stepNum - 1;
                     continue;
                 }
                 if (evt.State == ProcRunState.Alarming)
                 {
-                    i = evt.stepNum - 1;
                     continue;
                 }
-                if (i != proc.steps.Count - 1)
-                    evt.opsNum = 0;
+                currentProc = evt.Proc;
+                if (currentProc == null || currentProc.steps == null)
+                {
+                    MarkAlarm(evt, "运行流程失败：流程为空");
+                    HandleAlarm(null, evt);
+                    break;
+                }
+                if (evt.stepNum >= currentProc.steps.Count - 1)
+                {
+                    break;
+                }
+                evt.opsNum = 0;
+                evt.stepNum++;
             }
             evt.State = ProcRunState.Stopped;
             evt.isBreakpoint = false;
             UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
         }
         //运行步骤
-        private bool RunStep(Step steps, ProcHandle evt, ProcessControl control)
+        private bool RunStep(ProcHandle evt, ProcessControl control)
         {
 
             bool bOK = true;
@@ -794,114 +1000,193 @@ namespace Automation
             {
                 return false;
             }
-            if (steps == null)
+            if (control == null)
             {
-                MarkAlarm(evt, "运行步骤失败：步骤为空");
-                HandleAlarm(null, evt);
                 return false;
             }
-            if (steps.Ops == null)
+            while (true)
             {
-                MarkAlarm(evt, "运行步骤失败：操作列表为空");
-                HandleAlarm(null, evt);
-                return false;
-            }
-            if (steps.Ops.Count == 0)
-            {
+                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                {
+                    return false;
+                }
+                if (!TryApplyPendingProcUpdate(evt, control))
+                {
+                    return false;
+                }
+                Proc currentProc = evt.Proc;
+                if (currentProc == null)
+                {
+                    MarkAlarm(evt, "运行步骤失败：流程为空");
+                    HandleAlarm(null, evt);
+                    return false;
+                }
+                if (currentProc.steps == null)
+                {
+                    MarkAlarm(evt, "运行步骤失败：步骤为空");
+                    HandleAlarm(null, evt);
+                    return false;
+                }
+                if (evt.stepNum < 0 || evt.stepNum >= currentProc.steps.Count)
+                {
+                    MarkAlarm(evt, $"运行步骤失败：步骤索引超界 {evt.stepNum}");
+                    HandleAlarm(null, evt);
+                    return false;
+                }
+                Step step = currentProc.steps[evt.stepNum];
+                if (step == null)
+                {
+                    MarkAlarm(evt, "运行步骤失败：步骤为空");
+                    HandleAlarm(null, evt);
+                    return false;
+                }
+                if (step.Ops == null)
+                {
+                    MarkAlarm(evt, "运行步骤失败：操作列表为空");
+                    HandleAlarm(null, evt);
+                    return false;
+                }
+                if (step.Ops.Count == 0)
+                {
+                    evt.opsNum = -1;
+                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
+                    return true;
+                }
+                if (evt.opsNum < 0 || evt.opsNum >= step.Ops.Count)
+                {
+                    MarkAlarm(evt, $"运行步骤失败：操作索引超界 {evt.opsNum}");
+                    HandleAlarm(null, evt);
+                    return false;
+                }
+                while (evt.opsNum < step.Ops.Count)
+                {
+                    if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                    {
+                        return false;
+                    }
+                    if (!TryApplyPendingProcUpdate(evt, control))
+                    {
+                        return false;
+                    }
+                    currentProc = evt.Proc;
+                    if (currentProc == null)
+                    {
+                        MarkAlarm(evt, "运行步骤失败：流程为空");
+                        HandleAlarm(null, evt);
+                        return false;
+                    }
+                    if (currentProc.steps == null || evt.stepNum < 0 || evt.stepNum >= currentProc.steps.Count)
+                    {
+                        MarkAlarm(evt, $"运行步骤失败：步骤索引超界 {evt.stepNum}");
+                        HandleAlarm(null, evt);
+                        return false;
+                    }
+                    step = currentProc.steps[evt.stepNum];
+                    if (step == null || step.Ops == null)
+                    {
+                        MarkAlarm(evt, "运行步骤失败：操作列表为空");
+                        HandleAlarm(null, evt);
+                        return false;
+                    }
+                    if (evt.opsNum < 0 || evt.opsNum >= step.Ops.Count)
+                    {
+                        MarkAlarm(evt, $"运行步骤失败：操作索引超界 {evt.opsNum}");
+                        HandleAlarm(null, evt);
+                        return false;
+                    }
+                    evt.isGoto = false;
+                    if (evt.State != ProcRunState.Alarming)
+                    {
+                        evt.isAlarm = false;
+                        evt.alarmMsg = null;
+                    }
+                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
+                    OperationType operation = step.Ops[evt.opsNum];
+                    if (operation == null)
+                    {
+                        MarkAlarm(evt, "运行步骤失败：指令为空");
+                        HandleAlarm(null, evt);
+                        return false;
+                    }
+                    if (operation.Disable)
+                    {
+                        evt.opsNum++;
+                        continue;
+                    }
+                    if (operation.isStopPoint)
+                    {
+                        control.SetPaused();
+                        evt.isBreakpoint = true;
+                        if (evt.State != ProcRunState.SingleStep)
+                        {
+                            evt.State = ProcRunState.Paused;
+                        }
+                        UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                    }
+                    control.WaitForRun();
+                    if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                    {
+                        return false;
+                    }
+                    if (evt.State == ProcRunState.SingleStep)
+                    {
+                        control.WaitForStep();
+                    }
+                    if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                    {
+                        return false;
+                    }
+                    if (evt.isBreakpoint)
+                    {
+                        evt.isBreakpoint = false;
+                        UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                    }
+                    if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                    {
+                        return false;
+                    }
+                    if (!HandlePauseSignal(evt, control))
+                    {
+                        return false;
+                    }
+                    if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                    {
+                        return false;
+                    }
+                    try
+                    {
+                        ExecuteOperation(evt, operation);
+                        if (evt.isAlarm)
+                        {
+                            HandleAlarm(operation, evt);
+                        }
+                        if (evt.isGoto)
+                        {
+                            return true;
+                        }
+                        if (evt.State == ProcRunState.Alarming)
+                        {
+                            return false;
+                        }
+                        if (evt.singleOpOnce && evt.stepNum == evt.singleOpStep && evt.opsNum == evt.singleOpOp)
+                        {
+                            control.RequestStop();
+                            return false;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MarkAlarm(evt, ex.Message);
+                        HandleAlarm(operation, evt);
+                        return false;
+                    }
+                    evt.opsNum++;
+                }
+
                 evt.opsNum = -1;
                 UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
-                return true;
+                return bOK;
             }
-            if (evt.opsNum < 0 || evt.opsNum >= steps.Ops.Count)
-            {
-                MarkAlarm(evt, $"运行步骤失败：操作索引超界 {evt.opsNum}");
-                HandleAlarm(null, evt);
-                return false;
-            }
-            for (int i = evt.opsNum; i < steps.Ops.Count; i++)
-            {
-                evt.isGoto = false;
-                if (evt.State != ProcRunState.Alarming)
-                {
-                    evt.isAlarm = false;
-                    evt.alarmMsg = null;
-                }
-                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
-                    return false;
-                evt.opsNum = i;
-                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
-                if (steps.Ops[i].Disable)
-                {
-                    continue;
-                }
-                if (steps.Ops[i].isStopPoint)
-                {
-                    control.SetPaused();
-                    evt.isBreakpoint = true;
-                    if (evt.State != ProcRunState.SingleStep)
-                    {
-                        evt.State = ProcRunState.Paused;
-                    }
-                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
-                }
-                control.WaitForRun();
-                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
-                {
-                    return false;
-                }
-                if (evt.State == ProcRunState.SingleStep)
-                {
-                    control.WaitForStep();
-                }
-                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
-                {
-                    return false;
-                }
-                if (evt.isBreakpoint)
-                {
-                    evt.isBreakpoint = false;
-                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
-                }
-                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
-                    return false;
-                if (!HandlePauseSignal(evt, control))
-                {
-                    return false;
-                }
-                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
-                    return false;
-                try
-                {
-                    ExecuteOperation(evt, steps.Ops[i]);
-                    if (evt.isAlarm)
-                    {
-                        HandleAlarm(steps.Ops[i], evt);
-                    }
-                    if (evt.isGoto)
-                    {
-                        return true;
-                    }
-                    if (evt.State == ProcRunState.Alarming)
-                    {
-                        return false;
-                    }
-                    if (evt.singleOpOnce && evt.stepNum == evt.singleOpStep && evt.opsNum == evt.singleOpOp)
-                    {
-                        control.RequestStop();
-                        return false;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MarkAlarm(evt, ex.Message);
-                    HandleAlarm(steps.Ops[i], evt);
-                    return false;
-                }
-            }
-
-            evt.opsNum = -1;
-            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
-            return bOK;
 
 
         }
@@ -1155,6 +1440,7 @@ namespace Automation
                 }
             }
             pendingSnapshots.Clear();
+            pendingProcUpdates.Clear();
             GC.SuppressFinalize(this);
         }
 
@@ -1361,6 +1647,7 @@ namespace Automation
                 stepNum = command.StepIndex,
                 opsNum = command.OpIndex,
                 procName = proc.head?.Name,
+                Proc = proc,
                 singleOpOnce = command.SingleOpOnce,
                 singleOpStep = command.StepIndex,
                 singleOpOp = command.OpIndex,

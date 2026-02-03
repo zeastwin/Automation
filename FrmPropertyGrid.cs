@@ -1,5 +1,4 @@
-﻿using Newtonsoft.Json;
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -88,15 +87,17 @@ namespace Automation
         public OperationType temp;
         public static T DeepCopy<T>(T t)
         {
-            var settings = new JsonSerializerSettings
+            if (ReferenceEquals(t, null))
             {
-                TypeNameHandling = TypeNameHandling.All
-            };
-            string output = Newtonsoft.Json.JsonConvert.SerializeObject(t, settings);
-
-            T temp = JsonConvert.DeserializeObject<T>(output, settings);
-
-            return temp;
+                return default;
+            }
+            using (MemoryStream memoryStream = new MemoryStream())
+            {
+                IFormatter formatter = new BinaryFormatter();
+                formatter.Serialize(memoryStream, t);
+                memoryStream.Seek(0, SeekOrigin.Begin);
+                return (T)formatter.Deserialize(memoryStream);
+            }
 
         }
         private void OperationType_SelectedIndexChanged(object sender, EventArgs e)

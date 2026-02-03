@@ -1,6 +1,8 @@
 ﻿using Automation.MotionControl;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -241,6 +243,50 @@ namespace Automation
             }
         }
 
+        public static bool PublishProc(int procIndex)
+        {
+            if (frmProc?.procsList == null)
+            {
+                MessageBox.Show("流程数据未就绪，无法发布。");
+                return false;
+            }
+            if (DR == null)
+            {
+                MessageBox.Show("流程引擎未初始化，无法发布。");
+                return false;
+            }
+            if (procIndex < 0 || procIndex >= frmProc.procsList.Count)
+            {
+                MessageBox.Show("流程索引无效，无法发布。");
+                return false;
+            }
+            Proc draft = frmProc.procsList[procIndex];
+            List<string> errors = new List<string>();
+            frmProc.NormalizeProc(procIndex, draft, errors);
+            if (errors.Count > 0)
+            {
+                string message = "流程发布失败：\r\n" + string.Join("\r\n", errors.Distinct());
+                MessageBox.Show(message, "流程发布失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (frmInfo != null && !frmInfo.IsDisposed)
+                {
+                    frmInfo.PrintInfo(message, FrmInfo.Level.Error);
+                }
+                return false;
+            }
+            Proc runtime = FrmPropertyGrid.DeepCopy(draft);
+            if (!DR.PublishProc(procIndex, runtime, out string error))
+            {
+                string message = string.IsNullOrWhiteSpace(error) ? "流程发布失败" : $"流程发布失败：{error}";
+                MessageBox.Show(message, "流程发布失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (frmInfo != null && !frmInfo.IsDisposed)
+                {
+                    frmInfo.PrintInfo(message, FrmInfo.Level.Error);
+                }
+                return false;
+            }
+            return true;
+        }
+
 
         public static bool CanEditProc(int procIndex)
         {
@@ -261,11 +307,6 @@ namespace Automation
             if (snapshot == null)
             {
                 return true;
-            }
-            if (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming)
-            {
-                MessageBox.Show("当前流程运行中禁止编辑，请先停止。");
-                return false;
             }
             return true;
         }

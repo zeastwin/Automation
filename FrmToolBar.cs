@@ -97,6 +97,7 @@ namespace Automation
                         MessageBox.Show("指令数据为空，无法保存。");
                         return;
                     }
+                    SF.frmDataGrid.OperationTemp.Id = Guid.NewGuid();
                     if (!TryValidateGotoTargets(SF.frmDataGrid.OperationTemp, SF.frmProc.SelectedProcNum, out string gotoError))
                     {
                         MessageBox.Show(gotoError);
@@ -157,6 +158,15 @@ namespace Automation
                     {
                         MessageBox.Show("指令数据为空，无法保存。");
                         return;
+                    }
+                    OperationType existingOp = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[SF.frmDataGrid.iSelectedRow];
+                    if (existingOp != null && existingOp.Id != Guid.Empty)
+                    {
+                        SF.frmDataGrid.OperationTemp.Id = existingOp.Id;
+                    }
+                    else if (SF.frmDataGrid.OperationTemp.Id == Guid.Empty)
+                    {
+                        SF.frmDataGrid.OperationTemp.Id = Guid.NewGuid();
                     }
                     if (!TryValidateGotoTargets(SF.frmDataGrid.OperationTemp, SF.frmProc.SelectedProcNum, out string gotoError))
                     {

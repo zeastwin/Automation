@@ -34,14 +34,20 @@ namespace Automation
                 MarkAlarm(evt, "流程操作参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
+            IList<Proc> procs = Context?.Procs;
+            if (procs == null)
+            {
+                MarkAlarm(evt, "流程列表为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
             foreach (procParam procParam in procOps.procParams)
             {
                 Proc proc = null;
                 if(!string.IsNullOrEmpty(procParam.ProcName))
-                proc = Context.Procs.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
+                proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
                 else if (!string.IsNullOrEmpty(procParam.ProcValue))
                 {
-                    proc = Context.Procs.FirstOrDefault(sc => sc.head.Name.ToString() == Context.ValueStore.GetValueByName(procParam.ProcValue).GetCValue());
+                    proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == Context.ValueStore.GetValueByName(procParam.ProcValue).GetCValue());
                 }
                 if(proc == null)
                 {
@@ -50,7 +56,12 @@ namespace Automation
                 }
                 if (procParam.value == "运行")
                 {
-                    int index = Context.Procs.IndexOf(proc);
+                    int index = procs.IndexOf(proc);
+                    if (index < 0)
+                    {
+                        MarkAlarm(evt, "流程索引无效");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
                     ProcRunState targetState = GetProcState(index);
                     if (targetState != ProcRunState.Stopped)
                     {
@@ -65,7 +76,12 @@ namespace Automation
                 }
                 else
                 {
-                    int index = Context.Procs.IndexOf(proc);
+                    int index = procs.IndexOf(proc);
+                    if (index < 0)
+                    {
+                        MarkAlarm(evt, "流程索引无效");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
                     ProcRunState targetState = GetProcState(index);
                     if (targetState == ProcRunState.Stopped)
                     {
@@ -85,6 +101,12 @@ namespace Automation
             if (waitProc == null || waitProc.Params == null || waitProc.Params.Count == 0)
             {
                 MarkAlarm(evt, "等待流程参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            IList<Proc> procs = Context?.Procs;
+            if (procs == null)
+            {
+                MarkAlarm(evt, "流程列表为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             timeOut = waitProc.timeOutC.TimeOut;
@@ -118,17 +140,22 @@ namespace Automation
                 {
                     Proc proc = null;
                     if (!string.IsNullOrEmpty(procParam.ProcName))
-                        proc = Context.Procs.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
+                        proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
                     else if (!string.IsNullOrEmpty(procParam.ProcValue))
                     {
-                        proc = Context.Procs.FirstOrDefault(sc => sc.head.Name.ToString() == Context.ValueStore.GetValueByName(procParam.ProcValue).GetCValue());
+                        proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == Context.ValueStore.GetValueByName(procParam.ProcValue).GetCValue());
                     }
                     if (proc == null)
                     {
                         MarkAlarm(evt, "找不到流程");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    int index = Context.Procs.IndexOf(proc);
+                    int index = procs.IndexOf(proc);
+                    if (index < 0)
+                    {
+                        MarkAlarm(evt, "流程索引无效");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
                     if (procParam.value == "运行")
                     {
                         if (GetProcState(index) == ProcRunState.Stopped)

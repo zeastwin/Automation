@@ -89,6 +89,9 @@ namespace Automation
         [JsonIgnore]
         public EventRefleshPropertyGrid evtRP;
 
+        [Browsable(false)]
+        public Guid Id { get; set; }
+
         [Browsable(true)]
         [DisplayName("编号"), Category("常规"), Description(""), ReadOnly(true)]
         public int Num { get; set; }

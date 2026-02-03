@@ -68,7 +68,16 @@ namespace Automation
             if (SelectedProcNum == -1)
             {
                 procsList.Add(proc);
-                SF.mainfrm.SaveAsJson(SF.workPath,(procsList.Count - 1).ToString(), proc);
+                int procIndex = procsList.Count - 1;
+                List<string> errors = new List<string>();
+                NormalizeProc(procIndex, proc, errors);
+                if (errors.Count > 0)
+                {
+                    MessageBox.Show(string.Join("\r\n", errors.Distinct()));
+                    return;
+                }
+                SF.mainfrm.SaveAsJson(SF.workPath, procIndex.ToString(), proc);
+                SF.PublishProc(procIndex);
             }
             else
             {
@@ -97,6 +106,10 @@ namespace Automation
                 MessageBox.Show("步骤信息为空，无法保存。");
                 return;
             }
+            if (StepTemp.Id == Guid.Empty)
+            {
+                StepTemp.Id = Guid.NewGuid();
+            }
             if (SelectedStepNum == -1)
             {
                 procsList[SelectedProcNum].steps.Add(StepTemp);
@@ -111,7 +124,15 @@ namespace Automation
                 procsList[SelectedProcNum].steps.Insert(SelectedStepNum + 1, StepTemp);
             }
 
+            List<string> errors = new List<string>();
+            NormalizeProc(SelectedProcNum, procsList[SelectedProcNum], errors);
+            if (errors.Count > 0)
+            {
+                MessageBox.Show(string.Join("\r\n", errors.Distinct()));
+                return;
+            }
             SF.mainfrm.SaveAsJson(SF.workPath,SelectedProcNum.ToString(), procsList[SelectedProcNum]);
+            SF.PublishProc(SelectedProcNum);
 
             NewStepNum = -1;
 
@@ -267,7 +288,13 @@ namespace Automation
             }
             if (SF.DR?.Context != null)
             {
-                SF.DR.Context.Procs = procsList;
+                List<Proc> runtimeProcs = new List<Proc>(procsList.Count);
+                for (int i = 0; i < procsList.Count; i++)
+                {
+                    runtimeProcs.Add(FrmPropertyGrid.DeepCopy(procsList[i]));
+                }
+                SF.DR.Context.Procs = runtimeProcs;
+                SF.DR.ClearPendingProcUpdates();
             }
             if (loadErrors.Count > 0)
             {
@@ -278,7 +305,7 @@ namespace Automation
             }
         }
 
-        private void NormalizeProc(int procIndex, Proc proc, List<string> errors)
+        internal void NormalizeProc(int procIndex, Proc proc, List<string> errors)
         {
             if (proc.head == null)
             {
@@ -310,6 +337,10 @@ namespace Automation
                     errors.Add($"流程{procIndex}步骤{i}为空");
                 }
                 Step step = proc.steps[i];
+                if (step.Id == Guid.Empty)
+                {
+                    step.Id = Guid.NewGuid();
+                }
                 if (string.IsNullOrWhiteSpace(step.Name))
                 {
                     step.Name = $"步骤{i}";
@@ -330,6 +361,10 @@ namespace Automation
                             Disable = true
                         };
                         errors.Add($"流程{procIndex}步骤{i}指令{j}为空");
+                    }
+                    if (step.Ops[j].Id == Guid.Empty)
+                    {
+                        step.Ops[j].Id = Guid.NewGuid();
                     }
                     step.Ops[j].Num = j;
                 }
@@ -867,7 +902,7 @@ namespace Automation
                 {
                     return;
                 }
-                SF.DR.StartProc(SF.frmProc.procsList[SF.frmProc.SelectedProcNum], SF.frmProc.SelectedProcNum);
+                SF.DR.StartProc(null, SF.frmProc.SelectedProcNum);
             }
         }
         public Tuple<int, int, int> FindOperationTypeIndex(OperationType hash)
@@ -976,11 +1011,13 @@ namespace Automation
     }
 
     //存放单个流程信息
+    [Serializable]
     public class Proc
     {
         public ProcHead head;
         public List<Step> steps = new List<Step>();
     }
+    [Serializable]
     public class ProcHead
     {
         public ProcHead()
@@ -1098,8 +1135,12 @@ namespace Automation
             return "";
         }
     }
+    [Serializable]
     public class Step
     {
+        [Browsable(false)]
+        public Guid Id { get; set; }
+
         [DisplayName("步骤名称"), Category("步骤信息"), Description(""), ReadOnly(false)]
         public string Name { get; set; }
 

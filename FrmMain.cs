@@ -60,7 +60,7 @@ namespace Automation
             SF.mainfrm = this;
             EngineContext engineContext = new EngineContext
             {
-                Procs = frmProc.procsList,
+                Procs = new List<Proc>(),
                 ValueStore = SF.valueStore,
                 DataStructStore = SF.dataStructStore,
                 TrayPointStore = SF.trayPointStore,
@@ -152,7 +152,6 @@ namespace Automation
             SF.plcStore.Load(SF.ConfigPath);
             if (SF.DR?.Context != null)
             {
-                SF.DR.Context.Procs = SF.frmProc.procsList;
                 SF.DR.Context.Stations = SF.frmCard.dataStation;
                 SF.DR.Context.SocketInfos = SF.frmComunication.socketInfos;
                 SF.DR.Context.SerialPortInfos = SF.frmComunication.serialPortInfos;
@@ -175,7 +174,9 @@ namespace Automation
             {
                 for (int i = 0; i < SF.frmProc.procsList.Count; i++)
                 {
-                    Proc proc = SF.frmProc.procsList[i];
+                    Proc proc = SF.DR?.Context?.Procs != null && i >= 0 && i < SF.DR.Context.Procs.Count
+                        ? SF.DR.Context.Procs[i]
+                        : SF.frmProc.procsList[i];
                     if (proc?.head?.AutoStart != true)
                     {
                         continue;
@@ -185,7 +186,7 @@ namespace Automation
                     {
                         continue;
                     }
-                    SF.DR.StartProcAuto(proc, i);
+                    SF.DR.StartProcAuto(null, i);
                 }
             }
         }
@@ -480,17 +481,6 @@ namespace Automation
             {
                 snapshot = SF.DR.GetSnapshot(selectedProc);
             }
-            if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
-            {
-                bool isProcEditing = SF.isAddOps
-                    || SF.isModify == ModifyKind.Proc
-                    || SF.isModify == ModifyKind.Operation
-                    || (SF.frmProc != null && (SF.frmProc.NewProcNum != -1 || SF.frmProc.NewStepNum != -1));
-                if (isProcEditing)
-                {
-                    SF.CancelProcEditing();
-                }
-            }
             SF.frmDataGrid.UpdateHighlight(snapshot);
         }
 
@@ -751,7 +741,7 @@ namespace Automation
 
                 SF.DR.Stop(procIndex);
                 SF.DR.StartProcAt(
-                    SF.frmProc.procsList[procIndex],
+                    null,
                     procIndex,
                     stepIndex,
                     opIndex,

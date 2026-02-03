@@ -479,7 +479,18 @@ namespace Automation
                     MessageBox.Show(error);
                     return;
                 }
+                if (SF.frmProc != null)
+                {
+                    List<string> errors = new List<string>();
+                    SF.frmProc.NormalizeProc(ProcIndex, SF.frmProc.procsList[ProcIndex], errors);
+                    if (errors.Count > 0)
+                    {
+                        MessageBox.Show(string.Join("\r\n", errors.Distinct()));
+                        return;
+                    }
+                }
                 SF.mainfrm.SaveAsJson(SF.workPath, ProcIndex.ToString(), SF.frmProc.procsList[ProcIndex]);
+                SF.PublishProc(ProcIndex);
             }
             catch (Exception ex)
             {
@@ -671,7 +682,7 @@ namespace Automation
             }
 
             SF.DR.StartProcAt(
-                SF.frmProc.procsList[SF.frmProc.SelectedProcNum],
+                null,
                 SF.frmProc.SelectedProcNum,
                 SF.frmProc.SelectedStepNum,
                 iSelectedRow,
@@ -810,6 +821,7 @@ namespace Automation
             {
                 return;
             }
+            ResetOperationIds(deepCopy);
             AdaptGotoProcIndex(deepCopy, SF.frmProc.SelectedProcNum);
             int insertIndex = iSelectedRow + 1;
             int opCount = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count;
@@ -866,6 +878,22 @@ namespace Automation
             foreach (var operation in operations)
             {
                 AdaptGotoProcIndex(operation, procIndex);
+            }
+        }
+
+        private void ResetOperationIds(IEnumerable<OperationType> operations)
+        {
+            if (operations == null)
+            {
+                return;
+            }
+            foreach (var operation in operations)
+            {
+                if (operation == null)
+                {
+                    continue;
+                }
+                operation.Id = Guid.NewGuid();
             }
         }
 
@@ -1188,6 +1216,7 @@ namespace Automation
                 {
                     return;
                 }
+                ResetOperationIds(deepCopy);
                 AdaptGotoProcIndex(deepCopy, SF.frmProc.SelectedProcNum);
                 int insertIndex = iSelectedRow + 1;
                 int opCount = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count;
