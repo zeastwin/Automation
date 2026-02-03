@@ -650,6 +650,11 @@ namespace Automation
                 e.Handled = true; // 阻止默认行为 防止选择条向下切换
 
             }
+            if (e.KeyCode == Keys.Delete)
+            {
+                Delete_Click(sender, EventArgs.Empty);
+                e.Handled = true;
+            }
         }
 
         private void SetStartOps_Click(object sender, EventArgs e)

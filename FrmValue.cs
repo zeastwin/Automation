@@ -340,7 +340,7 @@ namespace Automation
             }
             if (e.KeyCode == Keys.Delete)
             {
-                ClearSelectedValueRows();
+                ClearSelectedValueRows(true);
                 e.Handled = true;
                 return;
             }
