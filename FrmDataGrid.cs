@@ -250,6 +250,12 @@ namespace Automation
                     return;
                 }
 
+                if (SF.mainfrm.WindowState == FormWindowState.Minimized || !SF.mainfrm.ContainsFocus)
+                {
+                    ClearLastHighlight();
+                    return;
+                }
+
                 if (SF.curPage != 0)
                 {
                     ClearLastHighlight();
