@@ -34,6 +34,7 @@ namespace Automation
         public List<System.Windows.Forms.Label> StateLabel = new List<System.Windows.Forms.Label>();
         private bool suppressStationChange = false;
         private int lastStationIndex = -1;
+        public int CurrentStationIndex => lastStationIndex;
         public FrmControl()
         {
             InitializeComponent();
@@ -78,106 +79,129 @@ namespace Automation
             {
                 return;
             }
+            if (comboBox1.SelectedIndex == lastStationIndex)
+            {
+                return;
+            }
             if (SF.frmStation != null && SF.frmStation.IsPointEditing)
             {
-                if (comboBox1.SelectedIndex == lastStationIndex)
-                {
-                    return;
-                }
                 suppressStationChange = true;
                 comboBox1.SelectedIndex = lastStationIndex;
                 suppressStationChange = false;
                 MessageBox.Show("编辑状态下不允许切换工站，请先保存或取消。");
                 return;
             }
-            if (comboBox1.SelectedIndex != -1)
+            if (comboBox1.DroppedDown)
             {
-                temp = (DataStation)(comboBox1.SelectedItem);
-                trackBar1.Value = (int)(temp.Vel*100);
-                label6.Text = trackBar1.Value.ToString() + "%";
-                bindingSource.DataSource = SF.frmCard.dataStation[comboBox1.SelectedIndex].ListDataPos;
-                SF.frmStation.dataGridView1.DataSource = bindingSource;
-                SF.frmStation.dataGridView1.Columns[0].HeaderText = "索引";
-                SF.frmStation.dataGridView1.Columns[1].HeaderText = "名称";
-                AxisName1.Text = "-------";
-                AxisName2.Text = "-------";
-                AxisName3.Text = "-------";
-                AxisName4.Text = "-------";
-                AxisName5.Text = "-------";
-                AxisName6.Text = "-------";
-                Handle1.Text = "---------";
-                Handle2.Text = "---------";
-                Handle3.Text = "---------";
-                Handle4.Text = "---------";
-                Handle5.Text = "---------";
-                Handle6.Text = "---------";
-                Handle7.Text = "---------";
-                Handle8.Text = "---------";
-                Handle9.Text = "---------";
-                Handle10.Text = "---------";
-                Handle11.Text = "---------";
-                Handle12.Text = "---------";
-                pictureBox1.Image = invalidImage;
-                pictureBox2.Image = invalidImage;
-                pictureBox3.Image = invalidImage;
-                pictureBox4.Image = invalidImage;
-                pictureBox5.Image = invalidImage;
-                pictureBox6.Image = invalidImage;
-                for (int i = 0; i < 6; i++)
-                {
-                    SF.frmStation.dataGridView1.Columns[i + 2].HeaderText = temp.dataAxis.axisConfigs[i].AxisName;
-                }
+                return;
+            }
+            ApplyStationSelection(comboBox1.SelectedIndex);
+        }
 
-                AxisName1.Text = temp.dataAxis.axisConfig1.AxisName;
-                AxisName2.Text = temp.dataAxis.axisConfig2.AxisName;
-                AxisName3.Text = temp.dataAxis.axisConfig3.AxisName;
-                AxisName4.Text = temp.dataAxis.axisConfig4.AxisName;
-                AxisName5.Text = temp.dataAxis.axisConfig5.AxisName;
-                AxisName6.Text = temp.dataAxis.axisConfig6.AxisName;
+        private void comboBox1_DropDownClosed(object sender, EventArgs e)
+        {
+            if (suppressStationChange)
+            {
+                return;
+            }
+            ApplyStationSelection(comboBox1.SelectedIndex);
+        }
 
-                if (temp.dataAxis.axisConfig1.AxisName != "-1")
-                {
-
-                    Handle1.Text = temp.dataAxis.axisConfig1.AxisName + "+";
-                    Handle2.Text = temp.dataAxis.axisConfig1.AxisName + "-";
-
-                }
-                if (temp.dataAxis.axisConfig2.AxisName != "-1")
-                {
-                    Handle3.Text = temp.dataAxis.axisConfig2.AxisName + "+";
-                    Handle4.Text = temp.dataAxis.axisConfig2.AxisName + "-";
-
-                }
-                if (temp.dataAxis.axisConfig3.AxisName != "-1")
-                {
-                    Handle5.Text = temp.dataAxis.axisConfig3.AxisName + "+";
-                    Handle6.Text = temp.dataAxis.axisConfig3.AxisName + "-";
-
-                }
-                if (temp.dataAxis.axisConfig4.AxisName != "-1")
-                {
-                    Handle7.Text = temp.dataAxis.axisConfig4.AxisName + "+";
-                    Handle8.Text = temp.dataAxis.axisConfig4.AxisName + "-";
-
-                }
-                if (temp.dataAxis.axisConfig5.AxisName != "-1")
-                {
-                    Handle9.Text = temp.dataAxis.axisConfig5.AxisName + "+";
-                    Handle10.Text = temp.dataAxis.axisConfig5.AxisName + "-";
-
-                }
-                if (temp.dataAxis.axisConfig6.AxisName != "-1")
-                {
-                    Handle11.Text = temp.dataAxis.axisConfig6.AxisName + "+";
-                    Handle12.Text = temp.dataAxis.axisConfig6.AxisName + "-";
-
-                }
-
-                SF.frmStation.RefleshDgvState();
-                lastStationIndex = comboBox1.SelectedIndex;
-
+        private void ApplyStationSelection(int selectedIndex)
+        {
+            if (selectedIndex == lastStationIndex)
+            {
+                return;
+            }
+            if (selectedIndex == -1)
+            {
+                temp = null;
+                lastStationIndex = -1;
+                return;
+            }
+            if (SF.frmCard == null || SF.frmCard.dataStation == null || selectedIndex >= SF.frmCard.dataStation.Count)
+            {
+                temp = null;
+                lastStationIndex = -1;
+                return;
             }
 
+            temp = SF.frmCard.dataStation[selectedIndex];
+            trackBar1.Value = (int)(temp.Vel * 100);
+            label6.Text = trackBar1.Value.ToString() + "%";
+            bindingSource.DataSource = temp.ListDataPos;
+            SF.frmStation.dataGridView1.DataSource = bindingSource;
+            SF.frmStation.dataGridView1.Columns[0].HeaderText = "索引";
+            SF.frmStation.dataGridView1.Columns[1].HeaderText = "名称";
+            AxisName1.Text = "-------";
+            AxisName2.Text = "-------";
+            AxisName3.Text = "-------";
+            AxisName4.Text = "-------";
+            AxisName5.Text = "-------";
+            AxisName6.Text = "-------";
+            Handle1.Text = "---------";
+            Handle2.Text = "---------";
+            Handle3.Text = "---------";
+            Handle4.Text = "---------";
+            Handle5.Text = "---------";
+            Handle6.Text = "---------";
+            Handle7.Text = "---------";
+            Handle8.Text = "---------";
+            Handle9.Text = "---------";
+            Handle10.Text = "---------";
+            Handle11.Text = "---------";
+            Handle12.Text = "---------";
+            pictureBox1.Image = invalidImage;
+            pictureBox2.Image = invalidImage;
+            pictureBox3.Image = invalidImage;
+            pictureBox4.Image = invalidImage;
+            pictureBox5.Image = invalidImage;
+            pictureBox6.Image = invalidImage;
+            for (int i = 0; i < 6; i++)
+            {
+                SF.frmStation.dataGridView1.Columns[i + 2].HeaderText = temp.dataAxis.axisConfigs[i].AxisName;
+            }
+
+            AxisName1.Text = temp.dataAxis.axisConfig1.AxisName;
+            AxisName2.Text = temp.dataAxis.axisConfig2.AxisName;
+            AxisName3.Text = temp.dataAxis.axisConfig3.AxisName;
+            AxisName4.Text = temp.dataAxis.axisConfig4.AxisName;
+            AxisName5.Text = temp.dataAxis.axisConfig5.AxisName;
+            AxisName6.Text = temp.dataAxis.axisConfig6.AxisName;
+
+            if (temp.dataAxis.axisConfig1.AxisName != "-1")
+            {
+                Handle1.Text = temp.dataAxis.axisConfig1.AxisName + "+";
+                Handle2.Text = temp.dataAxis.axisConfig1.AxisName + "-";
+            }
+            if (temp.dataAxis.axisConfig2.AxisName != "-1")
+            {
+                Handle3.Text = temp.dataAxis.axisConfig2.AxisName + "+";
+                Handle4.Text = temp.dataAxis.axisConfig2.AxisName + "-";
+            }
+            if (temp.dataAxis.axisConfig3.AxisName != "-1")
+            {
+                Handle5.Text = temp.dataAxis.axisConfig3.AxisName + "+";
+                Handle6.Text = temp.dataAxis.axisConfig3.AxisName + "-";
+            }
+            if (temp.dataAxis.axisConfig4.AxisName != "-1")
+            {
+                Handle7.Text = temp.dataAxis.axisConfig4.AxisName + "+";
+                Handle8.Text = temp.dataAxis.axisConfig4.AxisName + "-";
+            }
+            if (temp.dataAxis.axisConfig5.AxisName != "-1")
+            {
+                Handle9.Text = temp.dataAxis.axisConfig5.AxisName + "+";
+                Handle10.Text = temp.dataAxis.axisConfig5.AxisName + "-";
+            }
+            if (temp.dataAxis.axisConfig6.AxisName != "-1")
+            {
+                Handle11.Text = temp.dataAxis.axisConfig6.AxisName + "+";
+                Handle12.Text = temp.dataAxis.axisConfig6.AxisName + "-";
+            }
+
+            SF.frmStation.RefleshDgvState();
+            lastStationIndex = selectedIndex;
         }
     
        //轴按顺序回原

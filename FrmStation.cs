@@ -72,7 +72,7 @@ namespace Automation
             StateDicTemp.Clear();
             axisRowMap = Array.Empty<int>();
 
-            int stationIndex = SF.frmControl.comboBox1.SelectedIndex;
+            int stationIndex = SF.frmControl.CurrentStationIndex;
             if (stationIndex == -1)
             {
                 return;
@@ -167,7 +167,7 @@ namespace Automation
                     return;
                 }
 
-                int stationIndex = SF.frmControl.comboBox1.SelectedIndex;
+                int stationIndex = SF.frmControl.CurrentStationIndex;
                 if (stationIndex == -1)
                 {
                     return;
