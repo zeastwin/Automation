@@ -551,7 +551,7 @@ namespace Automation
                         node.ForeColor = Color.Red;
                         break;
                     case ProcRunState.Stopped:
-                        node.ForeColor = Color.DimGray;
+                        node.ForeColor = Color.Black;
                         break;
                     default:
                         node.ForeColor = Color.Black;
