@@ -18,8 +18,8 @@ namespace Automation
     {
         public IODebugMap IODebugMaps = new IODebugMap();
         Font font = new Font("微软雅黑", 15, FontStyle.Regular);
-        public List<Button> buttonsIn = new List<Button>();
-        public List<Button> buttonsOut = new List<Button>();
+        public List<Control> buttonsIn = new List<Control>();
+        public List<Control> buttonsOut = new List<Control>();
         public List<ConnectButton> btnCon = new List<ConnectButton>();
         private ListView listView6;
         private readonly object ioCacheLock = new object();
@@ -937,9 +937,9 @@ namespace Automation
                 listView6.ItemChecked += listView6_ItemChecked;
             }
         }
-        public List<Button> CreateButtonIO(List<IO> iOs, TabPage tabPage)
+        public List<Control> CreateButtonIO(List<IO> iOs, TabPage tabPage)
         {
-            List<Button> buttons = new List<Button>();
+            List<Control> controls = new List<Control>();
             tabPage.AutoScroll = true;
             int col = 0, row = 0;
             int colWidth = IoColWidth;
@@ -947,6 +947,7 @@ namespace Automation
             int itemWidth = IoItemWidth;
             int itemHeight = IoItemHeight;
             int rowsPerColumn = GetRowsPerColumn(tabPage, rowHeight);
+            bool isInputPage = tabPage == tabPage1;
             if (tabPage == tabPage1)
             {
                 inputRowsPerColumn = rowsPerColumn;
@@ -960,26 +961,41 @@ namespace Automation
                 IO io = iOs[i];
                 if (io == null)
                 {
-                    buttons.Add(null);
+                    controls.Add(null);
                 }
                 else if (io.IsRemark)
                 {
                     Control remarkHeader = CreateRemarkHeader(io.Name, new Point(col * colWidth, row * rowHeight), itemWidth, itemHeight);
                     tabPage.Controls.Add(remarkHeader);
-                    buttons.Add(null);
+                    controls.Add(null);
                 }
                 else
                 {
-                    Button dynamicButton = new Button();
-
-                    dynamicButton.Text = io.Name;
-                    dynamicButton.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
-                    dynamicButton.Size = new System.Drawing.Size(itemWidth, itemHeight);
-
-                    tabPage.Controls.Add(dynamicButton);
-                    buttons.Add(dynamicButton);
-                    if (io.IOType == "通用输出")
-                        dynamicButton.Click += new EventHandler(IOButton_Click);
+                    if (isInputPage || io.IOType == "通用输入")
+                    {
+                        Label dynamicLabel = new Label();
+                        dynamicLabel.Text = io.Name;
+                        dynamicLabel.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
+                        dynamicLabel.Size = new System.Drawing.Size(itemWidth, itemHeight);
+                        dynamicLabel.AutoSize = false;
+                        dynamicLabel.BackColor = System.Drawing.Color.Gray;
+                        dynamicLabel.TextAlign = ContentAlignment.MiddleCenter;
+                        tabPage.Controls.Add(dynamicLabel);
+                        controls.Add(dynamicLabel);
+                    }
+                    else
+                    {
+                        Button dynamicButton = new Button();
+                        dynamicButton.Text = io.Name;
+                        dynamicButton.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
+                        dynamicButton.Size = new System.Drawing.Size(itemWidth, itemHeight);
+                        tabPage.Controls.Add(dynamicButton);
+                        controls.Add(dynamicButton);
+                        if (io.IOType == "通用输出")
+                        {
+                            dynamicButton.Click += new EventHandler(IOButton_Click);
+                        }
+                    }
                 }
                 row++;
                 if (row >= rowsPerColumn)
@@ -988,7 +1004,7 @@ namespace Automation
                     col++;
                 }
             }
-            return buttons;
+            return controls;
 
         }
         public void CreateButtonConnect()
@@ -1028,21 +1044,35 @@ namespace Automation
                 Label dynamicLabel2 = new Label();
                 if (!ioConnect.Output.IsRemark)
                 {
-                    dynamicLabel1.Text = ioConnect.Intput1.Name;
-                    dynamicLabel1.Location = new System.Drawing.Point(col * colWidth + colWidth, row * rowHeight);
-                    dynamicLabel1.Size = new System.Drawing.Size(itemWidth, itemHeight);
-                    dynamicLabel1.BackColor = System.Drawing.Color.Gray;
-                    dynamicLabel1.TextAlign = ContentAlignment.MiddleCenter;
+                    if (ioConnect.Intput1 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput1.Name))
+                    {
+                        dynamicLabel1.Text = ioConnect.Intput1.Name;
+                        dynamicLabel1.Location = new System.Drawing.Point(col * colWidth + colWidth, row * rowHeight);
+                        dynamicLabel1.Size = new System.Drawing.Size(itemWidth, itemHeight);
+                        dynamicLabel1.BackColor = System.Drawing.Color.Gray;
+                        dynamicLabel1.TextAlign = ContentAlignment.MiddleCenter;
 
-                    tabPage3.Controls.Add(dynamicLabel1);
+                        tabPage3.Controls.Add(dynamicLabel1);
+                    }
+                    else
+                    {
+                        dynamicLabel1 = null;
+                    }
 
-                    dynamicLabel2.Text = ioConnect.Intput2.Name;
-                    dynamicLabel2.Location = new System.Drawing.Point(col * colWidth + colWidth * 2, row * rowHeight);
-                    dynamicLabel2.Size = new System.Drawing.Size(itemWidth, itemHeight);
-                    dynamicLabel2.BackColor = System.Drawing.Color.Gray;
-                    dynamicLabel2.TextAlign = ContentAlignment.MiddleCenter;
+                    if (ioConnect.Intput2 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput2.Name))
+                    {
+                        dynamicLabel2.Text = ioConnect.Intput2.Name;
+                        dynamicLabel2.Location = new System.Drawing.Point(col * colWidth + colWidth * 2, row * rowHeight);
+                        dynamicLabel2.Size = new System.Drawing.Size(itemWidth, itemHeight);
+                        dynamicLabel2.BackColor = System.Drawing.Color.Gray;
+                        dynamicLabel2.TextAlign = ContentAlignment.MiddleCenter;
 
-                    tabPage3.Controls.Add(dynamicLabel2);
+                        tabPage3.Controls.Add(dynamicLabel2);
+                    }
+                    else
+                    {
+                        dynamicLabel2 = null;
+                    }
                 }
 
                 btnCon.Add(new ConnectButton { OutPut = outputControl ,InPut1 = dynamicLabel1 ,InPut2 = dynamicLabel2});
