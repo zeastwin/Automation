@@ -194,7 +194,8 @@ namespace Automation
             connectConfigTabControl.Controls.Add(connectConfigTabPage2);
             connectConfigTabControl.Controls.Add(connectConfigTabPage3);
 
-            groupBox1.Controls.Add(connectConfigTabControl);
+            tabPage4.Controls.Add(connectConfigTabControl);
+            tabPage4.Controls.SetChildIndex(connectConfigTabControl, 0);
             connectConfigTabControl.BringToFront();
 
             MoveConnectConfigViewsTo(connectConfigTabPage1);

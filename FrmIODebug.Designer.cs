@@ -36,7 +36,6 @@
             this.tabPage4 = new System.Windows.Forms.TabPage();
             this.tabPage5 = new System.Windows.Forms.TabPage();
             this.tabPage6 = new System.Windows.Forms.TabPage();
-            this.groupBox1 = new System.Windows.Forms.GroupBox();
             this.listView4 = new System.Windows.Forms.ListView();
             this.listView3 = new System.Windows.Forms.ListView();
             this.listView5 = new System.Windows.Forms.ListView();
@@ -44,7 +43,6 @@
             this.listView1 = new System.Windows.Forms.ListView();
             this.tabControl1.SuspendLayout();
             this.tabPage4.SuspendLayout();
-            this.groupBox1.SuspendLayout();
             this.SuspendLayout();
             // 
             // tabControl1
@@ -92,22 +90,14 @@
             // 
             // tabPage4
             // 
-            this.tabPage4.Controls.Add(this.groupBox1);
+            this.tabPage4.Controls.Add(this.listView4);
+            this.tabPage4.Controls.Add(this.listView3);
+            this.tabPage4.Controls.Add(this.listView5);
             this.tabPage4.Controls.Add(this.listView2);
             this.tabPage4.Controls.Add(this.listView1);
             resources.ApplyResources(this.tabPage4, "tabPage4");
             this.tabPage4.Name = "tabPage4";
             this.tabPage4.UseVisualStyleBackColor = true;
-            // 
-            // 
-            // groupBox1
-            // 
-            this.groupBox1.Controls.Add(this.listView4);
-            this.groupBox1.Controls.Add(this.listView3);
-            this.groupBox1.Controls.Add(this.listView5);
-            resources.ApplyResources(this.groupBox1, "groupBox1");
-            this.groupBox1.Name = "groupBox1";
-            this.groupBox1.TabStop = false;
             // 
             // listView4
             // 
@@ -178,7 +168,6 @@
             this.Load += new System.EventHandler(this.FrmIODebug_Load);
             this.tabControl1.ResumeLayout(false);
             this.tabPage4.ResumeLayout(false);
-            this.groupBox1.ResumeLayout(false);
             this.ResumeLayout(false);
 
         }
@@ -194,7 +183,6 @@
         private System.Windows.Forms.ListView listView2;
         private System.Windows.Forms.ListView listView5;
         private System.Windows.Forms.ListView listView3;
-        private System.Windows.Forms.GroupBox groupBox1;
         private System.Windows.Forms.ListView listView4;
         private System.Windows.Forms.TabPage tabPage5;
         private System.Windows.Forms.TabPage tabPage6;
