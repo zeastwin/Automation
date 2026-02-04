@@ -26,6 +26,8 @@ namespace Automation
         private readonly ListView[] connectListView4 = new ListView[3];
         private readonly ListView[] connectListView5 = new ListView[3];
         private readonly ListView[] connectListView6 = new ListView[3];
+        private readonly Splitter[][] connectSplitters = new Splitter[3][];
+        private const int ConnectSplitterWidth = 4;
         private readonly object ioCacheLock = new object();
         private Dictionary<string, IO> inputIoCache = new Dictionary<string, IO>(StringComparer.Ordinal);
         private Dictionary<string, IO> outputIoCache = new Dictionary<string, IO>(StringComparer.Ordinal);
@@ -201,19 +203,37 @@ namespace Automation
             connectListView4[0] = listView4;
             connectListView5[0] = listView5;
             connectListView6[0] = CreateConnectOutput2ListView("listView6");
-            ApplyConnectListViewLayout(connectConfigTabPage1, connectListView3[0], connectListView4[0], connectListView5[0], connectListView6[0]);
+            connectSplitters[0] = new[]
+            {
+                CreateConnectSplitter("connectSplitter1_1"),
+                CreateConnectSplitter("connectSplitter1_2"),
+                CreateConnectSplitter("connectSplitter1_3")
+            };
+            ApplyConnectListViewLayout(connectConfigTabPage1, connectListView3[0], connectListView6[0], connectListView4[0], connectListView5[0], connectSplitters[0][0], connectSplitters[0][1], connectSplitters[0][2]);
 
             connectListView3[1] = CreateConnectOutputListView("listView3_2");
             connectListView4[1] = CreateConnectInputListView("listView4_2");
             connectListView5[1] = CreateConnectInputListView("listView5_2");
             connectListView6[1] = CreateConnectOutput2ListView("listView6_2");
-            ApplyConnectListViewLayout(connectConfigTabPage2, connectListView3[1], connectListView4[1], connectListView5[1], connectListView6[1]);
+            connectSplitters[1] = new[]
+            {
+                CreateConnectSplitter("connectSplitter2_1"),
+                CreateConnectSplitter("connectSplitter2_2"),
+                CreateConnectSplitter("connectSplitter2_3")
+            };
+            ApplyConnectListViewLayout(connectConfigTabPage2, connectListView3[1], connectListView6[1], connectListView4[1], connectListView5[1], connectSplitters[1][0], connectSplitters[1][1], connectSplitters[1][2]);
 
             connectListView3[2] = CreateConnectOutputListView("listView3_3");
             connectListView4[2] = CreateConnectInputListView("listView4_3");
             connectListView5[2] = CreateConnectInputListView("listView5_3");
             connectListView6[2] = CreateConnectOutput2ListView("listView6_3");
-            ApplyConnectListViewLayout(connectConfigTabPage3, connectListView3[2], connectListView4[2], connectListView5[2], connectListView6[2]);
+            connectSplitters[2] = new[]
+            {
+                CreateConnectSplitter("connectSplitter3_1"),
+                CreateConnectSplitter("connectSplitter3_2"),
+                CreateConnectSplitter("connectSplitter3_3")
+            };
+            ApplyConnectListViewLayout(connectConfigTabPage3, connectListView3[2], connectListView6[2], connectListView4[2], connectListView5[2], connectSplitters[2][0], connectSplitters[2][1], connectSplitters[2][2]);
         }
 
         private ListView CreateConnectOutputListView(string name)
@@ -260,9 +280,18 @@ namespace Automation
             return listView;
         }
 
-        private void ApplyConnectListViewLayout(TabPage page, ListView output1, ListView input1, ListView input2, ListView output2)
+        private Splitter CreateConnectSplitter(string name)
         {
-            if (page == null || output1 == null || input1 == null || input2 == null || output2 == null)
+            Splitter splitter = new Splitter();
+            splitter.Name = name;
+            splitter.Width = ConnectSplitterWidth;
+            splitter.BackColor = SystemColors.ControlDark;
+            return splitter;
+        }
+
+        private void ApplyConnectListViewLayout(TabPage page, ListView output1, ListView output2, ListView input1, ListView input2, Splitter splitter1, Splitter splitter2, Splitter splitter3)
+        {
+            if (page == null || output1 == null || output2 == null || input1 == null || input2 == null || splitter1 == null || splitter2 == null || splitter3 == null)
             {
                 return;
             }
@@ -285,17 +314,35 @@ namespace Automation
                 {
                     page.Controls.Add(output2);
                 }
+                if (splitter1.Parent != page)
+                {
+                    page.Controls.Add(splitter1);
+                }
+                if (splitter2.Parent != page)
+                {
+                    page.Controls.Add(splitter2);
+                }
+                if (splitter3.Parent != page)
+                {
+                    page.Controls.Add(splitter3);
+                }
 
                 output1.Dock = DockStyle.Left;
+                splitter1.Dock = DockStyle.Left;
                 output2.Dock = DockStyle.Left;
+                splitter2.Dock = DockStyle.Left;
                 input1.Dock = DockStyle.Left;
-                input2.Dock = DockStyle.Left;
+                splitter3.Dock = DockStyle.Left;
+                input2.Dock = DockStyle.Fill;
 
-                page.Controls.SetChildIndex(output1, 0);
-                page.Controls.SetChildIndex(output2, 1);
+                page.Controls.SetChildIndex(input2, 0);
+                page.Controls.SetChildIndex(splitter3, 1);
                 page.Controls.SetChildIndex(input1, 2);
-                page.Controls.SetChildIndex(input2, 3);
-                UpdateConnectConfigColumnWidths(page, output1, output2, input1, input2);
+                page.Controls.SetChildIndex(splitter2, 3);
+                page.Controls.SetChildIndex(output2, 4);
+                page.Controls.SetChildIndex(splitter1, 5);
+                page.Controls.SetChildIndex(output1, 6);
+                UpdateConnectConfigColumnWidths(page, output1, output2, input1, input2, splitter1, splitter2, splitter3);
             }
             finally
             {
@@ -310,14 +357,14 @@ namespace Automation
 
         private void UpdateConnectConfigColumnWidths()
         {
-            UpdateConnectConfigColumnWidths(connectConfigTabPage1, connectListView3[0], connectListView6[0], connectListView4[0], connectListView5[0]);
-            UpdateConnectConfigColumnWidths(connectConfigTabPage2, connectListView3[1], connectListView6[1], connectListView4[1], connectListView5[1]);
-            UpdateConnectConfigColumnWidths(connectConfigTabPage3, connectListView3[2], connectListView6[2], connectListView4[2], connectListView5[2]);
+            UpdateConnectConfigColumnWidths(connectConfigTabPage1, connectListView3[0], connectListView6[0], connectListView4[0], connectListView5[0], connectSplitters[0][0], connectSplitters[0][1], connectSplitters[0][2]);
+            UpdateConnectConfigColumnWidths(connectConfigTabPage2, connectListView3[1], connectListView6[1], connectListView4[1], connectListView5[1], connectSplitters[1][0], connectSplitters[1][1], connectSplitters[1][2]);
+            UpdateConnectConfigColumnWidths(connectConfigTabPage3, connectListView3[2], connectListView6[2], connectListView4[2], connectListView5[2], connectSplitters[2][0], connectSplitters[2][1], connectSplitters[2][2]);
         }
 
-        private void UpdateConnectConfigColumnWidths(TabPage page, ListView output1, ListView output2, ListView input1, ListView input2)
+        private void UpdateConnectConfigColumnWidths(TabPage page, ListView output1, ListView output2, ListView input1, ListView input2, Splitter splitter1, Splitter splitter2, Splitter splitter3)
         {
-            if (page == null || output1 == null || output2 == null || input1 == null || input2 == null)
+            if (page == null || output1 == null || output2 == null || input1 == null || input2 == null || splitter1 == null || splitter2 == null || splitter3 == null)
             {
                 return;
             }
@@ -326,12 +373,18 @@ namespace Automation
             {
                 return;
             }
-            int colWidth = width / 4;
+            int splitterWidth = splitter1.Width + splitter2.Width + splitter3.Width;
+            int availableWidth = width - splitterWidth;
+            if (availableWidth <= 0)
+            {
+                return;
+            }
+            int colWidth = availableWidth / 4;
             if (colWidth <= 0)
             {
                 return;
             }
-            int lastWidth = width - (colWidth * 3);
+            int lastWidth = availableWidth - (colWidth * 3);
             if (lastWidth <= 0)
             {
                 lastWidth = colWidth;
