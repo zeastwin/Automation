@@ -34,12 +34,14 @@
             this.tabPage2 = new System.Windows.Forms.TabPage();
             this.tabPage3 = new System.Windows.Forms.TabPage();
             this.tabPage4 = new System.Windows.Forms.TabPage();
-            this.listView5 = new System.Windows.Forms.ListView();
-            this.listView3 = new System.Windows.Forms.ListView();
-            this.listView2 = new System.Windows.Forms.ListView();
-            this.listView1 = new System.Windows.Forms.ListView();
+            this.tabPage5 = new System.Windows.Forms.TabPage();
+            this.tabPage6 = new System.Windows.Forms.TabPage();
             this.groupBox1 = new System.Windows.Forms.GroupBox();
             this.listView4 = new System.Windows.Forms.ListView();
+            this.listView3 = new System.Windows.Forms.ListView();
+            this.listView5 = new System.Windows.Forms.ListView();
+            this.listView2 = new System.Windows.Forms.ListView();
+            this.listView1 = new System.Windows.Forms.ListView();
             this.tabControl1.SuspendLayout();
             this.tabPage4.SuspendLayout();
             this.groupBox1.SuspendLayout();
@@ -50,6 +52,8 @@
             this.tabControl1.Controls.Add(this.tabPage1);
             this.tabControl1.Controls.Add(this.tabPage2);
             this.tabControl1.Controls.Add(this.tabPage3);
+            this.tabControl1.Controls.Add(this.tabPage5);
+            this.tabControl1.Controls.Add(this.tabPage6);
             this.tabControl1.Controls.Add(this.tabPage4);
             resources.ApplyResources(this.tabControl1, "tabControl1");
             this.tabControl1.Name = "tabControl1";
@@ -74,6 +78,18 @@
             this.tabPage3.Name = "tabPage3";
             this.tabPage3.UseVisualStyleBackColor = true;
             // 
+            // tabPage5
+            // 
+            resources.ApplyResources(this.tabPage5, "tabPage5");
+            this.tabPage5.Name = "tabPage5";
+            this.tabPage5.UseVisualStyleBackColor = true;
+            // 
+            // tabPage6
+            // 
+            resources.ApplyResources(this.tabPage6, "tabPage6");
+            this.tabPage6.Name = "tabPage6";
+            this.tabPage6.UseVisualStyleBackColor = true;
+            // 
             // tabPage4
             // 
             this.tabPage4.Controls.Add(this.groupBox1);
@@ -83,15 +99,24 @@
             this.tabPage4.Name = "tabPage4";
             this.tabPage4.UseVisualStyleBackColor = true;
             // 
-            // listView5
             // 
-            this.listView5.AllowDrop = true;
-            this.listView5.BackColor = System.Drawing.Color.White;
-            resources.ApplyResources(this.listView5, "listView5");
-            this.listView5.HideSelection = false;
-            this.listView5.Name = "listView5";
-            this.listView5.UseCompatibleStateImageBehavior = false;
-            this.listView5.ItemChecked += new System.Windows.Forms.ItemCheckedEventHandler(this.listView5_ItemChecked);
+            // groupBox1
+            // 
+            this.groupBox1.Controls.Add(this.listView4);
+            this.groupBox1.Controls.Add(this.listView3);
+            this.groupBox1.Controls.Add(this.listView5);
+            resources.ApplyResources(this.groupBox1, "groupBox1");
+            this.groupBox1.Name = "groupBox1";
+            this.groupBox1.TabStop = false;
+            // 
+            // listView4
+            // 
+            this.listView4.AllowDrop = true;
+            this.listView4.BackColor = System.Drawing.Color.White;
+            resources.ApplyResources(this.listView4, "listView4");
+            this.listView4.HideSelection = false;
+            this.listView4.Name = "listView4";
+            this.listView4.UseCompatibleStateImageBehavior = false;
             // 
             // listView3
             // 
@@ -106,6 +131,16 @@
             this.listView3.DragDrop += new System.Windows.Forms.DragEventHandler(this.listView3_DragDrop);
             this.listView3.DragEnter += new System.Windows.Forms.DragEventHandler(this.listView3_DragEnter);
             this.listView3.DragOver += new System.Windows.Forms.DragEventHandler(this.listView3_DragOver);
+            // 
+            // listView5
+            // 
+            this.listView5.AllowDrop = true;
+            this.listView5.BackColor = System.Drawing.Color.White;
+            resources.ApplyResources(this.listView5, "listView5");
+            this.listView5.HideSelection = false;
+            this.listView5.Name = "listView5";
+            this.listView5.UseCompatibleStateImageBehavior = false;
+            this.listView5.ItemChecked += new System.Windows.Forms.ItemCheckedEventHandler(this.listView5_ItemChecked);
             // 
             // listView2
             // 
@@ -132,24 +167,6 @@
             this.listView1.DragDrop += new System.Windows.Forms.DragEventHandler(this.listView1_DragDrop);
             this.listView1.DragEnter += new System.Windows.Forms.DragEventHandler(this.listView1_DragEnter);
             this.listView1.DragOver += new System.Windows.Forms.DragEventHandler(this.listView1_DragOver);
-            // 
-            // groupBox1
-            // 
-            this.groupBox1.Controls.Add(this.listView4);
-            this.groupBox1.Controls.Add(this.listView3);
-            this.groupBox1.Controls.Add(this.listView5);
-            resources.ApplyResources(this.groupBox1, "groupBox1");
-            this.groupBox1.Name = "groupBox1";
-            this.groupBox1.TabStop = false;
-            // 
-            // listView4
-            // 
-            this.listView4.AllowDrop = true;
-            this.listView4.BackColor = System.Drawing.Color.White;
-            resources.ApplyResources(this.listView4, "listView4");
-            this.listView4.HideSelection = false;
-            this.listView4.Name = "listView4";
-            this.listView4.UseCompatibleStateImageBehavior = false;
             // 
             // FrmIODebug
             // 
@@ -179,5 +196,7 @@
         private System.Windows.Forms.ListView listView3;
         private System.Windows.Forms.GroupBox groupBox1;
         private System.Windows.Forms.ListView listView4;
+        private System.Windows.Forms.TabPage tabPage5;
+        private System.Windows.Forms.TabPage tabPage6;
     }
 }

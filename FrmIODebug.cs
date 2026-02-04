@@ -41,6 +41,17 @@ namespace Automation
         private int inputRowsPerColumn = -1;
         private int outputRowsPerColumn = -1;
         private int connectRowsPerColumn = -1;
+        private bool connectConfigResetNotified = false;
+        private TabPage connectPage1;
+        private TabPage connectPage2;
+        private TabPage connectPage3;
+        private TabPage connectConfigPage1;
+        private TabControl connectConfigTabControl;
+        private TabPage connectConfigTabPage1;
+        private TabPage connectConfigTabPage2;
+        private TabPage connectConfigTabPage3;
+        private int currentConnectDisplayIndex = 0;
+        private int currentConnectConfigIndex = 0;
 
         public FrmIODebug()
         {
@@ -71,14 +82,11 @@ namespace Automation
             listView6.Dock = DockStyle.Left;
             listView6.Width = 170;
             listView6.ItemChecked += listView6_ItemChecked;
-            groupBox1.Controls.Add(listView6);
-            groupBox1.Controls.SetChildIndex(listView4, 0);
-            groupBox1.Controls.SetChildIndex(listView6, 1);
-            groupBox1.Controls.SetChildIndex(listView3, 2);
-            groupBox1.Controls.SetChildIndex(listView5, 3);
+            InitializeConnectConfigTabs();
             listView3.Width = 170;
             listView5.Width = 170;
             listView4.Width = 170;
+            InitializeConnectPages();
             ContextMenuStrip inputMenu = new ContextMenuStrip();
             ToolStripMenuItem inputConfigItem = new ToolStripMenuItem("配置显示");
             inputConfigItem.Click += InputConfigItem_Click;
@@ -168,6 +176,215 @@ namespace Automation
             }
         }
 
+        private void InitializeConnectConfigTabs()
+        {
+            connectConfigTabControl = new TabControl();
+            connectConfigTabControl.Name = "connectConfigTabControl";
+            connectConfigTabControl.Dock = DockStyle.Fill;
+            connectConfigTabControl.SelectedIndexChanged += ConnectConfigTabControl_SelectedIndexChanged;
+
+            connectConfigTabPage1 = new TabPage("关联配置1");
+            connectConfigTabPage2 = new TabPage("关联配置2");
+            connectConfigTabPage3 = new TabPage("关联配置3");
+            connectConfigTabPage1.UseVisualStyleBackColor = true;
+            connectConfigTabPage2.UseVisualStyleBackColor = true;
+            connectConfigTabPage3.UseVisualStyleBackColor = true;
+
+            connectConfigTabControl.Controls.Add(connectConfigTabPage1);
+            connectConfigTabControl.Controls.Add(connectConfigTabPage2);
+            connectConfigTabControl.Controls.Add(connectConfigTabPage3);
+
+            groupBox1.Controls.Add(connectConfigTabControl);
+            connectConfigTabControl.BringToFront();
+
+            MoveConnectConfigViewsTo(connectConfigTabPage1);
+            currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
+        }
+
+        private void InitializeConnectPages()
+        {
+            connectPage1 = tabPage3;
+            connectPage2 = tabPage5;
+            connectPage3 = tabPage6;
+            connectConfigPage1 = tabPage4;
+
+            if (connectPage1 != null && string.IsNullOrWhiteSpace(connectPage1.Text))
+            {
+                connectPage1.Text = "输入输出关联1";
+            }
+            if (connectPage2 != null && string.IsNullOrWhiteSpace(connectPage2.Text))
+            {
+                connectPage2.Text = "输入输出关联2";
+            }
+            if (connectPage3 != null && string.IsNullOrWhiteSpace(connectPage3.Text))
+            {
+                connectPage3.Text = "输入输出关联3";
+            }
+            if (connectConfigPage1 != null && string.IsNullOrWhiteSpace(connectConfigPage1.Text))
+            {
+                connectConfigPage1.Text = "关联配置1";
+            }
+            currentConnectDisplayIndex = 0;
+        }
+
+        private TabPage GetCurrentConnectDisplayPage()
+        {
+            if (currentConnectDisplayIndex == 1 && connectPage2 != null)
+            {
+                return connectPage2;
+            }
+            if (currentConnectDisplayIndex == 2 && connectPage3 != null)
+            {
+                return connectPage3;
+            }
+            return connectPage1 ?? tabPage3;
+        }
+
+        private void ConnectConfigTabControl_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
+            MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab);
+            listView4.ItemChecked -= listView4_ItemChecked;
+            listView5.ItemChecked -= listView5_ItemChecked;
+            listView6.ItemChecked -= listView6_ItemChecked;
+            SetConnectItemm();
+            RefleshConnecdt();
+            listView4.ItemChecked += listView4_ItemChecked;
+            listView5.ItemChecked += listView5_ItemChecked;
+            listView6.ItemChecked += listView6_ItemChecked;
+            RefreshConnectDisplayForCurrentConfig();
+        }
+
+        private void MoveConnectConfigViewsTo(TabPage targetPage)
+        {
+            if (targetPage == null)
+            {
+                return;
+            }
+            if (listView3.Parent != targetPage)
+            {
+                targetPage.Controls.Add(listView3);
+            }
+            if (listView4.Parent != targetPage)
+            {
+                targetPage.Controls.Add(listView4);
+            }
+            if (listView5.Parent != targetPage)
+            {
+                targetPage.Controls.Add(listView5);
+            }
+            if (listView6.Parent != targetPage)
+            {
+                targetPage.Controls.Add(listView6);
+            }
+
+            targetPage.Controls.SetChildIndex(listView4, 0);
+            targetPage.Controls.SetChildIndex(listView6, 1);
+            targetPage.Controls.SetChildIndex(listView3, 2);
+            targetPage.Controls.SetChildIndex(listView5, 3);
+        }
+
+        private void EnsureConnectConfigReady()
+        {
+            if (IODebugMaps == null)
+            {
+                IODebugMaps = new IODebugMap();
+                return;
+            }
+            if (IODebugMaps.iOConnects == null || IODebugMaps.iOConnects2 == null || IODebugMaps.iOConnects3 == null)
+            {
+                if (!connectConfigResetNotified)
+                {
+                    connectConfigResetNotified = true;
+                    if (IsHandleCreated && !IsDisposed)
+                    {
+                        if (InvokeRequired)
+                        {
+                            BeginInvoke(new Action(() => MessageBox.Show("输入输出关联配置版本不匹配，已重置，请重新配置。")));
+                        }
+                        else
+                        {
+                            MessageBox.Show("输入输出关联配置版本不匹配，已重置，请重新配置。");
+                        }
+                    }
+                }
+                IODebugMaps = new IODebugMap();
+                SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            }
+        }
+
+        private List<IOConnect> GetConnectList(int pageIndex)
+        {
+            EnsureConnectConfigReady();
+            switch (pageIndex)
+            {
+                case 1:
+                    return IODebugMaps.iOConnects2;
+                case 2:
+                    return IODebugMaps.iOConnects3;
+                default:
+                    return IODebugMaps.iOConnects;
+            }
+        }
+
+        private void SetConnectList(int pageIndex, List<IOConnect> list)
+        {
+            EnsureConnectConfigReady();
+            switch (pageIndex)
+            {
+                case 1:
+                    IODebugMaps.iOConnects2 = list;
+                    break;
+                case 2:
+                    IODebugMaps.iOConnects3 = list;
+                    break;
+                default:
+                    IODebugMaps.iOConnects = list;
+                    break;
+            }
+        }
+
+        private List<IOConnect> GetConnectListForDisplay()
+        {
+            EnsureConnectConfigReady();
+            return GetConnectList(currentConnectDisplayIndex);
+        }
+
+        private List<IOConnect> GetConnectListForConfig()
+        {
+            EnsureConnectConfigReady();
+            return GetConnectList(currentConnectConfigIndex);
+        }
+
+        private void RefreshConnectDisplayForCurrentConfig()
+        {
+            if (connectPage1 == null)
+            {
+                return;
+            }
+            if (currentConnectDisplayIndex != currentConnectConfigIndex)
+            {
+                return;
+            }
+            RefreshCurrentConnectDisplayPage();
+        }
+
+        private void RefreshCurrentConnectDisplayPage()
+        {
+            TabPage connectPage = GetCurrentConnectDisplayPage();
+            connectPage.Controls.Clear();
+            btnCon.Clear();
+            connectRowsPerColumn = -1;
+            Array.Clear(ConnectOutValid, 0, ConnectOutValid.Length);
+            Array.Clear(ConnectIn1Valid, 0, ConnectIn1Valid.Length);
+            Array.Clear(ConnectIn2Valid, 0, ConnectIn2Valid.Length);
+            IoRefreshData data = BuildIoRefreshData(2);
+            if (data != null)
+            {
+                ApplyIoRefresh(data);
+            }
+        }
+
         private int GetRowsPerColumn(TabPage tabPage, int rowHeight)
         {
             int height = tabPage.ClientSize.Height;
@@ -215,15 +432,17 @@ namespace Automation
                 }
             }
 
-            int newConnectRows = GetRowsPerColumn(tabPage3, IoRowHeight);
-            if (connectRowsPerColumn != newConnectRows && IODebugMaps?.iOConnects != null)
+            TabPage connectPage = GetCurrentConnectDisplayPage();
+            List<IOConnect> connectList = GetConnectListForDisplay();
+            int newConnectRows = GetRowsPerColumn(connectPage, IoRowHeight);
+            if (connectRowsPerColumn != newConnectRows && connectList != null)
             {
-                tabPage3.Controls.Clear();
-                CreateButtonConnect();
-                EnsureConnectTempSize(IODebugMaps.iOConnects.Count);
-                Array.Clear(ConnectOutValid, 0, IODebugMaps.iOConnects.Count);
-                Array.Clear(ConnectIn1Valid, 0, IODebugMaps.iOConnects.Count);
-                Array.Clear(ConnectIn2Valid, 0, IODebugMaps.iOConnects.Count);
+                connectPage.Controls.Clear();
+                CreateButtonConnect(connectList, connectPage);
+                EnsureConnectTempSize(connectList.Count);
+                Array.Clear(ConnectOutValid, 0, connectList.Count);
+                Array.Clear(ConnectIn1Valid, 0, connectList.Count);
+                Array.Clear(ConnectIn2Valid, 0, connectList.Count);
                 IoRefreshData data = BuildIoRefreshData(2);
                 if (data != null)
                 {
@@ -349,7 +568,8 @@ namespace Automation
                     }
                     if (tabIndex == 2)
                     {
-                        IOConnect[] connects = IODebugMaps.iOConnects.ToArray();
+                        List<IOConnect> connectList = GetConnectListForDisplay();
+                        IOConnect[] connects = connectList.ToArray();
                         bool[] outValid = new bool[connects.Length];
                         bool[] in1Valid = new bool[connects.Length];
                         bool[] in2Valid = new bool[connects.Length];
@@ -440,7 +660,8 @@ namespace Automation
                 }
                 if (tabIndex == 2)
                 {
-                    IOConnect[] connects = IODebugMaps.iOConnects.ToArray();
+                    List<IOConnect> connectList = GetConnectListForDisplay();
+                    IOConnect[] connects = connectList.ToArray();
                     bool[] outStates = new bool[connects.Length];
                     bool[] outValid = new bool[connects.Length];
                     bool[] in1States = new bool[connects.Length];
@@ -591,17 +812,19 @@ namespace Automation
             }
             if (data.TabIndex == 2)
             {
-                if (btnCon.Count != IODebugMaps.iOConnects.Count || data.ConnectCount != IODebugMaps.iOConnects.Count)
+                List<IOConnect> connectList = GetConnectListForDisplay();
+                TabPage connectPage = GetCurrentConnectDisplayPage();
+                if (btnCon.Count != connectList.Count || data.ConnectCount != connectList.Count)
                 {
-                    tabPage3.Controls.Clear();
-                    CreateButtonConnect();
-                    EnsureConnectTempSize(IODebugMaps.iOConnects.Count);
+                    connectPage.Controls.Clear();
+                    CreateButtonConnect(connectList, connectPage);
+                    EnsureConnectTempSize(connectList.Count);
                     return;
                 }
                 EnsureConnectTempSize(data.ConnectCount);
                 for (int i = 0; i < data.ConnectCount; i++)
                 {
-                    IOConnect connect = IODebugMaps.iOConnects[i];
+                    IOConnect connect = connectList[i];
                     if (connect?.Output == null || connect.Output.IsRemark)
                     {
                         continue;
@@ -846,15 +1069,17 @@ namespace Automation
             {
                 return;
             }
-            if (IODebugMaps.iOConnects.Any(item => item != null && item.Output != null && item.Output.Name == cacheIO.Name))
+            List<IOConnect> connectList = GetConnectListForConfig();
+            if (connectList.Any(item => item != null && item.Output != null && item.Output.Name == cacheIO.Name))
             {
                 MessageBox.Show("调试列表已存在同名输出连接，已沿用现有配置。");
                 return;
             }
-            IODebugMaps.iOConnects.Add(new IOConnect() { Output = cacheIO.CloneForDebug() });
+            connectList.Add(new IOConnect() { Output = cacheIO.CloneForDebug() });
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
             RefleshConnecdt();
+            RefreshConnectDisplayForCurrentConfig();
 
         }
         public void RefleshConnecdt()
@@ -862,7 +1087,7 @@ namespace Automation
             listView3.Clear();
             listView3.Columns.Add("通用输出1", 220);
             UpdateIoCacheIfNeeded();
-            List<IOConnect> IOConnects = IODebugMaps.iOConnects;
+            List<IOConnect> IOConnects = GetConnectListForConfig();
             IOConnect iOConnect = null;
             for (int j = 0; j < IOConnects.Count; j++)
             {
@@ -1007,20 +1232,32 @@ namespace Automation
             return controls;
 
         }
-        public void CreateButtonConnect()
+        public void CreateButtonConnect(List<IOConnect> connects, TabPage targetPage)
         {
             int col = 0, row = 0;
             btnCon.Clear();
+            targetPage.AutoScroll = true;
             int colWidth = IoColWidth;
             int rowHeight = IoRowHeight;
             int itemWidth = IoItemWidth;
             int itemHeight = IoItemHeight;
             int groupWidth = colWidth * 3;
-            int rowsPerColumn = GetRowsPerColumn(tabPage3, rowHeight);
+            int rowsPerColumn = GetRowsPerColumn(targetPage, rowHeight);
             connectRowsPerColumn = rowsPerColumn;
-            for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
+            for (int i = 0; i < connects.Count; i++)
             {
-                IOConnect ioConnect = IODebugMaps.iOConnects[i];
+                IOConnect ioConnect = connects[i];
+                if (ioConnect?.Output == null)
+                {
+                    btnCon.Add(new ConnectButton());
+                    row++;
+                    if (row >= rowsPerColumn)
+                    {
+                        row = 0;
+                        col++;
+                    }
+                    continue;
+                }
                 Control outputControl;
                 if (!ioConnect.Output.IsRemark)
                 {
@@ -1031,23 +1268,24 @@ namespace Automation
                     dynamicButton.Size = new System.Drawing.Size(itemWidth, itemHeight);
                     dynamicButton.Tag = ioConnect;
                     dynamicButton.Click += new EventHandler(IOButton_Click);
-                    tabPage3.Controls.Add(dynamicButton);
+                    targetPage.Controls.Add(dynamicButton);
                     outputControl = dynamicButton;
                 }
                 else
                 {
                     int remarkWidth = groupWidth - 10;
                     Control remarkHeader = CreateRemarkHeader(ioConnect.Output.Name, new Point(col * groupWidth, row * rowHeight), remarkWidth, itemHeight);
-                    tabPage3.Controls.Add(remarkHeader);
+                    targetPage.Controls.Add(remarkHeader);
                     outputControl = remarkHeader;
                 }
 
-                Label dynamicLabel1 = new Label();
-                Label dynamicLabel2 = new Label();
+                Label dynamicLabel1 = null;
+                Label dynamicLabel2 = null;
                 if (!ioConnect.Output.IsRemark)
                 {
                     if (ioConnect.Intput1 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput1.Name))
                     {
+                        dynamicLabel1 = new Label();
                         dynamicLabel1.Text = ioConnect.Intput1.Name;
                         int baseX = col * groupWidth;
                         dynamicLabel1.Location = new System.Drawing.Point(baseX + colWidth, row * rowHeight);
@@ -1055,15 +1293,12 @@ namespace Automation
                         dynamicLabel1.BackColor = System.Drawing.Color.Gray;
                         dynamicLabel1.TextAlign = ContentAlignment.MiddleCenter;
 
-                        tabPage3.Controls.Add(dynamicLabel1);
-                    }
-                    else
-                    {
-                        dynamicLabel1 = null;
+                        targetPage.Controls.Add(dynamicLabel1);
                     }
 
                     if (ioConnect.Intput2 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput2.Name))
                     {
+                        dynamicLabel2 = new Label();
                         dynamicLabel2.Text = ioConnect.Intput2.Name;
                         int baseX = col * groupWidth;
                         dynamicLabel2.Location = new System.Drawing.Point(baseX + colWidth * 2, row * rowHeight);
@@ -1071,15 +1306,11 @@ namespace Automation
                         dynamicLabel2.BackColor = System.Drawing.Color.Gray;
                         dynamicLabel2.TextAlign = ContentAlignment.MiddleCenter;
 
-                        tabPage3.Controls.Add(dynamicLabel2);
-                    }
-                    else
-                    {
-                        dynamicLabel2 = null;
+                        targetPage.Controls.Add(dynamicLabel2);
                     }
                 }
 
-                btnCon.Add(new ConnectButton { OutPut = outputControl ,InPut1 = dynamicLabel1 ,InPut2 = dynamicLabel2});
+                btnCon.Add(new ConnectButton { OutPut = outputControl, InPut1 = dynamicLabel1, InPut2 = dynamicLabel2 });
 
                 row++;
                 if (row >= rowsPerColumn)
@@ -1250,12 +1481,14 @@ namespace Automation
                 IODebugMap IODebugMapTemp = SF.mainfrm.ReadJson<IODebugMap>(SF.ConfigPath, "IODebugMap");
                 if (IODebugMapTemp != null)
                     IODebugMaps = IODebugMapTemp;
+                EnsureConnectConfigReady();
             }
             catch (Exception ex)
             {
                 //Console.WriteLine(ex.Message);
                 IODebugMaps = new IODebugMap();
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", IODebugMaps);
+                EnsureConnectConfigReady();
             }
         }
         private void InputConfigItem_Click(object sender, EventArgs e)
@@ -1408,7 +1641,8 @@ namespace Automation
                 }
             }
             HashSet<string> selectedNames = new HashSet<string>();
-            foreach (IOConnect connect in IODebugMaps.iOConnects)
+            List<IOConnect> connectList = GetConnectListForConfig();
+            foreach (IOConnect connect in connectList)
             {
                 if (connect?.Output == null || connect.Output.IsRemark)
                 {
@@ -1443,8 +1677,9 @@ namespace Automation
                 }
             }
             HashSet<string> selectedSet = new HashSet<string>(selectedNames);
+            List<IOConnect> connectList = GetConnectListForConfig();
             List<IOConnect> newList = new List<IOConnect>();
-            foreach (IOConnect connect in IODebugMaps.iOConnects)
+            foreach (IOConnect connect in connectList)
             {
                 if (connect?.Output == null)
                 {
@@ -1480,9 +1715,10 @@ namespace Automation
                     selectedSet.Remove(name);
                 }
             }
-            IODebugMaps.iOConnects = newList;
+            SetConnectList(currentConnectConfigIndex, newList);
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefleshConnecdt();
+            RefreshConnectDisplayForCurrentConfig();
         }
         private void AddRemarkItem(string ioType, List<IO> targetList, ListView targetView)
         {
@@ -1521,18 +1757,20 @@ namespace Automation
             remark.Output.Name = remarkText.Trim();
             remark.Output.IOType = "通用输出";
             remark.Output.IsRemark = true;
-            int insertIndex = IODebugMaps.iOConnects.Count;
+            List<IOConnect> connectList = GetConnectListForConfig();
+            int insertIndex = connectList.Count;
             if (listView3.SelectedItems.Count > 0)
             {
                 insertIndex = listView3.SelectedItems[0].Index + 1;
-                if (insertIndex < 0 || insertIndex > IODebugMaps.iOConnects.Count)
+                if (insertIndex < 0 || insertIndex > connectList.Count)
                 {
-                    insertIndex = IODebugMaps.iOConnects.Count;
+                    insertIndex = connectList.Count;
                 }
             }
-            IODebugMaps.iOConnects.Insert(insertIndex, remark);
+            connectList.Insert(insertIndex, remark);
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefleshConnecdt();
+            RefreshConnectDisplayForCurrentConfig();
         }
         private string PromptRemark(string title)
         {
@@ -1782,52 +2020,60 @@ namespace Automation
 
         private void tabControl1_SelectedIndexChanged(object sender, EventArgs e)
         {
-            int selectedIndex = tabControl1.SelectedIndex;
-            currentTabIndex = selectedIndex;
-
-            switch (selectedIndex)
+            TabPage selectedTab = tabControl1.SelectedTab;
+            if (selectedTab == tabPage1)
             {
-                case 0:
-                    {
-                        IoRefreshData data = BuildIoRefreshData(0);
-                        if (data != null)
-                        {
-                            ApplyIoRefresh(data);
-                        }
-                    }
-                    break;
-                case 1:
-                    {
-                        IoRefreshData data = BuildIoRefreshData(1);
-                        if (data != null)
-                        {
-                            ApplyIoRefresh(data);
-                        }
-                    }
-                    break;
-                case 2:
-                    {
-                        IoRefreshData data = BuildIoRefreshData(2);
-                        if (data != null)
-                        {
-                            ApplyIoRefresh(data);
-                        }
-                    }
-                    break;
-                case 3:
-                    listView4.ItemChecked -= listView4_ItemChecked;
-                    listView5.ItemChecked -= listView5_ItemChecked;
-                    listView6.ItemChecked -= listView6_ItemChecked;
-                    SetConnectItemm();
-                    RefreshIODebugMapFrm();
-                    RefleshConnecdt();
-                    listView4.ItemChecked += listView4_ItemChecked;
-                    listView5.ItemChecked += listView5_ItemChecked;
-                    listView6.ItemChecked += listView6_ItemChecked;
-                  
-                    break;
-                default:
-                    break;
+                currentTabIndex = 0;
+                IoRefreshData data = BuildIoRefreshData(0);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
+                return;
+            }
+            if (selectedTab == tabPage2)
+            {
+                currentTabIndex = 1;
+                IoRefreshData data = BuildIoRefreshData(1);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
+                return;
+            }
+            if (selectedTab == connectPage1 || selectedTab == connectPage2 || selectedTab == connectPage3)
+            {
+                currentTabIndex = 2;
+                if (selectedTab == connectPage2)
+                {
+                    currentConnectDisplayIndex = 1;
+                }
+                else if (selectedTab == connectPage3)
+                {
+                    currentConnectDisplayIndex = 2;
+                }
+                else
+                {
+                    currentConnectDisplayIndex = 0;
+                }
+                RefreshCurrentConnectDisplayPage();
+                return;
+            }
+            if (selectedTab == connectConfigPage1)
+            {
+                currentTabIndex = 3;
+                currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
+                MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab);
+                listView4.ItemChecked -= listView4_ItemChecked;
+                listView5.ItemChecked -= listView5_ItemChecked;
+                listView6.ItemChecked -= listView6_ItemChecked;
+                SetConnectItemm();
+                RefreshIODebugMapFrm();
+                RefleshConnecdt();
+                listView4.ItemChecked += listView4_ItemChecked;
+                listView5.ItemChecked += listView5_ItemChecked;
+                listView6.ItemChecked += listView6_ItemChecked;
+                RefreshConnectDisplayForCurrentConfig();
             }
         }
 
@@ -1863,6 +2109,7 @@ namespace Automation
                         iOConnect.Intput1 = cacheIO.CloneForDebug();
 
                         SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        RefreshConnectDisplayForCurrentConfig();
                     }
                 }
             }
@@ -1876,6 +2123,7 @@ namespace Automation
                         iOConnect.Intput1.Name = "";
 
                         SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        RefreshConnectDisplayForCurrentConfig();
                     }
                 }
             }
@@ -1909,6 +2157,7 @@ namespace Automation
                         iOConnect.Intput2 = cacheIO.CloneForDebug();
 
                         SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        RefreshConnectDisplayForCurrentConfig();
                     }
 
                 }
@@ -1924,6 +2173,7 @@ namespace Automation
                         iOConnect.Intput2.Name = "";
 
                         SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        RefreshConnectDisplayForCurrentConfig();
                     }
 
                 }
@@ -1963,6 +2213,7 @@ namespace Automation
                         iOConnect.Output2 = cacheIO.CloneForDebug();
 
                         SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        RefreshConnectDisplayForCurrentConfig();
                     }
                 }
             }
@@ -1980,6 +2231,7 @@ namespace Automation
                         iOConnect.Output2.Name = "";
 
                         SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        RefreshConnectDisplayForCurrentConfig();
                     }
                 }
             }
@@ -2108,9 +2360,10 @@ namespace Automation
 
             // 交换项的位置
 
-            IOConnect temp = SF.frmIODebug.IODebugMaps.iOConnects[sourceIndex];
-            SF.frmIODebug.IODebugMaps.iOConnects[sourceIndex] = SF.frmIODebug.IODebugMaps.iOConnects[targetIndex];
-            SF.frmIODebug.IODebugMaps.iOConnects[targetIndex] = temp;
+            List<IOConnect> connectList = GetConnectListForConfig();
+            IOConnect temp = connectList[sourceIndex];
+            connectList[sourceIndex] = connectList[targetIndex];
+            connectList[targetIndex] = temp;
 
             // 取消目标项的高亮显示
             if (targetItem != null)
@@ -2119,6 +2372,7 @@ namespace Automation
             }
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefleshConnecdt();
+            RefreshConnectDisplayForCurrentConfig();
         }
 
         private void listView3_DragEnter(object sender, DragEventArgs e)
@@ -2158,6 +2412,8 @@ namespace Automation
         public List<IO> inputs = new List<IO>();
         public List<IO> outputs = new List<IO>();
         public List<IOConnect> iOConnects = new List<IOConnect>();
+        public List<IOConnect> iOConnects2 = new List<IOConnect>();
+        public List<IOConnect> iOConnects3 = new List<IOConnect>();
     }
     public class IOConnect
     {

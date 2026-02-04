@@ -331,6 +331,9 @@
     <EmbeddedResource Include="FrmIODebug.resx">
       <DependentUpon>FrmIODebug.cs</DependentUpon>
     </EmbeddedResource>
+    <EmbeddedResource Include="FrmIODebugConfig.resx">
+      <DependentUpon>FrmIODebugConfig.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="FrmMain.resx">
       <DependentUpon>FrmMain.cs</DependentUpon>
     </EmbeddedResource>
