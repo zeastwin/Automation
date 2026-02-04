@@ -423,6 +423,29 @@ namespace Automation
             {
                 isConnectConfigAutoSizing = false;
             }
+            UpdateConnectListViewColumnWidth(output1);
+            UpdateConnectListViewColumnWidth(output2);
+            UpdateConnectListViewColumnWidth(input1);
+            UpdateConnectListViewColumnWidth(input2);
+        }
+
+        private void UpdateConnectListViewColumnWidth(ListView listView)
+        {
+            if (listView == null || listView.Columns.Count == 0)
+            {
+                return;
+            }
+            int width = listView.ClientSize.Width;
+            if (width <= 0)
+            {
+                return;
+            }
+            int columnWidth = width - SystemInformation.VerticalScrollBarWidth - 2;
+            if (columnWidth <= 0)
+            {
+                columnWidth = width;
+            }
+            listView.Columns[0].Width = columnWidth;
         }
 
         private void ConnectSplitter_SplitterMoved(object sender, SplitterEventArgs e)
@@ -439,6 +462,10 @@ namespace Automation
             if (splitter.Tag is int pageIndex && pageIndex >= 0 && pageIndex < connectConfigAutoSizeEnabled.Length)
             {
                 connectConfigAutoSizeEnabled[pageIndex] = false;
+                UpdateConnectListViewColumnWidth(connectListView3[pageIndex]);
+                UpdateConnectListViewColumnWidth(connectListView6[pageIndex]);
+                UpdateConnectListViewColumnWidth(connectListView4[pageIndex]);
+                UpdateConnectListViewColumnWidth(connectListView5[pageIndex]);
             }
         }
 
