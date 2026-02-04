@@ -43,7 +43,7 @@ namespace Automation
             public ValueMonitorForm(FrmValue owner)
             {
                 this.owner = owner;
-                Font uiFont = new Font("黑体", 12F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
+                Font uiFont = new Font("宋体", 12F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
                 Text = "变量监控";
                 StartPosition = FormStartPosition.CenterScreen;
                 Size = new Size(780, 520);
@@ -61,7 +61,7 @@ namespace Automation
                     Dock = DockStyle.Left,
                     Width = 180,
                     TextAlign = ContentAlignment.MiddleLeft,
-                    Font = new Font("黑体", 12.5F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134))),
+                    Font = new Font("宋体", 12.5F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134))),
                     Text = "变量监控(0)"
                 };
 
@@ -104,7 +104,7 @@ namespace Automation
                     SelectionMode = DataGridViewSelectionMode.FullRowSelect,
                     Font = uiFont
                 };
-                dgvMonitor.ColumnHeadersDefaultCellStyle.Font = new Font("黑体", 12F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134)));
+                dgvMonitor.ColumnHeadersDefaultCellStyle.Font = new Font("宋体", 12F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134)));
                 dgvMonitor.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
                 dgvMonitor.Columns.Add(new DataGridViewTextBoxColumn
                 {
@@ -166,9 +166,9 @@ namespace Automation
         public FrmValue()
         {
             InitializeComponent();
-            Font uiFont = new Font("黑体", 12F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
+            Font uiFont = new Font("宋体", 12F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
             dgvValue.Font = uiFont;
-            dgvValue.ColumnHeadersDefaultCellStyle.Font = new Font("黑体", 12F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134)));
+            dgvValue.ColumnHeadersDefaultCellStyle.Font = new Font("宋体", 12F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134)));
             dgvValue.SelectionMode = DataGridViewSelectionMode.ColumnHeaderSelect;
             dgvValue.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
             dgvValue.Columns[0].ReadOnly = true;
