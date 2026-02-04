@@ -119,8 +119,8 @@ namespace Automation
                 values[i] = new DicValue
                 {
                     Index = i,
-                    Type = "string",
-                    ConfigValue = string.Empty
+                    Type = "double",
+                    ConfigValue = "0"
                 };
                 values[i].ResetRuntimeFromConfig();
             }
@@ -307,10 +307,10 @@ namespace Automation
                     nameIndex.Remove(oldName);
                 }
                 currentValue.Name = string.Empty;
-                currentValue.Type = "string";
+                currentValue.Type = "double";
                 currentValue.Note = string.Empty;
-                currentValue.ConfigValue = string.Empty;
-                currentValue.Value = string.Empty;
+                currentValue.ConfigValue = "0";
+                currentValue.Value = "0";
                 currentValue.isMark = false;
                 nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
                 if (!string.IsNullOrEmpty(oldRuntime))

@@ -8,6 +8,9 @@ namespace Automation
 {
     public partial class FrmValue : Form
     {  //存放变量对象
+        private const string DefaultValueType = "double";
+        private const string DefaultValueText = "0";
+
         private sealed class CommonValueItem
         {
             public int Index { get; set; }
@@ -213,6 +216,10 @@ namespace Automation
                 dgvValue.Rows.Add();
 
                 dgvValue.Rows[i].Cells[0].Value = i;
+                dgvValue.Rows[i].Cells[1].Value = string.Empty;
+                dgvValue.Rows[i].Cells[2].Value = DefaultValueType;
+                dgvValue.Rows[i].Cells[3].Value = DefaultValueText;
+                dgvValue.Rows[i].Cells[4].Value = string.Empty;
                 if (SF.valueStore.TryGetValueByIndex(i, out DicValue cachedValue))
                 {
                     dgvValue.Rows[i].Cells[1].Value = cachedValue.Name;
@@ -228,21 +235,37 @@ namespace Automation
         //刷新变量界面
         public void FreshFrmValue()
         {
-            for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
+            bool allowRefresh = SF.isFinBulidFrmValue;
+            SF.isFinBulidFrmValue = false;
+            try
             {
-                if (SF.valueStore.TryGetValueByIndex(i, out DicValue cachedValue))
+                for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
                 {
-                    dgvValue.Rows[i].Cells[0].Value = i;
-                    dgvValue.Rows[i].Cells[1].Value = cachedValue.Name;
-                    dgvValue.Rows[i].Cells[2].Value = cachedValue.Type;
-                    dgvValue.Rows[i].Cells[3].Value = cachedValue.Value;
-                    dgvValue.Rows[i].Cells[4].Value = cachedValue.Note;
+                    if (SF.valueStore.TryGetValueByIndex(i, out DicValue cachedValue))
+                    {
+                        dgvValue.Rows[i].Cells[0].Value = i;
+                        dgvValue.Rows[i].Cells[1].Value = cachedValue.Name;
+                        dgvValue.Rows[i].Cells[2].Value = cachedValue.Type;
+                        dgvValue.Rows[i].Cells[3].Value = cachedValue.Value;
+                        dgvValue.Rows[i].Cells[4].Value = cachedValue.Note;
+                    }
+                    else
+                    {
+                        dgvValue.Rows[i].Cells[0].Value = i;
+                        dgvValue.Rows[i].Cells[1].Value = string.Empty;
+                        dgvValue.Rows[i].Cells[2].Value = DefaultValueType;
+                        dgvValue.Rows[i].Cells[3].Value = DefaultValueText;
+                        dgvValue.Rows[i].Cells[4].Value = string.Empty;
+                    }
                 }
+                RefreshCommonList();
+                RefreshMonitorTitle();
+                RefreshMonitorRows();
             }
-            RefreshCommonList();
-            RefreshMonitorTitle();
-            RefreshMonitorRows();
-
+            finally
+            {
+                SF.isFinBulidFrmValue = allowRefresh;
+            }
         }
         /*=============================================================================================*/
         private void FrmValue_Load(object sender, EventArgs e)
@@ -526,10 +549,10 @@ namespace Automation
                     continue;
                 }
                 DataGridViewRow row = dgvValue.Rows[index];
-                row.Cells[1].Value = null;
-                row.Cells[2].Value = null;
-                row.Cells[3].Value = null;
-                row.Cells[4].Value = null;
+                row.Cells[1].Value = string.Empty;
+                row.Cells[2].Value = DefaultValueType;
+                row.Cells[3].Value = DefaultValueText;
+                row.Cells[4].Value = string.Empty;
             }
             RefreshCommonList();
             if (hasFailure)

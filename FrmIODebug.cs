@@ -22,6 +22,10 @@ namespace Automation
         public List<Control> buttonsOut = new List<Control>();
         public List<ConnectButton> btnCon = new List<ConnectButton>();
         private ListView listView6;
+        private readonly ListView[] connectListView3 = new ListView[3];
+        private readonly ListView[] connectListView4 = new ListView[3];
+        private readonly ListView[] connectListView5 = new ListView[3];
+        private readonly ListView[] connectListView6 = new ListView[3];
         private readonly object ioCacheLock = new object();
         private Dictionary<string, IO> inputIoCache = new Dictionary<string, IO>(StringComparer.Ordinal);
         private Dictionary<string, IO> outputIoCache = new Dictionary<string, IO>(StringComparer.Ordinal);
@@ -71,21 +75,7 @@ namespace Automation
             listView5.View = View.Details;
             listView4.CheckBoxes = true;
             listView5.CheckBoxes = true;
-            listView6 = new ListView();
-            listView6.AllowDrop = true;
-            listView6.BackColor = Color.White;
-            listView6.CheckBoxes = true;
-            listView6.HideSelection = false;
-            listView6.Name = "listView6";
-            listView6.UseCompatibleStateImageBehavior = false;
-            listView6.View = View.Details;
-            listView6.Dock = DockStyle.Left;
-            listView6.Width = 170;
-            listView6.ItemChecked += listView6_ItemChecked;
             InitializeConnectConfigTabs();
-            listView3.Width = 170;
-            listView5.Width = 170;
-            listView4.Width = 170;
             InitializeConnectPages();
             ContextMenuStrip inputMenu = new ContextMenuStrip();
             ToolStripMenuItem inputConfigItem = new ToolStripMenuItem("配置显示");
@@ -181,7 +171,6 @@ namespace Automation
             connectConfigTabControl = new TabControl();
             connectConfigTabControl.Name = "connectConfigTabControl";
             connectConfigTabControl.Dock = DockStyle.Fill;
-            connectConfigTabControl.SelectedIndexChanged += ConnectConfigTabControl_SelectedIndexChanged;
 
             connectConfigTabPage1 = new TabPage("关联配置1");
             connectConfigTabPage2 = new TabPage("关联配置2");
@@ -193,13 +182,164 @@ namespace Automation
             connectConfigTabControl.Controls.Add(connectConfigTabPage1);
             connectConfigTabControl.Controls.Add(connectConfigTabPage2);
             connectConfigTabControl.Controls.Add(connectConfigTabPage3);
+            connectConfigTabControl.SelectedIndex = 0;
 
             tabPage4.Controls.Add(connectConfigTabControl);
             tabPage4.Controls.SetChildIndex(connectConfigTabControl, 0);
             connectConfigTabControl.BringToFront();
 
-            MoveConnectConfigViewsTo(connectConfigTabPage1);
+            InitializeConnectConfigListViews();
+            MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab ?? connectConfigTabPage1);
             currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
+            connectConfigTabControl.SelectedIndexChanged += ConnectConfigTabControl_SelectedIndexChanged;
+            connectConfigTabControl.Resize += ConnectConfigTabControl_Resize;
+        }
+
+        private void InitializeConnectConfigListViews()
+        {
+            connectListView3[0] = listView3;
+            connectListView4[0] = listView4;
+            connectListView5[0] = listView5;
+            connectListView6[0] = CreateConnectOutput2ListView("listView6");
+            ApplyConnectListViewLayout(connectConfigTabPage1, connectListView3[0], connectListView4[0], connectListView5[0], connectListView6[0]);
+
+            connectListView3[1] = CreateConnectOutputListView("listView3_2");
+            connectListView4[1] = CreateConnectInputListView("listView4_2");
+            connectListView5[1] = CreateConnectInputListView("listView5_2");
+            connectListView6[1] = CreateConnectOutput2ListView("listView6_2");
+            ApplyConnectListViewLayout(connectConfigTabPage2, connectListView3[1], connectListView4[1], connectListView5[1], connectListView6[1]);
+
+            connectListView3[2] = CreateConnectOutputListView("listView3_3");
+            connectListView4[2] = CreateConnectInputListView("listView4_3");
+            connectListView5[2] = CreateConnectInputListView("listView5_3");
+            connectListView6[2] = CreateConnectOutput2ListView("listView6_3");
+            ApplyConnectListViewLayout(connectConfigTabPage3, connectListView3[2], connectListView4[2], connectListView5[2], connectListView6[2]);
+        }
+
+        private ListView CreateConnectOutputListView(string name)
+        {
+            ListView listView = new ListView();
+            listView.AllowDrop = true;
+            listView.BackColor = Color.White;
+            listView.HideSelection = false;
+            listView.Name = name;
+            listView.UseCompatibleStateImageBehavior = false;
+            listView.View = View.Details;
+            listView.ItemDrag += new ItemDragEventHandler(this.listView3_ItemDrag);
+            listView.SelectedIndexChanged += new EventHandler(this.listView3_SelectedIndexChanged);
+            listView.DragDrop += new DragEventHandler(this.listView3_DragDrop);
+            listView.DragEnter += new DragEventHandler(this.listView3_DragEnter);
+            listView.DragOver += new DragEventHandler(this.listView3_DragOver);
+            return listView;
+        }
+
+        private ListView CreateConnectInputListView(string name)
+        {
+            ListView listView = new ListView();
+            listView.AllowDrop = true;
+            listView.BackColor = Color.White;
+            listView.CheckBoxes = true;
+            listView.HideSelection = false;
+            listView.Name = name;
+            listView.UseCompatibleStateImageBehavior = false;
+            listView.View = View.Details;
+            return listView;
+        }
+
+        private ListView CreateConnectOutput2ListView(string name)
+        {
+            ListView listView = new ListView();
+            listView.AllowDrop = true;
+            listView.BackColor = Color.White;
+            listView.CheckBoxes = true;
+            listView.HideSelection = false;
+            listView.Name = name;
+            listView.UseCompatibleStateImageBehavior = false;
+            listView.View = View.Details;
+            listView.ItemChecked += listView6_ItemChecked;
+            return listView;
+        }
+
+        private void ApplyConnectListViewLayout(TabPage page, ListView output1, ListView input1, ListView input2, ListView output2)
+        {
+            if (page == null || output1 == null || input1 == null || input2 == null || output2 == null)
+            {
+                return;
+            }
+            page.SuspendLayout();
+            try
+            {
+                if (output1.Parent != page)
+                {
+                    page.Controls.Add(output1);
+                }
+                if (input1.Parent != page)
+                {
+                    page.Controls.Add(input1);
+                }
+                if (input2.Parent != page)
+                {
+                    page.Controls.Add(input2);
+                }
+                if (output2.Parent != page)
+                {
+                    page.Controls.Add(output2);
+                }
+
+                output1.Dock = DockStyle.Left;
+                output2.Dock = DockStyle.Left;
+                input1.Dock = DockStyle.Left;
+                input2.Dock = DockStyle.Left;
+
+                page.Controls.SetChildIndex(output1, 0);
+                page.Controls.SetChildIndex(output2, 1);
+                page.Controls.SetChildIndex(input1, 2);
+                page.Controls.SetChildIndex(input2, 3);
+                UpdateConnectConfigColumnWidths(page, output1, output2, input1, input2);
+            }
+            finally
+            {
+                page.ResumeLayout();
+            }
+        }
+
+        private void ConnectConfigTabControl_Resize(object sender, EventArgs e)
+        {
+            UpdateConnectConfigColumnWidths();
+        }
+
+        private void UpdateConnectConfigColumnWidths()
+        {
+            UpdateConnectConfigColumnWidths(connectConfigTabPage1, connectListView3[0], connectListView6[0], connectListView4[0], connectListView5[0]);
+            UpdateConnectConfigColumnWidths(connectConfigTabPage2, connectListView3[1], connectListView6[1], connectListView4[1], connectListView5[1]);
+            UpdateConnectConfigColumnWidths(connectConfigTabPage3, connectListView3[2], connectListView6[2], connectListView4[2], connectListView5[2]);
+        }
+
+        private void UpdateConnectConfigColumnWidths(TabPage page, ListView output1, ListView output2, ListView input1, ListView input2)
+        {
+            if (page == null || output1 == null || output2 == null || input1 == null || input2 == null)
+            {
+                return;
+            }
+            int width = page.ClientSize.Width;
+            if (width <= 0)
+            {
+                return;
+            }
+            int colWidth = width / 4;
+            if (colWidth <= 0)
+            {
+                return;
+            }
+            int lastWidth = width - (colWidth * 3);
+            if (lastWidth <= 0)
+            {
+                lastWidth = colWidth;
+            }
+            output1.Width = colWidth;
+            output2.Width = colWidth;
+            input1.Width = colWidth;
+            input2.Width = lastWidth;
         }
 
         private void InitializeConnectPages()
@@ -243,17 +383,28 @@ namespace Automation
 
         private void ConnectConfigTabControl_SelectedIndexChanged(object sender, EventArgs e)
         {
-            currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
-            MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab);
-            listView4.ItemChecked -= listView4_ItemChecked;
-            listView5.ItemChecked -= listView5_ItemChecked;
-            listView6.ItemChecked -= listView6_ItemChecked;
-            SetConnectItemm();
-            RefleshConnecdt();
-            listView4.ItemChecked += listView4_ItemChecked;
-            listView5.ItemChecked += listView5_ItemChecked;
-            listView6.ItemChecked += listView6_ItemChecked;
-            RefreshConnectDisplayForCurrentConfig();
+            RunConnectConfigLayoutUpdate(() =>
+            {
+                currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
+                MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab);
+                BeginConnectListViewUpdate();
+                try
+                {
+                    listView4.ItemChecked -= listView4_ItemChecked;
+                    listView5.ItemChecked -= listView5_ItemChecked;
+                    listView6.ItemChecked -= listView6_ItemChecked;
+                    SetConnectItemm();
+                    RefleshConnecdt();
+                    listView4.ItemChecked += listView4_ItemChecked;
+                    listView5.ItemChecked += listView5_ItemChecked;
+                    listView6.ItemChecked += listView6_ItemChecked;
+                    RefreshConnectDisplayForCurrentConfig();
+                }
+                finally
+                {
+                    EndConnectListViewUpdate();
+                }
+            });
         }
 
         private void MoveConnectConfigViewsTo(TabPage targetPage)
@@ -262,27 +413,51 @@ namespace Automation
             {
                 return;
             }
-            if (listView3.Parent != targetPage)
+            int index = 0;
+            if (targetPage == connectConfigTabPage2)
             {
-                targetPage.Controls.Add(listView3);
+                index = 1;
             }
-            if (listView4.Parent != targetPage)
+            else if (targetPage == connectConfigTabPage3)
             {
-                targetPage.Controls.Add(listView4);
+                index = 2;
             }
-            if (listView5.Parent != targetPage)
-            {
-                targetPage.Controls.Add(listView5);
-            }
-            if (listView6.Parent != targetPage)
-            {
-                targetPage.Controls.Add(listView6);
-            }
+            listView3 = connectListView3[index];
+            listView4 = connectListView4[index];
+            listView5 = connectListView5[index];
+            listView6 = connectListView6[index];
+        }
 
-            targetPage.Controls.SetChildIndex(listView4, 0);
-            targetPage.Controls.SetChildIndex(listView6, 1);
-            targetPage.Controls.SetChildIndex(listView3, 2);
-            targetPage.Controls.SetChildIndex(listView5, 3);
+        private void RunConnectConfigLayoutUpdate(Action updateAction)
+        {
+            TabPage targetPage = connectConfigTabControl?.SelectedTab;
+            connectConfigTabControl?.SuspendLayout();
+            targetPage?.SuspendLayout();
+            try
+            {
+                updateAction?.Invoke();
+            }
+            finally
+            {
+                targetPage?.ResumeLayout();
+                connectConfigTabControl?.ResumeLayout();
+            }
+        }
+
+        private void BeginConnectListViewUpdate()
+        {
+            listView3?.BeginUpdate();
+            listView4?.BeginUpdate();
+            listView5?.BeginUpdate();
+            listView6?.BeginUpdate();
+        }
+
+        private void EndConnectListViewUpdate()
+        {
+            listView3?.EndUpdate();
+            listView4?.EndUpdate();
+            listView5?.EndUpdate();
+            listView6?.EndUpdate();
         }
 
         private void EnsureConnectConfigReady()
@@ -1153,6 +1328,11 @@ namespace Automation
             }
             if (SF.frmIO?.IOMap?.FirstOrDefault() != null)
             {
+                if (listView6 == null)
+                {
+                    MessageBox.Show("输入输出关联配置初始化失败，无法加载关联配置。");
+                    return;
+                }
                 listView4.ItemChecked -= listView4_ItemChecked;
                 listView5.ItemChecked -= listView5_ItemChecked;
                 listView6.ItemChecked -= listView6_ItemChecked;
@@ -2063,18 +2243,29 @@ namespace Automation
             if (selectedTab == connectConfigPage1)
             {
                 currentTabIndex = 3;
-                currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
-                MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab);
-                listView4.ItemChecked -= listView4_ItemChecked;
-                listView5.ItemChecked -= listView5_ItemChecked;
-                listView6.ItemChecked -= listView6_ItemChecked;
-                SetConnectItemm();
-                RefreshIODebugMapFrm();
-                RefleshConnecdt();
-                listView4.ItemChecked += listView4_ItemChecked;
-                listView5.ItemChecked += listView5_ItemChecked;
-                listView6.ItemChecked += listView6_ItemChecked;
-                RefreshConnectDisplayForCurrentConfig();
+                RunConnectConfigLayoutUpdate(() =>
+                {
+                    currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
+                    MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab);
+                    BeginConnectListViewUpdate();
+                    try
+                    {
+                        listView4.ItemChecked -= listView4_ItemChecked;
+                        listView5.ItemChecked -= listView5_ItemChecked;
+                        listView6.ItemChecked -= listView6_ItemChecked;
+                        SetConnectItemm();
+                        RefreshIODebugMapFrm();
+                        RefleshConnecdt();
+                        listView4.ItemChecked += listView4_ItemChecked;
+                        listView5.ItemChecked += listView5_ItemChecked;
+                        listView6.ItemChecked += listView6_ItemChecked;
+                        RefreshConnectDisplayForCurrentConfig();
+                    }
+                    finally
+                    {
+                        EndConnectListViewUpdate();
+                    }
+                });
             }
         }
 
