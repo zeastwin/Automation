@@ -34,6 +34,13 @@ namespace Automation
         private volatile bool ioRefreshEnabled = false;
         private readonly int ioRefreshIntervalMs = 200;
         private volatile int currentTabIndex = 0;
+        private const int IoColWidth = 160;
+        private const int IoRowHeight = 46;
+        private const int IoItemWidth = 150;
+        private const int IoItemHeight = 34;
+        private int inputRowsPerColumn = -1;
+        private int outputRowsPerColumn = -1;
+        private int connectRowsPerColumn = -1;
 
         public FrmIODebug()
         {
@@ -138,11 +145,13 @@ namespace Automation
         private void FrmIODebug_VisibleChanged(object sender, EventArgs e)
         {
             UpdateRefreshEnabled();
+            RelayoutIoButtonsIfNeeded();
         }
 
         private void FrmIODebug_Resize(object sender, EventArgs e)
         {
             UpdateRefreshEnabled();
+            RelayoutIoButtonsIfNeeded();
         }
 
         private void UpdateRefreshEnabled()
@@ -156,6 +165,70 @@ namespace Automation
             else
             {
                 StopIoRefreshLoop();
+            }
+        }
+
+        private int GetRowsPerColumn(TabPage tabPage, int rowHeight)
+        {
+            int height = tabPage.ClientSize.Height;
+            if (height <= 0 || rowHeight <= 0)
+            {
+                return 1;
+            }
+            int rows = height / rowHeight;
+            return Math.Max(1, rows);
+        }
+
+        private void RelayoutIoButtonsIfNeeded()
+        {
+            if (!CheckFormIsOpen(this))
+            {
+                return;
+            }
+            int newInputRows = GetRowsPerColumn(tabPage1, IoRowHeight);
+            if (inputRowsPerColumn != newInputRows && IODebugMaps?.inputs != null)
+            {
+                tabPage1.Controls.Clear();
+                buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1);
+                EnsureInputTempSize(IODebugMaps.inputs.Count);
+                Array.Clear(InTemp, 0, IODebugMaps.inputs.Count);
+                Array.Clear(InValid, 0, IODebugMaps.inputs.Count);
+                IoRefreshData data = BuildIoRefreshData(0);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
+            }
+
+            int newOutputRows = GetRowsPerColumn(tabPage2, IoRowHeight);
+            if (outputRowsPerColumn != newOutputRows && IODebugMaps?.outputs != null)
+            {
+                tabPage2.Controls.Clear();
+                buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2);
+                EnsureOutputTempSize(IODebugMaps.outputs.Count);
+                Array.Clear(OutTemp, 0, IODebugMaps.outputs.Count);
+                Array.Clear(OutValid, 0, IODebugMaps.outputs.Count);
+                IoRefreshData data = BuildIoRefreshData(1);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
+            }
+
+            int newConnectRows = GetRowsPerColumn(tabPage3, IoRowHeight);
+            if (connectRowsPerColumn != newConnectRows && IODebugMaps?.iOConnects != null)
+            {
+                tabPage3.Controls.Clear();
+                CreateButtonConnect();
+                EnsureConnectTempSize(IODebugMaps.iOConnects.Count);
+                Array.Clear(ConnectOutValid, 0, IODebugMaps.iOConnects.Count);
+                Array.Clear(ConnectIn1Valid, 0, IODebugMaps.iOConnects.Count);
+                Array.Clear(ConnectIn2Valid, 0, IODebugMaps.iOConnects.Count);
+                IoRefreshData data = BuildIoRefreshData(2);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
             }
         }
 
@@ -240,6 +313,65 @@ namespace Automation
             try
             {
                 UpdateIoCacheIfNeeded();
+                if (SF.motion == null || !SF.motion.IsCardInitialized)
+                {
+                    if (tabIndex == 0)
+                    {
+                        IO[] inputs = IODebugMaps.inputs.ToArray();
+                        bool[] valid = new bool[inputs.Length];
+                        for (int i = 0; i < valid.Length; i++)
+                        {
+                            valid[i] = true;
+                        }
+                        return new IoRefreshData
+                        {
+                            TabIndex = 0,
+                            InputCount = inputs.Length,
+                            InputStates = new bool[inputs.Length],
+                            InputValid = valid
+                        };
+                    }
+                    if (tabIndex == 1)
+                    {
+                        IO[] outputs = IODebugMaps.outputs.ToArray();
+                        bool[] valid = new bool[outputs.Length];
+                        for (int i = 0; i < valid.Length; i++)
+                        {
+                            valid[i] = true;
+                        }
+                        return new IoRefreshData
+                        {
+                            TabIndex = 1,
+                            OutputCount = outputs.Length,
+                            OutputStates = new bool[outputs.Length],
+                            OutputValid = valid
+                        };
+                    }
+                    if (tabIndex == 2)
+                    {
+                        IOConnect[] connects = IODebugMaps.iOConnects.ToArray();
+                        bool[] outValid = new bool[connects.Length];
+                        bool[] in1Valid = new bool[connects.Length];
+                        bool[] in2Valid = new bool[connects.Length];
+                        for (int i = 0; i < connects.Length; i++)
+                        {
+                            outValid[i] = true;
+                            in1Valid[i] = true;
+                            in2Valid[i] = true;
+                        }
+                        return new IoRefreshData
+                        {
+                            TabIndex = 2,
+                            ConnectCount = connects.Length,
+                            ConnectOutStates = new bool[connects.Length],
+                            ConnectOutValid = outValid,
+                            ConnectIn1States = new bool[connects.Length],
+                            ConnectIn1Valid = in1Valid,
+                            ConnectIn2States = new bool[connects.Length],
+                            ConnectIn2Valid = in2Valid
+                        };
+                    }
+                }
                 if (tabIndex == 0)
                 {
                     IO[] inputs = IODebugMaps.inputs.ToArray();
@@ -778,17 +910,51 @@ namespace Automation
             }
             currentTabIndex = tabControl1.SelectedIndex;
             RefreshIODebugMapFrm();
-            buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1);
-
-
+            IoRefreshData data = BuildIoRefreshData(0);
+            if (data != null)
+            {
+                ApplyIoRefresh(data);
+            }
+            data = BuildIoRefreshData(1);
+            if (data != null)
+            {
+                ApplyIoRefresh(data);
+            }
+            data = BuildIoRefreshData(2);
+            if (data != null)
+            {
+                ApplyIoRefresh(data);
+            }
+            if (SF.frmIO?.IOMap?.FirstOrDefault() != null)
+            {
+                listView4.ItemChecked -= listView4_ItemChecked;
+                listView5.ItemChecked -= listView5_ItemChecked;
+                listView6.ItemChecked -= listView6_ItemChecked;
+                SetConnectItemm();
+                RefleshConnecdt();
+                listView4.ItemChecked += listView4_ItemChecked;
+                listView5.ItemChecked += listView5_ItemChecked;
+                listView6.ItemChecked += listView6_ItemChecked;
+            }
         }
         public List<Button> CreateButtonIO(List<IO> iOs, TabPage tabPage)
         {
             List<Button> buttons = new List<Button>();
             tabPage.AutoScroll = true;
             int col = 0, row = 0;
-            int colWidth = 160;
-            int rowHeight = 46;
+            int colWidth = IoColWidth;
+            int rowHeight = IoRowHeight;
+            int itemWidth = IoItemWidth;
+            int itemHeight = IoItemHeight;
+            int rowsPerColumn = GetRowsPerColumn(tabPage, rowHeight);
+            if (tabPage == tabPage1)
+            {
+                inputRowsPerColumn = rowsPerColumn;
+            }
+            else if (tabPage == tabPage2)
+            {
+                outputRowsPerColumn = rowsPerColumn;
+            }
             for (int i = 0; i < iOs.Count; i++)
             {
                 IO io = iOs[i];
@@ -798,7 +964,7 @@ namespace Automation
                 }
                 else if (io.IsRemark)
                 {
-                    Control remarkHeader = CreateRemarkHeader(io.Name, new Point(col * colWidth, row * rowHeight), 150, 34);
+                    Control remarkHeader = CreateRemarkHeader(io.Name, new Point(col * colWidth, row * rowHeight), itemWidth, itemHeight);
                     tabPage.Controls.Add(remarkHeader);
                     buttons.Add(null);
                 }
@@ -808,7 +974,7 @@ namespace Automation
 
                     dynamicButton.Text = io.Name;
                     dynamicButton.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
-                    dynamicButton.Size = new System.Drawing.Size(150, 34);
+                    dynamicButton.Size = new System.Drawing.Size(itemWidth, itemHeight);
 
                     tabPage.Controls.Add(dynamicButton);
                     buttons.Add(dynamicButton);
@@ -816,7 +982,7 @@ namespace Automation
                         dynamicButton.Click += new EventHandler(IOButton_Click);
                 }
                 row++;
-                if (row > 10)
+                if (row >= rowsPerColumn)
                 {
                     row = 0;
                     col++;
@@ -829,10 +995,12 @@ namespace Automation
         {
             int col = 0, row = 0;
             btnCon.Clear();
-            int colWidth = 160;
-            int rowHeight = 46;
-            int itemWidth = 150;
-            int itemHeight = 34;
+            int colWidth = IoColWidth;
+            int rowHeight = IoRowHeight;
+            int itemWidth = IoItemWidth;
+            int itemHeight = IoItemHeight;
+            int rowsPerColumn = GetRowsPerColumn(tabPage3, rowHeight);
+            connectRowsPerColumn = rowsPerColumn;
             for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
             {
                 IOConnect ioConnect = IODebugMaps.iOConnects[i];
@@ -880,7 +1048,7 @@ namespace Automation
                 btnCon.Add(new ConnectButton { OutPut = outputControl ,InPut1 = dynamicLabel1 ,InPut2 = dynamicLabel2});
 
                 row++;
-                if (row > 10)
+                if (row >= rowsPerColumn)
                 {
                     row = 0;
                     col++;
