@@ -38,6 +38,9 @@ namespace Automation
         public FrmIODebug()
         {
             InitializeComponent();
+            this.DoubleBuffered = true;
+            this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
+            this.UpdateStyles();
             listView1.View = View.SmallIcon;
             listView2.View = View.SmallIcon;
             listView3.View = View.SmallIcon;
@@ -784,8 +787,8 @@ namespace Automation
             List<Button> buttons = new List<Button>();
             tabPage.AutoScroll = true;
             int col = 0, row = 0;
-            int colWidth = 110;
-            int rowHeight = 40;
+            int colWidth = 160;
+            int rowHeight = 46;
             for (int i = 0; i < iOs.Count; i++)
             {
                 IO io = iOs[i];
@@ -795,7 +798,7 @@ namespace Automation
                 }
                 else if (io.IsRemark)
                 {
-                    Control remarkHeader = CreateRemarkHeader(io.Name, new Point(col * colWidth, row * rowHeight), 100, 30);
+                    Control remarkHeader = CreateRemarkHeader(io.Name, new Point(col * colWidth, row * rowHeight), 150, 34);
                     tabPage.Controls.Add(remarkHeader);
                     buttons.Add(null);
                 }
@@ -805,7 +808,7 @@ namespace Automation
 
                     dynamicButton.Text = io.Name;
                     dynamicButton.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
-                    dynamicButton.Size = new System.Drawing.Size(100, 30);
+                    dynamicButton.Size = new System.Drawing.Size(150, 34);
 
                     tabPage.Controls.Add(dynamicButton);
                     buttons.Add(dynamicButton);
@@ -826,6 +829,10 @@ namespace Automation
         {
             int col = 0, row = 0;
             btnCon.Clear();
+            int colWidth = 160;
+            int rowHeight = 46;
+            int itemWidth = 150;
+            int itemHeight = 34;
             for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
             {
                 IOConnect ioConnect = IODebugMaps.iOConnects[i];
@@ -834,8 +841,8 @@ namespace Automation
                 {
                     Button dynamicButton = new Button();
                     dynamicButton.Text = ioConnect.Output.Name;
-                    dynamicButton.Location = new System.Drawing.Point(col * 110, row * 40);
-                    dynamicButton.Size = new System.Drawing.Size(100, 30);
+                    dynamicButton.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
+                    dynamicButton.Size = new System.Drawing.Size(itemWidth, itemHeight);
                     dynamicButton.Tag = ioConnect;
                     dynamicButton.Click += new EventHandler(IOButton_Click);
                     tabPage3.Controls.Add(dynamicButton);
@@ -843,9 +850,8 @@ namespace Automation
                 }
                 else
                 {
-                    int colWidth = 110;
-                    int remarkWidth = colWidth * 3;
-                    Control remarkHeader = CreateRemarkHeader(ioConnect.Output.Name, new Point(col * colWidth, row * 40), remarkWidth, 30);
+                    int remarkWidth = colWidth * 3 - 10;
+                    Control remarkHeader = CreateRemarkHeader(ioConnect.Output.Name, new Point(col * colWidth, row * rowHeight), remarkWidth, itemHeight);
                     tabPage3.Controls.Add(remarkHeader);
                     outputControl = remarkHeader;
                 }
@@ -855,16 +861,16 @@ namespace Automation
                 if (!ioConnect.Output.IsRemark)
                 {
                     dynamicLabel1.Text = ioConnect.Intput1.Name;
-                    dynamicLabel1.Location = new System.Drawing.Point(col * 110 + 110, row * 40);
-                    dynamicLabel1.Size = new System.Drawing.Size(100, 30);
+                    dynamicLabel1.Location = new System.Drawing.Point(col * colWidth + colWidth, row * rowHeight);
+                    dynamicLabel1.Size = new System.Drawing.Size(itemWidth, itemHeight);
                     dynamicLabel1.BackColor = System.Drawing.Color.Gray;
                     dynamicLabel1.TextAlign = ContentAlignment.MiddleCenter;
 
                     tabPage3.Controls.Add(dynamicLabel1);
 
                     dynamicLabel2.Text = ioConnect.Intput2.Name;
-                    dynamicLabel2.Location = new System.Drawing.Point(col * 110 + 220, row * 40);
-                    dynamicLabel2.Size = new System.Drawing.Size(100, 30);
+                    dynamicLabel2.Location = new System.Drawing.Point(col * colWidth + colWidth * 2, row * rowHeight);
+                    dynamicLabel2.Size = new System.Drawing.Size(itemWidth, itemHeight);
                     dynamicLabel2.BackColor = System.Drawing.Color.Gray;
                     dynamicLabel2.TextAlign = ContentAlignment.MiddleCenter;
 
@@ -1580,19 +1586,31 @@ namespace Automation
             switch (selectedIndex)
             {
                 case 0:
-                    tabPage1.Controls.Clear();
-                    buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1);
-                    EnsureInputTempSize(IODebugMaps.inputs.Count);
+                    {
+                        IoRefreshData data = BuildIoRefreshData(0);
+                        if (data != null)
+                        {
+                            ApplyIoRefresh(data);
+                        }
+                    }
                     break;
                 case 1:
-                    tabPage2.Controls.Clear();
-                    buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2);
-                    EnsureOutputTempSize(IODebugMaps.outputs.Count);
+                    {
+                        IoRefreshData data = BuildIoRefreshData(1);
+                        if (data != null)
+                        {
+                            ApplyIoRefresh(data);
+                        }
+                    }
                     break;
                 case 2:
-                    tabPage3.Controls.Clear();
-                    CreateButtonConnect();
-                    EnsureConnectTempSize(IODebugMaps.iOConnects.Count);
+                    {
+                        IoRefreshData data = BuildIoRefreshData(2);
+                        if (data != null)
+                        {
+                            ApplyIoRefresh(data);
+                        }
+                    }
                     break;
                 case 3:
                     listView4.ItemChecked -= listView4_ItemChecked;
