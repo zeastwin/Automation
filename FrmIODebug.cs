@@ -1015,6 +1015,7 @@ namespace Automation
             int rowHeight = IoRowHeight;
             int itemWidth = IoItemWidth;
             int itemHeight = IoItemHeight;
+            int groupWidth = colWidth * 3;
             int rowsPerColumn = GetRowsPerColumn(tabPage3, rowHeight);
             connectRowsPerColumn = rowsPerColumn;
             for (int i = 0; i < IODebugMaps.iOConnects.Count; i++)
@@ -1025,7 +1026,8 @@ namespace Automation
                 {
                     Button dynamicButton = new Button();
                     dynamicButton.Text = ioConnect.Output.Name;
-                    dynamicButton.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
+                    int baseX = col * groupWidth;
+                    dynamicButton.Location = new System.Drawing.Point(baseX, row * rowHeight);
                     dynamicButton.Size = new System.Drawing.Size(itemWidth, itemHeight);
                     dynamicButton.Tag = ioConnect;
                     dynamicButton.Click += new EventHandler(IOButton_Click);
@@ -1034,8 +1036,8 @@ namespace Automation
                 }
                 else
                 {
-                    int remarkWidth = colWidth * 3 - 10;
-                    Control remarkHeader = CreateRemarkHeader(ioConnect.Output.Name, new Point(col * colWidth, row * rowHeight), remarkWidth, itemHeight);
+                    int remarkWidth = groupWidth - 10;
+                    Control remarkHeader = CreateRemarkHeader(ioConnect.Output.Name, new Point(col * groupWidth, row * rowHeight), remarkWidth, itemHeight);
                     tabPage3.Controls.Add(remarkHeader);
                     outputControl = remarkHeader;
                 }
@@ -1047,7 +1049,8 @@ namespace Automation
                     if (ioConnect.Intput1 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput1.Name))
                     {
                         dynamicLabel1.Text = ioConnect.Intput1.Name;
-                        dynamicLabel1.Location = new System.Drawing.Point(col * colWidth + colWidth, row * rowHeight);
+                        int baseX = col * groupWidth;
+                        dynamicLabel1.Location = new System.Drawing.Point(baseX + colWidth, row * rowHeight);
                         dynamicLabel1.Size = new System.Drawing.Size(itemWidth, itemHeight);
                         dynamicLabel1.BackColor = System.Drawing.Color.Gray;
                         dynamicLabel1.TextAlign = ContentAlignment.MiddleCenter;
@@ -1062,7 +1065,8 @@ namespace Automation
                     if (ioConnect.Intput2 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput2.Name))
                     {
                         dynamicLabel2.Text = ioConnect.Intput2.Name;
-                        dynamicLabel2.Location = new System.Drawing.Point(col * colWidth + colWidth * 2, row * rowHeight);
+                        int baseX = col * groupWidth;
+                        dynamicLabel2.Location = new System.Drawing.Point(baseX + colWidth * 2, row * rowHeight);
                         dynamicLabel2.Size = new System.Drawing.Size(itemWidth, itemHeight);
                         dynamicLabel2.BackColor = System.Drawing.Color.Gray;
                         dynamicLabel2.TextAlign = ContentAlignment.MiddleCenter;
