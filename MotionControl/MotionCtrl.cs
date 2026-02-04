@@ -56,10 +56,13 @@ namespace Automation.MotionControl
         public event SetAllAxisEquivHandler setAllAxisEquiv;
         public event CleanAlarmHandler cleanAlarm;
         public event GetAxisCurSpeedHandler getAxisCurSpeed;
+        public bool IsCardInitialized { get; private set; }
 
-        public void InitCard()
+        public bool InitCard()
         {
             initCard?.Invoke();
+            IsCardInitialized = ls != null && ls.IsCardInitialized;
+            return IsCardInitialized;
         }
         public bool SetIO(IO io, bool isOpen)
         {

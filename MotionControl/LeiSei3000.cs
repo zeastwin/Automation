@@ -17,11 +17,14 @@ namespace Automation
 {
     public class LS
     {
+        public bool IsCardInitialized { get; private set; }
         public ushort InitCard()
         {
+            IsCardInitialized = true;
             short num = LTDMC.dmc_board_init();//获取卡数量
             if (num <= 0 || num > 8)
             {
+                IsCardInitialized = false;
                 SF.frmInfo.PrintInfo("获取卡信息失败",FrmInfo.Level.Error);
             }
             ushort _num = 0;
@@ -30,7 +33,12 @@ namespace Automation
             short res = LTDMC.dmc_get_CardInfList(ref _num, cardtypes, cardids);
             if (res != 0)
             {
+                IsCardInitialized = false;
                 SF.frmInfo.PrintInfo("获取卡信息失败", FrmInfo.Level.Error);
+            }
+            if (!IsCardInitialized)
+            {
+                return 0;
             }
             return cardids[0];
         }

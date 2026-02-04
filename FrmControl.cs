@@ -18,6 +18,7 @@ using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
 using static Automation.FrmCard;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+using System.Globalization;
 using csLTDMC;
 using static System.Collections.Specialized.BitVector32;
 
@@ -31,7 +32,6 @@ namespace Automation
         public List<System.Windows.Forms.TextBox> PosTextBox = new List<System.Windows.Forms.TextBox>();
         public List<System.Windows.Forms.PictureBox> pictureBoxes = new List<System.Windows.Forms.PictureBox>();
         public List<System.Windows.Forms.Label> VelLabel = new List<System.Windows.Forms.Label>();
-        public List<System.Windows.Forms.Label> StateLabel = new List<System.Windows.Forms.Label>();
         private bool suppressStationChange = false;
         private int lastStationIndex = -1;
         public int CurrentStationIndex => lastStationIndex;
@@ -58,13 +58,6 @@ namespace Automation
             VelLabel.Add(AxisVel4);
             VelLabel.Add(AxisVel5);
             VelLabel.Add(AxisVel6);
-
-            StateLabel.Add(AxisState1);
-            StateLabel.Add(AxisState2);
-            StateLabel.Add(AxisState3);
-            StateLabel.Add(AxisState4);
-            StateLabel.Add(AxisState5);
-            StateLabel.Add(AxisState6);
 
 
             //InintMovParam();
@@ -431,17 +424,59 @@ namespace Automation
             });
         }
 
+        private bool TryGetStepDistance(string customText, out double distance)
+        {
+            if (radioButton2.Checked)
+            {
+                distance = 0.1;
+                return true;
+            }
+            if (radioButton4.Checked)
+            {
+                distance = 1;
+                return true;
+            }
+            if (radioButton5.Checked)
+            {
+                distance = 10;
+                return true;
+            }
+            if (radioButton6.Checked)
+            {
+                if (string.IsNullOrWhiteSpace(customText)
+                    || !double.TryParse(customText, NumberStyles.Float, CultureInfo.InvariantCulture, out distance))
+                {
+                    MessageBox.Show("自定义寸动距离无效。");
+                    distance = 0;
+                    return false;
+                }
+                return true;
+            }
+            distance = 0;
+            return false;
+        }
+
         private void Handle1_MouseDown(object sender, MouseEventArgs e)
         {
             SF.frmStation.SetStationParam(temp,0);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig1.CardNum),(ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 1);
-            if (txtMovPos1.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, double.Parse(txtMovPos1.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos1.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos1.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, double.Parse(txtMovPos1.Text), 1, false);
+            }
 
         }
 
@@ -455,13 +490,23 @@ namespace Automation
         {
             SF.frmStation.SetStationParam(temp, 0);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 0);
-            if (txtMovPos1.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, -double.Parse(txtMovPos1.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos1.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, -distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos1.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, double.Parse(txtMovPos1.Text), 1, false);
+            }
         }
 
         private void Handle2_MouseUp(object sender, MouseEventArgs e)
@@ -474,13 +519,23 @@ namespace Automation
         {
             SF.frmStation.SetStationParam(temp, 1);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 1);
-            if (txtMovPos2.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, double.Parse(txtMovPos2.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos2.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos2.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, double.Parse(txtMovPos2.Text), 1, false);
+            }
         }
 
         private void Handle3_MouseUp(object sender, MouseEventArgs e)
@@ -492,13 +547,23 @@ namespace Automation
         {
             SF.frmStation.SetStationParam(temp, 1);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 0);
-            if (txtMovPos2.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, -double.Parse(txtMovPos2.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos2.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, -distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos2.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, double.Parse(txtMovPos2.Text), 1, false);
+            }
 
         }
 
@@ -511,13 +576,23 @@ namespace Automation
         {
             SF.frmStation.SetStationParam(temp, 2);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 1);
-            if (txtMovPos3.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, double.Parse(txtMovPos3.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos3.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos3.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, double.Parse(txtMovPos3.Text), 1, false);
+            }
         }
 
         private void Handle5_MouseUp(object sender, MouseEventArgs e)
@@ -530,13 +605,23 @@ namespace Automation
         {
             SF.frmStation.SetStationParam(temp, 2);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 0);
-            if (txtMovPos3.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, -double.Parse(txtMovPos3.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos3.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, -distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos3.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, double.Parse(txtMovPos3.Text), 1, false);
+            }
 
         }
 
@@ -550,13 +635,23 @@ namespace Automation
         {
             SF.frmStation.SetStationParam(temp, 3);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 1);
-            if (txtMovPos4.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, double.Parse(txtMovPos4.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos4.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos4.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, double.Parse(txtMovPos4.Text), 1, false);
+            }
         }
 
         private void Handle7_MouseUp(object sender, MouseEventArgs e)
@@ -569,13 +664,23 @@ namespace Automation
         {
             SF.frmStation.SetStationParam(temp, 3);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 0);
-            if (txtMovPos4.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, -double.Parse(txtMovPos4.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos4.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, -distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos4.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, double.Parse(txtMovPos4.Text), 1, false);
+            }
 
         }
 
@@ -589,13 +694,23 @@ namespace Automation
         {
             SF.frmStation.SetStationParam(temp, 4);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 1);
-            if (txtMovPos5.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, double.Parse(txtMovPos5.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos5.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos5.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, double.Parse(txtMovPos5.Text), 1, false);
+            }
         }
 
         private void Handle9_MouseUp(object sender, MouseEventArgs e)
@@ -608,13 +723,23 @@ namespace Automation
         {
             SF.frmStation.SetStationParam(temp, 4);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 0);
-            if (txtMovPos5.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, -double.Parse(txtMovPos5.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos5.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, -distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos5.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, double.Parse(txtMovPos5.Text), 1, false);
+            }
 
         }
 
@@ -628,13 +753,23 @@ namespace Automation
         {
             SF.frmStation.SetStationParam(temp, 5);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 1);
-            if (txtMovPos6.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, double.Parse(txtMovPos6.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos6.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos6.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, double.Parse(txtMovPos6.Text), 1, false);
+            }
         }
 
         private void Handle11_MouseUp(object sender, MouseEventArgs e)
@@ -647,13 +782,23 @@ namespace Automation
         {
             SF.frmStation.SetStationParam(temp, 5);
             if (radioButton3.Checked)
+            {
                 SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 0);
-            if (txtMovPos6.Text == "")
                 return;
-            if (radioButton2.Checked)
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, -double.Parse(txtMovPos6.Text), 0, false);
+            }
+            if (TryGetStepDistance(txtMovPos6.Text, out double distance))
+            {
+                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, -distance, 0, false);
+                return;
+            }
             if (radioButton1.Checked)
+            {
+                if (txtMovPos6.Text == "")
+                {
+                    return;
+                }
                 SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, double.Parse(txtMovPos6.Text), 1, false);
+            }
 
         }
 

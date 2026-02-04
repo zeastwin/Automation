@@ -160,11 +160,14 @@ namespace Automation
             }
             //初始化运动控制相关
             SF.motion.InitCardType();
-            SF.motion.InitCard();
-            SF.motion.DownLoadConfig();
-            SF.motion.SetAllAxisSevonOn();
-            SF.motion.SetAllAxisEquiv();
-            Monitor();
+            bool cardInitOk = SF.motion.InitCard();
+            if (cardInitOk)
+            {
+                SF.motion.DownLoadConfig();
+                SF.motion.SetAllAxisSevonOn();
+                SF.motion.SetAllAxisEquiv();
+                Monitor();
+            }
             if (SF.SecurityLocked)
             {
                 SF.StopAllProcs("账户系统锁定，禁止自动启动流程。");

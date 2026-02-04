@@ -75,6 +75,9 @@
             this.groupBox2 = new System.Windows.Forms.GroupBox();
             this.radioButton3 = new System.Windows.Forms.RadioButton();
             this.radioButton2 = new System.Windows.Forms.RadioButton();
+            this.radioButton4 = new System.Windows.Forms.RadioButton();
+            this.radioButton5 = new System.Windows.Forms.RadioButton();
+            this.radioButton6 = new System.Windows.Forms.RadioButton();
             this.radioButton1 = new System.Windows.Forms.RadioButton();
             this.txtMovPos6 = new System.Windows.Forms.TextBox();
             this.label21 = new System.Windows.Forms.Label();
@@ -101,13 +104,6 @@
             this.AxisVel2 = new System.Windows.Forms.Label();
             this.AxisVel1 = new System.Windows.Forms.Label();
             this.label13 = new System.Windows.Forms.Label();
-            this.AxisState6 = new System.Windows.Forms.Label();
-            this.AxisState5 = new System.Windows.Forms.Label();
-            this.AxisState4 = new System.Windows.Forms.Label();
-            this.AxisState3 = new System.Windows.Forms.Label();
-            this.AxisState2 = new System.Windows.Forms.Label();
-            this.AxisState1 = new System.Windows.Forms.Label();
-            this.label28 = new System.Windows.Forms.Label();
             this.groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.trackBar1)).BeginInit();
             this.groupBox2.SuspendLayout();
@@ -709,6 +705,9 @@
             // 
             this.groupBox2.Controls.Add(this.radioButton3);
             this.groupBox2.Controls.Add(this.radioButton2);
+            this.groupBox2.Controls.Add(this.radioButton4);
+            this.groupBox2.Controls.Add(this.radioButton5);
+            this.groupBox2.Controls.Add(this.radioButton6);
             this.groupBox2.Controls.Add(this.radioButton1);
             this.groupBox2.Controls.Add(this.txtMovPos6);
             this.groupBox2.Controls.Add(this.label21);
@@ -747,10 +746,40 @@
             this.radioButton2.AutoSize = true;
             this.radioButton2.Location = new System.Drawing.Point(29, 45);
             this.radioButton2.Name = "radioButton2";
-            this.radioButton2.Size = new System.Drawing.Size(47, 16);
+            this.radioButton2.Size = new System.Drawing.Size(41, 16);
             this.radioButton2.TabIndex = 121;
-            this.radioButton2.Text = "寸动";
+            this.radioButton2.Text = "0.1";
             this.radioButton2.UseVisualStyleBackColor = true;
+            // 
+            // radioButton4
+            // 
+            this.radioButton4.AutoSize = true;
+            this.radioButton4.Location = new System.Drawing.Point(84, 45);
+            this.radioButton4.Name = "radioButton4";
+            this.radioButton4.Size = new System.Drawing.Size(29, 16);
+            this.radioButton4.TabIndex = 123;
+            this.radioButton4.Text = "1";
+            this.radioButton4.UseVisualStyleBackColor = true;
+            // 
+            // radioButton5
+            // 
+            this.radioButton5.AutoSize = true;
+            this.radioButton5.Location = new System.Drawing.Point(129, 45);
+            this.radioButton5.Name = "radioButton5";
+            this.radioButton5.Size = new System.Drawing.Size(35, 16);
+            this.radioButton5.TabIndex = 124;
+            this.radioButton5.Text = "10";
+            this.radioButton5.UseVisualStyleBackColor = true;
+            // 
+            // radioButton6
+            // 
+            this.radioButton6.AutoSize = true;
+            this.radioButton6.Location = new System.Drawing.Point(180, 45);
+            this.radioButton6.Name = "radioButton6";
+            this.radioButton6.Size = new System.Drawing.Size(59, 16);
+            this.radioButton6.TabIndex = 125;
+            this.radioButton6.Text = "自定义";
+            this.radioButton6.UseVisualStyleBackColor = true;
             // 
             // radioButton1
             // 
@@ -764,7 +793,7 @@
             // 
             // txtMovPos6
             // 
-            this.txtMovPos6.Location = new System.Drawing.Point(416, 63);
+            this.txtMovPos6.Location = new System.Drawing.Point(567, 66);
             this.txtMovPos6.Name = "txtMovPos6";
             this.txtMovPos6.Size = new System.Drawing.Size(71, 21);
             this.txtMovPos6.TabIndex = 118;
@@ -775,7 +804,7 @@
             // 
             this.label21.AutoSize = true;
             this.label21.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label21.Location = new System.Drawing.Point(378, 62);
+            this.label21.Location = new System.Drawing.Point(529, 65);
             this.label21.Name = "label21";
             this.label21.Size = new System.Drawing.Size(51, 21);
             this.label21.TabIndex = 119;
@@ -783,7 +812,7 @@
             // 
             // txtMovPos5
             // 
-            this.txtMovPos5.Location = new System.Drawing.Point(284, 63);
+            this.txtMovPos5.Location = new System.Drawing.Point(435, 66);
             this.txtMovPos5.Name = "txtMovPos5";
             this.txtMovPos5.Size = new System.Drawing.Size(71, 21);
             this.txtMovPos5.TabIndex = 116;
@@ -794,7 +823,7 @@
             // 
             this.label22.AutoSize = true;
             this.label22.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label22.Location = new System.Drawing.Point(246, 62);
+            this.label22.Location = new System.Drawing.Point(397, 65);
             this.label22.Name = "label22";
             this.label22.Size = new System.Drawing.Size(51, 21);
             this.label22.TabIndex = 117;
@@ -802,7 +831,7 @@
             // 
             // txtMovPos4
             // 
-            this.txtMovPos4.Location = new System.Drawing.Point(151, 63);
+            this.txtMovPos4.Location = new System.Drawing.Point(302, 66);
             this.txtMovPos4.Name = "txtMovPos4";
             this.txtMovPos4.Size = new System.Drawing.Size(71, 21);
             this.txtMovPos4.TabIndex = 114;
@@ -813,7 +842,7 @@
             // 
             this.label23.AutoSize = true;
             this.label23.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label23.Location = new System.Drawing.Point(113, 62);
+            this.label23.Location = new System.Drawing.Point(264, 65);
             this.label23.Name = "label23";
             this.label23.Size = new System.Drawing.Size(51, 21);
             this.label23.TabIndex = 115;
@@ -821,7 +850,7 @@
             // 
             // txtMovPos3
             // 
-            this.txtMovPos3.Location = new System.Drawing.Point(416, 21);
+            this.txtMovPos3.Location = new System.Drawing.Point(567, 13);
             this.txtMovPos3.Name = "txtMovPos3";
             this.txtMovPos3.Size = new System.Drawing.Size(71, 21);
             this.txtMovPos3.TabIndex = 112;
@@ -832,7 +861,7 @@
             // 
             this.label20.AutoSize = true;
             this.label20.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label20.Location = new System.Drawing.Point(378, 20);
+            this.label20.Location = new System.Drawing.Point(529, 12);
             this.label20.Name = "label20";
             this.label20.Size = new System.Drawing.Size(51, 21);
             this.label20.TabIndex = 113;
@@ -840,7 +869,7 @@
             // 
             // txtMovPos2
             // 
-            this.txtMovPos2.Location = new System.Drawing.Point(284, 21);
+            this.txtMovPos2.Location = new System.Drawing.Point(435, 13);
             this.txtMovPos2.Name = "txtMovPos2";
             this.txtMovPos2.Size = new System.Drawing.Size(71, 21);
             this.txtMovPos2.TabIndex = 110;
@@ -851,7 +880,7 @@
             // 
             this.label19.AutoSize = true;
             this.label19.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label19.Location = new System.Drawing.Point(246, 20);
+            this.label19.Location = new System.Drawing.Point(397, 12);
             this.label19.Name = "label19";
             this.label19.Size = new System.Drawing.Size(51, 21);
             this.label19.TabIndex = 111;
@@ -859,7 +888,7 @@
             // 
             // txtMovPos1
             // 
-            this.txtMovPos1.Location = new System.Drawing.Point(151, 21);
+            this.txtMovPos1.Location = new System.Drawing.Point(302, 13);
             this.txtMovPos1.Name = "txtMovPos1";
             this.txtMovPos1.Size = new System.Drawing.Size(71, 21);
             this.txtMovPos1.TabIndex = 109;
@@ -870,7 +899,7 @@
             // 
             this.label18.AutoSize = true;
             this.label18.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label18.Location = new System.Drawing.Point(113, 20);
+            this.label18.Location = new System.Drawing.Point(264, 12);
             this.label18.Name = "label18";
             this.label18.Size = new System.Drawing.Size(51, 21);
             this.label18.TabIndex = 109;
@@ -1012,88 +1041,11 @@
             this.label13.TabIndex = 115;
             this.label13.Text = "速度：";
             // 
-            // AxisState6
-            // 
-            this.AxisState6.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState6.Location = new System.Drawing.Point(605, 329);
-            this.AxisState6.Name = "AxisState6";
-            this.AxisState6.Size = new System.Drawing.Size(59, 21);
-            this.AxisState6.TabIndex = 128;
-            this.AxisState6.Text = "-------";
-            this.AxisState6.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
-            // 
-            // AxisState5
-            // 
-            this.AxisState5.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState5.Location = new System.Drawing.Point(506, 329);
-            this.AxisState5.Name = "AxisState5";
-            this.AxisState5.Size = new System.Drawing.Size(59, 21);
-            this.AxisState5.TabIndex = 127;
-            this.AxisState5.Text = "-------";
-            this.AxisState5.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
-            // 
-            // AxisState4
-            // 
-            this.AxisState4.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState4.Location = new System.Drawing.Point(408, 329);
-            this.AxisState4.Name = "AxisState4";
-            this.AxisState4.Size = new System.Drawing.Size(59, 21);
-            this.AxisState4.TabIndex = 126;
-            this.AxisState4.Text = "-------";
-            this.AxisState4.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
-            // 
-            // AxisState3
-            // 
-            this.AxisState3.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState3.Location = new System.Drawing.Point(311, 329);
-            this.AxisState3.Name = "AxisState3";
-            this.AxisState3.Size = new System.Drawing.Size(59, 21);
-            this.AxisState3.TabIndex = 125;
-            this.AxisState3.Text = "-------";
-            this.AxisState3.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
-            // 
-            // AxisState2
-            // 
-            this.AxisState2.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState2.Location = new System.Drawing.Point(217, 329);
-            this.AxisState2.Name = "AxisState2";
-            this.AxisState2.Size = new System.Drawing.Size(59, 21);
-            this.AxisState2.TabIndex = 124;
-            this.AxisState2.Text = "-------";
-            this.AxisState2.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
-            // 
-            // AxisState1
-            // 
-            this.AxisState1.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState1.Location = new System.Drawing.Point(122, 329);
-            this.AxisState1.Name = "AxisState1";
-            this.AxisState1.Size = new System.Drawing.Size(59, 21);
-            this.AxisState1.TabIndex = 123;
-            this.AxisState1.Text = "-------";
-            this.AxisState1.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
-            // 
-            // label28
-            // 
-            this.label28.AutoSize = true;
-            this.label28.Font = new System.Drawing.Font("微软雅黑", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.label28.Location = new System.Drawing.Point(22, 329);
-            this.label28.Name = "label28";
-            this.label28.Size = new System.Drawing.Size(69, 25);
-            this.label28.TabIndex = 122;
-            this.label28.Text = "状态：";
-            // 
             // FrmControl
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(856, 630);
-            this.Controls.Add(this.AxisState6);
-            this.Controls.Add(this.AxisState5);
-            this.Controls.Add(this.AxisState4);
-            this.Controls.Add(this.AxisState3);
-            this.Controls.Add(this.AxisState2);
-            this.Controls.Add(this.AxisState1);
-            this.Controls.Add(this.label28);
             this.Controls.Add(this.AxisVel6);
             this.Controls.Add(this.AxisVel5);
             this.Controls.Add(this.AxisVel4);
@@ -1218,6 +1170,9 @@
         private System.Windows.Forms.Label label19;
         private System.Windows.Forms.RadioButton radioButton3;
         private System.Windows.Forms.RadioButton radioButton2;
+        private System.Windows.Forms.RadioButton radioButton6;
+        private System.Windows.Forms.RadioButton radioButton4;
+        private System.Windows.Forms.RadioButton radioButton5;
         private System.Windows.Forms.Label label24;
         private System.Windows.Forms.Label label25;
         private System.Windows.Forms.TrackBar trackBar1;
@@ -1239,12 +1194,5 @@
         private System.Windows.Forms.Label AxisVel2;
         private System.Windows.Forms.Label AxisVel1;
         private System.Windows.Forms.Label label13;
-        private System.Windows.Forms.Label AxisState6;
-        private System.Windows.Forms.Label AxisState5;
-        private System.Windows.Forms.Label AxisState4;
-        private System.Windows.Forms.Label AxisState3;
-        private System.Windows.Forms.Label AxisState2;
-        private System.Windows.Forms.Label AxisState1;
-        private System.Windows.Forms.Label label28;
     }
 }

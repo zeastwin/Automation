@@ -166,6 +166,10 @@ namespace Automation
                 {
                     return;
                 }
+                if (SF.motion == null || !SF.motion.IsCardInitialized)
+                {
+                    return;
+                }
 
                 int stationIndex = SF.frmControl.CurrentStationIndex;
                 if (stationIndex == -1)
@@ -273,7 +277,6 @@ namespace Automation
                         SF.frmControl.PosTextBox[i].Text = SF.motion.GetAxisPos(cardNum, axisNum).ToString();
                         SF.frmControl.pictureBoxes[i].Image = SF.motion.GetAxisSevon(cardNum, axisNum) ? validImage : invalidImage;
                         SF.frmControl.VelLabel[i].Text = SF.motion.GetAxisCurSpeed(cardNum, axisNum).ToString();
-                        SF.frmControl.StateLabel[i].Text = axisConfig.axis.State.ToString();
                     }
                 }
             }
