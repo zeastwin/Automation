@@ -53,7 +53,7 @@
             this.groupBox1.Dock = System.Windows.Forms.DockStyle.Top;
             this.groupBox1.Location = new System.Drawing.Point(0, 0);
             this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Size = new System.Drawing.Size(366, 264);
+            this.groupBox1.Size = new System.Drawing.Size(366, 387);
             this.groupBox1.TabIndex = 0;
             this.groupBox1.TabStop = false;
             this.groupBox1.Text = "卡配置";
@@ -67,7 +67,7 @@
             this.treeView1.Location = new System.Drawing.Point(3, 17);
             this.treeView1.Name = "treeView1";
             this.treeView1.ShowLines = false;
-            this.treeView1.Size = new System.Drawing.Size(360, 244);
+            this.treeView1.Size = new System.Drawing.Size(360, 367);
             this.treeView1.TabIndex = 1;
             this.treeView1.AfterSelect += new System.Windows.Forms.TreeViewEventHandler(this.treeView1_AfterSelect);
             this.treeView1.MouseDown += new System.Windows.Forms.MouseEventHandler(this.treeView1_MouseDown);
@@ -106,9 +106,9 @@
             // 
             this.groupBox2.Controls.Add(this.treeView2);
             this.groupBox2.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.groupBox2.Location = new System.Drawing.Point(0, 264);
+            this.groupBox2.Location = new System.Drawing.Point(0, 387);
             this.groupBox2.Name = "groupBox2";
-            this.groupBox2.Size = new System.Drawing.Size(366, 345);
+            this.groupBox2.Size = new System.Drawing.Size(366, 222);
             this.groupBox2.TabIndex = 1;
             this.groupBox2.TabStop = false;
             this.groupBox2.Text = "工站配置";
@@ -122,7 +122,7 @@
             this.treeView2.Location = new System.Drawing.Point(3, 17);
             this.treeView2.Name = "treeView2";
             this.treeView2.ShowLines = false;
-            this.treeView2.Size = new System.Drawing.Size(360, 325);
+            this.treeView2.Size = new System.Drawing.Size(360, 202);
             this.treeView2.TabIndex = 1;
             this.treeView2.AfterSelect += new System.Windows.Forms.TreeViewEventHandler(this.treeView2_AfterSelect);
             this.treeView2.MouseDown += new System.Windows.Forms.MouseEventHandler(this.treeView2_MouseDown);

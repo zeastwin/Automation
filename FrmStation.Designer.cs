@@ -39,10 +39,6 @@
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle8 = new System.Windows.Forms.DataGridViewCellStyle();
             System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle9 = new System.Windows.Forms.DataGridViewCellStyle();
             this.panel2 = new System.Windows.Forms.Panel();
-            this.panelPointTools = new System.Windows.Forms.Panel();
-            this.btnPointCancel = new System.Windows.Forms.Button();
-            this.btnPointSave = new System.Windows.Forms.Button();
-            this.btnPointEdit = new System.Windows.Forms.Button();
             this.dataGridView1 = new System.Windows.Forms.DataGridView();
             this.index = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.name = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -58,6 +54,10 @@
             this.ClearData = new System.Windows.Forms.ToolStripMenuItem();
             this.Copy = new System.Windows.Forms.ToolStripMenuItem();
             this.Paste = new System.Windows.Forms.ToolStripMenuItem();
+            this.panelPointTools = new System.Windows.Forms.Panel();
+            this.btnPointCancel = new System.Windows.Forms.Button();
+            this.btnPointSave = new System.Windows.Forms.Button();
+            this.btnPointEdit = new System.Windows.Forms.Button();
             this.panel1 = new System.Windows.Forms.Panel();
             this.panel3 = new System.Windows.Forms.Panel();
             this.dataGridView2 = new System.Windows.Forms.DataGridView();
@@ -72,9 +72,9 @@
             this.Column2 = new System.Windows.Forms.DataGridViewImageColumn();
             this.Column3 = new System.Windows.Forms.DataGridViewImageColumn();
             this.panel2.SuspendLayout();
-            this.panelPointTools.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).BeginInit();
             this.contextMenuStrip1.SuspendLayout();
+            this.panelPointTools.SuspendLayout();
             this.panel3.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView2)).BeginInit();
             this.SuspendLayout();
@@ -84,51 +84,10 @@
             this.panel2.Controls.Add(this.dataGridView1);
             this.panel2.Controls.Add(this.panelPointTools);
             this.panel2.Dock = System.Windows.Forms.DockStyle.Right;
-            this.panel2.Location = new System.Drawing.Point(456, 0);
+            this.panel2.Location = new System.Drawing.Point(614, 0);
             this.panel2.Name = "panel2";
-            this.panel2.Size = new System.Drawing.Size(894, 689);
+            this.panel2.Size = new System.Drawing.Size(736, 689);
             this.panel2.TabIndex = 57;
-            // 
-            // panelPointTools
-            // 
-            this.panelPointTools.Controls.Add(this.btnPointCancel);
-            this.panelPointTools.Controls.Add(this.btnPointSave);
-            this.panelPointTools.Controls.Add(this.btnPointEdit);
-            this.panelPointTools.Dock = System.Windows.Forms.DockStyle.Top;
-            this.panelPointTools.Location = new System.Drawing.Point(0, 0);
-            this.panelPointTools.Name = "panelPointTools";
-            this.panelPointTools.Size = new System.Drawing.Size(894, 36);
-            this.panelPointTools.TabIndex = 3;
-            // 
-            // btnPointCancel
-            // 
-            this.btnPointCancel.Location = new System.Drawing.Point(166, 6);
-            this.btnPointCancel.Name = "btnPointCancel";
-            this.btnPointCancel.Size = new System.Drawing.Size(72, 23);
-            this.btnPointCancel.TabIndex = 2;
-            this.btnPointCancel.Text = "取消";
-            this.btnPointCancel.UseVisualStyleBackColor = true;
-            this.btnPointCancel.Click += new System.EventHandler(this.btnPointCancel_Click);
-            // 
-            // btnPointSave
-            // 
-            this.btnPointSave.Location = new System.Drawing.Point(88, 6);
-            this.btnPointSave.Name = "btnPointSave";
-            this.btnPointSave.Size = new System.Drawing.Size(72, 23);
-            this.btnPointSave.TabIndex = 1;
-            this.btnPointSave.Text = "保存";
-            this.btnPointSave.UseVisualStyleBackColor = true;
-            this.btnPointSave.Click += new System.EventHandler(this.btnPointSave_Click);
-            // 
-            // btnPointEdit
-            // 
-            this.btnPointEdit.Location = new System.Drawing.Point(10, 6);
-            this.btnPointEdit.Name = "btnPointEdit";
-            this.btnPointEdit.Size = new System.Drawing.Size(72, 23);
-            this.btnPointEdit.TabIndex = 0;
-            this.btnPointEdit.Text = "编辑";
-            this.btnPointEdit.UseVisualStyleBackColor = true;
-            this.btnPointEdit.Click += new System.EventHandler(this.btnPointEdit_Click);
             // 
             // dataGridView1
             // 
@@ -155,7 +114,7 @@
             this.dataGridView1.RowHeadersWidth = 21;
             this.dataGridView1.RowTemplate.Height = 23;
             this.dataGridView1.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
-            this.dataGridView1.Size = new System.Drawing.Size(894, 689);
+            this.dataGridView1.Size = new System.Drawing.Size(736, 653);
             this.dataGridView1.TabIndex = 2;
             this.dataGridView1.CellEndEdit += new System.Windows.Forms.DataGridViewCellEventHandler(this.dataGridView1_CellEndEdit);
             this.dataGridView1.CellMouseDown += new System.Windows.Forms.DataGridViewCellMouseEventHandler(this.dataGridView1_CellMouseDown);
@@ -278,12 +237,53 @@
             this.Paste.Text = "粘贴";
             this.Paste.Click += new System.EventHandler(this.Paste_Click);
             // 
+            // panelPointTools
+            // 
+            this.panelPointTools.Controls.Add(this.btnPointCancel);
+            this.panelPointTools.Controls.Add(this.btnPointSave);
+            this.panelPointTools.Controls.Add(this.btnPointEdit);
+            this.panelPointTools.Dock = System.Windows.Forms.DockStyle.Top;
+            this.panelPointTools.Location = new System.Drawing.Point(0, 0);
+            this.panelPointTools.Name = "panelPointTools";
+            this.panelPointTools.Size = new System.Drawing.Size(736, 36);
+            this.panelPointTools.TabIndex = 3;
+            // 
+            // btnPointCancel
+            // 
+            this.btnPointCancel.Location = new System.Drawing.Point(166, 6);
+            this.btnPointCancel.Name = "btnPointCancel";
+            this.btnPointCancel.Size = new System.Drawing.Size(72, 23);
+            this.btnPointCancel.TabIndex = 2;
+            this.btnPointCancel.Text = "取消";
+            this.btnPointCancel.UseVisualStyleBackColor = true;
+            this.btnPointCancel.Click += new System.EventHandler(this.btnPointCancel_Click);
+            // 
+            // btnPointSave
+            // 
+            this.btnPointSave.Location = new System.Drawing.Point(88, 6);
+            this.btnPointSave.Name = "btnPointSave";
+            this.btnPointSave.Size = new System.Drawing.Size(72, 23);
+            this.btnPointSave.TabIndex = 1;
+            this.btnPointSave.Text = "保存";
+            this.btnPointSave.UseVisualStyleBackColor = true;
+            this.btnPointSave.Click += new System.EventHandler(this.btnPointSave_Click);
+            // 
+            // btnPointEdit
+            // 
+            this.btnPointEdit.Location = new System.Drawing.Point(10, 6);
+            this.btnPointEdit.Name = "btnPointEdit";
+            this.btnPointEdit.Size = new System.Drawing.Size(72, 23);
+            this.btnPointEdit.TabIndex = 0;
+            this.btnPointEdit.Text = "编辑";
+            this.btnPointEdit.UseVisualStyleBackColor = true;
+            this.btnPointEdit.Click += new System.EventHandler(this.btnPointEdit_Click);
+            // 
             // panel1
             // 
             this.panel1.Dock = System.Windows.Forms.DockStyle.Top;
             this.panel1.Location = new System.Drawing.Point(0, 0);
             this.panel1.Name = "panel1";
-            this.panel1.Size = new System.Drawing.Size(456, 621);
+            this.panel1.Size = new System.Drawing.Size(614, 621);
             this.panel1.TabIndex = 58;
             // 
             // panel3
@@ -292,7 +292,7 @@
             this.panel3.Dock = System.Windows.Forms.DockStyle.Top;
             this.panel3.Location = new System.Drawing.Point(0, 621);
             this.panel3.Name = "panel3";
-            this.panel3.Size = new System.Drawing.Size(456, 365);
+            this.panel3.Size = new System.Drawing.Size(614, 365);
             this.panel3.TabIndex = 59;
             // 
             // dataGridView2
@@ -321,7 +321,7 @@
             this.dataGridView2.RowHeadersWidth = 21;
             this.dataGridView2.RowTemplate.Height = 23;
             this.dataGridView2.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
-            this.dataGridView2.Size = new System.Drawing.Size(456, 365);
+            this.dataGridView2.Size = new System.Drawing.Size(614, 365);
             this.dataGridView2.TabIndex = 3;
             // 
             // dataGridViewTextBoxColumn1
@@ -425,9 +425,9 @@
             this.Text = "FrmStation";
             this.Load += new System.EventHandler(this.FrmStation_Load);
             this.panel2.ResumeLayout(false);
-            this.panelPointTools.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).EndInit();
             this.contextMenuStrip1.ResumeLayout(false);
+            this.panelPointTools.ResumeLayout(false);
             this.panel3.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView2)).EndInit();
             this.ResumeLayout(false);

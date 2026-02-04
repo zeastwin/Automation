@@ -127,9 +127,9 @@
             this.Handle9.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle9.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle9.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle9.Location = new System.Drawing.Point(473, 469);
+            this.Handle9.Location = new System.Drawing.Point(585, 467);
             this.Handle9.Name = "Handle9";
-            this.Handle9.Size = new System.Drawing.Size(78, 35);
+            this.Handle9.Size = new System.Drawing.Size(99, 35);
             this.Handle9.TabIndex = 82;
             this.Handle9.Text = "---------";
             this.Handle9.UseVisualStyleBackColor = false;
@@ -144,9 +144,9 @@
             this.Handle10.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle10.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle10.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle10.Location = new System.Drawing.Point(473, 520);
+            this.Handle10.Location = new System.Drawing.Point(585, 521);
             this.Handle10.Name = "Handle10";
-            this.Handle10.Size = new System.Drawing.Size(78, 35);
+            this.Handle10.Size = new System.Drawing.Size(99, 35);
             this.Handle10.TabIndex = 81;
             this.Handle10.Text = "---------";
             this.Handle10.UseVisualStyleBackColor = false;
@@ -161,9 +161,9 @@
             this.Handle8.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle8.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle8.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle8.Location = new System.Drawing.Point(375, 520);
+            this.Handle8.Location = new System.Drawing.Point(463, 521);
             this.Handle8.Name = "Handle8";
-            this.Handle8.Size = new System.Drawing.Size(78, 35);
+            this.Handle8.Size = new System.Drawing.Size(99, 35);
             this.Handle8.TabIndex = 80;
             this.Handle8.Text = "---------";
             this.Handle8.UseVisualStyleBackColor = false;
@@ -178,9 +178,9 @@
             this.Handle7.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle7.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle7.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle7.Location = new System.Drawing.Point(375, 469);
+            this.Handle7.Location = new System.Drawing.Point(463, 467);
             this.Handle7.Name = "Handle7";
-            this.Handle7.Size = new System.Drawing.Size(78, 35);
+            this.Handle7.Size = new System.Drawing.Size(99, 35);
             this.Handle7.TabIndex = 79;
             this.Handle7.Text = "---------";
             this.Handle7.UseVisualStyleBackColor = false;
@@ -195,9 +195,9 @@
             this.Handle6.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle6.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle6.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle6.Location = new System.Drawing.Point(278, 520);
+            this.Handle6.Location = new System.Drawing.Point(342, 521);
             this.Handle6.Name = "Handle6";
-            this.Handle6.Size = new System.Drawing.Size(78, 35);
+            this.Handle6.Size = new System.Drawing.Size(99, 35);
             this.Handle6.TabIndex = 78;
             this.Handle6.Text = "---------";
             this.Handle6.UseVisualStyleBackColor = false;
@@ -212,9 +212,9 @@
             this.Handle5.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle5.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle5.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle5.Location = new System.Drawing.Point(278, 469);
+            this.Handle5.Location = new System.Drawing.Point(342, 467);
             this.Handle5.Name = "Handle5";
-            this.Handle5.Size = new System.Drawing.Size(78, 35);
+            this.Handle5.Size = new System.Drawing.Size(99, 35);
             this.Handle5.TabIndex = 77;
             this.Handle5.Text = "---------";
             this.Handle5.UseVisualStyleBackColor = false;
@@ -229,9 +229,9 @@
             this.Handle3.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle3.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle3.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle3.Location = new System.Drawing.Point(184, 469);
+            this.Handle3.Location = new System.Drawing.Point(224, 467);
             this.Handle3.Name = "Handle3";
-            this.Handle3.Size = new System.Drawing.Size(78, 35);
+            this.Handle3.Size = new System.Drawing.Size(99, 35);
             this.Handle3.TabIndex = 76;
             this.Handle3.Text = "---------";
             this.Handle3.UseVisualStyleBackColor = false;
@@ -246,9 +246,9 @@
             this.Handle4.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle4.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle4.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle4.Location = new System.Drawing.Point(184, 520);
+            this.Handle4.Location = new System.Drawing.Point(224, 521);
             this.Handle4.Name = "Handle4";
-            this.Handle4.Size = new System.Drawing.Size(78, 35);
+            this.Handle4.Size = new System.Drawing.Size(99, 35);
             this.Handle4.TabIndex = 75;
             this.Handle4.Text = "---------";
             this.Handle4.UseVisualStyleBackColor = false;
@@ -263,9 +263,9 @@
             this.Handle12.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle12.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle12.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle12.Location = new System.Drawing.Point(572, 520);
+            this.Handle12.Location = new System.Drawing.Point(708, 521);
             this.Handle12.Name = "Handle12";
-            this.Handle12.Size = new System.Drawing.Size(78, 35);
+            this.Handle12.Size = new System.Drawing.Size(99, 35);
             this.Handle12.TabIndex = 74;
             this.Handle12.Text = "---------";
             this.Handle12.UseVisualStyleBackColor = false;
@@ -280,9 +280,9 @@
             this.Handle11.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle11.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle11.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle11.Location = new System.Drawing.Point(572, 469);
+            this.Handle11.Location = new System.Drawing.Point(708, 467);
             this.Handle11.Name = "Handle11";
-            this.Handle11.Size = new System.Drawing.Size(78, 35);
+            this.Handle11.Size = new System.Drawing.Size(99, 35);
             this.Handle11.TabIndex = 73;
             this.Handle11.Text = "---------";
             this.Handle11.UseVisualStyleBackColor = false;
@@ -297,9 +297,9 @@
             this.Handle2.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle2.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle2.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle2.Location = new System.Drawing.Point(89, 520);
+            this.Handle2.Location = new System.Drawing.Point(105, 521);
             this.Handle2.Name = "Handle2";
-            this.Handle2.Size = new System.Drawing.Size(78, 35);
+            this.Handle2.Size = new System.Drawing.Size(99, 35);
             this.Handle2.TabIndex = 72;
             this.Handle2.Text = "---------";
             this.Handle2.UseVisualStyleBackColor = false;
@@ -309,50 +309,50 @@
             // label5
             // 
             this.label5.AutoSize = true;
-            this.label5.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.label5.Font = new System.Drawing.Font("微软雅黑", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.label5.Location = new System.Drawing.Point(22, 197);
             this.label5.Name = "label5";
-            this.label5.Size = new System.Drawing.Size(58, 21);
+            this.label5.Size = new System.Drawing.Size(69, 25);
             this.label5.TabIndex = 71;
             this.label5.Text = "轴名：";
             // 
             // label4
             // 
             this.label4.AutoSize = true;
-            this.label4.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.label4.Font = new System.Drawing.Font("微软雅黑", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.label4.Location = new System.Drawing.Point(22, 241);
             this.label4.Name = "label4";
-            this.label4.Size = new System.Drawing.Size(58, 21);
+            this.label4.Size = new System.Drawing.Size(69, 25);
             this.label4.TabIndex = 70;
             this.label4.Text = "位置：";
             // 
             // label3
             // 
             this.label3.AutoSize = true;
-            this.label3.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.label3.Font = new System.Drawing.Font("微软雅黑", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.label3.Location = new System.Drawing.Point(22, 368);
             this.label3.Name = "label3";
-            this.label3.Size = new System.Drawing.Size(58, 21);
+            this.label3.Size = new System.Drawing.Size(69, 25);
             this.label3.TabIndex = 69;
             this.label3.Text = "回原：";
             // 
             // label2
             // 
             this.label2.AutoSize = true;
-            this.label2.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.label2.Font = new System.Drawing.Font("微软雅黑", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.label2.Location = new System.Drawing.Point(22, 428);
             this.label2.Name = "label2";
-            this.label2.Size = new System.Drawing.Size(58, 21);
+            this.label2.Size = new System.Drawing.Size(69, 25);
             this.label2.TabIndex = 68;
             this.label2.Text = "使能：";
             // 
             // label1
             // 
             this.label1.AutoSize = true;
-            this.label1.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.label1.Font = new System.Drawing.Font("微软雅黑", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.label1.Location = new System.Drawing.Point(22, 498);
             this.label1.Name = "label1";
-            this.label1.Size = new System.Drawing.Size(58, 21);
+            this.label1.Size = new System.Drawing.Size(69, 25);
             this.label1.TabIndex = 67;
             this.label1.Text = "运动：";
             // 
@@ -364,9 +364,9 @@
             this.Handle1.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.Handle1.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.Handle1.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.Handle1.Location = new System.Drawing.Point(89, 469);
+            this.Handle1.Location = new System.Drawing.Point(105, 467);
             this.Handle1.Name = "Handle1";
-            this.Handle1.Size = new System.Drawing.Size(78, 35);
+            this.Handle1.Size = new System.Drawing.Size(99, 35);
             this.Handle1.TabIndex = 66;
             this.Handle1.Text = "---------";
             this.Handle1.UseVisualStyleBackColor = false;
@@ -376,9 +376,9 @@
             // AxisName1
             // 
             this.AxisName1.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisName1.Location = new System.Drawing.Point(99, 197);
+            this.AxisName1.Location = new System.Drawing.Point(105, 197);
             this.AxisName1.Name = "AxisName1";
-            this.AxisName1.Size = new System.Drawing.Size(59, 21);
+            this.AxisName1.Size = new System.Drawing.Size(99, 21);
             this.AxisName1.TabIndex = 83;
             this.AxisName1.Text = "-------";
             this.AxisName1.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -386,9 +386,9 @@
             // AxisName2
             // 
             this.AxisName2.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisName2.Location = new System.Drawing.Point(194, 197);
+            this.AxisName2.Location = new System.Drawing.Point(224, 197);
             this.AxisName2.Name = "AxisName2";
-            this.AxisName2.Size = new System.Drawing.Size(59, 21);
+            this.AxisName2.Size = new System.Drawing.Size(99, 21);
             this.AxisName2.TabIndex = 84;
             this.AxisName2.Text = "-------";
             this.AxisName2.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -396,9 +396,9 @@
             // AxisName3
             // 
             this.AxisName3.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisName3.Location = new System.Drawing.Point(288, 197);
+            this.AxisName3.Location = new System.Drawing.Point(342, 197);
             this.AxisName3.Name = "AxisName3";
-            this.AxisName3.Size = new System.Drawing.Size(59, 21);
+            this.AxisName3.Size = new System.Drawing.Size(99, 21);
             this.AxisName3.TabIndex = 85;
             this.AxisName3.Text = "-------";
             this.AxisName3.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -406,9 +406,9 @@
             // AxisName4
             // 
             this.AxisName4.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisName4.Location = new System.Drawing.Point(385, 197);
+            this.AxisName4.Location = new System.Drawing.Point(463, 197);
             this.AxisName4.Name = "AxisName4";
-            this.AxisName4.Size = new System.Drawing.Size(59, 21);
+            this.AxisName4.Size = new System.Drawing.Size(99, 21);
             this.AxisName4.TabIndex = 86;
             this.AxisName4.Text = "-------";
             this.AxisName4.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -416,9 +416,9 @@
             // AxisName5
             // 
             this.AxisName5.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisName5.Location = new System.Drawing.Point(483, 197);
+            this.AxisName5.Location = new System.Drawing.Point(585, 197);
             this.AxisName5.Name = "AxisName5";
-            this.AxisName5.Size = new System.Drawing.Size(59, 21);
+            this.AxisName5.Size = new System.Drawing.Size(99, 21);
             this.AxisName5.TabIndex = 87;
             this.AxisName5.Text = "-------";
             this.AxisName5.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -426,64 +426,64 @@
             // AxisName6
             // 
             this.AxisName6.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisName6.Location = new System.Drawing.Point(582, 197);
+            this.AxisName6.Location = new System.Drawing.Point(708, 197);
             this.AxisName6.Name = "AxisName6";
-            this.AxisName6.Size = new System.Drawing.Size(59, 21);
+            this.AxisName6.Size = new System.Drawing.Size(99, 21);
             this.AxisName6.TabIndex = 88;
             this.AxisName6.Text = "-------";
             this.AxisName6.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             // 
             // txtPos1
             // 
-            this.txtPos1.Location = new System.Drawing.Point(93, 243);
+            this.txtPos1.Location = new System.Drawing.Point(105, 241);
             this.txtPos1.Name = "txtPos1";
             this.txtPos1.ReadOnly = true;
-            this.txtPos1.Size = new System.Drawing.Size(71, 21);
+            this.txtPos1.Size = new System.Drawing.Size(99, 21);
             this.txtPos1.TabIndex = 89;
             this.txtPos1.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
             // 
             // txtPos2
             // 
-            this.txtPos2.Location = new System.Drawing.Point(188, 243);
+            this.txtPos2.Location = new System.Drawing.Point(224, 241);
             this.txtPos2.Name = "txtPos2";
             this.txtPos2.ReadOnly = true;
-            this.txtPos2.Size = new System.Drawing.Size(71, 21);
+            this.txtPos2.Size = new System.Drawing.Size(99, 21);
             this.txtPos2.TabIndex = 90;
             this.txtPos2.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
             // 
             // txtPos3
             // 
-            this.txtPos3.Location = new System.Drawing.Point(282, 243);
+            this.txtPos3.Location = new System.Drawing.Point(342, 241);
             this.txtPos3.Name = "txtPos3";
             this.txtPos3.ReadOnly = true;
-            this.txtPos3.Size = new System.Drawing.Size(71, 21);
+            this.txtPos3.Size = new System.Drawing.Size(99, 21);
             this.txtPos3.TabIndex = 91;
             this.txtPos3.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
             // 
             // txtPos4
             // 
-            this.txtPos4.Location = new System.Drawing.Point(379, 243);
+            this.txtPos4.Location = new System.Drawing.Point(463, 241);
             this.txtPos4.Name = "txtPos4";
             this.txtPos4.ReadOnly = true;
-            this.txtPos4.Size = new System.Drawing.Size(71, 21);
+            this.txtPos4.Size = new System.Drawing.Size(99, 21);
             this.txtPos4.TabIndex = 92;
             this.txtPos4.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
             // 
             // txtPos5
             // 
-            this.txtPos5.Location = new System.Drawing.Point(477, 243);
+            this.txtPos5.Location = new System.Drawing.Point(585, 241);
             this.txtPos5.Name = "txtPos5";
             this.txtPos5.ReadOnly = true;
-            this.txtPos5.Size = new System.Drawing.Size(71, 21);
+            this.txtPos5.Size = new System.Drawing.Size(99, 21);
             this.txtPos5.TabIndex = 93;
             this.txtPos5.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
             // 
             // txtPos6
             // 
-            this.txtPos6.Location = new System.Drawing.Point(576, 243);
+            this.txtPos6.Location = new System.Drawing.Point(708, 241);
             this.txtPos6.Name = "txtPos6";
             this.txtPos6.ReadOnly = true;
-            this.txtPos6.Size = new System.Drawing.Size(71, 21);
+            this.txtPos6.Size = new System.Drawing.Size(99, 21);
             this.txtPos6.TabIndex = 94;
             this.txtPos6.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
             // 
@@ -495,9 +495,9 @@
             this.btnHome5.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnHome5.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.btnHome5.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnHome5.Location = new System.Drawing.Point(473, 363);
+            this.btnHome5.Location = new System.Drawing.Point(585, 363);
             this.btnHome5.Name = "btnHome5";
-            this.btnHome5.Size = new System.Drawing.Size(78, 35);
+            this.btnHome5.Size = new System.Drawing.Size(99, 35);
             this.btnHome5.TabIndex = 100;
             this.btnHome5.Text = "轴回原";
             this.btnHome5.UseVisualStyleBackColor = false;
@@ -511,9 +511,9 @@
             this.btnHome4.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnHome4.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.btnHome4.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnHome4.Location = new System.Drawing.Point(375, 363);
+            this.btnHome4.Location = new System.Drawing.Point(463, 363);
             this.btnHome4.Name = "btnHome4";
-            this.btnHome4.Size = new System.Drawing.Size(78, 35);
+            this.btnHome4.Size = new System.Drawing.Size(99, 35);
             this.btnHome4.TabIndex = 99;
             this.btnHome4.Text = "轴回原";
             this.btnHome4.UseVisualStyleBackColor = false;
@@ -527,9 +527,9 @@
             this.btnHome3.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnHome3.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.btnHome3.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnHome3.Location = new System.Drawing.Point(278, 363);
+            this.btnHome3.Location = new System.Drawing.Point(342, 363);
             this.btnHome3.Name = "btnHome3";
-            this.btnHome3.Size = new System.Drawing.Size(78, 35);
+            this.btnHome3.Size = new System.Drawing.Size(99, 35);
             this.btnHome3.TabIndex = 98;
             this.btnHome3.Text = "轴回原";
             this.btnHome3.UseVisualStyleBackColor = false;
@@ -543,9 +543,9 @@
             this.btnHome2.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnHome2.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.btnHome2.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnHome2.Location = new System.Drawing.Point(184, 363);
+            this.btnHome2.Location = new System.Drawing.Point(224, 363);
             this.btnHome2.Name = "btnHome2";
-            this.btnHome2.Size = new System.Drawing.Size(78, 35);
+            this.btnHome2.Size = new System.Drawing.Size(99, 35);
             this.btnHome2.TabIndex = 97;
             this.btnHome2.Text = "轴回原";
             this.btnHome2.UseVisualStyleBackColor = false;
@@ -559,9 +559,9 @@
             this.btnHome6.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnHome6.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.btnHome6.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnHome6.Location = new System.Drawing.Point(572, 363);
+            this.btnHome6.Location = new System.Drawing.Point(708, 363);
             this.btnHome6.Name = "btnHome6";
-            this.btnHome6.Size = new System.Drawing.Size(78, 35);
+            this.btnHome6.Size = new System.Drawing.Size(99, 35);
             this.btnHome6.TabIndex = 96;
             this.btnHome6.Text = "轴回原";
             this.btnHome6.UseVisualStyleBackColor = false;
@@ -575,9 +575,9 @@
             this.btnHome1.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnHome1.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.btnHome1.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnHome1.Location = new System.Drawing.Point(89, 363);
+            this.btnHome1.Location = new System.Drawing.Point(105, 363);
             this.btnHome1.Name = "btnHome1";
-            this.btnHome1.Size = new System.Drawing.Size(78, 35);
+            this.btnHome1.Size = new System.Drawing.Size(99, 35);
             this.btnHome1.TabIndex = 95;
             this.btnHome1.Text = "轴回原";
             this.btnHome1.UseVisualStyleBackColor = false;
@@ -596,7 +596,7 @@
             this.groupBox1.Dock = System.Windows.Forms.DockStyle.Top;
             this.groupBox1.Location = new System.Drawing.Point(0, 0);
             this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Size = new System.Drawing.Size(687, 65);
+            this.groupBox1.Size = new System.Drawing.Size(856, 65);
             this.groupBox1.TabIndex = 107;
             this.groupBox1.TabStop = false;
             // 
@@ -608,7 +608,7 @@
             this.btnReSet.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnReSet.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.btnReSet.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnReSet.Location = new System.Drawing.Point(598, 17);
+            this.btnReSet.Location = new System.Drawing.Point(767, 15);
             this.btnReSet.Name = "btnReSet";
             this.btnReSet.Size = new System.Drawing.Size(65, 35);
             this.btnReSet.TabIndex = 115;
@@ -635,7 +635,7 @@
             this.btnStop.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnStop.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.btnStop.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnStop.Location = new System.Drawing.Point(523, 17);
+            this.btnStop.Location = new System.Drawing.Point(692, 15);
             this.btnStop.Name = "btnStop";
             this.btnStop.Size = new System.Drawing.Size(65, 35);
             this.btnStop.TabIndex = 112;
@@ -651,7 +651,7 @@
             this.btnStationHome.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
             this.btnStationHome.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
             this.btnStationHome.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnStationHome.Location = new System.Drawing.Point(440, 17);
+            this.btnStationHome.Location = new System.Drawing.Point(609, 15);
             this.btnStationHome.Name = "btnStationHome";
             this.btnStationHome.Size = new System.Drawing.Size(75, 35);
             this.btnStationHome.TabIndex = 109;
@@ -676,8 +676,8 @@
             this.comboBox1.Name = "comboBox1";
             this.comboBox1.Size = new System.Drawing.Size(121, 20);
             this.comboBox1.TabIndex = 111;
-            this.comboBox1.DropDownClosed += new System.EventHandler(this.comboBox1_DropDownClosed);
             this.comboBox1.SelectedIndexChanged += new System.EventHandler(this.comboBox1_SelectedIndexChanged);
+            this.comboBox1.DropDownClosed += new System.EventHandler(this.comboBox1_DropDownClosed);
             // 
             // trackBar1
             // 
@@ -725,7 +725,7 @@
             this.groupBox2.Dock = System.Windows.Forms.DockStyle.Top;
             this.groupBox2.Location = new System.Drawing.Point(0, 65);
             this.groupBox2.Name = "groupBox2";
-            this.groupBox2.Size = new System.Drawing.Size(687, 101);
+            this.groupBox2.Size = new System.Drawing.Size(856, 101);
             this.groupBox2.TabIndex = 108;
             this.groupBox2.TabStop = false;
             this.groupBox2.Text = "运动(mm)";
@@ -879,7 +879,7 @@
             // pictureBox1
             // 
             this.pictureBox1.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Zoom;
-            this.pictureBox1.Location = new System.Drawing.Point(117, 425);
+            this.pictureBox1.Location = new System.Drawing.Point(140, 425);
             this.pictureBox1.Name = "pictureBox1";
             this.pictureBox1.Size = new System.Drawing.Size(23, 24);
             this.pictureBox1.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
@@ -890,7 +890,7 @@
             // pictureBox2
             // 
             this.pictureBox2.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Zoom;
-            this.pictureBox2.Location = new System.Drawing.Point(215, 425);
+            this.pictureBox2.Location = new System.Drawing.Point(262, 425);
             this.pictureBox2.Name = "pictureBox2";
             this.pictureBox2.Size = new System.Drawing.Size(23, 24);
             this.pictureBox2.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
@@ -901,7 +901,7 @@
             // pictureBox3
             // 
             this.pictureBox3.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Zoom;
-            this.pictureBox3.Location = new System.Drawing.Point(306, 425);
+            this.pictureBox3.Location = new System.Drawing.Point(377, 425);
             this.pictureBox3.Name = "pictureBox3";
             this.pictureBox3.Size = new System.Drawing.Size(23, 24);
             this.pictureBox3.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
@@ -912,7 +912,7 @@
             // pictureBox4
             // 
             this.pictureBox4.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Zoom;
-            this.pictureBox4.Location = new System.Drawing.Point(403, 425);
+            this.pictureBox4.Location = new System.Drawing.Point(498, 425);
             this.pictureBox4.Name = "pictureBox4";
             this.pictureBox4.Size = new System.Drawing.Size(23, 24);
             this.pictureBox4.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
@@ -923,7 +923,7 @@
             // pictureBox5
             // 
             this.pictureBox5.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Zoom;
-            this.pictureBox5.Location = new System.Drawing.Point(501, 425);
+            this.pictureBox5.Location = new System.Drawing.Point(620, 425);
             this.pictureBox5.Name = "pictureBox5";
             this.pictureBox5.Size = new System.Drawing.Size(23, 24);
             this.pictureBox5.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
@@ -934,7 +934,7 @@
             // pictureBox6
             // 
             this.pictureBox6.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Zoom;
-            this.pictureBox6.Location = new System.Drawing.Point(600, 425);
+            this.pictureBox6.Location = new System.Drawing.Point(743, 425);
             this.pictureBox6.Name = "pictureBox6";
             this.pictureBox6.Size = new System.Drawing.Size(23, 24);
             this.pictureBox6.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
@@ -945,9 +945,9 @@
             // AxisVel6
             // 
             this.AxisVel6.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisVel6.Location = new System.Drawing.Point(582, 289);
+            this.AxisVel6.Location = new System.Drawing.Point(708, 289);
             this.AxisVel6.Name = "AxisVel6";
-            this.AxisVel6.Size = new System.Drawing.Size(59, 21);
+            this.AxisVel6.Size = new System.Drawing.Size(99, 21);
             this.AxisVel6.TabIndex = 121;
             this.AxisVel6.Text = "-------";
             this.AxisVel6.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -955,9 +955,9 @@
             // AxisVel5
             // 
             this.AxisVel5.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisVel5.Location = new System.Drawing.Point(483, 289);
+            this.AxisVel5.Location = new System.Drawing.Point(585, 289);
             this.AxisVel5.Name = "AxisVel5";
-            this.AxisVel5.Size = new System.Drawing.Size(59, 21);
+            this.AxisVel5.Size = new System.Drawing.Size(99, 21);
             this.AxisVel5.TabIndex = 120;
             this.AxisVel5.Text = "-------";
             this.AxisVel5.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -965,9 +965,9 @@
             // AxisVel4
             // 
             this.AxisVel4.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisVel4.Location = new System.Drawing.Point(385, 289);
+            this.AxisVel4.Location = new System.Drawing.Point(463, 289);
             this.AxisVel4.Name = "AxisVel4";
-            this.AxisVel4.Size = new System.Drawing.Size(59, 21);
+            this.AxisVel4.Size = new System.Drawing.Size(99, 21);
             this.AxisVel4.TabIndex = 119;
             this.AxisVel4.Text = "-------";
             this.AxisVel4.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -975,9 +975,9 @@
             // AxisVel3
             // 
             this.AxisVel3.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisVel3.Location = new System.Drawing.Point(288, 289);
+            this.AxisVel3.Location = new System.Drawing.Point(342, 289);
             this.AxisVel3.Name = "AxisVel3";
-            this.AxisVel3.Size = new System.Drawing.Size(59, 21);
+            this.AxisVel3.Size = new System.Drawing.Size(99, 21);
             this.AxisVel3.TabIndex = 118;
             this.AxisVel3.Text = "-------";
             this.AxisVel3.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -985,9 +985,9 @@
             // AxisVel2
             // 
             this.AxisVel2.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisVel2.Location = new System.Drawing.Point(194, 289);
+            this.AxisVel2.Location = new System.Drawing.Point(224, 289);
             this.AxisVel2.Name = "AxisVel2";
-            this.AxisVel2.Size = new System.Drawing.Size(59, 21);
+            this.AxisVel2.Size = new System.Drawing.Size(99, 21);
             this.AxisVel2.TabIndex = 117;
             this.AxisVel2.Text = "-------";
             this.AxisVel2.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -995,9 +995,9 @@
             // AxisVel1
             // 
             this.AxisVel1.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisVel1.Location = new System.Drawing.Point(99, 289);
+            this.AxisVel1.Location = new System.Drawing.Point(105, 289);
             this.AxisVel1.Name = "AxisVel1";
-            this.AxisVel1.Size = new System.Drawing.Size(59, 21);
+            this.AxisVel1.Size = new System.Drawing.Size(99, 21);
             this.AxisVel1.TabIndex = 116;
             this.AxisVel1.Text = "-------";
             this.AxisVel1.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -1005,17 +1005,17 @@
             // label13
             // 
             this.label13.AutoSize = true;
-            this.label13.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.label13.Font = new System.Drawing.Font("微软雅黑", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.label13.Location = new System.Drawing.Point(22, 289);
             this.label13.Name = "label13";
-            this.label13.Size = new System.Drawing.Size(58, 21);
+            this.label13.Size = new System.Drawing.Size(69, 25);
             this.label13.TabIndex = 115;
             this.label13.Text = "速度：";
             // 
             // AxisState6
             // 
             this.AxisState6.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState6.Location = new System.Drawing.Point(582, 329);
+            this.AxisState6.Location = new System.Drawing.Point(605, 329);
             this.AxisState6.Name = "AxisState6";
             this.AxisState6.Size = new System.Drawing.Size(59, 21);
             this.AxisState6.TabIndex = 128;
@@ -1025,7 +1025,7 @@
             // AxisState5
             // 
             this.AxisState5.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState5.Location = new System.Drawing.Point(483, 329);
+            this.AxisState5.Location = new System.Drawing.Point(506, 329);
             this.AxisState5.Name = "AxisState5";
             this.AxisState5.Size = new System.Drawing.Size(59, 21);
             this.AxisState5.TabIndex = 127;
@@ -1035,7 +1035,7 @@
             // AxisState4
             // 
             this.AxisState4.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState4.Location = new System.Drawing.Point(385, 329);
+            this.AxisState4.Location = new System.Drawing.Point(408, 329);
             this.AxisState4.Name = "AxisState4";
             this.AxisState4.Size = new System.Drawing.Size(59, 21);
             this.AxisState4.TabIndex = 126;
@@ -1045,7 +1045,7 @@
             // AxisState3
             // 
             this.AxisState3.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState3.Location = new System.Drawing.Point(288, 329);
+            this.AxisState3.Location = new System.Drawing.Point(311, 329);
             this.AxisState3.Name = "AxisState3";
             this.AxisState3.Size = new System.Drawing.Size(59, 21);
             this.AxisState3.TabIndex = 125;
@@ -1055,7 +1055,7 @@
             // AxisState2
             // 
             this.AxisState2.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState2.Location = new System.Drawing.Point(194, 329);
+            this.AxisState2.Location = new System.Drawing.Point(217, 329);
             this.AxisState2.Name = "AxisState2";
             this.AxisState2.Size = new System.Drawing.Size(59, 21);
             this.AxisState2.TabIndex = 124;
@@ -1065,7 +1065,7 @@
             // AxisState1
             // 
             this.AxisState1.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.AxisState1.Location = new System.Drawing.Point(99, 329);
+            this.AxisState1.Location = new System.Drawing.Point(122, 329);
             this.AxisState1.Name = "AxisState1";
             this.AxisState1.Size = new System.Drawing.Size(59, 21);
             this.AxisState1.TabIndex = 123;
@@ -1075,10 +1075,10 @@
             // label28
             // 
             this.label28.AutoSize = true;
-            this.label28.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.label28.Font = new System.Drawing.Font("微软雅黑", 14.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.label28.Location = new System.Drawing.Point(22, 329);
             this.label28.Name = "label28";
-            this.label28.Size = new System.Drawing.Size(58, 21);
+            this.label28.Size = new System.Drawing.Size(69, 25);
             this.label28.TabIndex = 122;
             this.label28.Text = "状态：";
             // 
@@ -1086,7 +1086,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(687, 573);
+            this.ClientSize = new System.Drawing.Size(856, 630);
             this.Controls.Add(this.AxisState6);
             this.Controls.Add(this.AxisState5);
             this.Controls.Add(this.AxisState4);
