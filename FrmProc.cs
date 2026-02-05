@@ -135,6 +135,11 @@ namespace Automation
                 procsList[SelectedProcNum].steps.Insert(SelectedStepNum + 1, StepTemp);
             }
 
+            int insertIndex = SelectedStepNum == -1
+                ? procsList[SelectedProcNum].steps.Count - 1
+                : SelectedStepNum + 1;
+            ShiftGotoStepIndexForInsert(SelectedProcNum, insertIndex);
+
             List<string> errors = new List<string>();
             NormalizeProc(SelectedProcNum, procsList[SelectedProcNum], errors);
             if (errors.Count > 0)
@@ -738,7 +743,9 @@ namespace Automation
                 {
                     return;
                 }
-                procsList[SelectedProcNum].steps.RemoveAt(SelectedStepNum);
+                int removedIndex = SelectedStepNum;
+                procsList[SelectedProcNum].steps.RemoveAt(removedIndex);
+                ShiftGotoStepIndexForRemove(SelectedProcNum, removedIndex);
                 SF.frmDataGrid.SaveSingleProc(SelectedProcNum);
                 Refresh();
             }
@@ -1117,6 +1124,7 @@ namespace Automation
                 insertIndex = procsList[procIndex].steps.Count;
             }
             procsList[procIndex].steps.Insert(insertIndex, newStep);
+            ShiftGotoStepIndexForInsert(procIndex, insertIndex);
             List<string> errors = new List<string>();
             NormalizeProc(procIndex, procsList[procIndex], errors);
             if (errors.Count > 0)
@@ -1298,6 +1306,106 @@ namespace Automation
                     foreach (var item in enumerable)
                     {
                         AdaptGotoProcIndex(item, procIndex);
+                    }
+                }
+            }
+        }
+
+        private void ShiftGotoStepIndexForInsert(int procIndex, int insertIndex)
+        {
+            if (procIndex < 0 || procIndex >= procsList.Count)
+            {
+                return;
+            }
+            Proc proc = procsList[procIndex];
+            AdjustGotoStepIndex(proc, procIndex, stepIndex =>
+            {
+                if (stepIndex >= insertIndex)
+                {
+                    return stepIndex + 1;
+                }
+                return stepIndex;
+            });
+        }
+
+        private void ShiftGotoStepIndexForRemove(int procIndex, int removedIndex)
+        {
+            if (procIndex < 0 || procIndex >= procsList.Count)
+            {
+                return;
+            }
+            Proc proc = procsList[procIndex];
+            if (proc?.steps == null || proc.steps.Count == 0)
+            {
+                return;
+            }
+            int maxIndex = proc.steps.Count - 1;
+            AdjustGotoStepIndex(proc, procIndex, stepIndex =>
+            {
+                if (stepIndex > removedIndex)
+                {
+                    return stepIndex - 1;
+                }
+                if (stepIndex == removedIndex)
+                {
+                    return Math.Min(removedIndex, maxIndex);
+                }
+                return stepIndex;
+            });
+        }
+
+        private void AdjustGotoStepIndex(Proc proc, int procIndex, Func<int, int> adjuster)
+        {
+            if (proc?.steps == null)
+            {
+                return;
+            }
+            foreach (Step step in proc.steps)
+            {
+                if (step?.Ops == null)
+                {
+                    continue;
+                }
+                foreach (OperationType op in step.Ops)
+                {
+                    AdjustGotoStepIndex(op, procIndex, adjuster);
+                }
+            }
+        }
+
+        private void AdjustGotoStepIndex(object obj, int procIndex, Func<int, int> adjuster)
+        {
+            if (obj == null)
+            {
+                return;
+            }
+            foreach (var propertyInfo in obj.GetType().GetProperties())
+            {
+                if (propertyInfo.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+                if (propertyInfo.PropertyType == typeof(string)
+                    && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
+                {
+                    string value = propertyInfo.GetValue(obj) as string;
+                    if (!string.IsNullOrWhiteSpace(value)
+                        && TryParseGotoKey(value, out int gotoProc, out int gotoStep, out int gotoOp)
+                        && gotoProc == procIndex)
+                    {
+                        int newStep = adjuster(gotoStep);
+                        if (newStep != gotoStep)
+                        {
+                            propertyInfo.SetValue(obj, $"{procIndex}-{newStep}-{gotoOp}");
+                        }
+                    }
+                }
+                var propertyValue = propertyInfo.GetValue(obj);
+                if (propertyValue is IEnumerable enumerable && !(propertyValue is string))
+                {
+                    foreach (var item in enumerable)
+                    {
+                        AdjustGotoStepIndex(item, procIndex, adjuster);
                     }
                 }
             }
