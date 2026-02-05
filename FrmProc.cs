@@ -58,6 +58,8 @@ namespace Automation
             NewProcNum = -1;
             NewStepNum = -1;
             this.proc_treeView.HideSelection = false;
+            typeof(Control).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(proc_treeView, true, null);
             proc_treeView.BeforeSelect += proc_treeView_BeforeSelect;
         }
 

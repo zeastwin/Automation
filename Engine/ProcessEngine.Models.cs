@@ -33,6 +33,25 @@ namespace Automation
         Running = 3,
         Alarming = 4
     }
+
+    //复位状态（变量表：复位状态）
+    public enum ResetStatus
+    {
+        NotReset = 0,
+        Resetting = 1,
+        ResetCompleted = 2
+    }
+
+    //系统状态（变量表：系统状态）
+    public enum SystemStatus
+    {
+        Uninitialized = 0,
+        ProcAlarm = 1,
+        Ready = 2,
+        Working = 3,
+        Paused = 4,
+        PopupAlarm = 5
+    }
     public class ProcHandle
     {
         public int procNum;

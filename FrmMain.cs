@@ -43,10 +43,15 @@ namespace Automation
         private readonly HashSet<Guid> snapshotDirty = new HashSet<Guid>();
         private readonly object snapshotLock = new object();
         private readonly object saveFileLock = new object();
+        private const string ResetStatusValueName = "复位状态";
+        private const string SystemStatusValueName = "系统状态";
         private System.Windows.Forms.Timer snapshotTimer;
         private CancellationTokenSource axisMonitorCts;
         private Task axisMonitorTask;
         private volatile bool axisMonitorFaulted;
+        private volatile bool systemStatusReady;
+        private volatile bool systemStatusFaulted;
+        private int popupAlarmCount;
 
         public FrmMain()
         {
@@ -140,6 +145,7 @@ namespace Automation
         private void FrmMain_Load(object sender, EventArgs e)
         {
             SF.frmValue.RefreshDic();
+            systemStatusReady = true;
             SF.cardStore.Load(SF.ConfigPath);
             SF.frmIO.RefreshIOMap();
             SF.frmCard.RefreshStationList();
@@ -450,6 +456,7 @@ namespace Automation
                 }
             }
             UpdateHighlightFromCache();
+            UpdateSystemStatusValue();
         }
 
         private void UpdateHighlightFromCache()
@@ -481,6 +488,177 @@ namespace Automation
                 }
             }
             SF.frmDataGrid.UpdateHighlight(snapshot);
+        }
+
+        private void UpdateSystemStatusValue()
+        {
+            if (!systemStatusReady || systemStatusFaulted)
+            {
+                return;
+            }
+            if (SF.valueStore == null)
+            {
+                FailSystemStatus("变量库未初始化，无法更新系统状态。");
+                return;
+            }
+            if (SF.DR == null)
+            {
+                FailSystemStatus("流程引擎未初始化，无法更新系统状态。");
+                return;
+            }
+            if (!SF.valueStore.TryGetValueByName(ResetStatusValueName, out DicValue resetValue) || resetValue == null)
+            {
+                FailSystemStatus($"缺少变量：{ResetStatusValueName}");
+                return;
+            }
+            if (resetValue.Type != "double")
+            {
+                FailSystemStatus($"变量“{ResetStatusValueName}”类型不是double。");
+                return;
+            }
+            if (!double.TryParse(resetValue.Value, out double resetRaw))
+            {
+                FailSystemStatus($"变量“{ResetStatusValueName}”数值无效:{resetValue.Value}");
+                return;
+            }
+            if (resetRaw != 0d && resetRaw != 1d && resetRaw != 2d)
+            {
+                FailSystemStatus($"变量“{ResetStatusValueName}”取值超出定义:{resetRaw}");
+                return;
+            }
+            ResetStatus resetStatus = (ResetStatus)(int)resetRaw;
+
+            if (!SF.valueStore.TryGetValueByName(SystemStatusValueName, out DicValue systemValue) || systemValue == null)
+            {
+                FailSystemStatus($"缺少变量：{SystemStatusValueName}");
+                return;
+            }
+            if (systemValue.Type != "double")
+            {
+                FailSystemStatus($"变量“{SystemStatusValueName}”类型不是double。");
+                return;
+            }
+
+            SystemStatus targetStatus = CalculateSystemStatus(resetStatus);
+            if (!SF.valueStore.setValueByName(SystemStatusValueName, (double)targetStatus, "系统状态自动更新"))
+            {
+                FailSystemStatus($"写入变量“{SystemStatusValueName}”失败。");
+            }
+        }
+
+        private SystemStatus CalculateSystemStatus(ResetStatus resetStatus)
+        {
+            bool hasRunning = false;
+            bool hasPaused = false;
+            bool hasAlarm = false;
+
+            IReadOnlyList<EngineSnapshot> snapshots = SF.DR.GetSnapshots();
+            if (snapshots != null)
+            {
+                foreach (EngineSnapshot snapshot in snapshots)
+                {
+                    if (snapshot == null)
+                    {
+                        continue;
+                    }
+                    bool isSystemProc = IsSystemProc(snapshot);
+                    switch (snapshot.State)
+                    {
+                        case ProcRunState.Alarming:
+                            hasAlarm = true;
+                            break;
+                        case ProcRunState.Paused:
+                            hasPaused = true;
+                            break;
+                        case ProcRunState.Running:
+                        case ProcRunState.SingleStep:
+                            if (!isSystemProc)
+                            {
+                                hasRunning = true;
+                            }
+                            break;
+                    }
+                }
+            }
+
+            if (Volatile.Read(ref popupAlarmCount) > 0)
+            {
+                return SystemStatus.PopupAlarm;
+            }
+            if (hasAlarm)
+            {
+                return SystemStatus.ProcAlarm;
+            }
+            if (hasPaused)
+            {
+                return SystemStatus.Paused;
+            }
+            if (hasRunning)
+            {
+                return SystemStatus.Working;
+            }
+            if (resetStatus == ResetStatus.ResetCompleted)
+            {
+                return SystemStatus.Ready;
+            }
+            return SystemStatus.Uninitialized;
+        }
+
+        private bool IsSystemProc(EngineSnapshot snapshot)
+        {
+            if (snapshot == null)
+            {
+                return false;
+            }
+            string procName = snapshot.ProcName;
+            if (string.IsNullOrWhiteSpace(procName))
+            {
+                int index = snapshot.ProcIndex;
+                if (index >= 0 && SF.DR?.Context?.Procs != null && index < SF.DR.Context.Procs.Count)
+                {
+                    procName = SF.DR.Context.Procs[index]?.head?.Name;
+                }
+            }
+            if (string.IsNullOrWhiteSpace(procName))
+            {
+                int index = snapshot.ProcIndex;
+                if (index >= 0 && SF.frmProc?.procsList != null && index < SF.frmProc.procsList.Count)
+                {
+                    procName = SF.frmProc.procsList[index]?.head?.Name;
+                }
+            }
+            return !string.IsNullOrEmpty(procName) && procName.StartsWith("系统", StringComparison.Ordinal);
+        }
+
+        private void FailSystemStatus(string message)
+        {
+            if (systemStatusFaulted)
+            {
+                return;
+            }
+            systemStatusFaulted = true;
+            SF.SetSecurityLock(message);
+        }
+
+        internal void OnPopupAlarmStarted()
+        {
+            Interlocked.Increment(ref popupAlarmCount);
+        }
+
+        internal void OnPopupAlarmCompleted()
+        {
+            int current = Interlocked.Decrement(ref popupAlarmCount);
+            if (current < 0)
+            {
+                Interlocked.Exchange(ref popupAlarmCount, 0);
+            }
+        }
+
+        internal static bool IsPopupAlarmType(string alarmType)
+        {
+            return string.Equals(alarmType, "弹框确定", StringComparison.Ordinal)
+                || string.Equals(alarmType, "弹框确定与否", StringComparison.Ordinal)
+                || string.Equals(alarmType, "弹框确定与否与取消", StringComparison.Ordinal);
         }
 
         private void UpdateProcText(EngineSnapshot snapshot)
@@ -520,34 +698,43 @@ namespace Automation
                     && procNum < SF.frmProc.procsList.Count
                     && SF.frmProc.procsList[procNum]?.head?.Disable == true;
                 Proc proc = SF.frmProc.procsList[procNum];
-                targetNode.Text = SF.frmProc.BuildProcNodeTextWithState(procNum, proc, snapshot);
+                string nextText = SF.frmProc.BuildProcNodeTextWithState(procNum, proc, snapshot);
+                Color nextColor;
                 if (isDisabled)
                 {
-                    targetNode.ForeColor = Color.Gainsboro;
+                    nextColor = Color.Gainsboro;
                 }
                 else
                 {
                     switch (snapshot.State)
                     {
                         case ProcRunState.Running:
-                            targetNode.ForeColor = Color.ForestGreen;
+                            nextColor = Color.ForestGreen;
                             break;
                         case ProcRunState.Paused:
-                            targetNode.ForeColor = Color.Goldenrod;
+                            nextColor = Color.Goldenrod;
                             break;
                         case ProcRunState.SingleStep:
-                            targetNode.ForeColor = Color.DodgerBlue;
+                            nextColor = Color.DodgerBlue;
                             break;
                         case ProcRunState.Alarming:
-                            targetNode.ForeColor = Color.Red;
+                            nextColor = Color.Red;
                             break;
                         case ProcRunState.Stopped:
-                            targetNode.ForeColor = Color.Black;
+                            nextColor = Color.Black;
                             break;
                         default:
-                            targetNode.ForeColor = Color.Black;
+                            nextColor = Color.Black;
                             break;
                     }
+                }
+                if (!string.Equals(targetNode.Text, nextText, StringComparison.Ordinal))
+                {
+                    targetNode.Text = nextText;
+                }
+                if (targetNode.ForeColor != nextColor)
+                {
+                    targetNode.ForeColor = nextColor;
                 }
             }
             if (SF.frmProc.proc_treeView.InvokeRequired)
@@ -859,11 +1046,13 @@ namespace Automation
 
     public sealed class WinFormsAlarmHandler : IAlarmHandler
     {
+        private readonly FrmMain owner;
         private readonly Control invoker;
 
-        public WinFormsAlarmHandler(Control invoker)
+        public WinFormsAlarmHandler(FrmMain owner)
         {
-            this.invoker = invoker;
+            this.owner = owner;
+            invoker = owner;
         }
 
         public Task<AlarmDecision> HandleAsync(AlarmContext context)
@@ -906,6 +1095,12 @@ namespace Automation
             {
                 tcs.TrySetResult(AlarmDecision.Stop);
                 return tcs.Task;
+            }
+            bool trackPopup = FrmMain.IsPopupAlarmType(context.AlarmType);
+            if (trackPopup)
+            {
+                owner?.OnPopupAlarmStarted();
+                tcs.Task.ContinueWith(_ => owner?.OnPopupAlarmCompleted(), TaskScheduler.Default);
             }
             if (invoker.InvokeRequired)
             {
