@@ -1,16 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.Xml.Linq;
-using System.IO;
-using System.Collections;
 
 namespace Automation
 {
@@ -1345,7 +1340,7 @@ namespace Automation
 
             List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
 
-            if (cacheIOs == null) 
+            if (cacheIOs == null)
             {
                 MessageBox.Show("轴卡未配置");
                 return;
@@ -1377,7 +1372,7 @@ namespace Automation
                     listView4.Items.Add(item);
 
                     ListViewItem item2 = new ListViewItem(copiedString);
-                
+
                     item2.Text = copiedString;
                     item2.Font = font;
                     listView5.Items.Add(item2);
@@ -1737,7 +1732,7 @@ namespace Automation
             {
                 cacheIO = cacheIOs[j];
                 if (cacheIO != null)
-                { 
+                {
                     string name = cacheIO.Name;
                     ListViewItem item = new ListViewItem(name);
                     if (cacheIO.IsRemark)
@@ -2625,7 +2620,7 @@ namespace Automation
                             item.Checked = false;
                         }
                     }
-                   
+
                 }
                 if (iOConnect.Intput2.Name == "")
                 {
