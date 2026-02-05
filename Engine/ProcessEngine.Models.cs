@@ -46,10 +46,10 @@ namespace Automation
     public enum SystemStatus
     {
         Uninitialized = 0,
-        ProcAlarm = 1,
+        Paused = 1,
         Ready = 2,
         Working = 3,
-        Paused = 4,
+        ProcAlarm = 4,
         PopupAlarm = 5
     }
     public class ProcHandle

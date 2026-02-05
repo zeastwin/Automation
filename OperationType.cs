@@ -92,7 +92,7 @@ namespace Automation
         [Browsable(false)]
         public Guid Id { get; set; }
 
-        [Browsable(true)]
+        [Browsable(false)]
         [DisplayName("编号"), Category("常规"), Description(""), ReadOnly(true)]
         public int Num { get; set; }
         [Browsable(true)]
