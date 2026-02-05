@@ -21,6 +21,7 @@ namespace Automation
         private readonly Button btnApplyTemplate;
         private readonly Button btnSelectAll;
         private readonly Label lblHint;
+        private readonly Panel rightPanel;
 
         private UserAccount currentAccount;
         private bool editingNew;
@@ -32,8 +33,8 @@ namespace Automation
 
             Text = "账户管理";
             StartPosition = FormStartPosition.CenterScreen;
-            Size = new Size(980, 620);
-            MinimumSize = new Size(880, 520);
+            Size = new Size(1176, 620);
+            MinimumSize = new Size(1056, 600);
 
             Font uiFont = new Font("黑体", 10.5F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
 
@@ -66,10 +67,10 @@ namespace Automation
 
             split.Panel1.Controls.Add(dgvAccounts);
 
-            Panel rightPanel = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            rightPanel = new Panel { Dock = DockStyle.Fill };
 
             Label lblUser = new Label { Text = "用户名:", Font = uiFont, Location = new Point(20, 20), AutoSize = true };
-            txtUserName = new TextBox { Font = uiFont, Location = new Point(120, 16), Width = 200 };
+            txtUserName = new TextBox { Font = uiFont, Location = new Point(120, 16), Width = 200, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
 
             Label lblRole = new Label { Text = "角色:", Font = uiFont, Location = new Point(20, 60), AutoSize = true };
             cboRole = new ComboBox
@@ -77,43 +78,45 @@ namespace Automation
                 Font = uiFont,
                 Location = new Point(120, 56),
                 Width = 200,
-                DropDownStyle = ComboBoxStyle.DropDownList
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
             cboRole.Items.Add(UserRole.SystemAdmin);
             cboRole.Items.Add(UserRole.Admin);
             cboRole.Items.Add(UserRole.Operator);
             cboRole.SelectedIndexChanged += CboRole_SelectedIndexChanged;
 
-            chkDisabled = new CheckBox { Text = "禁用账户", Font = uiFont, Location = new Point(350, 18), AutoSize = true };
+            chkDisabled = new CheckBox { Text = "禁用账户", Font = uiFont, Location = new Point(350, 18), AutoSize = true, Anchor = AnchorStyles.Top | AnchorStyles.Right };
 
             Label lblPerm = new Label { Text = "权限授权:", Font = uiFont, Location = new Point(20, 100), AutoSize = true };
-            btnSelectAll = new Button { Text = "全选", Font = uiFont, Location = new Point(120, 95), Size = new Size(60, 26) };
+            btnSelectAll = new Button { Text = "全选", Font = uiFont, Location = new Point(120, 95), Size = new Size(60, 26), Anchor = AnchorStyles.Top | AnchorStyles.Left };
             btnSelectAll.Click += BtnSelectAll_Click;
             treePermissions = new TreeView
             {
                 Location = new Point(20, 130),
                 Size = new Size(560, 300),
-                CheckBoxes = true
+                CheckBoxes = true,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
             };
             treePermissions.AfterCheck += TreePermissions_AfterCheck;
             BuildPermissionTree();
 
-            btnNew = new Button { Text = "新建", Font = uiFont, Location = new Point(20, 490), Size = new Size(80, 30) };
+            btnNew = new Button { Text = "新建", Font = uiFont, Location = new Point(20, 490), Size = new Size(80, 30), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnNew.Click += BtnNew_Click;
 
-            btnSave = new Button { Text = "保存", Font = uiFont, Location = new Point(110, 490), Size = new Size(80, 30) };
+            btnSave = new Button { Text = "保存", Font = uiFont, Location = new Point(110, 490), Size = new Size(80, 30), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnSave.Click += BtnSave_Click;
 
-            btnDelete = new Button { Text = "删除", Font = uiFont, Location = new Point(200, 490), Size = new Size(80, 30) };
+            btnDelete = new Button { Text = "删除", Font = uiFont, Location = new Point(200, 490), Size = new Size(80, 30), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnDelete.Click += BtnDelete_Click;
 
-            btnResetPassword = new Button { Text = "重置口令", Font = uiFont, Location = new Point(290, 490), Size = new Size(90, 30) };
+            btnResetPassword = new Button { Text = "重置口令", Font = uiFont, Location = new Point(290, 490), Size = new Size(90, 30), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnResetPassword.Click += BtnResetPassword_Click;
 
-            btnApplyTemplate = new Button { Text = "应用角色模板", Font = uiFont, Location = new Point(390, 490), Size = new Size(120, 30) };
+            btnApplyTemplate = new Button { Text = "应用角色模板", Font = uiFont, Location = new Point(390, 490), Size = new Size(120, 30), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnApplyTemplate.Click += BtnApplyTemplate_Click;
 
-            lblHint = new Label { Font = new Font("黑体", 10F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134))), ForeColor = Color.Red, Location = new Point(20, 530), Size = new Size(560, 50) };
+            lblHint = new Label { Font = new Font("黑体", 10F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134))), ForeColor = Color.Red, Location = new Point(20, 530), Size = new Size(560, 50), Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right };
 
             rightPanel.Controls.Add(lblUser);
             rightPanel.Controls.Add(txtUserName);
@@ -596,6 +599,18 @@ namespace Automation
                 }
             }
             return list;
+        }
+
+        private void InitializeComponent()
+        {
+            this.SuspendLayout();
+            // 
+            // FrmAccountManager
+            // 
+            this.ClientSize = new System.Drawing.Size(1176, 620);
+            this.Name = "FrmAccountManager";
+            this.ResumeLayout(false);
+
         }
     }
 }

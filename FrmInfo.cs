@@ -293,7 +293,24 @@ namespace Automation
             column.FillWeight = fillWeight;
             column.Tag = new StatusColumnTag(groupIndex, kind);
             column.DefaultCellStyle.Alignment = alignment;
+            if (kind != StatusColumnKind.State)
+            {
+                column.DefaultCellStyle.BackColor = GetStatusGroupBackColor(groupIndex);
+            }
+            if (kind == StatusColumnKind.OpName)
+            {
+                column.DividerWidth = 3;
+            }
             dgvProcStatus.Columns.Add(column);
+        }
+
+        private Color GetStatusGroupBackColor(int groupIndex)
+        {
+            if (groupIndex % 2 == 0)
+            {
+                return Color.FromArgb(245, 248, 255);
+            }
+            return Color.FromArgb(245, 255, 245);
         }
 
         private void EnsureStatusRowCount(int targetCount)

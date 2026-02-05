@@ -304,6 +304,9 @@
     <Compile Include="Tool\FrmSearch4Value.Designer.cs">
       <DependentUpon>FrmSearch4Value.cs</DependentUpon>
     </Compile>
+    <EmbeddedResource Include="FrmAccountManager.resx">
+      <DependentUpon>FrmAccountManager.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="FrmAlarmConfig.resx">
       <DependentUpon>FrmAlarmConfig.cs</DependentUpon>
     </EmbeddedResource>
