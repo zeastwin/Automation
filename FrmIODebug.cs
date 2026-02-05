@@ -2102,6 +2102,32 @@ namespace Automation
 
 
         }
+        private void RefreshIoDisplayAfterReorder(bool isInput)
+        {
+            if (isInput)
+            {
+                buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1, buttonsIn);
+                EnsureInputTempSize(IODebugMaps.inputs.Count);
+                Array.Clear(InTemp, 0, IODebugMaps.inputs.Count);
+                Array.Clear(InValid, 0, IODebugMaps.inputs.Count);
+                IoRefreshData data = BuildIoRefreshData(0);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
+                return;
+            }
+
+            buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2, buttonsOut);
+            EnsureOutputTempSize(IODebugMaps.outputs.Count);
+            Array.Clear(OutTemp, 0, IODebugMaps.outputs.Count);
+            Array.Clear(OutValid, 0, IODebugMaps.outputs.Count);
+            IoRefreshData outputData = BuildIoRefreshData(1);
+            if (outputData != null)
+            {
+                ApplyIoRefresh(outputData);
+            }
+        }
         public void RefreshIODebugMap()
         {
             if (!Directory.Exists(SF.ConfigPath))
@@ -2537,7 +2563,6 @@ namespace Automation
             return false;
         }
         private ListViewItem sourceItem;
-        private ListViewItem targetItem;
         private void listView1_ItemDrag(object sender, ItemDragEventArgs e)
         {
             sourceItem = (ListViewItem)e.Item;
@@ -2546,109 +2571,152 @@ namespace Automation
 
         private void listView1_DragEnter(object sender, DragEventArgs e)
         {
+            listView1.InsertionMark.Color = Color.DodgerBlue;
             e.Effect = DragDropEffects.Move;
         }
 
         private void listView1_DragDrop(object sender, DragEventArgs e)
         {
-            Point dropPoint = listView1.PointToClient(new Point(e.X, e.Y));
-            ListViewItem targetItem = listView1.GetItemAt(dropPoint.X, dropPoint.Y);
-
-            if (targetItem == null)
+            if (sourceItem == null)
             {
                 return;
             }
-
             int sourceIndex = sourceItem.Index;
-            int targetIndex = targetItem.Index;
-
-            // 交换项的位置
-
-            IO temp = SF.frmIODebug.IODebugMaps.inputs[sourceIndex];
-            SF.frmIODebug.IODebugMaps.inputs[sourceIndex] = SF.frmIODebug.IODebugMaps.inputs[targetIndex];
-            SF.frmIODebug.IODebugMaps.inputs[targetIndex] = temp;
-            // 取消目标项的高亮显示
-            if (targetItem != null)
+            int targetIndex = listView1.InsertionMark.Index;
+            if (targetIndex < 0)
             {
-                targetItem.BackColor = Color.White;
+                targetIndex = listView1.Items.Count;
             }
+            if (listView1.InsertionMark.AppearsAfterItem && targetIndex < listView1.Items.Count)
+            {
+                targetIndex++;
+            }
+            if (targetIndex < 0)
+            {
+                targetIndex = 0;
+            }
+            if (targetIndex > listView1.Items.Count)
+            {
+                targetIndex = listView1.Items.Count;
+            }
+            if (sourceIndex != targetIndex && sourceIndex >= 0 && sourceIndex < SF.frmIODebug.IODebugMaps.inputs.Count)
+            {
+                List<IO> list = SF.frmIODebug.IODebugMaps.inputs;
+                IO moving = list[sourceIndex];
+                list.RemoveAt(sourceIndex);
+                if (targetIndex > sourceIndex)
+                {
+                    targetIndex--;
+                }
+                if (targetIndex < 0)
+                {
+                    targetIndex = 0;
+                }
+                if (targetIndex > list.Count)
+                {
+                    targetIndex = list.Count;
+                }
+                list.Insert(targetIndex, moving);
+            }
+            listView1.InsertionMark.Index = -1;
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
+            RefreshIoDisplayAfterReorder(true);
         }
 
         private void listView1_DragOver(object sender, DragEventArgs e)
         {
             Point dropPoint = listView1.PointToClient(new Point(e.X, e.Y));
-            ListViewItem newTargetItem = listView1.GetItemAt(dropPoint.X, dropPoint.Y);
-
-            if (newTargetItem != null && newTargetItem != targetItem)
+            int targetIndex = listView1.InsertionMark.NearestIndex(dropPoint);
+            if (targetIndex < 0)
             {
-                // 取消之前目标项的高亮显示
-                if (targetItem != null)
-                {
-                    targetItem.BackColor = Color.White;
-                }
-
-                // 设置新目标项的高亮显示
-                targetItem = newTargetItem;
-                targetItem.BackColor = Color.LightBlue;
+                listView1.InsertionMark.Index = -1;
+                e.Effect = DragDropEffects.Move;
+                return;
             }
-
+            Rectangle targetBounds = listView1.GetItemRect(targetIndex);
+            listView1.InsertionMark.AppearsAfterItem = dropPoint.Y > targetBounds.Top + (targetBounds.Height / 2);
+            listView1.InsertionMark.Index = targetIndex;
             e.Effect = DragDropEffects.Move;
         }
+        private void listView1_DragLeave(object sender, EventArgs e)
+        {
+            listView1.InsertionMark.Index = -1;
+        }
         private ListViewItem sourceItem2;
-        private ListViewItem targetItem2;
         private void listView2_DragDrop(object sender, DragEventArgs e)
         {
-            Point dropPoint = listView2.PointToClient(new Point(e.X, e.Y));
-            ListViewItem targetItem = listView2.GetItemAt(dropPoint.X, dropPoint.Y);
-
-            if (targetItem == null)
+            if (sourceItem2 == null)
             {
                 return;
             }
-
             int sourceIndex = sourceItem2.Index;
-            int targetIndex = targetItem.Index;
-
-            // 交换项的位置
-
-            IO temp = SF.frmIODebug.IODebugMaps.outputs[sourceIndex];
-            SF.frmIODebug.IODebugMaps.outputs[sourceIndex] = SF.frmIODebug.IODebugMaps.outputs[targetIndex];
-            SF.frmIODebug.IODebugMaps.outputs[targetIndex] = temp;
-            // 取消目标项的高亮显示
-            if (targetItem != null)
+            int targetIndex = listView2.InsertionMark.Index;
+            if (targetIndex < 0)
             {
-                targetItem.BackColor = Color.White;
+                targetIndex = listView2.Items.Count;
             }
+            if (listView2.InsertionMark.AppearsAfterItem && targetIndex < listView2.Items.Count)
+            {
+                targetIndex++;
+            }
+            if (targetIndex < 0)
+            {
+                targetIndex = 0;
+            }
+            if (targetIndex > listView2.Items.Count)
+            {
+                targetIndex = listView2.Items.Count;
+            }
+            if (sourceIndex != targetIndex && sourceIndex >= 0 && sourceIndex < SF.frmIODebug.IODebugMaps.outputs.Count)
+            {
+                List<IO> list = SF.frmIODebug.IODebugMaps.outputs;
+                IO moving = list[sourceIndex];
+                list.RemoveAt(sourceIndex);
+                if (targetIndex > sourceIndex)
+                {
+                    targetIndex--;
+                }
+                if (targetIndex < 0)
+                {
+                    targetIndex = 0;
+                }
+                if (targetIndex > list.Count)
+                {
+                    targetIndex = list.Count;
+                }
+                list.Insert(targetIndex, moving);
+            }
+            listView2.InsertionMark.Index = -1;
             SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
+            RefreshIoDisplayAfterReorder(false);
         }
 
         private void listView2_DragEnter(object sender, DragEventArgs e)
         {
+            listView2.InsertionMark.Color = Color.DodgerBlue;
             e.Effect = DragDropEffects.Move;
         }
 
         private void listView2_DragOver(object sender, DragEventArgs e)
         {
             Point dropPoint = listView2.PointToClient(new Point(e.X, e.Y));
-            ListViewItem newTargetItem = listView2.GetItemAt(dropPoint.X, dropPoint.Y);
-
-            if (newTargetItem != null && newTargetItem != targetItem2)
+            int targetIndex = listView2.InsertionMark.NearestIndex(dropPoint);
+            if (targetIndex < 0)
             {
-                // 取消之前目标项的高亮显示
-                if (targetItem2 != null)
-                {
-                    targetItem2.BackColor = Color.White;
-                }
-
-                // 设置新目标项的高亮显示
-                targetItem2 = newTargetItem;
-                targetItem2.BackColor = Color.LightBlue;
+                listView2.InsertionMark.Index = -1;
+                e.Effect = DragDropEffects.Move;
+                return;
             }
-
+            Rectangle targetBounds = listView2.GetItemRect(targetIndex);
+            listView2.InsertionMark.AppearsAfterItem = dropPoint.Y > targetBounds.Top + (targetBounds.Height / 2);
+            listView2.InsertionMark.Index = targetIndex;
             e.Effect = DragDropEffects.Move;
+        }
+        private void listView2_DragLeave(object sender, EventArgs e)
+        {
+            listView2.InsertionMark.Index = -1;
         }
 
         private void listView2_ItemDrag(object sender, ItemDragEventArgs e)

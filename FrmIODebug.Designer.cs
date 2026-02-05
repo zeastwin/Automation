@@ -144,6 +144,7 @@
             this.listView2.DragDrop += new System.Windows.Forms.DragEventHandler(this.listView2_DragDrop);
             this.listView2.DragEnter += new System.Windows.Forms.DragEventHandler(this.listView2_DragEnter);
             this.listView2.DragOver += new System.Windows.Forms.DragEventHandler(this.listView2_DragOver);
+            this.listView2.DragLeave += new System.EventHandler(this.listView2_DragLeave);
             // 
             // listView1
             // 
@@ -157,6 +158,7 @@
             this.listView1.DragDrop += new System.Windows.Forms.DragEventHandler(this.listView1_DragDrop);
             this.listView1.DragEnter += new System.Windows.Forms.DragEventHandler(this.listView1_DragEnter);
             this.listView1.DragOver += new System.Windows.Forms.DragEventHandler(this.listView1_DragOver);
+            this.listView1.DragLeave += new System.EventHandler(this.listView1_DragLeave);
             // 
             // FrmIODebug
             // 
