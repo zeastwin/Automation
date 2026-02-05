@@ -572,10 +572,6 @@ namespace Automation
             {
                 FailSystemStatus($"写入变量“{SystemStatusValueName}”失败。");
             }
-            else
-            {
-                SF.frmState?.RefreshBasicInfo();
-            }
         }
 
         private void InitializeSystemStatusValues()
