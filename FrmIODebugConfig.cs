@@ -9,7 +9,6 @@ namespace Automation
     {
         private readonly ListView listView = new ListView();
         private readonly Button btnOk = new Button();
-        private readonly Button btnCancel = new Button();
         private readonly Button btnSelectAll = new Button();
         private readonly Label tipLabel = new Label();
         private bool isBatchSelecting = false;
@@ -81,14 +80,6 @@ namespace Automation
             btnOk.BackColor = Color.FromArgb(45, 129, 247);
             btnOk.ForeColor = Color.White;
             btnOk.Click += BtnOk_Click;
-            btnCancel.Text = "取消";
-            btnCancel.Width = 80;
-            btnCancel.Height = 30;
-            btnCancel.FlatStyle = FlatStyle.Flat;
-            btnCancel.FlatAppearance.BorderColor = Color.FromArgb(200, 204, 211);
-            btnCancel.BackColor = Color.White;
-            btnCancel.ForeColor = Color.FromArgb(64, 64, 64);
-            btnCancel.Click += BtnCancel_Click;
             btnSelectAll.Text = "全选";
             btnSelectAll.Width = 80;
             btnSelectAll.Height = 30;
@@ -99,7 +90,6 @@ namespace Automation
             btnSelectAll.Click += BtnSelectAll_Click;
 
             panel.Controls.Add(btnOk);
-            panel.Controls.Add(btnCancel);
             panel.Controls.Add(btnSelectAll);
 
             Controls.Add(listPanel);
@@ -107,7 +97,6 @@ namespace Automation
             Controls.Add(headerPanel);
 
             AcceptButton = btnOk;
-            CancelButton = btnCancel;
             UpdateSelectAllText();
         }
 
@@ -126,11 +115,6 @@ namespace Automation
             Close();
         }
 
-        private void BtnCancel_Click(object sender, EventArgs e)
-        {
-            DialogResult = DialogResult.Cancel;
-            Close();
-        }
         private void BtnSelectAll_Click(object sender, EventArgs e)
         {
             bool hasUnchecked = false;
