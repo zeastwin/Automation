@@ -205,6 +205,10 @@ namespace Automation
             connectListView4[0] = listView4;
             connectListView5[0] = listView5;
             connectListView6[0] = CreateConnectOutput2ListView("listView6");
+            AttachConnectListViewEvents(connectListView3[0]);
+            AttachConnectListViewEvents(connectListView4[0]);
+            AttachConnectListViewEvents(connectListView5[0]);
+            AttachConnectListViewEvents(connectListView6[0]);
             connectSplitters[0] = new[]
             {
                 CreateConnectSplitter("connectSplitter1_1", 0),
@@ -217,6 +221,10 @@ namespace Automation
             connectListView4[1] = CreateConnectInputListView("listView4_2");
             connectListView5[1] = CreateConnectInputListView("listView5_2");
             connectListView6[1] = CreateConnectOutput2ListView("listView6_2");
+            AttachConnectListViewEvents(connectListView3[1]);
+            AttachConnectListViewEvents(connectListView4[1]);
+            AttachConnectListViewEvents(connectListView5[1]);
+            AttachConnectListViewEvents(connectListView6[1]);
             connectSplitters[1] = new[]
             {
                 CreateConnectSplitter("connectSplitter2_1", 1),
@@ -229,6 +237,10 @@ namespace Automation
             connectListView4[2] = CreateConnectInputListView("listView4_3");
             connectListView5[2] = CreateConnectInputListView("listView5_3");
             connectListView6[2] = CreateConnectOutput2ListView("listView6_3");
+            AttachConnectListViewEvents(connectListView3[2]);
+            AttachConnectListViewEvents(connectListView4[2]);
+            AttachConnectListViewEvents(connectListView5[2]);
+            AttachConnectListViewEvents(connectListView6[2]);
             connectSplitters[2] = new[]
             {
                 CreateConnectSplitter("connectSplitter3_1", 2),
@@ -356,8 +368,13 @@ namespace Automation
 
         private void ConnectConfigTabControl_Resize(object sender, EventArgs e)
         {
-            connectConfigAutoSizeEnabled[currentConnectConfigIndex] = true;
-            UpdateConnectConfigColumnWidthsForIndex(currentConnectConfigIndex);
+            int pageIndex = currentConnectConfigIndex;
+            connectConfigAutoSizeEnabled[pageIndex] = true;
+            BeginInvoke(new Action(() =>
+            {
+                connectConfigAutoSizeEnabled[pageIndex] = true;
+                UpdateConnectConfigColumnWidthsForIndex(pageIndex);
+            }));
         }
 
         private void UpdateConnectConfigColumnWidthsForIndex(int pageIndex)
@@ -448,6 +465,39 @@ namespace Automation
             listView.Columns[0].Width = columnWidth;
         }
 
+        private void AttachConnectListViewEvents(ListView listView)
+        {
+            if (listView == null)
+            {
+                return;
+            }
+            listView.SizeChanged += ConnectListView_SizeChanged;
+        }
+
+        private void ConnectListView_SizeChanged(object sender, EventArgs e)
+        {
+            UpdateConnectListViewColumnWidth(sender as ListView);
+        }
+
+        private void EnsureListViewSingleColumn(ListView listView, string header, int width)
+        {
+            if (listView == null)
+            {
+                return;
+            }
+            if (listView.Columns.Count == 0)
+            {
+                listView.Columns.Add(header, width);
+                return;
+            }
+            listView.Columns[0].Text = header;
+            listView.Columns[0].Width = width;
+            while (listView.Columns.Count > 1)
+            {
+                listView.Columns.RemoveAt(1);
+            }
+        }
+
         private void ConnectSplitter_SplitterMoved(object sender, SplitterEventArgs e)
         {
             if (isConnectConfigAutoSizing)
@@ -533,7 +583,6 @@ namespace Automation
                     EndConnectListViewUpdate();
                 }
             });
-            BeginInvoke(new Action(() => UpdateConnectConfigColumnWidthsForIndex(currentConnectConfigIndex)));
         }
 
         private void MoveConnectConfigViewsTo(TabPage targetPage)
@@ -1310,17 +1359,14 @@ namespace Automation
             remarkItem.Click += ConnectRemarkItem_Click;
             contextMenu.Items.Add(configItem);
             contextMenu.Items.Add(remarkItem);
-            listView3.Clear();
-            listView3.Columns.Add("通用输出1", 220);
-            listView4.Clear();
+            listView3.Items.Clear();
             listView4.Items.Clear();
-            listView5.Clear();
             listView5.Items.Clear();
-            listView6.Clear();
             listView6.Items.Clear();
-            listView4.Columns.Add("通用输入", 220);
-            listView5.Columns.Add("通用输入", 220);
-            listView6.Columns.Add("通用输出2", 220);
+            EnsureListViewSingleColumn(listView3, "通用输出1", 220);
+            EnsureListViewSingleColumn(listView4, "通用输入", 220);
+            EnsureListViewSingleColumn(listView5, "通用输入", 220);
+            EnsureListViewSingleColumn(listView6, "通用输出2", 220);
 
 
             List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
@@ -1389,8 +1435,8 @@ namespace Automation
         }
         public void RefleshConnecdt()
         {
-            listView3.Clear();
-            listView3.Columns.Add("通用输出1", 220);
+            listView3.Items.Clear();
+            EnsureListViewSingleColumn(listView3, "通用输出1", 220);
             UpdateIoCacheIfNeeded();
             List<IOConnect> IOConnects = GetConnectListForConfig();
             IOConnect iOConnect = null;
@@ -1471,7 +1517,6 @@ namespace Automation
                 listView5.ItemChecked += listView5_ItemChecked;
                 listView6.ItemChecked += listView6_ItemChecked;
             }
-            BeginInvoke(new Action(() => UpdateConnectConfigColumnWidthsForIndex(currentConnectConfigIndex)));
         }
         public List<Control> CreateButtonIO(List<IO> iOs, TabPage tabPage)
         {
