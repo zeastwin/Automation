@@ -39,8 +39,8 @@ namespace Automation
         public FrmAiAssistant frmAiAssistant;
         public FrmAccountManager frmAccountManager = new FrmAccountManager();
         public MotionCtrl motion = new MotionCtrl();
-        private EngineSnapshot[] snapshotCache = Array.Empty<EngineSnapshot>();
-        private bool[] snapshotDirty = Array.Empty<bool>();
+        private readonly Dictionary<Guid, EngineSnapshot> snapshotCache = new Dictionary<Guid, EngineSnapshot>();
+        private readonly HashSet<Guid> snapshotDirty = new HashSet<Guid>();
         private readonly object snapshotLock = new object();
         private readonly object saveFileLock = new object();
         private System.Windows.Forms.Timer snapshotTimer;
@@ -399,29 +399,13 @@ namespace Automation
             }
             lock (snapshotLock)
             {
-                EnsureSnapshotCapacity(snapshot.ProcIndex);
-                snapshotCache[snapshot.ProcIndex] = snapshot;
-                snapshotDirty[snapshot.ProcIndex] = true;
+                if (snapshot.ProcId == Guid.Empty)
+                {
+                    return;
+                }
+                snapshotCache[snapshot.ProcId] = snapshot;
+                snapshotDirty.Add(snapshot.ProcId);
             }
-        }
-
-        private void EnsureSnapshotCapacity(int procIndex)
-        {
-            if (procIndex < 0)
-            {
-                return;
-            }
-            if (procIndex < snapshotCache.Length)
-            {
-                return;
-            }
-            int newSize = snapshotCache.Length == 0 ? 1 : snapshotCache.Length;
-            while (newSize <= procIndex)
-            {
-                newSize *= 2;
-            }
-            Array.Resize(ref snapshotCache, newSize);
-            Array.Resize(ref snapshotDirty, newSize);
         }
 
         private void StartSnapshotTimer()
@@ -445,18 +429,17 @@ namespace Automation
             List<EngineSnapshot> pending = null;
             lock (snapshotLock)
             {
-                for (int i = 0; i < snapshotDirty.Length; i++)
+                if (snapshotDirty.Count > 0)
                 {
-                    if (!snapshotDirty[i])
+                    pending = new List<EngineSnapshot>(snapshotDirty.Count);
+                    foreach (Guid procId in snapshotDirty)
                     {
-                        continue;
+                        if (snapshotCache.TryGetValue(procId, out EngineSnapshot snapshot))
+                        {
+                            pending.Add(snapshot);
+                        }
                     }
-                    if (pending == null)
-                    {
-                        pending = new List<EngineSnapshot>();
-                    }
-                    pending.Add(snapshotCache[i]);
-                    snapshotDirty[i] = false;
+                    snapshotDirty.Clear();
                 }
             }
             if (pending != null)
@@ -477,16 +460,25 @@ namespace Automation
             }
             int selectedProc = SF.frmProc.SelectedProcNum;
             EngineSnapshot snapshot = null;
-            lock (snapshotLock)
+            Guid procId = Guid.Empty;
+            if (SF.frmProc.procsList != null && selectedProc >= 0 && selectedProc < SF.frmProc.procsList.Count)
             {
-                if (selectedProc >= 0 && selectedProc < snapshotCache.Length)
+                procId = SF.frmProc.procsList[selectedProc]?.head?.Id ?? Guid.Empty;
+            }
+            if (procId != Guid.Empty)
+            {
+                lock (snapshotLock)
                 {
-                    snapshot = snapshotCache[selectedProc];
+                    snapshotCache.TryGetValue(procId, out snapshot);
                 }
             }
             if (snapshot == null && SF.DR != null && selectedProc >= 0)
             {
-                snapshot = SF.DR.GetSnapshot(selectedProc);
+                EngineSnapshot direct = SF.DR.GetSnapshot(selectedProc);
+                if (direct != null && (procId == Guid.Empty || direct.ProcId == procId))
+                {
+                    snapshot = direct;
+                }
             }
             SF.frmDataGrid.UpdateHighlight(snapshot);
         }
@@ -502,44 +494,58 @@ namespace Automation
                 return;
             }
             int procNum = snapshot.ProcIndex;
-            if (procNum < 0 || procNum >= SF.frmProc.procsList.Count || procNum >= SF.frmProc.proc_treeView.Nodes.Count)
+            TreeNode targetNode = null;
+            if (snapshot.ProcId != Guid.Empty
+                && SF.frmProc.TryGetProcNode(snapshot.ProcId, out TreeNode mappedNode, out int mappedIndex))
+            {
+                procNum = mappedIndex;
+                targetNode = mappedNode;
+            }
+            else
+            {
+                if (procNum < 0 || procNum >= SF.frmProc.procsList.Count || procNum >= SF.frmProc.proc_treeView.Nodes.Count)
+                {
+                    return;
+                }
+                targetNode = SF.frmProc.proc_treeView.Nodes[procNum];
+            }
+            if (procNum < 0 || procNum >= SF.frmProc.procsList.Count || targetNode == null)
             {
                 return;
             }
 
             void ApplyProcText()
             {
-                TreeNode node = SF.frmProc.proc_treeView.Nodes[procNum];
                 bool isDisabled = procNum >= 0
                     && procNum < SF.frmProc.procsList.Count
                     && SF.frmProc.procsList[procNum]?.head?.Disable == true;
                 Proc proc = SF.frmProc.procsList[procNum];
-                node.Text = SF.frmProc.BuildProcNodeTextWithState(procNum, proc, snapshot);
+                targetNode.Text = SF.frmProc.BuildProcNodeTextWithState(procNum, proc, snapshot);
                 if (isDisabled)
                 {
-                    node.ForeColor = Color.Gainsboro;
+                    targetNode.ForeColor = Color.Gainsboro;
                 }
                 else
                 {
                     switch (snapshot.State)
                     {
                         case ProcRunState.Running:
-                            node.ForeColor = Color.ForestGreen;
+                            targetNode.ForeColor = Color.ForestGreen;
                             break;
                         case ProcRunState.Paused:
-                            node.ForeColor = Color.Goldenrod;
+                            targetNode.ForeColor = Color.Goldenrod;
                             break;
                         case ProcRunState.SingleStep:
-                            node.ForeColor = Color.DodgerBlue;
+                            targetNode.ForeColor = Color.DodgerBlue;
                             break;
                         case ProcRunState.Alarming:
-                            node.ForeColor = Color.Red;
+                            targetNode.ForeColor = Color.Red;
                             break;
                         case ProcRunState.Stopped:
-                            node.ForeColor = Color.Black;
+                            targetNode.ForeColor = Color.Black;
                             break;
                         default:
-                            node.ForeColor = Color.Black;
+                            targetNode.ForeColor = Color.Black;
                             break;
                     }
                 }

@@ -42,7 +42,7 @@ namespace Automation.AIFlow
                 {
                     Sequence = sequence++,
                     Type = "snapshot",
-                    ProcId = snapshot.ProcIndex.ToString(),
+                    ProcId = snapshot.ProcId != Guid.Empty ? snapshot.ProcId.ToString() : snapshot.ProcIndex.ToString(),
                     StepId = snapshot.StepIndex.ToString(),
                     OpId = snapshot.OpIndex.ToString(),
                     OpCode = snapshot.State.ToString(),

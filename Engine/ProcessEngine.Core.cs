@@ -84,16 +84,36 @@ namespace Automation
             }
             if (snapshot != null)
             {
+                Guid currentId = Guid.Empty;
+                string currentName = null;
+                if (Context?.Procs != null && procIndex < Context.Procs.Count)
+                {
+                    Proc current = Context.Procs[procIndex];
+                    currentName = current?.head?.Name;
+                    currentId = current?.head?.Id ?? Guid.Empty;
+                }
+                if (currentId != Guid.Empty && snapshot.ProcId != currentId)
+                {
+                    long resetTicks = Stopwatch.GetTimestamp();
+                    snapshot = new EngineSnapshot(procIndex, currentId, currentName, ProcRunState.Stopped, -1, -1, false, false, null, DateTime.Now, resetTicks);
+                    if (procIndex < snapshots.Length)
+                    {
+                        Volatile.Write(ref snapshots[procIndex], snapshot);
+                    }
+                }
                 return snapshot;
             }
 
             string procName = null;
+            Guid procId = Guid.Empty;
             if (Context?.Procs != null && procIndex < Context.Procs.Count)
             {
-                procName = Context.Procs[procIndex]?.head?.Name;
+                Proc proc = Context.Procs[procIndex];
+                procName = proc?.head?.Name;
+                procId = proc?.head?.Id ?? Guid.Empty;
             }
             long nowTicks = Stopwatch.GetTimestamp();
-            snapshot = new EngineSnapshot(procIndex, procName, ProcRunState.Stopped, -1, -1, false, false, null, DateTime.Now, nowTicks);
+            snapshot = new EngineSnapshot(procIndex, procId, procName, ProcRunState.Stopped, -1, -1, false, false, null, DateTime.Now, nowTicks);
             if (procIndex < snapshots.Length)
             {
                 Volatile.Write(ref snapshots[procIndex], snapshot);
@@ -118,11 +138,14 @@ namespace Automation
                 return;
             }
             string procName = null;
+            Guid procId = Guid.Empty;
             if (Context?.Procs != null && procIndex >= 0 && procIndex < Context.Procs.Count)
             {
-                procName = Context.Procs[procIndex]?.head?.Name;
+                Proc proc = Context.Procs[procIndex];
+                procName = proc?.head?.Name;
+                procId = proc?.head?.Id ?? Guid.Empty;
             }
-            UpdateSnapshot(procIndex, procName, snapshot.State, snapshot.StepIndex, snapshot.OpIndex, snapshot.IsBreakpoint,
+            UpdateSnapshot(procIndex, procId, procName, snapshot.State, snapshot.StepIndex, snapshot.OpIndex, snapshot.IsBreakpoint,
                 snapshot.IsAlarm, snapshot.AlarmMessage, true);
         }
         public bool PublishProc(int procIndex, Proc proc, out string error)
@@ -160,7 +183,8 @@ namespace Automation
             EngineSnapshot snapshot = GetSnapshot(procIndex);
             if (snapshot == null || snapshot.State == ProcRunState.Stopped)
             {
-                UpdateSnapshot(procIndex, proc.head?.Name, ProcRunState.Stopped, -1, -1, false, false, null, true);
+                Guid procId = proc.head?.Id ?? Guid.Empty;
+                UpdateSnapshot(procIndex, procId, proc.head?.Name, ProcRunState.Stopped, -1, -1, false, false, null, true);
             }
             return true;
         }
@@ -222,7 +246,7 @@ namespace Automation
             return snapshot?.State ?? ProcRunState.Stopped;
         }
         internal TimeSpan StopJoinTimeout => stopJoinTimeout;
-        internal void UpdateSnapshot(int procIndex, string procName, ProcRunState state, int stepIndex, int opIndex,
+        internal void UpdateSnapshot(int procIndex, Guid procId, string procName, ProcRunState state, int stepIndex, int opIndex,
             bool isBreakpoint, bool isAlarm, string alarmMessage, bool raiseEvent)
         {
             EnsureCapacity(procIndex);
@@ -239,6 +263,7 @@ namespace Automation
                         && current.IsBreakpoint == isBreakpoint
                         && current.StepIndex == stepIndex
                         && current.OpIndex == opIndex
+                        && current.ProcId == procId
                         && string.Equals(current.ProcName, procName, StringComparison.Ordinal)
                         && string.Equals(current.AlarmMessage, alarmMessage, StringComparison.Ordinal))
                     {
@@ -246,7 +271,7 @@ namespace Automation
                     }
                 }
             }
-            EngineSnapshot snapshot = new EngineSnapshot(procIndex, procName, state, stepIndex, opIndex, isBreakpoint,
+            EngineSnapshot snapshot = new EngineSnapshot(procIndex, procId, procName, state, stepIndex, opIndex, isBreakpoint,
                 isAlarm, alarmMessage, DateTime.Now, nowTicks);
             Volatile.Write(ref snapshots[procIndex], snapshot);
             EnqueueSnapshot(snapshot);
@@ -549,7 +574,7 @@ namespace Automation
                         evt.isBreakpoint = false;
                         evt.PauseBySignal = false;
                         control.SetRunning();
-                        UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                        UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                     }
                     return true;
                 }
@@ -559,7 +584,7 @@ namespace Automation
                     evt.isBreakpoint = false;
                     evt.PauseBySignal = true;
                     control.SetPaused();
-                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                    UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                 }
                 Delay(50, evt);
             }
@@ -593,7 +618,8 @@ namespace Automation
             {
                 evt.Proc = newProc;
                 evt.procName = newProc.head?.Name;
-                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                evt.procId = newProc.head?.Id ?? Guid.Empty;
+                UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                 return true;
             }
             if (!TryMapProcPosition(oldProc, newProc, evt.stepNum, evt.opsNum, out int newStepIndex, out int newOpIndex, out string error))
@@ -611,6 +637,7 @@ namespace Automation
             }
             evt.Proc = newProc;
             evt.procName = newProc.head?.Name;
+            evt.procId = newProc.head?.Id ?? Guid.Empty;
             evt.stepNum = newStepIndex;
             evt.opsNum = newOpIndex;
             if (evt.singleOpOnce)
@@ -618,7 +645,7 @@ namespace Automation
                 evt.singleOpStep = newSingleStep;
                 evt.singleOpOp = newSingleOp;
             }
-            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+            UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
             Logger?.Log($"流程{evt.procNum}热更新完成。", LogLevel.Normal);
             return true;
         }
@@ -940,7 +967,7 @@ namespace Automation
             }
             evt.PauseBySignal = false;
             evt.isBreakpoint = false;
-            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+            UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
             while (true)
             {
                 if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
@@ -974,7 +1001,7 @@ namespace Automation
                 if (currentStep != null && currentStep.Disable)
                 {
                     evt.opsNum = -1;
-                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
+                    UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
                     if (evt.stepNum >= currentProc.steps.Count - 1)
                     {
                         break;
@@ -983,7 +1010,7 @@ namespace Automation
                     continue;
                 }
                 evt.procName = currentProc.head?.Name;
-                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
+                UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
                 RunStep(evt, control);
                 if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                 {
@@ -1013,7 +1040,7 @@ namespace Automation
             }
             evt.State = ProcRunState.Stopped;
             evt.isBreakpoint = false;
-            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+            UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
         }
         //运行步骤
         private bool RunStep(ProcHandle evt, ProcessControl control)
@@ -1073,7 +1100,7 @@ namespace Automation
                 if (step.Ops.Count == 0)
                 {
                     evt.opsNum = -1;
-                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
+                    UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
                     return true;
                 }
                 if (evt.opsNum < 0 || evt.opsNum >= step.Ops.Count)
@@ -1124,7 +1151,7 @@ namespace Automation
                         evt.isAlarm = false;
                         evt.alarmMsg = null;
                     }
-                    UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
+                    UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
                     OperationType operation = step.Ops[evt.opsNum];
                     if (operation == null)
                     {
@@ -1145,7 +1172,7 @@ namespace Automation
                         {
                             evt.State = ProcRunState.Paused;
                         }
-                        UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                        UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                     }
                     control.WaitForRun();
                     if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
@@ -1163,7 +1190,7 @@ namespace Automation
                     if (evt.isBreakpoint)
                     {
                         evt.isBreakpoint = false;
-                        UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                        UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                     }
                     if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                     {
@@ -1208,7 +1235,7 @@ namespace Automation
                 }
 
                 evt.opsNum = -1;
-                UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
+                UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, false);
                 return bOK;
             }
 
@@ -1220,7 +1247,7 @@ namespace Automation
             evt.State = ProcRunState.Alarming;
             evt.isBreakpoint = false;
             evt.Control?.SetPaused();
-            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+            UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
 
             Logger?.Log($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum} {evt.alarmMsg}", LogLevel.Error);
 
@@ -1237,7 +1264,7 @@ namespace Automation
             evt.State = ProcRunState.Alarming;
             evt.isBreakpoint = false;
             evt.Control?.SetPaused();
-            UpdateSnapshot(evt.procNum, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+            UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
             Logger?.Log($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum} {evt.alarmMsg}", LogLevel.Error);
         }
 
@@ -1653,12 +1680,13 @@ namespace Automation
                     {
                         timeoutHandle.isAlarm = true;
                         timeoutHandle.alarmMsg = timeoutMessage;
-                        engine.UpdateSnapshot(procIndex, timeoutHandle.procName, timeoutHandle.State, timeoutHandle.stepNum,
+                        engine.UpdateSnapshot(procIndex, timeoutHandle.procId, timeoutHandle.procName, timeoutHandle.State, timeoutHandle.stepNum,
                             timeoutHandle.opsNum, timeoutHandle.isBreakpoint, true, timeoutMessage, true);
                     }
                     else
                     {
-                        engine.UpdateSnapshot(procIndex, proc.head?.Name, ProcRunState.Stopped, -1, -1, false, true, timeoutMessage, true);
+                        Guid procId = proc.head?.Id ?? Guid.Empty;
+                        engine.UpdateSnapshot(procIndex, procId, proc.head?.Name, ProcRunState.Stopped, -1, -1, false, true, timeoutMessage, true);
                     }
                     return;
                 }
@@ -1671,6 +1699,7 @@ namespace Automation
                 stepNum = command.StepIndex,
                 opsNum = command.OpIndex,
                 procName = proc.head?.Name,
+                procId = proc.head?.Id ?? Guid.Empty,
                 Proc = proc,
                 singleOpOnce = command.SingleOpOnce,
                 singleOpStep = command.StepIndex,
@@ -1704,7 +1733,7 @@ namespace Automation
                 };
             }
             execThread.Start();
-            engine.UpdateSnapshot(procIndex, handle.procName, handle.State, handle.stepNum, handle.opsNum,
+            engine.UpdateSnapshot(procIndex, handle.procId, handle.procName, handle.State, handle.stepNum, handle.opsNum,
                 handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
             if (command.AutoStep)
             {
@@ -1733,7 +1762,7 @@ namespace Automation
             handle.isBreakpoint = false;
             handle.PauseBySignal = false;
             control.SetPaused();
-            engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
+            engine.UpdateSnapshot(handle.procNum, handle.procId, handle.procName, handle.State, handle.stepNum,
                 handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
         }
 
@@ -1763,7 +1792,7 @@ namespace Automation
             {
                 control.RequestStep();
             }
-            engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
+            engine.UpdateSnapshot(handle.procNum, handle.procId, handle.procName, handle.State, handle.stepNum,
                 handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
         }
 
@@ -1788,7 +1817,7 @@ namespace Automation
             handle.isBreakpoint = false;
             handle.PauseBySignal = false;
             control.RequestStep();
-            engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
+            engine.UpdateSnapshot(handle.procNum, handle.procId, handle.procName, handle.State, handle.stepNum,
                 handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
         }
 
@@ -1810,7 +1839,7 @@ namespace Automation
             control.RequestStop();
             if (raiseSnapshot)
             {
-                engine.UpdateSnapshot(handle.procNum, handle.procName, handle.State, handle.stepNum,
+                engine.UpdateSnapshot(handle.procNum, handle.procId, handle.procName, handle.State, handle.stepNum,
                     handle.opsNum, handle.isBreakpoint, handle.isAlarm, handle.alarmMsg, true);
             }
         }
@@ -1827,7 +1856,7 @@ namespace Automation
                 runHandle.alarmMsg = ex.Message;
                 runHandle.State = ProcRunState.Stopped;
                 runControl?.RequestStop();
-                engine.UpdateSnapshot(runHandle.procNum, runHandle.procName, runHandle.State, runHandle.stepNum, runHandle.opsNum,
+                engine.UpdateSnapshot(runHandle.procNum, runHandle.procId, runHandle.procName, runHandle.State, runHandle.stepNum, runHandle.opsNum,
                     runHandle.isBreakpoint, runHandle.isAlarm, runHandle.alarmMsg, true);
                 engine.Logger?.Log(ex.Message, LogLevel.Error);
             }

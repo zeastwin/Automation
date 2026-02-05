@@ -40,6 +40,7 @@ namespace Automation
         public int opsNum;
 
         public string procName;
+        public Guid procId;
 
         //流程状态
         public ProcRunState State = ProcRunState.Stopped;
@@ -129,10 +130,11 @@ namespace Automation
     }
     public sealed class EngineSnapshot
     {
-        public EngineSnapshot(int procIndex, string procName, ProcRunState state, int stepIndex, int opIndex,
+        public EngineSnapshot(int procIndex, Guid procId, string procName, ProcRunState state, int stepIndex, int opIndex,
             bool isBreakpoint, bool isAlarm, string alarmMessage, DateTime updateTime, long updateTicks)
         {
             ProcIndex = procIndex;
+            ProcId = procId;
             ProcName = procName;
             State = state;
             StepIndex = stepIndex;
@@ -145,6 +147,7 @@ namespace Automation
         }
 
         public int ProcIndex { get; }
+        public Guid ProcId { get; }
         public string ProcName { get; }
         public ProcRunState State { get; }
         public int StepIndex { get; }

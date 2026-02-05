@@ -42,6 +42,9 @@ namespace Automation
 
         private static readonly Color DisabledNodeColor = Color.Gainsboro;
         private const string DisabledTag = "[禁用]";
+        private readonly object procNodeMapLock = new object();
+        private readonly Dictionary<Guid, TreeNode> procNodeMap = new Dictionary<Guid, TreeNode>();
+        private readonly Dictionary<Guid, int> procIndexMap = new Dictionary<Guid, int>();
 
         private ProcHead editProcHeadBackup;
         private Step editStepBackup;
@@ -210,6 +213,11 @@ namespace Automation
             List<string> loadErrors = new List<string>();
 
             proc_treeView.Nodes.Clear();
+            lock (procNodeMapLock)
+            {
+                procNodeMap.Clear();
+                procIndexMap.Clear();
+            }
             SF.ProcConfigFaulted = false;
 
             string path = SF.workPath.TrimEnd('\\');
@@ -269,6 +277,16 @@ namespace Automation
                 {
                     treeNode.ForeColor = DisabledNodeColor;
                 }
+                Guid procId = proc?.head?.Id ?? Guid.Empty;
+                if (procId != Guid.Empty)
+                {
+                    treeNode.Tag = procId;
+                    lock (procNodeMapLock)
+                    {
+                        procNodeMap[procId] = treeNode;
+                        procIndexMap[procId] = i;
+                    }
+                }
                 proc_treeView.Nodes.Add(treeNode);
 
                 if (proc.steps != null)
@@ -320,6 +338,10 @@ namespace Automation
             {
                 proc.head = new ProcHead();
                 errors.Add($"流程{procIndex}头信息缺失");
+            }
+            if (proc.head.Id == Guid.Empty)
+            {
+                proc.head.Id = Guid.NewGuid();
             }
             if (string.IsNullOrWhiteSpace(proc.head.Name))
             {
@@ -1125,6 +1147,27 @@ namespace Automation
             return BuildProcNodeTextCore(procIndex, procName, disabled, suffix);
         }
 
+        internal bool TryGetProcNode(Guid procId, out TreeNode node, out int procIndex)
+        {
+            node = null;
+            procIndex = -1;
+            if (procId == Guid.Empty)
+            {
+                return false;
+            }
+            lock (procNodeMapLock)
+            {
+                if (procNodeMap.TryGetValue(procId, out TreeNode cachedNode)
+                    && procIndexMap.TryGetValue(procId, out int cachedIndex))
+                {
+                    node = cachedNode;
+                    procIndex = cachedIndex;
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private string BuildProcNodeTextCore(int procIndex, string procName, bool disabled, string suffix)
         {
             if (procIndex < 0)
@@ -1302,7 +1345,11 @@ namespace Automation
             ParamListConverter<PauseValueParam>.Name = "暂停变量";
             PauseIoParams = new CustomList<PauseIoParam>();
             PauseValueParams = new CustomList<PauseValueParam>();
+            Id = Guid.NewGuid();
         }
+
+        [Browsable(false)]
+        public Guid Id { get; set; }
 
         [DisplayName("流程名称"), Category("流程信息"), Description(""), ReadOnly(false)]
         public string Name { get; set; }
