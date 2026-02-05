@@ -46,15 +46,12 @@
             this.dgvProcStatus = new System.Windows.Forms.DataGridView();
             this.panelStatusTools = new System.Windows.Forms.Panel();
             this.lblStatusTip = new System.Windows.Forms.Label();
-            this.panelInfoTools = new System.Windows.Forms.Panel();
-            this.btnClearInfo = new System.Windows.Forms.Button();
             this.ReceiveTextBox = new System.Windows.Forms.RichTextBox();
             this.tabControl1.SuspendLayout();
             this.tabPage2.SuspendLayout();
             this.tabPageStatus.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dgvProcStatus)).BeginInit();
             this.panelStatusTools.SuspendLayout();
-            this.panelInfoTools.SuspendLayout();
             this.SuspendLayout();
             // 
             // tabControl1
@@ -72,7 +69,6 @@
             // tabPage2
             // 
             this.tabPage2.Controls.Add(this.ReceiveTextBox);
-            this.tabPage2.Controls.Add(this.panelInfoTools);
             this.tabPage2.Location = new System.Drawing.Point(4, 4);
             this.tabPage2.Margin = new System.Windows.Forms.Padding(0);
             this.tabPage2.Name = "tabPage2";
@@ -163,38 +159,16 @@
             this.lblStatusTip.TabIndex = 0;
             this.lblStatusTip.Text = "双击当前位置可跳转到指令";
             // 
-            // panelInfoTools
-            // 
-            this.panelInfoTools.Controls.Add(this.btnClearInfo);
-            this.panelInfoTools.Dock = System.Windows.Forms.DockStyle.Top;
-            this.panelInfoTools.Location = new System.Drawing.Point(3, 3);
-            this.panelInfoTools.Margin = new System.Windows.Forms.Padding(0);
-            this.panelInfoTools.Name = "panelInfoTools";
-            this.panelInfoTools.Size = new System.Drawing.Size(786, 36);
-            this.panelInfoTools.TabIndex = 3;
-            // 
-            // btnClearInfo
-            // 
-            this.btnClearInfo.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnClearInfo.Location = new System.Drawing.Point(697, 6);
-            this.btnClearInfo.Margin = new System.Windows.Forms.Padding(0);
-            this.btnClearInfo.Name = "btnClearInfo";
-            this.btnClearInfo.Size = new System.Drawing.Size(80, 25);
-            this.btnClearInfo.TabIndex = 0;
-            this.btnClearInfo.Text = "清空";
-            this.btnClearInfo.UseVisualStyleBackColor = true;
-            this.btnClearInfo.Click += new System.EventHandler(this.btnClearInfo_Click);
-            // 
             // ReceiveTextBox
             // 
             this.ReceiveTextBox.Dock = System.Windows.Forms.DockStyle.Fill;
             this.ReceiveTextBox.Font = new System.Drawing.Font("Calibri", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.ReceiveTextBox.Location = new System.Drawing.Point(3, 39);
+            this.ReceiveTextBox.Location = new System.Drawing.Point(3, 3);
             this.ReceiveTextBox.Margin = new System.Windows.Forms.Padding(0);
             this.ReceiveTextBox.Name = "ReceiveTextBox";
             this.ReceiveTextBox.ReadOnly = true;
             this.ReceiveTextBox.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
-            this.ReceiveTextBox.Size = new System.Drawing.Size(786, 382);
+            this.ReceiveTextBox.Size = new System.Drawing.Size(786, 418);
             this.ReceiveTextBox.TabIndex = 2;
             this.ReceiveTextBox.Text = "";
             // 
@@ -214,7 +188,6 @@
             ((System.ComponentModel.ISupportInitialize)(this.dgvProcStatus)).EndInit();
             this.panelStatusTools.ResumeLayout(false);
             this.panelStatusTools.PerformLayout();
-            this.panelInfoTools.ResumeLayout(false);
             this.ResumeLayout(false);
 
         }
@@ -225,9 +198,7 @@
         public System.Windows.Forms.RichTextBox ReceiveTextBox;
         public System.Windows.Forms.TabControl tabControl1;
         private System.Windows.Forms.DataGridView dgvProcStatus;
-        private System.Windows.Forms.Panel panelInfoTools;
         private System.Windows.Forms.Panel panelStatusTools;
         private System.Windows.Forms.Label lblStatusTip;
-        private System.Windows.Forms.Button btnClearInfo;
     }
 }

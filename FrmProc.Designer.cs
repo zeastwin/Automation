@@ -35,6 +35,8 @@
             this.AddStep = new System.Windows.Forms.ToolStripMenuItem();
             this.Remove = new System.Windows.Forms.ToolStripMenuItem();
             this.Modify = new System.Windows.Forms.ToolStripMenuItem();
+            this.CopyProcStep = new System.Windows.Forms.ToolStripMenuItem();
+            this.PasteProcStep = new System.Windows.Forms.ToolStripMenuItem();
             this.ToggleDisable = new System.Windows.Forms.ToolStripMenuItem();
             this.startProc = new System.Windows.Forms.ToolStripMenuItem();
             this.contextMenuStrip1.SuspendLayout();
@@ -59,6 +61,8 @@
             this.AddProc,
             this.AddStep,
             this.Modify,
+            this.CopyProcStep,
+            this.PasteProcStep,
             this.ToggleDisable,
             this.startProc,
             this.Remove});
@@ -93,6 +97,20 @@
             this.Modify.Size = new System.Drawing.Size(124, 22);
             this.Modify.Text = "修改";
             this.Modify.Click += new System.EventHandler(this.Modify_Click);
+            // 
+            // CopyProcStep
+            // 
+            this.CopyProcStep.Name = "CopyProcStep";
+            this.CopyProcStep.Size = new System.Drawing.Size(124, 22);
+            this.CopyProcStep.Text = "复制";
+            this.CopyProcStep.Click += new System.EventHandler(this.CopyProcStep_Click);
+            // 
+            // PasteProcStep
+            // 
+            this.PasteProcStep.Name = "PasteProcStep";
+            this.PasteProcStep.Size = new System.Drawing.Size(124, 22);
+            this.PasteProcStep.Text = "粘贴";
+            this.PasteProcStep.Click += new System.EventHandler(this.PasteProcStep_Click);
             // 
             // ToggleDisable
             // 
@@ -129,6 +147,8 @@
         private System.Windows.Forms.ToolStripMenuItem AddStep;
         private System.Windows.Forms.ToolStripMenuItem Remove;
         private System.Windows.Forms.ToolStripMenuItem Modify;
+        private System.Windows.Forms.ToolStripMenuItem CopyProcStep;
+        private System.Windows.Forms.ToolStripMenuItem PasteProcStep;
         private System.Windows.Forms.ToolStripMenuItem ToggleDisable;
         public System.Windows.Forms.TreeView proc_treeView;
         private System.Windows.Forms.ToolStripMenuItem startProc;

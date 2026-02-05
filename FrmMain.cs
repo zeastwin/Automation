@@ -52,6 +52,20 @@ namespace Automation
         private volatile bool systemStatusReady;
         private volatile bool systemStatusFaulted;
         private int popupAlarmCount;
+        private readonly object popupLock = new object();
+        private readonly Dictionary<int, List<ProcPopupItem>> procPopups = new Dictionary<int, List<ProcPopupItem>>();
+
+        private sealed class ProcPopupItem
+        {
+            public ProcPopupItem(Message dialog, Action closeAction)
+            {
+                Dialog = dialog;
+                CloseAction = closeAction;
+            }
+
+            public Message Dialog { get; }
+            public Action CloseAction { get; }
+        }
 
         public FrmMain()
         {
@@ -145,7 +159,9 @@ namespace Automation
         private void FrmMain_Load(object sender, EventArgs e)
         {
             SF.frmValue.RefreshDic();
+            InitializeSystemStatusValues();
             systemStatusReady = true;
+            UpdateSystemStatusValue();
             SF.cardStore.Load(SF.ConfigPath);
             SF.frmIO.RefreshIOMap();
             SF.frmCard.RefreshStationList();
@@ -403,14 +419,21 @@ namespace Automation
             {
                 return;
             }
+            EngineSnapshot previous = null;
             lock (snapshotLock)
             {
                 if (snapshot.ProcId == Guid.Empty)
                 {
                     return;
                 }
+                snapshotCache.TryGetValue(snapshot.ProcId, out previous);
                 snapshotCache[snapshot.ProcId] = snapshot;
                 snapshotDirty.Add(snapshot.ProcId);
+            }
+            if (snapshot.State == ProcRunState.Stopped
+                && (previous == null || previous.State != ProcRunState.Stopped))
+            {
+                CloseProcPopups(snapshot.ProcIndex);
             }
         }
 
@@ -540,9 +563,41 @@ namespace Automation
             }
 
             SystemStatus targetStatus = CalculateSystemStatus(resetStatus);
-            if (!SF.valueStore.setValueByName(SystemStatusValueName, (double)targetStatus, "系统状态自动更新"))
+            double targetValue = (double)targetStatus;
+            if (double.TryParse(systemValue.Value, out double currentValue) && currentValue == targetValue)
+            {
+                return;
+            }
+            if (!SF.valueStore.setValueByName(SystemStatusValueName, targetValue, "系统状态自动更新"))
             {
                 FailSystemStatus($"写入变量“{SystemStatusValueName}”失败。");
+            }
+            else
+            {
+                SF.frmState?.RefreshBasicInfo();
+            }
+        }
+
+        private void InitializeSystemStatusValues()
+        {
+            if (SF.valueStore == null)
+            {
+                FailSystemStatus("变量库未初始化，无法初始化复位状态。");
+                return;
+            }
+            if (!SF.valueStore.TryGetValueByName(ResetStatusValueName, out DicValue resetValue) || resetValue == null)
+            {
+                FailSystemStatus($"缺少变量：{ResetStatusValueName}");
+                return;
+            }
+            if (resetValue.Type != "double")
+            {
+                FailSystemStatus($"变量“{ResetStatusValueName}”类型不是double。");
+                return;
+            }
+            if (!SF.valueStore.setValueByName(ResetStatusValueName, 0d, "复位状态初始化"))
+            {
+                FailSystemStatus($"写入变量“{ResetStatusValueName}”失败。");
             }
         }
 
@@ -659,6 +714,61 @@ namespace Automation
             return string.Equals(alarmType, "弹框确定", StringComparison.Ordinal)
                 || string.Equals(alarmType, "弹框确定与否", StringComparison.Ordinal)
                 || string.Equals(alarmType, "弹框确定与否与取消", StringComparison.Ordinal);
+        }
+
+        internal void RegisterProcPopup(int procIndex, Message dialog, Action closeAction)
+        {
+            if (procIndex < 0 || dialog == null || closeAction == null)
+            {
+                return;
+            }
+            ProcPopupItem item = new ProcPopupItem(dialog, closeAction);
+            lock (popupLock)
+            {
+                if (!procPopups.TryGetValue(procIndex, out List<ProcPopupItem> list))
+                {
+                    list = new List<ProcPopupItem>();
+                    procPopups[procIndex] = list;
+                }
+                list.Add(item);
+            }
+            dialog.FormClosed += (sender, args) => UnregisterProcPopup(procIndex, item);
+        }
+
+        private void UnregisterProcPopup(int procIndex, ProcPopupItem item)
+        {
+            lock (popupLock)
+            {
+                if (!procPopups.TryGetValue(procIndex, out List<ProcPopupItem> list))
+                {
+                    return;
+                }
+                list.Remove(item);
+                if (list.Count == 0)
+                {
+                    procPopups.Remove(procIndex);
+                }
+            }
+        }
+
+        private void CloseProcPopups(int procIndex)
+        {
+            List<ProcPopupItem> items = null;
+            lock (popupLock)
+            {
+                if (procPopups.TryGetValue(procIndex, out List<ProcPopupItem> list))
+                {
+                    items = new List<ProcPopupItem>(list);
+                }
+            }
+            if (items == null)
+            {
+                return;
+            }
+            foreach (ProcPopupItem item in items)
+            {
+                item?.CloseAction?.Invoke();
+            }
         }
 
         private void UpdateProcText(EngineSnapshot snapshot)
@@ -1067,19 +1177,20 @@ namespace Automation
             void ShowDialog()
             {
                 string title = $"发生报警:{context.ProcIndex}---{context.StepIndex}---{context.OpIndex}";
+                Message dialog = null;
                 switch (context.AlarmType)
                 {
                     case "弹框确定":
-                        new Message(title, context.Note, () => tcs.TrySetResult(AlarmDecision.Goto1), context.Btn1, false);
+                        dialog = new Message(title, context.Note, () => tcs.TrySetResult(AlarmDecision.Goto1), context.Btn1, false);
                         break;
                     case "弹框确定与否":
-                        new Message(title, context.Note,
+                        dialog = new Message(title, context.Note,
                             () => tcs.TrySetResult(AlarmDecision.Goto1),
                             () => tcs.TrySetResult(AlarmDecision.Goto2),
                             context.Btn1, context.Btn2, false);
                         break;
                     case "弹框确定与否与取消":
-                        new Message(title, context.Note,
+                        dialog = new Message(title, context.Note,
                             () => tcs.TrySetResult(AlarmDecision.Goto1),
                             () => tcs.TrySetResult(AlarmDecision.Goto2),
                             () => tcs.TrySetResult(AlarmDecision.Goto3),
@@ -1088,6 +1199,28 @@ namespace Automation
                     default:
                         tcs.TrySetResult(AlarmDecision.Stop);
                         break;
+                }
+                if (dialog != null)
+                {
+                    owner?.RegisterProcPopup(context.ProcIndex, dialog, () =>
+                    {
+                        if (!tcs.Task.IsCompleted)
+                        {
+                            tcs.TrySetResult(AlarmDecision.Stop);
+                        }
+                        if (dialog.IsDisposed)
+                        {
+                            return;
+                        }
+                        if (dialog.InvokeRequired)
+                        {
+                            dialog.BeginInvoke((Action)(() => dialog.btnCanel()));
+                        }
+                        else
+                        {
+                            dialog.btnCanel();
+                        }
+                    });
                 }
             }
 

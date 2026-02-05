@@ -103,10 +103,11 @@ namespace Automation
                         MessageBox.Show(gotoError);
                         return;
                     }
+                    int newOpIndex;
                     if (SF.frmDataGrid.iSelectedRow == -1)
                     {
                         SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Add(SF.frmDataGrid.OperationTemp);
-
+                        newOpIndex = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count - 1;
                     }
                     else
                     {
@@ -118,20 +119,31 @@ namespace Automation
                             return;
                         }
                         SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Insert(insertIndex, SF.frmDataGrid.OperationTemp);
+                        newOpIndex = insertIndex;
 
                         SF.frmProc.RefleshGoto();
                         for (int i = insertIndex + 1; i < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count; i++)
                         {
-
                             OperationType obj = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[i];
-
                             obj.Num += 1;
                         }
-
                     }
 
                     SF.frmDataGrid.SaveSingleProc(SF.frmProc.SelectedProcNum);
                     SF.frmProc.bindingSource.ResetBindings(true);
+                    DataGridView grid = SF.frmDataGrid.dataGridView1;
+                    if (grid != null && newOpIndex >= 0 && newOpIndex < grid.RowCount)
+                    {
+                        SF.frmDataGrid.iSelectedRow = newOpIndex;
+                        SF.frmDataGrid.OperationTemp = (OperationType)SF.frmProc.procsList[SF.frmProc.SelectedProcNum]
+                            .steps[SF.frmProc.SelectedStepNum].Ops[newOpIndex].Clone();
+                        grid.ClearSelection();
+                        grid.Rows[newOpIndex].Selected = true;
+                        grid.FirstDisplayedScrollingRowIndex = Math.Max(0, Math.Min(newOpIndex, grid.RowCount - 1));
+                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
+                        SF.frmDataGrid.OperationTemp.evtRP();
+                        SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
+                    }
                    
 
                 }

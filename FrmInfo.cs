@@ -17,6 +17,8 @@ namespace Automation
         private int lastStatusProcCount = -1;
         private const int StatusColumnsPerGroup = 4;
         private const int StatusMinGroupWidth = 320;
+        private ContextMenuStrip infoMenu;
+        private ToolStripMenuItem menuClearInfo;
 
         public FrmInfo()
         {
@@ -26,6 +28,7 @@ namespace Automation
         private void FrmInfo_Load(object sender, EventArgs e)
         {
             InitializeStatusPage();
+            InitializeInfoMenu();
         }
 
         private void btnClearInfo_Click(object sender, EventArgs e)
@@ -35,6 +38,19 @@ namespace Automation
                 return;
             }
             ReceiveTextBox.Clear();
+        }
+
+        private void InitializeInfoMenu()
+        {
+            if (infoMenu != null)
+            {
+                return;
+            }
+            infoMenu = new ContextMenuStrip();
+            menuClearInfo = new ToolStripMenuItem("清空");
+            menuClearInfo.Click += btnClearInfo_Click;
+            infoMenu.Items.Add(menuClearInfo);
+            ReceiveTextBox.ContextMenuStrip = infoMenu;
         }
 
 

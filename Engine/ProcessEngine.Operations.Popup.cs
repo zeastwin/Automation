@@ -314,6 +314,29 @@ namespace Automation
                 dialog.BackColor = popup.PopupBackColor;
                 dialog.txtMsg.ForeColor = popup.PopupFontColor;
                 dialog.txtMsg.BackColor = popup.PopupBackColor;
+                if (UiInvoker is FrmMain main)
+                {
+                    int procIndex = evt?.procNum ?? -1;
+                    main.RegisterProcPopup(procIndex, dialog, () =>
+                    {
+                        if (!tcs.Task.IsCompleted)
+                        {
+                            tcs.TrySetResult(AlarmDecision.Ignore);
+                        }
+                        if (dialog.IsDisposed)
+                        {
+                            return;
+                        }
+                        if (dialog.InvokeRequired)
+                        {
+                            dialog.BeginInvoke((Action)(() => dialog.btnCanel()));
+                        }
+                        else
+                        {
+                            dialog.btnCanel();
+                        }
+                    });
+                }
 
                 if (popup.DelayClose)
                 {

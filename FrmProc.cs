@@ -51,6 +51,8 @@ namespace Automation
         private int editProcIndex = -1;
         private int editStepIndex = -1;
         private bool hasEditBackup = false;
+        private Proc clipboardProc;
+        private Step clipboardStep;
 
         public FrmProc()
         {
@@ -940,13 +942,26 @@ namespace Automation
                     MessageBox.Show("流程已禁用，无法启动。");
                     return;
                 }
-                SF.DR.StartProc(null, SF.frmProc.SelectedProcNum);
+                int procIndex = SelectedProcNum;
+                string procName = procsList[procIndex]?.head?.Name;
+                if (string.IsNullOrWhiteSpace(procName))
+                {
+                    procName = "未命名";
+                }
+                string message = $"确认启动流程：{procIndex}-{procName}";
+                Message confirmForm = new Message("启动确认", message,
+                    () => SF.DR.StartProc(null, procIndex),
+                    () => { },
+                    "启动", "取消", false);
+                confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
+                confirmForm.txtMsg.ForeColor = Color.Red;
             }
         }
 
         private void contextMenuStrip1_Opening(object sender, CancelEventArgs e)
         {
             UpdateToggleDisableMenu();
+            UpdateCopyPasteMenu();
         }
 
         private void UpdateToggleDisableMenu()
@@ -984,6 +999,300 @@ namespace Automation
                 ? (isStep ? "启用步骤" : "启用流程")
                 : (isStep ? "禁用步骤" : "禁用流程");
             ToggleDisable.Enabled = SF.HasPermission(PermissionKeys.ProcessEdit);
+        }
+
+        private void UpdateCopyPasteMenu()
+        {
+            if (CopyProcStep != null)
+            {
+                CopyProcStep.Enabled = proc_treeView.SelectedNode != null;
+            }
+            if (PasteProcStep != null)
+            {
+                PasteProcStep.Enabled = clipboardProc != null || clipboardStep != null;
+            }
+        }
+
+        private void CopyProcStep_Click(object sender, EventArgs e)
+        {
+            TreeNode node = proc_treeView.SelectedNode;
+            if (node == null)
+            {
+                MessageBox.Show("请选择需要复制的流程或步骤。");
+                return;
+            }
+            if (node.Parent == null)
+            {
+                int procIndex = node.Index;
+                if (procIndex < 0 || procIndex >= procsList.Count)
+                {
+                    MessageBox.Show("流程索引无效，无法复制。");
+                    return;
+                }
+                clipboardProc = FrmPropertyGrid.DeepCopy(procsList[procIndex]);
+                clipboardStep = null;
+            }
+            else
+            {
+                int procIndex = node.Parent.Index;
+                int stepIndex = node.Index;
+                if (procIndex < 0 || procIndex >= procsList.Count)
+                {
+                    MessageBox.Show("流程索引无效，无法复制步骤。");
+                    return;
+                }
+                if (stepIndex < 0 || stepIndex >= procsList[procIndex].steps.Count)
+                {
+                    MessageBox.Show("步骤索引无效，无法复制。");
+                    return;
+                }
+                clipboardStep = FrmPropertyGrid.DeepCopy(procsList[procIndex].steps[stepIndex]);
+                clipboardProc = null;
+            }
+            UpdateCopyPasteMenu();
+        }
+
+        private void PasteProcStep_Click(object sender, EventArgs e)
+        {
+            if (clipboardProc != null)
+            {
+                PasteProc();
+                return;
+            }
+            if (clipboardStep != null)
+            {
+                PasteStep();
+                return;
+            }
+            MessageBox.Show("剪贴板为空，无法粘贴。");
+        }
+
+        private void PasteProc()
+        {
+            if (!SF.CanEditProcStructure())
+            {
+                return;
+            }
+            Proc newProc = FrmPropertyGrid.DeepCopy(clipboardProc);
+            ResetProcIdentity(newProc);
+            UpdateCopiedProcName(newProc);
+            int insertIndex = SelectedProcNum >= 0 ? SelectedProcNum + 1 : procsList.Count;
+            if (insertIndex < 0 || insertIndex > procsList.Count)
+            {
+                insertIndex = procsList.Count;
+            }
+            AdaptGotoProcIndex(newProc, insertIndex);
+            List<string> errors = new List<string>();
+            NormalizeProc(insertIndex, newProc, errors);
+            if (errors.Count > 0)
+            {
+                MessageBox.Show(string.Join("\r\n", errors.Distinct()));
+                return;
+            }
+            procsList.Insert(insertIndex, newProc);
+            RebuildWorkConfig();
+            SelectProcNode(insertIndex, -1);
+        }
+
+        private void PasteStep()
+        {
+            if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
+            {
+                MessageBox.Show("请选择需要粘贴到的流程。");
+                return;
+            }
+            if (!SF.CanEditProc(SelectedProcNum))
+            {
+                return;
+            }
+            Step newStep = FrmPropertyGrid.DeepCopy(clipboardStep);
+            ResetStepIdentity(newStep);
+            int procIndex = SelectedProcNum;
+            int insertIndex = SelectedStepNum >= 0 ? SelectedStepNum + 1 : procsList[procIndex].steps.Count;
+            if (insertIndex < 0 || insertIndex > procsList[procIndex].steps.Count)
+            {
+                insertIndex = procsList[procIndex].steps.Count;
+            }
+            procsList[procIndex].steps.Insert(insertIndex, newStep);
+            List<string> errors = new List<string>();
+            NormalizeProc(procIndex, procsList[procIndex], errors);
+            if (errors.Count > 0)
+            {
+                MessageBox.Show(string.Join("\r\n", errors.Distinct()));
+                return;
+            }
+            SF.mainfrm.SaveAsJson(SF.workPath, procIndex.ToString(), procsList[procIndex]);
+            SF.PublishProc(procIndex);
+            Refresh();
+            SelectProcNode(procIndex, insertIndex);
+        }
+
+        private void ResetProcIdentity(Proc proc)
+        {
+            if (proc == null)
+            {
+                return;
+            }
+            if (proc.head == null)
+            {
+                proc.head = new ProcHead();
+            }
+            proc.head.Id = Guid.NewGuid();
+            if (proc.steps == null)
+            {
+                proc.steps = new List<Step>();
+            }
+            foreach (Step step in proc.steps)
+            {
+                ResetStepIdentity(step);
+            }
+        }
+
+        private void UpdateCopiedProcName(Proc proc)
+        {
+            if (proc?.head == null)
+            {
+                return;
+            }
+            string sourceName = proc.head.Name;
+            if (string.IsNullOrWhiteSpace(sourceName))
+            {
+                sourceName = "流程";
+            }
+            string baseName = GetProcNameBase(sourceName);
+            int maxSuffix = 0;
+            foreach (Proc item in procsList)
+            {
+                string name = item?.head?.Name;
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+                if (string.Equals(name, baseName, StringComparison.Ordinal))
+                {
+                    maxSuffix = Math.Max(maxSuffix, 0);
+                    continue;
+                }
+                if (name.StartsWith(baseName + "_", StringComparison.Ordinal))
+                {
+                    string suffixText = name.Substring(baseName.Length + 1);
+                    if (int.TryParse(suffixText, out int suffix) && suffix > maxSuffix)
+                    {
+                        maxSuffix = suffix;
+                    }
+                }
+            }
+            proc.head.Name = $"{baseName}_{maxSuffix + 1}";
+        }
+
+        private string GetProcNameBase(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return "流程";
+            }
+            int lastUnderscore = name.LastIndexOf('_');
+            if (lastUnderscore <= 0 || lastUnderscore >= name.Length - 1)
+            {
+                return name;
+            }
+            string suffixText = name.Substring(lastUnderscore + 1);
+            if (!int.TryParse(suffixText, out _))
+            {
+                return name;
+            }
+            return name.Substring(0, lastUnderscore);
+        }
+
+        private void ResetStepIdentity(Step step)
+        {
+            if (step == null)
+            {
+                return;
+            }
+            step.Id = Guid.NewGuid();
+            if (step.Ops == null)
+            {
+                step.Ops = new List<OperationType>();
+            }
+            foreach (OperationType op in step.Ops)
+            {
+                if (op != null)
+                {
+                    op.Id = Guid.NewGuid();
+                }
+            }
+        }
+
+        private void AdaptGotoProcIndex(Proc proc, int procIndex)
+        {
+            if (proc?.steps == null)
+            {
+                return;
+            }
+            foreach (Step step in proc.steps)
+            {
+                if (step?.Ops == null)
+                {
+                    continue;
+                }
+                foreach (OperationType op in step.Ops)
+                {
+                    AdaptGotoProcIndex(op, procIndex);
+                }
+            }
+        }
+
+        private void AdaptGotoProcIndex(object obj, int procIndex)
+        {
+            if (obj == null)
+            {
+                return;
+            }
+            foreach (var propertyInfo in obj.GetType().GetProperties())
+            {
+                if (propertyInfo.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+                if (propertyInfo.PropertyType == typeof(string)
+                    && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
+                {
+                    string value = propertyInfo.GetValue(obj) as string;
+                    if (!string.IsNullOrWhiteSpace(value)
+                        && TryParseGotoKey(value, out _, out int stepIndex, out int opIndex))
+                    {
+                        propertyInfo.SetValue(obj, $"{procIndex}-{stepIndex}-{opIndex}");
+                    }
+                }
+                var propertyValue = propertyInfo.GetValue(obj);
+                if (propertyValue is IEnumerable enumerable && !(propertyValue is string))
+                {
+                    foreach (var item in enumerable)
+                    {
+                        AdaptGotoProcIndex(item, procIndex);
+                    }
+                }
+            }
+        }
+
+        private void SelectProcNode(int procIndex, int stepIndex)
+        {
+            if (proc_treeView == null || proc_treeView.Nodes.Count == 0)
+            {
+                return;
+            }
+            if (procIndex < 0 || procIndex >= proc_treeView.Nodes.Count)
+            {
+                return;
+            }
+            TreeNode target = proc_treeView.Nodes[procIndex];
+            if (stepIndex >= 0 && stepIndex < target.Nodes.Count)
+            {
+                target = target.Nodes[stepIndex];
+            }
+            proc_treeView.SelectedNode = target;
+            target.EnsureVisible();
         }
 
         private void ToggleDisable_Click(object sender, EventArgs e)
