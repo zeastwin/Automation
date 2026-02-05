@@ -205,10 +205,6 @@ namespace Automation
             connectListView4[0] = listView4;
             connectListView5[0] = listView5;
             connectListView6[0] = CreateConnectOutput2ListView("listView6");
-            AttachConnectListViewEvents(connectListView3[0]);
-            AttachConnectListViewEvents(connectListView4[0]);
-            AttachConnectListViewEvents(connectListView5[0]);
-            AttachConnectListViewEvents(connectListView6[0]);
             connectSplitters[0] = new[]
             {
                 CreateConnectSplitter("connectSplitter1_1", 0),
@@ -221,10 +217,6 @@ namespace Automation
             connectListView4[1] = CreateConnectInputListView("listView4_2");
             connectListView5[1] = CreateConnectInputListView("listView5_2");
             connectListView6[1] = CreateConnectOutput2ListView("listView6_2");
-            AttachConnectListViewEvents(connectListView3[1]);
-            AttachConnectListViewEvents(connectListView4[1]);
-            AttachConnectListViewEvents(connectListView5[1]);
-            AttachConnectListViewEvents(connectListView6[1]);
             connectSplitters[1] = new[]
             {
                 CreateConnectSplitter("connectSplitter2_1", 1),
@@ -237,10 +229,6 @@ namespace Automation
             connectListView4[2] = CreateConnectInputListView("listView4_3");
             connectListView5[2] = CreateConnectInputListView("listView5_3");
             connectListView6[2] = CreateConnectOutput2ListView("listView6_3");
-            AttachConnectListViewEvents(connectListView3[2]);
-            AttachConnectListViewEvents(connectListView4[2]);
-            AttachConnectListViewEvents(connectListView5[2]);
-            AttachConnectListViewEvents(connectListView6[2]);
             connectSplitters[2] = new[]
             {
                 CreateConnectSplitter("connectSplitter3_1", 2),
@@ -463,20 +451,6 @@ namespace Automation
                 columnWidth = width;
             }
             listView.Columns[0].Width = columnWidth;
-        }
-
-        private void AttachConnectListViewEvents(ListView listView)
-        {
-            if (listView == null)
-            {
-                return;
-            }
-            listView.SizeChanged += ConnectListView_SizeChanged;
-        }
-
-        private void ConnectListView_SizeChanged(object sender, EventArgs e)
-        {
-            UpdateConnectListViewColumnWidth(sender as ListView);
         }
 
         private void EnsureListViewSingleColumn(ListView listView, string header, int width)
