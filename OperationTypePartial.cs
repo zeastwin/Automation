@@ -93,6 +93,23 @@ namespace Automation
             }
         }
 
+        public class PauseCountItem : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(new List<string>() { "0", "1", "2", "3", "4", "5", "6" });
+            }
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return false;
+            }
+        }
+
         public class AlarmItem : StringConverter
         {
             public override bool GetStandardValuesSupported(ITypeDescriptorContext context)

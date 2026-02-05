@@ -1807,7 +1807,7 @@ namespace Automation
         public bool Disable { get; set; }
 
         private string pauseIoCount;
-        [DisplayName("暂停IO数"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
+        [DisplayName("暂停IO数"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(PauseCountItem))]
         public string PauseIoCount
         {
             get { return pauseIoCount; }
@@ -1844,7 +1844,7 @@ namespace Automation
         public CustomList<PauseIoParam> PauseIoParams { get; set; }
 
         private string pauseValueCount;
-        [DisplayName("暂停变量数"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
+        [DisplayName("暂停变量数"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(PauseCountItem))]
         public string PauseValueCount
         {
             get { return pauseValueCount; }
