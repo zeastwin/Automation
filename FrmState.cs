@@ -1,31 +1,15 @@
 ﻿using System;
-using System.ComponentModel;
+using System.Drawing;
 using System.Windows.Forms;
 
 namespace Automation
 {
-    public partial class FrmState : Form , INotifyPropertyChanged
+    public partial class FrmState : Form
     {
         private const string SystemStatusValueName = "系统状态";
         private string basicInfo;
-        private string displayInfo;
         private System.Windows.Forms.Timer systemStatusTimer;
         private const int SystemStatusPollIntervalMs = 500;
-
-        public string DisplayInfo
-        {
-            get
-            {
-                return displayInfo;
-            }
-            private set
-            {
-                displayInfo = value;
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayInfo)));
-            }
-        }
-
-        public event PropertyChangedEventHandler PropertyChanged;
 
         public FrmState()
         {
@@ -34,7 +18,6 @@ namespace Automation
         }
         private void FrmState_Load(object sender, EventArgs e)
         {
-            SysInfo.DataBindings.Add(new Binding("Text", this, "DisplayInfo"));
             InitializeSystemStatusTimer();
             RefreshBasicInfo();
         }
@@ -55,8 +38,17 @@ namespace Automation
             }
 
             basicInfo = $"用户:{userName}";
-            string systemStatus = GetSystemStatusText();
-            DisplayInfo = $"{basicInfo}  系统状态:{systemStatus}";
+            bool hasStatus = TryGetSystemStatus(out SystemStatus status);
+            string systemStatus = GetSystemStatusText(hasStatus, status);
+            SysInfo.Text = basicInfo;
+            lblSystemStatus.Text = $"系统状态:{systemStatus}";
+            lblSystemStatus.ForeColor = GetSystemStatusColor(hasStatus, status);
+            int nextX = SysInfo.Right + 20;
+            if (nextX < 6)
+            {
+                nextX = 6;
+            }
+            lblSystemStatus.Location = new Point(nextX, SysInfo.Top);
         }
         
         private void InitializeSystemStatusTimer()
@@ -87,45 +79,85 @@ namespace Automation
             systemStatusTimer.Start();
         }
 
-        private string GetSystemStatusText()
+        private bool TryGetSystemStatus(out SystemStatus status)
         {
+            status = SystemStatus.Uninitialized;
             if (SF.valueStore == null)
             {
-                return "未知";
+                return false;
             }
             if (!SF.valueStore.TryGetValueByName(SystemStatusValueName, out DicValue value) || value == null)
             {
-                return "未知";
+                return false;
             }
             if (!string.Equals(value.Type, "double", StringComparison.OrdinalIgnoreCase))
             {
-                return "未知";
+                return false;
             }
             if (!double.TryParse(value.Value, out double rawValue))
             {
-                return "未知";
+                return false;
             }
             int intValue = (int)rawValue;
             if (rawValue != intValue)
             {
+                return false;
+            }
+            if (!Enum.IsDefined(typeof(SystemStatus), intValue))
+            {
+                return false;
+            }
+            status = (SystemStatus)intValue;
+            return true;
+        }
+
+        private string GetSystemStatusText(bool hasStatus, SystemStatus status)
+        {
+            if (!hasStatus)
+            {
                 return "未知";
             }
-            switch (intValue)
+            switch (status)
             {
-                case (int)SystemStatus.Uninitialized:
+                case SystemStatus.Uninitialized:
                     return "未初始化";
-                case (int)SystemStatus.ProcAlarm:
+                case SystemStatus.ProcAlarm:
                     return "流程报警";
-                case (int)SystemStatus.Ready:
+                case SystemStatus.Ready:
                     return "就绪";
-                case (int)SystemStatus.Working:
+                case SystemStatus.Working:
                     return "工作中";
-                case (int)SystemStatus.Paused:
+                case SystemStatus.Paused:
                     return "暂停工作";
-                case (int)SystemStatus.PopupAlarm:
+                case SystemStatus.PopupAlarm:
                     return "弹框报警";
                 default:
                     return "未知";
+            }
+        }
+
+        private Color GetSystemStatusColor(bool hasStatus, SystemStatus status)
+        {
+            if (!hasStatus)
+            {
+                return Color.DimGray;
+            }
+            switch (status)
+            {
+                case SystemStatus.Uninitialized:
+                    return Color.DimGray;
+                case SystemStatus.ProcAlarm:
+                    return Color.Red;
+                case SystemStatus.Ready:
+                    return Color.DodgerBlue;
+                case SystemStatus.Working:
+                    return Color.ForestGreen;
+                case SystemStatus.Paused:
+                    return Color.Orange;
+                case SystemStatus.PopupAlarm:
+                    return Color.Red;
+                default:
+                    return Color.DimGray;
             }
         }
     }
