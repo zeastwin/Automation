@@ -96,8 +96,9 @@ namespace Automation
                     MessageBox.Show("当前流程索引无效，无法插入流程。");
                     return;
                 }
-                procsList.Insert(SelectedProcNum+1, proc);
-                RebuildWorkConfig();
+                int insertIndex = SelectedProcNum + 1;
+                procsList.Insert(insertIndex, proc);
+                RebuildWorkConfig(insertIndex);
             }
 
             NewProcNum = -1;
@@ -147,7 +148,7 @@ namespace Automation
             NewStepNum = -1;
 
         }
-        public void RebuildWorkConfig()
+        public void RebuildWorkConfig(int startIndex = 0)
         {
             string workDir = SF.workPath.TrimEnd('\\');
             string configDir = Path.GetDirectoryName(workDir);
@@ -170,6 +171,8 @@ namespace Automation
                 Directory.Delete(tempDir, true);
             }
             Directory.CreateDirectory(tempDir);
+
+            AdaptGotoProcIndexForAllProcs(startIndex);
 
             string tempPath = tempDir + "\\";
             for (int i = 0; i < procsList.Count; i++)
@@ -690,7 +693,7 @@ namespace Automation
                     return;
                 }
                 procsList.RemoveAt(procIndex);
-                RebuildWorkConfig();
+                RebuildWorkConfig(procIndex);
             }
             else
             {
@@ -1090,7 +1093,7 @@ namespace Automation
                 return;
             }
             procsList.Insert(insertIndex, newProc);
-            RebuildWorkConfig();
+            RebuildWorkConfig(insertIndex);
             SelectProcNode(insertIndex, -1);
         }
 
@@ -1240,6 +1243,30 @@ namespace Automation
                 {
                     AdaptGotoProcIndex(op, procIndex);
                 }
+            }
+        }
+
+        private void AdaptGotoProcIndexForAllProcs(int startIndex)
+        {
+            if (procsList == null)
+            {
+                return;
+            }
+            if (procsList.Count == 0)
+            {
+                return;
+            }
+            if (startIndex < 0)
+            {
+                startIndex = 0;
+            }
+            if (startIndex >= procsList.Count)
+            {
+                return;
+            }
+            for (int i = startIndex; i < procsList.Count; i++)
+            {
+                AdaptGotoProcIndex(procsList[i], i);
             }
         }
 
