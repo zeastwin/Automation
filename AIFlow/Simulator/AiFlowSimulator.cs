@@ -361,6 +361,27 @@ namespace Automation.AIFlow
                 }
             }
 
+            if (!output && !string.IsNullOrEmpty(paramGoto.failDelay))
+            {
+                if (!int.TryParse(paramGoto.failDelay, out int delayMs) || delayMs < 0)
+                {
+                    trace.Issues.Add(new AiFlowIssue("SIM_PARAMGOTO_DELAY", $"逻辑判断失败延时无效:{paramGoto.failDelay}", "simulate"));
+                    return false;
+                }
+                if (delayMs > 0)
+                {
+                    trace.Events.Add(new AiFlowTraceEvent
+                    {
+                        Sequence = sequence++,
+                        Type = "delay",
+                        ProcId = simOp.ProcId,
+                        StepId = simOp.StepId,
+                        OpId = simOp.OpId,
+                        OpCode = simOp.OpCode,
+                        Message = paramGoto.failDelay
+                    });
+                }
+            }
             string target = output ? paramGoto.goto1 : paramGoto.goto2;
             return ApplyGotoTarget(simOp, target, procIndex, ref stepIndex, ref opIndex, trace, ref sequence);
         }

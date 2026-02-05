@@ -362,6 +362,15 @@ namespace Automation
                         }
                     }
                 }
+                if (!outPut && !string.IsNullOrEmpty(paramGoto.failDelay))
+                {
+                    if (!int.TryParse(paramGoto.failDelay, out int delayMs) || delayMs < 0)
+                    {
+                        MarkAlarm(evt, $"失败延时无效:{paramGoto.failDelay}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
+                    Delay(delayMs, evt);
+                }
                 string gotoTarget = outPut ? paramGoto.goto1 : paramGoto.goto2;
                 if (!TryExecuteGoto(gotoTarget, evt, out string gotoError))
                 {

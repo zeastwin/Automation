@@ -648,6 +648,9 @@ namespace Automation
         [DisplayName("失败跳转"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
         public string goto2 { get; set; }
 
+        [DisplayName("失败延时(ms)"), Category("参数"), Description(""), ReadOnly(false)]
+        public string failDelay { get; set; }
+
         private string count;
         [DisplayName("匹配数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(MathcCount))]
         public string Count

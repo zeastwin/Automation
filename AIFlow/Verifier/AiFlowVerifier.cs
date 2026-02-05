@@ -273,6 +273,13 @@ namespace Automation.AIFlow
             {
                 issues.Add(new AiFlowIssue("VERIFY_PARAMGOTO_GOTO2", "逻辑判断失败跳转为空", loc));
             }
+            if (!string.IsNullOrEmpty(paramGoto.failDelay))
+            {
+                if (!int.TryParse(paramGoto.failDelay, out int delayMs) || delayMs < 0)
+                {
+                    issues.Add(new AiFlowIssue("VERIFY_PARAMGOTO_FAILDELAY", $"逻辑判断失败延时无效:{paramGoto.failDelay}", loc));
+                }
+            }
         }
 
         private static void VerifyWaitTcp(WaitTcp waitTcp, string loc, List<AiFlowIssue> issues)
