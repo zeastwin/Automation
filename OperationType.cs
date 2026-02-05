@@ -703,7 +703,7 @@ namespace Automation
         [DisplayName("下限"), Category("参数"), Description(""), ReadOnly(false)]
         public double Down { get; set; }
 
-        [DisplayName("特征字符"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(Operator))]
+        [DisplayName("特征字符"), Category("参数"), Description(""), ReadOnly(false)]
         public string keyString { get; set; }
 
         [DisplayName("带等号"), Category("参数"), Description(""), ReadOnly(false)]
