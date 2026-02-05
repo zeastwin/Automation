@@ -42,6 +42,7 @@ namespace Automation
         private EngineSnapshot[] snapshotCache = Array.Empty<EngineSnapshot>();
         private bool[] snapshotDirty = Array.Empty<bool>();
         private readonly object snapshotLock = new object();
+        private readonly object saveFileLock = new object();
         private System.Windows.Forms.Timer snapshotTimer;
         private CancellationTokenSource axisMonitorCts;
         private Task axisMonitorTask;
@@ -622,10 +623,10 @@ namespace Automation
                 frm.Focus();
             }
         }
+
         public T ReadJson<T>(string FilePath, string Name)
         {
-
-            String strFilePath = FilePath + Name + ".json";
+            string strFilePath = Path.Combine(FilePath, Name + ".json");
             if (!File.Exists(strFilePath))
             {
                 return default(T);
@@ -633,31 +634,27 @@ namespace Automation
 
             try
             {
-                StreamReader r = new StreamReader(strFilePath);
-                JsonTextReader reader = new JsonTextReader(r);
-                string json = r.ReadToEnd();
-                var settings = new JsonSerializerSettings
+                using (FileStream stream = new FileStream(strFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (StreamReader r = new StreamReader(stream))
                 {
-                    TypeNameHandling = TypeNameHandling.All
-                };
-                var temp = JsonConvert.DeserializeObject<T>(json, settings);
-
-                r.Close();
-
-                return temp;
+                    string json = r.ReadToEnd();
+                    var settings = new JsonSerializerSettings
+                    {
+                        TypeNameHandling = TypeNameHandling.All
+                    };
+                    return JsonConvert.DeserializeObject<T>(json, settings);
+                }
             }
-
             catch (Exception e)
             {
                 MessageBox.Show(e.Message);
-                return default(T); 
+                return default(T);
             }
-
         }
 
         public bool SaveAsJson<T>(string FilePath, string Name, T t)
         {
-            string strFilePath = FilePath + Name + ".json";
+            string strFilePath = Path.Combine(FilePath, Name + ".json");
             string directory = Path.GetDirectoryName(strFilePath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
@@ -668,20 +665,67 @@ namespace Automation
             {
                 TypeNameHandling = TypeNameHandling.All
             };
-            string output = Newtonsoft.Json.JsonConvert.SerializeObject(t, settings);
+            string output = JsonConvert.SerializeObject(t, settings);
+            Exception lastError = null;
 
-            string tempPath = strFilePath + ".tmp";
-            File.WriteAllText(tempPath, output);
-            if (File.Exists(strFilePath))
+            for (int attempt = 0; attempt < 3; attempt++)
             {
-                File.Replace(tempPath, strFilePath, null);
-            }
-            else
-            {
-                File.Move(tempPath, strFilePath);
+                string tempPath = strFilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    lock (saveFileLock)
+                    {
+                        File.WriteAllText(tempPath, output);
+                        if (File.Exists(strFilePath))
+                        {
+                            FileAttributes attributes = File.GetAttributes(strFilePath);
+                            if ((attributes & FileAttributes.ReadOnly) != 0)
+                            {
+                                File.SetAttributes(strFilePath, attributes & ~FileAttributes.ReadOnly);
+                            }
+                            File.Replace(tempPath, strFilePath, null, true);
+                        }
+                        else
+                        {
+                            File.Move(tempPath, strFilePath);
+                        }
+                    }
+                    return true;
+                }
+                catch (IOException ex)
+                {
+                    lastError = ex;
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    lastError = ex;
+                    break;
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                    {
+                        try
+                        {
+                            File.Delete(tempPath);
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+
+                Thread.Sleep(60 * (attempt + 1));
             }
 
-            return true;
+            string reason = $"保存配置失败：{strFilePath}\r\n{lastError?.Message}";
+            dataRun?.Logger?.Log(reason, LogLevel.Error);
+            if (frmInfo != null && !frmInfo.IsDisposed)
+            {
+                frmInfo.PrintInfo(reason, FrmInfo.Level.Error);
+            }
+            MessageBox.Show(reason);
+            return false;
         }
 
         private void FrmMain_KeyDown(object sender, KeyEventArgs e)
