@@ -507,47 +507,14 @@ namespace Automation
                 return;
             }
 
-            string stateText;
-            switch (snapshot.State)
-            {
-                case ProcRunState.Stopped:
-                    stateText = "停止";
-                    break;
-                case ProcRunState.Paused:
-                    stateText = "暂停";
-                    break;
-                case ProcRunState.SingleStep:
-                    stateText = "单步";
-                    break;
-                case ProcRunState.Running:
-                    stateText = "运行";
-                    break;
-                case ProcRunState.Alarming:
-                    stateText = "报警中";
-                    break;
-                default:
-                    stateText = "未知";
-                    break;
-            }
-
-            string result = $"|{stateText}";
-            if (snapshot.IsBreakpoint)
-            {
-                result += "|断点";
-            }
             void ApplyProcText()
             {
-                string procName = snapshot.ProcName;
-                if (string.IsNullOrEmpty(procName) && procNum < SF.frmProc.procsList.Count)
-                {
-                    procName = SF.frmProc.procsList[procNum].head.Name;
-                }
                 TreeNode node = SF.frmProc.proc_treeView.Nodes[procNum];
                 bool isDisabled = procNum >= 0
                     && procNum < SF.frmProc.procsList.Count
                     && SF.frmProc.procsList[procNum]?.head?.Disable == true;
-                string disabledTag = isDisabled ? "[禁用]" : string.Empty;
-                node.Text = disabledTag + procName + result;
+                Proc proc = SF.frmProc.procsList[procNum];
+                node.Text = SF.frmProc.BuildProcNodeTextWithState(procNum, proc, snapshot);
                 if (isDisabled)
                 {
                     node.ForeColor = Color.Gainsboro;

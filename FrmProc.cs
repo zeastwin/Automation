@@ -1100,9 +1100,74 @@ namespace Automation
             {
                 return string.Empty;
             }
-            string procName = string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"流程{procIndex}" : proc.head.Name;
-            string tag = proc?.head?.Disable == true ? DisabledTag : string.Empty;
-            return $"{procIndex}：{tag}{procName}";
+            string procName = ResolveProcName(procIndex, proc, null);
+            bool disabled = proc?.head?.Disable == true;
+            return BuildProcNodeTextCore(procIndex, procName, disabled, string.Empty);
+        }
+
+        internal string BuildProcNodeTextWithState(int procIndex, Proc proc, EngineSnapshot snapshot)
+        {
+            if (procIndex < 0)
+            {
+                return string.Empty;
+            }
+            string procName = ResolveProcName(procIndex, proc, snapshot);
+            bool disabled = proc?.head?.Disable == true;
+            string suffix = string.Empty;
+            if (snapshot != null)
+            {
+                suffix = $"|{GetProcStateText(snapshot.State)}";
+                if (snapshot.IsBreakpoint)
+                {
+                    suffix += "|断点";
+                }
+            }
+            return BuildProcNodeTextCore(procIndex, procName, disabled, suffix);
+        }
+
+        private string BuildProcNodeTextCore(int procIndex, string procName, bool disabled, string suffix)
+        {
+            if (procIndex < 0)
+            {
+                return string.Empty;
+            }
+            string safeName = string.IsNullOrWhiteSpace(procName) ? $"流程{procIndex}" : procName;
+            string tag = disabled ? DisabledTag : string.Empty;
+            string text = $"{procIndex}：{tag}{safeName}";
+            if (!string.IsNullOrWhiteSpace(suffix))
+            {
+                text += suffix;
+            }
+            return text;
+        }
+
+        private string ResolveProcName(int procIndex, Proc proc, EngineSnapshot snapshot)
+        {
+            string name = snapshot?.ProcName;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"流程{procIndex}" : proc.head.Name;
+            }
+            return name;
+        }
+
+        private static string GetProcStateText(ProcRunState state)
+        {
+            switch (state)
+            {
+                case ProcRunState.Stopped:
+                    return "停止";
+                case ProcRunState.Paused:
+                    return "暂停";
+                case ProcRunState.SingleStep:
+                    return "单步";
+                case ProcRunState.Running:
+                    return "运行";
+                case ProcRunState.Alarming:
+                    return "报警中";
+                default:
+                    return "未知";
+            }
         }
 
         private string BuildStepNodeText(int procIndex, int stepIndex, Proc proc, Step step)
