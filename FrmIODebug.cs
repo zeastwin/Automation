@@ -41,6 +41,10 @@ namespace Automation
         private const int IoRowHeight = 46;
         private const int IoItemWidth = 150;
         private const int IoItemHeight = 34;
+        private const string RemarkHeaderTag = "RemarkHeader";
+        private const string RemarkLabelTag = "RemarkLabel";
+        private const string RemarkLineLeftTag = "RemarkLineLeft";
+        private const string RemarkLineRightTag = "RemarkLineRight";
         private int inputRowsPerColumn = -1;
         private int outputRowsPerColumn = -1;
         private int connectRowsPerColumn = -1;
@@ -695,9 +699,8 @@ namespace Automation
         private void RefreshCurrentConnectDisplayPage()
         {
             TabPage connectPage = GetCurrentConnectDisplayPage();
-            connectPage.Controls.Clear();
-            btnCon.Clear();
-            connectRowsPerColumn = -1;
+            List<IOConnect> connectList = GetConnectListForDisplay();
+            CreateButtonConnect(connectList, connectPage, true);
             Array.Clear(ConnectOutValid, 0, ConnectOutValid.Length);
             Array.Clear(ConnectIn1Valid, 0, ConnectIn1Valid.Length);
             Array.Clear(ConnectIn2Valid, 0, ConnectIn2Valid.Length);
@@ -728,8 +731,7 @@ namespace Automation
             int newInputRows = GetRowsPerColumn(tabPage1, IoRowHeight);
             if (inputRowsPerColumn != newInputRows && IODebugMaps?.inputs != null)
             {
-                tabPage1.Controls.Clear();
-                buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1);
+                buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1, buttonsIn);
                 EnsureInputTempSize(IODebugMaps.inputs.Count);
                 Array.Clear(InTemp, 0, IODebugMaps.inputs.Count);
                 Array.Clear(InValid, 0, IODebugMaps.inputs.Count);
@@ -743,8 +745,7 @@ namespace Automation
             int newOutputRows = GetRowsPerColumn(tabPage2, IoRowHeight);
             if (outputRowsPerColumn != newOutputRows && IODebugMaps?.outputs != null)
             {
-                tabPage2.Controls.Clear();
-                buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2);
+                buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2, buttonsOut);
                 EnsureOutputTempSize(IODebugMaps.outputs.Count);
                 Array.Clear(OutTemp, 0, IODebugMaps.outputs.Count);
                 Array.Clear(OutValid, 0, IODebugMaps.outputs.Count);
@@ -760,8 +761,7 @@ namespace Automation
             int newConnectRows = GetRowsPerColumn(connectPage, IoRowHeight);
             if (connectRowsPerColumn != newConnectRows && connectList != null)
             {
-                connectPage.Controls.Clear();
-                CreateButtonConnect(connectList, connectPage);
+                CreateButtonConnect(connectList, connectPage, true);
                 EnsureConnectTempSize(connectList.Count);
                 Array.Clear(ConnectOutValid, 0, connectList.Count);
                 Array.Clear(ConnectIn1Valid, 0, connectList.Count);
@@ -1065,23 +1065,34 @@ namespace Automation
             {
                 if (buttonsIn.Count != IODebugMaps.inputs.Count || data.InputCount != IODebugMaps.inputs.Count)
                 {
-                    tabPage1.Controls.Clear();
-                    buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1);
+                    buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1, buttonsIn);
                     EnsureInputTempSize(IODebugMaps.inputs.Count);
                     return;
                 }
                 EnsureInputTempSize(data.InputCount);
                 for (int i = 0; i < data.InputCount; i++)
                 {
-                    if (i >= buttonsIn.Count || buttonsIn[i] == null)
+                    if (i >= buttonsIn.Count)
+                    {
+                        continue;
+                    }
+                    IO ioItem = IODebugMaps.inputs[i];
+                    if (ioItem == null || ioItem.IsRemark)
+                    {
+                        InTemp[i] = false;
+                        InValid[i] = false;
+                        continue;
+                    }
+                    Control control = buttonsIn[i];
+                    if (control == null || control.IsDisposed)
                     {
                         continue;
                     }
                     if (!data.InputValid[i])
                     {
-                        if (buttonsIn[i].BackColor != Color.Red)
+                        if (control.BackColor != Color.Red)
                         {
-                            buttonsIn[i].BackColor = Color.Red;
+                            control.BackColor = Color.Red;
                         }
                         InTemp[i] = false;
                         InValid[i] = false;
@@ -1090,7 +1101,7 @@ namespace Automation
                     bool open = data.InputStates[i];
                     if (!InValid[i] || InTemp[i] != open)
                     {
-                        buttonsIn[i].BackColor = open ? Color.Green : Color.Gray;
+                        control.BackColor = open ? Color.Green : Color.Gray;
                         InTemp[i] = open;
                         InValid[i] = true;
                     }
@@ -1101,23 +1112,34 @@ namespace Automation
             {
                 if (buttonsOut.Count != IODebugMaps.outputs.Count || data.OutputCount != IODebugMaps.outputs.Count)
                 {
-                    tabPage2.Controls.Clear();
-                    buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2);
+                    buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2, buttonsOut);
                     EnsureOutputTempSize(IODebugMaps.outputs.Count);
                     return;
                 }
                 EnsureOutputTempSize(data.OutputCount);
                 for (int i = 0; i < data.OutputCount; i++)
                 {
-                    if (i >= buttonsOut.Count || buttonsOut[i] == null)
+                    if (i >= buttonsOut.Count)
+                    {
+                        continue;
+                    }
+                    IO ioItem = IODebugMaps.outputs[i];
+                    if (ioItem == null || ioItem.IsRemark)
+                    {
+                        OutTemp[i] = false;
+                        OutValid[i] = false;
+                        continue;
+                    }
+                    Control control = buttonsOut[i];
+                    if (control == null || control.IsDisposed)
                     {
                         continue;
                     }
                     if (!data.OutputValid[i])
                     {
-                        if (buttonsOut[i].BackColor != Color.Red)
+                        if (control.BackColor != Color.Red)
                         {
-                            buttonsOut[i].BackColor = Color.Red;
+                            control.BackColor = Color.Red;
                         }
                         OutTemp[i] = false;
                         OutValid[i] = false;
@@ -1126,7 +1148,7 @@ namespace Automation
                     bool open = data.OutputStates[i];
                     if (!OutValid[i] || OutTemp[i] != open)
                     {
-                        buttonsOut[i].BackColor = open ? Color.Green : Color.Gray;
+                        control.BackColor = open ? Color.Green : Color.Gray;
                         OutTemp[i] = open;
                         OutValid[i] = true;
                     }
@@ -1139,17 +1161,26 @@ namespace Automation
                 TabPage connectPage = GetCurrentConnectDisplayPage();
                 if (btnCon.Count != connectList.Count || data.ConnectCount != connectList.Count)
                 {
-                    connectPage.Controls.Clear();
-                    CreateButtonConnect(connectList, connectPage);
+                    CreateButtonConnect(connectList, connectPage, true);
                     EnsureConnectTempSize(connectList.Count);
                     return;
                 }
                 EnsureConnectTempSize(data.ConnectCount);
                 for (int i = 0; i < data.ConnectCount; i++)
                 {
+                    if (i >= btnCon.Count || btnCon[i] == null)
+                    {
+                        continue;
+                    }
                     IOConnect connect = connectList[i];
                     if (connect?.Output == null || connect.Output.IsRemark)
                     {
+                        ConnectTemp[i].OutPut = false;
+                        ConnectTemp[i].InPut1 = false;
+                        ConnectTemp[i].InPut2 = false;
+                        ConnectOutValid[i] = false;
+                        ConnectIn1Valid[i] = false;
+                        ConnectIn2Valid[i] = false;
                         continue;
                     }
                     if (!data.ConnectOutValid[i])
@@ -1487,9 +1518,34 @@ namespace Automation
                 listView6.ItemChecked += listView6_ItemChecked;
             }
         }
-        public List<Control> CreateButtonIO(List<IO> iOs, TabPage tabPage)
+        public List<Control> CreateButtonIO(List<IO> iOs, TabPage tabPage, List<Control> existingControls = null)
         {
-            List<Control> controls = new List<Control>();
+            if (iOs == null || tabPage == null)
+            {
+                return existingControls ?? new List<Control>();
+            }
+            bool reuse = existingControls != null && existingControls.Count == iOs.Count;
+            if (!reuse)
+            {
+                if (existingControls != null)
+                {
+                    foreach (Control control in existingControls)
+                    {
+                        if (control == null || control.IsDisposed)
+                        {
+                            continue;
+                        }
+                        if (control.Parent == tabPage)
+                        {
+                            tabPage.Controls.Remove(control);
+                        }
+                        control.Dispose();
+                    }
+                }
+                tabPage.Controls.Clear();
+                existingControls = new List<Control>(iOs.Count);
+            }
+
             tabPage.AutoScroll = true;
             int col = 0, row = 0;
             int colWidth = IoColWidth;
@@ -1506,62 +1562,175 @@ namespace Automation
             {
                 outputRowsPerColumn = rowsPerColumn;
             }
-            for (int i = 0; i < iOs.Count; i++)
+
+            tabPage.SuspendLayout();
+            try
             {
-                IO io = iOs[i];
-                if (io == null)
+                for (int i = 0; i < iOs.Count; i++)
                 {
-                    controls.Add(null);
-                }
-                else if (io.IsRemark)
-                {
-                    Control remarkHeader = CreateRemarkHeader(io.Name, new Point(col * colWidth, row * rowHeight), itemWidth, itemHeight);
-                    tabPage.Controls.Add(remarkHeader);
-                    controls.Add(null);
-                }
-                else
-                {
-                    if (isInputPage || io.IOType == "通用输入")
+                    IO io = iOs[i];
+                    Control current = reuse ? existingControls[i] : null;
+                    if (current != null && current.IsDisposed)
                     {
-                        Label dynamicLabel = new Label();
-                        dynamicLabel.Text = io.Name;
-                        dynamicLabel.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
-                        dynamicLabel.Size = new System.Drawing.Size(itemWidth, itemHeight);
-                        dynamicLabel.AutoSize = false;
-                        dynamicLabel.BackColor = System.Drawing.Color.Gray;
-                        dynamicLabel.TextAlign = ContentAlignment.MiddleCenter;
-                        tabPage.Controls.Add(dynamicLabel);
-                        controls.Add(dynamicLabel);
+                        current = null;
+                    }
+                    Control result = null;
+                    Point location = new Point(col * colWidth, row * rowHeight);
+
+                    if (io == null)
+                    {
+                        if (current != null)
+                        {
+                            if (current.Parent == tabPage)
+                            {
+                                tabPage.Controls.Remove(current);
+                            }
+                            current.Dispose();
+                        }
+                    }
+                    else if (io.IsRemark)
+                    {
+                        result = EnsureRemarkHeader(current, io.Name, location, itemWidth, itemHeight, tabPage);
                     }
                     else
                     {
-                        Button dynamicButton = new Button();
-                        dynamicButton.Text = io.Name;
-                        dynamicButton.Location = new System.Drawing.Point(col * colWidth, row * rowHeight);
-                        dynamicButton.Size = new System.Drawing.Size(itemWidth, itemHeight);
-                        tabPage.Controls.Add(dynamicButton);
-                        controls.Add(dynamicButton);
-                        if (io.IOType == "通用输出")
+                        bool useLabel = isInputPage || io.IOType == "通用输入";
+                        if (useLabel)
                         {
-                            dynamicButton.Click += new EventHandler(IOButton_Click);
+                            bool created = false;
+                            Label label = current as Label;
+                            if (label == null)
+                            {
+                                if (current != null)
+                                {
+                                    if (current.Parent == tabPage)
+                                    {
+                                        tabPage.Controls.Remove(current);
+                                    }
+                                    current.Dispose();
+                                }
+                                label = new Label();
+                                label.AutoSize = false;
+                                label.TextAlign = ContentAlignment.MiddleCenter;
+                                label.BackColor = Color.Gray;
+                                created = true;
+                                tabPage.Controls.Add(label);
+                            }
+                            if (label.Parent != tabPage)
+                            {
+                                tabPage.Controls.Add(label);
+                            }
+                            label.Text = io.Name;
+                            label.Location = location;
+                            label.Size = new Size(itemWidth, itemHeight);
+                            if (created)
+                            {
+                                label.BackColor = Color.Gray;
+                            }
+                            result = label;
+                        }
+                        else
+                        {
+                            Button button = current as Button;
+                            if (button == null)
+                            {
+                                if (current != null)
+                                {
+                                    if (current.Parent == tabPage)
+                                    {
+                                        tabPage.Controls.Remove(current);
+                                    }
+                                    current.Dispose();
+                                }
+                                button = new Button();
+                                tabPage.Controls.Add(button);
+                            }
+                            if (button.Parent != tabPage)
+                            {
+                                tabPage.Controls.Add(button);
+                            }
+                            button.Text = io.Name;
+                            button.Location = location;
+                            button.Size = new Size(itemWidth, itemHeight);
+                            button.Tag = null;
+                            button.Click -= IOButton_Click;
+                            if (io.IOType == "通用输出")
+                            {
+                                button.Click += IOButton_Click;
+                            }
+                            result = button;
+                        }
+                    }
+
+                    if (reuse)
+                    {
+                        existingControls[i] = result;
+                    }
+                    else
+                    {
+                        existingControls.Add(result);
+                    }
+
+                    row++;
+                    if (row >= rowsPerColumn)
+                    {
+                        row = 0;
+                        col++;
+                    }
+                }
+            }
+            finally
+            {
+                tabPage.ResumeLayout(true);
+            }
+
+            return existingControls;
+        }
+        public void CreateButtonConnect(List<IOConnect> connects, TabPage targetPage, bool reuseExisting = false)
+        {
+            if (connects == null || targetPage == null)
+            {
+                return;
+            }
+            bool reuse = reuseExisting && btnCon != null && btnCon.Count == connects.Count;
+            if (!reuse)
+            {
+                if (btnCon != null)
+                {
+                    foreach (ConnectButton item in btnCon)
+                    {
+                        if (item?.OutPut != null && !item.OutPut.IsDisposed)
+                        {
+                            if (item.OutPut.Parent == targetPage)
+                            {
+                                targetPage.Controls.Remove(item.OutPut);
+                            }
+                            item.OutPut.Dispose();
+                        }
+                        if (item?.InPut1 != null && !item.InPut1.IsDisposed)
+                        {
+                            if (item.InPut1.Parent == targetPage)
+                            {
+                                targetPage.Controls.Remove(item.InPut1);
+                            }
+                            item.InPut1.Dispose();
+                        }
+                        if (item?.InPut2 != null && !item.InPut2.IsDisposed)
+                        {
+                            if (item.InPut2.Parent == targetPage)
+                            {
+                                targetPage.Controls.Remove(item.InPut2);
+                            }
+                            item.InPut2.Dispose();
                         }
                     }
                 }
-                row++;
-                if (row >= rowsPerColumn)
-                {
-                    row = 0;
-                    col++;
-                }
+                targetPage.Controls.Clear();
+                btnCon = new List<ConnectButton>(connects.Count);
             }
-            return controls;
 
-        }
-        public void CreateButtonConnect(List<IOConnect> connects, TabPage targetPage)
-        {
-            int col = 0, row = 0;
-            btnCon.Clear();
             targetPage.AutoScroll = true;
+            int col = 0, row = 0;
             int colWidth = IoColWidth;
             int rowHeight = IoRowHeight;
             int itemWidth = IoItemWidth;
@@ -1569,82 +1738,149 @@ namespace Automation
             int groupWidth = colWidth * 3;
             int rowsPerColumn = GetRowsPerColumn(targetPage, rowHeight);
             connectRowsPerColumn = rowsPerColumn;
-            for (int i = 0; i < connects.Count; i++)
+
+            void RemoveControl(Control control)
             {
-                IOConnect ioConnect = connects[i];
-                if (ioConnect?.Output == null)
+                if (control == null || control.IsDisposed)
                 {
-                    btnCon.Add(new ConnectButton());
+                    return;
+                }
+                if (control.Parent == targetPage)
+                {
+                    targetPage.Controls.Remove(control);
+                }
+                control.Dispose();
+            }
+
+            targetPage.SuspendLayout();
+            try
+            {
+                for (int i = 0; i < connects.Count; i++)
+                {
+                    IOConnect ioConnect = connects[i];
+                    ConnectButton item = reuse ? btnCon[i] ?? new ConnectButton() : new ConnectButton();
+                    int baseX = col * groupWidth;
+
+                    if (ioConnect?.Output == null)
+                    {
+                        RemoveControl(item.OutPut);
+                        RemoveControl(item.InPut1);
+                        RemoveControl(item.InPut2);
+                        item.OutPut = null;
+                        item.InPut1 = null;
+                        item.InPut2 = null;
+                    }
+                    else if (ioConnect.Output.IsRemark)
+                    {
+                        RemoveControl(item.InPut1);
+                        RemoveControl(item.InPut2);
+                        item.InPut1 = null;
+                        item.InPut2 = null;
+                        int remarkWidth = groupWidth - 10;
+                        item.OutPut = EnsureRemarkHeader(item.OutPut, ioConnect.Output.Name,
+                            new Point(baseX, row * rowHeight), remarkWidth, itemHeight, targetPage);
+                    }
+                    else
+                    {
+                        Button outputButton = item.OutPut as Button;
+                        if (outputButton == null || outputButton.IsDisposed)
+                        {
+                            RemoveControl(item.OutPut);
+                            outputButton = new Button();
+                            targetPage.Controls.Add(outputButton);
+                        }
+                        if (outputButton.Parent != targetPage)
+                        {
+                            targetPage.Controls.Add(outputButton);
+                        }
+                        outputButton.Text = ioConnect.Output.Name;
+                        outputButton.Location = new Point(baseX, row * rowHeight);
+                        outputButton.Size = new Size(itemWidth, itemHeight);
+                        outputButton.Tag = ioConnect;
+                        outputButton.Click -= IOButton_Click;
+                        outputButton.Click += IOButton_Click;
+                        item.OutPut = outputButton;
+
+                        if (ioConnect.Intput1 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput1.Name))
+                        {
+                            Label input1 = item.InPut1;
+                            if (input1 == null || input1.IsDisposed)
+                            {
+                                RemoveControl(item.InPut1);
+                                input1 = new Label
+                                {
+                                    AutoSize = false,
+                                    TextAlign = ContentAlignment.MiddleCenter,
+                                    BackColor = Color.Gray
+                                };
+                                targetPage.Controls.Add(input1);
+                            }
+                            if (input1.Parent != targetPage)
+                            {
+                                targetPage.Controls.Add(input1);
+                            }
+                            input1.Text = ioConnect.Intput1.Name;
+                            input1.Location = new Point(baseX + colWidth, row * rowHeight);
+                            input1.Size = new Size(itemWidth, itemHeight);
+                            item.InPut1 = input1;
+                        }
+                        else
+                        {
+                            RemoveControl(item.InPut1);
+                            item.InPut1 = null;
+                        }
+
+                        if (ioConnect.Intput2 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput2.Name))
+                        {
+                            Label input2 = item.InPut2;
+                            if (input2 == null || input2.IsDisposed)
+                            {
+                                RemoveControl(item.InPut2);
+                                input2 = new Label
+                                {
+                                    AutoSize = false,
+                                    TextAlign = ContentAlignment.MiddleCenter,
+                                    BackColor = Color.Gray
+                                };
+                                targetPage.Controls.Add(input2);
+                            }
+                            if (input2.Parent != targetPage)
+                            {
+                                targetPage.Controls.Add(input2);
+                            }
+                            input2.Text = ioConnect.Intput2.Name;
+                            input2.Location = new Point(baseX + colWidth * 2, row * rowHeight);
+                            input2.Size = new Size(itemWidth, itemHeight);
+                            item.InPut2 = input2;
+                        }
+                        else
+                        {
+                            RemoveControl(item.InPut2);
+                            item.InPut2 = null;
+                        }
+                    }
+
+                    if (reuse)
+                    {
+                        btnCon[i] = item;
+                    }
+                    else
+                    {
+                        btnCon.Add(item);
+                    }
+
                     row++;
                     if (row >= rowsPerColumn)
                     {
                         row = 0;
                         col++;
                     }
-                    continue;
-                }
-                Control outputControl;
-                if (!ioConnect.Output.IsRemark)
-                {
-                    Button dynamicButton = new Button();
-                    dynamicButton.Text = ioConnect.Output.Name;
-                    int baseX = col * groupWidth;
-                    dynamicButton.Location = new System.Drawing.Point(baseX, row * rowHeight);
-                    dynamicButton.Size = new System.Drawing.Size(itemWidth, itemHeight);
-                    dynamicButton.Tag = ioConnect;
-                    dynamicButton.Click += new EventHandler(IOButton_Click);
-                    targetPage.Controls.Add(dynamicButton);
-                    outputControl = dynamicButton;
-                }
-                else
-                {
-                    int remarkWidth = groupWidth - 10;
-                    Control remarkHeader = CreateRemarkHeader(ioConnect.Output.Name, new Point(col * groupWidth, row * rowHeight), remarkWidth, itemHeight);
-                    targetPage.Controls.Add(remarkHeader);
-                    outputControl = remarkHeader;
-                }
-
-                Label dynamicLabel1 = null;
-                Label dynamicLabel2 = null;
-                if (!ioConnect.Output.IsRemark)
-                {
-                    if (ioConnect.Intput1 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput1.Name))
-                    {
-                        dynamicLabel1 = new Label();
-                        dynamicLabel1.Text = ioConnect.Intput1.Name;
-                        int baseX = col * groupWidth;
-                        dynamicLabel1.Location = new System.Drawing.Point(baseX + colWidth, row * rowHeight);
-                        dynamicLabel1.Size = new System.Drawing.Size(itemWidth, itemHeight);
-                        dynamicLabel1.BackColor = System.Drawing.Color.Gray;
-                        dynamicLabel1.TextAlign = ContentAlignment.MiddleCenter;
-
-                        targetPage.Controls.Add(dynamicLabel1);
-                    }
-
-                    if (ioConnect.Intput2 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput2.Name))
-                    {
-                        dynamicLabel2 = new Label();
-                        dynamicLabel2.Text = ioConnect.Intput2.Name;
-                        int baseX = col * groupWidth;
-                        dynamicLabel2.Location = new System.Drawing.Point(baseX + colWidth * 2, row * rowHeight);
-                        dynamicLabel2.Size = new System.Drawing.Size(itemWidth, itemHeight);
-                        dynamicLabel2.BackColor = System.Drawing.Color.Gray;
-                        dynamicLabel2.TextAlign = ContentAlignment.MiddleCenter;
-
-                        targetPage.Controls.Add(dynamicLabel2);
-                    }
-                }
-
-                btnCon.Add(new ConnectButton { OutPut = outputControl, InPut1 = dynamicLabel1, InPut2 = dynamicLabel2 });
-
-                row++;
-                if (row >= rowsPerColumn)
-                {
-                    row = 0;
-                    col++;
                 }
             }
-
+            finally
+            {
+                targetPage.ResumeLayout(true);
+            }
         }
 
         private void IOButton_Click(object sender, EventArgs e)
@@ -1686,6 +1922,7 @@ namespace Automation
             panel.Location = location;
             panel.Size = new Size(width, height);
             panel.BackColor = Color.FromArgb(236, 238, 242);
+            panel.Tag = RemarkHeaderTag;
 
             Label textLabel = new Label();
             textLabel.Text = text;
@@ -1694,6 +1931,7 @@ namespace Automation
             textLabel.Font = new Font("微软雅黑", 9F, FontStyle.Bold);
             textLabel.ForeColor = Color.FromArgb(64, 64, 64);
             textLabel.BackColor = Color.Transparent;
+            textLabel.Tag = RemarkLabelTag;
 
             int linePadding = 8;
             int textWidth = TextRenderer.MeasureText(text, textLabel.Font).Width;
@@ -1704,16 +1942,92 @@ namespace Automation
             leftLine.BackColor = Color.FromArgb(170, 170, 170);
             leftLine.Size = new Size(lineWidth, 1);
             leftLine.Location = new Point(linePadding, lineY);
+            leftLine.Tag = RemarkLineLeftTag;
 
             Panel rightLine = new Panel();
             rightLine.BackColor = leftLine.BackColor;
             rightLine.Size = new Size(lineWidth, 1);
             rightLine.Location = new Point(width - linePadding - lineWidth, lineY);
+            rightLine.Tag = RemarkLineRightTag;
 
             panel.Controls.Add(leftLine);
             panel.Controls.Add(rightLine);
             panel.Controls.Add(textLabel);
             return panel;
+        }
+
+        private Panel EnsureRemarkHeader(Control existing, string text, Point location, int width, int height, Control parent)
+        {
+            Panel panel = existing as Panel;
+            if (panel == null || panel.IsDisposed || !Equals(panel.Tag, RemarkHeaderTag))
+            {
+                if (existing != null && !existing.IsDisposed && parent != null)
+                {
+                    parent.Controls.Remove(existing);
+                    existing.Dispose();
+                }
+                panel = (Panel)CreateRemarkHeader(text, location, width, height);
+                parent?.Controls.Add(panel);
+                return panel;
+            }
+            UpdateRemarkHeaderLayout(panel, text, location, width, height);
+            if (panel.Parent != parent && parent != null)
+            {
+                parent.Controls.Add(panel);
+            }
+            return panel;
+        }
+
+        private void UpdateRemarkHeaderLayout(Panel panel, string text, Point location, int width, int height)
+        {
+            panel.Location = location;
+            panel.Size = new Size(width, height);
+
+            Label textLabel = panel.Controls.OfType<Label>().FirstOrDefault(ctrl => Equals(ctrl.Tag, RemarkLabelTag));
+            if (textLabel == null)
+            {
+                textLabel = new Label
+                {
+                    Dock = DockStyle.Fill,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Font = new Font("微软雅黑", 9F, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(64, 64, 64),
+                    BackColor = Color.Transparent,
+                    Tag = RemarkLabelTag
+                };
+                panel.Controls.Add(textLabel);
+            }
+            textLabel.Text = text;
+
+            Panel leftLine = panel.Controls.OfType<Panel>().FirstOrDefault(ctrl => Equals(ctrl.Tag, RemarkLineLeftTag));
+            if (leftLine == null)
+            {
+                leftLine = new Panel
+                {
+                    BackColor = Color.FromArgb(170, 170, 170),
+                    Tag = RemarkLineLeftTag
+                };
+                panel.Controls.Add(leftLine);
+            }
+            Panel rightLine = panel.Controls.OfType<Panel>().FirstOrDefault(ctrl => Equals(ctrl.Tag, RemarkLineRightTag));
+            if (rightLine == null)
+            {
+                rightLine = new Panel
+                {
+                    BackColor = Color.FromArgb(170, 170, 170),
+                    Tag = RemarkLineRightTag
+                };
+                panel.Controls.Add(rightLine);
+            }
+
+            int linePadding = 8;
+            int textWidth = TextRenderer.MeasureText(text, textLabel.Font).Width;
+            int lineWidth = Math.Max(12, (width - textWidth - linePadding * 2) / 2);
+            int lineY = height / 2;
+            leftLine.Size = new Size(lineWidth, 1);
+            leftLine.Location = new Point(linePadding, lineY);
+            rightLine.Size = new Size(lineWidth, 1);
+            rightLine.Location = new Point(width - linePadding - lineWidth, lineY);
         }
         public void RefreshIODebugMapFrm()
         {
