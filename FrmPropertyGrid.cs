@@ -29,6 +29,7 @@ namespace Automation
             InitializeComponent();
             propertyGrid1.PropertySort = PropertySort.Categorized;
             propertyGrid1.SelectedObjectsChanged += propertyGrid1_SelectedObjectsChanged;
+            InlineListTypeDescriptionProvider.Register();
             
             OperationTypeList.Add(new HomeRun());
             OperationTypeList.Add(new StationRunPos());
@@ -95,6 +96,7 @@ namespace Automation
                 propertyGrid1.Refresh();
             }
         }
+
         public OperationType temp;
         public static T DeepCopy<T>(T t)
         {
@@ -282,4 +284,171 @@ namespace Automation
     }
   
 
+    public sealed class InlineListTypeDescriptionProvider : TypeDescriptionProvider
+    {
+        private static bool registered;
+        private readonly TypeDescriptionProvider baseProvider;
+
+        public InlineListTypeDescriptionProvider()
+            : this(TypeDescriptor.GetProvider(typeof(OperationType)))
+        {
+        }
+
+        private InlineListTypeDescriptionProvider(TypeDescriptionProvider baseProvider)
+        {
+            this.baseProvider = baseProvider;
+        }
+
+        public static void Register()
+        {
+            if (registered)
+            {
+                return;
+            }
+            TypeDescriptor.AddProvider(new InlineListTypeDescriptionProvider(), typeof(OperationType));
+            registered = true;
+        }
+
+        public override ICustomTypeDescriptor GetTypeDescriptor(Type objectType, object instance)
+        {
+            ICustomTypeDescriptor descriptor = baseProvider.GetTypeDescriptor(objectType, instance);
+            if (instance == null)
+            {
+                return descriptor;
+            }
+            return new InlineListCustomTypeDescriptor(descriptor);
+        }
+    }
+
+    public sealed class InlineListCustomTypeDescriptor : CustomTypeDescriptor
+    {
+        public InlineListCustomTypeDescriptor(ICustomTypeDescriptor parent)
+            : base(parent)
+        {
+        }
+
+        public override PropertyDescriptorCollection GetProperties()
+        {
+            return GetProperties(null);
+        }
+
+        public override PropertyDescriptorCollection GetProperties(Attribute[] attributes)
+        {
+            PropertyDescriptorCollection props = base.GetProperties(attributes);
+            List<PropertyDescriptor> list = new List<PropertyDescriptor>(props.Count);
+            foreach (PropertyDescriptor prop in props)
+            {
+                InlineListAttribute inline = prop.Attributes[typeof(InlineListAttribute)] as InlineListAttribute;
+                if (inline == null)
+                {
+                    list.Add(prop);
+                    continue;
+                }
+
+                IList items = prop.GetValue(GetPropertyOwner(prop)) as IList;
+                if (items == null)
+                {
+                    continue;
+                }
+
+                string displayName = string.IsNullOrWhiteSpace(inline.DisplayName) ? prop.DisplayName : inline.DisplayName;
+                string category = string.IsNullOrWhiteSpace(inline.Category) ? prop.Category : inline.Category;
+                for (int i = 0; i < items.Count; i++)
+                {
+                    list.Add(new InlineListItemPropertyDescriptor(prop, i, displayName, category));
+                }
+            }
+            return new PropertyDescriptorCollection(list.ToArray(), true);
+        }
+    }
+
+    public sealed class InlineListItemPropertyDescriptor : PropertyDescriptor
+    {
+        private readonly PropertyDescriptor listProperty;
+        private readonly int index;
+        private readonly string category;
+        private readonly string displayName;
+        private readonly Type elementType;
+
+        public InlineListItemPropertyDescriptor(PropertyDescriptor listProperty, int index, string displayName, string category)
+            : base($"{listProperty.Name}_{index}", null)
+        {
+            this.listProperty = listProperty;
+            this.index = index;
+            this.category = category;
+            this.displayName = $"{displayName}：{index + 1}";
+            elementType = ResolveElementType(listProperty.PropertyType);
+        }
+
+        public override string DisplayName => displayName;
+
+        public override string Category => category;
+
+        public override Type ComponentType => listProperty.ComponentType;
+
+        public override bool IsReadOnly => false;
+
+        public override Type PropertyType
+        {
+            get
+            {
+                return elementType ?? typeof(object);
+            }
+        }
+
+        public override bool CanResetValue(object component)
+        {
+            return false;
+        }
+
+        public override object GetValue(object component)
+        {
+            IList items = listProperty.GetValue(component) as IList;
+            if (items == null || index < 0 || index >= items.Count)
+            {
+                return null;
+            }
+            return items[index];
+        }
+
+        public override void ResetValue(object component)
+        {
+        }
+
+        public override void SetValue(object component, object value)
+        {
+            IList items = listProperty.GetValue(component) as IList;
+            if (items == null || index < 0 || index >= items.Count)
+            {
+                return;
+            }
+            items[index] = value;
+        }
+
+        public override bool ShouldSerializeValue(object component)
+        {
+            return false;
+        }
+
+        private static Type ResolveElementType(Type listType)
+        {
+            if (listType == null)
+            {
+                return typeof(object);
+            }
+            if (listType.IsArray)
+            {
+                return listType.GetElementType() ?? typeof(object);
+            }
+            if (listType.IsGenericType)
+            {
+                Type[] args = listType.GetGenericArguments();
+                if (args.Length == 1)
+                {
+                    return args[0];
+                }
+            }
+            return typeof(object);
+        }
+    }
 }

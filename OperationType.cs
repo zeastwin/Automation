@@ -47,6 +47,19 @@ namespace Automation
         }
     }
 
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    public class InlineListAttribute : Attribute
+    {
+        public InlineListAttribute(string displayName, string category)
+        {
+            DisplayName = displayName;
+            Category = category;
+        }
+
+        public string DisplayName { get; }
+        public string Category { get; }
+    }
+
 
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
@@ -268,6 +281,7 @@ namespace Automation
         }
 
         [DisplayName("IO设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("IO", "参数")]
         [TypeConverter(typeof(ParamListConverter<IoOutParam>))]
 
         public CustomList<IoOutParam> IoParams { get; set; }
@@ -334,6 +348,7 @@ namespace Automation
         [DisplayName("超时设置"), Category("参数"), Description(""), ReadOnly(true)]
         public TimeOutC timeOutC { get; set; } = new TimeOutC();
         [DisplayName("IO设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("IO", "参数")]
         [TypeConverter(typeof(ParamListConverter<IoCheckParam>))]
 
         public CustomList<IoCheckParam> IoParams { get; set; }
@@ -377,6 +392,7 @@ namespace Automation
         public int InvalidDelayMs { get; set; }
 
         [DisplayName("IO设置"), Category("B判断参数"), Description(""), ReadOnly(false)]
+        [InlineList("IO", "B判断参数")]
         [TypeConverter(typeof(ParamListConverter<IoLogicGotoParam>))]
         public CustomList<IoLogicGotoParam> IoParams { get; set; }
 
@@ -465,6 +481,7 @@ namespace Automation
             }
         }
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("流程", "参数")]
         [TypeConverter(typeof(ParamListConverter<procParam>))]
 
         public CustomList<procParam> procParams { get; set; }
@@ -533,6 +550,7 @@ namespace Automation
         [DisplayName("超时设置"), Category("参数"), Description(""), ReadOnly(false)]
         public TimeOutC timeOutC { get; set; } = new TimeOutC() { TimeOut = -1 };
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("流程", "参数")]
         [TypeConverter(typeof(ParamListConverter<WaitProcParam>))]
 
         public CustomList<WaitProcParam> Params { get; set; }
@@ -606,6 +624,7 @@ namespace Automation
 
 
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("跳转", "参数")]
         [TypeConverter(typeof(ParamListConverter<GotoParam>))]
 
         public CustomList<GotoParam> Params { get; set; }
@@ -676,6 +695,7 @@ namespace Automation
         }
 
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("条件", "参数")]
         [TypeConverter(typeof(ParamListConverter<ParamGotoParam>))]
 
         public CustomList<ParamGotoParam> Params { get; set; }
@@ -989,6 +1009,7 @@ namespace Automation
         }
 
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("变量", "参数")]
         [TypeConverter(typeof(ParamListConverter<GetValueParam>))]
 
         public CustomList<GetValueParam> Params { get; set; }
@@ -1133,6 +1154,7 @@ namespace Automation
             }
         }
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("变量", "参数")]
         [TypeConverter(typeof(ParamListConverter<StringFormatParam>))]
 
         public CustomList<StringFormatParam> Params { get; set; }
@@ -1310,6 +1332,7 @@ namespace Automation
         }
 
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("数据", "参数")]
         [TypeConverter(typeof(ParamListConverter<SetDataStructItemParam>))]
 
         public CustomList<SetDataStructItemParam> Params { get; set; }
@@ -1375,6 +1398,7 @@ namespace Automation
         }
 
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("数据", "参数")]
         [TypeConverter(typeof(ParamListConverter<GetDataStructItemParam>))]
 
         public CustomList<GetDataStructItemParam> Params { get; set; }
@@ -1453,6 +1477,7 @@ namespace Automation
         }
 
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("数据", "参数")]
         [TypeConverter(typeof(ParamListConverter<CopyDataStructItemParam>))]
 
         public CustomList<CopyDataStructItemParam> Params { get; set; }
@@ -1517,6 +1542,7 @@ namespace Automation
         }
 
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("数据", "参数")]
         [TypeConverter(typeof(ParamListConverter<InsertDataStructItemParam>))]
 
         public CustomList<InsertDataStructItemParam> Params { get; set; }
@@ -1633,6 +1659,7 @@ namespace Automation
             }
         }
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("网口", "参数")]
         [TypeConverter(typeof(ParamListConverter<TcpOpsParam>))]
 
         public CustomList<TcpOpsParam> Params { get; set; }
@@ -1687,6 +1714,7 @@ namespace Automation
             }
         }
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("网口", "参数")]
         [TypeConverter(typeof(ParamListConverter<WaitTcpParam>))]
 
         public CustomList<WaitTcpParam> Params { get; set; }
@@ -1791,6 +1819,7 @@ namespace Automation
             }
         }
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("串口", "参数")]
         [TypeConverter(typeof(ParamListConverter<SerialPortOpsParam>))]
 
         public CustomList<SerialPortOpsParam> Params { get; set; }
@@ -1845,6 +1874,7 @@ namespace Automation
             }
         }
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("串口", "参数")]
         [TypeConverter(typeof(ParamListConverter<WaitSerialPortParam>))]
 
         public CustomList<WaitSerialPortParam> Params { get; set; }
