@@ -164,7 +164,14 @@ namespace Automation
 
         private void propertyGrid1_PropertyValueChanged(object s, PropertyValueChangedEventArgs e)
         {
-            this.propertyGrid1.SelectedObject = this.propertyGrid1.SelectedObject;
+            object selected = propertyGrid1.SelectedObject;
+            if (selected == null)
+            {
+                return;
+            }
+            TypeDescriptor.Refresh(selected);
+            propertyGrid1.SelectedObject = selected;
+            propertyGrid1.Refresh();
         }
 
         private void Address_Click(object sender, EventArgs e)
