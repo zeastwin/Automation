@@ -92,11 +92,11 @@ namespace Automation
         [Browsable(false)]
         public Guid Id { get; set; }
 
-        [Browsable(false)]
+        [Browsable(true)]
         [DisplayName("编号"), Category("常规"), Description(""), ReadOnly(true)]
         public int Num { get; set; }
         [Browsable(true)]
-        [DisplayName("名称"), Category("0.指令与报警"), Description(""), ReadOnly(false)]
+        [DisplayName("名称"), Category("A.指令与报警"), Description(""), ReadOnly(false)]
         public virtual string Name { get; set; }
 
         [Browsable(true)]
@@ -104,7 +104,7 @@ namespace Automation
         public string OperaType { get; set; }
 
         private string alarmType = "报警停止";
-        [DisplayName("报警类型"), Category("0.指令与报警"), Description(""), ReadOnly(false), TypeConverter(typeof(AlarmItem))]
+        [DisplayName("报警类型"), Category("A.指令与报警"), Description(""), ReadOnly(false), TypeConverter(typeof(AlarmItem))]
         [Browsable(true)]
         public string AlarmType
         {
