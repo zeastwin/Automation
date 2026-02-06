@@ -561,19 +561,46 @@ namespace Automation
             }
         }
 
-        public bool CheckRowCellsHaveValue(DataGridView dataGridView, int rowIndex)
+        private bool TryBuildRowValueForSave(DataGridView dataGridView, int rowIndex, out int num, out string key, out string type, out string value, out string note)
         {
-            int colsCount = dataGridView.ColumnCount;
+            num = -1;
+            key = string.Empty;
+            type = DefaultValueType;
+            value = string.Empty;
+            note = string.Empty;
 
-            for (int colIndex = 0; colIndex < colsCount-1; colIndex++)
+            DataGridViewRow row = dataGridView.Rows[rowIndex];
+            num = (int)row.Cells[0].Value;
+            key = row.Cells[1].Value?.ToString()?.Trim();
+            if (string.IsNullOrEmpty(key))
             {
-                object cellValue = dataGridView.Rows[rowIndex].Cells[colIndex].Value;
-                if (cellValue == null || cellValue.ToString() == "")
+                return false;
+            }
+
+            type = row.Cells[2].Value?.ToString()?.Trim();
+            if (string.IsNullOrEmpty(type))
+            {
+                type = DefaultValueType;
+            }
+            if (!string.Equals(type, "double", StringComparison.Ordinal) && !string.Equals(type, "string", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            value = row.Cells[3].Value?.ToString() ?? string.Empty;
+            if (string.Equals(type, "double", StringComparison.Ordinal))
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    value = DefaultValueText;
+                }
+                if (!double.TryParse(value, out _))
                 {
                     return false;
                 }
             }
 
+            note = row.Cells[4].Value?.ToString() ?? string.Empty;
             return true;
         }
 
@@ -585,65 +612,22 @@ namespace Automation
                 if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
                 {
                     DataGridView dataGridView = (DataGridView)sender;
-                    bool isEffective = CheckRowCellsHaveValue(dataGridView,e.RowIndex);
-                    SF.isEndEdit = isEffective;
-                    if (isEffective)
+                    SF.isEndEdit = !string.IsNullOrWhiteSpace(dataGridView.Rows[e.RowIndex].Cells[1].Value?.ToString());
+                    if (!TryBuildRowValueForSave(dataGridView, e.RowIndex, out int num, out string key, out string type, out string value, out string note))
                     {
-                        int num = (int)dataGridView.Rows[e.RowIndex].Cells[0].Value;
-                        string key = (string)dataGridView.Rows[e.RowIndex].Cells[1].Value;
-                        string type = (string)dataGridView.Rows[e.RowIndex].Cells[2].Value; 
-                        string note = (string)dataGridView.Rows[e.RowIndex].Cells[4].Value;
-
-                        if (string.IsNullOrEmpty(key))
-                        {
-                            dgvValue[1, e.RowIndex].Value = null;
-                            dgvValue[2, e.RowIndex].Value = null;
-                            dgvValue[3, e.RowIndex].Value = null;
-                            dgvValue[4, e.RowIndex].Value = null;
-                            return;
-                        }
-
-                        if (type != "double" && type != "string")
-                        {
-                            dgvValue[1, e.RowIndex].Value = null;
-                            dgvValue[2, e.RowIndex].Value = null;
-                            dgvValue[3, e.RowIndex].Value = null;
-                            dgvValue[4, e.RowIndex].Value = null;
-                            return;
-                        }
-
-                        string value = dataGridView.Rows[e.RowIndex].Cells[3].Value?.ToString();
-                        if (string.IsNullOrEmpty(value))
-                        {
-                            dgvValue[1, e.RowIndex].Value = null;
-                            dgvValue[2, e.RowIndex].Value = null;
-                            dgvValue[3, e.RowIndex].Value = null;
-                            dgvValue[4, e.RowIndex].Value = null;
-                            return;
-                        }
-
-                        if (type == "double")
-                        {
-                            if (!double.TryParse(value, out double doubleValue2))
-                            {
-                            
-                                dgvValue[1,e.RowIndex].Value = null;
-                                dgvValue[2,e.RowIndex].Value = null;
-                                dgvValue[3,e.RowIndex].Value = null;
-                                dgvValue[4,e.RowIndex].Value = null;         
-                                return;
-                            }
-                        }
-                        if (!SF.valueStore.TrySetValue(num, key, type, value, note, "变量表编辑"))
-                        {
-                            dgvValue[1, e.RowIndex].Value = null;
-                            dgvValue[2, e.RowIndex].Value = null;
-                            dgvValue[3, e.RowIndex].Value = null;
-                            dgvValue[4, e.RowIndex].Value = null;
-                            return;
-                        }
+                        SF.isEndEdit = false;
+                        return;
                     }
-
+                    if (!SF.valueStore.TrySetValue(num, key, type, value, note, "变量表编辑"))
+                    {
+                        SF.isEndEdit = false;
+                        return;
+                    }
+                    dataGridView.Rows[e.RowIndex].Cells[1].Value = key;
+                    dataGridView.Rows[e.RowIndex].Cells[2].Value = type;
+                    dataGridView.Rows[e.RowIndex].Cells[3].Value = value;
+                    dataGridView.Rows[e.RowIndex].Cells[4].Value = note;
+                    SF.isEndEdit = true;
                 }
             }
         }

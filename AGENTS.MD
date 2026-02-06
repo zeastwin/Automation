@@ -47,6 +47,9 @@
 - **运行引擎**：`ProcessEngine` 以 `ProcAgent` + 命令队列管理单流程执行，`ProcHandle` 仅在引擎内记录索引/状态，UI 通过 `EngineSnapshot` + `SnapshotChanged` 订阅状态。`RunProc`/`RunStep` 支持暂停、单步、跳转、报警；`ExecuteOperation` 将具体操作派发到对应执行函数。
 - **文件拆分**：引擎内核在 `Engine/ProcessEngine.Core.cs`，操作执行在 `Engine/ProcessEngine.Operations.cs`，模型在 `Engine/ProcessEngine.Models.cs`。
 - **变量**：`FrmValue` 管理 0–999 的 `DicValue`，含类型/名称/备注，持久化到 `Config/value.json`，提供按名/按索引读写。
+  - 变量表编辑校验为“名称必填”；`Type` 为空时自动回填 `double`。
+  - `double` 类型在值为空时自动回填 `0` 并持久化；`string` 类型允许空字符串并可直接持久化。
+  - 迁移影响与排查：旧版本依赖“值必填”拦截的用法需复核；若类型或值未落盘，优先检查变量名是否为空或重名（重名会被 `TrySetValue` 拒绝）。
 - **数据结构**：`FrmDataStruct` 定义结构体集合，操作可对项进行设/取/复制/插入/删除/查找/计数。
 
 ## 账户与权限
