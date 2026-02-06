@@ -8,6 +8,10 @@
 - 多轮改动后必须清理冗余/无效代码与未使用的配置/引用，禁止保留不起作用的代码残留。
 - 需求回滚或取消时，必须同步移除相关实现/入口/配置，禁止保留“未来可能用到”的遗留代码。
 
+## 文档维护准则
+- 任何功能改动完成后，必须同步更新本文件中对应模块说明；未更新文档视为任务未完成。
+- 变更涉及协议、配置默认值、异常处理策略时，必须在本文件明确写出迁移影响与排查要点。
+
 ## 安全准则
 - 安全是最高准则：任何异常或不确定状态必须优先停机/报警，禁止继续运行。
 - 参数解析必须严格遵循定义范式，禁止对参数进行宽松解析或容错修复。
@@ -18,17 +22,18 @@
 
 ## 编译验证（固定命令）
 - 推荐在 WSL 下直接调用 Visual Studio 2026 的 MSBuild：
-  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.sln /t:Build /p:Configuration=Debug /m`
+  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.sln /t:Build /p:Configuration=Debug /p:OutDir=bin/Debug/ /m`
 - 需要全量重编译时使用：
-  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.sln /t:Rebuild /p:Configuration=Debug /m`
+  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.sln /t:Rebuild /p:Configuration=Debug /p:OutDir=bin/Debug/ /m`
 - 只编译单项目时使用：
-  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.csproj /t:Build /p:Configuration=Debug /m`
+  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.csproj /t:Build /p:Configuration=Debug /p:OutDir=bin/Debug/ /m`
 - 若路径变化，先定位 MSBuild 再编译：
   - `find "/mnt/c/Program Files/Microsoft Visual Studio" -path "*MSBuild*Bin/MSBuild.exe" | head -n 5`
 - 禁止使用旧版 .NET Framework MSBuild（`/mnt/c/Windows/Microsoft.NET/Framework64/v4.0.30319/MSBuild.exe`），该版本会导致 `LangVersion=latest` 编译失败。
 - 若本次改动新增/改名/移动 `.cs` 文件，必须同步更新 `Automation.csproj` 中对应的 `<Compile Include="...">`。
 - 编译前必须执行一次“项目文件一致性检查”：确认新增/改名后的 `.cs` 文件都已在 `Automation.csproj` 注册。
 - 一致性检查通过后允许执行编译；检查不通过时禁止编译并先修复项目文件。
+- 非用户明确要求时，禁止使用 `Debug_codex_*` 等临时输出目录，统一输出到 `bin/Debug/`。
 
 # Automation Agents 速览
 
@@ -72,7 +77,12 @@
 - **运动控制**：`MotionCtrl` 统一封装卡类型；`InitCardType` 绑定 `ls`（LTDMC）实现；`FrmMain_Load` 完成卡初始化、配置下载、使能伺服、设定当量。
 
 ## 通讯界面
-- `FrmComunication` 管理 TCP（`SocketInfo`/`Socketer`）与串口（`SerialPortInfo`/`SerialPorter`），支持连/断、异步接收日志、十六进制视图与发送；流程操作按名称引用。
+- `FrmComunication` 管理 TCP 与串口配置、连接控制、发送与日志显示；接收日志按 `SF.comm.Log` 事件异步写入，并在 UI 侧处理跨线程调用。
+  - TCP/串口表仅暴露 `分隔符` 一列，选项固定为：`无`、`\n`、`\r\n`。
+  - 映射规则：`无` -> `FrameMode=Raw`；`\n` -> `FrameMode=Delimiter` + `FrameDelimiter=\n`；`\r\n` -> `FrameMode=Delimiter` + `FrameDelimiter=\r\n`。
+  - 退出释放策略：窗体 `Dispose` 前必须先停止通讯状态定时器、取消循环发送任务并解除 `SF.comm.Log` 订阅，避免退出阶段回调访问已释放控件。
+- `CommunicationHub` 统一管理 `TcpChannel`/`SerialPortChannel`，支持 `Raw` 与 `Delimiter` 帧模式、严格参数校验、统一发送/接收结果模型（`CommReceiveResult`）。
+- `ProcessEngine.Operations.Comm` 通过 `CommunicationHub` 执行 `TcpOps/SerialPortOps/Send/Receive/SendReceive`，通讯异常统一转报警，禁止静默失败。
 - `FrmState`/`FrmInfo` 展示运行状态与日志；`FrmAlarmConfig` 存报警元数据供操作触发时使用。
 
 ## 界面速查
@@ -105,6 +115,9 @@
 - `Config/card.json`、`Config/IOMap.json`、`Config/DataStation.json` 分别存卡、IO 映射、工站数据。
 - `Config/DataStruct.json` 存数据结构集合，项内包含 `str`/`num` 字典。
 - `Config/AlarmInfo.json`、`Config/SocketInfo.json`、`Config/SerialPortInfo.json`、`Config/IODebugMap.json`、`Config/MarkPoints.json` 存报警/通讯/调试/标记点。
+- `Config/AppConfig.json` 存程序运行参数，当前包含 `CommMaxMessageQueueSize`（通讯接收队列长度）；默认值为 `1000`。
+- 若 `Config/AppConfig.json` 不存在，程序会自动生成默认文件并继续加载；若自动生成失败则按错误处理（启动失败并提示）。
+- `Config/SocketInfo.json` 支持 `FrameMode`（`Raw`/`Delimiter`）、`FrameDelimiter`（仅 `Delimiter` 生效）、`EncodingName`、`ConnectTimeoutMs`；当前默认 `FrameMode` 为 `Raw`。
 - `Config/Account.json` 存账户权限，必须为加密格式（前缀 `ENC:`），明文/字段不合法会触发锁定模式。
 
 ## 依赖与驱动

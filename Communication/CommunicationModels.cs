@@ -10,7 +10,7 @@ namespace Automation
         public string Type { get; set; }
         public int Port { get; set; }
         public string Address { get; set; }
-        public string FrameMode { get; set; } = "Delimiter";
+        public string FrameMode { get; set; } = "Raw";
         public string FrameDelimiter { get; set; } = "\\n";
         public string EncodingName { get; set; } = "UTF-8";
         public int ConnectTimeoutMs { get; set; } = 5000;

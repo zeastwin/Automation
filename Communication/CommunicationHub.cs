@@ -1099,7 +1099,8 @@ namespace Automation
             catch (Exception ex)
             {
                 tcpChannels.TryRemove(parsed.Name, out _);
-                RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Error, parsed.Name, ex.Message, null, null, ex));
+                string message = GetBaseErrorMessage(ex);
+                RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Error, parsed.Name, message, null, null, ex));
             }
         }
 
@@ -1293,7 +1294,8 @@ namespace Automation
             catch (Exception ex)
             {
                 serialChannels.TryRemove(parsed.Name, out _);
-                RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, parsed.Name, ex.Message, null, parsed.PortName, ex));
+                string message = GetBaseErrorMessage(ex);
+                RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, parsed.Name, message, null, parsed.PortName, ex));
             }
         }
 
@@ -1479,6 +1481,16 @@ namespace Automation
         private void RaiseLog(CommLogEventArgs args)
         {
             Log?.Invoke(this, args);
+        }
+
+        private static string GetBaseErrorMessage(Exception ex)
+        {
+            Exception baseException = ex?.GetBaseException();
+            if (baseException == null || string.IsNullOrWhiteSpace(baseException.Message))
+            {
+                return ex?.Message ?? "未知错误";
+            }
+            return baseException.Message;
         }
 
         private static byte[] BuildSendPayload(string message, bool convertHex, Encoding encoding)

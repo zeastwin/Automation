@@ -15,6 +15,10 @@ namespace Automation
     public partial class FrmComunication : Form
     {
         private const int MaxLogLength = 200000;
+        private const string TcpStateColumnName = "state";
+        private const string TcpDelimiterColumnName = "tcpFrameDelimiter";
+        private const string SerialStateColumnName = "dataGridViewTextBoxColumn5";
+        private const string SerialDelimiterColumnName = "serialFrameDelimiter";
 
         public List<SocketInfo> socketInfos = new List<SocketInfo>();
         public List<SerialPortInfo> serialPortInfos = new List<SerialPortInfo>();
@@ -24,6 +28,7 @@ namespace Automation
 
         private readonly System.Windows.Forms.Timer stateTimer = new System.Windows.Forms.Timer();
         private CancellationTokenSource sendLoopCts;
+        private int runtimeReleased;
 
         public FrmComunication()
         {
@@ -47,8 +52,60 @@ namespace Automation
             pi2.SetValue(dataGridView2, true, null);
             dataGridView2.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
+            EnsureCommunicationColumns();
+
             iSelectedSocketRow = -1;
             iSelectedSerialPortRow = -1;
+        }
+
+        private void EnsureCommunicationColumns()
+        {
+            EnsureTcpColumns();
+            EnsureSerialColumns();
+        }
+
+        private void EnsureTcpColumns()
+        {
+            DataGridViewColumn stateColumn = dataGridView1.Columns[TcpStateColumnName];
+            int insertIndex = stateColumn == null ? dataGridView1.Columns.Count : stateColumn.Index;
+
+            if (dataGridView1.Columns[TcpDelimiterColumnName] == null)
+            {
+                DataGridViewComboBoxColumn delimiterColumn = new DataGridViewComboBoxColumn
+                {
+                    Name = TcpDelimiterColumnName,
+                    HeaderText = "分隔符",
+                    FillWeight = 35F,
+                    DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox
+                };
+                delimiterColumn.Items.Add("无");
+                delimiterColumn.Items.Add("\\n");
+                delimiterColumn.Items.Add("\\r\\n");
+                delimiterColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+                dataGridView1.Columns.Insert(insertIndex, delimiterColumn);
+            }
+        }
+
+        private void EnsureSerialColumns()
+        {
+            DataGridViewColumn stateColumn = dataGridView2.Columns[SerialStateColumnName];
+            int insertIndex = stateColumn == null ? dataGridView2.Columns.Count : stateColumn.Index;
+
+            if (dataGridView2.Columns[SerialDelimiterColumnName] == null)
+            {
+                DataGridViewComboBoxColumn delimiterColumn = new DataGridViewComboBoxColumn
+                {
+                    Name = SerialDelimiterColumnName,
+                    HeaderText = "分隔符",
+                    FillWeight = 35F,
+                    DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox
+                };
+                delimiterColumn.Items.Add("无");
+                delimiterColumn.Items.Add("\\n");
+                delimiterColumn.Items.Add("\\r\\n");
+                delimiterColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+                dataGridView2.Columns.Insert(insertIndex, delimiterColumn);
+            }
         }
 
         private void FrmComunication_Load(object sender, EventArgs e)
@@ -100,23 +157,23 @@ namespace Automation
                 TcpStatus status = SF.comm.GetTcpStatus(info.Name);
                 if (ReferenceEquals(status, TcpStatus.Empty))
                 {
-                    dataGridView1.Rows[i].Cells[5].Value = "";
+                    SetRowCellValue(dataGridView1.Rows[i], TcpStateColumnName, string.Empty);
                     continue;
                 }
 
                 if (string.Equals(info.Type, "Client", StringComparison.Ordinal))
                 {
-                    dataGridView1.Rows[i].Cells[5].Value = status.IsRunning ? "已连接" : "未连接";
+                    SetRowCellValue(dataGridView1.Rows[i], TcpStateColumnName, status.IsRunning ? "已连接" : "未连接");
                     continue;
                 }
 
                 if (status.IsRunning)
                 {
-                    dataGridView1.Rows[i].Cells[5].Value = status.ClientCount > 0 ? $"已连接({status.ClientCount})" : "已启动";
+                    SetRowCellValue(dataGridView1.Rows[i], TcpStateColumnName, status.ClientCount > 0 ? $"已连接({status.ClientCount})" : "已启动");
                 }
                 else
                 {
-                    dataGridView1.Rows[i].Cells[5].Value = "已关闭";
+                    SetRowCellValue(dataGridView1.Rows[i], TcpStateColumnName, "已关闭");
                 }
             }
 
@@ -129,12 +186,17 @@ namespace Automation
                 }
 
                 SerialStatus status = SF.comm.GetSerialStatus(info.Name);
-                dataGridView2.Rows[i].Cells[7].Value = status.IsOpen ? "已打开" : "已关闭";
+                SetRowCellValue(dataGridView2.Rows[i], SerialStateColumnName, status.IsOpen ? "已打开" : "已关闭");
             }
         }
 
         private void Comm_Log(object sender, CommLogEventArgs e)
         {
+            if (e == null || IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return;
+            }
+
             if (!CheckFormIsOpen(this))
             {
                 return;
@@ -142,7 +204,23 @@ namespace Automation
 
             if (InvokeRequired)
             {
-                BeginInvoke(new Action(() => AppendCommLog(e)));
+                try
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (IsDisposed || Disposing)
+                        {
+                            return;
+                        }
+                        AppendCommLog(e);
+                    }));
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                catch (InvalidOperationException)
+                {
+                }
                 return;
             }
 
@@ -151,8 +229,14 @@ namespace Automation
 
         private void AppendCommLog(CommLogEventArgs e)
         {
+            if (e == null || ReceiveTextBox == null || ReceiveTextBox.IsDisposed)
+            {
+                return;
+            }
+
             string message = e.Message ?? string.Empty;
-            if (e.Direction == CommDirection.Receive && checkBox3.Checked && !string.IsNullOrWhiteSpace(e.MessageHex))
+            bool showHex = e.Direction == CommDirection.Receive && checkBox3.Checked && !string.IsNullOrWhiteSpace(e.MessageHex);
+            if (showHex)
             {
                 message = e.MessageHex;
             }
@@ -164,29 +248,96 @@ namespace Automation
                 ? $"[{e.RemoteEndPoint}]"
                 : string.Empty;
             string action = e.Direction == CommDirection.Send ? "Send" : e.Direction == CommDirection.Receive ? "Receive" : "Error";
-            string str = $"[{e.Timestamp:yyyy-MM-dd HH:mm:ss.fff}]{remote}[{target}][{action}]：{message}\r\n";
+            List<string> logLines = showHex
+                ? new List<string> { message }
+                : SplitCommMessageForDisplay(message);
 
-            TrimLogIfNeeded();
+            foreach (string line in logLines)
+            {
+                string str = $"[{e.Timestamp:yyyy-MM-dd HH:mm:ss.fff}]{remote}[{target}][{action}]：{line}\r\n";
 
-            int length = ReceiveTextBox.TextLength;
-            ReceiveTextBox.AppendText(str);
+                TrimLogIfNeeded();
 
-            if (e.Direction == CommDirection.Error)
-            {
-                SetTextColor(length, str, Color.Red);
+                int length = ReceiveTextBox.TextLength;
+                ReceiveTextBox.AppendText(str);
+
+                if (e.Direction == CommDirection.Error)
+                {
+                    SetTextColor(length, str, Color.Red);
+                }
+                else if (e.Direction == CommDirection.Send)
+                {
+                    SetTextColor(length, str, Color.LightYellow);
+                }
+                else
+                {
+                    SetTextColor(length, str, Color.LightBlue);
+                }
             }
-            else if (e.Direction == CommDirection.Send)
+        }
+
+        private static List<string> SplitCommMessageForDisplay(string message)
+        {
+            string normalized = (message ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+            string[] parts = normalized.Split('\n');
+
+            int end = parts.Length - 1;
+            while (end >= 0 && parts[end].Length == 0)
             {
-                SetTextColor(length, str, Color.LightYellow);
+                end--;
             }
-            else
+
+            if (end < 0)
             {
-                SetTextColor(length, str, Color.LightBlue);
+                return new List<string> { string.Empty };
             }
+
+            List<string> result = new List<string>(end + 1);
+            for (int i = 0; i <= end; i++)
+            {
+                result.Add(EscapeControlChars(parts[i]));
+            }
+
+            return result;
+        }
+
+        private static string EscapeControlChars(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return string.Empty;
+            }
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder(value.Length);
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                if (c == '\t')
+                {
+                    sb.Append("\\t");
+                    continue;
+                }
+
+                if (char.IsControl(c))
+                {
+                    sb.Append("\\x");
+                    sb.Append(((int)c).ToString("X2"));
+                    continue;
+                }
+
+                sb.Append(c);
+            }
+
+            return sb.ToString();
         }
 
         private void TrimLogIfNeeded()
         {
+            if (ReceiveTextBox == null || ReceiveTextBox.IsDisposed)
+            {
+                return;
+            }
+
             int over = ReceiveTextBox.TextLength - MaxLogLength;
             if (over <= 0)
             {
@@ -199,6 +350,11 @@ namespace Automation
 
         public void SetTextColor(int startindex, string str, Color color)
         {
+            if (ReceiveTextBox == null || ReceiveTextBox.IsDisposed)
+            {
+                return;
+            }
+
             int length = str.Length;
             ReceiveTextBox.Select(startindex, length);
             ReceiveTextBox.SelectionBackColor = color;
@@ -269,7 +425,7 @@ namespace Automation
                 }
                 if (string.IsNullOrWhiteSpace(info.FrameMode))
                 {
-                    info.FrameMode = "Delimiter";
+                    info.FrameMode = "Raw";
                     changed = true;
                 }
                 if (string.IsNullOrWhiteSpace(info.FrameDelimiter))
@@ -398,6 +554,7 @@ namespace Automation
             row.Cells[2].Value = info.Type;
             row.Cells[3].Value = info.Address;
             row.Cells[4].Value = info.Port;
+            SetRowCellValue(row, TcpDelimiterColumnName, ToUiDelimiterSelection(info.FrameMode, info.FrameDelimiter, "Raw"));
         }
 
         private void ApplySerialInfoToRow(int rowIndex, SerialPortInfo info)
@@ -415,6 +572,7 @@ namespace Automation
             row.Cells[4].Value = info.CheckBit;
             row.Cells[5].Value = info.DataBit;
             row.Cells[6].Value = info.StopBit;
+            SetRowCellValue(row, SerialDelimiterColumnName, ToUiDelimiterSelection(info.FrameMode, info.FrameDelimiter, "Delimiter"));
         }
 
         private void AddItem_Click(object sender, EventArgs e)
@@ -428,7 +586,7 @@ namespace Automation
                 Name = name,
                 Port = 5000,
                 Type = "Client",
-                FrameMode = "Delimiter",
+                FrameMode = "Raw",
                 FrameDelimiter = "\\n",
                 EncodingName = "UTF-8",
                 ConnectTimeoutMs = 5000
@@ -544,6 +702,13 @@ namespace Automation
                 return false;
             }
 
+            string delimiterSelection = GetCellValue(row, TcpDelimiterColumnName);
+            if (!TryParseUiDelimiterSelection(delimiterSelection, out string frameMode, out string frameDelimiter))
+            {
+                error = "TCP分隔符必须为无、\\n或\\r\\n。";
+                return false;
+            }
+
             SocketInfo current = socketInfos[rowIndex] ?? new SocketInfo();
             parsed = new SocketInfo
             {
@@ -553,10 +718,10 @@ namespace Automation
                 Type = type,
                 Address = address,
                 Port = port,
-                FrameMode = string.IsNullOrWhiteSpace(current.FrameMode) ? "Delimiter" : current.FrameMode,
-                FrameDelimiter = string.IsNullOrWhiteSpace(current.FrameDelimiter) ? "\\n" : current.FrameDelimiter,
-                EncodingName = string.IsNullOrWhiteSpace(current.EncodingName) ? "UTF-8" : current.EncodingName,
-                ConnectTimeoutMs = current.ConnectTimeoutMs <= 0 ? 5000 : current.ConnectTimeoutMs,
+                FrameMode = frameMode,
+                FrameDelimiter = frameDelimiter,
+                EncodingName = "UTF-8",
+                ConnectTimeoutMs = 5000,
                 isServering = current.isServering
             };
             return true;
@@ -581,7 +746,11 @@ namespace Automation
 
         public bool CheckFormIsOpen(Form form)
         {
-            return form.Visible && form.WindowState != FormWindowState.Minimized;
+            return form != null
+                && !form.IsDisposed
+                && form.IsHandleCreated
+                && form.Visible
+                && form.WindowState != FormWindowState.Minimized;
         }
 
         public async Task SendMessageAsync()
@@ -734,8 +903,9 @@ namespace Automation
                 return;
             }
 
-            string channelType = dataGridView1.Rows[iSelectedSocketRow].Cells[2].Value?.ToString();
-            string state = dataGridView1.Rows[iSelectedSocketRow].Cells[5].Value?.ToString();
+            DataGridViewRow row = dataGridView1.Rows[iSelectedSocketRow];
+            string channelType = Convert.ToString(row.Cells[2].Value);
+            string state = GetCellValue(row, TcpStateColumnName);
             if (string.Equals(channelType, "Client", StringComparison.Ordinal))
             {
                 contextMenuStrip1.Items[2].Text = "连接";
@@ -964,6 +1134,13 @@ namespace Automation
                 return false;
             }
 
+            string delimiterSelection = GetCellValue(row, SerialDelimiterColumnName);
+            if (!TryParseUiDelimiterSelection(delimiterSelection, out string frameMode, out string frameDelimiter))
+            {
+                error = "串口分隔符必须为无、\\n或\\r\\n。";
+                return false;
+            }
+
             SerialPortInfo current = serialPortInfos[rowIndex] ?? new SerialPortInfo();
             parsed = new SerialPortInfo
             {
@@ -975,9 +1152,9 @@ namespace Automation
                 CheckBit = check,
                 DataBit = dataBit,
                 StopBit = stopBit,
-                FrameMode = string.IsNullOrWhiteSpace(current.FrameMode) ? "Delimiter" : current.FrameMode,
-                FrameDelimiter = string.IsNullOrWhiteSpace(current.FrameDelimiter) ? "\\n" : current.FrameDelimiter,
-                EncodingName = string.IsNullOrWhiteSpace(current.EncodingName) ? "UTF-8" : current.EncodingName
+                FrameMode = frameMode,
+                FrameDelimiter = frameDelimiter,
+                EncodingName = "UTF-8"
             };
             return true;
         }
@@ -1023,7 +1200,7 @@ namespace Automation
                 return;
             }
 
-            bool opened = string.Equals(dataGridView2.Rows[iSelectedSerialPortRow].Cells[7].Value?.ToString(), "已打开", StringComparison.Ordinal);
+            bool opened = string.Equals(GetCellValue(dataGridView2.Rows[iSelectedSerialPortRow], SerialStateColumnName), "已打开", StringComparison.Ordinal);
             contextMenuStrip3.Items[2].Enabled = !opened;
             contextMenuStrip3.Items[3].Enabled = opened;
         }
@@ -1031,6 +1208,75 @@ namespace Automation
         private async void send_Click(object sender, EventArgs e)
         {
             await SendMessageAsync();
+        }
+
+        private static void SetRowCellValue(DataGridViewRow row, string columnName, object value)
+        {
+            if (row == null || row.DataGridView == null || string.IsNullOrWhiteSpace(columnName))
+            {
+                return;
+            }
+            if (!row.DataGridView.Columns.Contains(columnName))
+            {
+                return;
+            }
+
+            row.Cells[columnName].Value = value;
+        }
+
+        private static string GetCellValue(DataGridViewRow row, string columnName)
+        {
+            if (row == null || row.DataGridView == null || string.IsNullOrWhiteSpace(columnName))
+            {
+                return string.Empty;
+            }
+            if (!row.DataGridView.Columns.Contains(columnName))
+            {
+                return string.Empty;
+            }
+
+            return Convert.ToString(row.Cells[columnName].Value)?.Trim() ?? string.Empty;
+        }
+
+        private static bool TryParseUiDelimiterSelection(string selection, out string frameMode, out string frameDelimiter)
+        {
+            if (string.Equals(selection, "无", StringComparison.Ordinal))
+            {
+                frameMode = "Raw";
+                frameDelimiter = "\\n";
+                return true;
+            }
+            if (string.Equals(selection, "\\n", StringComparison.Ordinal))
+            {
+                frameMode = "Delimiter";
+                frameDelimiter = "\\n";
+                return true;
+            }
+            if (string.Equals(selection, "\\r\\n", StringComparison.Ordinal))
+            {
+                frameMode = "Delimiter";
+                frameDelimiter = "\\r\\n";
+                return true;
+            }
+
+            frameMode = null;
+            frameDelimiter = null;
+            return false;
+        }
+
+        private static string ToUiDelimiterSelection(string frameMode, string frameDelimiter, string defaultMode)
+        {
+            string mode = string.IsNullOrWhiteSpace(frameMode) ? defaultMode : frameMode;
+            if (string.Equals(mode, "Raw", StringComparison.Ordinal))
+            {
+                return "无";
+            }
+            if (string.Equals(frameDelimiter, "\\r\\n", StringComparison.Ordinal))
+            {
+                return "\\r\\n";
+            }
+
+            return "\\n";
         }
 
         private static string BuildUniqueName(IEnumerable<string> existingNames, string prefix)
@@ -1045,6 +1291,47 @@ namespace Automation
                     return candidate;
                 }
                 index++;
+            }
+        }
+
+        private void ReleaseRuntimeResources()
+        {
+            if (Interlocked.Exchange(ref runtimeReleased, 1) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                stateTimer.Stop();
+                stateTimer.Tick -= StateTimer_Tick;
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                sendLoopCts?.Cancel();
+                sendLoopCts?.Dispose();
+            }
+            catch
+            {
+            }
+            finally
+            {
+                sendLoopCts = null;
+            }
+
+            try
+            {
+                if (SF.comm != null)
+                {
+                    SF.comm.Log -= Comm_Log;
+                }
+            }
+            catch
+            {
             }
         }
     }

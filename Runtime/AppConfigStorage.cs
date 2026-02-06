@@ -13,10 +13,12 @@ namespace Automation
 
     public static class AppConfigStorage
     {
+        public const string ConfigFolderName = "Config";
         public const string ConfigFileName = "AppConfig.json";
         public const string CommMaxMessageQueueSizeKey = "CommMaxMessageQueueSize";
+        public const int DefaultCommMaxMessageQueueSize = 1000;
 
-        public static string ConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFileName);
+        public static string ConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFolderName, ConfigFileName);
 
         public static bool TryLoad(out AppConfig config, out string error)
         {
@@ -25,8 +27,17 @@ namespace Automation
             string path = ConfigPath;
             if (!File.Exists(path))
             {
-                error = $"配置文件不存在:{path}";
-                return false;
+                AppConfig defaultConfig = new AppConfig
+                {
+                    CommMaxMessageQueueSize = DefaultCommMaxMessageQueueSize
+                };
+                if (!TrySave(defaultConfig, out string saveError))
+                {
+                    error = $"默认配置生成失败:{saveError}";
+                    return false;
+                }
+                config = defaultConfig;
+                return true;
             }
             try
             {
@@ -79,7 +90,15 @@ namespace Automation
                 [CommMaxMessageQueueSizeKey] = config.CommMaxMessageQueueSize
             };
             string json = obj.ToString(Formatting.Indented);
-            File.WriteAllText(ConfigPath, json, Encoding.UTF8);
+            string path = ConfigPath;
+            string directory = Path.GetDirectoryName(path);
+            if (string.IsNullOrEmpty(directory))
+            {
+                error = $"配置路径无效:{path}";
+                return false;
+            }
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, json, Encoding.UTF8);
             return true;
         }
     }
