@@ -82,7 +82,8 @@ namespace Automation
                 string json = File.ReadAllText(filePath);
                 var settings = new JsonSerializerSettings
                 {
-                    TypeNameHandling = TypeNameHandling.All
+                    TypeNameHandling = TypeNameHandling.All,
+                    ObjectCreationHandling = ObjectCreationHandling.Replace
                 };
                 Dictionary<string, DicValue> temp = JsonConvert.DeserializeObject<Dictionary<string, DicValue>>(json, settings);
                 LoadFromDictionary(temp);

@@ -70,7 +70,8 @@ namespace Automation
                 string json = File.ReadAllText(filePath);
                 var settings = new JsonSerializerSettings
                 {
-                    TypeNameHandling = TypeNameHandling.All
+                    TypeNameHandling = TypeNameHandling.All,
+                    ObjectCreationHandling = ObjectCreationHandling.Replace
                 };
                 List<PlcDevice> temp = JsonConvert.DeserializeObject<List<PlcDevice>>(json, settings) ?? new List<PlcDevice>();
                 if (!ValidateDevices(temp, out string error))
@@ -107,7 +108,8 @@ namespace Automation
                 string json = File.ReadAllText(filePath);
                 var settings = new JsonSerializerSettings
                 {
-                    TypeNameHandling = TypeNameHandling.All
+                    TypeNameHandling = TypeNameHandling.All,
+                    ObjectCreationHandling = ObjectCreationHandling.Replace
                 };
                 List<PlcMapItem> temp = JsonConvert.DeserializeObject<List<PlcMapItem>>(json, settings) ?? new List<PlcMapItem>();
                 if (!ValidateMaps(temp, out string error))

@@ -41,7 +41,8 @@ namespace Automation
                 string json = File.ReadAllText(filePath);
                 var settings = new JsonSerializerSettings
                 {
-                    TypeNameHandling = TypeNameHandling.All
+                    TypeNameHandling = TypeNameHandling.All,
+                    ObjectCreationHandling = ObjectCreationHandling.Replace
                 };
                 List<AlarmInfo> temp = JsonConvert.DeserializeObject<List<AlarmInfo>>(json, settings);
                 LoadFromList(temp);

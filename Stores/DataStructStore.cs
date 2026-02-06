@@ -50,7 +50,8 @@ namespace Automation
                 string json = File.ReadAllText(filePath);
                 var settings = new JsonSerializerSettings
                 {
-                    TypeNameHandling = TypeNameHandling.All
+                    TypeNameHandling = TypeNameHandling.All,
+                    ObjectCreationHandling = ObjectCreationHandling.Replace
                 };
                 List<DataStruct> temp = JsonConvert.DeserializeObject<List<DataStruct>>(json, settings);
                 if (!ValidateLoadedData(temp, out string error))

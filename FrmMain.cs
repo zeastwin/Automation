@@ -906,7 +906,9 @@ namespace Automation
                     string json = r.ReadToEnd();
                     var settings = new JsonSerializerSettings
                     {
-                        TypeNameHandling = TypeNameHandling.All
+                        TypeNameHandling = TypeNameHandling.All,
+                        // 反序列化时替换集合实例，避免构造函数中的默认项被重复追加。
+                        ObjectCreationHandling = ObjectCreationHandling.Replace
                     };
                     return JsonConvert.DeserializeObject<T>(json, settings);
                 }

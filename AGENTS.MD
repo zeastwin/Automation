@@ -44,9 +44,11 @@
 
 ## 核心概念
 - **流程模型**：`Proc` → `Step` → `OperationType`。通过 `FrmProc`（树）、`FrmDataGrid`（操作列表）、`FrmPropertyGrid`（属性编辑）修改，序列化为 JSON（启用 `TypeNameHandling.All`）。
+- **流程反序列化策略**：读取流程 JSON 时使用 `ObjectCreationHandling.Replace`，避免操作构造函数中的默认集合项在重启后被重复追加。
 - **运行引擎**：`ProcessEngine` 以 `ProcAgent` + 命令队列管理单流程执行，`ProcHandle` 仅在引擎内记录索引/状态，UI 通过 `EngineSnapshot` + `SnapshotChanged` 订阅状态。`RunProc`/`RunStep` 支持暂停、单步、跳转、报警；`ExecuteOperation` 将具体操作派发到对应执行函数。
 - **文件拆分**：引擎内核在 `Engine/ProcessEngine.Core.cs`，操作执行在 `Engine/ProcessEngine.Operations.cs`，模型在 `Engine/ProcessEngine.Models.cs`。
 - **变量**：`FrmValue` 管理 0–999 的 `DicValue`，含类型/名称/备注，持久化到 `Config/value.json`，提供按名/按索引读写。
+  - 通过 `FrmMenu` 的“变量”按钮进入变量表时，会强制执行一次表格值刷新（以运行时 `valueStore` 为准）。
   - 变量表编辑校验为“名称必填”；`Type` 为空时自动回填 `double`。
   - `double` 类型在值为空时自动回填 `0` 并持久化；`string` 类型允许空字符串并可直接持久化。
   - 迁移影响与排查：旧版本依赖“值必填”拦截的用法需复核；若类型或值未落盘，优先检查变量名是否为空或重名（重名会被 `TrySetValue` 拒绝）。
@@ -114,6 +116,9 @@
 
 ## 配置文件补充
 - `Config/Work/*.json` 按索引存单个流程，加载时以文件数量决定流程数量。
+- `Config/Work/*.json` 读取时会替换集合实例（`ObjectCreationHandling.Replace`），确保 `Count` 类字段与参数列表不会因默认构造项被额外追加而失配。
+- `Config/value.json`、`Config/card.json`、`Config/DataStruct.json`、`Config/AlarmInfo.json`、`Config/PlcDevice.json`、`Config/PlcMap.json` 的读取同样使用 `ObjectCreationHandling.Replace`，避免构造默认集合项被重复叠加。
+- 迁移影响与排查：若历史版本已误保存“空白参数项”，升级后不会继续新增，但历史空项仍会保留；需在流程编辑界面删除空项并保存。排查时优先检查 `Config/Work/*.json` 中对应操作的 `Count` 与 `Params/$values`（或同类列表）的数量是否一致。
 - `Config/value.json` 存变量字典，`FrmValue` 以 0–999 索引映射到表格。
 - `Config/card.json`、`Config/IOMap.json`、`Config/DataStation.json` 分别存卡、IO 映射、工站数据。
 - `Config/DataStruct.json` 存数据结构集合，项内包含 `str`/`num` 字典。

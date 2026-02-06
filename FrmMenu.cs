@@ -22,6 +22,7 @@ namespace Automation
             {
                 return;
             }
+            SF.frmValue.FreshFrmValue();
            // SF.frmValue.Owner = this;
             SF.frmValue.StartPosition = FormStartPosition.CenterScreen;
             SF.frmValue.Show();

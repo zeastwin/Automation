@@ -98,7 +98,8 @@ namespace Automation.AIFlow
                 string json = File.ReadAllText(file);
                 var settings = new JsonSerializerSettings
                 {
-                    TypeNameHandling = TypeNameHandling.All
+                    TypeNameHandling = TypeNameHandling.All,
+                    ObjectCreationHandling = ObjectCreationHandling.Replace
                 };
                 return JsonConvert.DeserializeObject<Proc>(json, settings);
             }

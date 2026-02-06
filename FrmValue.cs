@@ -239,6 +239,11 @@ namespace Automation
             SF.isFinBulidFrmValue = false;
             try
             {
+                if (dgvValue.Rows.Count != ValueConfigStore.ValueCapacity)
+                {
+                    RefreshValue();
+                    return;
+                }
                 for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
                 {
                     if (SF.valueStore.TryGetValueByIndex(i, out DicValue cachedValue))

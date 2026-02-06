@@ -32,7 +32,8 @@ namespace Automation
                 string json = File.ReadAllText(filePath);
                 var settings = new JsonSerializerSettings
                 {
-                    TypeNameHandling = TypeNameHandling.All
+                    TypeNameHandling = TypeNameHandling.All,
+                    ObjectCreationHandling = ObjectCreationHandling.Replace
                 };
                 Card temp = JsonConvert.DeserializeObject<Card>(json, settings);
                 cardData = Normalize(temp);
