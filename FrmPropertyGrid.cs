@@ -338,6 +338,22 @@ namespace Automation
             List<PropertyDescriptor> list = new List<PropertyDescriptor>(props.Count);
             foreach (PropertyDescriptor prop in props)
             {
+                InlineGroupAttribute inlineGroup = prop.Attributes[typeof(InlineGroupAttribute)] as InlineGroupAttribute;
+                if (inlineGroup != null)
+                {
+                    object groupValue = prop.GetValue(GetPropertyOwner(prop));
+                    if (groupValue != null)
+                    {
+                        string groupLabel = string.IsNullOrWhiteSpace(inlineGroup.DisplayName) ? prop.DisplayName : inlineGroup.DisplayName;
+                        PropertyDescriptorCollection groupProps = TypeDescriptor.GetProperties(groupValue);
+                        foreach (PropertyDescriptor child in groupProps)
+                        {
+                            list.Add(new InlineGroupMemberDescriptor(prop, child, groupLabel));
+                        }
+                    }
+                    continue;
+                }
+
                 InlineListAttribute inline = prop.Attributes[typeof(InlineListAttribute)] as InlineListAttribute;
                 if (inline == null)
                 {
@@ -352,32 +368,103 @@ namespace Automation
                 }
 
                 string displayName = string.IsNullOrWhiteSpace(inline.DisplayName) ? prop.DisplayName : inline.DisplayName;
-                string category = string.IsNullOrWhiteSpace(inline.Category) ? prop.Category : inline.Category;
                 for (int i = 0; i < items.Count; i++)
                 {
-                    list.Add(new InlineListItemPropertyDescriptor(prop, i, displayName, category));
+                    object item = items[i];
+                    if (item == null)
+                    {
+                        continue;
+                    }
+                    string groupLabel = $"{displayName}：{i + 1}";
+                    PropertyDescriptorCollection itemProps = TypeDescriptor.GetProperties(item);
+                    foreach (PropertyDescriptor child in itemProps)
+                    {
+                        list.Add(new InlineListItemMemberDescriptor(prop, i, child, groupLabel));
+                    }
                 }
             }
             return new PropertyDescriptorCollection(list.ToArray(), true);
         }
     }
 
-    public sealed class InlineListItemPropertyDescriptor : PropertyDescriptor
+    public sealed class InlineGroupMemberDescriptor : PropertyDescriptor
+    {
+        private readonly PropertyDescriptor groupProperty;
+        private readonly PropertyDescriptor memberProperty;
+        private readonly string category;
+        private readonly string displayName;
+
+        public InlineGroupMemberDescriptor(PropertyDescriptor groupProperty, PropertyDescriptor memberProperty, string category)
+            : base($"{groupProperty.Name}_{memberProperty.Name}", memberProperty.Attributes.Cast<Attribute>().ToArray())
+        {
+            this.groupProperty = groupProperty;
+            this.memberProperty = memberProperty;
+            this.category = category;
+            displayName = memberProperty.DisplayName;
+        }
+
+        public override string DisplayName => displayName;
+
+        public override string Category => category;
+
+        public override Type ComponentType => groupProperty.ComponentType;
+
+        public override bool IsReadOnly => memberProperty.IsReadOnly;
+
+        public override Type PropertyType => memberProperty.PropertyType;
+
+        public override bool CanResetValue(object component)
+        {
+            return false;
+        }
+
+        public override object GetValue(object component)
+        {
+            object groupValue = groupProperty.GetValue(component);
+            if (groupValue == null)
+            {
+                return null;
+            }
+            return memberProperty.GetValue(groupValue);
+        }
+
+        public override void ResetValue(object component)
+        {
+        }
+
+        public override void SetValue(object component, object value)
+        {
+            object groupValue = groupProperty.GetValue(component);
+            if (groupValue == null)
+            {
+                return;
+            }
+            memberProperty.SetValue(groupValue, value);
+        }
+
+        public override bool ShouldSerializeValue(object component)
+        {
+            return false;
+        }
+
+    }
+
+    public sealed class InlineListItemMemberDescriptor : PropertyDescriptor
     {
         private readonly PropertyDescriptor listProperty;
         private readonly int index;
+        private readonly PropertyDescriptor memberProperty;
         private readonly string category;
         private readonly string displayName;
-        private readonly Type elementType;
 
-        public InlineListItemPropertyDescriptor(PropertyDescriptor listProperty, int index, string displayName, string category)
-            : base($"{listProperty.Name}_{index}", null)
+        public InlineListItemMemberDescriptor(PropertyDescriptor listProperty, int index, PropertyDescriptor memberProperty, string category)
+            : base($"{listProperty.Name}_{index}_{memberProperty.Name}", memberProperty.Attributes.Cast<Attribute>().ToArray())
         {
             this.listProperty = listProperty;
             this.index = index;
+            this.memberProperty = memberProperty;
             this.category = category;
-            this.displayName = $"{displayName}：{index + 1}";
-            elementType = ResolveElementType(listProperty.PropertyType);
+            displayName = memberProperty.DisplayName;
         }
 
         public override string DisplayName => displayName;
@@ -386,15 +473,9 @@ namespace Automation
 
         public override Type ComponentType => listProperty.ComponentType;
 
-        public override bool IsReadOnly => false;
+        public override bool IsReadOnly => memberProperty.IsReadOnly;
 
-        public override Type PropertyType
-        {
-            get
-            {
-                return elementType ?? typeof(object);
-            }
-        }
+        public override Type PropertyType => memberProperty.PropertyType;
 
         public override bool CanResetValue(object component)
         {
@@ -408,7 +489,12 @@ namespace Automation
             {
                 return null;
             }
-            return items[index];
+            object item = items[index];
+            if (item == null)
+            {
+                return null;
+            }
+            return memberProperty.GetValue(item);
         }
 
         public override void ResetValue(object component)
@@ -422,33 +508,17 @@ namespace Automation
             {
                 return;
             }
-            items[index] = value;
+            object item = items[index];
+            if (item == null)
+            {
+                return;
+            }
+            memberProperty.SetValue(item, value);
         }
 
         public override bool ShouldSerializeValue(object component)
         {
             return false;
-        }
-
-        private static Type ResolveElementType(Type listType)
-        {
-            if (listType == null)
-            {
-                return typeof(object);
-            }
-            if (listType.IsArray)
-            {
-                return listType.GetElementType() ?? typeof(object);
-            }
-            if (listType.IsGenericType)
-            {
-                Type[] args = listType.GetGenericArguments();
-                if (args.Length == 1)
-                {
-                    return args[0];
-                }
-            }
-            return typeof(object);
         }
     }
 }

@@ -60,6 +60,19 @@ namespace Automation
         public string Category { get; }
     }
 
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    public class InlineGroupAttribute : Attribute
+    {
+        public InlineGroupAttribute(string displayName, string category)
+        {
+            DisplayName = displayName;
+            Category = category;
+        }
+
+        public string DisplayName { get; }
+        public string Category { get; }
+    }
+
 
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
@@ -346,6 +359,7 @@ namespace Automation
             }
         }
         [DisplayName("超时设置"), Category("参数"), Description(""), ReadOnly(true)]
+        [InlineGroup("超时设置", "参数")]
         public TimeOutC timeOutC { get; set; } = new TimeOutC();
         [DisplayName("IO设置"), Category("参数"), Description(""), ReadOnly(false)]
         [InlineList("IO", "参数")]
@@ -548,6 +562,7 @@ namespace Automation
         public string delayAfterV { get; set; }
 
         [DisplayName("超时设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineGroup("超时设置", "参数")]
         public TimeOutC timeOutC { get; set; } = new TimeOutC() { TimeOut = -1 };
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
         [InlineList("流程", "参数")]
