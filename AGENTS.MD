@@ -12,6 +12,18 @@
 - 安全是最高准则：任何异常或不确定状态必须优先停机/报警，禁止继续运行。
 - 参数解析必须严格遵循定义范式，禁止对参数进行宽松解析或容错修复。
 
+## 编译验证（固定命令）
+- 推荐在 WSL 下直接调用 Visual Studio 2026 的 MSBuild：
+  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.sln /t:Build /p:Configuration=Debug /m`
+- 需要全量重编译时使用：
+  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.sln /t:Rebuild /p:Configuration=Debug /m`
+- 只编译单项目时使用：
+  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.csproj /t:Build /p:Configuration=Debug /m`
+- 若路径变化，先定位 MSBuild 再编译：
+  - `find "/mnt/c/Program Files/Microsoft Visual Studio" -path "*MSBuild*Bin/MSBuild.exe" | head -n 5`
+- 禁止使用旧版 .NET Framework MSBuild（`/mnt/c/Windows/Microsoft.NET/Framework64/v4.0.30319/MSBuild.exe`），该版本会导致 `LangVersion=latest` 编译失败。
+- 若本次改动引入了新文件或新增/调整 `using`，代理不执行编译验证；仅完成代码修改并明确提示“请用户在本机编译确认”。
+
 # Automation Agents 速览
 
 项目概述：基于 Windows Forms 的低代码自动化平台，核心是可编辑的“流程/步骤/操作”图谱，协同运动控制卡、IO、TCP/串口通讯与自定义逻辑。入口 `Program.cs` → `FrmMain`，主窗体内嵌各功能子窗体。
