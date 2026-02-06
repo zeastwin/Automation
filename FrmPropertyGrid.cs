@@ -16,6 +16,7 @@ using System.Xml.Serialization;
 using static Automation.FrmPropertyGrid;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using System.Runtime.InteropServices.ComTypes;
+using static Automation.OperationTypePartial;
 
 namespace Automation
 {
@@ -253,9 +254,27 @@ namespace Automation
         }
         public void SetPropertyAttribute(object obj, string propertyName, Type attrType, string attrField, object value)
         {
-            PropertyDescriptorCollection props = TypeDescriptor.GetProperties(obj);
-            Attribute attr = props[propertyName].Attributes[attrType];
+            if (obj == null || string.IsNullOrEmpty(propertyName) || attrType == null)
+            {
+                return;
+            }
+            PropertyDescriptorCollection props = InlineListTypeDescriptionProvider.GetOriginalProperties(obj)
+                ?? TypeDescriptor.GetProperties(obj);
+            PropertyDescriptor prop = props[propertyName];
+            if (prop == null)
+            {
+                return;
+            }
+            Attribute attr = prop.Attributes[attrType];
+            if (attr == null)
+            {
+                return;
+            }
             FieldInfo field = attrType.GetField(attrField, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null)
+            {
+                return;
+            }
             field.SetValue(attr, value);
         }
         public string PropertyName;
@@ -294,6 +313,7 @@ namespace Automation
     public sealed class InlineListTypeDescriptionProvider : TypeDescriptionProvider
     {
         private static bool registered;
+        private static InlineListTypeDescriptionProvider instance;
         private readonly TypeDescriptionProvider baseProvider;
 
         public InlineListTypeDescriptionProvider()
@@ -312,8 +332,20 @@ namespace Automation
             {
                 return;
             }
-            TypeDescriptor.AddProvider(new InlineListTypeDescriptionProvider(), typeof(OperationType));
+            instance = new InlineListTypeDescriptionProvider();
+            TypeDescriptor.AddProvider(instance, typeof(OperationType));
             registered = true;
+        }
+
+        public static PropertyDescriptorCollection GetOriginalProperties(object instance)
+        {
+            if (instance == null || !registered || InlineListTypeDescriptionProvider.instance == null)
+            {
+                return null;
+            }
+            return InlineListTypeDescriptionProvider.instance.baseProvider
+                .GetTypeDescriptor(instance)
+                .GetProperties();
         }
 
         public override ICustomTypeDescriptor GetTypeDescriptor(Type objectType, object instance)
@@ -390,6 +422,7 @@ namespace Automation
                     }
                 }
             }
+            list = ValueRefPropertyMerger.Merge(list);
             return new PropertyDescriptorCollection(list.ToArray(), true);
         }
     }
@@ -526,6 +559,689 @@ namespace Automation
         public override bool ShouldSerializeValue(object component)
         {
             return false;
+        }
+    }
+
+    public enum ValueRefInputKind
+    {
+        Name,
+        Name2,
+        Index,
+        Index2,
+        Conflict
+    }
+
+    public sealed class ValueRefGroup
+    {
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, Dictionary<string, ValueRefInputKind>> PreferredKinds
+            = new System.Runtime.CompilerServices.ConditionalWeakTable<object, Dictionary<string, ValueRefInputKind>>();
+
+        public ValueRefGroup(string baseLabel, string category)
+        {
+            BaseLabel = baseLabel;
+            Category = category;
+        }
+
+        public string BaseLabel { get; }
+        public string Category { get; }
+        public int FirstIndex { get; set; } = int.MaxValue;
+        public PropertyDescriptor Index { get; set; }
+        public PropertyDescriptor Index2 { get; set; }
+        public PropertyDescriptor Name { get; set; }
+        public PropertyDescriptor Name2 { get; set; }
+
+        public Type ComponentType
+        {
+            get
+            {
+                if (Index != null) return Index.ComponentType;
+                if (Index2 != null) return Index2.ComponentType;
+                if (Name != null) return Name.ComponentType;
+                if (Name2 != null) return Name2.ComponentType;
+                return typeof(object);
+            }
+        }
+
+        public bool CanMerge
+        {
+            get
+            {
+                int count = 0;
+                if (Index != null) count++;
+                if (Index2 != null) count++;
+                if (Name != null) count++;
+                if (Name2 != null) count++;
+                return count >= 2;
+            }
+        }
+
+        public ValueRefInputKind GetKind(object component)
+        {
+            int count = 0;
+            ValueRefInputKind kind = GetDefaultKind();
+            if (HasValue(Index, component))
+            {
+                count++;
+                kind = ValueRefInputKind.Index;
+            }
+            if (HasValue(Index2, component))
+            {
+                count++;
+                kind = ValueRefInputKind.Index2;
+            }
+            if (HasValue(Name, component))
+            {
+                count++;
+                kind = ValueRefInputKind.Name;
+            }
+            if (HasValue(Name2, component))
+            {
+                count++;
+                kind = ValueRefInputKind.Name2;
+            }
+            if (count == 0)
+            {
+                ValueRefInputKind? preferred = GetPreferredKind(component);
+                if (preferred.HasValue)
+                {
+                    return preferred.Value;
+                }
+                return GetDefaultKind();
+            }
+            if (count > 1)
+            {
+                return ValueRefInputKind.Conflict;
+            }
+            SetPreferredKind(component, kind);
+            return kind;
+        }
+
+        public string GetValue(object component, ValueRefInputKind kind)
+        {
+            switch (kind)
+            {
+                case ValueRefInputKind.Index:
+                    return GetString(Index, component);
+                case ValueRefInputKind.Index2:
+                    return GetString(Index2, component);
+                case ValueRefInputKind.Name2:
+                    return GetString(Name2, component);
+                case ValueRefInputKind.Name:
+                    return GetString(Name, component);
+                default:
+                    return string.Empty;
+            }
+        }
+
+        public void SetKind(object component, ValueRefInputKind kind)
+        {
+            ClearAll(component);
+            SetPreferredKind(component, kind);
+        }
+
+        public void SetValue(object component, ValueRefInputKind kind, string value)
+        {
+            ClearAll(component);
+            if (string.IsNullOrEmpty(value))
+            {
+                return;
+            }
+            switch (kind)
+            {
+                case ValueRefInputKind.Index:
+                    SetString(Index, component, value);
+                    break;
+                case ValueRefInputKind.Index2:
+                    SetString(Index2, component, value);
+                    break;
+                case ValueRefInputKind.Name2:
+                    SetString(Name2, component, value);
+                    break;
+                case ValueRefInputKind.Name:
+                    SetString(Name, component, value);
+                    break;
+            }
+            SetPreferredKind(component, kind);
+        }
+
+        public bool UseNameSelector(object component)
+        {
+            ValueRefInputKind kind = GetKind(component);
+            return kind == ValueRefInputKind.Name || kind == ValueRefInputKind.Name2;
+        }
+
+        private ValueRefInputKind GetDefaultKind()
+        {
+            if (Name != null) return ValueRefInputKind.Name;
+            if (Name2 != null) return ValueRefInputKind.Name2;
+            if (Index != null) return ValueRefInputKind.Index;
+            if (Index2 != null) return ValueRefInputKind.Index2;
+            return ValueRefInputKind.Name;
+        }
+
+        private static bool HasValue(PropertyDescriptor prop, object component)
+        {
+            if (prop == null)
+            {
+                return false;
+            }
+            object value = prop.GetValue(component);
+            if (value == null)
+            {
+                return false;
+            }
+            if (value is string text)
+            {
+                return text.Length > 0;
+            }
+            return true;
+        }
+
+        private static string GetString(PropertyDescriptor prop, object component)
+        {
+            if (prop == null)
+            {
+                return string.Empty;
+            }
+            object value = prop.GetValue(component);
+            return value as string ?? string.Empty;
+        }
+
+        private static void SetString(PropertyDescriptor prop, object component, string value)
+        {
+            if (prop == null)
+            {
+                return;
+            }
+            prop.SetValue(component, value);
+        }
+
+        private void ClearAll(object component)
+        {
+            SetString(Index, component, null);
+            SetString(Index2, component, null);
+            SetString(Name, component, null);
+            SetString(Name2, component, null);
+        }
+
+        private string GetKey()
+        {
+            return $"{Category ?? string.Empty}||{BaseLabel ?? string.Empty}";
+        }
+
+        private ValueRefInputKind? GetPreferredKind(object component)
+        {
+            if (component == null)
+            {
+                return null;
+            }
+            if (!PreferredKinds.TryGetValue(component, out Dictionary<string, ValueRefInputKind> map))
+            {
+                return null;
+            }
+            if (map.TryGetValue(GetKey(), out ValueRefInputKind kind))
+            {
+                return kind;
+            }
+            return null;
+        }
+
+        private void SetPreferredKind(object component, ValueRefInputKind kind)
+        {
+            if (component == null)
+            {
+                return;
+            }
+            if (kind == ValueRefInputKind.Conflict)
+            {
+                return;
+            }
+            Dictionary<string, ValueRefInputKind> map = PreferredKinds.GetOrCreateValue(component);
+            map[GetKey()] = kind;
+        }
+    }
+
+    public static class ValueRefPropertyMerger
+    {
+        private const string SuffixIndex = "索引";
+        private const string SuffixIndex2 = "索引二级";
+        private const string SuffixName = "名称";
+        private const string SuffixName2 = "名称二级";
+
+        public static List<PropertyDescriptor> Merge(List<PropertyDescriptor> props)
+        {
+            Dictionary<string, ValueRefGroup> groups = new Dictionary<string, ValueRefGroup>();
+            Dictionary<string, (PropertyDescriptor Prop, int Index)> nameCandidates = new Dictionary<string, (PropertyDescriptor, int)>();
+
+            for (int i = 0; i < props.Count; i++)
+            {
+                PropertyDescriptor prop = props[i];
+                if (TryGetValueRefPart(prop, out string baseLabel, out ValueRefInputKind part))
+                {
+                    string key = GetKey(prop.Category, baseLabel);
+                    if (!groups.TryGetValue(key, out ValueRefGroup group))
+                    {
+                        group = new ValueRefGroup(baseLabel, prop.Category);
+                        groups[key] = group;
+                    }
+                    group.FirstIndex = Math.Min(group.FirstIndex, i);
+                    switch (part)
+                    {
+                        case ValueRefInputKind.Index:
+                            group.Index = prop;
+                            break;
+                        case ValueRefInputKind.Index2:
+                            group.Index2 = prop;
+                            break;
+                        case ValueRefInputKind.Name:
+                            group.Name = prop;
+                            break;
+                        case ValueRefInputKind.Name2:
+                            group.Name2 = prop;
+                            break;
+                    }
+                    continue;
+                }
+                if (IsNameCandidate(prop, out string candidateBase))
+                {
+                    string key = GetKey(prop.Category, candidateBase);
+                    if (!nameCandidates.ContainsKey(key))
+                    {
+                        nameCandidates[key] = (prop, i);
+                    }
+                }
+            }
+
+            foreach (KeyValuePair<string, (PropertyDescriptor Prop, int Index)> candidate in nameCandidates)
+            {
+                if (!groups.TryGetValue(candidate.Key, out ValueRefGroup group))
+                {
+                    continue;
+                }
+                if (group.Name == null)
+                {
+                    group.Name = candidate.Value.Prop;
+                    group.FirstIndex = Math.Min(group.FirstIndex, candidate.Value.Index);
+                }
+            }
+
+            List<ValueRefGroup> validGroups = groups.Values.Where(group => group.CanMerge).ToList();
+            if (validGroups.Count == 0)
+            {
+                return props;
+            }
+
+            HashSet<PropertyDescriptor> hidden = new HashSet<PropertyDescriptor>();
+            Dictionary<int, List<ValueRefGroup>> insertAt = new Dictionary<int, List<ValueRefGroup>>();
+            foreach (ValueRefGroup group in validGroups)
+            {
+                if (group.Index != null) hidden.Add(group.Index);
+                if (group.Index2 != null) hidden.Add(group.Index2);
+                if (group.Name != null) hidden.Add(group.Name);
+                if (group.Name2 != null) hidden.Add(group.Name2);
+
+                if (!insertAt.TryGetValue(group.FirstIndex, out List<ValueRefGroup> groupList))
+                {
+                    groupList = new List<ValueRefGroup>();
+                    insertAt[group.FirstIndex] = groupList;
+                }
+                groupList.Add(group);
+            }
+
+            List<PropertyDescriptor> output = new List<PropertyDescriptor>(props.Count);
+            for (int i = 0; i < props.Count; i++)
+            {
+                if (insertAt.TryGetValue(i, out List<ValueRefGroup> groupList))
+                {
+                    foreach (ValueRefGroup group in groupList)
+                    {
+                        output.Add(new ValueRefTypePropertyDescriptor(group));
+                        output.Add(new ValueRefValuePropertyDescriptor(group));
+                    }
+                }
+                PropertyDescriptor prop = props[i];
+                if (hidden.Contains(prop))
+                {
+                    continue;
+                }
+                output.Add(prop);
+            }
+
+            return output;
+        }
+
+        private static bool TryGetValueRefPart(PropertyDescriptor prop, out string baseLabel, out ValueRefInputKind part)
+        {
+            baseLabel = null;
+            part = ValueRefInputKind.Name;
+            string name = prop.DisplayName ?? string.Empty;
+            if (name.EndsWith(SuffixIndex2, StringComparison.Ordinal))
+            {
+                baseLabel = name.Substring(0, name.Length - SuffixIndex2.Length);
+                part = ValueRefInputKind.Index2;
+                return true;
+            }
+            if (name.EndsWith(SuffixIndex, StringComparison.Ordinal))
+            {
+                baseLabel = name.Substring(0, name.Length - SuffixIndex.Length);
+                part = ValueRefInputKind.Index;
+                return true;
+            }
+            if (name.EndsWith(SuffixName2, StringComparison.Ordinal))
+            {
+                baseLabel = name.Substring(0, name.Length - SuffixName2.Length);
+                part = ValueRefInputKind.Name2;
+                return true;
+            }
+            if (name.EndsWith(SuffixName, StringComparison.Ordinal))
+            {
+                baseLabel = name.Substring(0, name.Length - SuffixName.Length);
+                part = ValueRefInputKind.Name;
+                return true;
+            }
+            return false;
+        }
+
+        private static bool IsNameCandidate(PropertyDescriptor prop, out string baseLabel)
+        {
+            baseLabel = null;
+            string name = prop.DisplayName ?? string.Empty;
+            if (name.Length == 0)
+            {
+                return false;
+            }
+            if (name.EndsWith(SuffixIndex2, StringComparison.Ordinal)
+                || name.EndsWith(SuffixIndex, StringComparison.Ordinal)
+                || name.EndsWith(SuffixName2, StringComparison.Ordinal)
+                || name.EndsWith(SuffixName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            if (prop.Converter == null || prop.Converter.GetType() != typeof(ValueItem))
+            {
+                return false;
+            }
+            baseLabel = name;
+            return true;
+        }
+
+        private static string GetKey(string category, string baseLabel)
+        {
+            return $"{category ?? string.Empty}||{baseLabel ?? string.Empty}";
+        }
+    }
+
+    public sealed class ValueRefTypePropertyDescriptor : PropertyDescriptor
+    {
+        private readonly ValueRefGroup group;
+
+        public ValueRefTypePropertyDescriptor(ValueRefGroup group)
+            : base($"{group.Category}.{group.BaseLabel}.Type", null)
+        {
+            this.group = group;
+        }
+
+        public override string DisplayName => $"{group.BaseLabel}类型";
+
+        public override string Category => group.Category;
+
+        public override Type ComponentType => group.ComponentType;
+
+        public override bool IsReadOnly => false;
+
+        public override Type PropertyType => typeof(string);
+
+        public override bool CanResetValue(object component)
+        {
+            return false;
+        }
+
+        public override object GetValue(object component)
+        {
+            return ToText(group.GetKind(component));
+        }
+
+        public override void ResetValue(object component)
+        {
+        }
+
+        public override void SetValue(object component, object value)
+        {
+            ValueRefInputKind kind = ParseKind(value as string, group);
+            if (kind == ValueRefInputKind.Conflict)
+            {
+                return;
+            }
+            group.SetKind(component, kind);
+        }
+
+        public override bool ShouldSerializeValue(object component)
+        {
+            return false;
+        }
+
+        public override TypeConverter Converter => new ValueRefTypeConverter(group);
+
+        private static string ToText(ValueRefInputKind kind)
+        {
+            switch (kind)
+            {
+                case ValueRefInputKind.Index:
+                    return "索引";
+                case ValueRefInputKind.Index2:
+                    return "索引二级";
+                case ValueRefInputKind.Name2:
+                    return "名称二级";
+                case ValueRefInputKind.Name:
+                    return "名称";
+                case ValueRefInputKind.Conflict:
+                    return "冲突";
+                default:
+                    return "名称";
+            }
+        }
+
+        private static ValueRefInputKind ParseKind(string text, ValueRefGroup group)
+        {
+            if (string.Equals(text, "索引", StringComparison.Ordinal))
+            {
+                return group.Index != null ? ValueRefInputKind.Index : ValueRefInputKind.Conflict;
+            }
+            if (string.Equals(text, "索引二级", StringComparison.Ordinal))
+            {
+                return group.Index2 != null ? ValueRefInputKind.Index2 : ValueRefInputKind.Conflict;
+            }
+            if (string.Equals(text, "名称二级", StringComparison.Ordinal))
+            {
+                return group.Name2 != null ? ValueRefInputKind.Name2 : ValueRefInputKind.Conflict;
+            }
+            if (string.Equals(text, "名称", StringComparison.Ordinal))
+            {
+                return group.Name != null ? ValueRefInputKind.Name : ValueRefInputKind.Conflict;
+            }
+            if (string.Equals(text, "冲突", StringComparison.Ordinal))
+            {
+                return ValueRefInputKind.Conflict;
+            }
+            return group.Name != null ? ValueRefInputKind.Name : ValueRefInputKind.Conflict;
+        }
+
+        private sealed class ValueRefTypeConverter : StringConverter
+        {
+            private readonly ValueRefGroup group;
+
+            public ValueRefTypeConverter(ValueRefGroup group)
+            {
+                this.group = group;
+            }
+
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                List<string> values = new List<string>();
+                if (IsConflict(context))
+                {
+                    values.Add("冲突");
+                }
+                if (group.Name != null) values.Add("名称");
+                if (group.Name2 != null) values.Add("名称二级");
+                if (group.Index != null) values.Add("索引");
+                if (group.Index2 != null) values.Add("索引二级");
+                if (values.Count == 0)
+                {
+                    values.Add("名称");
+                }
+                return new StandardValuesCollection(values);
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            private bool IsConflict(ITypeDescriptorContext context)
+            {
+                object instance = GetContextInstance(context);
+                if (instance == null)
+                {
+                    return false;
+                }
+                return group.GetKind(instance) == ValueRefInputKind.Conflict;
+            }
+
+            private static object GetContextInstance(ITypeDescriptorContext context)
+            {
+                if (context == null)
+                {
+                    return null;
+                }
+                if (context.Instance is object[] instances)
+                {
+                    if (instances.Length > 0)
+                    {
+                        return instances[0];
+                    }
+                    return null;
+                }
+                return context.Instance;
+            }
+        }
+    }
+
+    public sealed class ValueRefValuePropertyDescriptor : PropertyDescriptor
+    {
+        private readonly ValueRefGroup group;
+
+        public ValueRefValuePropertyDescriptor(ValueRefGroup group)
+            : base($"{group.Category}.{group.BaseLabel}.Value", null)
+        {
+            this.group = group;
+        }
+
+        public override string DisplayName => group.BaseLabel;
+
+        public override string Category => group.Category;
+
+        public override Type ComponentType => group.ComponentType;
+
+        public override bool IsReadOnly => false;
+
+        public override Type PropertyType => typeof(string);
+
+        public override bool CanResetValue(object component)
+        {
+            return false;
+        }
+
+        public override object GetValue(object component)
+        {
+            ValueRefInputKind kind = group.GetKind(component);
+            if (kind == ValueRefInputKind.Conflict)
+            {
+                return string.Empty;
+            }
+            return group.GetValue(component, kind);
+        }
+
+        public override void ResetValue(object component)
+        {
+        }
+
+        public override void SetValue(object component, object value)
+        {
+            string text = value as string;
+            ValueRefInputKind kind = group.GetKind(component);
+            if (kind == ValueRefInputKind.Conflict)
+            {
+                kind = ValueRefInputKind.Name;
+            }
+            group.SetValue(component, kind, text);
+        }
+
+        public override bool ShouldSerializeValue(object component)
+        {
+            return false;
+        }
+
+        public override TypeConverter Converter => new ValueRefValueConverter(group);
+
+        private sealed class ValueRefValueConverter : StringConverter
+        {
+            private readonly ValueRefGroup group;
+
+            public ValueRefValueConverter(ValueRefGroup group)
+            {
+                this.group = group;
+            }
+
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                object instance = GetContextInstance(context);
+                if (instance == null)
+                {
+                    return false;
+                }
+                return group.UseNameSelector(instance);
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                if (!GetStandardValuesSupported(context))
+                {
+                    return new StandardValuesCollection(new List<string>());
+                }
+                if (SF.valueStore == null)
+                {
+                    return new StandardValuesCollection(new List<string>());
+                }
+                return new StandardValuesCollection(SF.valueStore.GetValueNames());
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return false;
+            }
+
+            private static object GetContextInstance(ITypeDescriptorContext context)
+            {
+                if (context == null)
+                {
+                    return null;
+                }
+                if (context.Instance is object[] instances)
+                {
+                    if (instances.Length > 0)
+                    {
+                        return instances[0];
+                    }
+                    return null;
+                }
+                return context.Instance;
+            }
         }
     }
 }

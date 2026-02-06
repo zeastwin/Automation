@@ -231,9 +231,28 @@ namespace Automation
         }
         public void SetPropertyAttribute(object obj, string propertyName, Type attrType, string attrField, object value)
         {
-            PropertyDescriptorCollection props = TypeDescriptor.GetProperties(obj);
-            Attribute attr = props[propertyName].Attributes[attrType];
+            if (obj == null || string.IsNullOrEmpty(propertyName) || attrType == null)
+            {
+                return;
+            }
+
+            PropertyDescriptorCollection props = InlineListTypeDescriptionProvider.GetOriginalProperties(obj)
+                ?? TypeDescriptor.GetProperties(obj);
+            PropertyDescriptor prop = props[propertyName];
+            if (prop == null)
+            {
+                return;
+            }
+            Attribute attr = prop.Attributes[attrType];
+            if (attr == null)
+            {
+                return;
+            }
             FieldInfo field = attrType.GetField(attrField, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null)
+            {
+                return;
+            }
             field.SetValue(attr, value);
         }
 
