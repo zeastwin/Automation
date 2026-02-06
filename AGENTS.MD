@@ -12,6 +12,10 @@
 - 安全是最高准则：任何异常或不确定状态必须优先停机/报警，禁止继续运行。
 - 参数解析必须严格遵循定义范式，禁止对参数进行宽松解析或容错修复。
 
+## 会话启动
+- 每次新对话开始后，第一步必须先读取本文件（`AGENTS.md`/`AGENTS.MD`）再执行任何分析或改动。
+- 首次回复需明确一句“已读取 AGENTS 约束并按其执行”，用于确认规则已生效。
+
 ## 编译验证（固定命令）
 - 推荐在 WSL 下直接调用 Visual Studio 2026 的 MSBuild：
   - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.sln /t:Build /p:Configuration=Debug /m`
@@ -22,7 +26,9 @@
 - 若路径变化，先定位 MSBuild 再编译：
   - `find "/mnt/c/Program Files/Microsoft Visual Studio" -path "*MSBuild*Bin/MSBuild.exe" | head -n 5`
 - 禁止使用旧版 .NET Framework MSBuild（`/mnt/c/Windows/Microsoft.NET/Framework64/v4.0.30319/MSBuild.exe`），该版本会导致 `LangVersion=latest` 编译失败。
-- 若本次改动引入了新文件或新增/调整 `using`，代理不执行编译验证；仅完成代码修改并明确提示“请用户在本机编译确认”。
+- 若本次改动新增/改名/移动 `.cs` 文件，必须同步更新 `Automation.csproj` 中对应的 `<Compile Include="...">`。
+- 编译前必须执行一次“项目文件一致性检查”：确认新增/改名后的 `.cs` 文件都已在 `Automation.csproj` 注册。
+- 一致性检查通过后允许执行编译；检查不通过时禁止编译并先修复项目文件。
 
 # Automation Agents 速览
 
