@@ -780,7 +780,7 @@ namespace Automation
         public string ValueName2Index { get; set; }
 
         [DisplayName("判断模式"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(JudgeMode))]
-        public string JudgeMode { get; set; }
+        public string JudgeMode { get; set; } = "值在区间内";
 
         [DisplayName("上限"), Category("参数"), Description(""), ReadOnly(false)]
         public double Up { get; set; }
