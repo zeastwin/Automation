@@ -287,8 +287,12 @@ namespace Automation
         {
             OperaType = "IO操作";
             ParamListConverter<IoOutParam>.Name = "IO";
+            IoParams = new CustomList<IoOutParam>
+            {
+                new IoOutParam { delayAfter = -1, delayBefore = -1 }
+            };
         }
-        private string iOCount;
+        private string iOCount = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
         public string IOCount
         {
@@ -353,8 +357,12 @@ namespace Automation
         {
             OperaType = "IO检测";
             ParamListConverter<IoCheckParam>.Name = "IO";
+            IoParams = new CustomList<IoCheckParam>
+            {
+                new IoCheckParam()
+            };
         }
-        private string iOCount;
+        private string iOCount = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
         public string IOCount
         {
@@ -395,9 +403,13 @@ namespace Automation
         {
             OperaType = "IO逻辑跳转";
             ParamListConverter<IoLogicGotoParam>.Name = "IO";
+            IoParams = new CustomList<IoLogicGotoParam>
+            {
+                new IoLogicGotoParam()
+            };
         }
 
-        private string iOCount;
+        private string iOCount = "1";
         [DisplayName("IO数量"), Category("B判断参数"), Description(""), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
         public string IOCount
         {
@@ -489,8 +501,12 @@ namespace Automation
         {
             OperaType = "流程操作";
             ParamListConverter<procParam>.Name = "流程";
+            procParams = new CustomList<procParam>
+            {
+                new procParam { delayAfter = -1 }
+            };
         }
-        private string procCount;
+        private string procCount = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ProcItemCount))]
         public string ProcCount
         {
@@ -550,8 +566,12 @@ namespace Automation
         {
             OperaType = "等待流程状态";
             ParamListConverter<WaitProcParam>.Name = "流程";
+            Params = new CustomList<WaitProcParam>
+            {
+                new WaitProcParam()
+            };
         }
-        private string procCount;
+        private string procCount = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ProcItemCount))]
         public string ProcCount
         {
@@ -614,6 +634,10 @@ namespace Automation
         {
             OperaType = "跳转";
             ParamListConverter<GotoParam>.Name = "跳转";
+            Params = new CustomList<GotoParam>
+            {
+                new GotoParam()
+            };
         }
 
         [DisplayName("变量索引"), Category("参数"), Description(""), ReadOnly(false)]
@@ -628,7 +652,7 @@ namespace Automation
         [DisplayName("变量名称二级"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string ValueName2Index { get; set; }
 
-        private string count;
+        private string count = "1";
         [DisplayName("匹配数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(MathcCount))]
         public string Count
         {
@@ -694,6 +718,10 @@ namespace Automation
         {
             OperaType = "逻辑判断";
             ParamListConverter<ParamGotoParam>.Name = "条件";
+            Params = new CustomList<ParamGotoParam>
+            {
+                new ParamGotoParam()
+            };
         }
         [DisplayName("成功跳转"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
         public string goto1 { get; set; }
@@ -704,7 +732,7 @@ namespace Automation
         [DisplayName("失败延时(ms)"), Category("参数"), Description(""), ReadOnly(false)]
         public string failDelay { get; set; }
 
-        private string count;
+        private string count = "1";
         [DisplayName("匹配数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(MathcCount))]
         public string Count
         {
@@ -1017,8 +1045,12 @@ namespace Automation
         {
             OperaType = "获取变量";
             ParamListConverter<GetValueParam>.Name = "变量";
+            Params = new CustomList<GetValueParam>
+            {
+                new GetValueParam()
+            };
         }
-        private string count;
+        private string count = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
@@ -1089,7 +1121,7 @@ namespace Automation
     {
         public ModifyValue()
         {
-            OperaType = "修改寄存器";
+            OperaType = "修改变量";
         }
 
         [DisplayName("修改模式"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ModifyType))]
@@ -1156,6 +1188,10 @@ namespace Automation
         {
             OperaType = "数据拼接";
             ParamListConverter<StringFormatParam>.Name = "变量";
+            Params = new CustomList<StringFormatParam>
+            {
+                new StringFormatParam()
+            };
         }
         [DisplayName("拼接格式"), Category("参数"), Description(""), ReadOnly(false)]
         public string Format { get; set; }
@@ -1164,7 +1200,7 @@ namespace Automation
         public string OutputValueIndex { get; set; }
         [DisplayName("存储变量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string OutputValueName { get; set; }
-        private string count;
+        private string count = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
@@ -1334,6 +1370,10 @@ namespace Automation
         {
             OperaType = "设置结构体数据项";
             ParamListConverter<SetDataStructItemParam>.Name = "数据";
+            Params = new CustomList<SetDataStructItemParam>
+            {
+                new SetDataStructItemParam()
+            };
         }
         [DisplayName("结构体索引"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(MathcCount))]
         public string StructIndex { get; set; }
@@ -1341,7 +1381,7 @@ namespace Automation
         [DisplayName("数据项索引"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(MathcCount))]
         public string ItemIndex { get; set; }
 
-        private string count;
+        private string count = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
@@ -1394,6 +1434,10 @@ namespace Automation
         {
             OperaType = "获取结构体数据项";
             ParamListConverter<GetDataStructItemParam>.Name = "数据";
+            Params = new CustomList<GetDataStructItemParam>
+            {
+                new GetDataStructItemParam()
+            };
         }
         [DisplayName("是否获取所有项"), Category("参数"), Description(""), ReadOnly(false)]
         public bool IsAllItem { get; set; }
@@ -1407,7 +1451,7 @@ namespace Automation
         [DisplayName("数据项索引"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(MathcCount))]
         public string ItemIndex { get; set; }
 
-        private string count;
+        private string count = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
@@ -1470,6 +1514,10 @@ namespace Automation
         {
             OperaType = "复制结构体数据项";
             ParamListConverter<CopyDataStructItemParam>.Name = "数据";
+            Params = new CustomList<CopyDataStructItemParam>
+            {
+                new CopyDataStructItemParam()
+            };
         }
         [DisplayName("是否复制所有项"), Category("参数"), Description(""), ReadOnly(false)]
         public bool IsAllValue { get; set; }
@@ -1486,7 +1534,7 @@ namespace Automation
         [DisplayName("目标数据项索引"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(MathcCount))]
         public string TargetItemIndex { get; set; }
 
-        private string count;
+        private string count = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
@@ -1540,6 +1588,10 @@ namespace Automation
         {
             OperaType = "插入结构体数据项";
             ParamListConverter<InsertDataStructItemParam>.Name = "数据";
+            Params = new CustomList<InsertDataStructItemParam>
+            {
+                new InsertDataStructItemParam()
+            };
         }
 
         [DisplayName("目标结构体名称"), Category("参数"), Description(""), ReadOnly(false)]
@@ -1551,7 +1603,7 @@ namespace Automation
         [DisplayName("目标数据项索引"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(MathcCount))]
         public string TargetItemIndex { get; set; }
 
-        private string count;
+        private string count = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
@@ -1667,9 +1719,13 @@ namespace Automation
         {
             OperaType = "网口通讯操作";
             ParamListConverter<TcpOpsParam>.Name = "网口";
+            Params = new CustomList<TcpOpsParam>
+            {
+                new TcpOpsParam()
+            };
         }
 
-        private string count;
+        private string count = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
@@ -1722,9 +1778,13 @@ namespace Automation
         {
             OperaType = "等待网口连接";
             ParamListConverter<WaitTcpParam>.Name = "网口";
+            Params = new CustomList<WaitTcpParam>
+            {
+                new WaitTcpParam()
+            };
         }
 
-        private string count;
+        private string count = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
@@ -1827,9 +1887,13 @@ namespace Automation
         {
             OperaType = "串口通讯操作";
             ParamListConverter<SerialPortOpsParam>.Name = "串口";
+            Params = new CustomList<SerialPortOpsParam>
+            {
+                new SerialPortOpsParam()
+            };
         }
 
-        private string count;
+        private string count = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
@@ -1882,9 +1946,13 @@ namespace Automation
         {
             OperaType = "等待串口连接";
             ParamListConverter<WaitSerialPortParam>.Name = "串口";
+            Params = new CustomList<WaitSerialPortParam>
+            {
+                new WaitSerialPortParam()
+            };
         }
 
-        private string count;
+        private string count = "1";
         [DisplayName("数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {

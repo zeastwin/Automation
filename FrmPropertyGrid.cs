@@ -1201,11 +1201,7 @@ namespace Automation
         {
             get
             {
-                if (string.Equals(group.BaseLabel, "工站", StringComparison.Ordinal))
-                {
-                    return "工站参数类型";
-                }
-                return $"{group.BaseLabel}类型";
+                return "参数类型";
             }
         }
 
