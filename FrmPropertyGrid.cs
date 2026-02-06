@@ -656,18 +656,18 @@ namespace Automation
             return kind;
         }
 
-        public string GetValue(object component, ValueRefInputKind kind)
+        public string GetValueText(object component, ValueRefInputKind kind)
         {
             switch (kind)
             {
                 case ValueRefInputKind.Index:
-                    return GetString(Index, component);
+                    return GetText(Index, component);
                 case ValueRefInputKind.Index2:
-                    return GetString(Index2, component);
+                    return GetText(Index2, component);
                 case ValueRefInputKind.Name2:
-                    return GetString(Name2, component);
+                    return GetText(Name2, component);
                 case ValueRefInputKind.Name:
-                    return GetString(Name, component);
+                    return GetText(Name, component);
                 default:
                     return string.Empty;
             }
@@ -679,7 +679,7 @@ namespace Automation
             SetPreferredKind(component, kind);
         }
 
-        public void SetValue(object component, ValueRefInputKind kind, string value)
+        public void SetValueFromText(object component, ValueRefInputKind kind, string value)
         {
             ClearAll(component);
             if (string.IsNullOrEmpty(value))
@@ -689,16 +689,16 @@ namespace Automation
             switch (kind)
             {
                 case ValueRefInputKind.Index:
-                    SetString(Index, component, value);
+                    SetValue(Index, component, value);
                     break;
                 case ValueRefInputKind.Index2:
-                    SetString(Index2, component, value);
+                    SetValue(Index2, component, value);
                     break;
                 case ValueRefInputKind.Name2:
-                    SetString(Name2, component, value);
+                    SetValue(Name2, component, value);
                     break;
                 case ValueRefInputKind.Name:
-                    SetString(Name, component, value);
+                    SetValue(Name, component, value);
                     break;
             }
             SetPreferredKind(component, kind);
@@ -734,34 +734,250 @@ namespace Automation
             {
                 return text.Length > 0;
             }
+            if (IsNumericType(prop.PropertyType))
+            {
+                if (!TryGetNumericValue(value, out long number))
+                {
+                    return false;
+                }
+                return number >= 0;
+            }
             return true;
         }
 
-        private static string GetString(PropertyDescriptor prop, object component)
+        private static string GetText(PropertyDescriptor prop, object component)
         {
             if (prop == null)
             {
                 return string.Empty;
             }
             object value = prop.GetValue(component);
-            return value as string ?? string.Empty;
+            if (value == null)
+            {
+                return string.Empty;
+            }
+            if (value is string text)
+            {
+                return text;
+            }
+            if (IsNumericType(prop.PropertyType))
+            {
+                if (!TryGetNumericValue(value, out long number))
+                {
+                    return string.Empty;
+                }
+                if (number < 0)
+                {
+                    return string.Empty;
+                }
+                return number.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+            return value.ToString() ?? string.Empty;
         }
 
-        private static void SetString(PropertyDescriptor prop, object component, string value)
+        private static void SetValue(PropertyDescriptor prop, object component, string value)
         {
             if (prop == null)
             {
                 return;
             }
-            prop.SetValue(component, value);
+            Type propType = prop.PropertyType;
+            Type targetType = Nullable.GetUnderlyingType(propType) ?? propType;
+            if (targetType == typeof(string))
+            {
+                prop.SetValue(component, value);
+                return;
+            }
+            if (IsNumericType(targetType))
+            {
+                if (!TryParseNumeric(value, targetType, out object parsed, out string error))
+                {
+                    throw new FormatException(error);
+                }
+                prop.SetValue(component, parsed);
+                return;
+            }
+            prop.SetValue(component, Convert.ChangeType(value, targetType, System.Globalization.CultureInfo.InvariantCulture));
         }
 
         private void ClearAll(object component)
         {
-            SetString(Index, component, null);
-            SetString(Index2, component, null);
-            SetString(Name, component, null);
-            SetString(Name2, component, null);
+            ClearValue(Index, component);
+            ClearValue(Index2, component);
+            ClearValue(Name, component);
+            ClearValue(Name2, component);
+        }
+
+        private static void ClearValue(PropertyDescriptor prop, object component)
+        {
+            if (prop == null)
+            {
+                return;
+            }
+            Type propType = prop.PropertyType;
+            Type targetType = Nullable.GetUnderlyingType(propType) ?? propType;
+            if (targetType == typeof(string))
+            {
+                prop.SetValue(component, null);
+                return;
+            }
+            if (Nullable.GetUnderlyingType(propType) != null)
+            {
+                prop.SetValue(component, null);
+                return;
+            }
+            if (IsNumericType(targetType))
+            {
+                object emptyValue = Convert.ChangeType(-1, targetType, System.Globalization.CultureInfo.InvariantCulture);
+                prop.SetValue(component, emptyValue);
+                return;
+            }
+            object defaultValue = Activator.CreateInstance(targetType);
+            prop.SetValue(component, defaultValue);
+        }
+
+        private static bool IsNumericType(Type type)
+        {
+            Type targetType = Nullable.GetUnderlyingType(type) ?? type;
+            return targetType == typeof(int)
+                || targetType == typeof(long)
+                || targetType == typeof(short)
+                || targetType == typeof(sbyte)
+                || targetType == typeof(uint)
+                || targetType == typeof(ulong)
+                || targetType == typeof(ushort)
+                || targetType == typeof(byte);
+        }
+
+        private static bool TryGetNumericValue(object value, out long number)
+        {
+            number = 0;
+            if (value == null)
+            {
+                return false;
+            }
+            switch (value)
+            {
+                case int intValue:
+                    number = intValue;
+                    return true;
+                case long longValue:
+                    number = longValue;
+                    return true;
+                case short shortValue:
+                    number = shortValue;
+                    return true;
+                case sbyte sbyteValue:
+                    number = sbyteValue;
+                    return true;
+                case uint uintValue:
+                    number = uintValue;
+                    return true;
+                case ulong ulongValue:
+                    number = unchecked((long)ulongValue);
+                    return true;
+                case ushort ushortValue:
+                    number = ushortValue;
+                    return true;
+                case byte byteValue:
+                    number = byteValue;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TryParseNumeric(string value, Type targetType, out object result, out string error)
+        {
+            result = null;
+            error = null;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                error = "索引不能为空";
+                return false;
+            }
+            if (targetType == typeof(int))
+            {
+                if (!int.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int parsed) || parsed < 0)
+                {
+                    error = "索引必须为非负整数";
+                    return false;
+                }
+                result = parsed;
+                return true;
+            }
+            if (targetType == typeof(long))
+            {
+                if (!long.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out long parsed) || parsed < 0)
+                {
+                    error = "索引必须为非负整数";
+                    return false;
+                }
+                result = parsed;
+                return true;
+            }
+            if (targetType == typeof(short))
+            {
+                if (!short.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out short parsed) || parsed < 0)
+                {
+                    error = "索引必须为非负整数";
+                    return false;
+                }
+                result = parsed;
+                return true;
+            }
+            if (targetType == typeof(sbyte))
+            {
+                if (!sbyte.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out sbyte parsed) || parsed < 0)
+                {
+                    error = "索引必须为非负整数";
+                    return false;
+                }
+                result = parsed;
+                return true;
+            }
+            if (targetType == typeof(uint))
+            {
+                if (!uint.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out uint parsed))
+                {
+                    error = "索引必须为非负整数";
+                    return false;
+                }
+                result = parsed;
+                return true;
+            }
+            if (targetType == typeof(ulong))
+            {
+                if (!ulong.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out ulong parsed))
+                {
+                    error = "索引必须为非负整数";
+                    return false;
+                }
+                result = parsed;
+                return true;
+            }
+            if (targetType == typeof(ushort))
+            {
+                if (!ushort.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out ushort parsed))
+                {
+                    error = "索引必须为非负整数";
+                    return false;
+                }
+                result = parsed;
+                return true;
+            }
+            if (targetType == typeof(byte))
+            {
+                if (!byte.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out byte parsed))
+                {
+                    error = "索引必须为非负整数";
+                    return false;
+                }
+                result = parsed;
+                return true;
+            }
+            error = "索引格式不支持";
+            return false;
         }
 
         private string GetKey()
@@ -981,7 +1197,17 @@ namespace Automation
             this.group = group;
         }
 
-        public override string DisplayName => $"{group.BaseLabel}类型";
+        public override string DisplayName
+        {
+            get
+            {
+                if (string.Equals(group.BaseLabel, "工站", StringComparison.Ordinal))
+                {
+                    return "工站参数类型";
+                }
+                return $"{group.BaseLabel}类型";
+            }
+        }
 
         public override string Category => group.Category;
 
@@ -1013,6 +1239,7 @@ namespace Automation
                 return;
             }
             group.SetKind(component, kind);
+            TypeDescriptor.Refresh(component);
         }
 
         public override bool ShouldSerializeValue(object component)
@@ -1164,7 +1391,7 @@ namespace Automation
             {
                 return string.Empty;
             }
-            return group.GetValue(component, kind);
+            return group.GetValueText(component, kind);
         }
 
         public override void ResetValue(object component)
@@ -1179,7 +1406,8 @@ namespace Automation
             {
                 kind = ValueRefInputKind.Name;
             }
-            group.SetValue(component, kind, text);
+            group.SetValueFromText(component, kind, text);
+            TypeDescriptor.Refresh(component);
         }
 
         public override bool ShouldSerializeValue(object component)
@@ -1205,25 +1433,42 @@ namespace Automation
                 {
                     return false;
                 }
-                return group.UseNameSelector(instance);
+                TypeConverter converter = GetActiveConverter(instance);
+                if (converter == null)
+                {
+                    return false;
+                }
+                return converter.GetStandardValuesSupported(context);
             }
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                if (!GetStandardValuesSupported(context))
+                object instance = GetContextInstance(context);
+                if (instance == null)
                 {
                     return new StandardValuesCollection(new List<string>());
                 }
-                if (SF.valueStore == null)
+                TypeConverter converter = GetActiveConverter(instance);
+                if (converter == null)
                 {
                     return new StandardValuesCollection(new List<string>());
                 }
-                return new StandardValuesCollection(SF.valueStore.GetValueNames());
+                return converter.GetStandardValues(context);
             }
 
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
-                return false;
+                object instance = GetContextInstance(context);
+                if (instance == null)
+                {
+                    return false;
+                }
+                TypeConverter converter = GetActiveConverter(instance);
+                if (converter == null)
+                {
+                    return false;
+                }
+                return converter.GetStandardValuesExclusive(context);
             }
 
             private static object GetContextInstance(ITypeDescriptorContext context)
@@ -1241,6 +1486,24 @@ namespace Automation
                     return null;
                 }
                 return context.Instance;
+            }
+
+            private TypeConverter GetActiveConverter(object instance)
+            {
+                ValueRefInputKind kind = group.GetKind(instance);
+                switch (kind)
+                {
+                    case ValueRefInputKind.Name:
+                        return group.Name?.Converter;
+                    case ValueRefInputKind.Name2:
+                        return group.Name2?.Converter;
+                    case ValueRefInputKind.Index:
+                        return group.Index?.Converter;
+                    case ValueRefInputKind.Index2:
+                        return group.Index2?.Converter;
+                    default:
+                        return null;
+                }
             }
         }
     }
