@@ -60,11 +60,11 @@
             this.contextMenuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.AddProc,
             this.AddStep,
+            this.startProc,
             this.Modify,
             this.CopyProcStep,
             this.PasteProcStep,
             this.ToggleDisable,
-            this.startProc,
             this.Remove});
             this.contextMenuStrip1.Name = "contextMenuStrip1";
             this.contextMenuStrip1.Size = new System.Drawing.Size(125, 136);
