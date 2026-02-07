@@ -27,6 +27,12 @@
                     infoAutoScrollTimer.Dispose();
                     infoAutoScrollTimer = null;
                 }
+                if (infoFlushTimer != null)
+                {
+                    infoFlushTimer.Stop();
+                    infoFlushTimer.Dispose();
+                    infoFlushTimer = null;
+                }
                 if (components != null)
                 {
                     components.Dispose();
@@ -52,7 +58,9 @@
             this.dgvProcStatus = new System.Windows.Forms.DataGridView();
             this.panelStatusTools = new System.Windows.Forms.Panel();
             this.lblStatusTip = new System.Windows.Forms.Label();
-            this.ReceiveTextBox = new System.Windows.Forms.RichTextBox();
+            this.lvInfoLog = new System.Windows.Forms.ListView();
+            this.columnHeaderInfoTime = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.columnHeaderInfoMessage = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.tabControl1.SuspendLayout();
             this.tabPage2.SuspendLayout();
             this.tabPageStatus.SuspendLayout();
@@ -74,7 +82,7 @@
             this.tabControl1.TabIndex = 0;
             // tabPage2
             // 
-            this.tabPage2.Controls.Add(this.ReceiveTextBox);
+            this.tabPage2.Controls.Add(this.lvInfoLog);
             this.tabPage2.Location = new System.Drawing.Point(4, 4);
             this.tabPage2.Margin = new System.Windows.Forms.Padding(0);
             this.tabPage2.Name = "tabPage2";
@@ -165,18 +173,35 @@
             this.lblStatusTip.TabIndex = 0;
             this.lblStatusTip.Text = "双击当前位置可跳转到指令";
             // 
-            // ReceiveTextBox
+            // lvInfoLog
             // 
-            this.ReceiveTextBox.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.ReceiveTextBox.Font = new System.Drawing.Font("Calibri", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.ReceiveTextBox.Location = new System.Drawing.Point(3, 3);
-            this.ReceiveTextBox.Margin = new System.Windows.Forms.Padding(0);
-            this.ReceiveTextBox.Name = "ReceiveTextBox";
-            this.ReceiveTextBox.ReadOnly = true;
-            this.ReceiveTextBox.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
-            this.ReceiveTextBox.Size = new System.Drawing.Size(786, 418);
-            this.ReceiveTextBox.TabIndex = 2;
-            this.ReceiveTextBox.Text = "";
+            this.lvInfoLog.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
+            this.columnHeaderInfoTime,
+            this.columnHeaderInfoMessage});
+            this.lvInfoLog.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.lvInfoLog.Font = new System.Drawing.Font("Calibri", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.lvInfoLog.FullRowSelect = true;
+            this.lvInfoLog.HeaderStyle = System.Windows.Forms.ColumnHeaderStyle.Nonclickable;
+            this.lvInfoLog.HideSelection = false;
+            this.lvInfoLog.Location = new System.Drawing.Point(3, 3);
+            this.lvInfoLog.Margin = new System.Windows.Forms.Padding(0);
+            this.lvInfoLog.MultiSelect = false;
+            this.lvInfoLog.Name = "lvInfoLog";
+            this.lvInfoLog.Size = new System.Drawing.Size(786, 418);
+            this.lvInfoLog.TabIndex = 2;
+            this.lvInfoLog.UseCompatibleStateImageBehavior = false;
+            this.lvInfoLog.View = System.Windows.Forms.View.Details;
+            this.lvInfoLog.VirtualMode = true;
+            // 
+            // columnHeaderInfoTime
+            // 
+            this.columnHeaderInfoTime.Text = "时间";
+            this.columnHeaderInfoTime.Width = 180;
+            // 
+            // columnHeaderInfoMessage
+            // 
+            this.columnHeaderInfoMessage.Text = "信息";
+            this.columnHeaderInfoMessage.Width = 580;
             // 
             // FrmInfo
             // 
@@ -201,7 +226,9 @@
         #endregion
         private System.Windows.Forms.TabPage tabPage2;
         private System.Windows.Forms.TabPage tabPageStatus;
-        public System.Windows.Forms.RichTextBox ReceiveTextBox;
+        private System.Windows.Forms.ListView lvInfoLog;
+        private System.Windows.Forms.ColumnHeader columnHeaderInfoTime;
+        private System.Windows.Forms.ColumnHeader columnHeaderInfoMessage;
         public System.Windows.Forms.TabControl tabControl1;
         private System.Windows.Forms.DataGridView dgvProcStatus;
         private System.Windows.Forms.Panel panelStatusTools;

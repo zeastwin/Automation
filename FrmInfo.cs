@@ -1,8 +1,10 @@
 ﻿using Newtonsoft.Json;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Automation
@@ -18,10 +20,16 @@ namespace Automation
         private const int StatusColumnsPerGroup = 4;
         private const int StatusMinGroupWidth = 320;
         private const int MaxInfoLogEntries = 200;
+        private const int InfoFlushIntervalMs = 100;
+        private const int InfoFlushBatchSize = 256;
         private const int InfoAutoScrollIdleMs = 20000;
+        private const int SB_VERT = 1;
+        private const uint SIF_ALL = 0x17;
         private ContextMenuStrip infoMenu;
         private ToolStripMenuItem menuClearInfo;
-        private readonly Queue<int> infoEntryLengths = new Queue<int>();
+        private readonly ConcurrentQueue<InfoLogEntry> pendingInfoQueue = new ConcurrentQueue<InfoLogEntry>();
+        private readonly FixedRingBuffer<InfoLogEntry> infoLogBuffer = new FixedRingBuffer<InfoLogEntry>(MaxInfoLogEntries);
+        private System.Windows.Forms.Timer infoFlushTimer;
         private System.Windows.Forms.Timer infoAutoScrollTimer;
         private bool infoAutoScrollPausedByUser;
         private DateTime infoLastInteractionUtc;
@@ -44,8 +52,11 @@ namespace Automation
             {
                 return;
             }
-            ReceiveTextBox.Clear();
-            infoEntryLengths.Clear();
+            while (pendingInfoQueue.TryDequeue(out _))
+            {
+            }
+            infoLogBuffer.Clear();
+            RefreshInfoListView();
             infoAutoScrollPausedByUser = false;
         }
 
@@ -59,50 +70,121 @@ namespace Automation
             menuClearInfo = new ToolStripMenuItem("清空");
             menuClearInfo.Click += btnClearInfo_Click;
             infoMenu.Items.Add(menuClearInfo);
-            ReceiveTextBox.ContextMenuStrip = infoMenu;
+            lvInfoLog.ContextMenuStrip = infoMenu;
         }
 
         private void InitializeInfoStreamBehavior()
         {
-            if (infoAutoScrollTimer != null)
+            if (infoAutoScrollTimer != null || infoFlushTimer != null)
             {
                 return;
             }
-            ReceiveTextBox.VScroll += ReceiveTextBox_VScroll;
-            ReceiveTextBox.MouseWheel += ReceiveTextBox_MouseWheel;
-            ReceiveTextBox.MouseDown += ReceiveTextBox_MouseDown;
-            ReceiveTextBox.KeyDown += ReceiveTextBox_KeyDown;
+            lvInfoLog.RetrieveVirtualItem += lvInfoLog_RetrieveVirtualItem;
+            lvInfoLog.Resize += lvInfoLog_Resize;
+            lvInfoLog.MouseWheel += lvInfoLog_MouseWheel;
+            lvInfoLog.MouseDown += lvInfoLog_MouseDown;
+            lvInfoLog.MouseDoubleClick += lvInfoLog_MouseDoubleClick;
+            lvInfoLog.KeyDown += lvInfoLog_KeyDown;
+
+            infoFlushTimer = new System.Windows.Forms.Timer();
+            infoFlushTimer.Interval = InfoFlushIntervalMs;
+            infoFlushTimer.Tick += InfoFlushTimer_Tick;
+            infoFlushTimer.Start();
 
             infoAutoScrollTimer = new System.Windows.Forms.Timer();
             infoAutoScrollTimer.Interval = 500;
             infoAutoScrollTimer.Tick += InfoAutoScrollTimer_Tick;
             infoAutoScrollTimer.Start();
+            RefreshInfoListView();
+            UpdateInfoLogColumns();
         }
 
-        private void ReceiveTextBox_VScroll(object sender, EventArgs e)
+        private void lvInfoLog_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
+        {
+            if (e.ItemIndex < 0 || e.ItemIndex >= infoLogBuffer.Count)
+            {
+                e.Item = new ListViewItem(string.Empty);
+                return;
+            }
+            InfoLogEntry entry = infoLogBuffer[e.ItemIndex];
+            ListViewItem item = new ListViewItem(entry.TimeText);
+            item.UseItemStyleForSubItems = false;
+            item.SubItems.Add(entry.Message);
+            item.SubItems[0].BackColor = GetInfoPrefixColor(entry.Level);
+            e.Item = item;
+        }
+
+        private void lvInfoLog_Resize(object sender, EventArgs e)
+        {
+            UpdateInfoLogColumns();
+        }
+
+        private void lvInfoLog_MouseWheel(object sender, MouseEventArgs e)
         {
             OnInfoStreamUserInteraction();
         }
 
-        private void ReceiveTextBox_MouseWheel(object sender, MouseEventArgs e)
+        private void lvInfoLog_MouseDown(object sender, MouseEventArgs e)
         {
             OnInfoStreamUserInteraction();
         }
 
-        private void ReceiveTextBox_MouseDown(object sender, MouseEventArgs e)
+        private void lvInfoLog_KeyDown(object sender, KeyEventArgs e)
         {
             OnInfoStreamUserInteraction();
         }
 
-        private void ReceiveTextBox_KeyDown(object sender, KeyEventArgs e)
+        private void lvInfoLog_MouseDoubleClick(object sender, MouseEventArgs e)
         {
-            OnInfoStreamUserInteraction();
+            if (e.Button != MouseButtons.Left || lvInfoLog == null || lvInfoLog.IsDisposed)
+            {
+                return;
+            }
+            ListViewHitTestInfo hit = lvInfoLog.HitTest(e.Location);
+            if (hit?.Item == null)
+            {
+                return;
+            }
+            int index = hit.Item.Index;
+            if (index < 0 || index >= infoLogBuffer.Count)
+            {
+                return;
+            }
+            InfoLogEntry entry = infoLogBuffer[index];
+            string content = $"{entry.TimeText}{entry.Message}";
+            MessageBox.Show(this, content, "日志全文", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void OnInfoStreamUserInteraction()
         {
             infoLastInteractionUtc = DateTime.UtcNow;
             infoAutoScrollPausedByUser = !IsInfoLogEndVisible();
+        }
+
+        private void InfoFlushTimer_Tick(object sender, EventArgs e)
+        {
+            if (IsDisposed || lvInfoLog == null || lvInfoLog.IsDisposed)
+            {
+                return;
+            }
+            bool hasNewEntry = false;
+            bool wasAtEnd = !infoAutoScrollPausedByUser && IsInfoLogEndVisible();
+            int flushCount = 0;
+            while (flushCount < InfoFlushBatchSize && pendingInfoQueue.TryDequeue(out InfoLogEntry entry))
+            {
+                infoLogBuffer.Add(entry);
+                hasNewEntry = true;
+                flushCount++;
+            }
+            if (!hasNewEntry)
+            {
+                return;
+            }
+            RefreshInfoListView();
+            if (!infoAutoScrollPausedByUser && wasAtEnd)
+            {
+                ScrollInfoToBottom();
+            }
         }
 
         private void InfoAutoScrollTimer_Tick(object sender, EventArgs e)
@@ -121,43 +203,75 @@ namespace Automation
 
         private bool IsInfoLogEndVisible()
         {
-            if (ReceiveTextBox.TextLength == 0)
+            if (lvInfoLog == null || lvInfoLog.IsDisposed || lvInfoLog.VirtualListSize <= 0)
             {
                 return true;
             }
-            int index = ReceiveTextBox.TextLength - 1;
-            while (index > 0)
+            if (!TryGetVerticalScrollInfo(lvInfoLog, out SCROLLINFO scrollInfo))
             {
-                char c = ReceiveTextBox.Text[index];
-                if (c != '\r' && c != '\n')
-                {
-                    break;
-                }
-                index--;
+                return true;
             }
-            Point endPoint = ReceiveTextBox.GetPositionFromCharIndex(index);
-            return endPoint.Y >= 0 && endPoint.Y <= ReceiveTextBox.ClientSize.Height - ReceiveTextBox.Font.Height;
+            return scrollInfo.nPos + (int)scrollInfo.nPage >= scrollInfo.nMax;
+        }
+
+        private static bool TryGetVerticalScrollInfo(Control control, out SCROLLINFO scrollInfo)
+        {
+            scrollInfo = default;
+            if (control == null || control.IsDisposed || !control.IsHandleCreated)
+            {
+                return false;
+            }
+            SCROLLINFO info = new SCROLLINFO
+            {
+                cbSize = (uint)Marshal.SizeOf(typeof(SCROLLINFO)),
+                fMask = SIF_ALL
+            };
+            if (!GetScrollInfo(control.Handle, SB_VERT, ref info))
+            {
+                return false;
+            }
+            scrollInfo = info;
+            return true;
         }
 
         private void ScrollInfoToBottom()
         {
-            ReceiveTextBox.Select(ReceiveTextBox.TextLength, 0);
-            ReceiveTextBox.ScrollToCaret();
+            if (lvInfoLog == null || lvInfoLog.IsDisposed || lvInfoLog.VirtualListSize <= 0)
+            {
+                return;
+            }
+            lvInfoLog.EnsureVisible(lvInfoLog.VirtualListSize - 1);
         }
 
-        private void TrimInfoEntries()
+        private void RefreshInfoListView()
         {
-            while (infoEntryLengths.Count > MaxInfoLogEntries)
+            if (lvInfoLog == null || lvInfoLog.IsDisposed)
             {
-                int removeLength = infoEntryLengths.Dequeue();
-                if (removeLength <= 0 || ReceiveTextBox.TextLength <= 0)
-                {
-                    continue;
-                }
-                int safeLength = Math.Min(removeLength, ReceiveTextBox.TextLength);
-                ReceiveTextBox.Select(0, safeLength);
-                ReceiveTextBox.SelectedText = string.Empty;
+                return;
             }
+            lvInfoLog.VirtualListSize = infoLogBuffer.Count;
+            lvInfoLog.Invalidate();
+        }
+
+        private void UpdateInfoLogColumns()
+        {
+            if (lvInfoLog == null || lvInfoLog.IsDisposed || lvInfoLog.Columns.Count < 2)
+            {
+                return;
+            }
+            int timeWidth = 180;
+            lvInfoLog.Columns[0].Width = timeWidth;
+            int msgWidth = lvInfoLog.ClientSize.Width - timeWidth - 4;
+            lvInfoLog.Columns[1].Width = Math.Max(120, msgWidth);
+        }
+
+        private static Color GetInfoPrefixColor(Level level)
+        {
+            if (level == Level.Error)
+            {
+                return Color.Red;
+            }
+            return Color.BurlyWood;
         }
 
 
@@ -183,33 +297,16 @@ namespace Automation
         // 1 普通信息
         public void PrintInfo(string str, Level InfoLevel)
         {
-            if (SF.frmInfo.IsDisposed)
-                return;
-            Invoke(new Action(() =>
+            if (IsDisposed)
             {
-                int length = ReceiveTextBox.TextLength;
-                string prefix = $"[{DateTime.Now.ToString("yyyy-MM-dd HH时mm分ss秒")}]";
-                string line = $"{prefix}：{str}\r\n";
-                ReceiveTextBox.AppendText(line);
-
-                Color color = Color.Black;
-                if(InfoLevel == Level.Error)
-                {
-                    color = Color.Red;
-                }
-                else if(InfoLevel == Level.Normal)
-                {
-                    color = Color.BurlyWood;
-                }
-                ReceiveTextBox.Select(length, prefix.Length);
-                ReceiveTextBox.SelectionBackColor = color;
-                infoEntryLengths.Enqueue(line.Length);
-                TrimInfoEntries();
-                if (!infoAutoScrollPausedByUser)
-                {
-                    ScrollInfoToBottom();
-                }
-            }));
+                return;
+            }
+            pendingInfoQueue.Enqueue(new InfoLogEntry
+            {
+                TimeText = $"[{DateTime.Now:yyyy-MM-dd HH时mm分ss秒}]",
+                Message = $"：{str}",
+                Level = InfoLevel
+            });
         }
 
         private void InitializeStatusPage()
@@ -812,6 +909,76 @@ namespace Automation
                 }
             }
             return true;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SCROLLINFO
+        {
+            public uint cbSize;
+            public uint fMask;
+            public int nMin;
+            public int nMax;
+            public uint nPage;
+            public int nPos;
+            public int nTrackPos;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool GetScrollInfo(IntPtr hWnd, int nBar, ref SCROLLINFO lpsi);
+
+        private sealed class InfoLogEntry
+        {
+            public string TimeText { get; set; }
+            public string Message { get; set; }
+            public Level Level { get; set; }
+        }
+
+        private sealed class FixedRingBuffer<T>
+        {
+            private readonly T[] items;
+            private int start;
+            private int count;
+
+            public FixedRingBuffer(int capacity)
+            {
+                if (capacity <= 0)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(capacity));
+                }
+                items = new T[capacity];
+            }
+
+            public int Count => count;
+
+            public void Add(T item)
+            {
+                if (count < items.Length)
+                {
+                    items[(start + count) % items.Length] = item;
+                    count++;
+                    return;
+                }
+                items[start] = item;
+                start = (start + 1) % items.Length;
+            }
+
+            public void Clear()
+            {
+                start = 0;
+                count = 0;
+            }
+
+            public T this[int index]
+            {
+                get
+                {
+                    if (index < 0 || index >= count)
+                    {
+                        throw new ArgumentOutOfRangeException(nameof(index));
+                    }
+                    return items[(start + index) % items.Length];
+                }
+            }
         }
 
         private sealed class ProcStatusCellCache
