@@ -29,7 +29,6 @@ namespace Automation
         {
             InitializeComponent();
             propertyGrid1.PropertySort = PropertySort.Categorized;
-            propertyGrid1.SelectedObjectsChanged += propertyGrid1_SelectedObjectsChanged;
             InlineListTypeDescriptionProvider.Register();
             
             OperationTypeList.Add(new HomeRun());
@@ -86,16 +85,6 @@ namespace Automation
 
             Enabled = false;
 
-        }
-
-        private void propertyGrid1_SelectedObjectsChanged(object sender, EventArgs e)
-        {
-            if (propertyGrid1.SelectedObject is OperationType op)
-            {
-                SetPropertyAttribute(op, "Num", typeof(BrowsableAttribute), "browsable", false);
-                TypeDescriptor.Refresh(op);
-                propertyGrid1.Refresh();
-            }
         }
 
         public OperationType temp;

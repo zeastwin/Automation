@@ -104,6 +104,9 @@
   - `FrmProc` 管理流程树、流程/步骤增删与结构归一化。
   - `FrmDataGrid` 管理步骤内操作列表、右键菜单、拖拽重排。
   - `FrmPropertyGrid` 管理对象属性编辑。
+- 指令编号显示约束：
+  - 指令表“编号”列固定绑定 `OperationType.Num`。
+  - 属性编辑器不再动态改写 `Num` 的 `Browsable` 特性，避免影响数据绑定导致编号列空白。
 - 流程加载规则（`FrmProc.Refresh`）：
   - 扫描 `Config/Work/*.json`，索引必须从 `0` 连续递增。
   - 缺失或加载失败会记入 `loadErrors`，设置 `SF.ProcConfigFaulted=true` 并触发停机提示。
