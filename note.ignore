@@ -1,0 +1,14 @@
+## 编译验证（固定命令）
+- 推荐在 WSL 下直接调用 Visual Studio 2026 的 MSBuild：
+  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.sln /t:Build /p:Configuration=Debug /p:OutDir=bin/Debug/ /m`
+- 需要全量重编译时使用：
+  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.sln /t:Rebuild /p:Configuration=Debug /p:OutDir=bin/Debug/ /m`
+- 只编译单项目时使用：
+  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.csproj /t:Build /p:Configuration=Debug /p:OutDir=bin/Debug/ /m`
+- 若路径变化，先定位 MSBuild 再编译：
+  - `find "/mnt/c/Program Files/Microsoft Visual Studio" -path "*MSBuild*Bin/MSBuild.exe" | head -n 5`
+- 禁止使用旧版 .NET Framework MSBuild（`/mnt/c/Windows/Microsoft.NET/Framework64/v4.0.30319/MSBuild.exe`），该版本会导致 `LangVersion=latest` 编译失败。
+- 若本次改动新增/改名/移动 `.cs` 文件，必须同步更新 `Automation.csproj` 中对应的 `<Compile Include="...">`。
+- 编译前必须执行一次“项目文件一致性检查”：确认新增/改名后的 `.cs` 文件都已在 `Automation.csproj` 注册。
+- 一致性检查通过后允许执行编译；检查不通过时禁止编译并先修复项目文件。
+- 非用户明确要求时，禁止使用 `Debug_codex_*` 等临时输出目录，统一输出到 `bin/Debug/`。

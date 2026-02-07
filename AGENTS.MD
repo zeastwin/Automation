@@ -25,20 +25,7 @@
 - 每次新对话开始后，第一步必须先读取本文件（`AGENTS.md`/`AGENTS.MD`）再执行任何分析或改动。
 - 首次回复需明确一句“已读取 AGENTS 约束并按其执行”，用于确认规则已生效。
 
-## 编译验证（固定命令）
-- 推荐在 WSL 下直接调用 Visual Studio 2026 的 MSBuild：
-  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.sln /t:Build /p:Configuration=Debug /p:OutDir=bin/Debug/ /m`
-- 需要全量重编译时使用：
-  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.sln /t:Rebuild /p:Configuration=Debug /p:OutDir=bin/Debug/ /m`
-- 只编译单项目时使用：
-  - `"/mnt/c/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe" Automation.csproj /t:Build /p:Configuration=Debug /p:OutDir=bin/Debug/ /m`
-- 若路径变化，先定位 MSBuild 再编译：
-  - `find "/mnt/c/Program Files/Microsoft Visual Studio" -path "*MSBuild*Bin/MSBuild.exe" | head -n 5`
-- 禁止使用旧版 .NET Framework MSBuild（`/mnt/c/Windows/Microsoft.NET/Framework64/v4.0.30319/MSBuild.exe`），该版本会导致 `LangVersion=latest` 编译失败。
-- 若本次改动新增/改名/移动 `.cs` 文件，必须同步更新 `Automation.csproj` 中对应的 `<Compile Include="...">`。
-- 编译前必须执行一次“项目文件一致性检查”：确认新增/改名后的 `.cs` 文件都已在 `Automation.csproj` 注册。
-- 一致性检查通过后允许执行编译；检查不通过时禁止编译并先修复项目文件。
-- 非用户明确要求时，禁止使用 `Debug_codex_*` 等临时输出目录，统一输出到 `bin/Debug/`。
+## 不需要编译验证
 
 # Automation 全局说明（一次性现状版）
 
@@ -133,6 +120,7 @@
 - 执行主链路：
   - `RunProc -> RunStep -> ExecuteOperation`。
   - 运行过程中支持断点、暂停信号、单步、热发布流程映射（按 Step/Operation 的 `Id` 对位）。
+  - 单步状态语义：单步放行后当前指令执行期间状态显示为 `Running`，当前指令执行完成并进入下一条指令待执行阶段时状态恢复为 `SingleStep`。
 - 报警模型：
   - 任意异常通过 `MarkAlarm` 写入 `ProcHandle.isAlarm/alarmMsg`。
   - 报警决策支持 `Stop/Ignore/Goto1/Goto2/Goto3`。

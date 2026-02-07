@@ -1179,13 +1179,19 @@ namespace Automation
                     {
                         return false;
                     }
-                    if (evt.State == ProcRunState.SingleStep)
+                    bool singleStepExecution = evt.State == ProcRunState.SingleStep;
+                    if (singleStepExecution)
                     {
                         control.WaitForStep();
                     }
                     if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                     {
                         return false;
+                    }
+                    if (singleStepExecution)
+                    {
+                        evt.State = ProcRunState.Running;
+                        UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                     }
                     if (evt.isBreakpoint)
                     {
@@ -1213,6 +1219,11 @@ namespace Automation
                         }
                         if (evt.isGoto)
                         {
+                            if (singleStepExecution && evt.State == ProcRunState.Running)
+                            {
+                                evt.State = ProcRunState.SingleStep;
+                                UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                            }
                             return true;
                         }
                         if (evt.State == ProcRunState.Alarming)
@@ -1230,6 +1241,11 @@ namespace Automation
                         MarkAlarm(evt, ex.Message);
                         HandleAlarm(operation, evt);
                         return false;
+                    }
+                    if (singleStepExecution && evt.State == ProcRunState.Running)
+                    {
+                        evt.State = ProcRunState.SingleStep;
+                        UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                     }
                     evt.opsNum++;
                 }
