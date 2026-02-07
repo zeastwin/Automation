@@ -109,6 +109,9 @@ namespace Automation
     [Serializable]
     public class OperationType : ICloneable
     {
+        // 使用隐藏前缀控制 PropertyGrid 分类排序，界面显示仍为“常规”。
+        public const string GeneralCategory = "\uFEFF常规";
+
         public OperationType() 
         {
             evtRP += RefleshPropertyAlarm;
@@ -121,14 +124,14 @@ namespace Automation
         public Guid Id { get; set; }
 
         [Browsable(true)]
-        [DisplayName("编号"), Category("常规"), Description(""), ReadOnly(true)]
+        [DisplayName("编号"), Category(GeneralCategory), Description(""), ReadOnly(true)]
         public int Num { get; set; }
         [Browsable(true)]
         [DisplayName("名称"), Category("A.指令与报警"), Description(""), ReadOnly(false)]
         public virtual string Name { get; set; }
 
         [Browsable(true)]
-        [DisplayName("操作类型"), Category("常规"), Description(""), ReadOnly(true)]
+        [DisplayName("操作类型"), Category(GeneralCategory), Description(""), ReadOnly(true)]
         public string OperaType { get; set; }
 
         private string alarmType = "报警停止";
@@ -195,30 +198,30 @@ namespace Automation
                 SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", true);
             }
         }
-        [DisplayName("报警信息ID"), Category("常规"), Description(""), ReadOnly(false), TypeConverter(typeof(AlarmInfoItem))]
+        [DisplayName("报警信息ID"), Category(GeneralCategory), Description(""), ReadOnly(false), TypeConverter(typeof(AlarmInfoItem))]
         [Browsable(false)]
         public string AlarmInfoID { get; set; }
         [Browsable(false)]
-        [DisplayName("确定跳转"), Category("常规"), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [DisplayName("确定跳转"), Category(GeneralCategory), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
         [MarkedGoto("标识的跳转属性")]
         public string Goto1 { get; set; }
         [Browsable(false)]
-        [DisplayName("否跳转"), Category("常规"), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [DisplayName("否跳转"), Category(GeneralCategory), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
         [MarkedGoto("标识的跳转属性")]
         public string Goto2 { get; set; }
         [Browsable(false)]
-        [DisplayName("取消跳转"), Category("常规"), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [DisplayName("取消跳转"), Category(GeneralCategory), Description(""), ReadOnly(false), TypeConverter(typeof(GotoItem))]
         [MarkedGoto("标识的跳转属性")]
         public string Goto3 { get; set; }
         [Browsable(true)]
-        [DisplayName("备注"), Category("常规"), Description(""), ReadOnly(false)]
+        [DisplayName("备注"), Category(GeneralCategory), Description(""), ReadOnly(false)]
         public string Note { get; set; }
         [Browsable(true)]
-        [DisplayName("断点"), Category("常规"), Description(""), ReadOnly(false)]
+        [DisplayName("断点"), Category(GeneralCategory), Description(""), ReadOnly(false)]
         public bool isStopPoint { get; set; }
 
         [Browsable(true)]
-        [DisplayName("禁用"), Category("常规"), Description(""), ReadOnly(false)]
+        [DisplayName("禁用"), Category(GeneralCategory), Description(""), ReadOnly(false)]
         public bool Disable { get; set; }
 
         public object Clone()
