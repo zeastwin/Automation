@@ -29,6 +29,8 @@ namespace Automation.AIFlow
         {
             "Count",
             "IOCount",
+            "OutIOCount",
+            "CheckIOCount",
             "ProcCount"
         };
 

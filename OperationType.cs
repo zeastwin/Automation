@@ -399,6 +399,87 @@ namespace Automation
     }
 
     [Serializable]
+    public class IoGroup : OperationType
+    {
+        public IoGroup()
+        {
+            OperaType = "IO组";
+            ParamListConverter<IoOutParam>.Name = "IO";
+            ParamListConverter<IoCheckParam>.Name = "IO";
+            OutIoParams = new CustomList<IoOutParam>
+            {
+                new IoOutParam { delayAfter = -1, delayBefore = -1 }
+            };
+            CheckIoParams = new CustomList<IoCheckParam>
+            {
+                new IoCheckParam()
+            };
+        }
+
+        private string outIOCount = "1";
+        [DisplayName("输出数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
+        public string OutIOCount
+        {
+            get { return outIOCount; }
+            set
+            {
+                outIOCount = value;
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                {
+                    int num = int.Parse(OutIOCount);
+                    ((IoGroup)SF.frmDataGrid.OperationTemp).OutIoParams = new CustomList<IoOutParam>();
+                    CustomList<IoOutParam> temp = ((IoGroup)SF.frmDataGrid.OperationTemp).OutIoParams;
+                    temp.Clear();
+                    for (int i = 0; i < num; i++)
+                    {
+                        temp.Add(new IoOutParam { delayAfter = -1, delayBefore = -1 });
+                    }
+                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
+                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
+                }
+            }
+        }
+
+        private string checkIOCount = "1";
+        [DisplayName("检测数量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
+        public string CheckIOCount
+        {
+            get { return checkIOCount; }
+            set
+            {
+                checkIOCount = value;
+                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                {
+                    int num = int.Parse(CheckIOCount);
+                    ((IoGroup)SF.frmDataGrid.OperationTemp).CheckIoParams = new CustomList<IoCheckParam>();
+                    CustomList<IoCheckParam> temp = ((IoGroup)SF.frmDataGrid.OperationTemp).CheckIoParams;
+                    temp.Clear();
+                    for (int i = 0; i < num; i++)
+                    {
+                        temp.Add(new IoCheckParam());
+                    }
+                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
+                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
+                }
+            }
+        }
+
+        [DisplayName("超时设置"), Category("参数"), Description(""), ReadOnly(true)]
+        [InlineGroup("超时设置", "参数")]
+        public TimeOutC timeOutC { get; set; } = new TimeOutC();
+
+        [DisplayName("输出设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("输出IO", "参数")]
+        [TypeConverter(typeof(ParamListConverter<IoOutParam>))]
+        public CustomList<IoOutParam> OutIoParams { get; set; }
+
+        [DisplayName("检测设置"), Category("参数"), Description(""), ReadOnly(false)]
+        [InlineList("检测IO", "参数")]
+        [TypeConverter(typeof(ParamListConverter<IoCheckParam>))]
+        public CustomList<IoCheckParam> CheckIoParams { get; set; }
+    }
+
+    [Serializable]
     public class IoLogicGoto : OperationType
     {
         public IoLogicGoto()

@@ -85,6 +85,9 @@ namespace Automation.AIFlow
                 case IoCheck ioCheck:
                     VerifyIoCheck(ioCheck, loc, issues);
                     break;
+                case IoGroup ioGroup:
+                    VerifyIoGroup(ioGroup, loc, issues);
+                    break;
                 case IoLogicGoto ioLogicGoto:
                     VerifyIoLogicGoto(ioLogicGoto, loc, issues);
                     break;
@@ -160,6 +163,40 @@ namespace Automation.AIFlow
                 if (param == null || string.IsNullOrWhiteSpace(param.IOName))
                 {
                     issues.Add(new AiFlowIssue("VERIFY_IOCHECK_NAME_EMPTY", $"IO检测名称为空:#{i + 1}", loc));
+                }
+            }
+        }
+
+        private static void VerifyIoGroup(IoGroup ioGroup, string loc, List<AiFlowIssue> issues)
+        {
+            VerifyTimeoutConfig(ioGroup.timeOutC, "IO组检测超时", loc, issues);
+            if (ioGroup.OutIoParams == null || ioGroup.OutIoParams.Count == 0)
+            {
+                issues.Add(new AiFlowIssue("VERIFY_IOGROUP_OUT_EMPTY", "IO组输出参数为空", loc));
+            }
+            else
+            {
+                for (int i = 0; i < ioGroup.OutIoParams.Count; i++)
+                {
+                    var param = ioGroup.OutIoParams[i];
+                    if (param == null || string.IsNullOrWhiteSpace(param.IOName))
+                    {
+                        issues.Add(new AiFlowIssue("VERIFY_IOGROUP_OUT_NAME_EMPTY", $"IO组输出名称为空:#{i + 1}", loc));
+                    }
+                }
+            }
+
+            if (ioGroup.CheckIoParams == null || ioGroup.CheckIoParams.Count == 0)
+            {
+                issues.Add(new AiFlowIssue("VERIFY_IOGROUP_CHECK_EMPTY", "IO组检测参数为空", loc));
+                return;
+            }
+            for (int i = 0; i < ioGroup.CheckIoParams.Count; i++)
+            {
+                var param = ioGroup.CheckIoParams[i];
+                if (param == null || string.IsNullOrWhiteSpace(param.IOName))
+                {
+                    issues.Add(new AiFlowIssue("VERIFY_IOGROUP_CHECK_NAME_EMPTY", $"IO组检测名称为空:#{i + 1}", loc));
                 }
             }
         }

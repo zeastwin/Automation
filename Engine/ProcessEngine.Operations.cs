@@ -47,6 +47,9 @@ namespace Automation
                     case IoCheck ioCheck:
                         return RunIoCheck(evt, ioCheck);
 
+                    case IoGroup ioGroup:
+                        return RunIoGroup(evt, ioGroup);
+
                     case IoLogicGoto ioLogicGoto:
                         return RunIoLogicGoto(evt, ioLogicGoto);
 

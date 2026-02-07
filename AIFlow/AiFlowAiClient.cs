@@ -191,7 +191,7 @@ namespace Automation.AIFlow
         private static string BuildSystemPrompt(string outputKind)
         {
             return "你是自动化流程生成助手。必须严格输出JSON，不要包含任何解释文字或Markdown。" +
-                   "输出必须可被本地验证器通过，禁止跨流程goto，禁止直接填写Count/IOCount/ProcCount，" +
+                   "输出必须可被本地验证器通过，禁止跨流程goto，禁止直接填写Count/IOCount/OutIOCount/CheckIOCount/ProcCount，" +
                    "Goto必须为\"proc-step-op\"格式且仅限当前流程。" +
                    $"输出类型:{outputKind}。";
         }

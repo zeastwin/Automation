@@ -121,6 +121,77 @@ namespace Automation
             return true;
         }
 
+        public bool RunIoGroup(ProcHandle evt, IoGroup ioGroup)
+        {
+            if (ioGroup == null)
+            {
+                MarkAlarm(evt, "IO组参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (ioGroup.OutIoParams == null || ioGroup.OutIoParams.Count == 0)
+            {
+                MarkAlarm(evt, "IO组输出参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (ioGroup.CheckIoParams == null || ioGroup.CheckIoParams.Count == 0)
+            {
+                MarkAlarm(evt, "IO组检测参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (Context?.IoMap == null)
+            {
+                MarkAlarm(evt, "IO映射未初始化");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            foreach (IoOutParam ioParam in ioGroup.OutIoParams)
+            {
+                if (ioParam == null || string.IsNullOrWhiteSpace(ioParam.IOName))
+                {
+                    MarkAlarm(evt, "IO组输出名称为空");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (!Context.IoMap.TryGetValue(ioParam.IOName, out IO io) || io == null)
+                {
+                    MarkAlarm(evt, $"IO映射不存在:{ioParam.IOName}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (io.IOType != "通用输出")
+                {
+                    MarkAlarm(evt, $"IO组输出仅支持通用输出:{ioParam.IOName}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+            }
+            foreach (IoCheckParam ioParam in ioGroup.CheckIoParams)
+            {
+                if (ioParam == null || string.IsNullOrWhiteSpace(ioParam.IOName))
+                {
+                    MarkAlarm(evt, "IO组检测名称为空");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (!Context.IoMap.TryGetValue(ioParam.IOName, out IO io) || io == null)
+                {
+                    MarkAlarm(evt, $"IO映射不存在:{ioParam.IOName}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (io.IOType != "通用输入")
+                {
+                    MarkAlarm(evt, $"IO组检测仅支持通用输入:{ioParam.IOName}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+            }
+
+            RunIoOperate(evt, new IoOperate
+            {
+                IoParams = ioGroup.OutIoParams
+            });
+
+            return RunIoCheck(evt, new IoCheck
+            {
+                IoParams = ioGroup.CheckIoParams,
+                timeOutC = ioGroup.timeOutC ?? new TimeOutC()
+            });
+        }
+
         public bool RunIoLogicGoto(ProcHandle evt, IoLogicGoto ioLogicGoto)
         {
             if (ioLogicGoto == null)

@@ -145,7 +145,7 @@
 ## 5. 编译与校验规则
 - `opCode` 必须是 OperationType 的**类名**（如 `Goto`、`ParamGoto`、`Delay`）。
 - `goto` 必须为 `proc-step-op` 三段式，且**禁止跨流程**。
-- 列表类参数的 `Count/IOCount/ProcCount` **禁止在 args 中直接设置**，由编译器自动生成并校验。
+- 列表类参数的 `Count/IOCount/OutIOCount/CheckIOCount/ProcCount` **禁止在 args 中直接设置**，由编译器自动生成并校验。
 - `AlarmType` 必须为：`报警停止/报警忽略/自动处理/弹框确定/弹框确定与否/弹框确定与否与取消`。
 - Verifier 做基础校验：超时配置、引用完整性、跨流程 goto、关键参数为空等。
 
@@ -166,7 +166,7 @@
 ## 8. 反编译
 - `decompile` 会读取 `Work/*.json`，生成 `core-1`（可选生成 `spec-1`）。
 - 生成的 `id` 采用 `p{procIndex}-s{stepIndex}-o{opIndex}` 形式。
-- `Count/IOCount/ProcCount` 会被剥离，避免二次编译冲突。
+- `Count/IOCount/OutIOCount/CheckIOCount/ProcCount` 会被剥离，避免二次编译冲突。
 
 ## 9. UI 界面说明（FrmAiAssistant）
 - 顶部：标题 + Revision

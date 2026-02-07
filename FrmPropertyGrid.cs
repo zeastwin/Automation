@@ -44,6 +44,7 @@ namespace Automation
             OperationTypeList.Add(new CallCustomFunc());
             OperationTypeList.Add(new IoOperate());
             OperationTypeList.Add(new IoCheck());
+            OperationTypeList.Add(new IoGroup());
             OperationTypeList.Add(new IoLogicGoto());
             OperationTypeList.Add(new ProcOps());
             OperationTypeList.Add(new WaitProc());

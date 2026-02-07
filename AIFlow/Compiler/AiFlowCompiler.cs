@@ -512,6 +512,8 @@ namespace Automation.AIFlow
         private static void NormalizeCounts(OperationType operation, string opLoc, List<AiFlowIssue> issues)
         {
             ApplyCountRule(operation, "IoParams", "IOCount", opLoc, issues);
+            ApplyCountRule(operation, "OutIoParams", "OutIOCount", opLoc, issues);
+            ApplyCountRule(operation, "CheckIoParams", "CheckIOCount", opLoc, issues);
             ApplyCountRule(operation, "procParams", "ProcCount", opLoc, issues);
             ApplyCountRule(operation, "Params", "Count", opLoc, issues);
             ApplyCountRule(operation, "Params", "ProcCount", opLoc, issues);
@@ -580,6 +582,8 @@ namespace Automation.AIFlow
             }
             Type type = operation.GetType();
             ValidateCountField(type, opSpec.Args, "IoParams", "IOCount", opLoc, issues);
+            ValidateCountField(type, opSpec.Args, "OutIoParams", "OutIOCount", opLoc, issues);
+            ValidateCountField(type, opSpec.Args, "CheckIoParams", "CheckIOCount", opLoc, issues);
             ValidateCountField(type, opSpec.Args, "procParams", "ProcCount", opLoc, issues);
             ValidateCountField(type, opSpec.Args, "Params", "Count", opLoc, issues);
             ValidateCountField(type, opSpec.Args, "Params", "ProcCount", opLoc, issues);
