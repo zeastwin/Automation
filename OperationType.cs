@@ -92,8 +92,10 @@ namespace Automation
     [Serializable]
     public class TimeOutC
     {
+        public const int DefaultTimeoutMs = 3000;
+
         [DisplayName("超时"), Category("参数"), Description(""), ReadOnly(false)]
-        public int TimeOut { get; set; }
+        public int TimeOut { get; set; } = DefaultTimeoutMs;
         [DisplayName("超时变量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string TimeOutValue { get; set; }
 
@@ -602,7 +604,7 @@ namespace Automation
 
         [DisplayName("超时设置"), Category("参数"), Description(""), ReadOnly(false)]
         [InlineGroup("超时设置", "参数")]
-        public TimeOutC timeOutC { get; set; } = new TimeOutC() { TimeOut = -1 };
+        public TimeOutC timeOutC { get; set; } = new TimeOutC();
         [DisplayName("设置"), Category("参数"), Description(""), ReadOnly(false)]
         [InlineList("流程", "参数")]
         [TypeConverter(typeof(ParamListConverter<WaitProcParam>))]
@@ -1818,6 +1820,11 @@ namespace Automation
     [Serializable]
     public class WaitTcpParam
     {
+        public WaitTcpParam()
+        {
+            TimeOut = TimeOutC.DefaultTimeoutMs;
+        }
+
         [DisplayName("对象名称"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(TcpItem))]
 
         public string Name { get; set; }
@@ -1862,6 +1869,7 @@ namespace Automation
         public ReceoveTcpMsg()
         {
             OperaType = "接收TCP通讯消息";
+            TImeOut = TimeOutC.DefaultTimeoutMs;
         }
 
         [DisplayName("ID"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(TcpItem))]
@@ -1986,6 +1994,11 @@ namespace Automation
     [Serializable]
     public class WaitSerialPortParam
     {
+        public WaitSerialPortParam()
+        {
+            TimeOut = TimeOutC.DefaultTimeoutMs;
+        }
+
         [DisplayName("对象名称"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(SerialPortItem))]
 
         public string Name { get; set; }
@@ -2030,6 +2043,7 @@ namespace Automation
         public ReceoveSerialPortMsg()
         {
             OperaType = "接收串口通讯消息";
+            TImeOut = TimeOutC.DefaultTimeoutMs;
         }
 
         [DisplayName("ID"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(SerialPortItem))]

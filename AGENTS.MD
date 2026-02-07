@@ -110,6 +110,11 @@
 - 流程保存规则：
   - 支持单流程保存与重建 `Work` 目录连续索引。
   - 跳转地址统一使用 `proc-step-op`，禁止跨流程，保存前做边界校验。
+- 指令超时默认值策略：
+  - 统一约束：所有带“超时”参数的指令默认值禁止为 `0`。
+  - 通用超时容器 `TimeOutC.TimeOut` 默认 `3000ms`（`IoCheck`、`WaitProc` 等沿用该默认值）。
+  - 通讯等待/接收指令默认超时为 `3000ms`（`WaitTcpParam`、`WaitSerialPortParam`、`ReceoveTcpMsg`、`ReceoveSerialPortMsg`）。
+  - 运动等待类默认超时为 `120000ms`（`StationRunPos`、`StationRunRel`、`WaitStationStop`）。
 
 ## 7. 流程引擎（ProcessEngine）
 - 引擎结构：
