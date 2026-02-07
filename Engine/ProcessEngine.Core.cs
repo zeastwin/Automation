@@ -646,7 +646,6 @@ namespace Automation
                 evt.singleOpOp = newSingleOp;
             }
             UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
-            Logger?.Log($"流程{evt.procNum}热更新完成。", LogLevel.Normal);
             return true;
         }
 

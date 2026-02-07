@@ -121,6 +121,7 @@
   - `RunProc -> RunStep -> ExecuteOperation`。
   - 运行过程中支持断点、暂停信号、单步、热发布流程映射（按 Step/Operation 的 `Id` 对位）。
   - 单步状态语义：单步放行后当前指令执行期间状态显示为 `Running`，当前指令执行完成并进入下一条指令待执行阶段时状态恢复为 `SingleStep`。
+  - 热更新日志语义：热更新成功默认不输出日志，热更新失败才记录错误日志并触发报警/停机流程。
 - 报警模型：
   - 任意异常通过 `MarkAlarm` 写入 `ProcHandle.isAlarm/alarmMsg`。
   - 报警决策支持 `Stop/Ignore/Goto1/Goto2/Goto3`。
