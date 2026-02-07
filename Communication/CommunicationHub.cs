@@ -120,7 +120,7 @@ namespace Automation
 
         private static int LoadPendingReceiverLimit()
         {
-            if (!AppConfigStorage.TryLoad(out AppConfig config, out string error))
+            if (!AppConfigStorage.TryGetCached(out AppConfig config, out string error))
             {
                 throw new InvalidOperationException(error);
             }

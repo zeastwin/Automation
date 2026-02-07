@@ -34,6 +34,7 @@
 - 系统围绕五类能力运行：流程编排与执行、运动控制与 IO、TCP/串口通讯、PLC 通讯、账户权限与安全锁定。
 - 启动链路：
   - `Program.Main` 先处理 `AIFlow.AiFlowCli.TryHandle(args)`，命中后关闭 AI 页面入口（`SF.AiFlowEnabled=false`）。
+  - 启动阶段强制加载 `Config/AppConfig.json`；文件缺失时自动生成默认值（`CommMaxMessageQueueSize=1000`），加载失败会提示错误并终止启动。
   - 初始化账户系统（`AccountStore/UserContextStore/UserLoginStore`），加载 `Config/Account.json`。
   - 启动时尝试使用默认系统管理员 `system/software_123` 登录会话。
   - 进入 `FrmMain`，装配所有子窗体与运行时 Store，创建 `ProcessEngine`，加载配置并初始化硬件。
@@ -153,7 +154,7 @@
 - 运行结构：
   - `CommunicationHub` 统一管理 TCP Client/Server 与 SerialPort 通道。
   - 帧模式支持 `Raw` 与 `Delimiter`，接收结果统一为 `CommReceiveResult`。
-  - 接收等待队列上限来自 `AppConfig.CommMaxMessageQueueSize`。
+  - 接收等待队列上限来自 `AppConfig.CommMaxMessageQueueSize`，`CommunicationHub` 启动时仅从 `AppConfigStorage` 启动缓存读取，不在模块内重复读取配置文件。
 - `FrmComunication` 交互规则：
   - TCP 与串口表均包含“分隔符”列，固定选项：`无`、`\n`、`\r\n`。
   - 映射规则：`无 -> FrameMode=Raw`；`\n/\r\n -> FrameMode=Delimiter + FrameDelimiter`。
@@ -225,11 +226,15 @@
 - 账户与程序：
   - `Config/Account.json`：账户与权限密文配置。
   - `Config/AppConfig.json`：程序运行参数（当前键：`CommMaxMessageQueueSize`，默认 `1000`）。
+  - `AppConfig.json` 在程序启动阶段由 `AppConfigStorage.TryLoad` 强制加载；缺失时自动创建默认文件，字段缺失/类型错误/非正数会终止启动。
+  - `AppConfigStorage` 在 `TryLoad/TrySave` 成功后刷新进程内缓存；运行期读取可通过 `TryGetCached` 获取当前缓存值。
 - 反序列化约束：
   - 所有通过 `FrmMain.ReadJson<T>` 或各 Store `Load` 读取的 JSON 使用 `TypeNameHandling.All + ObjectCreationHandling.Replace`。
   - 该策略要求配置文件字段结构与模型严格一致，不做宽松修复。
 
 ## 15. 运行期故障与排查入口
+- 启动即退出（程序配置异常）：
+  - 查 `Config/AppConfig.json` 是否存在 `CommMaxMessageQueueSize`，类型是否为整数且值大于 `0`。
 - 启动即锁定：
   - 先查 `Config/Account.json` 是否为合法 `ENC:` 密文，字段是否符合白名单。
 - 流程禁止运行：

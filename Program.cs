@@ -15,6 +15,11 @@ namespace Automation
             {
                 SF.AiFlowEnabled = false;
             }
+            if (!AppConfigStorage.TryLoad(out _, out string appConfigError))
+            {
+                MessageBox.Show(appConfigError ?? "程序参数配置异常，程序已停止启动。", "程序配置异常", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             SF.accountStore = new AccountStore();

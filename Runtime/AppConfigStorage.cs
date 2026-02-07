@@ -17,6 +17,8 @@ namespace Automation
         public const string ConfigFileName = "AppConfig.json";
         public const string CommMaxMessageQueueSizeKey = "CommMaxMessageQueueSize";
         public const int DefaultCommMaxMessageQueueSize = 1000;
+        private static readonly object cacheLock = new object();
+        private static AppConfig cachedConfig;
 
         public static string ConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFolderName, ConfigFileName);
 
@@ -36,7 +38,8 @@ namespace Automation
                     error = $"默认配置生成失败:{saveError}";
                     return false;
                 }
-                config = defaultConfig;
+                config = Clone(defaultConfig);
+                SetCache(config);
                 return true;
             }
             try
@@ -63,12 +66,29 @@ namespace Automation
                 {
                     CommMaxMessageQueueSize = value
                 };
+                SetCache(config);
                 return true;
             }
             catch (Exception ex)
             {
                 error = $"读取配置失败:{ex.Message}";
                 return false;
+            }
+        }
+
+        public static bool TryGetCached(out AppConfig config, out string error)
+        {
+            lock (cacheLock)
+            {
+                if (cachedConfig == null)
+                {
+                    config = null;
+                    error = "程序参数缓存未初始化";
+                    return false;
+                }
+                config = Clone(cachedConfig);
+                error = null;
+                return true;
             }
         }
 
@@ -99,7 +119,28 @@ namespace Automation
             }
             Directory.CreateDirectory(directory);
             File.WriteAllText(path, json, Encoding.UTF8);
+            SetCache(config);
             return true;
+        }
+
+        private static void SetCache(AppConfig config)
+        {
+            lock (cacheLock)
+            {
+                cachedConfig = Clone(config);
+            }
+        }
+
+        private static AppConfig Clone(AppConfig config)
+        {
+            if (config == null)
+            {
+                return null;
+            }
+            return new AppConfig
+            {
+                CommMaxMessageQueueSize = config.CommMaxMessageQueueSize
+            };
         }
     }
 }
