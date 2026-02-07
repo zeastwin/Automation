@@ -141,10 +141,10 @@
             this.panel1.Controls.Add(this.AI_Page);
             this.panel1.Controls.Add(this.Card_Page);
             this.panel1.Controls.Add(this.valueDebug_Page);
-            this.panel1.Controls.Add(this.value_Page);
             this.panel1.Controls.Add(this.Plc_Page);
             this.panel1.Controls.Add(this.communication_Page);
             this.panel1.Controls.Add(this.Io_Page);
+            this.panel1.Controls.Add(this.value_Page);
             this.panel1.Controls.Add(this.station_Page);
             this.panel1.Controls.Add(this.process_Page);
             this.panel1.AutoScroll = true;
