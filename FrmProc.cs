@@ -51,6 +51,7 @@ namespace Automation
         private int editProcIndex = -1;
         private int editStepIndex = -1;
         private bool hasEditBackup = false;
+        private bool suppressContextMenuOnce = false;
         private Proc clipboardProc;
         private Step clipboardStep;
 
@@ -872,14 +873,19 @@ namespace Automation
 
         private void proc_treeView_MouseDown(object sender, MouseEventArgs e)
         {
+            suppressContextMenuOnce = false;
             if (SF.isAddOps || SF.isModify == ModifyKind.Operation)
             {
                 if (e.Button == MouseButtons.Left || e.Button == MouseButtons.Right)
                 {
                     var treeView = (System.Windows.Forms.TreeView)sender;
-                    var clickedNode = treeView.GetNodeAt(e.Location);
+                    var clickedNode = treeView.HitTest(e.Location).Node;
                     if (clickedNode == null || clickedNode != treeView.SelectedNode)
                     {
+                        if (e.Button == MouseButtons.Right)
+                        {
+                            suppressContextMenuOnce = true;
+                        }
                         if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
                         {
                             SF.frmInfo.PrintInfo("新增或编辑指令中，禁止切换流程。", FrmInfo.Level.Error);
@@ -895,7 +901,7 @@ namespace Automation
             if (e.Button == MouseButtons.Left || e.Button == MouseButtons.Right)
             {
                 var treeView = (System.Windows.Forms.TreeView)sender;
-                var clickedNode = treeView.GetNodeAt(e.Location);
+                var clickedNode = treeView.HitTest(e.Location).Node;
 
                 if (clickedNode == null) // 点击的是空白区域
                 {
@@ -970,6 +976,12 @@ namespace Automation
 
         private void contextMenuStrip1_Opening(object sender, CancelEventArgs e)
         {
+            if (suppressContextMenuOnce)
+            {
+                suppressContextMenuOnce = false;
+                e.Cancel = true;
+                return;
+            }
             UpdateToggleDisableMenu();
             UpdateCopyPasteMenu();
         }

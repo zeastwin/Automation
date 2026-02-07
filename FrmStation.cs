@@ -30,6 +30,8 @@ namespace Automation
         private List<DataPos> pointSnapshot = new List<DataPos>();
         private DataStation pointEditStation;
         private int pointEditStationIndex = -1;
+        private bool contextMenuByMouse = false;
+        private int contextMenuRowIndex = -1;
         public bool IsPointEditing => isPointEditing;
         //public int SelectCard = 0;
         public FrmStation()
@@ -52,6 +54,8 @@ namespace Automation
             dataGridView2.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             dataGridView2.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             dataGridView2.ReadOnly = true;
+            dataGridView1.MouseDown += dataGridView1_MouseDown;
+            contextMenuStrip1.Opening += contextMenuStrip1_Opening;
 
             FormClosing += FrmStation_FormClosing;
             VisibleChanged += FrmStation_VisibleChanged;
@@ -775,7 +779,62 @@ namespace Automation
 
         private void dataGridView1_CellMouseDown(object sender, DataGridViewCellMouseEventArgs e)
         {
-            iSelectedRow = e.RowIndex >= 0 ? e.RowIndex : -1;
+            if (e.RowIndex < 0 || e.RowIndex >= dataGridView1.Rows.Count)
+            {
+                if (e.Button == MouseButtons.Right)
+                {
+                    iSelectedRow = -1;
+                    dataGridView1.ClearSelection();
+                }
+                return;
+            }
+            if (e.Button == MouseButtons.Right)
+            {
+                iSelectedRow = e.RowIndex;
+                dataGridView1.ClearSelection();
+                dataGridView1.Rows[e.RowIndex].Selected = true;
+                dataGridView1.CurrentCell = dataGridView1.Rows[e.RowIndex].Cells[0];
+                return;
+            }
+            iSelectedRow = e.RowIndex;
+        }
+
+        private void dataGridView1_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                contextMenuByMouse = true;
+                contextMenuRowIndex = dataGridView1.HitTest(e.X, e.Y).RowIndex;
+            }
+        }
+
+        private void contextMenuStrip1_Opening(object sender, CancelEventArgs e)
+        {
+            int rowIndex;
+            if (contextMenuByMouse)
+            {
+                rowIndex = contextMenuRowIndex;
+            }
+            else
+            {
+                Point clientPoint = dataGridView1.PointToClient(Cursor.Position);
+                rowIndex = dataGridView1.HitTest(clientPoint.X, clientPoint.Y).RowIndex;
+            }
+            contextMenuByMouse = false;
+            contextMenuRowIndex = -1;
+
+            if (rowIndex < 0 || rowIndex >= dataGridView1.Rows.Count)
+            {
+                iSelectedRow = -1;
+                dataGridView1.ClearSelection();
+                e.Cancel = true;
+                return;
+            }
+
+            iSelectedRow = rowIndex;
+            dataGridView1.ClearSelection();
+            dataGridView1.Rows[rowIndex].Selected = true;
+            dataGridView1.CurrentCell = dataGridView1.Rows[rowIndex].Cells[0];
         }
         //记录要复制行的index
         public List<int> selectedRowIndexes4Copy = new List<int>();

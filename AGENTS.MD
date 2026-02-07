@@ -93,6 +93,8 @@
 ## 界面速查
 - 导航/菜单：`FrmMenu`。
 - 流程编辑：`FrmProc`、`FrmDataGrid`、`FrmPropertyGrid`、`FrmToolBar`（新增/保存/取消/运行/暂停/单步/标记）。
+- 流程树与指令表右键菜单默认以“鼠标命中项”为目标，不再回退到历史选中项；点击空白区域会清空当前目标。
+- 工站点位表（`FrmStation.dataGridView1`）右键菜单同样以“鼠标命中行”为目标；空白区域右键不会对历史选中点位生效。
 - 变量/IO/卡/工站/数据结构编辑：`FrmValue`、`FrmIO`、`FrmCard`、`FrmStation`、`FrmDataStruct`、`FrmIODebug`。
 - 监控/搜索：`FrmState`、`FrmSearch`/`FrmSearch4Value`、`FrmInfo`。
 - 账户登录/管理：`FrmLogin`、`FrmAccountManager`、`FrmChangePassword`。

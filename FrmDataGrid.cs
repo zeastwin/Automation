@@ -35,6 +35,8 @@ namespace Automation
         private int lastHighlightedStep = -1;
         private ProcRunState lastHighlightedState = ProcRunState.Stopped;
         private bool lastHighlightActive = false;
+        private bool contextMenuByMouse = false;
+        private int contextMenuRowIndex = -1;
 
         //记录要复制行的index
         public List<int> selectedRowIndexes4Copy = new List<int>();
@@ -127,22 +129,35 @@ namespace Automation
                 return;
             }
 
-            Point clientPoint = dataGridView1.PointToClient(Cursor.Position);
-            DataGridView.HitTestInfo hitTest = dataGridView1.HitTest(clientPoint.X, clientPoint.Y);
-            int rowIndex = hitTest.RowIndex;
-            if (rowIndex < 0 && dataGridView1.CurrentCell != null)
+            int rowIndex = -1;
+            if (contextMenuByMouse)
             {
-                rowIndex = dataGridView1.CurrentCell.RowIndex;
+                rowIndex = contextMenuRowIndex;
             }
+            else
+            {
+                Point clientPoint = dataGridView1.PointToClient(Cursor.Position);
+                DataGridView.HitTestInfo hitTest = dataGridView1.HitTest(clientPoint.X, clientPoint.Y);
+                rowIndex = hitTest.RowIndex;
+                if (rowIndex < 0 && dataGridView1.CurrentCell != null)
+                {
+                    rowIndex = dataGridView1.CurrentCell.RowIndex;
+                }
+            }
+            contextMenuByMouse = false;
+            contextMenuRowIndex = -1;
 
             if (rowIndex >= 0 && rowIndex < dataGridView1.Rows.Count)
             {
                 iSelectedRow = rowIndex;
-                if (!dataGridView1.Rows[rowIndex].Selected)
-                {
-                    dataGridView1.ClearSelection();
-                    dataGridView1.Rows[rowIndex].Selected = true;
-                }
+                dataGridView1.ClearSelection();
+                dataGridView1.Rows[rowIndex].Selected = true;
+                dataGridView1.CurrentCell = dataGridView1.Rows[rowIndex].Cells[0];
+            }
+            else
+            {
+                iSelectedRow = -1;
+                dataGridView1.ClearSelection();
             }
             ApplyPermissions();
         }
@@ -440,6 +455,25 @@ namespace Automation
 
         private void dataGridView1_CellMouseDown(object sender, DataGridViewCellMouseEventArgs e)
         {
+            if (e.RowIndex < 0 || e.RowIndex >= dataGridView1.Rows.Count)
+            {
+                if (e.Button == MouseButtons.Right)
+                {
+                    iSelectedRow = -1;
+                    dataGridView1.ClearSelection();
+                }
+                return;
+            }
+
+            if (e.Button == MouseButtons.Right)
+            {
+                iSelectedRow = e.RowIndex;
+                dataGridView1.ClearSelection();
+                dataGridView1.Rows[e.RowIndex].Selected = true;
+                dataGridView1.CurrentCell = dataGridView1.Rows[e.RowIndex].Cells[0];
+                return;
+            }
+
             //输出Ops信息到属性窗体上并输出当前选择行数
             if (e.RowIndex >= 0
                 && SF.frmProc.SelectedProcNum >= 0
@@ -468,7 +502,7 @@ namespace Automation
                 SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
 
             }
-            if ((Control.ModifierKeys & Keys.Control) == Keys.Control)
+            if ((Control.ModifierKeys & Keys.Control) == Keys.Control && e.RowIndex >= 0 && e.RowIndex < dataGridView1.Rows.Count)
             {
                 dataGridView1.Rows[e.RowIndex].Selected = !dataGridView1.Rows[e.RowIndex].Selected;
             }
@@ -1091,6 +1125,11 @@ namespace Automation
         private int dragIndex = -1;
         private void dataGridView1_MouseDown(object sender, MouseEventArgs e)
         {
+            if (e.Button == MouseButtons.Right)
+            {
+                contextMenuByMouse = true;
+                contextMenuRowIndex = dataGridView1.HitTest(e.X, e.Y).RowIndex;
+            }
             if (ModifierKeys == Keys.Alt && e.Button == MouseButtons.Left)
             {
                 dragIndex = dataGridView1.HitTest(e.X, e.Y).RowIndex;
