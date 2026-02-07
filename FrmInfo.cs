@@ -17,8 +17,14 @@ namespace Automation
         private int lastStatusProcCount = -1;
         private const int StatusColumnsPerGroup = 4;
         private const int StatusMinGroupWidth = 320;
+        private const int MaxInfoLogEntries = 200;
+        private const int InfoAutoScrollIdleMs = 20000;
         private ContextMenuStrip infoMenu;
         private ToolStripMenuItem menuClearInfo;
+        private readonly Queue<int> infoEntryLengths = new Queue<int>();
+        private System.Windows.Forms.Timer infoAutoScrollTimer;
+        private bool infoAutoScrollPausedByUser;
+        private DateTime infoLastInteractionUtc;
 
         public FrmInfo()
         {
@@ -29,6 +35,7 @@ namespace Automation
         {
             InitializeStatusPage();
             InitializeInfoMenu();
+            InitializeInfoStreamBehavior();
         }
 
         private void btnClearInfo_Click(object sender, EventArgs e)
@@ -38,6 +45,8 @@ namespace Automation
                 return;
             }
             ReceiveTextBox.Clear();
+            infoEntryLengths.Clear();
+            infoAutoScrollPausedByUser = false;
         }
 
         private void InitializeInfoMenu()
@@ -51,6 +60,104 @@ namespace Automation
             menuClearInfo.Click += btnClearInfo_Click;
             infoMenu.Items.Add(menuClearInfo);
             ReceiveTextBox.ContextMenuStrip = infoMenu;
+        }
+
+        private void InitializeInfoStreamBehavior()
+        {
+            if (infoAutoScrollTimer != null)
+            {
+                return;
+            }
+            ReceiveTextBox.VScroll += ReceiveTextBox_VScroll;
+            ReceiveTextBox.MouseWheel += ReceiveTextBox_MouseWheel;
+            ReceiveTextBox.MouseDown += ReceiveTextBox_MouseDown;
+            ReceiveTextBox.KeyDown += ReceiveTextBox_KeyDown;
+
+            infoAutoScrollTimer = new System.Windows.Forms.Timer();
+            infoAutoScrollTimer.Interval = 500;
+            infoAutoScrollTimer.Tick += InfoAutoScrollTimer_Tick;
+            infoAutoScrollTimer.Start();
+        }
+
+        private void ReceiveTextBox_VScroll(object sender, EventArgs e)
+        {
+            OnInfoStreamUserInteraction();
+        }
+
+        private void ReceiveTextBox_MouseWheel(object sender, MouseEventArgs e)
+        {
+            OnInfoStreamUserInteraction();
+        }
+
+        private void ReceiveTextBox_MouseDown(object sender, MouseEventArgs e)
+        {
+            OnInfoStreamUserInteraction();
+        }
+
+        private void ReceiveTextBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            OnInfoStreamUserInteraction();
+        }
+
+        private void OnInfoStreamUserInteraction()
+        {
+            infoLastInteractionUtc = DateTime.UtcNow;
+            infoAutoScrollPausedByUser = !IsInfoLogEndVisible();
+        }
+
+        private void InfoAutoScrollTimer_Tick(object sender, EventArgs e)
+        {
+            if (!infoAutoScrollPausedByUser)
+            {
+                return;
+            }
+            if ((DateTime.UtcNow - infoLastInteractionUtc).TotalMilliseconds < InfoAutoScrollIdleMs)
+            {
+                return;
+            }
+            infoAutoScrollPausedByUser = false;
+            ScrollInfoToBottom();
+        }
+
+        private bool IsInfoLogEndVisible()
+        {
+            if (ReceiveTextBox.TextLength == 0)
+            {
+                return true;
+            }
+            int index = ReceiveTextBox.TextLength - 1;
+            while (index > 0)
+            {
+                char c = ReceiveTextBox.Text[index];
+                if (c != '\r' && c != '\n')
+                {
+                    break;
+                }
+                index--;
+            }
+            Point endPoint = ReceiveTextBox.GetPositionFromCharIndex(index);
+            return endPoint.Y >= 0 && endPoint.Y <= ReceiveTextBox.ClientSize.Height - ReceiveTextBox.Font.Height;
+        }
+
+        private void ScrollInfoToBottom()
+        {
+            ReceiveTextBox.Select(ReceiveTextBox.TextLength, 0);
+            ReceiveTextBox.ScrollToCaret();
+        }
+
+        private void TrimInfoEntries()
+        {
+            while (infoEntryLengths.Count > MaxInfoLogEntries)
+            {
+                int removeLength = infoEntryLengths.Dequeue();
+                if (removeLength <= 0 || ReceiveTextBox.TextLength <= 0)
+                {
+                    continue;
+                }
+                int safeLength = Math.Min(removeLength, ReceiveTextBox.TextLength);
+                ReceiveTextBox.Select(0, safeLength);
+                ReceiveTextBox.SelectedText = string.Empty;
+            }
         }
 
 
@@ -81,8 +188,9 @@ namespace Automation
             Invoke(new Action(() =>
             {
                 int length = ReceiveTextBox.TextLength;
-                str = $"[{DateTime.Now.ToString("yyyy-MM-dd HH时mm分ss秒")}]：{str}\r\n";
-                ReceiveTextBox.AppendText(str);
+                string prefix = $"[{DateTime.Now.ToString("yyyy-MM-dd HH时mm分ss秒")}]";
+                string line = $"{prefix}：{str}\r\n";
+                ReceiveTextBox.AppendText(line);
 
                 Color color = Color.Black;
                 if(InfoLevel == Level.Error)
@@ -93,9 +201,14 @@ namespace Automation
                 {
                     color = Color.BurlyWood;
                 }
-                ReceiveTextBox.Select(length, str.Length);
+                ReceiveTextBox.Select(length, prefix.Length);
                 ReceiveTextBox.SelectionBackColor = color;
-                ReceiveTextBox.ScrollToCaret();
+                infoEntryLengths.Enqueue(line.Length);
+                TrimInfoEntries();
+                if (!infoAutoScrollPausedByUser)
+                {
+                    ScrollInfoToBottom();
+                }
             }));
         }
 

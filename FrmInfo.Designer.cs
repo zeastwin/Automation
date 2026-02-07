@@ -21,6 +21,12 @@
                     statusTimer.Dispose();
                     statusTimer = null;
                 }
+                if (infoAutoScrollTimer != null)
+                {
+                    infoAutoScrollTimer.Stop();
+                    infoAutoScrollTimer.Dispose();
+                    infoAutoScrollTimer = null;
+                }
                 if (components != null)
                 {
                     components.Dispose();
@@ -162,7 +168,7 @@
             // ReceiveTextBox
             // 
             this.ReceiveTextBox.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.ReceiveTextBox.Font = new System.Drawing.Font("Calibri", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.ReceiveTextBox.Font = new System.Drawing.Font("Calibri", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.ReceiveTextBox.Location = new System.Drawing.Point(3, 3);
             this.ReceiveTextBox.Margin = new System.Windows.Forms.Padding(0);
             this.ReceiveTextBox.Name = "ReceiveTextBox";
