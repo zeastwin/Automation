@@ -180,16 +180,32 @@ namespace Automation
                 }
             }
 
-            RunIoOperate(evt, new IoOperate
+            try
             {
-                IoParams = ioGroup.OutIoParams
-            });
+                RunIoOperate(evt, new IoOperate
+                {
+                    IoParams = ioGroup.OutIoParams
+                });
+            }
+            catch (Exception ex)
+            {
+                MarkAlarm(evt, $"IO组执行失败(输出阶段):{ex.Message}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
 
-            return RunIoCheck(evt, new IoCheck
+            try
             {
-                IoParams = ioGroup.CheckIoParams,
-                timeOutC = ioGroup.timeOutC ?? new TimeOutC()
-            });
+                return RunIoCheck(evt, new IoCheck
+                {
+                    IoParams = ioGroup.CheckIoParams,
+                    timeOutC = ioGroup.timeOutC ?? new TimeOutC()
+                });
+            }
+            catch (Exception ex)
+            {
+                MarkAlarm(evt, $"IO组执行失败(检测阶段):{ex.Message}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
         }
 
         public bool RunIoLogicGoto(ProcHandle evt, IoLogicGoto ioLogicGoto)

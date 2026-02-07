@@ -136,6 +136,7 @@
   - 热更新日志语义：热更新成功默认不输出日志，热更新失败才记录错误日志并触发报警/停机流程。
 - 报警模型：
   - 任意异常通过 `MarkAlarm` 写入 `ProcHandle.isAlarm/alarmMsg`。
+  - `IoGroup` 在复用 `IoOperate/IoCheck` 时，若子阶段失败会追加阶段前缀（`IO组执行失败(输出阶段)`、`IO组执行失败(检测阶段)`）后再报警。
   - 报警决策支持 `Stop/Ignore/Goto1/Goto2/Goto3`。
   - 弹框类报警由 `IAlarmHandler`（`WinFormsAlarmHandler`）在 UI 线程处理。
 
