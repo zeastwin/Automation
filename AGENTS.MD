@@ -256,7 +256,9 @@
   - 明确配置文件、默认值、校验规则、错误处理策略，并同步更新本文件对应章节。
 
 ## 17. 依赖与驱动
-- 主要 NuGet 依赖位于 `packages.config`，包含 `Newtonsoft.Json`、`OxyPlot`、`S7.Net`、`System.Drawing.Common` 等。
+- 主要 NuGet 依赖位于 `packages.config`，当前包含：`Newtonsoft.Json`、`S7netplus`、`System.Buffers`、`System.Memory`、`System.Numerics.Vectors`、`System.Runtime.CompilerServices.Unsafe`、`System.Runtime.InteropServices.RuntimeInformation`。
+- 本地驱动与随程序分发文件统一放在项目根目录 `SourceDLL/`。
+- 构建输出规则：`Automation.csproj` 在 `Build` 后自动将 `SourceDLL/` 下全部文件复制到 `$(TargetDir)`，并保留 `SourceDLL` 内部相对子目录结构。
 - 运动控制底层：
   - `MotionControl/LTDMC.cs`：`LTDMC.dll` P/Invoke。
   - `MotionControl/LeiSei3000.cs`：雷赛卡运动与 IO 实现。

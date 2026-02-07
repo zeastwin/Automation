@@ -395,5 +395,15 @@
   <ItemGroup>
     <None Include="Resources\invalid.png" />
   </ItemGroup>
+  <Target Name="CopySourceDllFiles" AfterTargets="Build">
+    <ItemGroup>
+      <SourceDllFiles Include="SourceDLL\**\*.*" />
+    </ItemGroup>
+    <Copy
+      Condition="'@(SourceDllFiles)' != ''"
+      SourceFiles="@(SourceDllFiles)"
+      DestinationFiles="@(SourceDllFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
