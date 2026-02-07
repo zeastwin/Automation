@@ -52,6 +52,11 @@ namespace Automation
             {
                 return;
             }
+            ClearInfoEntries();
+        }
+
+        private void ClearInfoEntries()
+        {
             while (pendingInfoQueue.TryDequeue(out _))
             {
             }

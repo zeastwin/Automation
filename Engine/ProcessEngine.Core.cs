@@ -1844,6 +1844,7 @@ namespace Automation
             {
                 handle = current?.Handle;
                 control = current?.Control;
+                current = null;
             }
             if (handle == null || control == null)
             {
@@ -1851,7 +1852,13 @@ namespace Automation
             }
             handle.State = ProcRunState.Stopped;
             handle.isBreakpoint = false;
-            control.RequestStop();
+            try
+            {
+                control.RequestStop();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
             if (raiseSnapshot)
             {
                 engine.UpdateSnapshot(handle.procNum, handle.procId, handle.procName, handle.State, handle.stepNum,
@@ -1899,7 +1906,6 @@ namespace Automation
                         }
                     }
                 }
-                runControl?.Dispose();
                 lock (sync)
                 {
                     if (current != null && ReferenceEquals(current.Thread, Thread.CurrentThread))
@@ -1907,6 +1913,7 @@ namespace Automation
                         current = null;
                     }
                 }
+                runControl?.Dispose();
             }
         }
     }
@@ -1916,41 +1923,95 @@ namespace Automation
         private readonly ManualResetEventSlim runGate = new ManualResetEventSlim(false);
         private readonly SemaphoreSlim stepGate = new SemaphoreSlim(0, 1);
         private readonly CancellationTokenSource stopCts = new CancellationTokenSource();
+        private int disposed;
 
         public bool IsStopRequested => stopCts.IsCancellationRequested;
         public CancellationToken CancellationToken => stopCts.Token;
 
         public void SetRunning()
         {
-            runGate.Set();
+            if (Volatile.Read(ref disposed) == 1)
+            {
+                return;
+            }
+            try
+            {
+                runGate.Set();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
 
         public void SetPaused()
         {
-            runGate.Reset();
+            if (Volatile.Read(ref disposed) == 1)
+            {
+                return;
+            }
+            try
+            {
+                runGate.Reset();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
 
         public void RequestStep()
         {
-            runGate.Set();
+            if (Volatile.Read(ref disposed) == 1)
+            {
+                return;
+            }
+            try
+            {
+                runGate.Set();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
             try
             {
                 stepGate.Release();
             }
             catch (SemaphoreFullException)
+            {
+            }
+            catch (ObjectDisposedException)
             {
             }
         }
 
         public void RequestStop()
         {
-            stopCts.Cancel();
-            runGate.Set();
+            if (Volatile.Read(ref disposed) == 1)
+            {
+                return;
+            }
+            try
+            {
+                stopCts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            try
+            {
+                runGate.Set();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
             try
             {
                 stepGate.Release();
             }
             catch (SemaphoreFullException)
+            {
+            }
+            catch (ObjectDisposedException)
             {
             }
         }
@@ -1964,6 +2025,9 @@ namespace Automation
             catch (OperationCanceledException)
             {
             }
+            catch (ObjectDisposedException)
+            {
+            }
         }
 
         public void WaitForStep()
@@ -1975,10 +2039,17 @@ namespace Automation
             catch (OperationCanceledException)
             {
             }
+            catch (ObjectDisposedException)
+            {
+            }
         }
 
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref disposed, 1) == 1)
+            {
+                return;
+            }
             runGate.Dispose();
             stepGate.Dispose();
             stopCts.Dispose();

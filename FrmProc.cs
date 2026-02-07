@@ -240,34 +240,8 @@ namespace Automation
                 Directory.CreateDirectory(path);
             }
 
-            Dictionary<int, string> indexMap = new Dictionary<int, string>();
-            int maxIndex = -1;
-            foreach (string file in Directory.EnumerateFiles(path, "*.json"))
-            {
-                string name = Path.GetFileNameWithoutExtension(file);
-                if (int.TryParse(name, out int index))
-                {
-                    indexMap[index] = file;
-                    if (index > maxIndex)
-                    {
-                        maxIndex = index;
-                    }
-                }
-            }
-            if (indexMap.Count > 0)
-            {
-                if (!indexMap.ContainsKey(0))
-                {
-                    loadErrors.Add("流程文件索引必须从0开始。");
-                }
-                for (int i = 0; i <= maxIndex; i++)
-                {
-                    if (!indexMap.ContainsKey(i))
-                    {
-                        loadErrors.Add($"流程文件缺失：{i}.json");
-                    }
-                }
-            }
+            Dictionary<int, string> indexMap = BuildProcFileIndexMap(path, out int maxIndex);
+            loadErrors.AddRange(ValidateProcFileContinuity(indexMap, maxIndex));
 
             for (int i = 0; i <= maxIndex; i++)
             {
@@ -423,7 +397,75 @@ namespace Automation
             }
         }
 
-        private void ValidateGotoTargets(object obj, int procIndex, Proc proc, List<string> errors, string context)
+        internal static Dictionary<int, string> BuildProcFileIndexMap(string path, out int maxIndex)
+        {
+            Dictionary<int, string> indexMap = new Dictionary<int, string>();
+            maxIndex = -1;
+            foreach (string file in Directory.EnumerateFiles(path, "*.json"))
+            {
+                string name = Path.GetFileNameWithoutExtension(file);
+                if (!int.TryParse(name, out int index))
+                {
+                    continue;
+                }
+                indexMap[index] = file;
+                if (index > maxIndex)
+                {
+                    maxIndex = index;
+                }
+            }
+            return indexMap;
+        }
+
+        internal static List<string> ValidateProcFileContinuity(Dictionary<int, string> indexMap, int maxIndex)
+        {
+            List<string> errors = new List<string>();
+            if (indexMap == null || indexMap.Count == 0)
+            {
+                return errors;
+            }
+            if (!indexMap.ContainsKey(0))
+            {
+                errors.Add("流程文件索引必须从0开始。");
+            }
+            for (int i = 0; i <= maxIndex; i++)
+            {
+                if (!indexMap.ContainsKey(i))
+                {
+                    errors.Add($"流程文件缺失：{i}.json");
+                }
+            }
+            return errors;
+        }
+
+        internal static List<string> ValidateProcGotoTargets(int procIndex, Proc proc)
+        {
+            List<string> errors = new List<string>();
+            if (proc?.steps == null)
+            {
+                return errors;
+            }
+            for (int i = 0; i < proc.steps.Count; i++)
+            {
+                Step step = proc.steps[i];
+                if (step?.Ops == null)
+                {
+                    continue;
+                }
+                for (int j = 0; j < step.Ops.Count; j++)
+                {
+                    OperationType op = step.Ops[j];
+                    if (op == null)
+                    {
+                        continue;
+                    }
+                    ValidateGotoTargets(op, procIndex, proc, errors, $"流程{procIndex}步骤{i}指令{j}");
+                }
+            }
+            return errors;
+        }
+
+        private static void ValidateGotoTargets(object obj, int procIndex, Proc proc, List<string> errors, string context)
         {
             foreach (var propertyInfo in obj.GetType().GetProperties())
             {
@@ -466,7 +508,7 @@ namespace Automation
             }
         }
 
-        private bool TryValidateGotoRange(Proc proc, int procIndex, int stepIndex, int opIndex, out string error)
+        private static bool TryValidateGotoRange(Proc proc, int procIndex, int stepIndex, int opIndex, out string error)
         {
             error = null;
             if (proc?.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
@@ -483,7 +525,7 @@ namespace Automation
             return true;
         }
 
-        private bool TryParseGotoKey(string value, out int procIndex, out int stepIndex, out int opIndex)
+        internal static bool TryParseGotoKey(string value, out int procIndex, out int stepIndex, out int opIndex)
         {
             procIndex = -1;
             stepIndex = -1;

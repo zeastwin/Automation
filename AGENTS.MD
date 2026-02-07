@@ -113,10 +113,12 @@
   - 属性编辑器不再动态改写 `Num` 的 `Browsable` 特性，避免影响数据绑定导致编号列空白。
 - 流程加载规则（`FrmProc.Refresh`）：
   - 扫描 `Config/Work/*.json`，索引必须从 `0` 连续递增。
+  - 索引扫描与连续性校验由 `FrmProc.BuildProcFileIndexMap`、`FrmProc.ValidateProcFileContinuity` 统一执行。
   - 缺失或加载失败会记入 `loadErrors`，设置 `SF.ProcConfigFaulted=true` 并触发停机提示。
 - 流程保存规则：
   - 支持单流程保存与重建 `Work` 目录连续索引。
   - 跳转地址统一使用 `proc-step-op`，禁止跨流程，保存前做边界校验。
+  - 跳转地址结构校验可通过 `FrmProc.ValidateProcGotoTargets` 复用同一套规则。
 - 指令超时默认值策略：
   - 统一约束：所有带“超时”参数的指令默认值禁止为 `0`。
   - 通用超时容器 `TimeOutC.TimeOut` 默认 `3000ms`（`IoCheck`、`IoGroup`、`WaitProc` 等沿用该默认值）。
@@ -133,6 +135,7 @@
 - 执行主链路：
   - `RunProc -> RunStep -> ExecuteOperation`。
   - 运行过程中支持断点、暂停信号、单步、热发布流程映射（按 Step/Operation 的 `Id` 对位）。
+  - 调度停机时 `ProcAgent` 会先解绑当前执行上下文再发出停止信号；`ProcessControl` 在释放后对 `RequestStop/RequestStep/SetRunning/SetPaused` 采用安全空操作，避免并发释放阶段抛出对象已释放异常。
   - 单步状态语义：单步放行后当前指令执行期间状态显示为 `Running`，当前指令执行完成并进入下一条指令待执行阶段时状态恢复为 `SingleStep`。
   - 热更新日志语义：热更新成功默认不输出日志，热更新失败才记录错误日志并触发报警/停机流程。
 - 报警模型：
@@ -280,3 +283,71 @@
 - 运动控制底层：
   - `MotionControl/LTDMC.cs`：`LTDMC.dll` P/Invoke。
   - `MotionControl/LeiSei3000.cs`：雷赛卡运动与 IO 实现。
+
+## 18. 自动化测试工程
+- 解决方案当前包含测试项目：`tests/Automation.P0Tests/Automation.P0Tests.csproj`（`NUnit + Microsoft.NET.Test.Sdk`，目标框架 `net472`）。
+- 测试范围定位为 P0 级稳定性基线，覆盖 16 条自动化用例：
+  - 启动配置严格校验（默认生成、类型非法拦截）。
+  - 账户密文格式与锁定恢复登录策略。
+  - 流程文件索引连续性与跳转地址合法性。
+  - 引擎运行控制（启动/暂停/继续/停止、单步、单条执行、停止超时报警）。
+  - 操作执行异常路径（空操作、不支持类型、IO组阶段前缀报警）。
+  - 通讯等待队列上限与帧模式严格解析。
+  - PLC 读写变量缺失安全失败与角色权限基线。
+- 测试范围同步扩展到 P1 基线，新增 11 条自动化用例：
+  - 热发布成功映射（Step/Operation `Id` 保持一致时可平滑切换）。
+  - 热发布失败停机（运行位点缺失时触发“热更新失败”报警并停机）。
+  - 快照节流窗口校验（同态更新在窗口内抑制、窗口后放行）。
+  - `FrmInfo` 信息流批刷上限（单次刷新最多 256 条）。
+  - `FrmInfo` 环形缓冲容量（仅保留最新 200 条）。
+  - `FrmInfo` 自动滚动恢复（用户交互空闲 20s 后恢复）。
+  - `FrmInfo` 右键清空行为（待处理队列与环形缓冲同步清空，自动滚动恢复默认状态）。
+  - 主窗体关闭链路（非用户交互关闭时停止流程并释放引擎与快照定时器资源）。
+  - 通讯等待关闭语义（`ReceiveDispatcher.Close` 使挂起等待失败返回）。
+  - 进程控制释放竞态防护（`ProcessControl` 释放后重复停机/步进/运行/暂停请求不抛异常）。
+- 测试范围同步扩展到 P2 基线，新增 20 条自动化用例：
+  - 程序参数缓存与保存语义（`TryGetCached` 未初始化失败、`TrySave` 非法值拒绝、缓存克隆隔离）。
+  - 变量运行态一致性（重名拒绝、数值类型严格校验、更新回调异常透传、不存在变量写入失败）。
+  - 变量监控事件门控（监控关闭不触发、监控开启且标记后触发并保留来源）。
+  - 账户密文加解密完整性（加解密往返一致、篡改后触发完整性校验失败）。
+  - 流程发布输入约束与停机态快照更新（非法入参拒绝、停机态发布即时刷新 `ProcId/ProcName`）。
+  - PLC 配置严格校验（协议白名单、Modbus 站号范围、读写映射必填项规则）。
+  - 长稳加速基线（短时多轮连续启停，验证流程线程无死锁、无异常报警）。
+  - 通讯/PLC 抖动注入基线（通讯未初始化与 PLC 读失败场景触发报警并退出运行态）。
+  - 内存漂移基线（多轮引擎创建销毁后托管与私有内存增长受控）。
+  - 句柄/线程泄漏基线（反复创建释放信息页后句柄数与线程数无持续增长趋势）。
+- 长期压测入口：
+  - 长稳压测类：`tests/Automation.P0Tests/P2LongRunProfiles.cs`（对应 `P2-01~P2-04` 长周期版本）。
+  - 压测分类：`TestCategory=LongRun`。
+  - 默认关闭：未设置 `AUTOMATION_ENABLE_LONGRUN=1` 时相关用例会 `Ignore`，不影响日常全量回归。
+  - 一键脚本：`tests/run-p2-longrun.ps1`。
+  - 固定运行配置文件：
+    - `tests/longrun.1min.runsettings`：1 分钟 smoke 快速验证。
+    - `tests/longrun.runsettings`：正式长测默认配置（`formal72h`）。
+  - 结果产物：每条长测同时输出 `CSV` 与 `summary.json` 到 `%TEMP%/automation-p2-longrun`，`summary.json` 固定包含阈值、关键统计与尾部样本/报警证据。
+  - 档位策略：`AUTOMATION_P2LR_PROFILE` 支持 `smoke/gate/formal24h/formal72h`，未配置时按各用例默认时长执行。
+- 长期压测环境变量完整清单：
+  - `AUTOMATION_ENABLE_LONGRUN`：`1/true` 启用长期压测。
+  - `AUTOMATION_P2LR_PROFILE`：长测档位（`smoke/gate/formal24h/formal72h`）。
+  - `AUTOMATION_P2LR_SOAK_MINUTES`：`P2-01` 长稳运行时长（分钟）。
+  - `AUTOMATION_P2LR_JITTER_MINUTES`：`P2-02` 抖动注入运行时长（分钟）。
+  - `AUTOMATION_P2LR_MEMORY_MINUTES`：`P2-03` 内存漂移观测时长（分钟）。
+  - `AUTOMATION_P2LR_HANDLE_MINUTES`：`P2-04` 句柄/线程趋势观测时长（分钟）。
+  - `AUTOMATION_P2LR_SAMPLE_MS`：运行态指标采样周期（毫秒）。
+  - `AUTOMATION_P2LR_MIN_CYCLE_PER_MINUTE`：`P2-01` 循环吞吐门禁（每分钟最少循环数）。
+  - `AUTOMATION_P2LR_MAX_ALARM_LATENCY_MS`：`P2-02` 单次故障触发报警最大时延（毫秒）。
+  - `AUTOMATION_P2LR_JITTER_COOLDOWN_MS`：`P2-02` 注入间隔（毫秒）。
+  - `AUTOMATION_P2LR_JITTER_MAX_BURST`：`P2-02` 随机突发最大批量。
+  - `AUTOMATION_P2LR_JITTER_BURST_PROBABILITY`：`P2-02` 触发突发批量的概率（`0~1`）。
+  - `AUTOMATION_P2LR_RANDOM_SEED`：`P2-02` 随机种子（用于复现）。
+  - `AUTOMATION_P2LR_MAX_MEMORY_DRIFT_RATIO`：私有内存漂移阈值（比例，小数）。
+  - `AUTOMATION_P2LR_MIN_TREND_HOURS`：趋势门禁最小观测时长（小时）；观测不足仅输出统计，不执行斜率断言。
+  - `AUTOMATION_P2LR_MAX_MEMORY_SLOPE_MB_PER_HOUR`：`P2-03` 私有内存增长斜率阈值（MB/h）。
+  - `AUTOMATION_P2LR_MAX_HANDLE_DELTA`：句柄增量阈值。
+  - `AUTOMATION_P2LR_MAX_THREAD_DELTA`：线程增量阈值。
+  - `AUTOMATION_P2LR_MAX_GDI_DELTA`：GDI 对象增量阈值。
+  - `AUTOMATION_P2LR_MAX_HANDLE_SLOPE_PER_HOUR`：`P2-04` 句柄增长斜率阈值（每小时）。
+  - `AUTOMATION_P2LR_MAX_THREAD_SLOPE_PER_HOUR`：`P2-04` 线程增长斜率阈值（每小时）。
+  - `AUTOMATION_P2LR_MAX_GDI_SLOPE_PER_HOUR`：`P2-04` GDI 增长斜率阈值（每小时）。
+- 当前自动化用例总量为 51 条（P0=16、P1=11、P2基线=20、P2长期压测=4）。
+- 测试工程通过 `[assembly: InternalsVisibleTo(\"Automation.P0Tests\")]` 访问内部校验入口；该入口仅用于自动化验证，不改变运行时业务流程。
