@@ -10,8 +10,12 @@
 
 ## 文档维护准则
 - 任何功能改动完成后，必须同步更新本文件中对应模块说明；未更新文档视为任务未完成。
-- 变更涉及协议、配置默认值、异常处理策略时，必须在本文件明确写出迁移影响与排查要点。
-- 本文件内容仅描述当前状态，禁止出现“已调整/改为/从A变为B”等改动过程表述，也不记录前后变化说明。
+- 变更涉及协议、配置默认值、异常处理策略时，必须在本文件写明影响范围、运行约束与排查入口。
+- 本文件定位为“首次接手项目的全局说明书”：读者不依赖历史记录，仅通过本文件即可建立完整系统认知。
+- 文档只描述当前状态，不写“改动过程/前后对比/临时方案/兼容过渡”等叙事。
+- 全文按“先系统、后模块、再细节”组织；任何章节都从整体职责、边界、输入输出开始描述。
+- 涉及顺序、层级、布局、协议、权限、配置等结构化信息时，直接给出当前完整清单。
+- 更新文档前先对照代码事实，确保说明与实际实现一致。
 
 ## 安全准则
 - 安全是最高准则：任何异常或不确定状态必须优先停机/报警，禁止继续运行。
@@ -36,103 +40,234 @@
 - 一致性检查通过后允许执行编译；检查不通过时禁止编译并先修复项目文件。
 - 非用户明确要求时，禁止使用 `Debug_codex_*` 等临时输出目录，统一输出到 `bin/Debug/`。
 
-# Automation Agents 速览
+# Automation 全局说明（一次性现状版）
 
-项目概述：基于 Windows Forms 的低代码自动化平台，核心是可编辑的“流程/步骤/操作”图谱，协同运动控制卡、IO、TCP/串口通讯与自定义逻辑。入口 `Program.cs` → `FrmMain`，主窗体内嵌各功能子窗体。
+## 1. 系统定位与主链路
+- 项目是基于 Windows Forms 的低代码自动化平台，核心对象是“流程（Proc）-步骤（Step）-操作（OperationType）”。
+- 系统围绕五类能力运行：流程编排与执行、运动控制与 IO、TCP/串口通讯、PLC 通讯、账户权限与安全锁定。
+- 启动链路：
+  - `Program.Main` 先处理 `AIFlow.AiFlowCli.TryHandle(args)`，命中后关闭 AI 页面入口（`SF.AiFlowEnabled=false`）。
+  - 初始化账户系统（`AccountStore/UserContextStore/UserLoginStore`），加载 `Config/Account.json`。
+  - 启动时尝试使用默认系统管理员 `system/software_123` 登录会话。
+  - 进入 `FrmMain`，装配所有子窗体与运行时 Store，创建 `ProcessEngine`，加载配置并初始化硬件。
 
-- **配置布局**：`Config/Work/*.json` 存流程；`Config/value.json` 存变量；`Config/card.json`、`Config/IOMap.json`、`Config/DataStruct.json`、`Config/DataStation.json` 定义硬件/IO/数据结构；`Config/Account.json` 存账户权限（加密文本，前缀 `ENC:`）；`Config/MarkPoints.json` 记录标记点。
-- **全局入口**：`SF` 静态类持有所有窗体、运动控制器 `MotionCtrl`、运行器 `ProcessEngine` 以及路径 `workPath`、`ConfigPath`；同时维护账户系统（`accountStore`/`userSession`/`userContextStore`/`userLoginStore`）、安全锁定状态 `SecurityLocked`，UI/运行期均从此处获取依赖。
+## 2. 运行时全局对象（SF）
+- `SF` 是全局运行容器，统一持有窗体实例、`ProcessEngine`、`MotionCtrl`、各类配置 Store 与权限会话。
+- 路径由可执行目录派生：
+  - `SF.ConfigPath = <exe>/Config/`
+  - `SF.workPath = <exe>/Config/Work/`
+- 权限与安全入口：
+  - `SF.EnsurePermission`：动作级权限校验并负责错误提示。
+  - `SF.HasPermission`：状态/按钮可用性校验。
+  - `SF.SetSecurityLock`：记录原因、停止全部流程、刷新权限 UI。
+  - `SF.SetUserSession`：切换用户并刷新权限 UI。
+- 流程发布入口：`SF.PublishProc(procIndex)`，发布前执行流程结构归一化和跳转地址校验。
 
-## 核心概念
-- **流程模型**：`Proc` → `Step` → `OperationType`。通过 `FrmProc`（树）、`FrmDataGrid`（操作列表）、`FrmPropertyGrid`（属性编辑）修改，序列化为 JSON（启用 `TypeNameHandling.All`）。
-- **流程反序列化策略**：读取流程 JSON 时使用 `ObjectCreationHandling.Replace`，避免操作构造函数中的默认集合项在重启后被重复追加。
-- **运行引擎**：`ProcessEngine` 以 `ProcAgent` + 命令队列管理单流程执行，`ProcHandle` 仅在引擎内记录索引/状态，UI 通过 `EngineSnapshot` + `SnapshotChanged` 订阅状态。`RunProc`/`RunStep` 支持暂停、单步、跳转、报警；`ExecuteOperation` 将具体操作派发到对应执行函数。
-- **文件拆分**：引擎内核在 `Engine/ProcessEngine.Core.cs`，操作执行在 `Engine/ProcessEngine.Operations.cs`，模型在 `Engine/ProcessEngine.Models.cs`。
-- **变量**：`FrmValue` 管理 0–999 的 `DicValue`，含类型/名称/备注，持久化到 `Config/value.json`，提供按名/按索引读写。
-  - 通过 `FrmMenu` 的“变量”按钮进入变量表时，会强制执行一次表格值刷新（以运行时 `valueStore` 为准）。
-  - 变量表编辑校验为“名称必填”；`Type` 为空时自动回填 `double`。
-  - `double` 类型在值为空时自动回填 `0` 并持久化；`string` 类型允许空字符串并可直接持久化。
-  - 迁移影响与排查：旧版本依赖“值必填”拦截的用法需复核；若类型或值未落盘，优先检查变量名是否为空或重名（重名会被 `TrySetValue` 拒绝）。
-- **数据结构**：`FrmDataStruct` 定义结构体集合，操作可对项进行设/取/复制/插入/删除/查找/计数。
+## 3. 主窗体装配与生命周期
+- `FrmMain` 构造阶段完成：
+  - 初始化 `cardStore/valueStore/dataStructStore/trayPointStore/alarmInfoStore/comm/plcStore`。
+  - 创建 `ProcessEngine` 并注入 `EngineContext`（流程、变量、数据结构、运动、通讯、PLC、IO 映射、工站、自定义函数）。
+  - 绑定日志器（UI + 本地文件）与报警处理器（`WinFormsAlarmHandler`）。
+  - 创建并嵌入子窗体（`TopLevel=false + Dock=Fill`）。
+- `FrmMain_Load` 执行顺序：
+  - 刷新变量、卡/IO、数据结构、通讯、报警、PLC 配置。
+  - 初始化运动控制（`InitCardType -> InitCard -> DownLoadConfig -> SetAllAxisSevonOn -> SetAllAxisEquiv`）。
+  - 非锁定模式下自动启动 `Proc.head.AutoStart=true` 且未禁用的流程。
+- 运行期系统状态变量：
+  - 固定读取变量名：`复位状态`、`系统状态`。
+  - `复位状态` 允许值为 `0/1/2`，类型必须为 `double`。
+  - 任一前置条件不满足触发 `FailSystemStatus` 并进入安全处理路径。
+- 关闭流程：
+  - 停监控线程、停全部流程并等待、释放通讯、停止运动、释放引擎、保存流程停点与关键配置。
 
-## 账户与权限
-- **角色**：`SystemAdmin` / `Admin` / `Operator`（`Security/UserAccount.cs`）。
-- **默认系统管理员**：用户名 `system`，口令 `software_123`。该账户不可新增/删除/禁用/改名，口令不可修改，权限为全量。
-- **账号配置**：`Config/Account.json` 为加密文本（AES-CBC + HMAC-SHA256 + PBKDF2，前缀 `ENC:`），只允许字段 `Accounts`，账户字段为 `Id`/`UserName`/`Role`/`PasswordHash`/`Salt`/`Iterations`/`Disabled`/`Permissions`。解密或校验失败会进入锁定模式。
-- **锁定模式**：`SF.SetSecurityLock` 记录日志/提示并停止所有流程；`SF.SecurityLocked` 时仅允许默认系统管理员登录为恢复会话（`UserSession.IsRecovery`），恢复会话只允许 `Account.Manage`。
-- **登录流程**：程序启动不弹登录；工具条“用户”按钮打开 `FrmLogin` 完成登录或切换账号，成功后 `SF.SetUserSession` 刷新权限。
-- **账户管理**：`FrmAccountManager`（分栏列表 + 权限树 + “全选”），仅系统管理员可新建账号；重置口令通过 `FrmChangePassword`。
-- **权限粒度**：以“模块入口 + 关键动作”为主（例如流程运行/编辑/查找、报警配置、IO 监视、打开程序文件夹等），清单见 `Security/PermissionCatalog.cs`。若勾选模块内动作，必须勾选该模块入口权限（保存时校验）。
-- **安全动作**：流程“停止/停止全部”不做权限限制，所有角色都可执行。
-- **外部接口**：`SF.userContextStore` 提供 `GetUserName/GetUserRole/GetSnapshot`；`SF.userLoginStore` 提供 `TryLogin/TryLogout/IsLoggedIn` 供外部调用。
+## 4. 页面结构与导航
+- `FrmMenu` 顶部按钮当前从左到右完整顺序：
+  - 流程、工站、变量、IO调试、通讯、PLC、变量调试、控制卡配置、AI。
+- `AI` 按钮显示前提：
+  - `SF.AiFlowEnabled=true` 时显示并可按权限启用。
+  - `SF.AiFlowEnabled=false` 时隐藏且禁用。
+- 页面切换由 `SF.curPage` 驱动，`FrmMenu` 根据目标页面重排主窗体区域可见性：
+  - 流程页：树 + 指令表 + 属性区 + 工具栏 + 状态区。
+  - 工站页：主区显示 `FrmStation`，隐藏流程编辑区。
+  - 控制卡/IO页：树区显示 `FrmCard`，表区显示 `FrmIO`，工具栏切换为 IO 监视动作。
+  - 变量调试页：主区显示 `FrmValueDebug`，隐藏流程编辑区。
+- 变量按钮行为：
+  - 进入 `FrmValue` 前执行 `SF.frmValue.FreshFrmValue()`，界面值以运行态变量为准。
 
-## 操作库（OperationType）
-可用于拼装流程的类别：
-- 自定义：`CallCustomFunc` 调用 `CustomFunc` 中注册的委托。
-- IO：`IoOperate`（写输出附带前后延时）、`IoCheck`（等待输入/输出），经 `FrmIO.DicIO` 与 `MotionCtrl` 解析。
-- 流程协同：`ProcOps`（启动/停止流程）、`WaitProc`（等待流程状态）、`Goto`/`ParamGoto`（分支）、`Delay`。
-- 变量/字符串：`GetValue`、`ModifyValue`、`StringFormat`、`Split`、`Replace`。
-- 结构体：`SetDataStructItem`、`GetDataStructItem`、`CopyDataStructItem`、`InsertDataStructItem`、`DelDataStructItem`、`FindDataStructItem`、`GetDataStructCount`。
-- 通讯：`TcpOps`/`WaitTcp`/`SendTcpMsg`/`ReceoveTcpMsg`，`SerialPortOps`/`WaitSerialPort`/`SendSerialPortMsg`/`ReceoveSerialPortMsg`。
-- 运动：`HomeRun`、`StationRunPos`、`StationRunRel`、`SetStationVel`、`StationStop`、`WaitStationStop`（回零、绝对/相对运动、速度覆盖、停止与等待到位）。
+## 5. 工具栏与交互行为
+- `FrmToolBar` 负责保存/取消、运行控制、搜索定位、报警配置、IO 监视、程序设置、账户管理、用户登录。
+- 运行动作权限：
+  - 暂停/继续、单步依赖 `Process.Run`。
+  - 停止、停止全部不做权限限制。
+  - 停止全部会跳过名称以“系统”开头的流程。
+- 常用辅助动作权限：
+  - 流程搜索/定位依赖 `Process.Search`。
+  - IO 监视依赖 `IOMonitor.Use`。
+  - 打开程序目录依赖 `Tool.OpenConfigFolder`。
+  - 账户管理依赖 `Account.Manage`（恢复会话同样允许）。
+- 右键目标策略（统一按鼠标命中项）：
+  - `FrmProc`：右键空白会清空流程/步骤/操作选择并清空属性绑定。
+  - `FrmDataGrid`：右键空白会清空选中行并取消菜单目标。
+  - `FrmStation` 点位表：右键空白取消菜单，不回退历史行。
 
-## 硬件与 IO
-- **卡与轴**：`FrmCard` 编辑运动控制卡（`ControlCard`），轴记录回零模式、脉冲当量、速度/加减速限制等，保存到 `card.json`。
-- **工站模型**：`DataStation` 将轴编组为工站，带点位与运动参数，存于 `DataStation.json`，供站类操作引用。
-- **IO 映射**：`FrmIO` 将物理 IO 映射为命名 IO（`IOMap.json`），维护输入/输出下拉列表，`FrmIODebug` 支持调试映射。
-- **运动控制**：`MotionCtrl` 统一封装卡类型；`InitCardType` 绑定 `ls`（LTDMC）实现；`FrmMain_Load` 完成卡初始化、配置下载、使能伺服、设定当量。
+## 6. 流程模型与编辑体系
+- 模型关系：`Proc -> Step -> OperationType`。
+- 编辑器分工：
+  - `FrmProc` 管理流程树、流程/步骤增删与结构归一化。
+  - `FrmDataGrid` 管理步骤内操作列表、右键菜单、拖拽重排。
+  - `FrmPropertyGrid` 管理对象属性编辑。
+- 流程加载规则（`FrmProc.Refresh`）：
+  - 扫描 `Config/Work/*.json`，索引必须从 `0` 连续递增。
+  - 缺失或加载失败会记入 `loadErrors`，设置 `SF.ProcConfigFaulted=true` 并触发停机提示。
+- 流程保存规则：
+  - 支持单流程保存与重建 `Work` 目录连续索引。
+  - 跳转地址统一使用 `proc-step-op`，禁止跨流程，保存前做边界校验。
 
-## 通讯界面
-- `FrmComunication` 管理 TCP 与串口配置、连接控制、发送与日志显示；接收日志按 `SF.comm.Log` 事件异步写入，并在 UI 侧处理跨线程调用。
-  - TCP/串口表仅暴露 `分隔符` 一列，选项固定为：`无`、`\n`、`\r\n`。
-  - 映射规则：`无` -> `FrameMode=Raw`；`\n` -> `FrameMode=Delimiter` + `FrameDelimiter=\n`；`\r\n` -> `FrameMode=Delimiter` + `FrameDelimiter=\r\n`。
-  - 退出释放策略：窗体 `Dispose` 前必须先停止通讯状态定时器、取消循环发送任务并解除 `SF.comm.Log` 订阅，避免退出阶段回调访问已释放控件。
-- `CommunicationHub` 统一管理 `TcpChannel`/`SerialPortChannel`，支持 `Raw` 与 `Delimiter` 帧模式、严格参数校验、统一发送/接收结果模型（`CommReceiveResult`）。
-- `ProcessEngine.Operations.Comm` 通过 `CommunicationHub` 执行 `TcpOps/SerialPortOps/Send/Receive/SendReceive`，通讯异常统一转报警，禁止静默失败。
-- `FrmState`/`FrmInfo` 展示运行状态与日志；`FrmAlarmConfig` 存报警元数据供操作触发时使用。
+## 7. 流程引擎（ProcessEngine）
+- 引擎结构：
+  - 每流程一个 `ProcAgent`，命令队列容量 128。
+  - 命令类型包含 `StartAt/RunSingleOpOnce/Pause/Resume/Step/Stop`。
+  - `ProcessControl` 用信号门闩控制暂停、单步、停止。
+- 状态发布：
+  - 引擎维护 `EngineSnapshot`，通过 `SnapshotChanged` 发布；`FrmMain` 用缓存 + 定时器合并刷新 UI。
+- 执行主链路：
+  - `RunProc -> RunStep -> ExecuteOperation`。
+  - 运行过程中支持断点、暂停信号、单步、热发布流程映射（按 Step/Operation 的 `Id` 对位）。
+- 报警模型：
+  - 任意异常通过 `MarkAlarm` 写入 `ProcHandle.isAlarm/alarmMsg`。
+  - 报警决策支持 `Stop/Ignore/Goto1/Goto2/Goto3`。
+  - 弹框类报警由 `IAlarmHandler`（`WinFormsAlarmHandler`）在 UI 线程处理。
 
-## 界面速查
-- 导航/菜单：`FrmMenu`。
-- `FrmMenu` 顶部按钮顺序中，“变量”按钮与“工站”相邻（位于“工站”右侧）。
-- 流程编辑：`FrmProc`、`FrmDataGrid`、`FrmPropertyGrid`、`FrmToolBar`（新增/保存/取消/运行/暂停/单步/标记）。
-- 流程树与指令表右键菜单默认以“鼠标命中项”为目标，不再回退到历史选中项；点击空白区域会清空当前目标。
-- 工站点位表（`FrmStation.dataGridView1`）右键菜单同样以“鼠标命中行”为目标；空白区域右键不会对历史选中点位生效。
-- 变量/IO/卡/工站/数据结构编辑：`FrmValue`、`FrmIO`、`FrmCard`、`FrmStation`、`FrmDataStruct`、`FrmIODebug`。
-- 监控/搜索：`FrmState`、`FrmSearch`/`FrmSearch4Value`、`FrmInfo`。
-- 账户登录/管理：`FrmLogin`、`FrmAccountManager`、`FrmChangePassword`。
+## 8. 操作库全量分类（ExecuteOperation 分发）
+- 自定义与逻辑：`CallCustomFunc`、`Delay`、`Goto`、`ParamGoto`、`PopupDialog`。
+- IO：`IoOperate`、`IoCheck`、`IoLogicGoto`。
+- 流程协同：`ProcOps`、`WaitProc`。
+- 变量与字符串：`GetValue`、`ModifyValue`、`StringFormat`、`Split`、`Replace`。
+- 数据结构：`Set/Get/Copy/Insert/Del/Find/GetCount DataStructItem`。
+- 通讯：`TcpOps`、`WaitTcp`、`SendTcpMsg`、`ReceoveTcpMsg`、`SerialPortOps`、`WaitSerialPort`、`SendSerialPortMsg`、`ReceoveSerialPortMsg`、`SendReceoveCommMsg`。
+- PLC：`PlcReadWrite`。
+- 运动与工站：`HomeRun`、`StationRunPos`、`StationRunRel`、`SetStationVel`、`StationStop`、`WaitStationStop`、`ModifyStationPos`、`GetStationPos`、`CreateTray`、`TrayRunPos`。
 
-## 扩展指引
-- 新增操作：继承 `OperationType` 定义属性/转换器/报警行为，在 `ProcessEngine.ExecuteOperation` 添加分支并实现执行函数。
-- 自定义逻辑：向 `CustomFunc.functionMap` 注册委托，名称即出现在 `CallCustomFunc`。
-- 硬件调整：使用 `FrmCard`/`FrmIO` UI 修改，`FrmToolBar` 保存后刷新缓存列表/字典。
-- 运行问题：操作设置 `ProcHandle.isAlarm`/`isGoto`，按 `AlarmType` 选择跳转或弹框（`Message`）策略。
-- 错误处理：任何错误（含超时/未连接/异常）必须设置 `ProcHandle.isAlarm = true` 并填写 `alarmMsg`，禁止静默吞错。
-- 新增权限：在 `Security/PermissionCatalog.cs` 增加 `PermissionKeys` 与定义项，必要时补充默认角色权限与分组入口校验。
+## 9. 运动控制、卡、工站、IO
+- 控制卡与轴：
+  - `CardConfigStore` 持久化 `card.json`。
+  - 轴参数包含脉冲当量、回零模式、速度参数等。
+  - 运动控制封装入口 `MotionCtrl`，卡类型由 `InitCardType` 初始化。
+- 工站：
+  - `DataStation` 持有轴映射、回零顺序、点位集合（`ListDataPos`/`dicDataPos`）和运行状态。
+  - `DataStation.json` 为工站与点位持久化文件。
+- IO：
+  - `FrmIO` 管理 `IOMap` 与命名 IO 字典 `DicIO`，配置文件为 `IOMap.json`。
+  - IO 监视由 `FrmIO.ToggleIOMonitor` 与工具栏按钮联动。
 
-## 补充梳理（实现细节）
-- **运行时目录**：`SF.ConfigPath`/`SF.workPath` 由 exe 路径拼出，调试时写入 `bin/Debug/Config`（Release 同理），流程按 `0.json`…`N.json` 编号加载。
-- **窗体装配**：`FrmMain` 构造时创建所有子窗体并写入 `SF`，`loadFillForm` 以 `TopLevel=false` + `Dock=Fill` 嵌入面板。
-- **启动顺序**：`Program.Main` 初始化账户系统并加载 `Account.json`，`FrmMain_Load` 再依次刷新变量/IO/卡/数据结构/通讯/报警，并完成运动卡初始化、配置下载、使能伺服、设定当量。
-- **页面切换**：`FrmMenu` 通过 `SF.curPage` 切换流程编辑/卡与 IO/工站等界面，动态重排面板与工具条按钮可见性。
-- **流程调度**：`ProcAgent` + `ProcessControl` 同步门闩控制运行/暂停/单步，UI 仅通过 `EngineSnapshot` 读状态并发命令。
-- **报警处理**：执行异常标记 `isAlarm`，`Message` 弹窗根据 `AlarmType` 触发停止/忽略/跳转或多按钮选择。
-- **权限刷新**：`SF.SetUserSession`/`SF.SetSecurityLock` 会调用 `SF.RefreshPermissionUi`，统一刷新 `FrmMenu`/`FrmToolBar`/`FrmValue`/`FrmDataGrid`/`FrmAccountManager`。
+## 10. 通讯系统（TCP/串口）
+- 运行结构：
+  - `CommunicationHub` 统一管理 TCP Client/Server 与 SerialPort 通道。
+  - 帧模式支持 `Raw` 与 `Delimiter`，接收结果统一为 `CommReceiveResult`。
+  - 接收等待队列上限来自 `AppConfig.CommMaxMessageQueueSize`。
+- `FrmComunication` 交互规则：
+  - TCP 与串口表均包含“分隔符”列，固定选项：`无`、`\n`、`\r\n`。
+  - 映射规则：`无 -> FrameMode=Raw`；`\n/\r\n -> FrameMode=Delimiter + FrameDelimiter`。
+  - 通道名、地址、端口、串口参数均做严格校验，错误直接提示并回退显示。
+- 生命周期约束：
+  - 窗体关闭采用隐藏策略（不销毁窗口）。
+  - `Dispose` 前执行 `ReleaseRuntimeResources`：停止状态定时器、取消循环发送、解绑 `SF.comm.Log`。
 
-## 配置文件补充
-- `Config/Work/*.json` 按索引存单个流程，加载时以文件数量决定流程数量。
-- `Config/Work/*.json` 读取时会替换集合实例（`ObjectCreationHandling.Replace`），确保 `Count` 类字段与参数列表不会因默认构造项被额外追加而失配。
-- `Config/value.json`、`Config/card.json`、`Config/DataStruct.json`、`Config/AlarmInfo.json`、`Config/PlcDevice.json`、`Config/PlcMap.json` 的读取同样使用 `ObjectCreationHandling.Replace`，避免构造默认集合项被重复叠加。
-- 迁移影响与排查：若历史版本已误保存“空白参数项”，升级后不会继续新增，但历史空项仍会保留；需在流程编辑界面删除空项并保存。排查时优先检查 `Config/Work/*.json` 中对应操作的 `Count` 与 `Params/$values`（或同类列表）的数量是否一致。
-- `Config/value.json` 存变量字典，`FrmValue` 以 0–999 索引映射到表格。
-- `Config/card.json`、`Config/IOMap.json`、`Config/DataStation.json` 分别存卡、IO 映射、工站数据。
-- `Config/DataStruct.json` 存数据结构集合，项内包含 `str`/`num` 字典。
-- `Config/AlarmInfo.json`、`Config/SocketInfo.json`、`Config/SerialPortInfo.json`、`Config/IODebugMap.json`、`Config/MarkPoints.json` 存报警/通讯/调试/标记点。
-- `Config/AppConfig.json` 存程序运行参数，当前包含 `CommMaxMessageQueueSize`（通讯接收队列长度）；默认值为 `1000`。
-- 若 `Config/AppConfig.json` 不存在，程序会自动生成默认文件并继续加载；若自动生成失败则按错误处理（启动失败并提示）。
-- `Config/SocketInfo.json` 支持 `FrameMode`（`Raw`/`Delimiter`）、`FrameDelimiter`（仅 `Delimiter` 生效）、`EncodingName`、`ConnectTimeoutMs`；当前默认 `FrameMode` 为 `Raw`。
-- `Config/Account.json` 存账户权限，必须为加密格式（前缀 `ENC:`），明文/字段不合法会触发锁定模式。
+## 11. PLC 系统
+- 配置模型：
+  - `PlcDevice` 描述设备连接参数，`PlcMapItem` 描述变量映射关系。
+  - 支持协议：`S7`、`ModbusTcp`。
+- 存储与校验：
+  - `PlcConfigStore` 管理 `PlcDevice.json`、`PlcMap.json`。
+  - 设备与映射均执行严格合法性校验（协议、IP、端口、方向、数量、变量名等）。
+- 运行态：
+  - `PlcHub` 统一连接、重连、读写；单次异常会断开会话并返回错误。
+  - `FrmPlc` 的映射循环按方向执行读写，同步到 `valueStore`；任一失败会停止映射并报警。
 
-## 依赖与驱动
-- `MotionControl/LTDMC.cs` P/Invoke `LTDMC.dll`，`MotionControl/LeiSei3000.cs` 实现 LS 运动与 IO。
-- `packages.config` 使用 `Newtonsoft.Json`、`OxyPlot`、`S7.Net`、`System.Drawing.Common` 等依赖。
-- 运行时会读取 `Config/card_0.ini` 等 ini 做运动卡参数下载。
+## 12. 变量与数据结构
+- 变量系统（`ValueConfigStore` + `FrmValue`）：
+  - 容量固定 `0..999`，文件 `value.json`。
+  - 变量键为名称，索引槽位固定，支持运行态值变更事件。
+  - 编辑规则：名称必填；`Type` 空值按 `double` 处理；`double` 空值按 `0` 处理；`string` 允许空字符串。
+  - 支持常用标记、复制粘贴、监控窗口、按名/按索引读写。
+- 数据结构系统（`DataStructStore` + `FrmDataStruct`）：
+  - 文件 `DataStruct.json`。
+  - 字段名称/类型/值字典强一致校验，支持结构和项的增删改查复制计数。
+
+## 13. 账户、权限与锁定模式
+- 角色：
+  - `SystemAdmin`、`Admin`、`Operator`。
+- 默认系统管理员：
+  - 用户名 `system`，口令 `software_123`。
+  - 系统管理员账号不可新增、删除、禁用、改名，口令不可修改。
+- 权限目录：
+  - 权限键由 `PermissionCatalog` 定义，覆盖流程、卡/IO、工站、IO调试、通讯、变量、变量调试、AI、PLC、报警、程序设置、工具、账户管理。
+  - 默认权限：`SystemAdmin=全量`；`Admin=全量-Account.Manage`；`Operator=Process.Access/Process.Run/Process.Search`。
+- 账户配置安全：
+  - `Account.json` 必须是 `ENC:` 前缀密文。
+  - 加密方案：AES-CBC + HMAC-SHA256 + PBKDF2。
+  - 根字段仅允许 `Accounts`；账户字段白名单固定。
+- 锁定模式：
+  - 账户配置异常或权限配置异常触发 `SF.SetSecurityLock`。
+  - 锁定后仅允许默认系统管理员进行恢复登录（`IsRecovery=true`），恢复会话只保留 `Account.Manage`。
+- 对外接口：
+  - `SF.userContextStore`：`GetUserName/GetUserRole/GetSnapshot`。
+  - `SF.userLoginStore`：`TryLogin/TryLogout/IsLoggedIn`。
+
+## 14. 配置文件全量清单
+- 流程与编辑：
+  - `Config/Work/*.json`：按索引保存单流程（`0.json` 起连续）。
+- 运行数据：
+  - `Config/value.json`：变量表。
+  - `Config/DataStruct.json`：数据结构集合。
+  - `Config/AlarmInfo.json`：报警元数据（固定 1000 条）。
+- 设备与工站：
+  - `Config/card.json`：控制卡与轴。
+  - `Config/IOMap.json`：命名 IO 映射。
+  - `Config/DataStation.json`：工站与点位。
+  - `Config/MarkPoints.json`：标记点数据。
+  - `Config/card_*.ini`：运动卡下发参数。
+- 通讯与 PLC：
+  - `Config/SocketInfo.json`：TCP 配置。
+  - `Config/SerialPortInfo.json`：串口配置。
+  - `Config/PlcDevice.json`：PLC 设备配置。
+  - `Config/PlcMap.json`：PLC 映射配置。
+  - `Config/IODebugMap.json`：IO 调试映射。
+- 账户与程序：
+  - `Config/Account.json`：账户与权限密文配置。
+  - `Config/AppConfig.json`：程序运行参数（当前键：`CommMaxMessageQueueSize`，默认 `1000`）。
+- 反序列化约束：
+  - 所有通过 `FrmMain.ReadJson<T>` 或各 Store `Load` 读取的 JSON 使用 `TypeNameHandling.All + ObjectCreationHandling.Replace`。
+  - 该策略要求配置文件字段结构与模型严格一致，不做宽松修复。
+
+## 15. 运行期故障与排查入口
+- 启动即锁定：
+  - 先查 `Config/Account.json` 是否为合法 `ENC:` 密文，字段是否符合白名单。
+- 流程禁止运行：
+  - 查 `SF.ProcConfigFaulted`，再查 `Config/Work` 是否从 `0.json` 连续、跳转地址是否跨流程或越界。
+- 通讯初始化异常：
+  - 查 `Config/AppConfig.json` 的 `CommMaxMessageQueueSize` 是否为正整数。
+  - 查 `SocketInfo.json/SerialPortInfo.json` 的参数合法性与分隔符取值。
+- PLC 映射中断：
+  - 查 `PlcDevice.json` 连接参数、`PlcMap.json` 方向/地址/数量/变量名。
+  - 查对应变量是否存在于 `value.json`。
+- 系统状态变量异常：
+  - 查变量 `复位状态` 与 `系统状态` 是否存在、类型是否 `double`、`复位状态` 值是否在 `0/1/2`。
+
+## 16. 扩展开发入口
+- 新增操作类型：
+  - 在 `OperationType` 定义属性与编辑器行为。
+  - 在 `ProcessEngine.ExecuteOperation` 增加分发分支并实现执行函数。
+  - 对异常路径统一调用报警逻辑，禁止静默失败。
+- 新增权限：
+  - 在 `Security/PermissionCatalog.cs` 增加权限键与定义项，并同步默认角色模板与分组入口约束。
+- 新增自定义函数：
+  - 在 `CustomFunc.functionMap` 注册委托，流程通过 `CallCustomFunc` 调用。
+- 新增配置项：
+  - 明确配置文件、默认值、校验规则、错误处理策略，并同步更新本文件对应章节。
+
+## 17. 依赖与驱动
+- 主要 NuGet 依赖位于 `packages.config`，包含 `Newtonsoft.Json`、`OxyPlot`、`S7.Net`、`System.Drawing.Common` 等。
+- 运动控制底层：
+  - `MotionControl/LTDMC.cs`：`LTDMC.dll` P/Invoke。
+  - `MotionControl/LeiSei3000.cs`：雷赛卡运动与 IO 实现。
