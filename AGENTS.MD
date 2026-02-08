@@ -130,6 +130,9 @@
   - 运动等待类默认超时为 `120000ms`（`StationRunPos`、`StationRunRel`、`WaitStationStop`）。
 - 流程协同指令属性分类规则：
   - `ProcOps.procParam.delayAfterV` 与 `WaitProc.delayAfterV` 在属性编辑器中归类为“参数”，不归类到“IO参数”。
+- 指令属性描述规则：
+  - `OperationType` 体系中 43 个指令的属性元数据均使用非空 `Description`。
+  - `Description` 文案按参数语义编写，至少说明“参数用途 + 对执行行为的影响/生效条件”，禁止使用“配置<显示名>。”这类空泛模板。
 
 ## 7. 流程引擎（ProcessEngine）
 - 引擎结构：
