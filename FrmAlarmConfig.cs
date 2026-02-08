@@ -12,7 +12,8 @@ namespace Automation
         public FrmAlarmConfig()
         {
             InitializeComponent();
-            dataGridView1.SelectionMode = DataGridViewSelectionMode.ColumnHeaderSelect;
+            dataGridView1.SelectionMode = DataGridViewSelectionMode.CellSelect;
+            dataGridView1.EditMode = DataGridViewEditMode.EditOnEnter;
             dataGridView1.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
             dataGridView1.Columns[0].ReadOnly = true;
             dataGridView1.RowHeadersVisible = false;
@@ -55,14 +56,6 @@ namespace Automation
         {
             e.Cancel = true;
             Hide();
-        }
-
-        private void dataGridView1_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Left)
-            {
-                dataGridView1.EndEdit();
-            }
         }
 
         private void dataGridView1_CellEndEdit(object sender, DataGridViewCellEventArgs e)
