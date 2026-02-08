@@ -636,7 +636,7 @@ namespace Automation
 
         [DisplayName("操作后延时"), Category("参数"), Description(""), ReadOnly(false)]
         public int delayAfter { get; set; }
-        [DisplayName("操作后延时变量"), Category("IO参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [DisplayName("操作后延时变量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(true)]
         public string delayAfterV { get; set; }
 
@@ -682,7 +682,7 @@ namespace Automation
         }
         [DisplayName("操作后延时"), Category("参数"), Description(""), ReadOnly(false)]
         public int delayAfter { get; set; }
-        [DisplayName("操作后延时变量"), Category("IO参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [DisplayName("操作后延时变量"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(true)]
         public string delayAfterV { get; set; }
 

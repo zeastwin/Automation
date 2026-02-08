@@ -128,6 +128,8 @@
   - 通用超时容器 `TimeOutC.TimeOut` 默认 `3000ms`（`IoCheck`、`IoGroup`、`WaitProc` 等沿用该默认值）。
   - 通讯等待/接收指令默认超时为 `3000ms`（`WaitTcpParam`、`WaitSerialPortParam`、`ReceoveTcpMsg`、`ReceoveSerialPortMsg`）。
   - 运动等待类默认超时为 `120000ms`（`StationRunPos`、`StationRunRel`、`WaitStationStop`）。
+- 流程协同指令属性分类规则：
+  - `ProcOps.procParam.delayAfterV` 与 `WaitProc.delayAfterV` 在属性编辑器中归类为“参数”，不归类到“IO参数”。
 
 ## 7. 流程引擎（ProcessEngine）
 - 引擎结构：
