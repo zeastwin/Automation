@@ -149,6 +149,7 @@ namespace Automation
         private void FrmMain_Load(object sender, EventArgs e)
         {
             SF.frmValue.RefreshDic();
+            EnsureSystemStatusVariables();
             InitializeSystemStatusValues();
             systemStatusReady = true;
             UpdateSystemStatusValue();
@@ -183,7 +184,10 @@ namespace Automation
             }
             if (SF.SecurityLocked)
             {
-                SF.StopAllProcs("账户系统锁定，禁止自动启动流程。");
+                string lockReason = string.IsNullOrWhiteSpace(SF.SecurityLockReason)
+                    ? "系统处于安全锁定模式，禁止自动启动流程。"
+                    : $"系统处于安全锁定模式，禁止自动启动流程。锁定原因：{SF.SecurityLockReason}";
+                SF.StopAllProcs(lockReason);
                 return;
             }
             if (SF.frmProc?.procsList != null && SF.frmProc.procsList.Count > 0)
@@ -562,6 +566,50 @@ namespace Automation
             {
                 FailSystemStatus($"写入变量“{SystemStatusValueName}”失败。");
             }
+        }
+
+        private void EnsureSystemStatusVariables()
+        {
+            bool createdAny = EnsureSystemValue(ResetStatusValueName, "系统保留变量：复位状态");
+            if (!systemStatusFaulted)
+            {
+                createdAny = EnsureSystemValue(SystemStatusValueName, "系统保留变量：系统状态") || createdAny;
+            }
+            if (!createdAny || systemStatusFaulted)
+            {
+                return;
+            }
+            SF.valueStore.Save(SF.ConfigPath);
+            SF.frmValue?.FreshFrmValue();
+        }
+
+        private bool EnsureSystemValue(string valueName, string note)
+        {
+            if (SF.valueStore == null)
+            {
+                FailSystemStatus("变量库未初始化，无法补齐系统状态变量。");
+                return false;
+            }
+            if (SF.valueStore.TryGetValueByName(valueName, out DicValue existingValue) && existingValue != null)
+            {
+                return false;
+            }
+            for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
+            {
+                if (SF.valueStore.TryGetValueByIndex(i, out _))
+                {
+                    continue;
+                }
+                if (!SF.valueStore.TrySetValue(i, valueName, "double", "0", note, "系统保留变量初始化"))
+                {
+                    FailSystemStatus($"创建系统保留变量失败：{valueName}");
+                    return false;
+                }
+                dataRun?.Logger?.Log($"已补齐系统保留变量：{valueName}", LogLevel.Normal);
+                return true;
+            }
+            FailSystemStatus($"变量表已满，无法创建系统保留变量：{valueName}");
+            return false;
         }
 
         private void InitializeSystemStatusValues()

@@ -60,6 +60,7 @@ namespace Automation
         public static IUserLoginStore userLoginStore;
 
         private static bool securityLocked;
+        private static string securityLockReason = string.Empty;
         //编辑状态
         public static ModifyKind isModify = ModifyKind.None;
 
@@ -91,17 +92,14 @@ namespace Automation
         }
 
         public static bool SecurityLocked => securityLocked;
+        public static string SecurityLockReason => securityLockReason;
 
         public static void SetSecurityLock(string reason)
         {
             securityLocked = true;
             if (!string.IsNullOrWhiteSpace(reason))
             {
-                DR?.Logger?.Log(reason, LogLevel.Error);
-                if (frmInfo != null && !frmInfo.IsDisposed)
-                {
-                    frmInfo.PrintInfo(reason, FrmInfo.Level.Error);
-                }
+                securityLockReason = reason;
             }
             StopAllProcs(reason);
             RefreshPermissionUi();
@@ -110,6 +108,7 @@ namespace Automation
         public static void ClearSecurityLock()
         {
             securityLocked = false;
+            securityLockReason = string.Empty;
             RefreshPermissionUi();
         }
 
@@ -225,8 +224,11 @@ namespace Automation
         {
             if (!string.IsNullOrWhiteSpace(reason))
             {
-                DR?.Logger?.Log(reason, LogLevel.Error);
-                if (frmInfo != null && !frmInfo.IsDisposed)
+                if (DR?.Logger != null)
+                {
+                    DR.Logger.Log(reason, LogLevel.Error);
+                }
+                else if (frmInfo != null && !frmInfo.IsDisposed)
                 {
                     frmInfo.PrintInfo(reason, FrmInfo.Level.Error);
                 }
