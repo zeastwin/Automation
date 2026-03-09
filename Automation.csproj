@@ -54,7 +54,6 @@
     <Reference Include="System.Memory, Version=4.0.1.2, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
       <HintPath>packages\System.Memory.4.5.5\lib\net461\System.Memory.dll</HintPath>
     </Reference>
-    <Reference Include="System.Net.Http" />
     <Reference Include="System.Numerics" />
     <Reference Include="System.Numerics.Vectors, Version=4.1.4.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <HintPath>packages\System.Numerics.Vectors.4.5.0\lib\net46\System.Numerics.Vectors.dll</HintPath>
@@ -78,24 +77,6 @@
   <ItemGroup>
     <Compile Include="Communication\\CommunicationHub.cs" />
     <Compile Include="Communication\\CommunicationModels.cs" />
-    <Compile Include="AIFlow\\AiFlowCli.cs" />
-    <Compile Include="AIFlow\\AiFlowAiClient.cs" />
-    <Compile Include="AIFlow\\AiFlowAiConfig.cs" />
-    <Compile Include="AIFlow\\AiFlowIo.cs" />
-    <Compile Include="AIFlow\\Collaboration\\AiFlowCollaborationAnalyzer.cs" />
-    <Compile Include="AIFlow\\Contracts\\AiFlowContracts.cs" />
-    <Compile Include="AIFlow\\Decompiler\\AiFlowDecompiler.cs" />
-    <Compile Include="AIFlow\\Delta\\AiFlowDeltaApplier.cs" />
-    <Compile Include="AIFlow\\Delta\\AiFlowDeltaModels.cs" />
-    <Compile Include="AIFlow\\Diff\\AiFlowDiff.cs" />
-    <Compile Include="AIFlow\\Revision\\AiFlowRevision.cs" />
-    <Compile Include="AIFlow\\Simulator\\AiFlowScenario.cs" />
-    <Compile Include="AIFlow\\Simulator\\AiFlowTrace.cs" />
-    <Compile Include="AIFlow\\Simulator\\AiFlowSimulator.cs" />
-    <Compile Include="AIFlow\\Verifier\\AiFlowVerifier.cs" />
-    <Compile Include="AIFlow\\Telemetry\\AiFlowTelemetryRecorder.cs" />
-    <Compile Include="AIFlow\\Compiler\\AiFlowCompiler.cs" />
-    <Compile Include="AIFlow\\Contracts\\AiFlowModels.cs" />
     <Compile Include="Engine\ValueRef.cs" />
     <Compile Include="Stores\UserLoginStore.cs" />
     <Compile Include="Stores\\AlarmInfoStore.cs" />
@@ -218,12 +199,6 @@
     <Compile Include="FrmMessage.Designer.cs">
       <DependentUpon>FrmMessage.cs</DependentUpon>
     </Compile>
-    <Compile Include="FrmAiAssistant.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="FrmAiAssistant.Designer.cs">
-      <DependentUpon>FrmAiAssistant.cs</DependentUpon>
-    </Compile>
     <Compile Include="FrmProc.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -333,9 +308,6 @@
     </EmbeddedResource>
     <EmbeddedResource Include="FrmMessage.resx">
       <DependentUpon>FrmMessage.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="FrmAiAssistant.resx">
-      <DependentUpon>FrmAiAssistant.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="FrmProc.resx">
       <DependentUpon>FrmProc.cs</DependentUpon>

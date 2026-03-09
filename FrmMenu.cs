@@ -8,11 +8,6 @@ namespace Automation
         public FrmMenu()
         {
             InitializeComponent();
-            if (!SF.AiFlowEnabled)
-            {
-                AI_Page.Visible = false;
-                AI_Page.Enabled = false;
-            }
             ApplyPermissions();
         }
 
@@ -295,27 +290,6 @@ namespace Automation
             }
         }
 
-        private void AI_Page_Click(object sender, EventArgs e)
-        {
-            if (!SF.EnsurePermission(PermissionKeys.AiAccess, "进入AI助手"))
-            {
-                return;
-            }
-            if (!SF.AiFlowEnabled)
-            {
-                MessageBox.Show("AI功能已禁用。");
-                return;
-            }
-            if (SF.frmAiAssistant == null || SF.frmAiAssistant.IsDisposed)
-            {
-                SF.frmAiAssistant = new FrmAiAssistant();
-            }
-            SF.frmAiAssistant.StartPosition = FormStartPosition.CenterScreen;
-            SF.frmAiAssistant.Show();
-            SF.frmAiAssistant.BringToFront();
-            SF.frmAiAssistant.WindowState = FormWindowState.Normal;
-        }
-
         private void Plc_Page_Click(object sender, EventArgs e)
         {
             if (!SF.EnsurePermission(PermissionKeys.PlcAccess, "进入PLC模块"))
@@ -341,7 +315,6 @@ namespace Automation
             value_Page.Visible = true;
             valueDebug_Page.Visible = true;
             Card_Page.Visible = true;
-            AI_Page.Visible = SF.AiFlowEnabled;
             Plc_Page.Visible = true;
 
             process_Page.Enabled = SF.HasPermission(PermissionKeys.ProcessAccess);
@@ -351,7 +324,6 @@ namespace Automation
             value_Page.Enabled = SF.HasPermission(PermissionKeys.ValueAccess);
             valueDebug_Page.Enabled = SF.HasPermission(PermissionKeys.ValueDebugAccess);
             Card_Page.Enabled = SF.HasPermission(PermissionKeys.CardConfigAccess);
-            AI_Page.Enabled = SF.AiFlowEnabled && SF.HasPermission(PermissionKeys.AiAccess);
             Plc_Page.Enabled = SF.HasPermission(PermissionKeys.PlcAccess);
         }
 

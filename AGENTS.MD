@@ -33,7 +33,6 @@
 - 项目是基于 Windows Forms 的低代码自动化平台，核心对象是“流程（Proc）-步骤（Step）-操作（OperationType）”。
 - 系统围绕五类能力运行：流程编排与执行、运动控制与 IO、TCP/串口通讯、PLC 通讯、账户权限与安全锁定。
 - 启动链路：
-  - `Program.Main` 先处理 `AIFlow.AiFlowCli.TryHandle(args)`，命中后关闭 AI 页面入口（`SF.AiFlowEnabled=false`）。
   - 启动阶段强制加载 `Config/AppConfig.json`；文件缺失时自动生成默认值（`CommMaxMessageQueueSize=1000`），加载失败会提示错误并终止启动。
   - 初始化账户系统（`AccountStore/UserContextStore/UserLoginStore`），加载 `Config/Account.json`。
   - 启动时尝试使用默认系统管理员 `system/software_123` 登录会话。
@@ -70,10 +69,7 @@
 
 ## 4. 页面结构与导航
 - `FrmMenu` 顶部按钮当前从左到右完整顺序：
-  - 流程、工站、变量、IO调试、通讯、PLC、变量调试、控制卡配置、AI。
-- `AI` 按钮显示前提：
-  - `SF.AiFlowEnabled=true` 时显示并可按权限启用。
-  - `SF.AiFlowEnabled=false` 时隐藏且禁用。
+  - 流程、工站、变量、IO调试、通讯、PLC、变量调试、控制卡配置。
 - 页面切换由 `SF.curPage` 驱动，`FrmMenu` 根据目标页面重排主窗体区域可见性：
   - 流程页：树 + 指令表 + 属性区 + 工具栏 + 状态区。
   - 工站页：主区显示 `FrmStation`，隐藏流程编辑区。
@@ -216,7 +212,7 @@
   - 用户名 `system`，口令 `software_123`。
   - 系统管理员账号不可新增、删除、禁用、改名，口令不可修改。
 - 权限目录：
-  - 权限键由 `PermissionCatalog` 定义，覆盖流程、卡/IO、工站、IO调试、通讯、变量、变量调试、AI、PLC、报警、程序设置、工具、账户管理。
+  - 权限键由 `PermissionCatalog` 定义，覆盖流程、卡/IO、工站、IO调试、通讯、变量、变量调试、PLC、报警、程序设置、工具、账户管理。
   - 默认权限：`SystemAdmin=全量`；`Admin=全量-Account.Manage`；`Operator=Process.Access/Process.Run/Process.Search`。
 - 账户配置安全：
   - `Account.json` 必须是 `ENC:` 前缀密文。

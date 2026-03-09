@@ -19,7 +19,6 @@ namespace Automation
         public const string CommunicationAccess = "Communication.Access";
         public const string ValueAccess = "Value.Access";
         public const string ValueDebugAccess = "ValueDebug.Access";
-        public const string AiAccess = "AI.Access";
         public const string PlcAccess = "PLC.Access";
         public const string AlarmConfigAccess = "AlarmConfig.Access";
         public const string AppConfigAccess = "AppConfig.Access";
@@ -62,7 +61,6 @@ namespace Automation
             new PermissionDefinition(PermissionKeys.CommunicationAccess, "comm", "通讯模块", "进入通讯", 0),
             new PermissionDefinition(PermissionKeys.ValueAccess, "value", "变量模块", "进入变量", 0),
             new PermissionDefinition(PermissionKeys.ValueDebugAccess, "valuedbg", "变量调试", "进入变量调试", 0),
-            new PermissionDefinition(PermissionKeys.AiAccess, "ai", "AI助手", "进入AI助手", 0),
             new PermissionDefinition(PermissionKeys.PlcAccess, "plc", "PLC模块", "进入PLC", 0),
             new PermissionDefinition(PermissionKeys.AlarmConfigAccess, "alarm", "报警配置", "进入报警配置", 0),
             new PermissionDefinition(PermissionKeys.AppConfigAccess, "app", "程序设置", "进入程序设置", 0),
@@ -79,7 +77,6 @@ namespace Automation
             { "comm", PermissionKeys.CommunicationAccess },
             { "value", PermissionKeys.ValueAccess },
             { "valuedbg", PermissionKeys.ValueDebugAccess },
-            { "ai", PermissionKeys.AiAccess },
             { "plc", PermissionKeys.PlcAccess },
             { "alarm", PermissionKeys.AlarmConfigAccess },
             { "app", PermissionKeys.AppConfigAccess },

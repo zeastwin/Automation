@@ -44,7 +44,6 @@ namespace Automation
         public static FrmSearch frmSearch;
         public static FrmSearch4Value frmSearch4Value;
         public static FrmInfo frmInfo;
-        public static FrmAiAssistant frmAiAssistant;
         public static FrmPlc frmPlc;
         public static CardConfigStore cardStore;
         public static ValueConfigStore valueStore;
@@ -61,10 +60,6 @@ namespace Automation
         public static IUserLoginStore userLoginStore;
 
         private static bool securityLocked;
-
-
-        public static bool AiFlowEnabled = true;
-
         //编辑状态
         public static ModifyKind isModify = ModifyKind.None;
 

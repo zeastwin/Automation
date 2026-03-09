@@ -36,7 +36,6 @@ namespace Automation
         public FrmSearch4Value frmSearch4Value = new FrmSearch4Value();
         public FrmInfo frmInfo = new FrmInfo();
         public FrmPlc frmPlc = new FrmPlc();
-        public FrmAiAssistant frmAiAssistant;
         public FrmAccountManager frmAccountManager = new FrmAccountManager();
         public MotionCtrl motion = new MotionCtrl();
         private readonly Dictionary<Guid, EngineSnapshot> snapshotCache = new Dictionary<Guid, EngineSnapshot>();
@@ -129,15 +128,6 @@ namespace Automation
             SF.frmInfo = frmInfo;
             SF.frmPlc = frmPlc;
             SF.frmAccountManager = frmAccountManager;
-            if (SF.AiFlowEnabled)
-            {
-                frmAiAssistant = new FrmAiAssistant();
-                SF.frmAiAssistant = frmAiAssistant;
-            }
-            else
-            {
-                SF.frmAiAssistant = null;
-            }
 
             StartPosition = FormStartPosition.CenterScreen;
 
