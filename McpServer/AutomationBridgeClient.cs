@@ -1,4 +1,5 @@
-using System.Net.Http.Headers;
+using System.IO;
+using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -7,17 +8,12 @@ namespace Automation.McpServer
 {
     internal sealed class AutomationBridgeClient : IDisposable
     {
-        private readonly HttpClient httpClient;
         private readonly AutomationMcpOptions options;
         private readonly JsonSerializerOptions jsonOptions;
 
         public AutomationBridgeClient(AutomationMcpOptions options)
         {
             this.options = options ?? throw new ArgumentNullException(nameof(options));
-            httpClient = new HttpClient
-            {
-                Timeout = Timeout.InfiniteTimeSpan
-            };
             jsonOptions = new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -76,68 +72,92 @@ namespace Automation.McpServer
 
         public Task<string> PreviewPatchAsync(string patchJson)
         {
-            return PostRawJsonAsync("/bridge/patch/preview", patchJson);
+            return SendAsync("POST", "/bridge/patch/preview", patchJson);
         }
 
         public Task<string> ApplyPatchAsync(string patchJson)
         {
-            return PostRawJsonAsync("/bridge/patch/apply", patchJson);
+            return SendAsync("POST", "/bridge/patch/apply", patchJson);
         }
 
-        private Task<string> PostAsync(string relativePath, object payload)
+        private Task<string> PostAsync(string path, object payload)
         {
             string json = JsonSerializer.Serialize(payload, jsonOptions);
-            return PostRawJsonAsync(relativePath, json);
+            return SendAsync("POST", path, json);
         }
 
-        private async Task<string> PostRawJsonAsync(string relativePath, string payloadJson)
+        private async Task<string> SendAsync(string method, string path, string payloadJson)
         {
-            string url = options.BridgeBaseUrl + relativePath;
-            using var request = new HttpRequestMessage(HttpMethod.Post, url)
-            {
-                Content = new StringContent(payloadJson ?? "{}", Encoding.UTF8, "application/json")
-            };
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            if (!string.IsNullOrWhiteSpace(options.BridgeApiKey))
-            {
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.BridgeApiKey);
-            }
-
             using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(options.BridgeTimeoutMs));
             try
             {
-                using HttpResponseMessage response = await httpClient.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    cts.Token).ConfigureAwait(false);
+                using var pipe = new NamedPipeClientStream(
+                    ".",
+                    options.BridgePipeName,
+                    PipeDirection.InOut,
+                    PipeOptions.Asynchronous);
 
-                string responseText = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
-                if (response.IsSuccessStatusCode)
+                await pipe.ConnectAsync(cts.Token).ConfigureAwait(false);
+
+                using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, true)
                 {
-                    return string.IsNullOrWhiteSpace(responseText)
-                        ? BuildBridgeError("EMPTY_RESPONSE", $"Bridge 返回空响应：{relativePath}")
-                        : responseText;
+                    AutoFlush = true
+                };
+                using var reader = new StreamReader(pipe, Encoding.UTF8, false, 4096, true);
+
+                string requestId = Guid.NewGuid().ToString("N");
+                string request = JsonSerializer.Serialize(new PipeRequestMessage
+                {
+                    RequestId = requestId,
+                    Method = method,
+                    Path = path,
+                    BodyJson = payloadJson ?? "{}"
+                }, jsonOptions);
+
+                await writer.WriteLineAsync(request).ConfigureAwait(false);
+                string? responseLine = await reader.ReadLineAsync().WaitAsync(cts.Token).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(responseLine))
+                {
+                    return BuildBridgeError("EMPTY_RESPONSE", $"Bridge 返回空响应：{path}");
+                }
+
+                PipeResponseMessage? response = JsonSerializer.Deserialize<PipeResponseMessage>(responseLine, jsonOptions);
+                if (response == null)
+                {
+                    return BuildBridgeError("INVALID_RESPONSE", $"Bridge 响应反序列化失败：{path}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(response.RequestId)
+                    && !string.Equals(response.RequestId, requestId, StringComparison.Ordinal))
+                {
+                    return BuildBridgeError("INVALID_RESPONSE", $"Bridge 响应 requestId 不匹配：{path}");
+                }
+
+                if (response.StatusCode >= 200 && response.StatusCode < 300)
+                {
+                    return string.IsNullOrWhiteSpace(response.BodyJson)
+                        ? BuildBridgeError("EMPTY_RESPONSE", $"Bridge 返回空响应：{path}")
+                        : response.BodyJson;
                 }
 
                 return BuildBridgeError(
-                    "HTTP_ERROR",
-                    $"Bridge 调用失败：{relativePath}",
-                    (int)response.StatusCode,
-                    responseText);
+                    "BRIDGE_ERROR",
+                    $"Bridge 调用失败：{path}",
+                    response.StatusCode,
+                    response.BodyJson);
             }
             catch (OperationCanceledException)
             {
                 return BuildBridgeError(
                     "TIMEOUT",
-                    $"Bridge 调用超时：{relativePath}",
+                    $"Bridge 调用超时：{path}",
                     details: $"timeoutMs={options.BridgeTimeoutMs}");
             }
             catch (Exception ex)
             {
                 return BuildBridgeError(
                     "REQUEST_ERROR",
-                    $"Bridge 调用异常：{relativePath}",
+                    $"Bridge 调用异常：{path}",
                     details: ex.Message);
             }
         }
@@ -157,7 +177,26 @@ namespace Automation.McpServer
 
         public void Dispose()
         {
-            httpClient.Dispose();
+        }
+
+        private sealed class PipeRequestMessage
+        {
+            public string RequestId { get; set; } = string.Empty;
+
+            public string Method { get; set; } = string.Empty;
+
+            public string Path { get; set; } = string.Empty;
+
+            public string BodyJson { get; set; } = string.Empty;
+        }
+
+        private sealed class PipeResponseMessage
+        {
+            public string RequestId { get; set; } = string.Empty;
+
+            public int StatusCode { get; set; }
+
+            public string BodyJson { get; set; } = string.Empty;
         }
     }
 }

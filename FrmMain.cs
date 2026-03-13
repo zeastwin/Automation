@@ -1,4 +1,5 @@
-﻿using Automation.MotionControl;
+﻿using Automation.Bridge;
+using Automation.MotionControl;
 using csLTDMC;
 using Newtonsoft.Json;
 using System;
@@ -53,6 +54,7 @@ namespace Automation
         private int popupAlarmCount;
         private readonly object popupLock = new object();
         private readonly Dictionary<int, List<ProcPopupItem>> procPopups = new Dictionary<int, List<ProcPopupItem>>();
+        private readonly AutomationBridgeHost automationBridgeHost;
 
         private sealed class ProcPopupItem
         {
@@ -128,6 +130,7 @@ namespace Automation
             SF.frmInfo = frmInfo;
             SF.frmPlc = frmPlc;
             SF.frmAccountManager = frmAccountManager;
+            automationBridgeHost = new AutomationBridgeHost(this);
 
             StartPosition = FormStartPosition.CenterScreen;
 
@@ -182,6 +185,7 @@ namespace Automation
                 SF.motion.SetAllAxisEquiv();
                 Monitor();
             }
+            automationBridgeHost.Start();
             if (SF.SecurityLocked)
             {
                 string lockReason = string.IsNullOrWhiteSpace(SF.SecurityLockReason)
@@ -1140,6 +1144,7 @@ namespace Automation
                     return;
                 }
             }
+            automationBridgeHost?.Stop();
             axisMonitorCts?.Cancel();
             if (axisMonitorTask != null)
             {

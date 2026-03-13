@@ -55,7 +55,7 @@ namespace Automation.McpServer
             [Description("流程索引。读取现有指令实例时必填；按指令类型查询时可为空。")] int? procIndex = null,
             [Description("步骤 ID。读取现有指令实例时必填；按指令类型查询时可为空。")] string? stepId = null,
             [Description("指令 ID。读取现有指令实例时必填；按指令类型查询时可为空。")] string? opId = null,
-            [Description("指令类型。新建指令前按类型查询时必填，例如 IoCheck、ModifyValue。")] string? operaType = null)
+            [Description("指令类型。新建指令前按类型查询时必填，必须使用 list_operation_types 返回的 operaType，例如 IO检测。")] string? operaType = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetOperationSchema),
@@ -109,6 +109,13 @@ namespace Automation.McpServer
     "4. preview_patch 预演",
     "5. apply_patch 提交"
   ],
+  "supportedActions": [
+    "update_proc_head_fields",
+    "update_step_fields",
+    "update_operation_fields",
+    "append_step",
+    "append_operation"
+  ],
   "patchShape": {
     "procIndex": 0,
     "baseProcId": "guid",
@@ -117,9 +124,9 @@ namespace Automation.McpServer
         "type": "update_operation_fields",
         "stepId": "guid",
         "opId": "guid",
-        "expectedOperaType": "IoCheck",
+        "expectedOperaType": "IO检测",
         "fieldChanges": {
-          "TimeOut": 5000
+          "timeOutC_TimeOut": 5000
         }
       }
     ]
@@ -127,6 +134,7 @@ namespace Automation.McpServer
   "rules": [
     "不要直接改原始流程 JSON 文件",
     "不要假设流程名、步骤名、指令名唯一",
+    "字段名必须使用 get_proc_detail.fields 或 get_operation_schema.fields.key 返回的精确键名",
     "不要在未读取 schema 的情况下猜字段名或枚举值",
     "apply_patch 前必须先调用 preview_patch"
   ]

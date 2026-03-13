@@ -109,6 +109,8 @@
     <Compile Include="Security\\PermissionCatalog.cs" />
     <Compile Include="Security\\UserAccount.cs" />
     <Compile Include="Runtime\\AppConfigStorage.cs" />
+    <Compile Include="Bridge\\AutomationBridgeHost.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.cs" />
     <Compile Include="FrmAppConfig.cs">
       <SubType>Form</SubType>
     </Compile>

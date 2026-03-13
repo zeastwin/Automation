@@ -5,8 +5,7 @@ namespace Automation.McpServer
     internal sealed class AutomationMcpOptions
     {
         public string ListenUrl { get; set; } = "http://127.0.0.1:8081";
-        public string BridgeBaseUrl { get; set; } = "http://127.0.0.1:18081";
-        public string BridgeApiKey { get; set; } = string.Empty;
+        public string BridgePipeName { get; set; } = "AutomationBridgePipe";
         public int BridgeTimeoutMs { get; set; } = 30000;
         public bool EnableTrayIcon { get; set; } = true;
         public string LogRoot { get; set; } = Path.Combine("Logs", "McpServer");
@@ -26,13 +25,13 @@ namespace Automation.McpServer
                 ListenUrl = "http://127.0.0.1:8081";
             }
 
-            if (string.IsNullOrWhiteSpace(BridgeBaseUrl))
+            if (string.IsNullOrWhiteSpace(BridgePipeName))
             {
-                BridgeBaseUrl = "http://127.0.0.1:18081";
+                BridgePipeName = "AutomationBridgePipe";
             }
 
             ListenUrl = NormalizeUrl(ListenUrl);
-            BridgeBaseUrl = NormalizeUrl(BridgeBaseUrl).TrimEnd('/');
+            BridgePipeName = BridgePipeName.Trim();
 
             if (BridgeTimeoutMs <= 0)
             {

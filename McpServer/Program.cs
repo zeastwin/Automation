@@ -31,13 +31,14 @@ namespace Automation.McpServer
             {
                 name = "Automation MCP Server",
                 listenUrl = options.ListenUrl,
-                bridgeBaseUrl = options.BridgeBaseUrl,
+                bridgePipeName = options.BridgePipeName,
+                bridgePipePath = @"\\.\pipe\" + options.BridgePipeName,
                 transport = "http"
             }));
             app.MapGet("/healthz", () => Results.Json(new
             {
                 ok = true,
-                bridgeBaseUrl = options.BridgeBaseUrl,
+                bridgePipeName = options.BridgePipeName,
                 bridgeTimeoutMs = options.BridgeTimeoutMs
             }));
 

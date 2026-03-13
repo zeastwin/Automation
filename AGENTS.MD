@@ -59,6 +59,7 @@
 - `FrmMain_Load` 执行顺序：
   - 刷新变量、卡/IO、数据结构、通讯、报警、PLC 配置。
   - 初始化运动控制（`InitCardType -> InitCard -> DownLoadConfig -> SetAllAxisSevonOn -> SetAllAxisEquiv`）。
+  - 启动本地 `Automation Bridge`（固定管道 `\\.\pipe\AutomationBridgePipe`）。
   - 非锁定模式下自动启动 `Proc.head.AutoStart=true` 且未禁用的流程。
 - 运行期系统状态变量：
   - 固定读取变量名：`复位状态`、`系统状态`。
@@ -253,8 +254,8 @@
   - `AppConfigStorage` 在 `TryLoad/TrySave` 成功后刷新进程内缓存；运行期读取可通过 `TryGetCached` 获取当前缓存值。
 - 外部辅助进程：
   - `McpServer/appsettings.json`：独立 `Automation MCP Server` 的运行参数。
-  - 当前键完整清单：`AutomationMcp.ListenUrl`、`AutomationMcp.BridgeBaseUrl`、`AutomationMcp.BridgeApiKey`、`AutomationMcp.BridgeTimeoutMs`、`AutomationMcp.EnableTrayIcon`、`AutomationMcp.LogRoot`。
-  - `ListenUrl` 为 MCP HTTP 服务监听地址；`BridgeBaseUrl` 为本地 `Automation Bridge` 根地址；`BridgeTimeoutMs` 必须为正整数毫秒；`LogRoot` 支持相对 `McpServer` 可执行目录的相对路径。
+  - 当前键完整清单：`AutomationMcp.ListenUrl`、`AutomationMcp.BridgePipeName`、`AutomationMcp.BridgeTimeoutMs`、`AutomationMcp.EnableTrayIcon`、`AutomationMcp.LogRoot`。
+  - `ListenUrl` 为 MCP HTTP 服务监听地址；`BridgePipeName` 为本地 `Automation Bridge` 管道名；`BridgeTimeoutMs` 必须为正整数毫秒；`LogRoot` 支持相对 `McpServer` 可执行目录的相对路径。
 - 反序列化约束：
   - 所有通过 `FrmMain.ReadJson<T>` 或各 Store `Load` 读取的 JSON 使用 `TypeNameHandling.All + ObjectCreationHandling.Replace`。
   - 该策略要求配置文件字段结构与模型严格一致，不做宽松修复。
@@ -296,32 +297,57 @@
   - `MotionControl/LTDMC.cs`：`LTDMC.dll` P/Invoke。
   - `MotionControl/LeiSei3000.cs`：雷赛卡运动与 IO 实现。
 
-## 18. Automation MCP Server
+## 18. Automation Bridge 与 MCP Server
 - 系统定位：
-  - `McpServer/` 是独立于 WinForms 主程序的辅助进程，目标是把 `Automation Bridge` 暴露成可供 Dify/LLM 调用的 MCP HTTP 服务。
-  - 该项目使用 `.NET 8` 与 `ModelContextProtocolServer.Sse`；对外协议为 `app.MapMcp()` 暴露的 HTTP MCP 端点。
-- 边界与职责：
+  - `Automation Bridge` 运行在 WinForms 主程序内部，负责把当前内存态流程、指令 Schema、引用目录、Patch 预演与提交流程暴露为本地 `Named Pipe` 服务。
+  - `McpServer/` 是独立于 WinForms 主程序的辅助进程，负责把 `Automation Bridge` 透传成可供 Dify/LLM 调用的 MCP HTTP 服务。
+- Automation Bridge 边界与职责：
+  - 管道名固定为 `AutomationBridgePipe`，显示路径 `\\.\pipe\AutomationBridgePipe`，由 `FrmMain_Load` 启动，`FrmMain_FormClosing` 停止。
+  - Bridge 只接受本机进程通过 `NamedPipeClientStream` 访问，不读取磁盘快照作为主数据源；读写都以 `SF.frmProc.procsList` 当前内存态为准。
+  - Bridge 复用现有业务链路：`NormalizeProc -> SaveAsJson -> PublishProc -> FrmProc.Refresh`。
+  - Bridge 当前支持的写动作仅限：
+    - `update_proc_head_fields`
+    - `update_step_fields`
+    - `update_operation_fields`
+    - `append_step`
+    - `append_operation`
+  - `ProcHead` 当前只允许修改 `Name/AutoStart/Disable`；步骤当前只允许修改 `Name/Disable`。
+  - 指令字段名以 PropertyGrid 平铺后的属性键为准，例如 `timeOutC_TimeOut`、`IoParams_0_IOName`；不得自行猜测内部 JSON 字段。
+- Automation Bridge 当前逻辑路由：
+  - `GET /bridge/health`
+  - `POST /bridge/procs/list`
+  - `POST /bridge/procs/overview`
+  - `POST /bridge/procs/detail`
+  - `POST /bridge/operations/types`
+  - `POST /bridge/operations/schema`
+  - `POST /bridge/references/catalog`
+  - `POST /bridge/patch/preview`
+  - `POST /bridge/patch/apply`
+  - 上述路由不再通过本地 HTTP 暴露，而是在管道请求包中作为 `method + path + bodyJson` 被 Bridge 解析。
+- Automation Bridge 响应约束：
+  - 成功响应统一为 `{"ok":true,"type":"...","data":...}`。
+  - 失败响应统一为 `{"ok":false,"type":"bridge.error","errorCode":"...","message":"...","details":"..."}`。
+  - 参数解析严格按 JSON 类型校验：整数必须为 JSON number，布尔必须为 JSON boolean，`Guid` 必须为合法字符串；不做宽松修复。
+- MCP Server 边界与职责：
   - `McpServer` 只负责 MCP 协议接入、参数转发、超时控制、错误包装、调用日志。
   - `McpServer` 不直接读取 `Config/Work/*.json`，不实现流程归一化、跳转校验、保存、发布等业务逻辑。
-  - `Automation Bridge` 负责真正的流程读取、Schema 导出、Patch 预演、保存与发布。
-- 启动与运行：
   - 启动入口为 `McpServer/Program.cs`。
   - 默认监听地址由 `AutomationMcp.ListenUrl` 控制，默认值 `http://127.0.0.1:8081`。
-  - 默认桥接地址由 `AutomationMcp.BridgeBaseUrl` 控制，默认值 `http://127.0.0.1:18081`。
+  - 默认桥接管道名由 `AutomationMcp.BridgePipeName` 控制，默认值 `AutomationBridgePipe`。
   - `app.MapMcp()` 占用根路径作为 MCP HTTP 传输端点，禁止再把业务状态页绑定到 `/`。
-  - `/info` 返回服务器基本信息；`/healthz` 返回监听配置与桥接超时。
+  - `/info` 返回服务器基本信息；`/healthz` 返回监听配置、Bridge 管道名与超时。
   - `EnableTrayIcon=true` 时使用托盘常驻，托盘菜单仅包含“重启 MCP”“退出 MCP”。
-- 当前工具清单：
-  - `list_procs`：读取流程列表，可选返回步骤摘要。
-  - `get_proc_overview`：读取单流程摘要视图。
-  - `get_proc_detail`：读取单流程完整详情视图。
-  - `list_operation_types`：读取当前全部指令类型目录。
-  - `get_operation_schema`：读取某个指令实例或指令类型的可编辑 Schema。
-  - `get_reference_catalog`：读取变量、IO、工站、通讯、PLC 等可引用对象目录。
-  - `preview_patch`：转发结构化 Patch 预演请求，不落盘。
-  - `apply_patch`：转发结构化 Patch 提交请求，触发保存与发布。
-  - `get_patch_contract`：返回当前 Patch 结构与调用顺序约束说明。
-- Bridge 协议映射：
+- 当前 MCP 工具清单：
+  - `list_procs`
+  - `get_proc_overview`
+  - `get_proc_detail`
+  - `list_operation_types`
+  - `get_operation_schema`
+  - `get_reference_catalog`
+  - `preview_patch`
+  - `apply_patch`
+  - `get_patch_contract`
+- MCP 到 Bridge 协议映射：
   - `list_procs -> POST /bridge/procs/list`
   - `get_proc_overview -> POST /bridge/procs/overview`
   - `get_proc_detail -> POST /bridge/procs/detail`
@@ -331,6 +357,8 @@
   - `preview_patch -> POST /bridge/patch/preview`
   - `apply_patch -> POST /bridge/patch/apply`
 - 错误与排查：
-  - Bridge 无响应或端口错误时，工具返回 `type=bridge.error`，并带 `errorCode=TIMEOUT/HTTP_ERROR/REQUEST_ERROR/EMPTY_RESPONSE`。
-  - 工具调用日志写入 `AutomationMcp.LogRoot` 指定目录，按天滚动 `.log` 文件。
+  - Bridge 初始化或监听异常时，主程序运行信息页会记录 `Automation Bridge 监听异常`。
+  - 常见原因是同名管道实例异常未释放、主程序未启动、或 `McpServer` 配置的 `BridgePipeName` 与主程序不一致。
+  - Bridge 无响应或管道连接失败时，MCP 工具返回 `type=bridge.error`，并带 `errorCode=TIMEOUT/BRIDGE_ERROR/REQUEST_ERROR/EMPTY_RESPONSE/INVALID_RESPONSE`。
+  - MCP 工具调用日志写入 `AutomationMcp.LogRoot` 指定目录，按天滚动 `.log` 文件。
   - `BridgeTimeoutMs<=0` 时会回退为 `30000ms`。
