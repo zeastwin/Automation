@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Text;
 using System.Threading.Tasks;
@@ -20,9 +21,11 @@ namespace Automation
         private readonly Label lblTip = new Label();
         private readonly Label lblStatus = new Label();
         private readonly Label lblPromptVariable = new Label();
+        private readonly Label lblContextVariable = new Label();
         private readonly TextBox txtBaseUrl = new TextBox();
         private readonly TextBox txtApiKey = new TextBox();
         private readonly TextBox txtPromptVariable = new TextBox();
+        private readonly TextBox txtContextVariable = new TextBox();
         private readonly Button btnSaveConfig = new Button();
         private readonly Button btnReloadConfig = new Button();
         private readonly Button btnClearHistory = new Button();
@@ -31,6 +34,7 @@ namespace Automation
         private readonly TextBox txtInputsJson = new TextBox();
         private readonly TextBox txtPrompt = new TextBox();
         private readonly Button btnSend = new Button();
+        private readonly CheckBox chkIncludeContext = new CheckBox();
         private readonly Label lblPromptTip = new Label();
         private readonly Font conversationHeaderFont = new Font("微软雅黑", 10.5F, FontStyle.Bold);
         private readonly Font conversationBodyFont = new Font("微软雅黑", 10.5F, FontStyle.Regular);
@@ -54,24 +58,26 @@ namespace Automation
             txtPrompt.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
             txtInputsJson.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
             txtPromptVariable.ReadOnly = !canUseAssistant || sending || loadingWorkflowSchema;
+            txtContextVariable.ReadOnly = !canUseAssistant || sending || loadingWorkflowSchema;
+            chkIncludeContext.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
             btnSaveConfig.Enabled = canEditConfig;
             btnReloadConfig.Enabled = canUseAssistant && !sending;
             txtBaseUrl.ReadOnly = !canEditConfig;
             txtApiKey.ReadOnly = !canEditConfig;
         }
 
-        public async void RefreshAssistantView()
+        public void RefreshAssistantView()
         {
             LoadConfig();
             ApplyPermissions();
-            await RefreshWorkflowSchemaAsync();
+            ResetWorkflowSchemaState("尚未读取 workflow 参数。\r\n点击“刷新参数”后再从 Dify 拉取 user_input_form。");
         }
 
-        private async void FrmAiAssistant_Load(object sender, EventArgs e)
+        private void FrmAiAssistant_Load(object sender, EventArgs e)
         {
             LoadConfig();
             ApplyPermissions();
-            await RefreshWorkflowSchemaAsync();
+            ResetWorkflowSchemaState("尚未读取 workflow 参数。\r\n点击“刷新参数”后再从 Dify 拉取 user_input_form。");
         }
 
         private void InitializeLayout()
@@ -201,11 +207,19 @@ namespace Automation
             lblPromptVariable.Dock = DockStyle.Fill;
             lblPromptVariable.TextAlign = ContentAlignment.MiddleLeft;
 
+            lblContextVariable.Text = "上下文变量名";
+            lblContextVariable.Dock = DockStyle.Fill;
+            lblContextVariable.TextAlign = ContentAlignment.MiddleLeft;
+
             txtPromptVariable.Dock = DockStyle.Fill;
             txtPromptVariable.BorderStyle = BorderStyle.FixedSingle;
             txtPromptVariable.Margin = new Padding(0, 1, 12, 1);
 
-            lblPromptTip.Text = "下方文本会写入“主问题变量名”对应的 workflow 输入；其他变量请在左侧 Inputs JSON 中填写。Ctrl+Enter 执行。";
+            txtContextVariable.Dock = DockStyle.Fill;
+            txtContextVariable.BorderStyle = BorderStyle.FixedSingle;
+            txtContextVariable.Margin = new Padding(0, 1, 12, 1);
+
+            lblPromptTip.Text = "用户问题只写入“主问题变量名”；勾选上下文时会单独写入“上下文变量名”，不再拼接到 user_request。Ctrl+Enter 执行。";
             lblPromptTip.Dock = DockStyle.Fill;
             lblPromptTip.TextAlign = ContentAlignment.MiddleLeft;
             lblPromptTip.ForeColor = Color.DimGray;
@@ -224,6 +238,12 @@ namespace Automation
             btnSend.Text = "执行Workflow";
             btnSend.Dock = DockStyle.Fill;
             btnSend.Click += BtnSend_Click;
+
+            chkIncludeContext.Text = "附带当前流程上下文";
+            chkIncludeContext.Checked = true;
+            chkIncludeContext.AutoSize = true;
+            chkIncludeContext.Dock = DockStyle.Left;
+            chkIncludeContext.TextAlign = ContentAlignment.MiddleLeft;
 
             TableLayoutPanel leftLayout = new TableLayoutPanel();
             leftLayout.ColumnCount = 1;
@@ -267,25 +287,31 @@ namespace Automation
             promptLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
 
             TableLayoutPanel promptHeaderLayout = new TableLayoutPanel();
-            promptHeaderLayout.ColumnCount = 3;
+            promptHeaderLayout.ColumnCount = 5;
             promptHeaderLayout.RowCount = 1;
             promptHeaderLayout.Dock = DockStyle.Fill;
             promptHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112F));
-            promptHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220F));
+            promptHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180F));
+            promptHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112F));
+            promptHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180F));
             promptHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             promptHeaderLayout.Controls.Add(lblPromptVariable, 0, 0);
             promptHeaderLayout.Controls.Add(txtPromptVariable, 1, 0);
-            promptHeaderLayout.Controls.Add(lblPromptTip, 2, 0);
+            promptHeaderLayout.Controls.Add(lblContextVariable, 2, 0);
+            promptHeaderLayout.Controls.Add(txtContextVariable, 3, 0);
+            promptHeaderLayout.Controls.Add(lblPromptTip, 4, 0);
 
             TableLayoutPanel promptActionLayout = new TableLayoutPanel();
-            promptActionLayout.ColumnCount = 3;
+            promptActionLayout.ColumnCount = 4;
             promptActionLayout.RowCount = 1;
             promptActionLayout.Dock = DockStyle.Fill;
             promptActionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            promptActionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220F));
             promptActionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110F));
             promptActionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120F));
-            promptActionLayout.Controls.Add(btnClearHistory, 1, 0);
-            promptActionLayout.Controls.Add(btnSend, 2, 0);
+            promptActionLayout.Controls.Add(chkIncludeContext, 1, 0);
+            promptActionLayout.Controls.Add(btnClearHistory, 2, 0);
+            promptActionLayout.Controls.Add(btnSend, 3, 0);
 
             promptLayout.Controls.Add(promptHeaderLayout, 0, 0);
             promptLayout.Controls.Add(txtPrompt, 0, 1);
@@ -414,6 +440,17 @@ namespace Automation
             }
         }
 
+        private void ResetWorkflowSchemaState(string message)
+        {
+            workflowParameters = null;
+            rtbWorkflowSchema.Text = message ?? string.Empty;
+            if (txtPromptVariable.TextLength == 0)
+            {
+                txtPromptVariable.Text = string.Empty;
+            }
+            SetStatus("状态：已加载本地配置，等待手动刷新 workflow 参数");
+        }
+
         private void LoadConfig()
         {
             lblConfigPath.Text = DifyConfigStorage.ConfigPath;
@@ -493,23 +530,34 @@ namespace Automation
             }
 
             string prompt = txtPrompt.Text.Trim();
-            if (!TryBuildWorkflowInputs(prompt, out JObject inputs, out string buildError))
+            bool includeContext = chkIncludeContext.Checked;
+            if (includeContext)
+            {
+                SetStatus("状态：正在收集本地上下文");
+            }
+            else
+            {
+                SetStatus("状态：当前不附带本地上下文，正在准备 workflow 输入");
+            }
+
+            JObject localContext = includeContext ? BuildLocalContext() : null;
+            if (!TryBuildWorkflowInputs(prompt, localContext, out JObject inputs, out string buildError))
             {
                 MessageBox.Show(buildError, "输入参数错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 SetStatus("状态：workflow 输入构建失败");
                 return;
             }
 
-            AppendMessage("用户", BuildRequestPreview(prompt, inputs));
+            AppendMessage("用户", BuildRequestPreview(prompt, localContext, inputs, includeContext, txtContextVariable.Text.Trim()));
             txtPrompt.Clear();
             SetSendingState(true);
-            SetStatus("状态：正在执行 workflow");
 
             try
             {
                 string userId = GetUserId();
-                DifyWorkflowRunReply reply = await Task.Run(() => DifyWorkflowClient.RunWorkflow(config, inputs, userId));
+                DifyWorkflowRunReply reply = await Task.Run(() => DifyWorkflowClient.RunWorkflow(config, inputs, userId, ReportWorkflowTrace));
                 AppendMessage("Workflow", BuildWorkflowResultText(reply));
+                ReportWorkflowTrace("Dify workflow 结果已返回。", false);
                 SetStatus(string.IsNullOrWhiteSpace(reply.WorkflowRunId)
                     ? "状态：workflow 已执行完成"
                     : $"状态：workflow 已执行完成 {reply.WorkflowRunId}");
@@ -517,6 +565,7 @@ namespace Automation
             catch (Exception ex)
             {
                 AppendMessage("系统", $"请求失败：{ex.Message}");
+                ReportWorkflowTrace("workflow 请求失败：" + ex.Message, true);
                 SetStatus("状态：请求失败");
             }
             finally
@@ -568,6 +617,15 @@ namespace Automation
                     }
                 }
 
+                if (string.IsNullOrWhiteSpace(txtContextVariable.Text))
+                {
+                    string autoContextVariable = TryDetectContextVariable(workflowParameters);
+                    if (!string.IsNullOrWhiteSpace(autoContextVariable))
+                    {
+                        txtContextVariable.Text = autoContextVariable;
+                    }
+                }
+
                 SetStatus("状态：workflow 参数已刷新");
             }
             catch (Exception ex)
@@ -609,7 +667,7 @@ namespace Automation
             return true;
         }
 
-        private bool TryBuildWorkflowInputs(string prompt, out JObject inputs, out string error)
+        private bool TryBuildWorkflowInputs(string prompt, JObject localContext, out JObject inputs, out string error)
         {
             inputs = null;
             error = null;
@@ -635,6 +693,27 @@ namespace Automation
                 }
 
                 jsonInputs[promptVariable] = trimmedPrompt;
+            }
+
+            if (localContext != null)
+            {
+                string contextVariable = txtContextVariable.Text.Trim();
+                if (contextVariable.Length == 0)
+                {
+                    contextVariable = TryDetectContextVariable(workflowParameters);
+                    if (contextVariable.Length > 0)
+                    {
+                        txtContextVariable.Text = contextVariable;
+                    }
+                }
+
+                if (contextVariable.Length == 0)
+                {
+                    error = "已勾选附带上下文，但当前未配置“上下文变量名”。请在 workflow 中新增如 automation_context 的输入变量，或取消勾选。";
+                    return false;
+                }
+
+                jsonInputs[contextVariable] = BuildContextInputValue(localContext, FindFieldDefinition(workflowParameters, contextVariable));
             }
 
             if (!jsonInputs.HasValues)
@@ -680,9 +759,31 @@ namespace Automation
 
         private static string TryDetectSinglePromptVariable(DifyWorkflowParameters parameters)
         {
-            if (parameters?.Fields == null)
+            if (parameters?.Fields == null || parameters.Fields.Count == 0)
             {
                 return string.Empty;
+            }
+
+            string[] preferredNames = new[]
+            {
+                "user_request",
+                "query",
+                "prompt",
+                "question",
+                "message"
+            };
+
+            for (int i = 0; i < preferredNames.Length; i++)
+            {
+                string candidate = preferredNames[i];
+                DifyWorkflowFieldDefinition matched = parameters.Fields.Find(field =>
+                    field != null
+                    && !string.IsNullOrWhiteSpace(field.Variable)
+                    && string.Equals(field.Variable, candidate, StringComparison.OrdinalIgnoreCase));
+                if (matched != null)
+                {
+                    return matched.Variable;
+                }
             }
 
             string detectedVariable = string.Empty;
@@ -699,6 +800,70 @@ namespace Automation
             }
 
             return count == 1 ? detectedVariable : string.Empty;
+        }
+
+        private static string TryDetectContextVariable(DifyWorkflowParameters parameters)
+        {
+            if (parameters?.Fields == null || parameters.Fields.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            string[] preferredNames = new[]
+            {
+                "automation_context",
+                "local_context",
+                "context",
+                "workflow_context"
+            };
+
+            for (int i = 0; i < preferredNames.Length; i++)
+            {
+                string candidate = preferredNames[i];
+                DifyWorkflowFieldDefinition matched = parameters.Fields.Find(field =>
+                    field != null
+                    && !string.IsNullOrWhiteSpace(field.Variable)
+                    && string.Equals(field.Variable, candidate, StringComparison.OrdinalIgnoreCase));
+                if (matched != null)
+                {
+                    return matched.Variable;
+                }
+            }
+
+            DifyWorkflowFieldDefinition labelMatched = parameters.Fields.Find(field =>
+                field != null
+                && !string.IsNullOrWhiteSpace(field.Variable)
+                && !string.IsNullOrWhiteSpace(field.Label)
+                && field.Label.IndexOf("上下文", StringComparison.OrdinalIgnoreCase) >= 0);
+            return labelMatched?.Variable ?? string.Empty;
+        }
+
+        private static DifyWorkflowFieldDefinition FindFieldDefinition(DifyWorkflowParameters parameters, string variableName)
+        {
+            if (parameters?.Fields == null || string.IsNullOrWhiteSpace(variableName))
+            {
+                return null;
+            }
+
+            return parameters.Fields.Find(field =>
+                field != null
+                && string.Equals(field.Variable, variableName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static JToken BuildContextInputValue(JObject localContext, DifyWorkflowFieldDefinition field)
+        {
+            if (localContext == null)
+            {
+                return JValue.CreateNull();
+            }
+
+            string controlType = field?.ControlType ?? string.Empty;
+            if (controlType.IndexOf("json", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return localContext.DeepClone();
+            }
+
+            return localContext.ToString(Formatting.None);
         }
 
         private static string BuildWorkflowSchemaText(DifyWorkflowParameters parameters)
@@ -732,15 +897,105 @@ namespace Automation
             return builder.ToString();
         }
 
-        private static string BuildRequestPreview(string prompt, JObject inputs)
+        private JObject BuildLocalContext()
+        {
+            JObject context = new JObject
+            {
+                ["capturedAt"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                ["userName"] = GetUserId(),
+                ["source"] = "Automation",
+                ["page"] = "AI助手"
+            };
+
+            int procIndex = SF.frmProc?.SelectedProcNum ?? -1;
+            int stepIndex = SF.frmProc?.SelectedStepNum ?? -1;
+            int opIndex = SF.frmDataGrid?.iSelectedRow ?? -1;
+            List<Proc> procs = SF.frmProc?.procsList;
+            Proc selectedProc = null;
+            Step selectedStep = null;
+            OperationType selectedOperation = null;
+
+            JObject selection = new JObject
+            {
+                ["procIndex"] = CreateNullableIntToken(procIndex),
+                ["stepIndex"] = CreateNullableIntToken(stepIndex),
+                ["opIndex"] = CreateNullableIntToken(opIndex)
+            };
+
+            if (procs != null && procIndex >= 0 && procIndex < procs.Count)
+            {
+                selectedProc = procs[procIndex];
+                selection["procId"] = selectedProc?.head?.Id.ToString();
+                selection["procName"] = selectedProc?.head?.Name ?? string.Empty;
+                selection["procDisable"] = selectedProc?.head?.Disable ?? false;
+                selection["stepCount"] = selectedProc?.steps?.Count ?? 0;
+
+                if (stepIndex >= 0 && selectedProc?.steps != null && stepIndex < selectedProc.steps.Count)
+                {
+                    selectedStep = selectedProc.steps[stepIndex];
+                    selection["stepId"] = selectedStep?.Id.ToString();
+                    selection["stepName"] = selectedStep?.Name ?? string.Empty;
+                    selection["stepDisable"] = selectedStep?.Disable ?? false;
+                    selection["opCount"] = selectedStep?.Ops?.Count ?? 0;
+
+                    if (opIndex >= 0 && selectedStep?.Ops != null && opIndex < selectedStep.Ops.Count)
+                    {
+                        selectedOperation = selectedStep.Ops[opIndex];
+                        selection["opId"] = selectedOperation?.Id.ToString();
+                        selection["opName"] = selectedOperation?.Name ?? string.Empty;
+                        selection["operaType"] = selectedOperation?.OperaType ?? string.Empty;
+                        selection["opDisable"] = selectedOperation?.Disable ?? false;
+                        selection["opNote"] = selectedOperation?.Note ?? string.Empty;
+                    }
+                }
+            }
+
+            context["selection"] = selection;
+
+            EngineSnapshot snapshot = null;
+            if (SF.DR != null && procIndex >= 0)
+            {
+                snapshot = SF.DR.GetSnapshot(procIndex);
+            }
+
+            JObject runtime = new JObject
+            {
+                ["selectedProcState"] = snapshot?.State.ToString() ?? ProcRunState.Stopped.ToString(),
+                ["selectedProcAlarming"] = snapshot?.IsAlarm ?? false,
+                ["selectedProcBreakpoint"] = snapshot?.IsBreakpoint ?? false,
+                ["selectedProcAlarmMessage"] = snapshot?.AlarmMessage ?? string.Empty,
+                ["engineReady"] = SF.DR != null,
+                ["procCount"] = procs?.Count ?? 0
+            };
+            context["runtime"] = runtime;
+
+            return context;
+        }
+
+        private static JToken CreateNullableIntToken(int value)
+        {
+            if (value < 0)
+            {
+                return JValue.CreateNull();
+            }
+            return new JValue(value);
+        }
+
+        private static string BuildRequestPreview(string prompt, JObject localContext, JObject inputs, bool includeContext, string contextVariable)
         {
             StringBuilder builder = new StringBuilder();
             if (!string.IsNullOrWhiteSpace(prompt))
             {
-                builder.AppendLine("问题内容：");
+                builder.AppendLine("用户问题：");
                 builder.AppendLine(prompt);
                 builder.AppendLine();
             }
+            builder.AppendLine(includeContext ? $"自动采集上下文（变量 {contextVariable}）：" : "自动采集上下文：未附带（纯AI聊天）");
+            if (includeContext)
+            {
+                builder.AppendLine(localContext?.ToString(Formatting.Indented) ?? "{}");
+            }
+            builder.AppendLine();
             builder.AppendLine("inputs：");
             builder.Append(inputs?.ToString(Formatting.Indented) ?? "{}");
             return builder.ToString();
@@ -792,6 +1047,41 @@ namespace Automation
         private void SetStatus(string text)
         {
             lblStatus.Text = text;
+        }
+
+        private void ReportWorkflowTrace(string message)
+        {
+            ReportWorkflowTrace(message, false);
+        }
+
+        private void ReportWorkflowTrace(string message, bool isError)
+        {
+            if (string.IsNullOrWhiteSpace(message) || IsDisposed)
+            {
+                return;
+            }
+
+            Action action = delegate
+            {
+                if (IsDisposed)
+                {
+                    return;
+                }
+
+                SetStatus("状态：" + message);
+                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                {
+                    SF.frmInfo.PrintInfo("AI助手：" + message, isError ? FrmInfo.Level.Error : FrmInfo.Level.Normal);
+                }
+            };
+
+            if (InvokeRequired)
+            {
+                BeginInvoke(action);
+                return;
+            }
+
+            action();
         }
 
         private void SetSendingState(bool isSending)

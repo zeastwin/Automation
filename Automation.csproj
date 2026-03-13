@@ -353,6 +353,7 @@
     <EmbeddedResource Include="Tool\FrmSearch4Value.resx">
       <DependentUpon>FrmSearch4Value.cs</DependentUpon>
     </EmbeddedResource>
+    <None Include="IntentTemplates\intent_templates.json" />
     <None Include="packages.config" />
     <None Include="Properties\DataSources\FrmProc.datasource" />
     <None Include="Properties\DataSources\FrmState.datasource" />
@@ -382,6 +383,16 @@
       Condition="'@(SourceDllFiles)' != ''"
       SourceFiles="@(SourceDllFiles)"
       DestinationFiles="@(SourceDllFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopyIntentTemplateFiles" AfterTargets="Build">
+    <ItemGroup>
+      <IntentTemplateFiles Include="IntentTemplates\**\*.*" />
+    </ItemGroup>
+    <Copy
+      Condition="'@(IntentTemplateFiles)' != ''"
+      SourceFiles="@(IntentTemplateFiles)"
+      DestinationFiles="@(IntentTemplateFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')"
       SkipUnchangedFiles="true" />
   </Target>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

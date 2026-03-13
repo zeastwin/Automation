@@ -4,7 +4,9 @@ namespace Automation.McpServer
 {
     internal sealed class AutomationMcpOptions
     {
-        public string ListenUrl { get; set; } = "http://127.0.0.1:8081";
+        public string ListenUrl { get; set; } = string.Empty;
+        public string ListenHost { get; set; } = "127.0.0.1";
+        public int ListenPort { get; set; } = 8081;
         public string BridgePipeName { get; set; } = "AutomationBridgePipe";
         public int BridgeTimeoutMs { get; set; } = 30000;
         public bool EnableTrayIcon { get; set; } = true;
@@ -20,9 +22,18 @@ namespace Automation.McpServer
 
         private void Normalize(string baseDirectory)
         {
-            if (string.IsNullOrWhiteSpace(ListenUrl))
+            if (string.IsNullOrWhiteSpace(ListenHost))
             {
-                ListenUrl = "http://127.0.0.1:8081";
+                ListenHost = "127.0.0.1";
+            }
+            else
+            {
+                ListenHost = ListenHost.Trim();
+            }
+
+            if (ListenPort <= 0 || ListenPort > 65535)
+            {
+                ListenPort = 8081;
             }
 
             if (string.IsNullOrWhiteSpace(BridgePipeName))
@@ -30,7 +41,8 @@ namespace Automation.McpServer
                 BridgePipeName = "AutomationBridgePipe";
             }
 
-            ListenUrl = NormalizeUrl(ListenUrl);
+            ListenUrl = BuildListenUrl(ListenUrl, ListenHost, ListenPort);
+            SyncListenHostAndPort(ListenUrl);
             BridgePipeName = BridgePipeName.Trim();
 
             if (BridgeTimeoutMs <= 0)
@@ -63,6 +75,44 @@ namespace Automation.McpServer
             }
 
             return trimmed;
+        }
+
+        private static string BuildListenUrl(string listenUrl, string listenHost, int listenPort)
+        {
+            if (!string.IsNullOrWhiteSpace(listenUrl))
+            {
+                return NormalizeUrl(listenUrl);
+            }
+
+            string host = string.IsNullOrWhiteSpace(listenHost) ? "127.0.0.1" : listenHost.Trim();
+            int port = listenPort <= 0 || listenPort > 65535 ? 8081 : listenPort;
+            return $"http://{host}:{port}";
+        }
+
+        private void SyncListenHostAndPort(string listenUrl)
+        {
+            if (!Uri.TryCreate(listenUrl, UriKind.Absolute, out Uri uri))
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(uri.Host))
+            {
+                ListenHost = uri.Host;
+            }
+
+            if (!uri.IsDefaultPort)
+            {
+                ListenPort = uri.Port;
+            }
+            else if (string.Equals(uri.Scheme, "https", StringComparison.OrdinalIgnoreCase))
+            {
+                ListenPort = 443;
+            }
+            else
+            {
+                ListenPort = 80;
+            }
         }
     }
 }

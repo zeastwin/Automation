@@ -1,0 +1,366 @@
+{
+  "version": 1,
+  "templates": [
+    {
+      "templateId": "update_proc_head_field",
+      "intentType": "update_proc_head_field",
+      "patchAction": "update_proc_head_fields",
+      "title": "修改流程头字段",
+      "whenToUse": "只修改流程名称、自动启动或禁用状态，不涉及步骤和指令结构。",
+      "requiredReads": [
+        "list_procs 或 get_proc_overview",
+        "get_proc_detail"
+      ],
+      "rules": [
+        "fieldChanges 必须是 JSON 对象。",
+        "只允许修改 Name、AutoStart、Disable。",
+        "baseProcId 必须使用 get_proc_detail 返回的 procId。"
+      ],
+      "intentShape": {
+        "intentType": "update_proc_head_field",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "fieldChanges": {
+          "Name": "新流程名"
+        }
+      },
+      "exampleIntent": {
+        "intentType": "update_proc_head_field",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "fieldChanges": {
+          "AutoStart": true
+        }
+      }
+    },
+    {
+      "templateId": "update_step_field",
+      "intentType": "update_step_field",
+      "patchAction": "update_step_fields",
+      "title": "修改步骤字段",
+      "whenToUse": "已定位到现有步骤，只修改步骤名称或禁用状态。",
+      "requiredReads": [
+        "get_proc_detail"
+      ],
+      "rules": [
+        "fieldChanges 必须是 JSON 对象。",
+        "stepId 必须来自 get_proc_detail。",
+        "只允许修改 Name、Disable。"
+      ],
+      "intentShape": {
+        "intentType": "update_step_field",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "fieldChanges": {
+          "Name": "新步骤名"
+        }
+      },
+      "exampleIntent": {
+        "intentType": "update_step_field",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "fieldChanges": {
+          "Disable": true
+        }
+      }
+    },
+    {
+      "templateId": "update_operation_field",
+      "intentType": "update_operation_field",
+      "patchAction": "update_operation_fields",
+      "title": "修改现有指令字段",
+      "whenToUse": "已定位到现有指令，只修改该指令的一个或多个字段。",
+      "requiredReads": [
+        "get_proc_detail",
+        "get_operation_schema",
+        "必要时 get_reference_catalog"
+      ],
+      "rules": [
+        "fieldChanges 必须是 JSON 对象，键名必须使用 get_operation_schema.fields.key。",
+        "expectedOperaType 建议始终填写为 get_proc_detail 中该指令的 operaType。",
+        "不要猜字段名、枚举值、变量名、通讯名或跳转目标。"
+      ],
+      "intentShape": {
+        "intentType": "update_operation_field",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "opId": "op-guid",
+        "expectedOperaType": "延时",
+        "fieldChanges": {
+          "timeMiniSecond": "300"
+        }
+      },
+      "exampleIntent": {
+        "intentType": "update_operation_field",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "opId": "op-guid",
+        "expectedOperaType": "IO检测",
+        "fieldChanges": {
+          "timeOutC_TimeOut": 5000
+        }
+      }
+    },
+    {
+      "templateId": "append_step",
+      "intentType": "append_step",
+      "patchAction": "append_step",
+      "title": "在流程末尾追加步骤",
+      "whenToUse": "需要在当前流程最后新增一个空步骤。",
+      "requiredReads": [
+        "get_proc_detail"
+      ],
+      "rules": [
+        "name 和 disable 都是可选字段。",
+        "如果没有提供 name，Bridge 会生成默认步骤名。"
+      ],
+      "intentShape": {
+        "intentType": "append_step",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "name": "新步骤",
+        "disable": false
+      },
+      "exampleIntent": {
+        "intentType": "append_step",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "name": "收尾步骤",
+        "disable": false
+      }
+    },
+    {
+      "templateId": "insert_step",
+      "intentType": "insert_step",
+      "patchAction": "insert_step",
+      "title": "在指定位置插入步骤",
+      "whenToUse": "需要在流程中间插入一个空步骤。",
+      "requiredReads": [
+        "get_proc_detail"
+      ],
+      "rules": [
+        "insertIndex 表示插入后的最终索引。",
+        "name 和 disable 都是可选字段。"
+      ],
+      "intentShape": {
+        "intentType": "insert_step",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "insertIndex": 1,
+        "name": "插入步骤",
+        "disable": false
+      },
+      "exampleIntent": {
+        "intentType": "insert_step",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "insertIndex": 2,
+        "name": "预检步骤",
+        "disable": false
+      }
+    },
+    {
+      "templateId": "delete_step",
+      "intentType": "delete_step",
+      "patchAction": "delete_step",
+      "title": "删除步骤",
+      "whenToUse": "需要删除已存在的步骤。",
+      "requiredReads": [
+        "get_proc_detail"
+      ],
+      "rules": [
+        "stepId 必须来自 get_proc_detail。",
+        "删除步骤后，同流程内跳转地址由 Bridge 自动重写。"
+      ],
+      "intentShape": {
+        "intentType": "delete_step",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid"
+      },
+      "exampleIntent": {
+        "intentType": "delete_step",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid"
+      }
+    },
+    {
+      "templateId": "move_step",
+      "intentType": "move_step",
+      "patchAction": "move_step",
+      "title": "移动步骤",
+      "whenToUse": "需要调整步骤顺序。",
+      "requiredReads": [
+        "get_proc_detail"
+      ],
+      "rules": [
+        "stepId 必须来自 get_proc_detail。",
+        "targetIndex 表示移除源步骤后的最终索引。",
+        "跳转重写由 Bridge 自动处理。"
+      ],
+      "intentShape": {
+        "intentType": "move_step",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "targetIndex": 0
+      },
+      "exampleIntent": {
+        "intentType": "move_step",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "targetIndex": 3
+      }
+    },
+    {
+      "templateId": "append_operation",
+      "intentType": "append_operation",
+      "patchAction": "append_operation",
+      "title": "在步骤末尾追加指令",
+      "whenToUse": "需要在某个步骤最后新增一条指令。",
+      "requiredReads": [
+        "get_proc_detail",
+        "list_operation_types",
+        "get_operation_schema",
+        "必要时 get_reference_catalog"
+      ],
+      "rules": [
+        "operaType 必须来自 list_operation_types。",
+        "fieldValues 是可选 JSON 对象，键名必须来自 get_operation_schema.fields.key。",
+        "不要把旧字段 fields 当作 fieldValues。"
+      ],
+      "intentShape": {
+        "intentType": "append_operation",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "operaType": "延时",
+        "fieldValues": {
+          "timeMiniSecond": "500"
+        }
+      },
+      "exampleIntent": {
+        "intentType": "append_operation",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "operaType": "修改变量",
+        "fieldValues": {
+          "ValueName": "系统状态",
+          "InputValue": "2"
+        }
+      }
+    },
+    {
+      "templateId": "insert_operation",
+      "intentType": "insert_operation",
+      "patchAction": "insert_operation",
+      "title": "在指定位置插入指令",
+      "whenToUse": "需要在步骤中间插入一条新指令。",
+      "requiredReads": [
+        "get_proc_detail",
+        "list_operation_types",
+        "get_operation_schema",
+        "必要时 get_reference_catalog"
+      ],
+      "rules": [
+        "insertIndex 表示插入后的最终索引。",
+        "operaType 必须来自 list_operation_types。",
+        "fieldValues 是可选 JSON 对象，键名必须来自 get_operation_schema.fields.key。"
+      ],
+      "intentShape": {
+        "intentType": "insert_operation",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "insertIndex": 1,
+        "operaType": "延时",
+        "fieldValues": {
+          "timeMiniSecond": "300"
+        }
+      },
+      "exampleIntent": {
+        "intentType": "insert_operation",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "insertIndex": 3,
+        "operaType": "IO检测",
+        "fieldValues": {
+          "timeOutC_TimeOut": 5000
+        }
+      }
+    },
+    {
+      "templateId": "delete_operation",
+      "intentType": "delete_operation",
+      "patchAction": "delete_operation",
+      "title": "删除指令",
+      "whenToUse": "需要删除某个步骤中的现有指令。",
+      "requiredReads": [
+        "get_proc_detail"
+      ],
+      "rules": [
+        "stepId 和 opId 必须来自 get_proc_detail。",
+        "expectedOperaType 建议填写，用于避免目标漂移。",
+        "删除后的跳转修复由 Bridge 自动处理。"
+      ],
+      "intentShape": {
+        "intentType": "delete_operation",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "opId": "op-guid",
+        "expectedOperaType": "延时"
+      },
+      "exampleIntent": {
+        "intentType": "delete_operation",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "opId": "op-guid",
+        "expectedOperaType": "跳转"
+      }
+    },
+    {
+      "templateId": "move_operation",
+      "intentType": "move_operation",
+      "patchAction": "move_operation",
+      "title": "移动指令",
+      "whenToUse": "需要在同步骤内重排，或把指令移到其他步骤。",
+      "requiredReads": [
+        "get_proc_detail"
+      ],
+      "rules": [
+        "stepId 和 opId 必须来自 get_proc_detail。",
+        "targetStepId 可选；不提供时表示仍在原步骤内移动。",
+        "targetIndex 表示移除源指令后的最终索引。"
+      ],
+      "intentShape": {
+        "intentType": "move_operation",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "source-step-guid",
+        "opId": "op-guid",
+        "targetStepId": "target-step-guid",
+        "targetIndex": 0,
+        "expectedOperaType": "修改变量"
+      },
+      "exampleIntent": {
+        "intentType": "move_operation",
+        "procIndex": 0,
+        "baseProcId": "proc-guid",
+        "stepId": "step-guid",
+        "opId": "op-guid",
+        "targetIndex": 2,
+        "expectedOperaType": "延时"
+      }
+    }
+  ]
+}

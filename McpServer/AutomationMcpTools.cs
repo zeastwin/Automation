@@ -75,6 +75,62 @@ namespace Automation.McpServer
         }
 
         [McpServerTool, Description(
+            "列出本地可用的中间意图 JSON 模板。模型在生成写入意图前应先读取模板，而不是依赖提示词中的长示例。")]
+        public static async Task<string> ListIntentTemplates(
+            [Description("可选 Patch 动作名过滤，例如 update_operation_fields。")] string? patchAction = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ListIntentTemplates),
+                args: new { patchAction },
+                action: client => client.ListIntentTemplatesAsync(patchAction)).ConfigureAwait(false);
+        }
+
+        [McpServerTool, Description(
+            "读取单个中间意图 JSON 模板。可按 templateId 精确读取，也可按 patchAction 获取对应模板。")]
+        public static async Task<string> GetIntentTemplate(
+            [Description("模板 ID，例如 update_operation_field。")] string? templateId = null,
+            [Description("Patch 动作名，例如 update_operation_fields。")] string? patchAction = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetIntentTemplate),
+                args: new { templateId, patchAction },
+                action: client => client.GetIntentTemplateAsync(templateId, patchAction)).ConfigureAwait(false);
+        }
+
+        [McpServerTool, Description(
+            "把中间意图 JSON 转换成标准 patchJson。适合先用模板约束输出，再由本地统一组装 Patch。")]
+        public static async Task<string> BuildPatchFromIntent(
+            [Description("中间意图 JSON。必须符合 get_intent_template 返回的 intentShape。")] string intentJson)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(BuildPatchFromIntent),
+                args: new { intentJson },
+                action: client => client.BuildPatchFromIntentAsync(intentJson)).ConfigureAwait(false);
+        }
+
+        [McpServerTool, Description(
+            "使用中间意图 JSON 直接预演，不需要模型自行组装 patchJson。内部会先把意图转换成标准 Patch，再执行 preview。")]
+        public static async Task<string> PreviewIntent(
+            [Description("中间意图 JSON。必须符合 get_intent_template 返回的 intentShape。")] string intentJson)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(PreviewIntent),
+                args: new { intentJson },
+                action: client => client.PreviewIntentAsync(intentJson)).ConfigureAwait(false);
+        }
+
+        [McpServerTool, Description(
+            "使用中间意图 JSON 直接提交，不需要模型自行组装 patchJson。内部会先把意图转换成标准 Patch，再执行 apply。")]
+        public static async Task<string> ApplyIntent(
+            [Description("中间意图 JSON。必须与预演通过的意图保持一致。")] string intentJson)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ApplyIntent),
+                args: new { intentJson },
+                action: client => client.ApplyIntentAsync(intentJson)).ConfigureAwait(false);
+        }
+
+        [McpServerTool, Description(
             "预演结构化 Patch，不会落盘。patchJson 必须是完整 JSON 对象，至少包含 procIndex、baseProcId、actions。提交前必须先调用。")]
         public static async Task<string> PreviewPatch(
             [Description("结构化 Patch JSON。示例：{\"procIndex\":0,\"baseProcId\":\"guid\",\"actions\":[...]}")] string patchJson)
@@ -106,8 +162,13 @@ namespace Automation.McpServer
     "1. list_procs 或 get_proc_overview 定位目标流程",
     "2. get_proc_detail 读取完整结构",
     "3. get_operation_schema / get_reference_catalog 获取字段约束与候选值",
-    "4. preview_patch 预演",
-    "5. apply_patch 提交"
+    "4. list_intent_templates / get_intent_template 读取中间意图模板",
+    "5. preview_intent 预演，或 build_patch_from_intent 后再 preview_patch",
+    "6. apply_intent 提交，或对同一份 patch 调用 apply_patch"
+  ],
+  "preferredWritePath": [
+    "优先使用中间意图：get_intent_template -> preview_intent -> apply_intent",
+    "仅在已经有标准 patchJson 时再直接调用 preview_patch/apply_patch"
   ],
   "supportedActions": [
     "update_proc_head_fields",
@@ -146,10 +207,14 @@ namespace Automation.McpServer
     ]
   },
   "rules": [
+    "优先使用中间意图工具，减少模型直接拼装 patchJson 的自由度",
     "不要直接改原始流程 JSON 文件",
     "不要假设流程名、步骤名、指令名唯一",
     "字段名必须使用 get_proc_detail.fields 或 get_operation_schema.fields.key 返回的精确键名",
     "不要在未读取 schema 的情况下猜字段名或枚举值",
+    "actions[] 中的动作键必须使用 type，禁止使用旧字段 action",
+    "update_*_fields 必须使用 fieldChanges，insert/append_operation 需要初始字段时必须使用 fieldValues，禁止使用旧字段 fields",
+    "apply_patch 必须复用原始 patch，不能把 preview_patch 返回结果里的 changes 直接当作 actions 提交",
     "delete/move/insert 会触发 Automation Bridge 自动重写同流程内的跳转地址",
     "move_step/move_operation 的 targetIndex 表示移除源项后的最终索引",
     "apply_patch 前必须先调用 preview_patch"

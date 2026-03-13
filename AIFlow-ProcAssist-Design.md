@@ -59,15 +59,15 @@
 - `Dify Agent`
   - 负责理解用户意图。
   - 负责选择调用哪个工具。
-  - 负责根据读取结果生成结构化 Patch。
+  - 负责根据读取结果生成中间意图 JSON。
 - `MCP Server`
   - 负责暴露 MCP Tools。
   - 负责把 Tool 调用 1:1 转发给 `Automation Bridge`。
   - 不做流程校验、流程解析、文件读写、发布控制。
 - `Automation Bridge`
   - 负责把 `Automation` 的流程能力包装成可调用 RPC。
-  - 负责导出 LLM 可读 DTO、Schema、Reference Catalog。
-  - 负责 Patch 预演、保存、发布。
+  - 负责导出 LLM 可读 DTO、Schema、Reference Catalog、本地意图模板。
+  - 负责把中间意图确定性转换为 Patch，并执行预演、保存、发布。
 - `Automation Core`
   - 维持原有流程编辑与运行逻辑。
   - 维持现有归一化、校验、保存、发布实现。
@@ -76,11 +76,12 @@
 1. 用户输入自然语言修改意图。
 2. `Dify Agent` 调用读取类 MCP 工具，获取流程摘要与细节。
 3. `Dify Agent` 调用 Schema 类工具，获取目标指令可编辑字段与约束。
-4. `Dify Agent` 生成结构化 Patch。
-5. `Dify Agent` 调用 `preview_patch`。
-6. `Automation Bridge` 预演修改并返回 Diff、归一化结果、校验错误。
-7. 预演通过后，`Dify Agent` 调用 `apply_patch`。
-8. `Automation Bridge` 保存并发布流程。
+4. `Dify Agent` 调用本地模板工具，读取目标动作的标准意图 JSON 形状。
+5. `Dify Agent` 生成中间意图 JSON。
+6. `Dify Agent` 调用 `preview_intent`。
+7. `Automation Bridge` 先把中间意图转换为 Patch，再预演修改并返回 Diff、归一化结果、校验错误。
+8. 预演通过后，`Dify Agent` 调用 `apply_intent`。
+9. `Automation Bridge` 保存并发布流程。
 
 ### 3.3 传输建议
 - `Dify -> MCP Server`：HTTP MCP
@@ -95,7 +96,8 @@
 
 ### 4.1 总体原则
 - 对 LLM 的“读”使用 `Read Model`
-- 对 LLM 的“写”使用 `Patch Model`
+- 对 LLM 的“写”优先使用 `Intent Model`
+- 对 `Automation Bridge` 的内部提交使用 `Patch Model`
 - 对 LLM 的“约束”使用 `Schema Model`
 
 三者职责不同，禁止混用。
@@ -425,6 +427,12 @@
 - 不允许使用名称作为唯一定位主键。
 - `delete/move/insert` 这类结构化动作由 `Automation Bridge` 负责自动重写同流程内跳转地址。
 
+### 5.6 Intent Model 约束
+- 中间意图面向 LLM 暴露，必须尽量窄。
+- 单次中间意图只表达一个动作，不做多动作批量提交。
+- 中间意图形状由本地模板文件提供，不在系统提示词中内嵌长篇 JSON 示例。
+- 中间意图模板只负责约束“动作形状”；具体字段和值约束仍以 `Schema Model` 为准。
+
 ## 6. Bridge RPC 设计
 
 ### 6.1 MCP Tools 到 Bridge RPC 的映射
@@ -433,6 +441,11 @@
 - `get_proc_detail` -> `GetProcDetail`
 - `get_operation_schema` -> `GetOperationSchema`
 - `get_reference_catalog` -> `GetReferenceCatalog`
+- `list_intent_templates` -> `ListIntentTemplates`
+- `get_intent_template` -> `GetIntentTemplate`
+- `build_patch_from_intent` -> `BuildPatchFromIntent`
+- `preview_intent` -> `PreviewIntent`
+- `apply_intent` -> `ApplyIntent`
 - `preview_patch` -> `PreviewPatch`
 - `apply_patch` -> `ApplyPatch`
 
@@ -450,37 +463,46 @@
 - 禁止复刻跳转校验
 - 禁止直接发布流程
 
-## 7. 预演与提交流程
+## 7. 意图预演与提交流程
 
-### 7.1 PreviewPatch
+### 7.1 PreviewIntent
 执行步骤：
-1. 读取当前流程对象
-2. 深拷贝流程
-3. 对副本应用 Patch
-4. 运行 `NormalizeProc`
-5. 运行跳转地址校验
-6. 生成 Diff
-7. 返回预演结果
+1. 读取中间意图 JSON
+2. 按本地模板约束和固定映射关系转换成 Patch
+3. 读取当前流程对象
+4. 深拷贝流程
+5. 对副本应用 Patch
+6. 运行 `NormalizeProc`
+7. 运行跳转地址校验
+8. 生成 Diff
+9. 返回预演结果
 
 返回内容建议包含：
 - `success`
+- `patch`
 - `normalizedProcDetail`
 - `diffSummary`
 - `diffActions`
 - `validationErrors`
 - `warnings`
 
-### 7.2 ApplyPatch
+### 7.2 ApplyIntent
 执行步骤：
-1. 重新读取当前流程
-2. 校验 `procIndex/baseProcId`
-3. 重新应用同一份 Patch
-4. 重新归一化与校验
-5. `SaveAsJson`
-6. `PublishProc`
-7. 返回最终结果
+1. 重新读取中间意图 JSON
+2. 重新转换成同一份 Patch
+3. 重新读取当前流程
+4. 校验 `procIndex/baseProcId`
+5. 重新应用 Patch
+6. 重新归一化与校验
+7. `SaveAsJson`
+8. `PublishProc`
+9. 返回最终结果
 
-### 7.3 为什么不直接从 Preview 结果落盘
+### 7.3 Direct Patch 的定位
+- `preview_patch/apply_patch` 仍然保留，用于调试、回归测试或明确已持有标准 patchJson 的场景。
+- LLM 常规写入路径不应优先直连 `preview_patch/apply_patch`。
+
+### 7.4 为什么不直接从 Preview 结果落盘
 - 预演和提交之间可能有流程被其他编辑修改。
 - 重新读、重新应用、重新校验更符合当前系统实际行为。
 
@@ -530,9 +552,11 @@
 2. 定位目标前必须先调用 `list_procs` 或 `get_proc_overview`。
 3. 修改前必须先读取 `get_proc_detail`。
 4. 修改某类指令前必须读取 `get_operation_schema`。
-5. 写操作只允许使用 `preview_patch` 和 `apply_patch`。
-6. 写接口只接受结构化 Patch，不接受自然语言。
-7. 预演失败时必须根据错误信息修正后再重试。
+5. 写入前必须先读取 `list_intent_templates` 或 `get_intent_template`。
+6. 写操作优先使用 `preview_intent` 和 `apply_intent`。
+7. 只有在明确需要调试 patchJson 时才使用 `preview_patch` 和 `apply_patch`。
+8. 写接口不接受自然语言。
+9. 预演失败时必须根据错误信息修正后再重试。
 
 ### 9.2 LLM 不应承担的职责
 - 不负责猜测隐藏字段
@@ -548,8 +572,10 @@
   - `ListProcs`
   - `GetProcDetail`
   - `GetOperationSchema`
-  - `PreviewPatch`
-  - `ApplyPatch`
+  - `ListIntentTemplates`
+  - `GetIntentTemplate`
+  - `PreviewIntent`
+  - `ApplyIntent`
 - `MCP Server`
   - 1:1 转发上述 RPC
 - `Dify Agent`

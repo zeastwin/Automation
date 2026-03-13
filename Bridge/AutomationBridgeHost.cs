@@ -5,6 +5,7 @@ using System.IO.Pipes;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace Automation.Bridge
 {
@@ -117,7 +118,8 @@ namespace Automation.Bridge
                         }
                     }
 
-                    _ = Task.Run(() => ProcessClientAsync(server));
+                    NamedPipeServerStream acceptedServer = server;
+                    _ = Task.Run(() => ProcessClientAsync(acceptedServer));
                     server = null;
                 }
                 catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested || !started)
@@ -152,14 +154,15 @@ namespace Automation.Bridge
         private async Task ProcessClientAsync(NamedPipeServerStream server)
         {
             using (server)
-            using (var reader = new StreamReader(server, Encoding.UTF8, false, 4096, true))
-            using (var writer = new StreamWriter(server, new UTF8Encoding(false), 4096, true) { AutoFlush = true })
             {
                 PipeResponseMessage response;
+                string requestPath = string.Empty;
+                string requestMethod = string.Empty;
+                Stopwatch stopwatch = Stopwatch.StartNew();
                 try
                 {
-                    string requestLine = await reader.ReadLineAsync().ConfigureAwait(false);
-                    if (string.IsNullOrWhiteSpace(requestLine))
+                    string requestText = await ReadMessageAsync(server).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(requestText))
                     {
                         response = PipeResponseMessage.FromBridgeResponse(
                             null,
@@ -167,7 +170,7 @@ namespace Automation.Bridge
                     }
                     else
                     {
-                        PipeRequestMessage request = JsonConvert.DeserializeObject<PipeRequestMessage>(requestLine);
+                        PipeRequestMessage request = JsonConvert.DeserializeObject<PipeRequestMessage>(requestText);
                         if (request == null)
                         {
                             response = PipeResponseMessage.FromBridgeResponse(
@@ -176,11 +179,15 @@ namespace Automation.Bridge
                         }
                         else
                         {
+                            requestMethod = request.Method ?? string.Empty;
+                            requestPath = request.Path ?? string.Empty;
+                            ReportInfo($"Automation Bridge 收到请求：{requestMethod} {requestPath}，请求体 {GetUtf8ByteCount(request.BodyJson)} 字节");
                             AutomationBridgeResponse bridgeResponse = service.Handle(
                                 request.Method,
                                 request.Path,
                                 request.BodyJson);
                             response = PipeResponseMessage.FromBridgeResponse(request.RequestId, bridgeResponse);
+                            ReportInfo($"Automation Bridge 请求完成：{requestMethod} {requestPath} -> {bridgeResponse.StatusCode}，耗时 {stopwatch.ElapsedMilliseconds}ms，响应体 {GetUtf8ByteCount(response.BodyJson)} 字节");
                         }
                     }
                 }
@@ -195,14 +202,21 @@ namespace Automation.Bridge
                     response = PipeResponseMessage.FromBridgeResponse(
                         null,
                         AutomationBridgeResponse.Error(500, "UNHANDLED_EXCEPTION", "Pipe 请求处理异常。", ex.Message));
+                    ReportError($"Automation Bridge 请求处理异常：{requestMethod} {requestPath}，{ex.Message}");
                 }
 
                 try
                 {
-                    await writer.WriteLineAsync(JsonConvert.SerializeObject(response)).ConfigureAwait(false);
+                    string responseText = JsonConvert.SerializeObject(response);
+                    await WriteMessageAsync(server, responseText).ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(requestPath))
+                    {
+                        ReportInfo($"Automation Bridge 响应已发送：{requestMethod} {requestPath}");
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    ReportError($"Automation Bridge 响应发送失败：{requestMethod} {requestPath}，{ex.Message}");
                 }
             }
         }
@@ -215,6 +229,56 @@ namespace Automation.Bridge
                 NamedPipeServerStream.MaxAllowedServerInstances,
                 PipeTransmissionMode.Byte,
                 PipeOptions.Asynchronous);
+        }
+
+        private static async Task<string> ReadMessageAsync(Stream stream)
+        {
+            byte[] lengthBuffer = await ReadExactlyAsync(stream, sizeof(int)).ConfigureAwait(false);
+            int length = BitConverter.ToInt32(lengthBuffer, 0);
+            if (length < 0)
+            {
+                throw new InvalidDataException("Pipe 消息长度非法。");
+            }
+            if (length == 0)
+            {
+                return string.Empty;
+            }
+
+            byte[] payloadBuffer = await ReadExactlyAsync(stream, length).ConfigureAwait(false);
+            return Encoding.UTF8.GetString(payloadBuffer);
+        }
+
+        private static async Task<byte[]> ReadExactlyAsync(Stream stream, int length)
+        {
+            byte[] buffer = new byte[length];
+            int offset = 0;
+            while (offset < length)
+            {
+                int read = await stream.ReadAsync(buffer, offset, length - offset).ConfigureAwait(false);
+                if (read <= 0)
+                {
+                    throw new EndOfStreamException("Pipe 连接在读取报文时提前关闭。");
+                }
+                offset += read;
+            }
+            return buffer;
+        }
+
+        private static async Task WriteMessageAsync(Stream stream, string text)
+        {
+            byte[] payloadBuffer = Encoding.UTF8.GetBytes(text ?? string.Empty);
+            byte[] lengthBuffer = BitConverter.GetBytes(payloadBuffer.Length);
+            await stream.WriteAsync(lengthBuffer, 0, lengthBuffer.Length).ConfigureAwait(false);
+            if (payloadBuffer.Length > 0)
+            {
+                await stream.WriteAsync(payloadBuffer, 0, payloadBuffer.Length).ConfigureAwait(false);
+            }
+            await stream.FlushAsync().ConfigureAwait(false);
+        }
+
+        private static int GetUtf8ByteCount(string text)
+        {
+            return string.IsNullOrEmpty(text) ? 0 : Encoding.UTF8.GetByteCount(text);
         }
 
         private void ReportInfo(string message)

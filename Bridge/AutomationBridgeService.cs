@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using static System.ComponentModel.TypeConverter;
@@ -12,6 +13,29 @@ namespace Automation.Bridge
 {
     internal sealed class AutomationBridgeService
     {
+        private const string IntentTemplateCatalogRelativePath = @"IntentTemplates\intent_templates.json";
+
+        private static readonly HashSet<string> SupportedPatchActions = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "update_proc_head_fields",
+            "update_step_fields",
+            "update_operation_fields",
+            "append_step",
+            "insert_step",
+            "delete_step",
+            "move_step",
+            "append_operation",
+            "insert_operation",
+            "delete_operation",
+            "move_operation"
+        };
+
+        private static readonly HashSet<string> PreviewOnlyChangeTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "field_change",
+            "goto_rewrite"
+        };
+
         private static readonly HashSet<string> ProcHeadEditableFields = new HashSet<string>(StringComparer.Ordinal)
         {
             "Name",
@@ -74,6 +98,16 @@ namespace Automation.Bridge
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("operation.schema", ExecuteOnUiThread(() => HandleGetOperationSchema(request))));
                     case "/bridge/references/catalog":
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("reference.catalog", ExecuteOnUiThread(() => HandleGetReferenceCatalog(request))));
+                    case "/bridge/intents/catalog":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.catalog", ExecuteOnUiThread(() => HandleListIntentTemplates(request))));
+                    case "/bridge/intents/template":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.template", ExecuteOnUiThread(() => HandleGetIntentTemplate(request))));
+                    case "/bridge/intents/build-patch":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.patch", ExecuteOnUiThread(() => HandleBuildPatchFromIntent(request))));
+                    case "/bridge/intents/preview":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.preview", ExecuteOnUiThread(() => HandlePreviewIntent(request))));
+                    case "/bridge/intents/apply":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.apply", ExecuteOnUiThread(() => HandleApplyIntent(request))));
                     case "/bridge/patch/preview":
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("patch.preview", ExecuteOnUiThread(() => HandlePreviewPatch(request))));
                     case "/bridge/patch/apply":
@@ -324,6 +358,105 @@ namespace Automation.Bridge
             };
         }
 
+        private JObject HandleListIntentTemplates(JObject request)
+        {
+            string patchAction = ReadOptionalString(request, "patchAction");
+            JArray templates = LoadIntentTemplateCatalog();
+            JArray items = new JArray();
+            foreach (JObject template in templates.OfType<JObject>())
+            {
+                if (!string.IsNullOrWhiteSpace(patchAction)
+                    && !string.Equals(template["patchAction"]?.Value<string>(), patchAction, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                items.Add(new JObject
+                {
+                    ["templateId"] = template["templateId"]?.Value<string>() ?? string.Empty,
+                    ["intentType"] = template["intentType"]?.Value<string>() ?? string.Empty,
+                    ["patchAction"] = template["patchAction"]?.Value<string>() ?? string.Empty,
+                    ["title"] = template["title"]?.Value<string>() ?? string.Empty,
+                    ["whenToUse"] = template["whenToUse"]?.Value<string>() ?? string.Empty
+                });
+            }
+
+            return new JObject
+            {
+                ["items"] = items
+            };
+        }
+
+        private JObject HandleGetIntentTemplate(JObject request)
+        {
+            string templateId = ReadOptionalString(request, "templateId");
+            string patchAction = ReadOptionalString(request, "patchAction");
+            JArray templates = LoadIntentTemplateCatalog();
+            JObject matched = templates
+                .OfType<JObject>()
+                .FirstOrDefault(item =>
+                    (!string.IsNullOrWhiteSpace(templateId)
+                        && string.Equals(item["templateId"]?.Value<string>(), templateId, StringComparison.Ordinal))
+                    || (!string.IsNullOrWhiteSpace(patchAction)
+                        && string.Equals(item["patchAction"]?.Value<string>(), patchAction, StringComparison.Ordinal)));
+
+            if (matched == null)
+            {
+                throw new BridgeRequestException(404, "INTENT_TEMPLATE_NOT_FOUND", "未找到匹配的中间意图模板。");
+            }
+
+            return new JObject
+            {
+                ["template"] = matched.DeepClone()
+            };
+        }
+
+        private JObject HandleBuildPatchFromIntent(JObject request)
+        {
+            JObject intent = ReadIntentObject(request);
+            JObject patch = ConvertIntentToPatch(intent);
+            return new JObject
+            {
+                ["intentType"] = intent["intentType"]?.Value<string>() ?? string.Empty,
+                ["patch"] = patch
+            };
+        }
+
+        private JObject HandlePreviewIntent(JObject request)
+        {
+            JObject intent = ReadIntentObject(request);
+            JObject patch = ConvertIntentToPatch(intent);
+            PatchExecutionResult result = ExecutePatch(patch);
+            return new JObject
+            {
+                ["intentType"] = intent["intentType"]?.Value<string>() ?? string.Empty,
+                ["patch"] = patch,
+                ["preview"] = BuildPatchResult("preview", result)
+            };
+        }
+
+        private JObject HandleApplyIntent(JObject request)
+        {
+            JObject intent = ReadIntentObject(request);
+            JObject patch = ConvertIntentToPatch(intent);
+            PatchExecutionResult result = ExecutePatch(patch);
+            CommitPatch(result.ProcIndex, result.Proc);
+
+            Proc current = GetProcByIndex(result.ProcIndex);
+            return new JObject
+            {
+                ["intentType"] = intent["intentType"]?.Value<string>() ?? string.Empty,
+                ["patch"] = patch,
+                ["apply"] = BuildPatchResult("apply", new PatchExecutionResult
+                {
+                    ProcIndex = result.ProcIndex,
+                    Proc = current,
+                    Messages = result.Messages,
+                    Changes = result.Changes
+                })
+            };
+        }
+
         private JObject HandlePreviewPatch(JObject request)
         {
             PatchExecutionResult result = ExecutePatch(request);
@@ -374,7 +507,7 @@ namespace Automation.Bridge
                     throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"actions[{i}] 必须是 JSON 对象。");
                 }
 
-                string actionType = ReadRequiredString(action, "type");
+                string actionType = ReadRequiredActionType(action, i);
                 switch (actionType)
                 {
                     case "update_proc_head_fields":
@@ -411,7 +544,8 @@ namespace Automation.Bridge
                         ApplyMoveOperation(action, draft, result, i);
                         break;
                     default:
-                        throw new BridgeRequestException(400, "PATCH_UNSUPPORTED_ACTION", $"不支持的 Patch 动作：{actionType}");
+                        ThrowUnsupportedPatchAction(actionType, i);
+                        break;
                 }
             }
 
@@ -448,7 +582,7 @@ namespace Automation.Bridge
 
         private void ApplyProcHeadUpdate(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
         {
-            JObject fieldChanges = ReadRequiredObject(action, "fieldChanges");
+            JObject fieldChanges = ReadRequiredFieldChanges(action, actionIndex, "update_proc_head_fields");
             ApplyDirectPropertyChanges(
                 draft.head,
                 ProcHeadEditableFields,
@@ -461,7 +595,7 @@ namespace Automation.Bridge
         private void ApplyStepUpdate(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
         {
             Step step = FindStepById(draft, ParseGuid(ReadRequiredString(action, "stepId"), "stepId"));
-            JObject fieldChanges = ReadRequiredObject(action, "fieldChanges");
+            JObject fieldChanges = ReadRequiredFieldChanges(action, actionIndex, "update_step_fields");
             ApplyDirectPropertyChanges(
                 step,
                 StepEditableFields,
@@ -477,7 +611,7 @@ namespace Automation.Bridge
             OperationType op = FindOperationById(step, ParseGuid(ReadRequiredString(action, "opId"), "opId"));
             ValidateExpectedOperaType(action, op);
 
-            JObject fieldChanges = ReadRequiredObject(action, "fieldChanges");
+            JObject fieldChanges = ReadRequiredFieldChanges(action, actionIndex, "update_operation_fields");
             ApplyOperationPropertyChanges(op, fieldChanges, $"指令[{op.Name}]", actionIndex, result);
         }
 
@@ -980,7 +1114,7 @@ namespace Automation.Bridge
             OperationType op = CreateOperationTemplate(operaType);
             op.Id = Guid.NewGuid();
 
-            JObject fieldValues = ReadOptionalObject(action, "fieldValues");
+            JObject fieldValues = ReadOptionalInsertFieldValues(action, actionIndex, changeType);
             if (fieldValues != null && fieldValues.Properties().Any())
             {
                 ApplyOperationPropertyChanges(op, fieldValues, $"新增指令[{operaType}]", actionIndex, result);
@@ -1055,7 +1189,7 @@ namespace Automation.Bridge
 
         private void ApplyOperationPropertyChanges(OperationType op, JObject fieldChanges, string targetLabel, int actionIndex, PatchExecutionResult result)
         {
-            WithOperationContext(op, () =>
+            WithOperationEditContext(op, () =>
             {
                 RefreshOperationContext(op);
                 foreach (JProperty field in fieldChanges.Properties())
@@ -1221,7 +1355,7 @@ namespace Automation.Bridge
 
         private JObject BuildOperationFields(OperationType op)
         {
-            return WithOperationContext(op, () =>
+            return WithOperationReadContext(op, () =>
             {
                 RefreshOperationContext(op);
                 JObject fields = new JObject();
@@ -1239,7 +1373,7 @@ namespace Automation.Bridge
 
         private JObject BuildOperationSchema(OperationType op)
         {
-            return WithOperationContext(op, () =>
+            return WithOperationReadContext(op, () =>
             {
                 RefreshOperationContext(op);
                 JArray fields = new JArray();
@@ -1275,7 +1409,7 @@ namespace Automation.Bridge
 
         private string BuildOperationSummary(OperationType op)
         {
-            return WithOperationContext(op, () =>
+            return WithOperationReadContext(op, () =>
             {
                 RefreshOperationContext(op);
                 List<string> parts = new List<string>();
@@ -1415,6 +1549,177 @@ namespace Automation.Bridge
             return string.IsNullOrEmpty(value) ? "/" : value;
         }
 
+        private static JArray LoadIntentTemplateCatalog()
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, IntentTemplateCatalogRelativePath);
+            if (!File.Exists(path))
+            {
+                throw new BridgeRequestException(500, "INTENT_TEMPLATE_MISSING", $"中间意图模板文件不存在：{path}");
+            }
+
+            try
+            {
+                JObject root = JObject.Parse(File.ReadAllText(path));
+                if (!(root["templates"] is JArray templates))
+                {
+                    throw new BridgeRequestException(500, "INTENT_TEMPLATE_INVALID", "中间意图模板文件缺少 templates 数组。");
+                }
+                return templates;
+            }
+            catch (BridgeRequestException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new BridgeRequestException(500, "INTENT_TEMPLATE_INVALID", "中间意图模板文件读取失败。", ex.Message);
+            }
+        }
+
+        private static JObject ReadIntentObject(JObject request)
+        {
+            JObject intent = ReadOptionalObject(request, "intent");
+            if (intent != null)
+            {
+                return (JObject)intent.DeepClone();
+            }
+
+            string intentJson = ReadOptionalString(request, "intentJson");
+            if (string.IsNullOrWhiteSpace(intentJson))
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "字段 intentJson 必须是字符串，或直接提供 intent 对象。");
+            }
+
+            try
+            {
+                JToken token = JToken.Parse(intentJson);
+                if (!(token is JObject obj))
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", "intentJson 必须是 JSON 对象。");
+                }
+                return obj;
+            }
+            catch (BridgeRequestException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "intentJson 不是合法 JSON。", ex.Message);
+            }
+        }
+
+        private static JObject ConvertIntentToPatch(JObject intent)
+        {
+            string intentType = ReadRequiredString(intent, "intentType");
+            int procIndex = ReadRequiredInt(intent, "procIndex");
+            string baseProcId = ReadRequiredString(intent, "baseProcId");
+
+            JObject action = new JObject();
+            switch (intentType)
+            {
+                case "update_proc_head_field":
+                    action["type"] = "update_proc_head_fields";
+                    action["fieldChanges"] = ReadRequiredObject(intent, "fieldChanges");
+                    break;
+                case "update_step_field":
+                    action["type"] = "update_step_fields";
+                    action["stepId"] = ReadRequiredString(intent, "stepId");
+                    action["fieldChanges"] = ReadRequiredObject(intent, "fieldChanges");
+                    break;
+                case "update_operation_field":
+                    action["type"] = "update_operation_fields";
+                    action["stepId"] = ReadRequiredString(intent, "stepId");
+                    action["opId"] = ReadRequiredString(intent, "opId");
+                    CopyOptionalString(intent, action, "expectedOperaType");
+                    action["fieldChanges"] = ReadRequiredObject(intent, "fieldChanges");
+                    break;
+                case "append_step":
+                    action["type"] = "append_step";
+                    CopyOptionalString(intent, action, "name");
+                    CopyOptionalBoolean(intent, action, "disable");
+                    break;
+                case "insert_step":
+                    action["type"] = "insert_step";
+                    action["insertIndex"] = ReadRequiredInt(intent, "insertIndex");
+                    CopyOptionalString(intent, action, "name");
+                    CopyOptionalBoolean(intent, action, "disable");
+                    break;
+                case "delete_step":
+                    action["type"] = "delete_step";
+                    action["stepId"] = ReadRequiredString(intent, "stepId");
+                    break;
+                case "move_step":
+                    action["type"] = "move_step";
+                    action["stepId"] = ReadRequiredString(intent, "stepId");
+                    action["targetIndex"] = ReadRequiredInt(intent, "targetIndex");
+                    break;
+                case "append_operation":
+                    action["type"] = "append_operation";
+                    action["stepId"] = ReadRequiredString(intent, "stepId");
+                    action["operaType"] = ReadRequiredString(intent, "operaType");
+                    CopyOptionalObject(intent, action, "fieldValues");
+                    break;
+                case "insert_operation":
+                    action["type"] = "insert_operation";
+                    action["stepId"] = ReadRequiredString(intent, "stepId");
+                    action["insertIndex"] = ReadRequiredInt(intent, "insertIndex");
+                    action["operaType"] = ReadRequiredString(intent, "operaType");
+                    CopyOptionalObject(intent, action, "fieldValues");
+                    break;
+                case "delete_operation":
+                    action["type"] = "delete_operation";
+                    action["stepId"] = ReadRequiredString(intent, "stepId");
+                    action["opId"] = ReadRequiredString(intent, "opId");
+                    CopyOptionalString(intent, action, "expectedOperaType");
+                    break;
+                case "move_operation":
+                    action["type"] = "move_operation";
+                    action["stepId"] = ReadRequiredString(intent, "stepId");
+                    action["opId"] = ReadRequiredString(intent, "opId");
+                    action["targetIndex"] = ReadRequiredInt(intent, "targetIndex");
+                    CopyOptionalString(intent, action, "targetStepId");
+                    CopyOptionalString(intent, action, "expectedOperaType");
+                    break;
+                default:
+                    throw new BridgeRequestException(400, "INTENT_UNSUPPORTED", $"不支持的中间意图类型：{intentType}");
+            }
+
+            return new JObject
+            {
+                ["procIndex"] = procIndex,
+                ["baseProcId"] = baseProcId,
+                ["actions"] = new JArray(action)
+            };
+        }
+
+        private static void CopyOptionalString(JObject source, JObject target, string fieldName)
+        {
+            string value = ReadOptionalString(source, fieldName);
+            if (value != null)
+            {
+                target[fieldName] = value;
+            }
+        }
+
+        private static void CopyOptionalBoolean(JObject source, JObject target, string fieldName)
+        {
+            bool? value = ReadOptionalBoolean(source, fieldName);
+            if (value.HasValue)
+            {
+                target[fieldName] = value.Value;
+            }
+        }
+
+        private static void CopyOptionalObject(JObject source, JObject target, string fieldName)
+        {
+            JObject value = ReadOptionalObject(source, fieldName);
+            if (value != null)
+            {
+                target[fieldName] = value.DeepClone();
+            }
+        }
+
         private JObject ParseRequestBody(string body)
         {
             if (string.IsNullOrWhiteSpace(body))
@@ -1539,6 +1844,90 @@ namespace Automation.Bridge
             return value;
         }
 
+        private static string ReadRequiredActionType(JObject action, int actionIndex)
+        {
+            if (!action.TryGetValue("type", out JToken token) || token == null || token.Type == JTokenType.Null)
+            {
+                if (action.TryGetValue("action", out JToken legacyToken)
+                    && legacyToken != null
+                    && legacyToken.Type == JTokenType.String)
+                {
+                    throw new BridgeRequestException(
+                        400,
+                        "INVALID_ARGUMENT",
+                        $"actions[{actionIndex}] 必须使用字段 type；当前请求使用了旧字段 action={legacyToken.Value<string>()}。");
+                }
+
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"actions[{actionIndex}].type 必须是字符串。");
+            }
+
+            if (token.Type != JTokenType.String)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"actions[{actionIndex}].type 必须是字符串。");
+            }
+
+            return token.Value<string>();
+        }
+
+        private static void ThrowUnsupportedPatchAction(string actionType, int actionIndex)
+        {
+            if (PreviewOnlyChangeTypes.Contains(actionType))
+            {
+                throw new BridgeRequestException(
+                    400,
+                    "PATCH_UNSUPPORTED_ACTION",
+                    $"actions[{actionIndex}].type={actionType} 不是可提交 Patch 动作；它属于 preview_patch 返回结果中的 changes 类型。apply_patch 必须复用原始 patch 的 actions，不能把 preview 返回的 changes 直接当作提交参数。");
+            }
+
+            throw new BridgeRequestException(
+                400,
+                "PATCH_UNSUPPORTED_ACTION",
+                $"actions[{actionIndex}].type={actionType} 不受支持。允许的动作只有：{string.Join(", ", SupportedPatchActions)}");
+        }
+
+        private static JObject ReadRequiredFieldChanges(JObject action, int actionIndex, string actionType)
+        {
+            JObject fieldChanges = ReadOptionalObject(action, "fieldChanges");
+            if (fieldChanges != null)
+            {
+                return fieldChanges;
+            }
+
+            JObject legacyFields = ReadOptionalObject(action, "fields");
+            if (legacyFields != null)
+            {
+                throw new BridgeRequestException(
+                    400,
+                    "INVALID_ARGUMENT",
+                    $"actions[{actionIndex}] 的 {actionType} 必须使用 fieldChanges；当前请求使用了旧字段 fields。");
+            }
+
+            throw new BridgeRequestException(
+                400,
+                "INVALID_ARGUMENT",
+                $"actions[{actionIndex}] 的 {actionType}.fieldChanges 必须是对象。");
+        }
+
+        private static JObject ReadOptionalInsertFieldValues(JObject action, int actionIndex, string actionType)
+        {
+            JObject fieldValues = ReadOptionalObject(action, "fieldValues");
+            if (fieldValues != null)
+            {
+                return fieldValues;
+            }
+
+            JObject legacyFields = ReadOptionalObject(action, "fields");
+            if (legacyFields != null)
+            {
+                throw new BridgeRequestException(
+                    400,
+                    "INVALID_ARGUMENT",
+                    $"actions[{actionIndex}] 的 {actionType} 必须使用 fieldValues；当前请求使用了旧字段 fields。");
+            }
+
+            return null;
+        }
+
         private static int ReadRequiredInt(JObject request, string fieldName)
         {
             if (!request.TryGetValue(fieldName, out JToken token) || token == null || token.Type != JTokenType.Integer)
@@ -1597,16 +1986,6 @@ namespace Automation.Bridge
             return token.Value<string>();
         }
 
-        private static JObject ReadRequiredObject(JObject request, string fieldName)
-        {
-            JObject obj = ReadOptionalObject(request, fieldName);
-            if (obj == null)
-            {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"字段 {fieldName} 必须是对象。");
-            }
-            return obj;
-        }
-
         private static JObject ReadOptionalObject(JObject request, string fieldName)
         {
             if (!request.TryGetValue(fieldName, out JToken token) || token == null || token.Type == JTokenType.Null)
@@ -1620,6 +1999,16 @@ namespace Automation.Bridge
             return obj;
         }
 
+        private static JObject ReadRequiredObject(JObject request, string fieldName)
+        {
+            JObject value = ReadOptionalObject(request, fieldName);
+            if (value == null)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"字段 {fieldName} 必须是对象。");
+            }
+            return value;
+        }
+
         private static JArray ReadRequiredArray(JObject request, string fieldName)
         {
             if (!request.TryGetValue(fieldName, out JToken token) || !(token is JArray array))
@@ -1629,21 +2018,45 @@ namespace Automation.Bridge
             return array;
         }
 
-        private static void WithOperationContext(OperationType op, Action action)
+        private static void WithOperationReadContext(OperationType op, Action action)
         {
             if (action == null)
             {
                 throw new ArgumentNullException(nameof(action));
             }
 
-            WithOperationContext<object>(op, () =>
+            WithOperationReadContext<object>(op, () =>
             {
                 action();
                 return null;
             });
         }
 
-        private static T WithOperationContext<T>(OperationType op, Func<T> action)
+        private static T WithOperationReadContext<T>(OperationType op, Func<T> action)
+        {
+            return WithOperationContext(op, false, action);
+        }
+
+        private static void WithOperationEditContext(OperationType op, Action action)
+        {
+            if (action == null)
+            {
+                throw new ArgumentNullException(nameof(action));
+            }
+
+            WithOperationEditContext<object>(op, () =>
+            {
+                action();
+                return null;
+            });
+        }
+
+        private static T WithOperationEditContext<T>(OperationType op, Func<T> action)
+        {
+            return WithOperationContext(op, true, action);
+        }
+
+        private static T WithOperationContext<T>(OperationType op, bool enableEditBehavior, Func<T> action)
         {
             if (op == null)
             {
@@ -1664,7 +2077,7 @@ namespace Automation.Bridge
                 {
                     SF.frmDataGrid.OperationTemp = op;
                 }
-                SF.isModify = ModifyKind.Operation;
+                SF.isModify = enableEditBehavior ? ModifyKind.Operation : ModifyKind.None;
                 SF.isAddOps = false;
                 return action();
             }

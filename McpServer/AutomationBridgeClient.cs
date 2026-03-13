@@ -17,6 +17,7 @@ namespace Automation.McpServer
             jsonOptions = new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true,
                 DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                 WriteIndented = false
             };
@@ -70,6 +71,47 @@ namespace Automation.McpServer
             });
         }
 
+        public Task<string> ListIntentTemplatesAsync(string? patchAction)
+        {
+            return PostAsync("/bridge/intents/catalog", new
+            {
+                patchAction
+            });
+        }
+
+        public Task<string> GetIntentTemplateAsync(string? templateId, string? patchAction)
+        {
+            return PostAsync("/bridge/intents/template", new
+            {
+                templateId,
+                patchAction
+            });
+        }
+
+        public Task<string> BuildPatchFromIntentAsync(string intentJson)
+        {
+            return SendAsync("POST", "/bridge/intents/build-patch", JsonSerializer.Serialize(new
+            {
+                intentJson
+            }, jsonOptions));
+        }
+
+        public Task<string> PreviewIntentAsync(string intentJson)
+        {
+            return SendAsync("POST", "/bridge/intents/preview", JsonSerializer.Serialize(new
+            {
+                intentJson
+            }, jsonOptions));
+        }
+
+        public Task<string> ApplyIntentAsync(string intentJson)
+        {
+            return SendAsync("POST", "/bridge/intents/apply", JsonSerializer.Serialize(new
+            {
+                intentJson
+            }, jsonOptions));
+        }
+
         public Task<string> PreviewPatchAsync(string patchJson)
         {
             return SendAsync("POST", "/bridge/patch/preview", patchJson);
@@ -89,6 +131,8 @@ namespace Automation.McpServer
         private async Task<string> SendAsync(string method, string path, string payloadJson)
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(options.BridgeTimeoutMs));
+            string stage = "connect";
+            string requestId = Guid.NewGuid().ToString("N");
             try
             {
                 using var pipe = new NamedPipeClientStream(
@@ -98,14 +142,7 @@ namespace Automation.McpServer
                     PipeOptions.Asynchronous);
 
                 await pipe.ConnectAsync(cts.Token).ConfigureAwait(false);
-
-                using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, true)
-                {
-                    AutoFlush = true
-                };
-                using var reader = new StreamReader(pipe, Encoding.UTF8, false, 4096, true);
-
-                string requestId = Guid.NewGuid().ToString("N");
+                stage = "serialize_request";
                 string request = JsonSerializer.Serialize(new PipeRequestMessage
                 {
                     RequestId = requestId,
@@ -114,29 +151,33 @@ namespace Automation.McpServer
                     BodyJson = payloadJson ?? "{}"
                 }, jsonOptions);
 
-                await writer.WriteLineAsync(request).ConfigureAwait(false);
-                string? responseLine = await reader.ReadLineAsync().WaitAsync(cts.Token).ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(responseLine))
+                stage = "write_request";
+                await WriteMessageAsync(pipe, request, cts.Token).ConfigureAwait(false);
+
+                stage = "read_response";
+                string? responseText = await ReadMessageAsync(pipe, cts.Token).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(responseText))
                 {
-                    return BuildBridgeError("EMPTY_RESPONSE", $"Bridge 返回空响应：{path}");
+                    return BuildBridgeError("EMPTY_RESPONSE", $"Bridge 返回空响应：{path}", details: BuildStageDetails(stage, path, requestId));
                 }
 
-                PipeResponseMessage? response = JsonSerializer.Deserialize<PipeResponseMessage>(responseLine, jsonOptions);
+                stage = "deserialize_response";
+                PipeResponseMessage? response = JsonSerializer.Deserialize<PipeResponseMessage>(responseText, jsonOptions);
                 if (response == null)
                 {
-                    return BuildBridgeError("INVALID_RESPONSE", $"Bridge 响应反序列化失败：{path}");
+                    return BuildBridgeError("INVALID_RESPONSE", $"Bridge 响应反序列化失败：{path}", details: BuildStageDetails(stage, path, requestId));
                 }
 
                 if (!string.IsNullOrWhiteSpace(response.RequestId)
                     && !string.Equals(response.RequestId, requestId, StringComparison.Ordinal))
                 {
-                    return BuildBridgeError("INVALID_RESPONSE", $"Bridge 响应 requestId 不匹配：{path}");
+                    return BuildBridgeError("INVALID_RESPONSE", $"Bridge 响应 requestId 不匹配：{path}", details: BuildStageDetails(stage, path, requestId));
                 }
 
                 if (response.StatusCode >= 200 && response.StatusCode < 300)
                 {
                     return string.IsNullOrWhiteSpace(response.BodyJson)
-                        ? BuildBridgeError("EMPTY_RESPONSE", $"Bridge 返回空响应：{path}")
+                        ? BuildBridgeError("EMPTY_RESPONSE", $"Bridge 返回空响应：{path}", details: BuildStageDetails(stage, path, requestId))
                         : response.BodyJson;
                 }
 
@@ -144,22 +185,72 @@ namespace Automation.McpServer
                     "BRIDGE_ERROR",
                     $"Bridge 调用失败：{path}",
                     response.StatusCode,
-                    response.BodyJson);
+                    $"stage={stage}; requestId={requestId}; bridgeResponse={response.BodyJson}");
             }
             catch (OperationCanceledException)
             {
                 return BuildBridgeError(
                     "TIMEOUT",
                     $"Bridge 调用超时：{path}",
-                    details: $"timeoutMs={options.BridgeTimeoutMs}");
+                    details: $"stage={stage}; requestId={requestId}; pipeName={options.BridgePipeName}; timeoutMs={options.BridgeTimeoutMs}");
             }
             catch (Exception ex)
             {
                 return BuildBridgeError(
                     "REQUEST_ERROR",
                     $"Bridge 调用异常：{path}",
-                    details: ex.Message);
+                    details: $"{BuildStageDetails(stage, path, requestId)}; error={ex.Message}");
             }
+        }
+
+        private static async Task WriteMessageAsync(Stream stream, string text, CancellationToken cancellationToken)
+        {
+            byte[] payloadBuffer = Encoding.UTF8.GetBytes(text ?? string.Empty);
+            byte[] lengthBuffer = BitConverter.GetBytes(payloadBuffer.Length);
+            await stream.WriteAsync(lengthBuffer.AsMemory(0, lengthBuffer.Length), cancellationToken).ConfigureAwait(false);
+            if (payloadBuffer.Length > 0)
+            {
+                await stream.WriteAsync(payloadBuffer.AsMemory(0, payloadBuffer.Length), cancellationToken).ConfigureAwait(false);
+            }
+            await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private static async Task<string> ReadMessageAsync(Stream stream, CancellationToken cancellationToken)
+        {
+            byte[] lengthBuffer = await ReadExactlyAsync(stream, sizeof(int), cancellationToken).ConfigureAwait(false);
+            int length = BitConverter.ToInt32(lengthBuffer, 0);
+            if (length < 0)
+            {
+                throw new InvalidDataException("Bridge 响应长度非法。");
+            }
+            if (length == 0)
+            {
+                return string.Empty;
+            }
+
+            byte[] payloadBuffer = await ReadExactlyAsync(stream, length, cancellationToken).ConfigureAwait(false);
+            return Encoding.UTF8.GetString(payloadBuffer);
+        }
+
+        private static async Task<byte[]> ReadExactlyAsync(Stream stream, int length, CancellationToken cancellationToken)
+        {
+            byte[] buffer = new byte[length];
+            int offset = 0;
+            while (offset < length)
+            {
+                int read = await stream.ReadAsync(buffer.AsMemory(offset, length - offset), cancellationToken).ConfigureAwait(false);
+                if (read <= 0)
+                {
+                    throw new EndOfStreamException("Bridge 连接在读取响应时提前关闭。");
+                }
+                offset += read;
+            }
+            return buffer;
+        }
+
+        private string BuildStageDetails(string stage, string path, string requestId)
+        {
+            return $"stage={stage}; requestId={requestId}; pipeName={options.BridgePipeName}; path={path}";
         }
 
         private string BuildBridgeError(string code, string message, int? statusCode = null, string? details = null)

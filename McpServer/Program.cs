@@ -31,6 +31,8 @@ namespace Automation.McpServer
             {
                 name = "Automation MCP Server",
                 listenUrl = options.ListenUrl,
+                listenHost = options.ListenHost,
+                listenPort = options.ListenPort,
                 bridgePipeName = options.BridgePipeName,
                 bridgePipePath = @"\\.\pipe\" + options.BridgePipeName,
                 transport = "http"
@@ -38,6 +40,9 @@ namespace Automation.McpServer
             app.MapGet("/healthz", () => Results.Json(new
             {
                 ok = true,
+                listenUrl = options.ListenUrl,
+                listenHost = options.ListenHost,
+                listenPort = options.ListenPort,
                 bridgePipeName = options.BridgePipeName,
                 bridgeTimeoutMs = options.BridgeTimeoutMs
             }));

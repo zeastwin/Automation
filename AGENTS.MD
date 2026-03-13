@@ -77,7 +77,7 @@
   - 工站页：主区显示 `FrmStation`，隐藏流程编辑区。
   - 控制卡/IO页：树区显示 `FrmCard`，表区显示 `FrmIO`，工具栏切换为 IO 监视动作。
   - 变量调试页：主区显示 `FrmValueDebug`，隐藏流程编辑区。
-  - AI 助手页：主区显示 `FrmAiAssistant`，隐藏流程编辑区；页面采用左右双栏布局，左侧固定提供 Dify Workflow 配置、`user_input_form` 参数展示和 `inputs JSON` 编辑，右侧显示运行记录与 workflow 执行输入区，底部独立状态栏显示当前操作状态。
+  - AI 助手页：主区显示 `FrmAiAssistant`，隐藏流程编辑区；页面采用左右双栏布局，左侧固定提供 Dify Workflow 配置、`user_input_form` 参数展示和 `inputs JSON` 编辑，右侧显示运行记录与 workflow 执行输入区，底部独立状态栏显示当前操作状态；页面打开时只加载本地 `DifyConfig.json`，不会自动访问 Dify，只有点击“刷新参数”或执行 Workflow 时才发起请求。
 - 变量按钮行为：
   - 进入 `FrmValue` 前执行 `SF.frmValue.FreshFrmValue()`，界面值以运行态变量为准。
 
@@ -100,7 +100,12 @@
 - AI 助手权限：
   - 进入 `AI助手` 页面与发送对话依赖 `Process.Access`。
   - 编辑并保存 Dify URL/Key 依赖 `AppConfig.Access`。
-  - AI 助手当前按 Dify Workflow 形态工作，发送按钮调用 `POST /workflows/run`，参数结构通过 `GET /parameters` 读取。
+  - AI 助手当前按 Dify Workflow 形态工作，发送按钮调用 `POST /workflows/run`，参数结构通过 `GET /parameters` 读取；页面加载本身不触发远程请求。
+  - 执行输入区提供“附带当前流程上下文”勾选框与“上下文变量名”；勾选时，客户端会先采集当前选中的流程/步骤/指令和基本运行态上下文，并把该上下文作为独立 workflow 输入变量发送，不再拼接到 `user_request`；不勾选时只发送用户问题与 `Inputs JSON`，按纯 AI 聊天/纯 workflow 输入处理。
+  - “主问题变量名”刷新参数后会优先自动识别 `user_request/query/prompt/question/message`；“上下文变量名”会优先自动识别 `automation_context/local_context/context/workflow_context`。
+  - 当前建议 workflow 侧显式定义 `automation_context` 一类输入变量；页面刷新参数后会优先自动识别 `automation_context/local_context/context/workflow_context`，未识别到时必须手工填写“上下文变量名”，否则禁止带上下文发送。
+  - Dify Agent 当前推荐走“本地模板 + 中间意图”写入路径：先调用 `list_intent_templates/get_intent_template` 读取模板，再调用 `preview_intent/apply_intent`；不再建议在系统提示词中内嵌长篇 Patch JSON 示例。
+  - Workflow 执行阶段状态栏会依次显示“正在收集本地上下文”“正在向 Dify 提交 workflow 请求”“请求已提交到 Dify，正在等待 Dify 返回”等阶段文案；同阶段信息会写入运行信息页，便于区分本地构建、Dify HTTP 请求与 blocking 等待阶段。
 - 右键目标策略（统一按鼠标命中项）：
   - `FrmProc`：右键空白会清空流程/步骤/操作选择并清空属性绑定。
   - `FrmDataGrid`：右键空白会清空选中行并取消菜单目标。
@@ -259,10 +264,12 @@
   - `AppConfig.json` 在程序启动阶段由 `AppConfigStorage.TryLoad` 强制加载；缺失时自动创建默认文件，字段缺失/类型错误/非正数会终止启动。
   - `AppConfigStorage` 在 `TryLoad/TrySave` 成功后刷新进程内缓存；运行期读取可通过 `TryGetCached` 获取当前缓存值。
   - `DifyConfig.json` 不参与启动强校验；AI 助手首次打开时若文件不存在会自动生成空白配置，字段缺失或类型错误会在页面内报错并禁止正常执行 workflow。
+- 本地模板与辅助文件：
+  - `IntentTemplates/intent_templates.json`：Automation Bridge 加载的本地中间意图模板清单，定义各类写入动作的标准意图 JSON 形状；文件缺失或结构错误时，`list_intent_templates/get_intent_template/preview_intent/apply_intent` 会直接失败。
 - 外部辅助进程：
   - `McpServer/appsettings.json`：独立 `Automation MCP Server` 的运行参数。
-  - 当前键完整清单：`AutomationMcp.ListenUrl`、`AutomationMcp.BridgePipeName`、`AutomationMcp.BridgeTimeoutMs`、`AutomationMcp.EnableTrayIcon`、`AutomationMcp.LogRoot`。
-  - `ListenUrl` 为 MCP HTTP 服务监听地址；`BridgePipeName` 为本地 `Automation Bridge` 管道名；`BridgeTimeoutMs` 必须为正整数毫秒；`LogRoot` 支持相对 `McpServer` 可执行目录的相对路径。
+  - 当前键完整清单：`AutomationMcp.ListenHost`、`AutomationMcp.ListenPort`、`AutomationMcp.BridgePipeName`、`AutomationMcp.BridgeTimeoutMs`、`AutomationMcp.EnableTrayIcon`、`AutomationMcp.LogRoot`。
+  - `ListenHost + ListenPort` 共同决定 MCP HTTP 服务监听地址；`BridgePipeName` 为本地 `Automation Bridge` 管道名；`BridgeTimeoutMs` 必须为正整数毫秒；`LogRoot` 支持相对 `McpServer` 可执行目录的相对路径。
 - 反序列化约束：
   - 所有通过 `FrmMain.ReadJson<T>` 或各 Store `Load` 读取的 JSON 使用 `TypeNameHandling.All + ObjectCreationHandling.Replace`。
   - 该策略要求配置文件字段结构与模型严格一致，不做宽松修复。
@@ -276,6 +283,8 @@
   - 先查 `Config/DifyConfig.json` 的 `BaseUrl` 是否填写到 Dify API 根地址（例如 `http://127.0.0.1/v1`），`ApiKey` 是否为空。
   - 再查当前 Dify 应用是否为 Workflow 应用，并确认 `GET /parameters` 能正常返回 `user_input_form`。
   - 若 workflow 存在多个输入变量，页面中的“主问题变量名”必须显式填写；其他变量通过 `Inputs JSON` 传入。
+  - 若状态栏停在“正在等待 Dify 返回”，先查 Dify workflow 执行详情，再查 `McpServer` 调用日志；`DifyWorkflowClient` 的超时诊断会输出 `method + endpoint + elapsedMs + blocking 提示`，用于判断卡在 Dify 内部模型、Workflow 节点还是 MCP 工具调用。
+  - 若 `list_intent_templates/get_intent_template` 返回模板缺失或模板非法，先查输出目录下 `IntentTemplates/intent_templates.json` 是否存在，再查该文件是否包含顶层 `templates` 数组。
 - 流程禁止运行：
   - 查 `SF.ProcConfigFaulted`，再查 `Config/Work` 是否从 `0.json` 连续、跳转地址是否跨流程或越界。
 - 通讯初始化异常：
@@ -310,12 +319,17 @@
 
 ## 18. Automation Bridge 与 MCP Server
 - 系统定位：
-  - `Automation Bridge` 运行在 WinForms 主程序内部，负责把当前内存态流程、指令 Schema、引用目录、Patch 预演与提交流程暴露为本地 `Named Pipe` 服务。
+  - `Automation Bridge` 运行在 WinForms 主程序内部，负责把当前内存态流程、指令 Schema、引用目录、本地中间意图模板、Patch 预演与提交流程暴露为本地 `Named Pipe` 服务。
   - `McpServer/` 是独立于 WinForms 主程序的辅助进程，负责把 `Automation Bridge` 透传成可供 Dify/LLM 调用的 MCP HTTP 服务。
 - Automation Bridge 边界与职责：
   - 管道名固定为 `AutomationBridgePipe`，显示路径 `\\.\pipe\AutomationBridgePipe`，由 `FrmMain_Load` 启动，`FrmMain_FormClosing` 停止。
   - Bridge 只接受本机进程通过 `NamedPipeClientStream` 访问，不读取磁盘快照作为主数据源；读写都以 `SF.frmProc.procsList` 当前内存态为准。
+  - Bridge 管道报文当前采用“`4字节长度前缀 + UTF-8 JSON`”协议，不再使用按行分隔的单行文本协议；`McpServer` 与主程序必须同时使用同一版协议。
+  - 管道外壳字段当前允许 `PascalCase/camelCase` 大小写差异，`McpServer` 反序列化时按大小写不敏感匹配 `requestId/statusCode/bodyJson`。
+  - Bridge 监听循环在 `WaitForConnection` 成功后会把当前连接实例移交给独立任务处理；等待下一个连接时使用新的管道实例，不复用已移交实例。
   - Bridge 复用现有业务链路：`NormalizeProc -> SaveAsJson -> PublishProc -> FrmProc.Refresh`。
+  - Bridge 当前从 `<exe>/IntentTemplates/intent_templates.json` 读取本地模板；模板只定义“动作形状参考”，真正字段和值约束仍以 `get_operation_schema/get_reference_catalog` 为准。
+  - Bridge 支持把“中间意图 JSON”确定性转换为标准 patchJson；当前推荐写入路径是“模板 -> 意图 -> 预演/提交”，而不是让 LLM 直接拼 patchJson。
   - Bridge 当前支持的写动作仅限：
     - `update_proc_head_fields`
     - `update_step_fields`
@@ -340,6 +354,11 @@
   - `POST /bridge/operations/types`
   - `POST /bridge/operations/schema`
   - `POST /bridge/references/catalog`
+  - `POST /bridge/intents/catalog`
+  - `POST /bridge/intents/template`
+  - `POST /bridge/intents/build-patch`
+  - `POST /bridge/intents/preview`
+  - `POST /bridge/intents/apply`
   - `POST /bridge/patch/preview`
   - `POST /bridge/patch/apply`
   - 上述路由不再通过本地 HTTP 暴露，而是在管道请求包中作为 `method + path + bodyJson` 被 Bridge 解析。
@@ -347,11 +366,14 @@
   - 成功响应统一为 `{"ok":true,"type":"...","data":...}`。
   - 失败响应统一为 `{"ok":false,"type":"bridge.error","errorCode":"...","message":"...","details":"..."}`。
   - 参数解析严格按 JSON 类型校验：整数必须为 JSON number，布尔必须为 JSON boolean，`Guid` 必须为合法字符串；不做宽松修复。
+  - Patch 动作对象当前严格要求使用 `type`；字段更新严格要求使用 `fieldChanges`，新增指令初始字段严格要求使用 `fieldValues`；旧字段 `action/fields` 会直接返回 `400 INVALID_ARGUMENT`。
+  - 中间意图对象当前严格要求使用 `intentType`；`fieldChanges/fieldValues` 必须为 JSON 对象；Bridge 不做宽松映射或自动修补。
+  - Bridge 在构建 `proc detail / operation schema / operation summary` 时使用“只读指令上下文”，仅设置 `OperationTemp` 供 `TypeConverter` 读取，不再伪装成 PropertyGrid 正在编辑状态；只有 Patch 写入阶段才进入“编辑指令上下文”，以保留联动字段重建行为。
 - MCP Server 边界与职责：
   - `McpServer` 只负责 MCP 协议接入、参数转发、超时控制、错误包装、调用日志。
   - `McpServer` 不直接读取 `Config/Work/*.json`，不实现流程归一化、跳转校验、保存、发布等业务逻辑。
   - 启动入口为 `McpServer/Program.cs`。
-  - 默认监听地址由 `AutomationMcp.ListenUrl` 控制，默认值 `http://127.0.0.1:8081`。
+  - 默认监听地址由 `AutomationMcp.ListenHost` 和 `AutomationMcp.ListenPort` 共同控制，默认值 `127.0.0.1:8081`。
   - 默认桥接管道名由 `AutomationMcp.BridgePipeName` 控制，默认值 `AutomationBridgePipe`。
   - `app.MapMcp()` 占用根路径作为 MCP HTTP 传输端点，禁止再把业务状态页绑定到 `/`。
   - `/info` 返回服务器基本信息；`/healthz` 返回监听配置、Bridge 管道名与超时。
@@ -363,6 +385,11 @@
   - `list_operation_types`
   - `get_operation_schema`
   - `get_reference_catalog`
+  - `list_intent_templates`
+  - `get_intent_template`
+  - `build_patch_from_intent`
+  - `preview_intent`
+  - `apply_intent`
   - `preview_patch`
   - `apply_patch`
   - `get_patch_contract`
@@ -373,13 +400,26 @@
   - `list_operation_types -> POST /bridge/operations/types`
   - `get_operation_schema -> POST /bridge/operations/schema`
   - `get_reference_catalog -> POST /bridge/references/catalog`
+  - `list_intent_templates -> POST /bridge/intents/catalog`
+  - `get_intent_template -> POST /bridge/intents/template`
+  - `build_patch_from_intent -> POST /bridge/intents/build-patch`
+  - `preview_intent -> POST /bridge/intents/preview`
+  - `apply_intent -> POST /bridge/intents/apply`
   - `preview_patch -> POST /bridge/patch/preview`
   - `apply_patch -> POST /bridge/patch/apply`
 - Dify Agent 提示词模板：
-  - 当前可直接复用的 Dify Agent 提示词、开场白与 Few-shot 示例统一维护在项目根目录 `Dify-Agent-Prompts.md`。
+  - 当前可直接复用的 Dify Agent 提示词、开场白与输入建议统一维护在项目根目录 `Dify-Agent-Prompts.md`。
+  - 当前推荐系统提示词不再内嵌长篇 Patch JSON Few-shot，而是要求 Agent 先调用 `list_intent_templates/get_intent_template` 读取本地模板，再生成中间意图。
+  - 面向 Workflow 搭建的节点职责、变量映射、Code 节点示例与各 Agent 提示词统一维护在项目根目录 `Dify-Workflow-Node-Prompts.md`。
+  - 面向 Dify DSL 导入的多节点草稿统一维护在项目根目录 `Automation-proc-redesign-draft.yml`；该文件当前只使用 `start / code / agent / if-else / end` 这些在现有导出中已经出现过的节点形态，优先降低 DSL 兼容风险。
 - 错误与排查：
   - Bridge 初始化或监听异常时，主程序运行信息页会记录 `Automation Bridge 监听异常`。
+  - Bridge 每次请求都会在主程序运行信息页记录 `收到请求 / 请求完成 / 响应已发送 / 响应发送失败`，并附带请求体/响应体 UTF-8 字节数；排查 `Pipe is broken` 时应先看这里，再看 `McpServer` 的 `Logs/McpServer/*.log`。
   - 常见原因是同名管道实例异常未释放、主程序未启动、或 `McpServer` 配置的 `BridgePipeName` 与主程序不一致。
-  - Bridge 无响应或管道连接失败时，MCP 工具返回 `type=bridge.error`，并带 `errorCode=TIMEOUT/BRIDGE_ERROR/REQUEST_ERROR/EMPTY_RESPONSE/INVALID_RESPONSE`。
+  - Bridge 无响应或管道连接失败时，MCP 工具返回 `type=bridge.error`，并带 `errorCode=TIMEOUT/BRIDGE_ERROR/REQUEST_ERROR/EMPTY_RESPONSE/INVALID_RESPONSE`；`details` 当前会附带 `stage=request阶段(requestId/pipeName/path)`，用于区分卡在连接、写请求、读响应还是反序列化。
+  - `list_intent_templates/get_intent_template/preview_intent/apply_intent` 失败时，先查输出目录下 `IntentTemplates/intent_templates.json` 是否存在，再查文件结构是否包含合法的顶层 `templates` 数组。
+  - `preview_patch/apply_patch` 若收到旧版 Patch 键名（如 `action`、`fields`），会返回明确的 `400 INVALID_ARGUMENT`，提示应改用 `type`、`fieldChanges`、`fieldValues`。
+  - `preview_patch` 返回结果中的 `changes.type`（如 `field_change`、`goto_rewrite`）仅用于说明实际预演结果，不能直接拿来作为 `apply_patch.actions[].type`；若误用，Bridge 会返回明确的 `400 PATCH_UNSUPPORTED_ACTION`。
+  - `preview_intent/apply_intent` 若提示字段缺失、字段类型错误或意图类型不支持，应重新读取 `get_intent_template`，按 `intentShape` 重新生成意图；不要凭记忆修补。
   - MCP 工具调用日志写入 `AutomationMcp.LogRoot` 指定目录，按天滚动 `.log` 文件。
   - `BridgeTimeoutMs<=0` 时会回退为 `30000ms`。

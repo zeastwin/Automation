@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -34,6 +35,8 @@ namespace Automation
 
     public static class DifyWorkflowClient
     {
+        private const int DefaultRequestTimeoutMs = 120000;
+
         public static DifyWorkflowParameters GetParameters(DifyConfig config)
         {
             ValidateConfig(config);
@@ -42,7 +45,7 @@ namespace Automation
             return ParseParameters(responseText);
         }
 
-        public static DifyWorkflowRunReply RunWorkflow(DifyConfig config, JObject inputs, string userId)
+        public static DifyWorkflowRunReply RunWorkflow(DifyConfig config, JObject inputs, string userId, Action<string> progress = null)
         {
             ValidateConfig(config);
             if (inputs == null)
@@ -57,7 +60,9 @@ namespace Automation
                 ["response_mode"] = "blocking",
                 ["user"] = string.IsNullOrWhiteSpace(userId) ? "automation-user" : userId
             };
-            string responseText = SendRequest(config.ApiKey, endpoint, "POST", payload.ToString());
+            progress?.Invoke("本地上下文已收集，正在向 Dify 提交 workflow 请求。");
+            string responseText = SendRequest(config.ApiKey, endpoint, "POST", payload.ToString(), progress, true);
+            progress?.Invoke("Dify 已返回响应，正在解析 workflow 结果。");
             return ParseWorkflowRunReply(responseText);
         }
 
@@ -87,22 +92,29 @@ namespace Automation
             return $"{trimmed.TrimEnd('/')}{relativePath}";
         }
 
-        private static string SendRequest(string apiKey, string endpoint, string method, string body)
+        private static string SendRequest(string apiKey, string endpoint, string method, string body, Action<string> progress = null, bool blockingWorkflow = false)
         {
+            Stopwatch stopwatch = Stopwatch.StartNew();
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(endpoint);
             request.Method = method;
             request.Accept = "application/json";
-            request.Timeout = 120000;
-            request.ReadWriteTimeout = 120000;
+            request.Timeout = DefaultRequestTimeoutMs;
+            request.ReadWriteTimeout = DefaultRequestTimeoutMs;
             request.Headers[HttpRequestHeader.Authorization] = $"Bearer {apiKey}";
+            progress?.Invoke($"正在请求 Dify：{method} {endpoint}");
 
             if (string.Equals(method, "POST", StringComparison.Ordinal))
             {
                 request.ContentType = "application/json";
                 byte[] bytes = Encoding.UTF8.GetBytes(body ?? string.Empty);
+                progress?.Invoke("正在发送 workflow 请求体。");
                 using (Stream requestStream = request.GetRequestStream())
                 {
                     requestStream.Write(bytes, 0, bytes.Length);
+                }
+                if (blockingWorkflow)
+                {
+                    progress?.Invoke($"请求已提交到 Dify，当前为 blocking 模式，正在等待 Dify 返回。超时阈值 {request.Timeout / 1000} 秒。");
                 }
             }
 
@@ -112,13 +124,17 @@ namespace Automation
                 using (Stream responseStream = response.GetResponseStream())
                 using (StreamReader reader = new StreamReader(responseStream ?? Stream.Null, Encoding.UTF8))
                 {
-                    return reader.ReadToEnd();
+                    progress?.Invoke($"Dify 已返回 HTTP {(int)response.StatusCode} {response.StatusCode}，累计耗时 {stopwatch.ElapsedMilliseconds}ms。");
+                    string responseText = reader.ReadToEnd();
+                    progress?.Invoke($"Dify 响应体读取完成，累计耗时 {stopwatch.ElapsedMilliseconds}ms。");
+                    return responseText;
                 }
             }
             catch (WebException ex)
             {
-                string detail = ReadErrorResponse(ex);
-                throw new InvalidOperationException($"Dify 请求失败:{detail}", ex);
+                string message = BuildRequestFailureMessage(ex, endpoint, method, stopwatch.ElapsedMilliseconds, request.Timeout, blockingWorkflow);
+                progress?.Invoke(message);
+                throw new InvalidOperationException(message, ex);
             }
         }
 
@@ -254,6 +270,38 @@ namespace Automation
             {
                 return ex.Message;
             }
+        }
+
+        private static string BuildRequestFailureMessage(WebException ex, string endpoint, string method, long elapsedMs, int timeoutMs, bool blockingWorkflow)
+        {
+            string detail = ReadErrorResponse(ex);
+            HttpWebResponse response = ex?.Response as HttpWebResponse;
+            string message;
+            if (ex != null && (ex.Status == WebExceptionStatus.Timeout || ex.Status == WebExceptionStatus.RequestCanceled))
+            {
+                message = $"Dify 请求超时：{method} {endpoint}，已等待 {elapsedMs}ms，超时阈值 {timeoutMs}ms。";
+            }
+            else if (response != null)
+            {
+                message = $"Dify 请求失败：{method} {endpoint}，HTTP {(int)response.StatusCode} {response.StatusCode}，耗时 {elapsedMs}ms。";
+            }
+            else
+            {
+                string statusText = ex == null ? "Unknown" : ex.Status.ToString();
+                message = $"Dify 请求失败：{method} {endpoint}，网络状态 {statusText}，耗时 {elapsedMs}ms。";
+            }
+
+            if (blockingWorkflow)
+            {
+                message += " 当前请求为 blocking workflow；若长时间无返回，通常表示 Dify 内部模型推理、Workflow 节点或 MCP 工具调用尚未完成。";
+            }
+
+            if (!string.IsNullOrWhiteSpace(detail))
+            {
+                message += " 详情：" + detail;
+            }
+
+            return message;
         }
     }
 }
