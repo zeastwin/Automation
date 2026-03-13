@@ -251,6 +251,10 @@
   - `Config/AppConfig.json`：程序运行参数（当前键：`CommMaxMessageQueueSize`，默认 `1000`）。
   - `AppConfig.json` 在程序启动阶段由 `AppConfigStorage.TryLoad` 强制加载；缺失时自动创建默认文件，字段缺失/类型错误/非正数会终止启动。
   - `AppConfigStorage` 在 `TryLoad/TrySave` 成功后刷新进程内缓存；运行期读取可通过 `TryGetCached` 获取当前缓存值。
+- 外部辅助进程：
+  - `McpServer/appsettings.json`：独立 `Automation MCP Server` 的运行参数。
+  - 当前键完整清单：`AutomationMcp.ListenUrl`、`AutomationMcp.BridgeBaseUrl`、`AutomationMcp.BridgeApiKey`、`AutomationMcp.BridgeTimeoutMs`、`AutomationMcp.EnableTrayIcon`、`AutomationMcp.LogRoot`。
+  - `ListenUrl` 为 MCP HTTP 服务监听地址；`BridgeBaseUrl` 为本地 `Automation Bridge` 根地址；`BridgeTimeoutMs` 必须为正整数毫秒；`LogRoot` 支持相对 `McpServer` 可执行目录的相对路径。
 - 反序列化约束：
   - 所有通过 `FrmMain.ReadJson<T>` 或各 Store `Load` 读取的 JSON 使用 `TypeNameHandling.All + ObjectCreationHandling.Replace`。
   - 该策略要求配置文件字段结构与模型严格一致，不做宽松修复。
@@ -291,3 +295,42 @@
 - 运动控制底层：
   - `MotionControl/LTDMC.cs`：`LTDMC.dll` P/Invoke。
   - `MotionControl/LeiSei3000.cs`：雷赛卡运动与 IO 实现。
+
+## 18. Automation MCP Server
+- 系统定位：
+  - `McpServer/` 是独立于 WinForms 主程序的辅助进程，目标是把 `Automation Bridge` 暴露成可供 Dify/LLM 调用的 MCP HTTP 服务。
+  - 该项目使用 `.NET 8` 与 `ModelContextProtocolServer.Sse`；对外协议为 `app.MapMcp()` 暴露的 HTTP MCP 端点。
+- 边界与职责：
+  - `McpServer` 只负责 MCP 协议接入、参数转发、超时控制、错误包装、调用日志。
+  - `McpServer` 不直接读取 `Config/Work/*.json`，不实现流程归一化、跳转校验、保存、发布等业务逻辑。
+  - `Automation Bridge` 负责真正的流程读取、Schema 导出、Patch 预演、保存与发布。
+- 启动与运行：
+  - 启动入口为 `McpServer/Program.cs`。
+  - 默认监听地址由 `AutomationMcp.ListenUrl` 控制，默认值 `http://127.0.0.1:8081`。
+  - 默认桥接地址由 `AutomationMcp.BridgeBaseUrl` 控制，默认值 `http://127.0.0.1:18081`。
+  - `app.MapMcp()` 占用根路径作为 MCP HTTP 传输端点，禁止再把业务状态页绑定到 `/`。
+  - `/info` 返回服务器基本信息；`/healthz` 返回监听配置与桥接超时。
+  - `EnableTrayIcon=true` 时使用托盘常驻，托盘菜单仅包含“重启 MCP”“退出 MCP”。
+- 当前工具清单：
+  - `list_procs`：读取流程列表，可选返回步骤摘要。
+  - `get_proc_overview`：读取单流程摘要视图。
+  - `get_proc_detail`：读取单流程完整详情视图。
+  - `list_operation_types`：读取当前全部指令类型目录。
+  - `get_operation_schema`：读取某个指令实例或指令类型的可编辑 Schema。
+  - `get_reference_catalog`：读取变量、IO、工站、通讯、PLC 等可引用对象目录。
+  - `preview_patch`：转发结构化 Patch 预演请求，不落盘。
+  - `apply_patch`：转发结构化 Patch 提交请求，触发保存与发布。
+  - `get_patch_contract`：返回当前 Patch 结构与调用顺序约束说明。
+- Bridge 协议映射：
+  - `list_procs -> POST /bridge/procs/list`
+  - `get_proc_overview -> POST /bridge/procs/overview`
+  - `get_proc_detail -> POST /bridge/procs/detail`
+  - `list_operation_types -> POST /bridge/operations/types`
+  - `get_operation_schema -> POST /bridge/operations/schema`
+  - `get_reference_catalog -> POST /bridge/references/catalog`
+  - `preview_patch -> POST /bridge/patch/preview`
+  - `apply_patch -> POST /bridge/patch/apply`
+- 错误与排查：
+  - Bridge 无响应或端口错误时，工具返回 `type=bridge.error`，并带 `errorCode=TIMEOUT/HTTP_ERROR/REQUEST_ERROR/EMPTY_RESPONSE`。
+  - 工具调用日志写入 `AutomationMcp.LogRoot` 指定目录，按天滚动 `.log` 文件。
+  - `BridgeTimeoutMs<=0` 时会回退为 `30000ms`。
