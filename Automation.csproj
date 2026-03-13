@@ -109,9 +109,14 @@
     <Compile Include="Security\\PermissionCatalog.cs" />
     <Compile Include="Security\\UserAccount.cs" />
     <Compile Include="Runtime\\AppConfigStorage.cs" />
+    <Compile Include="Runtime\\DifyConfigStorage.cs" />
     <Compile Include="Bridge\\AutomationBridgeHost.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.cs" />
+    <Compile Include="DifyWorkflowClient.cs" />
     <Compile Include="FrmAppConfig.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmAiAssistant.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FrmAlarmConfig.cs">

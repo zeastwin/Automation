@@ -114,18 +114,32 @@ namespace Automation.McpServer
     "update_step_fields",
     "update_operation_fields",
     "append_step",
-    "append_operation"
+    "insert_step",
+    "delete_step",
+    "move_step",
+    "append_operation",
+    "insert_operation",
+    "delete_operation",
+    "move_operation"
   ],
   "patchShape": {
     "procIndex": 0,
     "baseProcId": "guid",
     "actions": [
       {
-        "type": "update_operation_fields",
+        "type": "move_operation",
         "stepId": "guid",
         "opId": "guid",
-        "expectedOperaType": "IO检测",
-        "fieldChanges": {
+        "targetStepId": "guid",
+        "targetIndex": 2,
+        "expectedOperaType": "IO检测"
+      },
+      {
+        "type": "insert_operation",
+        "stepId": "guid",
+        "insertIndex": 3,
+        "operaType": "IO检测",
+        "fieldValues": {
           "timeOutC_TimeOut": 5000
         }
       }
@@ -136,6 +150,8 @@ namespace Automation.McpServer
     "不要假设流程名、步骤名、指令名唯一",
     "字段名必须使用 get_proc_detail.fields 或 get_operation_schema.fields.key 返回的精确键名",
     "不要在未读取 schema 的情况下猜字段名或枚举值",
+    "delete/move/insert 会触发 Automation Bridge 自动重写同流程内的跳转地址",
+    "move_step/move_operation 的 targetIndex 表示移除源项后的最终索引",
     "apply_patch 前必须先调用 preview_patch"
   ]
 }

@@ -34,6 +34,7 @@
             this.communication_Page = new System.Windows.Forms.Button();
             this.panel1 = new System.Windows.Forms.Panel();
             this.Card_Page = new System.Windows.Forms.Button();
+            this.aiAssistant_Page = new System.Windows.Forms.Button();
             this.valueDebug_Page = new System.Windows.Forms.Button();
             this.value_Page = new System.Windows.Forms.Button();
             this.Plc_Page = new System.Windows.Forms.Button();
@@ -138,6 +139,7 @@
             // panel1
             // 
             this.panel1.Controls.Add(this.Card_Page);
+            this.panel1.Controls.Add(this.aiAssistant_Page);
             this.panel1.Controls.Add(this.valueDebug_Page);
             this.panel1.Controls.Add(this.Plc_Page);
             this.panel1.Controls.Add(this.communication_Page);
@@ -146,7 +148,7 @@
             this.panel1.Controls.Add(this.station_Page);
             this.panel1.Controls.Add(this.process_Page);
             this.panel1.AutoScroll = true;
-            this.panel1.AutoScrollMinSize = new System.Drawing.Size(1144, 0);
+            this.panel1.AutoScrollMinSize = new System.Drawing.Size(1287, 0);
             this.panel1.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panel1.Location = new System.Drawing.Point(0, 0);
             this.panel1.Name = "panel1";
@@ -171,6 +173,25 @@
             this.Card_Page.Text = "控制卡配置";
             this.Card_Page.UseVisualStyleBackColor = false;
             this.Card_Page.Click += new System.EventHandler(this.Card_Page_Click);
+            // 
+            // aiAssistant_Page
+            // 
+            this.aiAssistant_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.aiAssistant_Page.Dock = System.Windows.Forms.DockStyle.Left;
+            this.aiAssistant_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.aiAssistant_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.aiAssistant_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.aiAssistant_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.aiAssistant_Page.Font = new System.Drawing.Font("黑体", 14.75F);
+            this.aiAssistant_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.aiAssistant_Page.Location = new System.Drawing.Point(858, 0);
+            this.aiAssistant_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
+            this.aiAssistant_Page.Name = "aiAssistant_Page";
+            this.aiAssistant_Page.Size = new System.Drawing.Size(143, 129);
+            this.aiAssistant_Page.TabIndex = 17;
+            this.aiAssistant_Page.Text = "AI助手";
+            this.aiAssistant_Page.UseVisualStyleBackColor = false;
+            this.aiAssistant_Page.Click += new System.EventHandler(this.aiAssistant_Page_Click);
             // 
             // valueDebug_Page
             // 
@@ -231,6 +252,7 @@
         private System.Windows.Forms.Button process_Page;
         private System.Windows.Forms.Panel panel1;
         private System.Windows.Forms.Button Card_Page;
+        private System.Windows.Forms.Button aiAssistant_Page;
         private System.Windows.Forms.Button valueDebug_Page;
         private System.Windows.Forms.Button value_Page;
         private System.Windows.Forms.Button Plc_Page;

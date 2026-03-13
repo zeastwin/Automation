@@ -25,6 +25,56 @@ namespace Automation
             SF.frmValue.WindowState = FormWindowState.Normal;
         }
 
+        private void aiAssistant_Page_Click(object sender, EventArgs e)
+        {
+            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "进入 AI 助手"))
+            {
+                return;
+            }
+            if (SF.curPage != 7)
+            {
+                SF.curPage = 7;
+                if (!SF.mainfrm.main_panel.Controls.Contains(SF.frmAiAssistant))
+                {
+                    SF.mainfrm.loadFillForm(SF.mainfrm.main_panel, SF.frmAiAssistant);
+                }
+                SF.frmAiAssistant.RefreshAssistantView();
+
+                SF.mainfrm.ToolBar_panel.Visible = false;
+                SF.mainfrm.treeView_panel.Visible = false;
+                SF.mainfrm.propertyGrid_panel.Visible = false;
+                SF.mainfrm.DataGrid_panel.Visible = false;
+                SF.mainfrm.panel_Info.Visible = false;
+                SF.mainfrm.state_panel.Visible = false;
+
+                SF.frmAiAssistant.Visible = true;
+                SF.frmAiAssistant.BringToFront();
+
+                SF.frmDataGrid.Visible = false;
+                SF.frmProc.Visible = false;
+                if (SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
+                {
+                    SF.frmIO.Visible = false;
+                }
+                if (SF.mainfrm.treeView_panel.Controls.Contains(SF.frmCard))
+                {
+                    SF.frmCard.Visible = false;
+                }
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
+                {
+                    SF.frmStation.Visible = false;
+                }
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
+                {
+                    SF.frmValueDebug.Visible = false;
+                }
+
+                SF.frmToolBar.btnIOMonitor.Visible = false;
+                SF.frmIO.StopIOMonitor();
+                SF.frmToolBar.btnIOMonitor.Text = "IO监视";
+            }
+        }
+
         private void Card_Page_Click(object sender, EventArgs e)
         {
             if (!SF.EnsurePermission(PermissionKeys.CardConfigAccess, "进入控制卡/IO配置"))
@@ -64,6 +114,10 @@ namespace Automation
                 if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
                 {
                     SF.frmValueDebug.Visible = false;
+                }
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmAiAssistant))
+                {
+                    SF.frmAiAssistant.Visible = false;
                 }
 
                 SF.frmCard.BringToFront();
@@ -128,6 +182,10 @@ namespace Automation
                 if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
                 {
                     SF.frmValueDebug.Visible = false;
+                }
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmAiAssistant))
+                {
+                    SF.frmAiAssistant.Visible = false;
                 }
 
                 bool canRun = SF.HasPermission(PermissionKeys.ProcessRun);
@@ -202,6 +260,10 @@ namespace Automation
                 if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
                 {
                     SF.frmValueDebug.Visible = false;
+                }
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmAiAssistant))
+                {
+                    SF.frmAiAssistant.Visible = false;
                 }
                 
                 SF.frmControl.comboBox1.DisplayMember = "Name";
@@ -283,6 +345,10 @@ namespace Automation
                 {
                     SF.frmStation.Visible = false;
                 }
+                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmAiAssistant))
+                {
+                    SF.frmAiAssistant.Visible = false;
+                }
 
                 SF.frmToolBar.btnIOMonitor.Visible = false;
                 SF.frmIO.StopIOMonitor();
@@ -314,6 +380,7 @@ namespace Automation
             communication_Page.Visible = true;
             value_Page.Visible = true;
             valueDebug_Page.Visible = true;
+            aiAssistant_Page.Visible = true;
             Card_Page.Visible = true;
             Plc_Page.Visible = true;
 
@@ -323,6 +390,7 @@ namespace Automation
             communication_Page.Enabled = SF.HasPermission(PermissionKeys.CommunicationAccess);
             value_Page.Enabled = SF.HasPermission(PermissionKeys.ValueAccess);
             valueDebug_Page.Enabled = SF.HasPermission(PermissionKeys.ValueDebugAccess);
+            aiAssistant_Page.Enabled = SF.HasPermission(PermissionKeys.ProcessAccess);
             Card_Page.Enabled = SF.HasPermission(PermissionKeys.CardConfigAccess);
             Plc_Page.Enabled = SF.HasPermission(PermissionKeys.PlcAccess);
         }

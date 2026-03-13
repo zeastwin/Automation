@@ -31,7 +31,7 @@
 
 ## 1. 系统定位与主链路
 - 项目是基于 Windows Forms 的低代码自动化平台，核心对象是“流程（Proc）-步骤（Step）-操作（OperationType）”。
-- 系统围绕五类能力运行：流程编排与执行、运动控制与 IO、TCP/串口通讯、PLC 通讯、账户权限与安全锁定。
+- 系统围绕六类能力运行：流程编排与执行、运动控制与 IO、TCP/串口通讯、PLC 通讯、AI 工作流助手与流程辅助、账户权限与安全锁定。
 - 启动链路：
   - 启动阶段强制加载 `Config/AppConfig.json`；文件缺失时自动生成默认值（`CommMaxMessageQueueSize=1000`），加载失败会提示错误并终止启动。
   - 初始化账户系统（`AccountStore/UserContextStore/UserLoginStore`），加载 `Config/Account.json`。
@@ -55,7 +55,7 @@
   - 初始化 `cardStore/valueStore/dataStructStore/trayPointStore/alarmInfoStore/comm/plcStore`。
   - 创建 `ProcessEngine` 并注入 `EngineContext`（流程、变量、数据结构、运动、通讯、PLC、IO 映射、工站、自定义函数）。
   - 绑定日志器（UI + 本地文件）与报警处理器（`WinFormsAlarmHandler`）。
-  - 创建并嵌入子窗体（`TopLevel=false + Dock=Fill`）。
+  - 创建并嵌入子窗体（`TopLevel=false + Dock=Fill`），其中 `FrmAiAssistant` 为主区全屏页面，承载 Dify Workflow 配置、参数展示与人机交互界面。
 - `FrmMain_Load` 执行顺序：
   - 刷新变量、卡/IO、数据结构、通讯、报警、PLC 配置。
   - 初始化运动控制（`InitCardType -> InitCard -> DownLoadConfig -> SetAllAxisSevonOn -> SetAllAxisEquiv`）。
@@ -71,12 +71,13 @@
 
 ## 4. 页面结构与导航
 - `FrmMenu` 顶部按钮当前从左到右完整顺序：
-  - 流程、工站、变量、IO调试、通讯、PLC、变量调试、控制卡配置。
+  - 流程、工站、变量、IO调试、通讯、PLC、变量调试、AI助手、控制卡配置。
 - 页面切换由 `SF.curPage` 驱动，`FrmMenu` 根据目标页面重排主窗体区域可见性：
   - 流程页：树 + 指令表 + 属性区 + 工具栏 + 状态区。
   - 工站页：主区显示 `FrmStation`，隐藏流程编辑区。
   - 控制卡/IO页：树区显示 `FrmCard`，表区显示 `FrmIO`，工具栏切换为 IO 监视动作。
   - 变量调试页：主区显示 `FrmValueDebug`，隐藏流程编辑区。
+  - AI 助手页：主区显示 `FrmAiAssistant`，隐藏流程编辑区；页面采用左右双栏布局，左侧固定提供 Dify Workflow 配置、`user_input_form` 参数展示和 `inputs JSON` 编辑，右侧显示运行记录与 workflow 执行输入区，底部独立状态栏显示当前操作状态。
 - 变量按钮行为：
   - 进入 `FrmValue` 前执行 `SF.frmValue.FreshFrmValue()`，界面值以运行态变量为准。
 
@@ -96,6 +97,10 @@
   - IO 监视依赖 `IOMonitor.Use`。
   - 打开程序目录依赖 `Tool.OpenConfigFolder`。
   - 账户管理依赖 `Account.Manage`（恢复会话同样允许）。
+- AI 助手权限：
+  - 进入 `AI助手` 页面与发送对话依赖 `Process.Access`。
+  - 编辑并保存 Dify URL/Key 依赖 `AppConfig.Access`。
+  - AI 助手当前按 Dify Workflow 形态工作，发送按钮调用 `POST /workflows/run`，参数结构通过 `GET /parameters` 读取。
 - 右键目标策略（统一按鼠标命中项）：
   - `FrmProc`：右键空白会清空流程/步骤/操作选择并清空属性绑定。
   - `FrmDataGrid`：右键空白会清空选中行并取消菜单目标。
@@ -250,8 +255,10 @@
 - 账户与程序：
   - `Config/Account.json`：账户与权限密文配置。
   - `Config/AppConfig.json`：程序运行参数（当前键：`CommMaxMessageQueueSize`，默认 `1000`）。
+  - `Config/DifyConfig.json`：AI 助手配置（当前键完整清单：`BaseUrl`、`ApiKey`）。
   - `AppConfig.json` 在程序启动阶段由 `AppConfigStorage.TryLoad` 强制加载；缺失时自动创建默认文件，字段缺失/类型错误/非正数会终止启动。
   - `AppConfigStorage` 在 `TryLoad/TrySave` 成功后刷新进程内缓存；运行期读取可通过 `TryGetCached` 获取当前缓存值。
+  - `DifyConfig.json` 不参与启动强校验；AI 助手首次打开时若文件不存在会自动生成空白配置，字段缺失或类型错误会在页面内报错并禁止正常执行 workflow。
 - 外部辅助进程：
   - `McpServer/appsettings.json`：独立 `Automation MCP Server` 的运行参数。
   - 当前键完整清单：`AutomationMcp.ListenUrl`、`AutomationMcp.BridgePipeName`、`AutomationMcp.BridgeTimeoutMs`、`AutomationMcp.EnableTrayIcon`、`AutomationMcp.LogRoot`。
@@ -265,6 +272,10 @@
   - 查 `Config/AppConfig.json` 是否存在 `CommMaxMessageQueueSize`，类型是否为整数且值大于 `0`。
 - 启动即锁定：
   - 先查 `Config/Account.json` 是否为合法 `ENC:` 密文，字段是否符合白名单。
+- AI 助手无法发送：
+  - 先查 `Config/DifyConfig.json` 的 `BaseUrl` 是否填写到 Dify API 根地址（例如 `http://127.0.0.1/v1`），`ApiKey` 是否为空。
+  - 再查当前 Dify 应用是否为 Workflow 应用，并确认 `GET /parameters` 能正常返回 `user_input_form`。
+  - 若 workflow 存在多个输入变量，页面中的“主问题变量名”必须显式填写；其他变量通过 `Inputs JSON` 传入。
 - 流程禁止运行：
   - 查 `SF.ProcConfigFaulted`，再查 `Config/Work` 是否从 `0.json` 连续、跳转地址是否跨流程或越界。
 - 通讯初始化异常：
@@ -310,8 +321,16 @@
     - `update_step_fields`
     - `update_operation_fields`
     - `append_step`
+    - `insert_step`
+    - `delete_step`
+    - `move_step`
     - `append_operation`
+    - `insert_operation`
+    - `delete_operation`
+    - `move_operation`
   - `ProcHead` 当前只允许修改 `Name/AutoStart/Disable`；步骤当前只允许修改 `Name/Disable`。
+  - 结构化动作会自动按当前流程拓扑重写同流程内的 `MarkedGoto` 跳转地址；若原目标被删除，会优先回退到最近存活指令，整个流程已无可跳转目标时清空该跳转字段。
+  - `move_step/move_operation` 的 `targetIndex` 语义均为“移除源项后的最终索引”。
   - 指令字段名以 PropertyGrid 平铺后的属性键为准，例如 `timeOutC_TimeOut`、`IoParams_0_IOName`；不得自行猜测内部 JSON 字段。
 - Automation Bridge 当前逻辑路由：
   - `GET /bridge/health`
@@ -356,6 +375,8 @@
   - `get_reference_catalog -> POST /bridge/references/catalog`
   - `preview_patch -> POST /bridge/patch/preview`
   - `apply_patch -> POST /bridge/patch/apply`
+- Dify Agent 提示词模板：
+  - 当前可直接复用的 Dify Agent 提示词、开场白与 Few-shot 示例统一维护在项目根目录 `Dify-Agent-Prompts.md`。
 - 错误与排查：
   - Bridge 初始化或监听异常时，主程序运行信息页会记录 `Automation Bridge 监听异常`。
   - 常见原因是同名管道实例异常未释放、主程序未启动、或 `McpServer` 配置的 `BridgePipeName` 与主程序不一致。

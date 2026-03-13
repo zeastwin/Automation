@@ -39,6 +39,7 @@ namespace Automation
         public static FrmComunication frmComunication;
         public static FrmState frmState;
         public static FrmValueDebug frmValueDebug;
+        public static FrmAiAssistant frmAiAssistant;
         public static CustomFunc customFunc;
         public static FrmAlarmConfig frmAlarmConfig;
         public static FrmSearch frmSearch;
@@ -153,6 +154,10 @@ namespace Automation
             if (frmDataGrid != null && !frmDataGrid.IsDisposed)
             {
                 frmDataGrid.ApplyPermissions();
+            }
+            if (frmAiAssistant != null && !frmAiAssistant.IsDisposed)
+            {
+                frmAiAssistant.ApplyPermissions();
             }
             if (frmAccountManager != null && !frmAccountManager.IsDisposed)
             {

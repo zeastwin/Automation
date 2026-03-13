@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using static System.ComponentModel.TypeConverter;
 
 namespace Automation.Bridge
@@ -388,8 +389,26 @@ namespace Automation.Bridge
                     case "append_step":
                         ApplyAppendStep(action, draft, result, i);
                         break;
+                    case "insert_step":
+                        ApplyInsertStep(action, draft, result, i);
+                        break;
+                    case "delete_step":
+                        ApplyDeleteStep(action, draft, result, i);
+                        break;
+                    case "move_step":
+                        ApplyMoveStep(action, draft, result, i);
+                        break;
                     case "append_operation":
                         ApplyAppendOperation(action, draft, result, i);
+                        break;
+                    case "insert_operation":
+                        ApplyInsertOperation(action, draft, result, i);
+                        break;
+                    case "delete_operation":
+                        ApplyDeleteOperation(action, draft, result, i);
+                        break;
+                    case "move_operation":
+                        ApplyMoveOperation(action, draft, result, i);
                         break;
                     default:
                         throw new BridgeRequestException(400, "PATCH_UNSUPPORTED_ACTION", $"不支持的 Patch 动作：{actionType}");
@@ -456,12 +475,7 @@ namespace Automation.Bridge
         {
             Step step = FindStepById(draft, ParseGuid(ReadRequiredString(action, "stepId"), "stepId"));
             OperationType op = FindOperationById(step, ParseGuid(ReadRequiredString(action, "opId"), "opId"));
-            string expectedOperaType = ReadOptionalString(action, "expectedOperaType");
-            if (!string.IsNullOrWhiteSpace(expectedOperaType)
-                && !string.Equals(expectedOperaType, op.OperaType, StringComparison.Ordinal))
-            {
-                throw new BridgeRequestException(409, "PATCH_TARGET_MISMATCH", $"指令类型不匹配，期望 {expectedOperaType}，实际 {op.OperaType}。");
-            }
+            ValidateExpectedOperaType(action, op);
 
             JObject fieldChanges = ReadRequiredObject(action, "fieldChanges");
             ApplyOperationPropertyChanges(op, fieldChanges, $"指令[{op.Name}]", actionIndex, result);
@@ -469,25 +483,397 @@ namespace Automation.Bridge
 
         private void ApplyAppendStep(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
         {
+            InsertStepCore(
+                action,
+                draft,
+                result,
+                actionIndex,
+                draft.steps?.Count ?? 0,
+                "append_step");
+        }
+
+        private void ApplyInsertStep(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
+        {
+            int insertIndex = ReadRequiredInsertIndex(action, "insertIndex", draft.steps?.Count ?? 0, "步骤插入位置");
+            InsertStepCore(
+                action,
+                draft,
+                result,
+                actionIndex,
+                insertIndex,
+                "insert_step");
+        }
+
+        private void ApplyDeleteStep(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
+        {
+            Guid stepId = ParseGuid(ReadRequiredString(action, "stepId"), "stepId");
+            int stepIndex = FindStepIndexById(draft, stepId);
+            Step step = draft.steps[stepIndex];
+            Proc before = FrmPropertyGrid.DeepCopy(draft);
+
+            draft.steps.RemoveAt(stepIndex);
+            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
+
+            result.Messages.Add($"动作{actionIndex}：已删除步骤[{step?.Name ?? string.Empty}]。");
+            result.Changes.Add(new JObject
+            {
+                ["actionIndex"] = actionIndex,
+                ["type"] = "delete_step",
+                ["stepId"] = stepId.ToString("D"),
+                ["oldStepIndex"] = stepIndex,
+                ["name"] = step?.Name ?? string.Empty
+            });
+        }
+
+        private static void ValidateExpectedOperaType(JObject action, OperationType op)
+        {
+            string expectedOperaType = ReadOptionalString(action, "expectedOperaType");
+            if (!string.IsNullOrWhiteSpace(expectedOperaType)
+                && !string.Equals(expectedOperaType, op?.OperaType, StringComparison.Ordinal))
+            {
+                throw new BridgeRequestException(409, "PATCH_TARGET_MISMATCH", $"指令类型不匹配，期望 {expectedOperaType}，实际 {op?.OperaType ?? string.Empty}。");
+            }
+        }
+
+        private static void EnsureStepOps(Step step)
+        {
+            if (step == null)
+            {
+                throw new BridgeRequestException(500, "STEP_NULL", "步骤为空。");
+            }
+            if (step.Ops == null)
+            {
+                step.Ops = new List<OperationType>();
+            }
+        }
+
+        private static int FindStepIndexById(Proc proc, Guid stepId)
+        {
+            if (proc?.steps == null)
+            {
+                throw new BridgeRequestException(404, "STEP_NOT_FOUND", $"未找到步骤：{stepId:D}");
+            }
+
+            for (int i = 0; i < proc.steps.Count; i++)
+            {
+                if (proc.steps[i] != null && proc.steps[i].Id == stepId)
+                {
+                    return i;
+                }
+            }
+
+            throw new BridgeRequestException(404, "STEP_NOT_FOUND", $"未找到步骤：{stepId:D}");
+        }
+
+        private static int FindOperationIndexById(Step step, Guid opId)
+        {
+            if (step?.Ops == null)
+            {
+                throw new BridgeRequestException(404, "OP_NOT_FOUND", $"未找到指令：{opId:D}");
+            }
+
+            for (int i = 0; i < step.Ops.Count; i++)
+            {
+                if (step.Ops[i] != null && step.Ops[i].Id == opId)
+                {
+                    return i;
+                }
+            }
+
+            throw new BridgeRequestException(404, "OP_NOT_FOUND", $"未找到指令：{opId:D}");
+        }
+
+        private static int ReadRequiredInsertIndex(JObject request, string fieldName, int maxInclusive, string label)
+        {
+            int value = ReadRequiredInt(request, fieldName);
+            if (value < 0 || value > maxInclusive)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"{label}超出范围：{value}");
+            }
+            return value;
+        }
+
+        private void RewriteGotoTargetsAfterStructureChange(Proc before, Proc after, int procIndex, int actionIndex, PatchExecutionResult result)
+        {
+            Dictionary<Guid, GotoLocation> newLocations = BuildOperationLocationMap(after);
+            GotoRewriteSummary summary = new GotoRewriteSummary();
+            if (after?.steps != null)
+            {
+                foreach (Step step in after.steps)
+                {
+                    if (step?.Ops == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (OperationType op in step.Ops)
+                    {
+                        if (op == null)
+                        {
+                            continue;
+                        }
+                        RewriteGotoTargetsRecursive(op, before, after, procIndex, newLocations, summary);
+                    }
+                }
+            }
+
+            if (summary.RewrittenCount == 0 && summary.FallbackCount == 0 && summary.ClearedCount == 0)
+            {
+                return;
+            }
+
+            result.Messages.Add($"动作{actionIndex}：已重写跳转 {summary.RewrittenCount} 个，回退 {summary.FallbackCount} 个，清空 {summary.ClearedCount} 个。");
+            result.Changes.Add(new JObject
+            {
+                ["actionIndex"] = actionIndex,
+                ["type"] = "goto_rewrite",
+                ["rewrittenCount"] = summary.RewrittenCount,
+                ["fallbackCount"] = summary.FallbackCount,
+                ["clearedCount"] = summary.ClearedCount
+            });
+        }
+
+        private void RewriteGotoTargetsRecursive(
+            object currentObject,
+            Proc beforeProc,
+            Proc afterProc,
+            int procIndex,
+            Dictionary<Guid, GotoLocation> newLocations,
+            GotoRewriteSummary summary)
+        {
+            if (currentObject == null)
+            {
+                return;
+            }
+
+            foreach (var propertyInfo in currentObject.GetType().GetProperties())
+            {
+                if (propertyInfo.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+
+                if (propertyInfo.PropertyType == typeof(string)
+                    && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
+                {
+                    string currentValue = propertyInfo.GetValue(currentObject) as string;
+                    RewriteSingleGotoTarget(currentObject, propertyInfo, currentValue, beforeProc, afterProc, procIndex, newLocations, summary);
+                }
+
+                var propertyValue = propertyInfo.GetValue(currentObject);
+                if (propertyValue is System.Collections.IEnumerable enumerable && !(propertyValue is string))
+                {
+                    foreach (var item in enumerable)
+                    {
+                        if (item == null)
+                        {
+                            continue;
+                        }
+                        RewriteGotoTargetsRecursive(item, beforeProc, afterProc, procIndex, newLocations, summary);
+                    }
+                }
+            }
+        }
+
+        private void RewriteSingleGotoTarget(
+            object currentObject,
+            System.Reflection.PropertyInfo propertyInfo,
+            string currentValue,
+            Proc beforeProc,
+            Proc afterProc,
+            int procIndex,
+            Dictionary<Guid, GotoLocation> newLocations,
+            GotoRewriteSummary summary)
+        {
+            if (string.IsNullOrWhiteSpace(currentValue))
+            {
+                return;
+            }
+            if (!FrmProc.TryParseGotoKey(currentValue, out int gotoProc, out int gotoStep, out int gotoOp) || gotoProc != procIndex)
+            {
+                return;
+            }
+
+            if (TryResolveTargetOperationId(beforeProc, gotoStep, gotoOp, out Guid targetOpId)
+                && newLocations.TryGetValue(targetOpId, out GotoLocation currentTarget))
+            {
+                string newValue = BuildGotoKey(procIndex, currentTarget.StepIndex, currentTarget.OpIndex);
+                if (!string.Equals(newValue, currentValue, StringComparison.Ordinal))
+                {
+                    propertyInfo.SetValue(currentObject, newValue);
+                    summary.RewrittenCount++;
+                }
+                return;
+            }
+
+            GotoLocation fallback = FindClosestOperationLocation(afterProc, gotoStep, gotoOp);
+            if (fallback != null)
+            {
+                string fallbackValue = BuildGotoKey(procIndex, fallback.StepIndex, fallback.OpIndex);
+                propertyInfo.SetValue(currentObject, fallbackValue);
+                summary.FallbackCount++;
+                return;
+            }
+
+            propertyInfo.SetValue(currentObject, string.Empty);
+            summary.ClearedCount++;
+        }
+
+        private static bool TryResolveTargetOperationId(Proc proc, int stepIndex, int opIndex, out Guid opId)
+        {
+            opId = Guid.Empty;
+            if (proc?.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
+            {
+                return false;
+            }
+
+            Step step = proc.steps[stepIndex];
+            if (step?.Ops == null || opIndex < 0 || opIndex >= step.Ops.Count)
+            {
+                return false;
+            }
+
+            OperationType op = step.Ops[opIndex];
+            if (op == null || op.Id == Guid.Empty)
+            {
+                return false;
+            }
+
+            opId = op.Id;
+            return true;
+        }
+
+        private static Dictionary<Guid, GotoLocation> BuildOperationLocationMap(Proc proc)
+        {
+            Dictionary<Guid, GotoLocation> map = new Dictionary<Guid, GotoLocation>();
+            if (proc?.steps == null)
+            {
+                return map;
+            }
+
+            for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
+            {
+                Step step = proc.steps[stepIndex];
+                if (step?.Ops == null)
+                {
+                    continue;
+                }
+
+                for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
+                {
+                    OperationType op = step.Ops[opIndex];
+                    if (op == null || op.Id == Guid.Empty)
+                    {
+                        continue;
+                    }
+
+                    map[op.Id] = new GotoLocation
+                    {
+                        StepIndex = stepIndex,
+                        OpIndex = opIndex
+                    };
+                }
+            }
+
+            return map;
+        }
+
+        private static GotoLocation FindClosestOperationLocation(Proc proc, int preferredStepIndex, int preferredOpIndex)
+        {
+            if (proc?.steps == null)
+            {
+                return null;
+            }
+
+            GotoLocation best = null;
+            int bestStepDistance = int.MaxValue;
+            int bestOpDistance = int.MaxValue;
+
+            for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
+            {
+                Step step = proc.steps[stepIndex];
+                if (step?.Ops == null)
+                {
+                    continue;
+                }
+
+                for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
+                {
+                    int stepDistance = Math.Abs(stepIndex - preferredStepIndex);
+                    int opDistance = Math.Abs(opIndex - preferredOpIndex);
+
+                    if (best == null
+                        || stepDistance < bestStepDistance
+                        || (stepDistance == bestStepDistance && opDistance < bestOpDistance))
+                    {
+                        best = new GotoLocation
+                        {
+                            StepIndex = stepIndex,
+                            OpIndex = opIndex
+                        };
+                        bestStepDistance = stepDistance;
+                        bestOpDistance = opDistance;
+                    }
+                }
+            }
+
+            return best;
+        }
+
+        private static string BuildGotoKey(int procIndex, int stepIndex, int opIndex)
+        {
+            return $"{procIndex}-{stepIndex}-{opIndex}";
+        }
+
+        private void ApplyMoveStep(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
+        {
+            Guid stepId = ParseGuid(ReadRequiredString(action, "stepId"), "stepId");
+            int sourceIndex = FindStepIndexById(draft, stepId);
+            Step step = draft.steps[sourceIndex];
+            Proc before = FrmPropertyGrid.DeepCopy(draft);
+
+            draft.steps.RemoveAt(sourceIndex);
+            int targetIndex = ReadRequiredInsertIndex(action, "targetIndex", draft.steps.Count, "步骤目标位置");
+            draft.steps.Insert(targetIndex, step);
+            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
+
+            result.Messages.Add($"动作{actionIndex}：已移动步骤[{step?.Name ?? string.Empty}] 到索引 {targetIndex}。");
+            result.Changes.Add(new JObject
+            {
+                ["actionIndex"] = actionIndex,
+                ["type"] = "move_step",
+                ["stepId"] = stepId.ToString("D"),
+                ["oldStepIndex"] = sourceIndex,
+                ["newStepIndex"] = targetIndex,
+                ["name"] = step?.Name ?? string.Empty
+            });
+        }
+
+        private void InsertStepCore(JObject action, Proc draft, PatchExecutionResult result, int actionIndex, int insertIndex, string changeType)
+        {
             if (draft.steps == null)
             {
                 draft.steps = new List<Step>();
             }
 
+            Proc before = FrmPropertyGrid.DeepCopy(draft);
             var step = new Step
             {
                 Id = Guid.NewGuid(),
-                Name = ReadOptionalString(action, "name") ?? $"步骤{draft.steps.Count}",
+                Name = ReadOptionalString(action, "name") ?? $"步骤{insertIndex}",
                 Disable = ReadOptionalBoolean(action, "disable") ?? false,
                 Ops = new List<OperationType>()
             };
 
-            draft.steps.Add(step);
-            result.Messages.Add($"动作{actionIndex}：已追加步骤 {step.Name}。");
+            draft.steps.Insert(insertIndex, step);
+            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
+
+            result.Messages.Add($"动作{actionIndex}：已在索引 {insertIndex} 插入步骤 {step.Name}。");
             result.Changes.Add(new JObject
             {
                 ["actionIndex"] = actionIndex,
-                ["type"] = "append_step",
+                ["type"] = changeType,
+                ["stepIndex"] = insertIndex,
                 ["stepId"] = step.Id.ToString("D"),
                 ["name"] = step.Name
             });
@@ -496,6 +882,100 @@ namespace Automation.Bridge
         private void ApplyAppendOperation(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
         {
             Step step = FindStepById(draft, ParseGuid(ReadRequiredString(action, "stepId"), "stepId"));
+            InsertOperationCore(
+                action,
+                draft,
+                step,
+                result,
+                actionIndex,
+                step?.Ops?.Count ?? 0,
+                "append_operation");
+        }
+
+        private void ApplyInsertOperation(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
+        {
+            Step step = FindStepById(draft, ParseGuid(ReadRequiredString(action, "stepId"), "stepId"));
+            int insertIndex = ReadRequiredInsertIndex(action, "insertIndex", step?.Ops?.Count ?? 0, "指令插入位置");
+            InsertOperationCore(
+                action,
+                draft,
+                step,
+                result,
+                actionIndex,
+                insertIndex,
+                "insert_operation");
+        }
+
+        private void ApplyDeleteOperation(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
+        {
+            Guid stepId = ParseGuid(ReadRequiredString(action, "stepId"), "stepId");
+            Guid opId = ParseGuid(ReadRequiredString(action, "opId"), "opId");
+            int stepIndex = FindStepIndexById(draft, stepId);
+            Step step = draft.steps[stepIndex];
+            int opIndex = FindOperationIndexById(step, opId);
+            OperationType op = step.Ops[opIndex];
+            ValidateExpectedOperaType(action, op);
+            Proc before = FrmPropertyGrid.DeepCopy(draft);
+
+            step.Ops.RemoveAt(opIndex);
+            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
+
+            result.Messages.Add($"动作{actionIndex}：已删除步骤[{step?.Name ?? string.Empty}] 中的指令 {op?.Name ?? string.Empty}({op?.OperaType ?? string.Empty})。");
+            result.Changes.Add(new JObject
+            {
+                ["actionIndex"] = actionIndex,
+                ["type"] = "delete_operation",
+                ["stepId"] = stepId.ToString("D"),
+                ["opId"] = opId.ToString("D"),
+                ["oldStepIndex"] = stepIndex,
+                ["oldOpIndex"] = opIndex,
+                ["operaType"] = op?.OperaType ?? string.Empty,
+                ["name"] = op?.Name ?? string.Empty
+            });
+        }
+
+        private void ApplyMoveOperation(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
+        {
+            Guid stepId = ParseGuid(ReadRequiredString(action, "stepId"), "stepId");
+            Guid opId = ParseGuid(ReadRequiredString(action, "opId"), "opId");
+            Guid targetStepId = string.IsNullOrWhiteSpace(ReadOptionalString(action, "targetStepId"))
+                ? stepId
+                : ParseGuid(ReadRequiredString(action, "targetStepId"), "targetStepId");
+
+            int sourceStepIndex = FindStepIndexById(draft, stepId);
+            Step sourceStep = draft.steps[sourceStepIndex];
+            int sourceOpIndex = FindOperationIndexById(sourceStep, opId);
+            OperationType op = sourceStep.Ops[sourceOpIndex];
+            ValidateExpectedOperaType(action, op);
+            Proc before = FrmPropertyGrid.DeepCopy(draft);
+
+            sourceStep.Ops.RemoveAt(sourceOpIndex);
+            int targetStepIndex = FindStepIndexById(draft, targetStepId);
+            Step targetStep = draft.steps[targetStepIndex];
+            EnsureStepOps(targetStep);
+            int targetIndex = ReadRequiredInsertIndex(action, "targetIndex", targetStep.Ops.Count, "指令目标位置");
+            targetStep.Ops.Insert(targetIndex, op);
+            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
+
+            result.Messages.Add($"动作{actionIndex}：已移动指令 {op?.Name ?? string.Empty}({op?.OperaType ?? string.Empty}) 到步骤[{targetStep?.Name ?? string.Empty}] 索引 {targetIndex}。");
+            result.Changes.Add(new JObject
+            {
+                ["actionIndex"] = actionIndex,
+                ["type"] = "move_operation",
+                ["opId"] = opId.ToString("D"),
+                ["stepId"] = stepId.ToString("D"),
+                ["targetStepId"] = targetStepId.ToString("D"),
+                ["oldStepIndex"] = sourceStepIndex,
+                ["oldOpIndex"] = sourceOpIndex,
+                ["newStepIndex"] = targetStepIndex,
+                ["newOpIndex"] = targetIndex,
+                ["operaType"] = op?.OperaType ?? string.Empty,
+                ["name"] = op?.Name ?? string.Empty
+            });
+        }
+
+        private void InsertOperationCore(JObject action, Proc draft, Step step, PatchExecutionResult result, int actionIndex, int insertIndex, string changeType)
+        {
             string operaType = ReadRequiredString(action, "operaType");
             OperationType op = CreateOperationTemplate(operaType);
             op.Id = Guid.NewGuid();
@@ -506,18 +986,19 @@ namespace Automation.Bridge
                 ApplyOperationPropertyChanges(op, fieldValues, $"新增指令[{operaType}]", actionIndex, result);
             }
 
-            if (step.Ops == null)
-            {
-                step.Ops = new List<OperationType>();
-            }
+            EnsureStepOps(step);
+            Proc before = FrmPropertyGrid.DeepCopy(draft);
 
-            step.Ops.Add(op);
-            result.Messages.Add($"动作{actionIndex}：已在步骤[{step.Name}] 末尾追加指令 {op.Name}({op.OperaType})。");
+            step.Ops.Insert(insertIndex, op);
+            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
+
+            result.Messages.Add($"动作{actionIndex}：已在步骤[{step.Name}] 索引 {insertIndex} 插入指令 {op.Name}({op.OperaType})。");
             result.Changes.Add(new JObject
             {
                 ["actionIndex"] = actionIndex,
-                ["type"] = "append_operation",
+                ["type"] = changeType,
                 ["stepId"] = step.Id.ToString("D"),
+                ["opIndex"] = insertIndex,
                 ["opId"] = op.Id.ToString("D"),
                 ["operaType"] = op.OperaType ?? string.Empty,
                 ["name"] = op.Name ?? string.Empty
@@ -1553,6 +2034,22 @@ namespace Automation.Bridge
             public List<string> Messages { get; set; } = new List<string>();
 
             public JArray Changes { get; set; } = new JArray();
+        }
+
+        private sealed class GotoLocation
+        {
+            public int StepIndex { get; set; }
+
+            public int OpIndex { get; set; }
+        }
+
+        private sealed class GotoRewriteSummary
+        {
+            public int RewrittenCount { get; set; }
+
+            public int FallbackCount { get; set; }
+
+            public int ClearedCount { get; set; }
         }
 
         private sealed class CommReferenceCatalog

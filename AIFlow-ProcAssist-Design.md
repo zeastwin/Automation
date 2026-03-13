@@ -338,40 +338,60 @@
 ```
 
 ### 5.3 MVP 动作集
-- `update_proc_head`
-- `rename_step`
-- `update_step_flags`
-- `insert_operation_after`
+- `update_proc_head_fields`
+- `update_step_fields`
+- `append_step`
+- `insert_step`
+- `delete_step`
+- `move_step`
 - `append_operation`
+- `insert_operation`
 - `update_operation_fields`
 - `delete_operation`
 - `move_operation`
 
 ### 5.4 动作说明
 
-#### `update_proc_head`
+#### `update_proc_head_fields`
 - 修改流程头字段。
 - 允许字段：
-  - `name`
-  - `autoStart`
-  - `disable`
-  - `pauseIoParams`
-  - `pauseValueParams`
+  - `Name`
+  - `AutoStart`
+  - `Disable`
 
-#### `rename_step`
-- 修改步骤名称。
-- 必须带 `stepId`
+#### `update_step_fields`
+- 修改步骤字段。
+- 当前允许字段：
+  - `Name`
+  - `Disable`
 
-#### `update_step_flags`
-- 修改步骤 `disable`
+#### `append_step`
+- 在流程末尾追加新步骤。
 
-#### `insert_operation_after`
-- 在指定步骤、指定指令后插入新指令。
+#### `insert_step`
+- 在指定索引插入新步骤。
+- 必须带：
+  - `insertIndex`
+
+#### `delete_step`
+- 删除指定步骤。
 - 必须带：
   - `stepId`
-  - `afterOpId`
+
+#### `move_step`
+- 在同一流程内移动步骤位置。
+- 必须带：
+  - `stepId`
+  - `targetIndex`
+- `targetIndex` 表示移除源步骤后的最终索引。
+
+#### `insert_operation`
+- 在指定步骤的指定索引插入新指令。
+- 必须带：
+  - `stepId`
+  - `insertIndex`
   - `operaType`
-  - `initialFields`
+  - `fieldValues`
 
 #### `append_operation`
 - 在指定步骤末尾追加指令。
@@ -388,8 +408,14 @@
 - 删除指定指令。
 
 #### `move_operation`
-- 在同一步骤内移动指令位置。
-- 后续如有需要再扩展跨步骤移动。
+- 支持同一步骤内移动，也支持跨步骤移动。
+- 必须带：
+  - `stepId`
+  - `opId`
+  - `targetIndex`
+- 可选带：
+  - `targetStepId`
+- `targetIndex` 表示从源步骤移除当前指令后的最终索引。
 
 ### 5.5 Patch 约束
 - 每次 Patch 仅允许操作一个流程。
@@ -397,6 +423,7 @@
 - `expectedOperaType` 必须参与校验，防止目标漂移。
 - 不允许 LLM 直接提交完整流程树替换。
 - 不允许使用名称作为唯一定位主键。
+- `delete/move/insert` 这类结构化动作由 `Automation Bridge` 负责自动重写同流程内跳转地址。
 
 ## 6. Bridge RPC 设计
 

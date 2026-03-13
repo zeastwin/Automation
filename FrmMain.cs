@@ -22,6 +22,7 @@ namespace Automation
         public FrmToolBar frmToolBar = new FrmToolBar();
         public FrmValue frmValue = new FrmValue();
         public FrmValueDebug frmValueDebug = new FrmValueDebug();
+        public FrmAiAssistant frmAiAssistant = new FrmAiAssistant();
         public FrmIO  frmIO = new FrmIO();
         public FrmCard  frmCard = new FrmCard();
         public ProcessEngine dataRun;
@@ -113,6 +114,7 @@ namespace Automation
             SF.frmToolBar = frmToolBar;
             SF.frmValue = frmValue;
             SF.frmValueDebug = frmValueDebug;
+            SF.frmAiAssistant = frmAiAssistant;
             SF.frmIO = frmIO;
             SF.frmCard = frmCard;
             SF.DR = dataRun;
