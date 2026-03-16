@@ -77,7 +77,7 @@
   - 工站页：主区显示 `FrmStation`，隐藏流程编辑区。
   - 控制卡/IO页：树区显示 `FrmCard`，表区显示 `FrmIO`，工具栏切换为 IO 监视动作。
   - 变量调试页：主区显示 `FrmValueDebug`，隐藏流程编辑区。
-  - AI 助手页：主区显示 `FrmAiAssistant`，隐藏流程编辑区；页面采用左右双栏布局，左侧固定提供 Dify Workflow 配置、`user_input_form` 参数展示和 `inputs JSON` 编辑，右侧显示运行记录与 workflow 执行输入区，底部独立状态栏显示当前操作状态；页面打开时只加载本地 `DifyConfig.json`，不会自动访问 Dify，只有点击“刷新参数”或执行 Workflow 时才发起请求。
+  - AI 助手页：主区显示 `FrmAiAssistant`，隐藏流程编辑区；页面采用左右双栏布局，左侧固定提供 Dify Workflow 配置、`user_input_form` 参数展示和 `inputs JSON` 编辑，右侧为页签式“运行与联调”区与 workflow 执行输入区，底部独立状态栏显示当前操作状态；页面打开时只加载本地 `DifyConfig.json`，不会自动访问 Dify，只有点击“刷新参数”或执行 Workflow 时才发起请求。
 - 变量按钮行为：
   - 进入 `FrmValue` 前执行 `SF.frmValue.FreshFrmValue()`，界面值以运行态变量为准。
 
@@ -106,6 +106,10 @@
   - 当前建议 workflow 侧显式定义 `automation_context` 一类输入变量；页面刷新参数后会优先自动识别 `automation_context/local_context/context/workflow_context`，未识别到时必须手工填写“上下文变量名”，否则禁止带上下文发送。
   - Dify Agent 当前推荐走“本地模板 + 中间意图”写入路径：先调用 `list_intent_templates/get_intent_template` 读取模板，再调用 `preview_intent/apply_intent`；不再建议在系统提示词中内嵌长篇 Patch JSON 示例。
   - Workflow 执行阶段状态栏会依次显示“正在收集本地上下文”“正在向 Dify 提交 workflow 请求”“请求已提交到 Dify，正在等待 Dify 返回”等阶段文案；同阶段信息会写入运行信息页，便于区分本地构建、Dify HTTP 请求与 blocking 等待阶段。
+  - AI 助手右侧“联调面板”不调用 Dify；它直接通过本机 `npipe` 连接 `Automation Bridge`，并可读取 `McpServer` 的 `/info`、`/healthz` 与最新日志，用于本地联合调试 `Automation + Bridge + McpServer`。
+  - 联调面板会优先从 `McpServer/bin/*/appsettings.json` 读取 MCP 地址与日志目录，找不到运行配置时回退到默认地址 `http://127.0.0.1:8081`。
+  - 联调面板提供 7 类动作：读取流程列表、读取当前选中流程详情、读取当前选中指令 Schema、读取中间意图模板、基于当前选中指令生成测试意图、预演当前意图、提交当前意图。
+  - 联调面板依赖流程页已有选中状态；若需读取详情、Schema 或基于选中项生成测试意图，必须先在流程页选中目标流程/步骤/指令，再切回 `AI助手` 页面执行。
 - 右键目标策略（统一按鼠标命中项）：
   - `FrmProc`：右键空白会清空流程/步骤/操作选择并清空属性绑定。
   - `FrmDataGrid`：右键空白会清空选中行并取消菜单目标。
