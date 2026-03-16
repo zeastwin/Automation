@@ -628,17 +628,34 @@ namespace Automation
                 return;
             }
 
-            int leftMin = Math.Min(260, Math.Max(160, availableWidth / 4));
-            int rightMin = Math.Min(260, Math.Max(160, availableWidth / 4));
+            const int desiredLeftMin = 260;
+            const int desiredRightMin = 260;
+            const int desiredLeftWidth = 0;
+            const int fallbackMin = 120;
+
+            int leftMin = desiredLeftMin;
+            int rightMin = desiredRightMin;
             if (leftMin + rightMin > availableWidth)
             {
-                leftMin = Math.Max(120, availableWidth / 2);
-                rightMin = Math.Max(120, availableWidth - leftMin);
+                int compactMin = Math.Max(fallbackMin, availableWidth / 3);
+                leftMin = Math.Min(desiredLeftMin, compactMin);
+                rightMin = Math.Min(desiredRightMin, Math.Max(fallbackMin, availableWidth - leftMin));
+                if (leftMin + rightMin > availableWidth)
+                {
+                    leftMin = Math.Max(fallbackMin, availableWidth - rightMin);
+                }
+                if (leftMin + rightMin > availableWidth)
+                {
+                    rightMin = Math.Max(0, availableWidth - leftMin);
+                }
             }
+
+            leftMin = Math.Max(0, Math.Min(leftMin, availableWidth));
+            rightMin = Math.Max(0, Math.Min(rightMin, Math.Max(0, availableWidth - leftMin)));
 
             int minDistance = leftMin;
             int maxDistance = Math.Max(minDistance, availableWidth - rightMin);
-            int targetDistance = Math.Min(Math.Max(availableWidth / 2, minDistance), maxDistance);
+            int targetDistance = Math.Min(Math.Max(Math.Max(availableWidth / 2, desiredLeftWidth), minDistance), maxDistance);
 
             if (split.Panel1MinSize != leftMin)
             {
@@ -662,12 +679,29 @@ namespace Automation
                 return;
             }
 
-            int topMin = Math.Min(420, Math.Max(260, availableHeight / 2));
-            int bottomMin = Math.Min(160, Math.Max(120, availableHeight / 5));
+            const int desiredTopMin = 420;
+            const int desiredBottomMin = 160;
+            const int fallbackMin = 96;
+
+            int topMin = desiredTopMin;
+            int bottomMin = desiredBottomMin;
             if (topMin + bottomMin > availableHeight)
             {
-                topMin = Math.Max(200, availableHeight - bottomMin);
+                int compactMin = Math.Max(fallbackMin, availableHeight / 4);
+                bottomMin = Math.Min(desiredBottomMin, compactMin);
+                topMin = Math.Min(desiredTopMin, Math.Max(fallbackMin, availableHeight - bottomMin));
+                if (topMin + bottomMin > availableHeight)
+                {
+                    bottomMin = Math.Max(0, availableHeight - topMin);
+                }
+                if (topMin + bottomMin > availableHeight)
+                {
+                    topMin = Math.Max(0, availableHeight - bottomMin);
+                }
             }
+
+            topMin = Math.Max(0, Math.Min(topMin, availableHeight));
+            bottomMin = Math.Max(0, Math.Min(bottomMin, Math.Max(0, availableHeight - topMin)));
 
             int minDistance = topMin;
             int maxDistance = Math.Max(minDistance, availableHeight - bottomMin);
