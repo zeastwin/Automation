@@ -7,6 +7,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using static System.ComponentModel.TypeConverter;
 
 namespace Automation.Bridge
@@ -50,6 +52,9 @@ namespace Automation.Bridge
         };
 
         private readonly FrmMain owner;
+        private readonly object previewLock = new object();
+        private readonly Dictionary<string, PreviewApprovalRecord> previewRecords =
+            new Dictionary<string, PreviewApprovalRecord>(StringComparer.OrdinalIgnoreCase);
 
         public AutomationBridgeService(FrmMain owner)
         {
@@ -108,10 +113,18 @@ namespace Automation.Bridge
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.preview", ExecuteOnUiThread(() => HandlePreviewIntent(request))));
                     case "/bridge/intents/apply":
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.apply", ExecuteOnUiThread(() => HandleApplyIntent(request))));
+                    case "/bridge/previews/confirm":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("preview.confirm", ExecuteOnUiThread(() => HandleConfirmPreview(request))));
                     case "/bridge/patch/preview":
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("patch.preview", ExecuteOnUiThread(() => HandlePreviewPatch(request))));
                     case "/bridge/patch/apply":
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("patch.apply", ExecuteOnUiThread(() => HandleApplyPatch(request))));
+                    case "/bridge/runtime/snapshot":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("runtime.snapshot", ExecuteOnUiThread(() => HandleGetRuntimeSnapshot(request))));
+                    case "/bridge/info-log/tail":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("infoLog.tail", ExecuteOnUiThread(() => HandleGetInfoLogTail(request))));
+                    case "/bridge/procs/diagnose":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.diagnose", ExecuteOnUiThread(() => HandleDiagnoseProc(request))));
                     default:
                         throw new BridgeRequestException(404, "ENDPOINT_NOT_FOUND", $"未找到端点：{normalizedPath}");
                 }
@@ -150,6 +163,7 @@ namespace Automation.Bridge
 
         private JObject HandleListProcs(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取流程列表");
             bool includeStepSummary = ReadOptionalBoolean(request, "includeStepSummary") ?? false;
             EnsureRuntimeReady();
 
@@ -201,6 +215,7 @@ namespace Automation.Bridge
 
         private JObject HandleGetProcOverview(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取流程摘要");
             int procIndex = ReadRequiredInt(request, "procIndex");
             Proc proc = GetProcByIndex(procIndex);
             return BuildProcOverview(procIndex, proc);
@@ -208,6 +223,7 @@ namespace Automation.Bridge
 
         private JObject HandleGetProcDetail(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取流程详情");
             int procIndex = ReadRequiredInt(request, "procIndex");
             Proc proc = GetProcByIndex(procIndex);
             return BuildProcDetail(procIndex, proc);
@@ -215,6 +231,7 @@ namespace Automation.Bridge
 
         private JObject HandleListOperationTypes()
         {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取指令类型");
             EnsureRuntimeReady();
             JArray items = new JArray();
             foreach (OperationType template in SF.frmPropertyGrid.OperationTypeList.OfType<OperationType>())
@@ -239,6 +256,7 @@ namespace Automation.Bridge
 
         private JObject HandleGetOperationSchema(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取指令 Schema");
             EnsureRuntimeReady();
 
             int? procIndex = ReadOptionalInt(request, "procIndex");
@@ -293,6 +311,7 @@ namespace Automation.Bridge
 
         private JObject HandleGetReferenceCatalog(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取引用目录");
             EnsureRuntimeReady();
             int? procIndex = ReadOptionalInt(request, "procIndex");
             CommReferenceCatalog commNames = GetCommNames();
@@ -360,6 +379,7 @@ namespace Automation.Bridge
 
         private JObject HandleListIntentTemplates(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取中间意图模板");
             string patchAction = ReadOptionalString(request, "patchAction");
             JArray templates = LoadIntentTemplateCatalog();
             JArray items = new JArray();
@@ -389,6 +409,7 @@ namespace Automation.Bridge
 
         private JObject HandleGetIntentTemplate(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取中间意图模板");
             string templateId = ReadOptionalString(request, "templateId");
             string patchAction = ReadOptionalString(request, "patchAction");
             JArray templates = LoadIntentTemplateCatalog();
@@ -413,6 +434,7 @@ namespace Automation.Bridge
 
         private JObject HandleBuildPatchFromIntent(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "构建 Patch");
             JObject intent = ReadIntentObject(request);
             JObject patch = ConvertIntentToPatch(intent);
             return new JObject
@@ -424,29 +446,38 @@ namespace Automation.Bridge
 
         private JObject HandlePreviewIntent(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演中间意图");
             JObject intent = ReadIntentObject(request);
             JObject patch = ConvertIntentToPatch(intent);
             PatchExecutionResult result = ExecutePatch(patch);
+            JObject preview = BuildRegisteredPatchPreview(patch, result);
             return new JObject
             {
                 ["intentType"] = intent["intentType"]?.Value<string>() ?? string.Empty,
                 ["patch"] = patch,
-                ["preview"] = BuildPatchResult("preview", result)
+                ["previewId"] = preview["previewId"],
+                ["patchHash"] = preview["patchHash"],
+                ["preview"] = preview
             };
         }
 
         private JObject HandleApplyIntent(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交中间意图");
+            string previewId = ReadRequiredString(request, "previewId");
             JObject intent = ReadIntentObject(request);
             JObject patch = ConvertIntentToPatch(intent);
+            ValidateConfirmedPreview(previewId, patch);
             PatchExecutionResult result = ExecutePatch(patch);
             CommitPatch(result.ProcIndex, result.Proc);
+            RemovePreview(previewId);
 
             Proc current = GetProcByIndex(result.ProcIndex);
             return new JObject
             {
                 ["intentType"] = intent["intentType"]?.Value<string>() ?? string.Empty,
                 ["patch"] = patch,
+                ["previewId"] = previewId,
                 ["apply"] = BuildPatchResult("apply", new PatchExecutionResult
                 {
                     ProcIndex = result.ProcIndex,
@@ -457,25 +488,231 @@ namespace Automation.Bridge
             };
         }
 
+        private JObject HandleConfirmPreview(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "确认预演结果");
+            string previewId = ReadRequiredString(request, "previewId");
+            PreviewApprovalRecord record;
+            lock (previewLock)
+            {
+                CleanupExpiredPreviewsLocked();
+                if (!previewRecords.TryGetValue(previewId, out record))
+                {
+                    throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
+                }
+
+                EnsurePreviewProcVersion(record);
+                record.Confirmed = true;
+                record.ConfirmedAtUtc = DateTime.UtcNow;
+            }
+
+            return new JObject
+            {
+                ["previewId"] = record.PreviewId,
+                ["patchHash"] = record.PatchHash,
+                ["procIndex"] = record.ProcIndex,
+                ["baseProcId"] = record.BaseProcId,
+                ["confirmed"] = true,
+                ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
+            };
+        }
+
         private JObject HandlePreviewPatch(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演 Patch");
             PatchExecutionResult result = ExecutePatch(request);
-            return BuildPatchResult("preview", result);
+            return BuildRegisteredPatchPreview(request, result);
         }
 
         private JObject HandleApplyPatch(JObject request)
         {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交 Patch");
+            string previewId = ReadRequiredString(request, "previewId");
+            ValidateConfirmedPreview(previewId, request);
             PatchExecutionResult result = ExecutePatch(request);
             CommitPatch(result.ProcIndex, result.Proc);
+            RemovePreview(previewId);
 
             Proc current = GetProcByIndex(result.ProcIndex);
-            return BuildPatchResult("apply", new PatchExecutionResult
+            JObject apply = BuildPatchResult("apply", new PatchExecutionResult
             {
                 ProcIndex = result.ProcIndex,
                 Proc = current,
                 Messages = result.Messages,
                 Changes = result.Changes
             });
+            apply["previewId"] = previewId;
+            return apply;
+        }
+
+        private JObject HandleGetRuntimeSnapshot(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取运行快照");
+            EnsureRuntimeReady();
+            int? procIndex = ReadOptionalInt(request, "procIndex");
+            JArray snapshots = new JArray();
+            if (procIndex.HasValue)
+            {
+                GetProcByIndex(procIndex.Value);
+                snapshots.Add(BuildEngineSnapshot(SF.DR?.GetSnapshot(procIndex.Value), procIndex.Value));
+            }
+            else
+            {
+                for (int i = 0; i < SF.frmProc.procsList.Count; i++)
+                {
+                    snapshots.Add(BuildEngineSnapshot(SF.DR?.GetSnapshot(i), i));
+                }
+            }
+
+            return new JObject
+            {
+                ["securityLocked"] = SF.SecurityLocked,
+                ["procConfigFaulted"] = SF.ProcConfigFaulted,
+                ["procCount"] = SF.frmProc.procsList.Count,
+                ["selected"] = new JObject
+                {
+                    ["procIndex"] = SF.frmProc.SelectedProcNum,
+                    ["stepIndex"] = SF.frmProc.SelectedStepNum,
+                    ["opIndex"] = SF.frmDataGrid?.iSelectedRow ?? -1
+                },
+                ["snapshots"] = snapshots
+            };
+        }
+
+        private JObject HandleGetInfoLogTail(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取运行日志");
+            int maxCount = ReadOptionalInt(request, "maxCount") ?? 50;
+            if (maxCount <= 0 || maxCount > 200)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "maxCount 必须在 1..200 范围内。");
+            }
+
+            JArray items = new JArray();
+            foreach (FrmInfo.InfoLogSnapshot item in SF.frmInfo?.GetInfoLogTail(maxCount) ?? new List<FrmInfo.InfoLogSnapshot>())
+            {
+                items.Add(new JObject
+                {
+                    ["time"] = item.TimeText,
+                    ["message"] = item.Message,
+                    ["level"] = item.Level.ToString()
+                });
+            }
+
+            return new JObject
+            {
+                ["maxCount"] = maxCount,
+                ["items"] = items
+            };
+        }
+
+        private JObject HandleDiagnoseProc(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "诊断流程");
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            Proc proc = GetProcByIndex(procIndex);
+            JArray findings = new JArray();
+
+            AddFinding(findings, "info", "proc", $"流程：{proc.head?.Name ?? string.Empty}，步骤数 {proc.steps?.Count ?? 0}。");
+            if (proc.head?.Disable == true)
+            {
+                AddFinding(findings, "warning", "proc.disabled", "流程已禁用，运行入口会跳过该流程。");
+            }
+            if (proc.steps == null || proc.steps.Count == 0)
+            {
+                AddFinding(findings, "error", "proc.empty", "流程没有步骤，无法执行有效动作。");
+            }
+
+            IEnumerable<OperationType> operationTypes = SF.frmPropertyGrid?.OperationTypeList?.OfType<OperationType>()
+                ?? Enumerable.Empty<OperationType>();
+            HashSet<string> knownOperationTypes = new HashSet<string>(
+                operationTypes
+                    .Where(item => item != null && !string.IsNullOrWhiteSpace(item.OperaType))
+                    .Select(item => item.OperaType),
+                StringComparer.Ordinal);
+
+            int disabledStepCount = 0;
+            int opCount = 0;
+            int disabledOpCount = 0;
+            if (proc.steps != null)
+            {
+                for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
+                {
+                    Step step = proc.steps[stepIndex];
+                    if (step == null)
+                    {
+                        AddFinding(findings, "error", "step.null", $"步骤 {stepIndex} 为空。");
+                        continue;
+                    }
+                    if (step.Disable)
+                    {
+                        disabledStepCount++;
+                        AddFinding(findings, "warning", "step.disabled", $"步骤 {stepIndex} [{step.Name}] 已禁用。");
+                    }
+                    if (step.Ops == null || step.Ops.Count == 0)
+                    {
+                        AddFinding(findings, "warning", "step.empty", $"步骤 {stepIndex} [{step.Name}] 没有指令。");
+                        continue;
+                    }
+
+                    for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
+                    {
+                        OperationType op = step.Ops[opIndex];
+                        opCount++;
+                        if (op == null)
+                        {
+                            AddFinding(findings, "error", "operation.null", $"步骤 {stepIndex} 指令 {opIndex} 为空。");
+                            continue;
+                        }
+                        if (op.Disable)
+                        {
+                            disabledOpCount++;
+                            AddFinding(findings, "warning", "operation.disabled", $"步骤 {stepIndex} 指令 {opIndex} [{op.Name}] 已禁用。");
+                        }
+                        if (string.IsNullOrWhiteSpace(op.OperaType) || !knownOperationTypes.Contains(op.OperaType))
+                        {
+                            AddFinding(findings, "error", "operation.unknownType", $"步骤 {stepIndex} 指令 {opIndex} 指令类型未知：{op.OperaType ?? string.Empty}。");
+                        }
+                    }
+                }
+            }
+
+            foreach (string error in FrmProc.ValidateProcGotoTargets(procIndex, proc))
+            {
+                AddFinding(findings, "error", "goto.invalid", error);
+            }
+
+            EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
+            if (snapshot != null)
+            {
+                AddFinding(findings, snapshot.IsAlarm ? "error" : "info", "runtime.state",
+                    $"运行状态 {snapshot.State}，位置 {snapshot.StepIndex}-{snapshot.OpIndex}。");
+                if (snapshot.IsAlarm)
+                {
+                    AddFinding(findings, "error", "runtime.alarm", $"当前报警：{snapshot.AlarmMessage ?? string.Empty}");
+                }
+                if (snapshot.IsBreakpoint)
+                {
+                    AddFinding(findings, "warning", "runtime.breakpoint", "当前流程处于断点位置。");
+                }
+            }
+
+            return new JObject
+            {
+                ["procIndex"] = procIndex,
+                ["procId"] = proc.head?.Id.ToString("D"),
+                ["name"] = proc.head?.Name ?? string.Empty,
+                ["summary"] = new JObject
+                {
+                    ["stepCount"] = proc.steps?.Count ?? 0,
+                    ["disabledStepCount"] = disabledStepCount,
+                    ["operationCount"] = opCount,
+                    ["disabledOperationCount"] = disabledOpCount,
+                    ["findingCount"] = findings.Count
+                },
+                ["runtime"] = BuildEngineSnapshot(snapshot, procIndex),
+                ["findings"] = findings
+            };
         }
 
         private PatchExecutionResult ExecutePatch(JObject request)
@@ -1243,6 +1480,124 @@ namespace Automation.Bridge
             };
         }
 
+        private JObject BuildRegisteredPatchPreview(JObject patch, PatchExecutionResult result)
+        {
+            PreviewApprovalRecord record = RegisterPreview(patch, result);
+            JObject preview = BuildPatchResult("preview", result);
+            preview["previewId"] = record.PreviewId;
+            preview["patchHash"] = record.PatchHash;
+            preview["confirmed"] = false;
+            preview["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            preview["summary"] = new JObject
+            {
+                ["messageCount"] = result.Messages?.Count ?? 0,
+                ["changeCount"] = result.Changes?.Count ?? 0
+            };
+            return preview;
+        }
+
+        private PreviewApprovalRecord RegisterPreview(JObject patch, PatchExecutionResult result)
+        {
+            JObject normalizedPatch = NormalizePatchForApproval(patch);
+            string patchHash = ComputePatchHash(normalizedPatch);
+            var record = new PreviewApprovalRecord
+            {
+                PreviewId = Guid.NewGuid().ToString("N"),
+                Patch = normalizedPatch,
+                PatchHash = patchHash,
+                ProcIndex = result.ProcIndex,
+                BaseProcId = ReadRequiredString(normalizedPatch, "baseProcId"),
+                CreatedAtUtc = DateTime.UtcNow,
+                ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
+                Confirmed = false
+            };
+
+            lock (previewLock)
+            {
+                CleanupExpiredPreviewsLocked();
+                previewRecords[record.PreviewId] = record;
+            }
+
+            return record;
+        }
+
+        private void ValidateConfirmedPreview(string previewId, JObject patch)
+        {
+            JObject normalizedPatch = NormalizePatchForApproval(patch);
+            PreviewApprovalRecord record;
+            lock (previewLock)
+            {
+                CleanupExpiredPreviewsLocked();
+                if (!previewRecords.TryGetValue(previewId, out record))
+                {
+                    throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
+                }
+
+                if (!record.Confirmed)
+                {
+                    throw new BridgeRequestException(403, "PREVIEW_NOT_CONFIRMED", "预演结果尚未由 Automation 前台确认，禁止提交。");
+                }
+
+                EnsurePreviewProcVersion(record);
+                if (!JToken.DeepEquals(record.Patch, normalizedPatch))
+                {
+                    throw new BridgeRequestException(409, "PREVIEW_PATCH_MISMATCH", "提交 Patch 与已确认预演不一致，请重新预演并确认。");
+                }
+            }
+        }
+
+        private void RemovePreview(string previewId)
+        {
+            lock (previewLock)
+            {
+                previewRecords.Remove(previewId);
+            }
+        }
+
+        private void CleanupExpiredPreviewsLocked()
+        {
+            DateTime now = DateTime.UtcNow;
+            List<string> expiredIds = previewRecords
+                .Where(item => item.Value == null || item.Value.ExpiresAtUtc <= now)
+                .Select(item => item.Key)
+                .ToList();
+            foreach (string expiredId in expiredIds)
+            {
+                previewRecords.Remove(expiredId);
+            }
+        }
+
+        private void EnsurePreviewProcVersion(PreviewApprovalRecord record)
+        {
+            Proc current = GetProcByIndex(record.ProcIndex);
+            string currentProcId = current.head?.Id.ToString("D") ?? string.Empty;
+            if (!string.Equals(currentProcId, record.BaseProcId, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new BridgeRequestException(409, "PROC_VERSION_MISMATCH", "流程版本已变化，请重新读取流程详情并重新预演。");
+            }
+        }
+
+        private static JObject NormalizePatchForApproval(JObject patch)
+        {
+            if (patch == null)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "Patch 请求不能为空。");
+            }
+            JObject normalized = (JObject)patch.DeepClone();
+            normalized.Remove("previewId");
+            return normalized;
+        }
+
+        private static string ComputePatchHash(JObject patch)
+        {
+            using (SHA256 sha256 = SHA256.Create())
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(patch.ToString(Formatting.None));
+                byte[] hash = sha256.ComputeHash(bytes);
+                return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
+            }
+        }
+
         private JObject BuildProcOverview(int procIndex, Proc proc)
         {
             EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
@@ -1514,6 +1869,57 @@ namespace Automation.Bridge
             }
 
             return targets;
+        }
+
+        private static JObject BuildEngineSnapshot(EngineSnapshot snapshot, int procIndex)
+        {
+            if (snapshot == null)
+            {
+                return new JObject
+                {
+                    ["procIndex"] = procIndex,
+                    ["state"] = ProcRunState.Stopped.ToString(),
+                    ["stepIndex"] = -1,
+                    ["opIndex"] = -1,
+                    ["isBreakpoint"] = false,
+                    ["isAlarm"] = false,
+                    ["alarmMessage"] = string.Empty,
+                    ["updateTime"] = JValue.CreateNull()
+                };
+            }
+
+            return new JObject
+            {
+                ["procIndex"] = snapshot.ProcIndex,
+                ["procId"] = snapshot.ProcId.ToString("D"),
+                ["procName"] = snapshot.ProcName ?? string.Empty,
+                ["state"] = snapshot.State.ToString(),
+                ["stepIndex"] = snapshot.StepIndex,
+                ["opIndex"] = snapshot.OpIndex,
+                ["isBreakpoint"] = snapshot.IsBreakpoint,
+                ["isAlarm"] = snapshot.IsAlarm,
+                ["alarmMessage"] = snapshot.AlarmMessage ?? string.Empty,
+                ["updateTime"] = snapshot.UpdateTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture),
+                ["updateTicks"] = snapshot.UpdateTicks
+            };
+        }
+
+        private static void AddFinding(JArray findings, string severity, string code, string message)
+        {
+            findings.Add(new JObject
+            {
+                ["severity"] = severity ?? string.Empty,
+                ["code"] = code ?? string.Empty,
+                ["message"] = message ?? string.Empty
+            });
+        }
+
+        private static void EnsureBridgePermission(string permissionKey, string action)
+        {
+            if (!SF.HasPermission(permissionKey))
+            {
+                throw new BridgeRequestException(403, "PERMISSION_DENIED", $"当前账号无权限：{action}");
+            }
         }
 
         private CommReferenceCatalog GetCommNames()
@@ -2463,6 +2869,27 @@ namespace Automation.Bridge
             public int FallbackCount { get; set; }
 
             public int ClearedCount { get; set; }
+        }
+
+        private sealed class PreviewApprovalRecord
+        {
+            public string PreviewId { get; set; }
+
+            public JObject Patch { get; set; }
+
+            public string PatchHash { get; set; }
+
+            public int ProcIndex { get; set; }
+
+            public string BaseProcId { get; set; }
+
+            public DateTime CreatedAtUtc { get; set; }
+
+            public DateTime ExpiresAtUtc { get; set; }
+
+            public bool Confirmed { get; set; }
+
+            public DateTime? ConfirmedAtUtc { get; set; }
         }
 
         private sealed class CommReferenceCatalog

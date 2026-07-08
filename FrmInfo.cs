@@ -314,6 +314,48 @@ namespace Automation
             });
         }
 
+        public IReadOnlyList<InfoLogSnapshot> GetInfoLogTail(int maxCount)
+        {
+            if (maxCount <= 0)
+            {
+                return new List<InfoLogSnapshot>();
+            }
+            if (IsDisposed)
+            {
+                return new List<InfoLogSnapshot>();
+            }
+            if (InvokeRequired)
+            {
+                return (IReadOnlyList<InfoLogSnapshot>)Invoke(new Func<int, IReadOnlyList<InfoLogSnapshot>>(GetInfoLogTail), maxCount);
+            }
+
+            bool appendedPending = false;
+            while (pendingInfoQueue.TryDequeue(out InfoLogEntry entry))
+            {
+                infoLogBuffer.Add(entry);
+                appendedPending = true;
+            }
+            if (appendedPending)
+            {
+                RefreshInfoListView();
+            }
+
+            int count = Math.Min(maxCount, infoLogBuffer.Count);
+            int start = Math.Max(0, infoLogBuffer.Count - count);
+            List<InfoLogSnapshot> result = new List<InfoLogSnapshot>(count);
+            for (int i = start; i < infoLogBuffer.Count; i++)
+            {
+                InfoLogEntry item = infoLogBuffer[i];
+                result.Add(new InfoLogSnapshot
+                {
+                    TimeText = item.TimeText,
+                    Message = item.Message,
+                    Level = item.Level
+                });
+            }
+            return result;
+        }
+
         private void InitializeStatusPage()
         {
             if (statusPageInitialized)
@@ -935,6 +977,15 @@ namespace Automation
         {
             public string TimeText { get; set; }
             public string Message { get; set; }
+            public Level Level { get; set; }
+        }
+
+        public sealed class InfoLogSnapshot
+        {
+            public string TimeText { get; set; }
+
+            public string Message { get; set; }
+
             public Level Level { get; set; }
         }
 

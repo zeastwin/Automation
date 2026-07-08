@@ -1,17 +1,19 @@
 using Automation.Bridge;
+using Markdig;
+using Microsoft.Web.WebView2.WinForms;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.IO.Pipes;
-using System.Linq;
 using System.Net;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace Automation
 {
@@ -19,2259 +21,1457 @@ namespace Automation
     {
         private readonly TableLayoutPanel rootLayout = new TableLayoutPanel();
         private readonly TableLayoutPanel configLayout = new TableLayoutPanel();
-        private readonly Label lblTitle = new Label();
-        private readonly Label lblBaseUrl = new Label();
-        private readonly Label lblApiKey = new Label();
-        private readonly Label lblConfigPathTitle = new Label();
-        private readonly Label lblConfigPath = new Label();
-        private readonly Label lblTip = new Label();
-        private readonly Label lblStatus = new Label();
-        private readonly Label lblPromptVariable = new Label();
-        private readonly Label lblContextVariable = new Label();
-        private readonly TextBox txtBaseUrl = new TextBox();
-        private readonly TextBox txtApiKey = new TextBox();
-        private readonly TextBox txtPromptVariable = new TextBox();
-        private readonly TextBox txtContextVariable = new TextBox();
+        private readonly TableLayoutPanel chatLayout = new TableLayoutPanel();
+        private readonly TableLayoutPanel inputLayout = new TableLayoutPanel();
+        private readonly Panel topToolbar = new Panel();
+        private WebView2 webViewConversation;
+        // 标记当前是否正在流式输出 assistant 文本（assistant_chunk），用于在同一渲染段累积而非每 chunk 新建 div。
+        private bool streamingAssistant;
+        // 流式段累积的 Markdown 源码，流式期间实时转 HTML 渲染，段结束时做最终渲染。
+        private readonly StringBuilder streamingMarkdown = new StringBuilder();
+        // 当前流式段对应的临时 div id（每段递增），用于流式渲染与最终 HTML 替换定位。
+        private string streamingDivId;
+        private int streamingSegmentIndex;
+        // 串行化 WebView2 脚本执行，保证 HTML 追加/替换顺序与事件顺序一致。
+        private Task pendingScriptTask = Task.CompletedTask;
+        // Markdig 管道（表格、任务列表等高级扩展），用于 Goose 回复 Markdown→HTML。
+        private static readonly MarkdownPipeline markdownPipeline =
+            new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+        // 流式渲染节流：记录上次实时渲染 HTML 的时间，避免每个 token 都执行 Markdig 转换导致卡顿。
+        private DateTime lastStreamRender;
+        private readonly TextBox txtPrompt = new TextBox();
+        private readonly TextBox txtGooseExecutable = new TextBox();
+        private readonly TextBox txtWorkingDirectory = new TextBox();
+        private readonly TextBox txtMcpUri = new TextBox();
+        private readonly TextBox txtSessionName = new TextBox();
+        private readonly ComboBox cboProvider = new ComboBox();
+        // 从 Goose config.yaml 读取的已注册 provider 列表，供 Provider/Model 下拉框使用。
+        private List<GooseProviderInfo> gooseProviders = new List<GooseProviderInfo>();
+        private readonly ComboBox cboModel = new ComboBox();
+        private readonly NumericUpDown nudMaxTurns = new NumericUpDown();
         private readonly Button btnSaveConfig = new Button();
         private readonly Button btnReloadConfig = new Button();
-        private readonly Button btnClearHistory = new Button();
-        private readonly RichTextBox rtbConversation = new RichTextBox();
-        private readonly RichTextBox rtbWorkflowSchema = new RichTextBox();
-        private readonly TextBox txtInputsJson = new TextBox();
-        private readonly TextBox txtPrompt = new TextBox();
-        private readonly TabControl tabRuntime = new TabControl();
-        private readonly TabPage tabConversation = new TabPage("运行记录");
-        private readonly TabPage tabDebug = new TabPage("联调面板");
-        private readonly Label lblDebugMcpBaseUrl = new Label();
-        private readonly Label lblDebugLogRoot = new Label();
-        private readonly Label lblDebugIntentTip = new Label();
-        private readonly TextBox txtDebugMcpBaseUrl = new TextBox();
-        private readonly TextBox txtDebugLogRoot = new TextBox();
-        private readonly TextBox txtDebugIntentJson = new TextBox();
-        private readonly Button btnDebugReloadDefaults = new Button();
-        private readonly Button btnDebugRefreshServer = new Button();
-        private readonly Button btnDebugTailLog = new Button();
-        private readonly Button btnDebugListProcs = new Button();
-        private readonly Button btnDebugSelectedDetail = new Button();
-        private readonly Button btnDebugSelectedSchema = new Button();
-        private readonly Button btnDebugLoadTemplate = new Button();
-        private readonly Button btnDebugBuildIntent = new Button();
-        private readonly Button btnDebugPreviewIntent = new Button();
-        private readonly Button btnDebugApplyIntent = new Button();
-        private readonly RichTextBox rtbDebugBridge = new RichTextBox();
-        private readonly RichTextBox rtbDebugMcp = new RichTextBox();
-        private readonly RichTextBox rtbDebugLog = new RichTextBox();
+        private readonly Button btnCheckGoose = new Button();
         private readonly Button btnSend = new Button();
-        private readonly CheckBox chkIncludeContext = new CheckBox();
-        private readonly Label lblPromptTip = new Label();
-        private readonly Font conversationHeaderFont = new Font("微软雅黑", 10.5F, FontStyle.Bold);
-        private readonly Font conversationBodyFont = new Font("微软雅黑", 10.5F, FontStyle.Regular);
-        private DifyWorkflowParameters workflowParameters;
+        private readonly Button btnStop = new Button();
+        private readonly Button btnResetSession = new Button();
+        private readonly Button btnConfig = new Button();
+        private Form configForm;
+        private CheckBox chkFullPermission;
+        private readonly Label lblStatus = new Label();
+        private readonly HashSet<string> promptedPreviewIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly object clientLock = new object();
+
+        private GooseAcpClient gooseClient;
+        private CancellationTokenSource promptCts;
         private bool sending;
-        private bool loadingWorkflowSchema;
+        private bool fullPermissionMode = false;
+        private bool disposingAll;
+        private string lastConfirmedPreviewId;
 
         public FrmAiAssistant()
         {
             InitializeLayout();
             Load += FrmAiAssistant_Load;
+            FormClosing += FrmAiAssistant_FormClosing;
         }
 
         public void ApplyPermissions()
         {
-            bool canUseAssistant = SF.HasPermission(PermissionKeys.ProcessAccess);
+            bool canAccess = SF.HasPermission(PermissionKeys.ProcessAccess);
             bool canEditConfig = SF.HasPermission(PermissionKeys.AppConfigAccess);
 
-            btnSend.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            btnClearHistory.Enabled = canUseAssistant;
-            txtPrompt.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            txtInputsJson.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            txtPromptVariable.ReadOnly = !canUseAssistant || sending || loadingWorkflowSchema;
-            txtContextVariable.ReadOnly = !canUseAssistant || sending || loadingWorkflowSchema;
-            chkIncludeContext.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            btnDebugReloadDefaults.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            btnDebugRefreshServer.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            btnDebugTailLog.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            btnDebugListProcs.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            btnDebugSelectedDetail.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            btnDebugSelectedSchema.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            btnDebugLoadTemplate.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            btnDebugBuildIntent.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            btnDebugPreviewIntent.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            btnDebugApplyIntent.Enabled = canUseAssistant && !sending && !loadingWorkflowSchema;
-            txtDebugMcpBaseUrl.ReadOnly = !canUseAssistant || sending || loadingWorkflowSchema;
-            txtDebugLogRoot.ReadOnly = !canUseAssistant || sending || loadingWorkflowSchema;
-            txtDebugIntentJson.ReadOnly = !canUseAssistant || sending || loadingWorkflowSchema;
-            btnSaveConfig.Enabled = canEditConfig;
-            btnReloadConfig.Enabled = canUseAssistant && !sending;
-            txtBaseUrl.ReadOnly = !canEditConfig;
-            txtApiKey.ReadOnly = !canEditConfig;
+            txtPrompt.Enabled = canAccess && !sending;
+            btnSend.Enabled = canAccess && !sending;
+            btnStop.Enabled = canAccess && sending;
+            btnResetSession.Enabled = canAccess && !sending;
+            btnCheckGoose.Enabled = canAccess && !sending;
+            btnReloadConfig.Enabled = canAccess && !sending;
+
+            txtGooseExecutable.ReadOnly = !canEditConfig || sending;
+            txtWorkingDirectory.ReadOnly = !canEditConfig || sending;
+            txtMcpUri.ReadOnly = !canEditConfig || sending;
+            txtSessionName.ReadOnly = !canEditConfig || sending;
+            cboProvider.Enabled = canEditConfig && !sending;
+            cboModel.Enabled = canEditConfig && !sending;
+            nudMaxTurns.Enabled = canEditConfig && !sending;
+            btnSaveConfig.Enabled = canEditConfig && !sending;
         }
 
         public void RefreshAssistantView()
         {
             LoadConfig();
-            LoadDebugDefaults(false);
             ApplyPermissions();
-            ResetWorkflowSchemaState("尚未读取 workflow 参数。\r\n点击“刷新参数”后再从 Dify 拉取 user_input_form。");
         }
 
-        private void FrmAiAssistant_Load(object sender, EventArgs e)
+        private async void FrmAiAssistant_Load(object sender, EventArgs e)
         {
             LoadConfig();
-            LoadDebugDefaults(false);
             ApplyPermissions();
-            ResetWorkflowSchemaState("尚未读取 workflow 参数。\r\n点击“刷新参数”后再从 Dify 拉取 user_input_form。");
+            await InitializeWebViewAsync();
+        }
+
+        // WebView2 需异步初始化 CoreWebView2 后才能 NavigateToString/ExecuteScriptAsync，初始化后载入基础 HTML（白底 + #messages 容器 + 内嵌 CSS）。
+        private async Task InitializeWebViewAsync()
+        {
+            if (webViewConversation == null)
+            {
+                return;
+            }
+            try
+            {
+                await webViewConversation.EnsureCoreWebView2Async();
+                webViewConversation.CoreWebView2.NavigateToString(BaseConversationHtml);
+            }
+            catch (Exception ex)
+            {
+                SetStatus("状态：WebView2 初始化失败：" + ex.Message);
+            }
+        }
+
+        // 对话区基础 HTML：白底，#messages 容器，气泡布局 CSS（用户右对齐蓝气泡、AI 左对齐浅底）。
+        private const string BaseConversationHtml =
+"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>" +
+"body{font-family:'微软雅黑',sans-serif;font-size:14px;margin:12px;color:#18202c;}" +
+".msg{margin-bottom:14px;display:flex;flex-direction:column;}" +
+".msg.user{align-items:flex-end;}" +
+".msg.assistant{align-items:flex-start;}" +
+".msg .role{font-size:11px;color:#999;margin-bottom:3px;padding:0 4px;}" +
+".msg.user .content{background:#e3f2fd;border-radius:12px 12px 2px 12px;padding:8px 12px;max-width:75%;display:inline-block;word-wrap:break-word;}" +
+".msg.assistant .content{max-width:92%;padding:4px 8px;}" +
+".msg.error .content{color:darkred;}" +
+".tool-call{color:#603e0e;font-family:monospace;padding:2px 0 2px 16px;align-self:flex-start;}" +
+".tool-result{color:gray;font-family:monospace;padding:2px 0 2px 16px;align-self:flex-start;}" +
+"table{border-collapse:collapse;width:100%;margin:6px 0;}" +
+"th,td{border:1px solid #ccc;padding:4px 8px;}" +
+"th{background:#f5f5f5;}" +
+"pre,code{background:#f6f8fa;padding:8px;border-radius:4px;overflow-x:auto;}" +
+"pre{white-space:pre-wrap;word-wrap:break-word;}" +
+"h1,h2,h3{margin:8px 0;}" +
+".streaming-preview{font-family:inherit;background:#fafafa;padding:6px;border-radius:4px;}" +
+"</style></head><body><div id=\"messages\"></div></body></html>";
+
+        private void FrmAiAssistant_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            DisposeGooseClient();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                disposingAll = true;
+                DisposeGooseClient();
+                promptCts?.Dispose();
+                webViewConversation?.Dispose();
+                configForm?.Dispose();
+            }
+            base.Dispose(disposing);
         }
 
         private void InitializeLayout()
         {
             SuspendLayout();
-
-            Text = "AI 助手";
+            Text = "AI助手";
             BackColor = Color.FromArgb(244, 247, 250);
             Font = new Font("微软雅黑", 10F);
 
+            rootLayout.Dock = DockStyle.Fill;
             rootLayout.ColumnCount = 1;
             rootLayout.RowCount = 3;
-            rootLayout.Dock = DockStyle.Fill;
-            rootLayout.Padding = new Padding(18, 14, 18, 14);
-            rootLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 78F));
+            rootLayout.Padding = new Padding(14);
+            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
             rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38F));
+            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
 
-            lblTitle.Text = "流程 AI 工作流助手";
-            lblTitle.Dock = DockStyle.Fill;
-            lblTitle.Font = new Font("微软雅黑", 16F, FontStyle.Bold);
-            lblTitle.TextAlign = ContentAlignment.MiddleLeft;
-            lblTitle.ForeColor = Color.FromArgb(20, 28, 45);
-
-            configLayout.ColumnCount = 4;
-            configLayout.RowCount = 4;
-            configLayout.Dock = DockStyle.Fill;
-            configLayout.BackColor = Color.White;
-            configLayout.Padding = new Padding(0);
-            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104F));
-            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 108F));
-            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 108F));
-            configLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
-            configLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
-            configLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26F));
-            configLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-
-            lblBaseUrl.Text = "Dify API地址";
-            lblBaseUrl.TextAlign = ContentAlignment.MiddleLeft;
-            lblBaseUrl.Dock = DockStyle.Fill;
-
-            lblApiKey.Text = "Dify API Key";
-            lblApiKey.TextAlign = ContentAlignment.MiddleLeft;
-            lblApiKey.Dock = DockStyle.Fill;
-
-            txtBaseUrl.Dock = DockStyle.Fill;
-            txtBaseUrl.BorderStyle = BorderStyle.FixedSingle;
-            txtBaseUrl.Margin = new Padding(0, 2, 8, 2);
-
-            txtApiKey.Dock = DockStyle.Fill;
-            txtApiKey.BorderStyle = BorderStyle.FixedSingle;
-            txtApiKey.UseSystemPasswordChar = true;
-            txtApiKey.Margin = new Padding(0, 2, 0, 2);
-
-            btnSaveConfig.Text = "保存配置";
-            btnSaveConfig.Dock = DockStyle.Fill;
-            btnSaveConfig.Margin = new Padding(0, 2, 6, 2);
-            btnSaveConfig.Click += BtnSaveConfig_Click;
-
-            btnReloadConfig.Text = "刷新参数";
-            btnReloadConfig.Dock = DockStyle.Fill;
-            btnReloadConfig.Margin = new Padding(0, 2, 0, 2);
-            btnReloadConfig.Click += BtnReloadConfig_Click;
-
-            lblConfigPathTitle.Text = "配置文件";
-            lblConfigPathTitle.TextAlign = ContentAlignment.MiddleLeft;
-            lblConfigPathTitle.Dock = DockStyle.Fill;
-
-            lblConfigPath.AutoEllipsis = true;
-            lblConfigPath.Dock = DockStyle.Fill;
-            lblConfigPath.TextAlign = ContentAlignment.MiddleLeft;
-            lblConfigPath.ForeColor = Color.FromArgb(80, 88, 104);
-
-            lblTip.Text = "说明：BaseUrl 直接填写 Dify API 根地址，例如 http://127.0.0.1/v1。页面按 workflow 形态调用 /parameters 和 /workflows/run。";
-            lblTip.Dock = DockStyle.Fill;
-            lblTip.ForeColor = Color.DimGray;
-            lblTip.TextAlign = ContentAlignment.MiddleLeft;
-            lblTip.Padding = new Padding(0, 6, 0, 0);
-
-            configLayout.Controls.Add(lblBaseUrl, 0, 0);
-            configLayout.Controls.Add(txtBaseUrl, 1, 0);
-            configLayout.Controls.Add(btnSaveConfig, 2, 0);
-            configLayout.Controls.Add(btnReloadConfig, 3, 0);
-            configLayout.Controls.Add(lblApiKey, 0, 1);
-            configLayout.Controls.Add(txtApiKey, 1, 1);
-            configLayout.SetColumnSpan(txtApiKey, 3);
-            configLayout.Controls.Add(lblConfigPathTitle, 0, 2);
-            configLayout.Controls.Add(lblConfigPath, 1, 2);
-            configLayout.SetColumnSpan(lblConfigPath, 3);
-            configLayout.Controls.Add(lblTip, 0, 3);
-            configLayout.SetColumnSpan(lblTip, 4);
-
-            rtbWorkflowSchema.Dock = DockStyle.Fill;
-            rtbWorkflowSchema.ReadOnly = true;
-            rtbWorkflowSchema.BorderStyle = BorderStyle.FixedSingle;
-            rtbWorkflowSchema.BackColor = Color.White;
-            rtbWorkflowSchema.Font = new Font("Consolas", 9.5F);
-            rtbWorkflowSchema.Margin = new Padding(0);
-
-            txtInputsJson.Dock = DockStyle.Fill;
-            txtInputsJson.Multiline = true;
-            txtInputsJson.BorderStyle = BorderStyle.FixedSingle;
-            txtInputsJson.ScrollBars = ScrollBars.Vertical;
-            txtInputsJson.Font = new Font("Consolas", 9.5F);
-            txtInputsJson.AcceptsTab = true;
-            txtInputsJson.Margin = new Padding(0);
-            txtInputsJson.Text = "{}";
-
-            rtbConversation.Dock = DockStyle.Fill;
-            rtbConversation.ReadOnly = true;
-            rtbConversation.BorderStyle = BorderStyle.FixedSingle;
-            rtbConversation.BackColor = Color.White;
-            rtbConversation.Font = new Font("微软雅黑", 10.5F);
-            rtbConversation.HideSelection = false;
-            rtbConversation.Margin = new Padding(0);
-
-            tabRuntime.Dock = DockStyle.Fill;
-            tabRuntime.Margin = new Padding(0);
-            tabRuntime.Padding = new Point(18, 6);
-
-            lblDebugMcpBaseUrl.Text = "MCP 地址";
-            lblDebugMcpBaseUrl.Dock = DockStyle.Fill;
-            lblDebugMcpBaseUrl.TextAlign = ContentAlignment.MiddleLeft;
-
-            lblDebugLogRoot.Text = "日志目录";
-            lblDebugLogRoot.Dock = DockStyle.Fill;
-            lblDebugLogRoot.TextAlign = ContentAlignment.MiddleLeft;
-
-            txtDebugMcpBaseUrl.Dock = DockStyle.Fill;
-            txtDebugMcpBaseUrl.BorderStyle = BorderStyle.FixedSingle;
-            txtDebugMcpBaseUrl.Margin = new Padding(0, 2, 8, 2);
-
-            txtDebugLogRoot.Dock = DockStyle.Fill;
-            txtDebugLogRoot.BorderStyle = BorderStyle.FixedSingle;
-            txtDebugLogRoot.Margin = new Padding(0, 2, 8, 2);
-
-            btnDebugReloadDefaults.Text = "读取默认值";
-            btnDebugReloadDefaults.Dock = DockStyle.Fill;
-            btnDebugReloadDefaults.Click += BtnDebugReloadDefaults_Click;
-
-            btnDebugRefreshServer.Text = "刷新MCP状态";
-            btnDebugRefreshServer.Dock = DockStyle.Fill;
-            btnDebugRefreshServer.Click += BtnDebugRefreshServer_Click;
-
-            btnDebugTailLog.Text = "刷新日志";
-            btnDebugTailLog.Dock = DockStyle.Fill;
-            btnDebugTailLog.Click += BtnDebugTailLog_Click;
-
-            btnDebugListProcs.Text = "读取流程列表";
-            btnDebugListProcs.Dock = DockStyle.Fill;
-            btnDebugListProcs.Click += BtnDebugListProcs_Click;
-
-            btnDebugSelectedDetail.Text = "读取选中详情";
-            btnDebugSelectedDetail.Dock = DockStyle.Fill;
-            btnDebugSelectedDetail.Click += BtnDebugSelectedDetail_Click;
-
-            btnDebugSelectedSchema.Text = "读取选中Schema";
-            btnDebugSelectedSchema.Dock = DockStyle.Fill;
-            btnDebugSelectedSchema.Click += BtnDebugSelectedSchema_Click;
-
-            btnDebugLoadTemplate.Text = "读取模板";
-            btnDebugLoadTemplate.Dock = DockStyle.Fill;
-            btnDebugLoadTemplate.Click += BtnDebugLoadTemplate_Click;
-
-            btnDebugBuildIntent.Text = "生成测试意图";
-            btnDebugBuildIntent.Dock = DockStyle.Fill;
-            btnDebugBuildIntent.Click += BtnDebugBuildIntent_Click;
-
-            btnDebugPreviewIntent.Text = "预演当前意图";
-            btnDebugPreviewIntent.Dock = DockStyle.Fill;
-            btnDebugPreviewIntent.Click += BtnDebugPreviewIntent_Click;
-
-            btnDebugApplyIntent.Text = "提交当前意图";
-            btnDebugApplyIntent.Dock = DockStyle.Fill;
-            btnDebugApplyIntent.Click += BtnDebugApplyIntent_Click;
-
-            lblDebugIntentTip.Text = "Bridge 自检动作直接通过本机 npipe 调用 Automation Bridge；右侧同时查看 McpServer /info、/healthz 和最新日志。";
-            lblDebugIntentTip.Dock = DockStyle.Fill;
-            lblDebugIntentTip.TextAlign = ContentAlignment.MiddleLeft;
-            lblDebugIntentTip.ForeColor = Color.DimGray;
-
-            txtDebugIntentJson.Dock = DockStyle.Fill;
-            txtDebugIntentJson.Multiline = true;
-            txtDebugIntentJson.BorderStyle = BorderStyle.FixedSingle;
-            txtDebugIntentJson.ScrollBars = ScrollBars.Vertical;
-            txtDebugIntentJson.AcceptsTab = true;
-            txtDebugIntentJson.Font = new Font("Consolas", 9.5F);
-            txtDebugIntentJson.Text = "{}";
-
-            rtbDebugBridge.Dock = DockStyle.Fill;
-            rtbDebugBridge.ReadOnly = true;
-            rtbDebugBridge.BorderStyle = BorderStyle.FixedSingle;
-            rtbDebugBridge.BackColor = Color.White;
-            rtbDebugBridge.Font = new Font("Consolas", 9.3F);
-            rtbDebugBridge.Margin = new Padding(0);
-
-            rtbDebugMcp.Dock = DockStyle.Fill;
-            rtbDebugMcp.ReadOnly = true;
-            rtbDebugMcp.BorderStyle = BorderStyle.FixedSingle;
-            rtbDebugMcp.BackColor = Color.White;
-            rtbDebugMcp.Font = new Font("Consolas", 9.3F);
-            rtbDebugMcp.Margin = new Padding(0);
-
-            rtbDebugLog.Dock = DockStyle.Fill;
-            rtbDebugLog.ReadOnly = true;
-            rtbDebugLog.BorderStyle = BorderStyle.FixedSingle;
-            rtbDebugLog.BackColor = Color.White;
-            rtbDebugLog.Font = new Font("Consolas", 9.1F);
-            rtbDebugLog.Margin = new Padding(0);
+            BuildConfigLayout();
+            BuildTopToolbar();
+            BuildMainLayout();
 
             lblStatus.Dock = DockStyle.Fill;
             lblStatus.TextAlign = ContentAlignment.MiddleLeft;
-            lblStatus.ForeColor = Color.FromArgb(64, 64, 64);
-            lblStatus.BackColor = Color.White;
-            lblStatus.Padding = new Padding(12, 0, 12, 0);
-            lblStatus.Text = "状态：等待输入";
+            lblStatus.ForeColor = Color.FromArgb(56, 66, 88);
+            lblStatus.Text = "状态：等待 Goose 会话。";
 
-            lblPromptVariable.Text = "主问题变量名";
-            lblPromptVariable.Dock = DockStyle.Fill;
-            lblPromptVariable.TextAlign = ContentAlignment.MiddleLeft;
-
-            lblContextVariable.Text = "上下文变量名";
-            lblContextVariable.Dock = DockStyle.Fill;
-            lblContextVariable.TextAlign = ContentAlignment.MiddleLeft;
-
-            txtPromptVariable.Dock = DockStyle.Fill;
-            txtPromptVariable.BorderStyle = BorderStyle.FixedSingle;
-            txtPromptVariable.Margin = new Padding(0, 1, 12, 1);
-
-            txtContextVariable.Dock = DockStyle.Fill;
-            txtContextVariable.BorderStyle = BorderStyle.FixedSingle;
-            txtContextVariable.Margin = new Padding(0, 1, 12, 1);
-
-            lblPromptTip.Text = "用户问题只写入“主问题变量名”；勾选上下文时会单独写入“上下文变量名”，不再拼接到 user_request。Ctrl+Enter 执行。";
-            lblPromptTip.Dock = DockStyle.Fill;
-            lblPromptTip.TextAlign = ContentAlignment.MiddleLeft;
-            lblPromptTip.ForeColor = Color.DimGray;
-
-            txtPrompt.Dock = DockStyle.Fill;
-            txtPrompt.Multiline = true;
-            txtPrompt.BorderStyle = BorderStyle.FixedSingle;
-            txtPrompt.ScrollBars = ScrollBars.Vertical;
-            txtPrompt.AcceptsTab = true;
-            txtPrompt.KeyDown += TxtPrompt_KeyDown;
-
-            btnClearHistory.Text = "清空记录";
-            btnClearHistory.Dock = DockStyle.Fill;
-            btnClearHistory.Click += BtnClearHistory_Click;
-
-            btnSend.Text = "执行Workflow";
-            btnSend.Dock = DockStyle.Fill;
-            btnSend.Click += BtnSend_Click;
-
-            chkIncludeContext.Text = "附带当前流程上下文";
-            chkIncludeContext.Checked = true;
-            chkIncludeContext.AutoSize = true;
-            chkIncludeContext.Dock = DockStyle.Left;
-            chkIncludeContext.TextAlign = ContentAlignment.MiddleLeft;
-
-            TableLayoutPanel leftLayout = new TableLayoutPanel();
-            leftLayout.ColumnCount = 1;
-            leftLayout.RowCount = 3;
-            leftLayout.Dock = DockStyle.Fill;
-            leftLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            leftLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 176F));
-            leftLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            leftLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 238F));
-
-            TableLayoutPanel rightLayout = new TableLayoutPanel();
-            rightLayout.ColumnCount = 1;
-            rightLayout.RowCount = 2;
-            rightLayout.Dock = DockStyle.Fill;
-            rightLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            rightLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            rightLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 240F));
-
-            SplitContainer mainSplit = new SplitContainer();
-            mainSplit.Dock = DockStyle.Fill;
-            mainSplit.Orientation = Orientation.Vertical;
-            mainSplit.FixedPanel = FixedPanel.Panel1;
-            mainSplit.SplitterWidth = 8;
-            mainSplit.BackColor = Color.FromArgb(226, 232, 240);
-            mainSplit.HandleCreated += delegate
-            {
-                ApplyMainSplitLayout(mainSplit);
-            };
-            mainSplit.SizeChanged += delegate
-            {
-                ApplyMainSplitLayout(mainSplit);
-            };
-
-            TableLayoutPanel promptLayout = new TableLayoutPanel();
-            promptLayout.ColumnCount = 1;
-            promptLayout.RowCount = 3;
-            promptLayout.Dock = DockStyle.Fill;
-            promptLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            promptLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
-            promptLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            promptLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
-
-            TableLayoutPanel promptHeaderLayout = new TableLayoutPanel();
-            promptHeaderLayout.ColumnCount = 5;
-            promptHeaderLayout.RowCount = 1;
-            promptHeaderLayout.Dock = DockStyle.Fill;
-            promptHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112F));
-            promptHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180F));
-            promptHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112F));
-            promptHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180F));
-            promptHeaderLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            promptHeaderLayout.Controls.Add(lblPromptVariable, 0, 0);
-            promptHeaderLayout.Controls.Add(txtPromptVariable, 1, 0);
-            promptHeaderLayout.Controls.Add(lblContextVariable, 2, 0);
-            promptHeaderLayout.Controls.Add(txtContextVariable, 3, 0);
-            promptHeaderLayout.Controls.Add(lblPromptTip, 4, 0);
-
-            TableLayoutPanel promptActionLayout = new TableLayoutPanel();
-            promptActionLayout.ColumnCount = 4;
-            promptActionLayout.RowCount = 1;
-            promptActionLayout.Dock = DockStyle.Fill;
-            promptActionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            promptActionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220F));
-            promptActionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110F));
-            promptActionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120F));
-            promptActionLayout.Controls.Add(chkIncludeContext, 1, 0);
-            promptActionLayout.Controls.Add(btnClearHistory, 2, 0);
-            promptActionLayout.Controls.Add(btnSend, 3, 0);
-
-            promptLayout.Controls.Add(promptHeaderLayout, 0, 0);
-            promptLayout.Controls.Add(txtPrompt, 0, 1);
-            promptLayout.Controls.Add(promptActionLayout, 0, 2);
-
-            TableLayoutPanel conversationLayout = new TableLayoutPanel();
-            conversationLayout.ColumnCount = 1;
-            conversationLayout.RowCount = 2;
-            conversationLayout.Dock = DockStyle.Fill;
-            conversationLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            conversationLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28F));
-            conversationLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-
-            Label lblConversationTip = new Label();
-            lblConversationTip.Text = "显示请求预览、workflow 返回结果与错误信息。";
-            lblConversationTip.Dock = DockStyle.Fill;
-            lblConversationTip.TextAlign = ContentAlignment.MiddleLeft;
-            lblConversationTip.ForeColor = Color.DimGray;
-
-            conversationLayout.Controls.Add(lblConversationTip, 0, 0);
-            conversationLayout.Controls.Add(rtbConversation, 0, 1);
-
-            tabConversation.Padding = new Padding(10);
-            tabConversation.BackColor = Color.WhiteSmoke;
-            tabConversation.Controls.Add(conversationLayout);
-            tabDebug.Padding = new Padding(10);
-            tabDebug.BackColor = Color.WhiteSmoke;
-            tabDebug.Controls.Add(BuildDebugPanel());
-            tabRuntime.TabPages.Add(tabConversation);
-            tabRuntime.TabPages.Add(tabDebug);
-
-            leftLayout.Controls.Add(BuildGroupBox("连接配置", configLayout), 0, 0);
-            leftLayout.Controls.Add(BuildGroupBox("Workflow 输入结构", rtbWorkflowSchema), 0, 1);
-            leftLayout.Controls.Add(BuildGroupBox("Inputs JSON", txtInputsJson), 0, 2);
-
-            rightLayout.Controls.Add(BuildGroupBox("运行与联调", tabRuntime), 0, 0);
-            rightLayout.Controls.Add(BuildGroupBox("执行输入", promptLayout), 0, 1);
-
-            mainSplit.Panel1.Padding = new Padding(0, 0, 8, 0);
-            mainSplit.Panel2.Padding = new Padding(8, 0, 0, 0);
-            mainSplit.Panel1.Controls.Add(leftLayout);
-            mainSplit.Panel2.Controls.Add(rightLayout);
-
-            rootLayout.Controls.Add(BuildHeaderPanel(), 0, 0);
-            rootLayout.Controls.Add(mainSplit, 0, 1);
+            rootLayout.Controls.Add(topToolbar, 0, 0);
+            rootLayout.Controls.Add(chatLayout, 0, 1);
             rootLayout.Controls.Add(lblStatus, 0, 2);
-
             Controls.Add(rootLayout);
             ResumeLayout(false);
         }
 
-        private Control BuildDebugPanel()
+        private void BuildTopToolbar()
         {
-            TableLayoutPanel targetLayout = new TableLayoutPanel();
-            targetLayout.ColumnCount = 5;
-            targetLayout.RowCount = 3;
-            targetLayout.Dock = DockStyle.Fill;
-            targetLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72F));
-            targetLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            targetLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 118F));
-            targetLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 126F));
-            targetLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112F));
-            targetLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
-            targetLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
-            targetLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            targetLayout.Controls.Add(lblDebugMcpBaseUrl, 0, 0);
-            targetLayout.Controls.Add(txtDebugMcpBaseUrl, 1, 0);
-            targetLayout.Controls.Add(btnDebugReloadDefaults, 2, 0);
-            targetLayout.Controls.Add(btnDebugRefreshServer, 3, 0);
-            targetLayout.Controls.Add(btnDebugTailLog, 4, 0);
-            targetLayout.Controls.Add(lblDebugLogRoot, 0, 1);
-            targetLayout.Controls.Add(txtDebugLogRoot, 1, 1);
-            targetLayout.SetColumnSpan(txtDebugLogRoot, 4);
-            targetLayout.Controls.Add(lblDebugIntentTip, 0, 2);
-            targetLayout.SetColumnSpan(lblDebugIntentTip, 5);
+            topToolbar.Dock = DockStyle.Fill;
+            topToolbar.BackColor = Color.FromArgb(238, 241, 245);
+            topToolbar.Padding = new Padding(0, 6, 0, 6);
 
-            TableLayoutPanel actionLayout = new TableLayoutPanel();
-            actionLayout.ColumnCount = 4;
-            actionLayout.RowCount = 2;
-            actionLayout.Dock = DockStyle.Fill;
-            actionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
-            actionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
-            actionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
-            actionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
-            actionLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38F));
-            actionLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38F));
-            actionLayout.Controls.Add(btnDebugListProcs, 0, 0);
-            actionLayout.Controls.Add(btnDebugSelectedDetail, 1, 0);
-            actionLayout.Controls.Add(btnDebugSelectedSchema, 2, 0);
-            actionLayout.Controls.Add(btnDebugLoadTemplate, 3, 0);
-            actionLayout.Controls.Add(btnDebugBuildIntent, 0, 1);
-            actionLayout.Controls.Add(btnDebugPreviewIntent, 1, 1);
-            actionLayout.Controls.Add(btnDebugApplyIntent, 2, 1);
-            actionLayout.Controls.Add(new Panel { Dock = DockStyle.Fill }, 3, 1);
+            btnConfig.Text = "配置";
+            btnConfig.Dock = DockStyle.Left;
+            btnConfig.Width = 80;
+            btnConfig.FlatStyle = FlatStyle.System;
+            btnConfig.Margin = new Padding(0);
+            btnConfig.Click += BtnConfig_Click;
 
-            SplitContainer statusSplit = new SplitContainer();
-            statusSplit.Dock = DockStyle.Fill;
-            statusSplit.Orientation = Orientation.Vertical;
-            statusSplit.SplitterWidth = 8;
-            statusSplit.BackColor = Color.FromArgb(226, 232, 240);
-            statusSplit.Panel1.Padding = new Padding(0, 0, 8, 0);
-            statusSplit.Panel2.Padding = new Padding(8, 0, 0, 0);
-            statusSplit.Panel1.Controls.Add(BuildGroupBox("Bridge 请求与响应", rtbDebugBridge));
-            statusSplit.Panel2.Controls.Add(BuildGroupBox("MCP 状态", rtbDebugMcp));
-            statusSplit.HandleCreated += delegate { ApplyDebugVerticalSplitLayout(statusSplit); };
-            statusSplit.SizeChanged += delegate { ApplyDebugVerticalSplitLayout(statusSplit); };
+            btnResetSession.Text = "重置会话";
+            btnResetSession.Dock = DockStyle.Left;
+            btnResetSession.Width = 90;
+            btnResetSession.FlatStyle = FlatStyle.System;
+            btnResetSession.Margin = new Padding(6, 0, 0, 0);
+            btnResetSession.Click += BtnResetSession_Click;
 
-            TableLayoutPanel topLayout = new TableLayoutPanel();
-            topLayout.ColumnCount = 1;
-            topLayout.RowCount = 4;
-            topLayout.Dock = DockStyle.Fill;
-            topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            topLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 122F));
-            topLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 126F));
-            topLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 192F));
-            topLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            topLayout.Controls.Add(BuildGroupBox("联调目标", targetLayout), 0, 0);
-            topLayout.Controls.Add(BuildGroupBox("联调动作", actionLayout), 0, 1);
-            topLayout.Controls.Add(statusSplit, 0, 2);
-            topLayout.Controls.Add(BuildGroupBox("测试意图 JSON", txtDebugIntentJson), 0, 3);
-
-            SplitContainer outerSplit = new SplitContainer();
-            outerSplit.Dock = DockStyle.Fill;
-            outerSplit.Orientation = Orientation.Horizontal;
-            outerSplit.SplitterWidth = 8;
-            outerSplit.BackColor = Color.FromArgb(226, 232, 240);
-            outerSplit.Panel1.Padding = new Padding(0, 0, 0, 8);
-            outerSplit.Panel2.Padding = new Padding(0, 8, 0, 0);
-            outerSplit.Panel1.Controls.Add(topLayout);
-            outerSplit.Panel2.Controls.Add(BuildGroupBox("MCP 日志尾部", rtbDebugLog));
-            outerSplit.HandleCreated += delegate { ApplyDebugHorizontalSplitLayout(outerSplit); };
-            outerSplit.SizeChanged += delegate { ApplyDebugHorizontalSplitLayout(outerSplit); };
-
-            return outerSplit;
+            // 先加的 Dock=Left 会停在最右侧，故按从右到左的视觉顺序倒序加入
+            topToolbar.Controls.Add(btnResetSession);
+            topToolbar.Controls.Add(btnConfig);
         }
 
-        private Control BuildHeaderPanel()
+        private void BuildConfigLayout()
         {
-            TableLayoutPanel header = new TableLayoutPanel();
-            header.ColumnCount = 1;
-            header.RowCount = 2;
-            header.Dock = DockStyle.Fill;
-            header.BackColor = Color.White;
-            header.Padding = new Padding(16, 10, 16, 10);
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            header.RowStyles.Add(new RowStyle(SizeType.Absolute, 28F));
-            header.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            configLayout.Dock = DockStyle.Fill;
+            configLayout.BackColor = Color.White;
+            configLayout.Padding = new Padding(10);
+            configLayout.ColumnCount = 8;
+            configLayout.RowCount = 3;
+            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86F));
+            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34F));
+            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86F));
+            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34F));
+            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72F));
+            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
+            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96F));
+            configLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96F));
+            configLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
+            configLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
+            configLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
 
-            Label lblSubtitle = new Label();
-            lblSubtitle.Text = "左侧维护 Dify 连接与 workflow 输入结构，右侧查看运行记录并提交执行请求。";
-            lblSubtitle.Dock = DockStyle.Fill;
-            lblSubtitle.TextAlign = ContentAlignment.MiddleLeft;
-            lblSubtitle.ForeColor = Color.FromArgb(91, 102, 118);
+            AddConfigRow(0, "Goose", txtGooseExecutable, "工作目录", txtWorkingDirectory);
+            AddConfigRow(1, "MCP地址", txtMcpUri, "会话名", txtSessionName);
+            InitializeProviderModelDropdowns();
+            AddConfigRow(2, "供应商", cboProvider, "模型", cboModel);
 
-            header.Controls.Add(lblTitle, 0, 0);
-            header.Controls.Add(lblSubtitle, 0, 1);
-            return header;
+            Label lblTurns = BuildLabel("轮次");
+            nudMaxTurns.Dock = DockStyle.Fill;
+            nudMaxTurns.Minimum = 1;
+            nudMaxTurns.Maximum = 200;
+            nudMaxTurns.Value = GooseConfigStorage.DefaultMaxTurns;
+            nudMaxTurns.Margin = new Padding(0, 2, 8, 2);
+            configLayout.Controls.Add(lblTurns, 4, 2);
+            configLayout.Controls.Add(nudMaxTurns, 5, 2);
+
+            btnSaveConfig.Text = "保存配置";
+            btnReloadConfig.Text = "重载配置";
+            btnCheckGoose.Text = "检查Goose";
+            StyleButton(btnSaveConfig);
+            StyleButton(btnReloadConfig);
+            StyleButton(btnCheckGoose);
+            btnSaveConfig.Click += BtnSaveConfig_Click;
+            btnReloadConfig.Click += BtnReloadConfig_Click;
+            btnCheckGoose.Click += BtnCheckGoose_Click;
+            configLayout.Controls.Add(btnSaveConfig, 6, 0);
+            configLayout.Controls.Add(btnReloadConfig, 7, 0);
+            configLayout.Controls.Add(btnCheckGoose, 6, 1);
+            configLayout.SetColumnSpan(btnCheckGoose, 2);
         }
 
-        private static GroupBox BuildGroupBox(string title, Control content)
+        private void AddConfigRow(int row, string label1, Control control1, string label2, Control control2)
         {
-            GroupBox groupBox = new GroupBox();
-            groupBox.Text = title;
-            groupBox.Dock = DockStyle.Fill;
-            groupBox.BackColor = Color.White;
-            groupBox.Padding = new Padding(12, 30, 12, 12);
-            content.Dock = DockStyle.Fill;
-            groupBox.Controls.Add(content);
-            return groupBox;
+            configLayout.Controls.Add(BuildLabel(label1), 0, row);
+            PrepareConfigInput(control1);
+            configLayout.Controls.Add(control1, 1, row);
+            configLayout.Controls.Add(BuildLabel(label2), 2, row);
+            PrepareConfigInput(control2);
+            configLayout.Controls.Add(control2, 3, row);
         }
 
-        private static void ApplyDebugVerticalSplitLayout(SplitContainer split)
+        private void BuildMainLayout()
         {
-            int availableWidth = split.ClientSize.Width - split.SplitterWidth;
-            if (availableWidth <= 0)
+            chatLayout.Dock = DockStyle.Fill;
+            chatLayout.ColumnCount = 1;
+            chatLayout.RowCount = 2;
+            chatLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            chatLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 96F));
+
+            webViewConversation = new WebView2
             {
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0)
+            };
+            chatLayout.Controls.Add(webViewConversation, 0, 0);
+
+            inputLayout.Dock = DockStyle.Fill;
+            inputLayout.ColumnCount = 3;
+            inputLayout.RowCount = 1;
+            inputLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            inputLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86F));
+            inputLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86F));
+
+            txtPrompt.Dock = DockStyle.Fill;
+            txtPrompt.Multiline = true;
+            txtPrompt.ScrollBars = ScrollBars.Vertical;
+            txtPrompt.AcceptsReturn = true;
+            txtPrompt.BorderStyle = BorderStyle.FixedSingle;
+            txtPrompt.Margin = new Padding(0, 8, 8, 0);
+            txtPrompt.KeyDown += TxtPrompt_KeyDown;
+
+            btnSend.Text = "发送";
+            btnStop.Text = "停止";
+            StyleButton(btnSend);
+            StyleButton(btnStop);
+            btnSend.Click += BtnSend_Click;
+            btnStop.Click += BtnStop_Click;
+
+            inputLayout.Controls.Add(txtPrompt, 0, 0);
+            inputLayout.Controls.Add(btnSend, 1, 0);
+            inputLayout.Controls.Add(btnStop, 2, 0);
+            chatLayout.Controls.Add(inputLayout, 0, 1);
+        }
+
+        private static Label BuildLabel(string text)
+        {
+            return new Label
+            {
+                Text = text,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true
+            };
+        }
+
+        private static void PrepareTextBox(TextBox textBox, bool multiline)
+        {
+            textBox.Dock = DockStyle.Fill;
+            textBox.Multiline = multiline;
+            textBox.BorderStyle = BorderStyle.FixedSingle;
+            textBox.Margin = new Padding(0, 2, 8, 2);
+        }
+
+        private static void PrepareConfigInput(Control control)
+        {
+            control.Dock = DockStyle.Fill;
+            control.Margin = new Padding(0, 2, 8, 2);
+            if (control is TextBox textBox)
+            {
+                textBox.Multiline = false;
+                textBox.BorderStyle = BorderStyle.FixedSingle;
                 return;
             }
 
-            const int desiredLeftMin = 260;
-            const int desiredRightMin = 260;
-            const int desiredLeftWidth = 0;
-            const int fallbackMin = 120;
-
-            int leftMin = desiredLeftMin;
-            int rightMin = desiredRightMin;
-            if (leftMin + rightMin > availableWidth)
+            if (control is ComboBox comboBox)
             {
-                int compactMin = Math.Max(fallbackMin, availableWidth / 3);
-                leftMin = Math.Min(desiredLeftMin, compactMin);
-                rightMin = Math.Min(desiredRightMin, Math.Max(fallbackMin, availableWidth - leftMin));
-                if (leftMin + rightMin > availableWidth)
-                {
-                    leftMin = Math.Max(fallbackMin, availableWidth - rightMin);
-                }
-                if (leftMin + rightMin > availableWidth)
-                {
-                    rightMin = Math.Max(0, availableWidth - leftMin);
-                }
-            }
-
-            leftMin = Math.Max(0, Math.Min(leftMin, availableWidth));
-            rightMin = Math.Max(0, Math.Min(rightMin, Math.Max(0, availableWidth - leftMin)));
-
-            int minDistance = leftMin;
-            int maxDistance = Math.Max(minDistance, availableWidth - rightMin);
-            int targetDistance = Math.Min(Math.Max(Math.Max(availableWidth / 2, desiredLeftWidth), minDistance), maxDistance);
-
-            if (split.Panel1MinSize != leftMin)
-            {
-                split.Panel1MinSize = leftMin;
-            }
-            if (split.Panel2MinSize != rightMin)
-            {
-                split.Panel2MinSize = rightMin;
-            }
-            if (split.SplitterDistance != targetDistance)
-            {
-                split.SplitterDistance = targetDistance;
+                comboBox.DropDownStyle = ComboBoxStyle.DropDown;
+                comboBox.FlatStyle = FlatStyle.System;
             }
         }
 
-        private static void ApplyDebugHorizontalSplitLayout(SplitContainer split)
+        private void InitializeProviderModelDropdowns()
         {
-            int availableHeight = split.ClientSize.Height - split.SplitterWidth;
-            if (availableHeight <= 0)
-            {
-                return;
-            }
+            // 优先从 Goose config.yaml 读取已注册的 provider（如 custom_deepseek），
+            // 避免 GooseAcpClient 传入的 GOOSE_PROVIDER 与 Goose 实际注册名不一致。
+            gooseProviders = GooseConfigStorage.TryLoadGooseProviders();
 
-            const int desiredTopMin = 420;
-            const int desiredBottomMin = 160;
-            const int fallbackMin = 96;
-
-            int topMin = desiredTopMin;
-            int bottomMin = desiredBottomMin;
-            if (topMin + bottomMin > availableHeight)
+            cboProvider.BeginUpdate();
+            cboProvider.Items.Clear();
+            cboProvider.Items.Add("使用 Goose 配置");
+            foreach (GooseProviderInfo info in gooseProviders)
             {
-                int compactMin = Math.Max(fallbackMin, availableHeight / 4);
-                bottomMin = Math.Min(desiredBottomMin, compactMin);
-                topMin = Math.Min(desiredTopMin, Math.Max(fallbackMin, availableHeight - bottomMin));
-                if (topMin + bottomMin > availableHeight)
+                if (!string.IsNullOrWhiteSpace(info.Name))
                 {
-                    bottomMin = Math.Max(0, availableHeight - topMin);
-                }
-                if (topMin + bottomMin > availableHeight)
-                {
-                    topMin = Math.Max(0, availableHeight - bottomMin);
+                    cboProvider.Items.Add(info.Name);
                 }
             }
-
-            topMin = Math.Max(0, Math.Min(topMin, availableHeight));
-            bottomMin = Math.Max(0, Math.Min(bottomMin, Math.Max(0, availableHeight - topMin)));
-
-            int minDistance = topMin;
-            int maxDistance = Math.Max(minDistance, availableHeight - bottomMin);
-            int targetDistance = Math.Min(Math.Max((availableHeight * 3) / 4, minDistance), maxDistance);
-
-            if (split.Panel1MinSize != topMin)
+            // 追加 Goose 内置 provider 名作为补充选项（config.yaml 未注册时仍可选用）。
+            string[] standardProviders = { "openai", "anthropic", "google", "ollama", "openrouter", "azure_openai" };
+            foreach (string std in standardProviders)
             {
-                split.Panel1MinSize = topMin;
-            }
-            if (split.Panel2MinSize != bottomMin)
-            {
-                split.Panel2MinSize = bottomMin;
-            }
-            if (split.SplitterDistance != targetDistance)
-            {
-                split.SplitterDistance = targetDistance;
-            }
-        }
-
-        private static void ApplyMainSplitLayout(SplitContainer mainSplit)
-        {
-            int availableWidth = mainSplit.ClientSize.Width - mainSplit.SplitterWidth;
-            if (availableWidth <= 0)
-            {
-                return;
-            }
-
-            const int desiredLeftWidth = 468;
-            const int desiredLeftMin = 380;
-            const int desiredRightMin = 480;
-            const int fallbackMin = 180;
-
-            int panel1Min = desiredLeftMin;
-            int panel2Min = desiredRightMin;
-            if (panel1Min + panel2Min > availableWidth)
-            {
-                int compactMin = Math.Max(fallbackMin, availableWidth / 3);
-                panel1Min = Math.Min(desiredLeftMin, compactMin);
-                panel2Min = Math.Min(desiredRightMin, Math.Max(fallbackMin, availableWidth - panel1Min));
-                if (panel1Min + panel2Min > availableWidth)
+                bool exists = false;
+                foreach (GooseProviderInfo info in gooseProviders)
                 {
-                    panel1Min = Math.Max(fallbackMin, availableWidth - panel2Min);
-                }
-                if (panel1Min + panel2Min > availableWidth)
-                {
-                    panel2Min = Math.Max(0, availableWidth - panel1Min);
-                }
-            }
-
-            panel1Min = Math.Max(0, Math.Min(panel1Min, availableWidth));
-            panel2Min = Math.Max(0, Math.Min(panel2Min, Math.Max(0, availableWidth - panel1Min)));
-
-            int minDistance = panel1Min;
-            int maxDistance = Math.Max(minDistance, availableWidth - panel2Min);
-            int targetDistance = Math.Min(Math.Max(desiredLeftWidth, minDistance), maxDistance);
-
-            if (mainSplit.Panel1MinSize != panel1Min)
-            {
-                mainSplit.Panel1MinSize = panel1Min;
-            }
-            if (mainSplit.Panel2MinSize != panel2Min)
-            {
-                mainSplit.Panel2MinSize = panel2Min;
-            }
-            if (mainSplit.SplitterDistance != targetDistance)
-            {
-                mainSplit.SplitterDistance = targetDistance;
-            }
-        }
-
-        private void LoadDebugDefaults(bool forceOverwrite)
-        {
-            string resolvedBaseUrl = "http://127.0.0.1:8081";
-            string resolvedLogRoot = string.Empty;
-            string sourceSummary = "未找到 McpServer 运行配置，已使用默认 MCP 地址。";
-
-            string appSettingsPath;
-            if (TryFindMcpServerAppSettingsPath(out appSettingsPath))
-            {
-                try
-                {
-                    JObject root = JObject.Parse(File.ReadAllText(appSettingsPath, Encoding.UTF8));
-                    JObject section = root["AutomationMcp"] as JObject ?? root["automationMcp"] as JObject;
-                    if (section != null)
+                    if (string.Equals(info.Name, std, StringComparison.OrdinalIgnoreCase))
                     {
-                        string listenUrl = section["ListenUrl"]?.Value<string>() ?? string.Empty;
-                        string host = section["ListenHost"]?.Value<string>() ?? string.Empty;
-                        int port = section["ListenPort"]?.Value<int?>() ?? 0;
-                        string logRoot = section["LogRoot"]?.Value<string>() ?? string.Empty;
-
-                        if (!string.IsNullOrWhiteSpace(listenUrl))
-                        {
-                            resolvedBaseUrl = listenUrl.Trim().TrimEnd('/');
-                        }
-                        else if (!string.IsNullOrWhiteSpace(host) && port > 0)
-                        {
-                            string normalizedHost = host.Trim();
-                            if (string.Equals(normalizedHost, "0.0.0.0", StringComparison.OrdinalIgnoreCase)
-                                || string.Equals(normalizedHost, "*", StringComparison.OrdinalIgnoreCase)
-                                || string.Equals(normalizedHost, "+", StringComparison.OrdinalIgnoreCase))
-                            {
-                                normalizedHost = "127.0.0.1";
-                            }
-
-                            resolvedBaseUrl = $"http://{normalizedHost}:{port}";
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(logRoot))
-                        {
-                            resolvedLogRoot = Path.IsPathRooted(logRoot)
-                                ? logRoot
-                                : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(appSettingsPath) ?? string.Empty, logRoot));
-                        }
-
-                        sourceSummary = "已从 " + appSettingsPath + " 读取 McpServer 运行配置。";
-                    }
-                    else
-                    {
-                        sourceSummary = appSettingsPath + " 中未找到 AutomationMcp 配置节，已使用默认 MCP 地址。";
+                        exists = true;
+                        break;
                     }
                 }
-                catch (Exception ex)
+                if (!exists)
                 {
-                    sourceSummary = "读取 McpServer 运行配置失败：" + ex.Message;
+                    cboProvider.Items.Add(std);
+                }
+            }
+            cboProvider.EndUpdate();
+            cboProvider.SelectedIndex = 0;
+            cboProvider.SelectedIndexChanged += CboProvider_SelectedIndexChanged;
+
+            RefreshModelOptions(string.Empty, string.Empty);
+        }
+
+        private void CboProvider_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            RefreshModelOptions(NormalizeGooseOverride(cboProvider.Text), cboModel.Text);
+        }
+
+        private void RefreshModelOptions(string provider, string currentModel)
+        {
+            string normalizedCurrentModel = NormalizeGooseOverride(currentModel);
+            var models = new List<string> { "使用 Goose 配置" };
+
+            // 优先：若选中的 provider 在 Goose config 里有配 model，显示该 model。
+            if (!string.IsNullOrWhiteSpace(provider))
+            {
+                GooseProviderInfo match = null;
+                foreach (GooseProviderInfo info in gooseProviders)
+                {
+                    if (string.Equals(info.Name, provider, StringComparison.OrdinalIgnoreCase))
+                    {
+                        match = info;
+                        break;
+                    }
+                }
+                if (match != null && !string.IsNullOrWhiteSpace(match.Model))
+                {
+                    models.Add(match.Model);
                 }
             }
 
-            if (forceOverwrite || string.IsNullOrWhiteSpace(txtDebugMcpBaseUrl.Text))
+            // 追加：标准 provider 的预设模型列表。
+            foreach (string m in GetModelOptions(provider))
             {
-                txtDebugMcpBaseUrl.Text = resolvedBaseUrl;
+                if (!models.Contains(m))
+                {
+                    models.Add(m);
+                }
             }
 
-            if (forceOverwrite || string.IsNullOrWhiteSpace(txtDebugLogRoot.Text))
+            cboModel.BeginUpdate();
+            cboModel.Items.Clear();
+            foreach (string model in models)
             {
-                txtDebugLogRoot.Text = resolvedLogRoot;
+                cboModel.Items.Add(model);
+            }
+            cboModel.EndUpdate();
+
+            if (string.IsNullOrWhiteSpace(normalizedCurrentModel))
+            {
+                cboModel.SelectedIndex = 0;
+                return;
             }
 
-            if (forceOverwrite || rtbDebugMcp.TextLength == 0)
+            cboModel.Text = normalizedCurrentModel;
+        }
+
+        private static string[] GetModelOptions(string provider)
+        {
+            switch ((provider ?? string.Empty).Trim().ToLowerInvariant())
             {
-                var builder = new StringBuilder();
-                builder.AppendLine("联调默认值");
-                builder.AppendLine("MCP 地址: " + txtDebugMcpBaseUrl.Text.Trim());
-                builder.AppendLine("日志目录: " + (txtDebugLogRoot.Text.Trim().Length == 0 ? "未解析到" : txtDebugLogRoot.Text.Trim()));
-                builder.Append("来源: ").Append(sourceSummary);
-                rtbDebugMcp.Text = builder.ToString();
+                case "deepseek":
+                    return new[] { "使用 Goose 配置", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner" };
+                case "openai":
+                    return new[] { "使用 Goose 配置", "gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini" };
+                case "anthropic":
+                    return new[] { "使用 Goose 配置", "claude-sonnet-4-5", "claude-opus-4-1", "claude-3-7-sonnet-latest" };
+                case "google":
+                    return new[] { "使用 Goose 配置", "gemini-2.5-pro", "gemini-2.5-flash" };
+                case "ollama":
+                    return new[] { "使用 Goose 配置", "llama3.1", "qwen2.5-coder", "deepseek-r1" };
+                default:
+                    return new[] { "使用 Goose 配置" };
             }
         }
 
-        private static bool TryFindMcpServerAppSettingsPath(out string path)
+        private static string NormalizeGooseOverride(string value)
         {
-            path = null;
-            var checkedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            string[] startDirs = new[]
+            string trimmed = (value ?? string.Empty).Trim();
+            return string.Equals(trimmed, "使用 Goose 配置", StringComparison.OrdinalIgnoreCase) ? string.Empty : trimmed;
+        }
+
+        private static void StyleButton(Button button)
+        {
+            button.Dock = DockStyle.Fill;
+            button.Margin = new Padding(4, 8, 0, 0);
+            button.FlatStyle = FlatStyle.System;
+        }
+
+        private void LoadConfig()
+        {
+            if (!GooseConfigStorage.TryLoad(out GooseConfig config, out string error))
             {
-                AppDomain.CurrentDomain.BaseDirectory,
-                Environment.CurrentDirectory
+                SetStatus($"状态：Goose 配置读取失败：{error}");
+                MessageBox.Show(error, "Goose 配置读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                config = GooseConfigStorage.CreateDefaultConfig();
+            }
+
+            txtGooseExecutable.Text = config.GooseExecutablePath;
+            TryResolveGooseExecutablePath(txtGooseExecutable.Text, out string resolvedGoosePath);
+            if (!string.IsNullOrWhiteSpace(resolvedGoosePath))
+            {
+                txtGooseExecutable.Text = resolvedGoosePath;
+            }
+            txtWorkingDirectory.Text = config.WorkingDirectory;
+            txtMcpUri.Text = config.McpUri;
+            txtSessionName.Text = config.SessionName;
+            cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? "使用 Goose 配置" : config.Provider;
+            RefreshModelOptions(config.Provider, config.Model);
+            nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, config.MaxTurns));
+            SetStatus($"状态：Goose 配置已加载：{GooseConfigStorage.ConfigPath}");
+        }
+
+        private bool TryBuildConfig(out GooseConfig config, out string error)
+        {
+            config = new GooseConfig
+            {
+                GooseExecutablePath = txtGooseExecutable.Text.Trim(),
+                WorkingDirectory = txtWorkingDirectory.Text.Trim(),
+                McpUri = txtMcpUri.Text.Trim(),
+                SessionName = txtSessionName.Text.Trim(),
+                Provider = NormalizeGooseOverride(cboProvider.Text),
+                Model = NormalizeGooseOverride(cboModel.Text),
+                MaxTurns = (int)nudMaxTurns.Value
             };
 
-            for (int i = 0; i < startDirs.Length; i++)
+            if (TryResolveGooseExecutablePath(config.GooseExecutablePath, out string resolvedGoosePath))
             {
-                string startDir = startDirs[i];
-                if (string.IsNullOrWhiteSpace(startDir) || !Directory.Exists(startDir))
-                {
-                    continue;
-                }
-
-                DirectoryInfo current = new DirectoryInfo(startDir);
-                for (int depth = 0; current != null && depth < 8; depth++, current = current.Parent)
-                {
-                    string[] candidates = new[]
-                    {
-                        Path.Combine(current.FullName, "McpServer", "bin", "Debug", "net8.0-windows", "appsettings.json"),
-                        Path.Combine(current.FullName, "McpServer", "bin", "Release", "net8.0-windows", "appsettings.json"),
-                        Path.Combine(current.FullName, "McpServer", "bin", "Debug", "net8.0", "appsettings.json"),
-                        Path.Combine(current.FullName, "McpServer", "bin", "Release", "net8.0", "appsettings.json"),
-                        Path.Combine(current.FullName, "McpServer", "appsettings.json")
-                    };
-
-                    for (int candidateIndex = 0; candidateIndex < candidates.Length; candidateIndex++)
-                    {
-                        string candidate = candidates[candidateIndex];
-                        if (!checkedPaths.Add(candidate))
-                        {
-                            continue;
-                        }
-
-                        if (File.Exists(candidate))
-                        {
-                            path = candidate;
-                            return true;
-                        }
-                    }
-                }
+                config.GooseExecutablePath = resolvedGoosePath;
+                txtGooseExecutable.Text = resolvedGoosePath;
             }
 
-            return false;
+            return GooseConfigStorage.TryValidate(config, out error);
         }
 
-        private void BtnDebugReloadDefaults_Click(object sender, EventArgs e)
+        private async void BtnSend_Click(object sender, EventArgs e)
         {
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "使用联调面板"))
+            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "发送 AI 对话"))
             {
+                return;
+            }
+            string prompt = txtPrompt.Text.Trim();
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                return;
+            }
+            if (!TryBuildConfig(out GooseConfig config, out string error))
+            {
+                MessageBox.Show(error, "Goose 配置无效", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
-            LoadDebugDefaults(true);
-            SetStatus("状态：联调默认值已刷新");
-        }
+            AppendConversation("用户", prompt, Color.FromArgb(22, 72, 130));
+            txtPrompt.Clear();
+            sending = true;
+            promptCts?.Dispose();
+            promptCts = new CancellationTokenSource();
+            ApplyPermissions();
+            SetStatus("状态：正在请求 Goose。");
 
-        private async void BtnDebugRefreshServer_Click(object sender, EventArgs e)
-        {
-            if (sending || loadingWorkflowSchema)
-            {
-                return;
-            }
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "读取 MCP 状态"))
-            {
-                return;
-            }
-            if (!TryGetDebugMcpBaseUrl(out string baseUrl, out string error))
-            {
-                MessageBox.Show(error, "参数错误", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                SetStatus("状态：MCP 地址无效");
-                return;
-            }
-
-            SetSendingState(true);
-            SetStatus("状态：正在读取 MCP /info 与 /healthz");
             try
             {
-                string infoTrace = await GetHttpEndpointTraceAsync(baseUrl.TrimEnd('/') + "/info");
-                string healthTrace = await GetHttpEndpointTraceAsync(baseUrl.TrimEnd('/') + "/healthz");
-                AppendDebugMessage(rtbDebugMcp, "MCP 状态刷新", infoTrace + Environment.NewLine + Environment.NewLine + healthTrace);
-                SetStatus("状态：MCP 状态已刷新");
+                GooseAcpClient client = EnsureGooseClient(config);
+                await client.PromptAsync(prompt, promptCts.Token).ConfigureAwait(true);
+                SetStatus("状态：Goose 本轮响应完成。");
+            }
+            catch (OperationCanceledException)
+            {
+                SetStatus("状态：已停止本轮生成。");
+                AppendConversation("系统", "已停止本轮生成。", Color.DarkOrange);
             }
             catch (Exception ex)
             {
-                AppendDebugMessage(rtbDebugMcp, "MCP 状态刷新失败", ex.Message);
-                SetStatus("状态：MCP 状态读取失败");
+                SetStatus($"状态：Goose 请求失败：{ex.Message}");
+                AppendConversation("错误", ex.Message, Color.Red);
             }
             finally
             {
-                SetSendingState(false);
+                // 保证本轮最后一段流式内容被完整渲染（AI 纯文字回复不调工具时，
+                // 不会有后续非 chunk 事件触发 FinishStreaming，必须在此兜底）。
+                FinishStreaming();
+                sending = false;
+                ApplyPermissions();
             }
         }
 
-        private void BtnDebugTailLog_Click(object sender, EventArgs e)
+        private void BtnStop_Click(object sender, EventArgs e)
         {
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "查看 MCP 日志"))
+            promptCts?.Cancel();
+            lock (clientLock)
+            {
+                gooseClient?.Cancel();
+            }
+            SetStatus("状态：已请求停止 Goose。");
+        }
+
+        private void BtnResetSession_Click(object sender, EventArgs e)
+        {
+            DisposeGooseClient();
+            promptedPreviewIds.Clear();
+            lastConfirmedPreviewId = null;
+            streamingAssistant = false;
+            streamingMarkdown.Clear();
+            streamingDivId = null;
+            streamingSegmentIndex = 0;
+            pendingScriptTask = Task.CompletedTask;
+            ResetConversationHtml();
+            // 生成唯一会话名避免 Goose 加载磁盘上的同名历史上下文
+            txtSessionName.Text = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            SetStatus("状态：Goose 会话已重置。");
+        }
+
+        // 重置对话区：清空 #messages 容器内容（保留基础 HTML/CSS），等价于原 rtbConversation.Clear()。
+        private void ResetConversationHtml()
+        {
+            if (webViewConversation == null || webViewConversation.CoreWebView2 == null)
             {
                 return;
             }
+            webViewConversation.CoreWebView2.NavigateToString(BaseConversationHtml);
+        }
 
-            string logRoot = txtDebugLogRoot.Text.Trim();
-            if (logRoot.Length == 0)
+        // 弹出配置窗体（非模态）：configLayout 从主界面移出后，由"配置"按钮触发显示。
+        // 关闭时仅 Hide 不销毁，保留 configLayout 控件值供 TryBuildConfig 读取。
+        private void BtnConfig_Click(object sender, EventArgs e)
+        {
+            if (configForm == null || configForm.IsDisposed)
             {
-                MessageBox.Show("日志目录不能为空。", "参数错误", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                SetStatus("状态：日志目录为空");
-                return;
-            }
-
-            try
-            {
-                string fullPath = Path.GetFullPath(logRoot);
-                if (!Directory.Exists(fullPath))
+                configForm = new Form
                 {
-                    throw new DirectoryNotFoundException("日志目录不存在：" + fullPath);
-                }
-
-                string[] logFiles = Directory.GetFiles(fullPath, "*.log", SearchOption.TopDirectoryOnly);
-                if (logFiles.Length == 0)
-                {
-                    AppendDebugMessage(rtbDebugLog, "MCP 日志尾部", "当前日志目录下没有 .log 文件。\r\n目录：" + fullPath);
-                    SetStatus("状态：未找到 MCP 日志");
-                    return;
-                }
-
-                string latestFile = logFiles
-                    .OrderByDescending(item => File.GetLastWriteTime(item))
-                    .First();
-
-                string[] lines = File.ReadAllLines(latestFile, Encoding.UTF8);
-                int skip = Math.Max(0, lines.Length - 200);
-                string tail = string.Join(Environment.NewLine, lines.Skip(skip).ToArray());
-                if (tail.Length > 12000)
-                {
-                    tail = tail.Substring(tail.Length - 12000, 12000);
-                }
-
-                var builder = new StringBuilder();
-                builder.AppendLine("文件: " + latestFile);
-                builder.AppendLine("最后写入: " + File.GetLastWriteTime(latestFile).ToString("yyyy-MM-dd HH:mm:ss"));
-                builder.AppendLine();
-                builder.Append(tail);
-                AppendDebugMessage(rtbDebugLog, "MCP 日志尾部", builder.ToString());
-                SetStatus("状态：MCP 日志已刷新");
-            }
-            catch (Exception ex)
-            {
-                AppendDebugMessage(rtbDebugLog, "MCP 日志读取失败", ex.Message);
-                SetStatus("状态：MCP 日志读取失败");
-            }
-        }
-
-        private async void BtnDebugListProcs_Click(object sender, EventArgs e)
-        {
-            if (sending || loadingWorkflowSchema)
-            {
-                return;
-            }
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "读取流程列表"))
-            {
-                return;
-            }
-
-            SetSendingState(true);
-            SetStatus("状态：正在通过 Bridge 读取流程列表");
-            try
-            {
-                PipeResponseMessage response = await SendBridgePostAndRenderAsync(
-                    "读取流程列表",
-                    "/bridge/procs/list",
-                    new JObject
-                    {
-                        ["includeStepSummary"] = false
-                    });
-                SetStatus(response.StatusCode == 200 ? "状态：流程列表读取完成" : "状态：流程列表读取失败");
-            }
-            catch (Exception ex)
-            {
-                AppendDebugMessage(rtbDebugBridge, "读取流程列表失败", ex.Message);
-                SetStatus("状态：流程列表读取失败");
-            }
-            finally
-            {
-                SetSendingState(false);
-            }
-        }
-
-        private async void BtnDebugSelectedDetail_Click(object sender, EventArgs e)
-        {
-            if (sending || loadingWorkflowSchema)
-            {
-                return;
-            }
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "读取流程详情"))
-            {
-                return;
-            }
-            if (!TryGetCurrentDebugSelection(false, false, out int procIndex, out int stepIndex, out int opIndex, out Proc proc, out Step step, out OperationType op, out string error))
-            {
-                MessageBox.Show(error, "缺少选中项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                SetStatus("状态：未选中流程");
-                return;
-            }
-
-            SetSendingState(true);
-            SetStatus("状态：正在通过 Bridge 读取选中流程详情");
-            try
-            {
-                PipeResponseMessage response = await SendBridgePostAndRenderAsync(
-                    "读取选中流程详情",
-                    "/bridge/procs/detail",
-                    new JObject
-                    {
-                        ["procIndex"] = procIndex
-                    });
-                SetStatus(response.StatusCode == 200 ? "状态：流程详情读取完成" : "状态：流程详情读取失败");
-            }
-            catch (Exception ex)
-            {
-                AppendDebugMessage(rtbDebugBridge, "读取选中流程详情失败", ex.Message);
-                SetStatus("状态：流程详情读取失败");
-            }
-            finally
-            {
-                SetSendingState(false);
-            }
-        }
-
-        private async void BtnDebugSelectedSchema_Click(object sender, EventArgs e)
-        {
-            if (sending || loadingWorkflowSchema)
-            {
-                return;
-            }
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "读取指令 Schema"))
-            {
-                return;
-            }
-            if (!TryGetCurrentDebugSelection(true, true, out int procIndex, out int stepIndex, out int opIndex, out Proc proc, out Step step, out OperationType op, out string error))
-            {
-                MessageBox.Show(error, "缺少选中项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                SetStatus("状态：未选中指令");
-                return;
-            }
-
-            SetSendingState(true);
-            SetStatus("状态：正在通过 Bridge 读取选中指令 Schema");
-            try
-            {
-                PipeResponseMessage response = await SendBridgePostAndRenderAsync(
-                    "读取选中指令 Schema",
-                    "/bridge/operations/schema",
-                    new JObject
-                    {
-                        ["procIndex"] = procIndex,
-                        ["stepId"] = step.Id.ToString("D"),
-                        ["opId"] = op.Id.ToString("D")
-                    });
-                SetStatus(response.StatusCode == 200 ? "状态：指令 Schema 读取完成" : "状态：指令 Schema 读取失败");
-            }
-            catch (Exception ex)
-            {
-                AppendDebugMessage(rtbDebugBridge, "读取选中指令 Schema 失败", ex.Message);
-                SetStatus("状态：指令 Schema 读取失败");
-            }
-            finally
-            {
-                SetSendingState(false);
-            }
-        }
-
-        private async void BtnDebugLoadTemplate_Click(object sender, EventArgs e)
-        {
-            if (sending || loadingWorkflowSchema)
-            {
-                return;
-            }
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "读取中间意图模板"))
-            {
-                return;
-            }
-
-            string templateId = GetSuggestedTemplateId();
-            SetSendingState(true);
-            SetStatus("状态：正在通过 Bridge 读取中间意图模板");
-            try
-            {
-                PipeResponseMessage response = await SendBridgePostAndRenderAsync(
-                    "读取中间意图模板",
-                    "/bridge/intents/template",
-                    new JObject
-                    {
-                        ["templateId"] = templateId
-                    });
-
-                if (response.StatusCode == 200)
-                {
-                    JObject payload = JObject.Parse(response.BodyJson);
-                    JToken exampleIntent = payload["data"]?["template"]?["exampleIntent"] ?? payload["data"]?["template"]?["intentShape"];
-                    if (exampleIntent != null)
-                    {
-                        txtDebugIntentJson.Text = exampleIntent.ToString(Formatting.Indented);
-                    }
-                }
-
-                SetStatus(response.StatusCode == 200
-                    ? "状态：中间意图模板已加载"
-                    : "状态：中间意图模板读取失败");
-            }
-            catch (Exception ex)
-            {
-                AppendDebugMessage(rtbDebugBridge, "读取中间意图模板失败", ex.Message);
-                SetStatus("状态：中间意图模板读取失败");
-            }
-            finally
-            {
-                SetSendingState(false);
-            }
-        }
-
-        private void BtnDebugBuildIntent_Click(object sender, EventArgs e)
-        {
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "生成测试意图"))
-            {
-                return;
-            }
-            if (!TryGetCurrentDebugSelection(true, true, out int procIndex, out int stepIndex, out int opIndex, out Proc proc, out Step step, out OperationType op, out string error))
-            {
-                MessageBox.Show(error, "缺少选中项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                SetStatus("状态：未选中指令");
-                return;
-            }
-
-            JObject intent = new JObject
-            {
-                ["intentType"] = "update_operation_field",
-                ["procIndex"] = procIndex,
-                ["baseProcId"] = proc.head?.Id.ToString("D") ?? string.Empty,
-                ["stepId"] = step.Id.ToString("D"),
-                ["opId"] = op.Id.ToString("D"),
-                ["expectedOperaType"] = op.OperaType ?? string.Empty,
-                ["fieldChanges"] = new JObject
-                {
-                    ["Note"] = "联调面板 " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
-                }
-            };
-
-            txtDebugIntentJson.Text = intent.ToString(Formatting.Indented);
-            AppendDebugMessage(rtbDebugBridge, "已生成测试意图", txtDebugIntentJson.Text);
-            SetStatus("状态：已生成基于当前选中指令的测试意图");
-        }
-
-        private async void BtnDebugPreviewIntent_Click(object sender, EventArgs e)
-        {
-            if (sending || loadingWorkflowSchema)
-            {
-                return;
-            }
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "预演测试意图"))
-            {
-                return;
-            }
-            if (!TryParseDebugIntentJson(out JObject intent, out string error))
-            {
-                MessageBox.Show(error, "意图 JSON 错误", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                SetStatus("状态：测试意图 JSON 非法");
-                return;
-            }
-
-            SetSendingState(true);
-            SetStatus("状态：正在通过 Bridge 预演当前意图");
-            try
-            {
-                PipeResponseMessage response = await SendBridgePostAndRenderAsync(
-                    "预演当前意图",
-                    "/bridge/intents/preview",
-                    new JObject
-                    {
-                        ["intentJson"] = intent.ToString(Formatting.None)
-                    });
-                SetStatus(response.StatusCode == 200 ? "状态：意图预演完成" : "状态：意图预演失败");
-            }
-            catch (Exception ex)
-            {
-                AppendDebugMessage(rtbDebugBridge, "预演当前意图失败", ex.Message);
-                SetStatus("状态：意图预演失败");
-            }
-            finally
-            {
-                SetSendingState(false);
-            }
-        }
-
-        private async void BtnDebugApplyIntent_Click(object sender, EventArgs e)
-        {
-            if (sending || loadingWorkflowSchema)
-            {
-                return;
-            }
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "提交测试意图"))
-            {
-                return;
-            }
-            if (!TryParseDebugIntentJson(out JObject intent, out string error))
-            {
-                MessageBox.Show(error, "意图 JSON 错误", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                SetStatus("状态：测试意图 JSON 非法");
-                return;
-            }
-
-            DialogResult dialogResult = MessageBox.Show(
-                "提交当前意图会真实修改流程、保存并发布。是否继续？",
-                "确认提交",
-                MessageBoxButtons.OKCancel,
-                MessageBoxIcon.Warning,
-                MessageBoxDefaultButton.Button2);
-            if (dialogResult != DialogResult.OK)
-            {
-                SetStatus("状态：已取消提交当前意图");
-                return;
-            }
-
-            SetSendingState(true);
-            SetStatus("状态：正在通过 Bridge 提交当前意图");
-            try
-            {
-                PipeResponseMessage response = await SendBridgePostAndRenderAsync(
-                    "提交当前意图",
-                    "/bridge/intents/apply",
-                    new JObject
-                    {
-                        ["intentJson"] = intent.ToString(Formatting.None)
-                    });
-                SetStatus(response.StatusCode == 200 ? "状态：意图已提交" : "状态：意图提交失败");
-            }
-            catch (Exception ex)
-            {
-                AppendDebugMessage(rtbDebugBridge, "提交当前意图失败", ex.Message);
-                SetStatus("状态：意图提交失败");
-            }
-            finally
-            {
-                SetSendingState(false);
-            }
-        }
-
-        private bool TryGetDebugMcpBaseUrl(out string baseUrl, out string error)
-        {
-            baseUrl = txtDebugMcpBaseUrl.Text.Trim().TrimEnd('/');
-            error = null;
-
-            if (baseUrl.Length == 0)
-            {
-                error = "MCP 地址不能为空。";
-                return false;
-            }
-
-            Uri uri;
-            if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out uri)
-                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-            {
-                error = "MCP 地址必须是合法的 http/https 绝对地址。";
-                return false;
-            }
-
-            baseUrl = uri.AbsoluteUri.TrimEnd('/');
-            return true;
-        }
-
-        private async Task<string> GetHttpEndpointTraceAsync(string url)
-        {
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-            request.Method = "GET";
-            request.Timeout = 8000;
-            request.ReadWriteTimeout = 8000;
-
-            try
-            {
-                using (HttpWebResponse response = (HttpWebResponse)await request.GetResponseAsync())
-                using (Stream responseStream = response.GetResponseStream())
-                using (StreamReader reader = new StreamReader(responseStream ?? Stream.Null, Encoding.UTF8))
-                {
-                    string body = await reader.ReadToEndAsync();
-                    var builder = new StringBuilder();
-                    builder.AppendLine("GET " + url);
-                    builder.AppendLine("status: " + (int)response.StatusCode + " " + response.StatusDescription);
-                    builder.AppendLine("elapsedMs: " + stopwatch.ElapsedMilliseconds);
-                    builder.AppendLine("body:");
-                    builder.Append(PrettyJson(body));
-                    return builder.ToString();
-                }
-            }
-            catch (WebException ex)
-            {
-                string body = string.Empty;
-                string statusText = "status: 未返回 HTTP 响应";
-                if (ex.Response is HttpWebResponse errorResponse)
-                {
-                    statusText = "status: " + (int)errorResponse.StatusCode + " " + errorResponse.StatusDescription;
-                    using (errorResponse)
-                    using (Stream responseStream = errorResponse.GetResponseStream())
-                    using (StreamReader reader = new StreamReader(responseStream ?? Stream.Null, Encoding.UTF8))
-                    {
-                        body = await reader.ReadToEndAsync();
-                    }
-                }
-
-                var builder = new StringBuilder();
-                builder.AppendLine("GET " + url);
-                builder.AppendLine(statusText);
-                builder.AppendLine("elapsedMs: " + stopwatch.ElapsedMilliseconds);
-                builder.AppendLine("error: " + ex.Message);
-                if (body.Length > 0)
-                {
-                    builder.AppendLine("body:");
-                    builder.Append(PrettyJson(body));
-                }
-                return builder.ToString();
-            }
-        }
-
-        private async Task<PipeResponseMessage> SendBridgePostAndRenderAsync(string title, string path, JObject requestBody)
-        {
-            string requestJson = requestBody == null ? "{}" : requestBody.ToString(Formatting.None);
-            PipeResponseMessage response = await SendBridgeRequestAsync("POST", path, requestJson);
-
-            var builder = new StringBuilder();
-            builder.AppendLine("path: " + path);
-            builder.AppendLine("request:");
-            builder.AppendLine(PrettyJson(requestJson));
-            builder.AppendLine();
-            builder.AppendLine("statusCode: " + response.StatusCode);
-            builder.AppendLine("response:");
-            builder.Append(PrettyJson(response.BodyJson));
-            AppendDebugMessage(rtbDebugBridge, title, builder.ToString());
-
-            return response;
-        }
-
-        private async Task<PipeResponseMessage> SendBridgeRequestAsync(string method, string path, string bodyJson)
-        {
-            string requestId = Guid.NewGuid().ToString("N");
-            using (var pipe = new NamedPipeClientStream(".", AutomationBridgeHost.DefaultPipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
-            {
-                await Task.Run(() => pipe.Connect(8000));
-                var request = new PipeRequestMessage
-                {
-                    RequestId = requestId,
-                    Method = method ?? "POST",
-                    Path = path ?? string.Empty,
-                    BodyJson = bodyJson ?? "{}"
+                    Text = "AI 助手配置",
+                    StartPosition = FormStartPosition.CenterParent,
+                    ClientSize = new Size(640, 220),
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false
                 };
-
-                await WritePipeMessageAsync(pipe, JsonConvert.SerializeObject(request));
-                string responseJson = await ReadPipeMessageAsync(pipe);
-                if (string.IsNullOrWhiteSpace(responseJson))
+                configLayout.Dock = DockStyle.Fill;
+                chkFullPermission = new CheckBox
                 {
-                    throw new InvalidOperationException("Bridge 返回空响应。");
-                }
-
-                PipeResponseMessage response = JsonConvert.DeserializeObject<PipeResponseMessage>(responseJson);
-                if (response == null)
+                    Text = "完全权限模式（不审核工具调用）",
+                    Checked = fullPermissionMode,
+                    AutoSize = true
+                };
+                chkFullPermission.CheckedChanged += (s, ev) => fullPermissionMode = chkFullPermission.Checked;
+                var bottomPanel = new Panel { Dock = DockStyle.Bottom, Height = 32, Padding = new Padding(10, 4, 10, 4) };
+                bottomPanel.Controls.Add(chkFullPermission);
+                configForm.Controls.Add(configLayout); // configLayout Fill 填充
+                configForm.Controls.Add(bottomPanel);  // 底部完全权限开关
+                // 关闭时隐藏不销毁，保证 configLayout 控件值保留（应用退出时 disposingAll 跳过拦截）
+                configForm.FormClosing += (s, ev) =>
                 {
-                    throw new InvalidOperationException("Bridge 响应反序列化失败。");
-                }
-
-                if (!string.IsNullOrWhiteSpace(response.RequestId)
-                    && !string.Equals(response.RequestId, requestId, StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException("Bridge 响应 requestId 不匹配。");
-                }
-
-                return response;
+                    if (disposingAll)
+                    {
+                        return;
+                    }
+                    ev.Cancel = true;
+                    configForm.Hide();
+                };
             }
-        }
-
-        private static async Task WritePipeMessageAsync(Stream stream, string text)
-        {
-            byte[] payloadBuffer = Encoding.UTF8.GetBytes(text ?? string.Empty);
-            byte[] lengthBuffer = BitConverter.GetBytes(payloadBuffer.Length);
-            await stream.WriteAsync(lengthBuffer, 0, lengthBuffer.Length);
-            if (payloadBuffer.Length > 0)
+            // 嵌入态下本窗体 TopLevel=false，不能作为 Show 的 Owner（WinForms 要求 Owner 必须顶层窗体），
+            // 故沿 ParentForm 链取首个顶层窗体（即 FrmMain）做 Owner，保留 CenterParent 居中且非模态
+            Form ownerForm = ParentForm;
+            if (ownerForm != null)
             {
-                await stream.WriteAsync(payloadBuffer, 0, payloadBuffer.Length);
+                configForm.Show(ownerForm);
             }
-            await stream.FlushAsync();
+            else
+            {
+                configForm.Show();
+            }
         }
 
-        private static async Task<string> ReadPipeMessageAsync(Stream stream)
+        private void BtnSaveConfig_Click(object sender, EventArgs e)
         {
-            byte[] lengthBuffer = await ReadPipeExactlyAsync(stream, sizeof(int));
+            if (!SF.EnsurePermission(PermissionKeys.AppConfigAccess, "保存 Goose 配置"))
+            {
+                return;
+            }
+            if (!TryBuildConfig(out GooseConfig config, out string error))
+            {
+                MessageBox.Show(error, "Goose 配置保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (!GooseConfigStorage.TrySave(config, out error))
+            {
+                MessageBox.Show(error, "Goose 配置保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            DisposeGooseClient();
+            SetStatus("状态：Goose 配置已保存。");
+            MessageBox.Show("Goose 配置保存成功。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void BtnReloadConfig_Click(object sender, EventArgs e)
+        {
+            LoadConfig();
+            ApplyPermissions();
+        }
+
+        private async void BtnCheckGoose_Click(object sender, EventArgs e)
+        {
+            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "检查 Goose"))
+            {
+                return;
+            }
+            if (!TryBuildConfig(out GooseConfig config, out string error))
+            {
+                MessageBox.Show(error, "Goose 配置无效", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            SetStatus("状态：正在检查 Goose。");
+            string result = await Task.Run(() => CheckGooseCore(config)).ConfigureAwait(true);
+            AppendConversation("系统", result, Color.FromArgb(56, 66, 88));
+            SetStatus("状态：Goose 检查完成。");
+        }
+
+        private void TxtPrompt_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode != Keys.Enter)
+            {
+                return;
+            }
+            if (e.Alt || e.Shift)
+            {
+                txtPrompt.AppendText("\r\n");
+                txtPrompt.SelectionStart = txtPrompt.TextLength;
+                e.SuppressKeyPress = true;
+                return;
+            }
+            e.SuppressKeyPress = true;
+            BtnSend_Click(sender, EventArgs.Empty);
+        }
+
+        private GooseAcpClient EnsureGooseClient(GooseConfig config)
+        {
+            lock (clientLock)
+            {
+                if (gooseClient != null)
+                {
+                    return gooseClient;
+                }
+
+                gooseClient = new GooseAcpClient(config);
+                gooseClient.EventReceived += GooseClient_EventReceived;
+                gooseClient.PermissionRequestHandler = HandlePermissionRequest;
+                return gooseClient;
+            }
+        }
+
+        private JObject HandlePermissionRequest(JObject request)
+        {
+            if (IsDisposed)
+            {
+                return BuildPermissionCancelled();
+            }
+            if (InvokeRequired)
+            {
+                return (JObject)Invoke(new Func<JObject, JObject>(HandlePermissionRequest), request);
+            }
+
+            string title = request["toolCall"]?["title"]?.Value<string>()
+                ?? request["toolCall"]?["name"]?.Value<string>()
+                ?? "Goose 权限请求";
+
+            if (fullPermissionMode)
+            {
+                // 完全权限模式：把工具调用信息显示到聊天区，让用户看到批准了什么
+                AppendConversation("系统", "✅ 自动批准：" + title, Color.FromArgb(35, 92, 48));
+
+                // 如果权限请求中包含 previewId，必须同步等待确认完成再返回权限响应，
+                // 否则 Goose 会在确认前提交变更，触发 ValidateConfirmedPreview 失败。
+                // SendBridgeRequestAsync 内部用 Task.Run + ConfigureAwait(false)，同步等待不会死锁。
+                string previewId = FindFirstString(request, "previewId");
+                if (!string.IsNullOrWhiteSpace(previewId) && !promptedPreviewIds.Contains(previewId))
+                {
+                    promptedPreviewIds.Add(previewId);
+                    try
+                    {
+                        ConfirmPreviewAsync(previewId).GetAwaiter().GetResult();
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendConversation("错误", "自动确认预演失败：" + ex.Message, Color.Red);
+                    }
+                }
+
+                JArray fullOptions = request["options"] as JArray;
+                string fullOptionId = fullOptions != null && fullOptions.Count > 0
+                    ? fullOptions[0]?["optionId"]?.Value<string>() ?? fullOptions[0]?["id"]?.Value<string>()
+                    : null;
+                if (string.IsNullOrWhiteSpace(fullOptionId))
+                {
+                    return new JObject { ["outcome"] = new JObject { ["outcome"] = "allowed" } };
+                }
+                return new JObject { ["outcome"] = new JObject { ["outcome"] = "selected", ["optionId"] = fullOptionId } };
+            }
+
+            string text = request.ToString(Formatting.Indented);
+            DialogResult dialogResult = MessageBox.Show(this, text, title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (dialogResult != DialogResult.Yes)
+            {
+                return BuildPermissionCancelled();
+            }
+
+            JArray options = request["options"] as JArray;
+            string optionId = options != null && options.Count > 0
+                ? options[0]?["optionId"]?.Value<string>() ?? options[0]?["id"]?.Value<string>()
+                : null;
+            if (string.IsNullOrWhiteSpace(optionId))
+            {
+                return new JObject
+                {
+                    ["outcome"] = new JObject
+                    {
+                        ["outcome"] = "allowed"
+                    }
+                };
+            }
+
+            return new JObject
+            {
+                ["outcome"] = new JObject
+                {
+                    ["outcome"] = "selected",
+                    ["optionId"] = optionId
+                }
+            };
+        }
+
+        private static JObject BuildPermissionCancelled()
+        {
+            return new JObject
+            {
+                ["outcome"] = new JObject
+                {
+                    ["outcome"] = "cancelled"
+                }
+            };
+        }
+
+        private void GooseClient_EventReceived(GooseAcpEvent item)
+        {
+            if (IsDisposed)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action<GooseAcpEvent>(GooseClient_EventReceived), item);
+                return;
+            }
+
+            // 流式 token：在同一行追加（打字机效果），不写调试区，不加事件头。
+            if (string.Equals(item.Kind, "assistant_chunk", StringComparison.Ordinal))
+            {
+                AppendStreamingText(item.Text);
+                return;
+            }
+
+            // 非流式事件：若之前在流式输出，先换行结束当前流式段。
+            if (streamingAssistant)
+            {
+                FinishStreaming();
+            }
+
+            if (string.Equals(item.Kind, "assistant", StringComparison.Ordinal))
+            {
+                AppendConversation("Goose", item.Text, Color.FromArgb(30, 104, 74));
+            }
+            else if (string.Equals(item.Kind, "tool_call", StringComparison.Ordinal))
+            {
+                AppendToolEntry("🔧", item.Text, Color.FromArgb(96, 62, 14));
+            }
+            else if (string.Equals(item.Kind, "tool_result", StringComparison.Ordinal))
+            {
+                AppendToolEntry("  →", item.Text, Color.Gray);
+            }
+            else if (string.Equals(item.Kind, "tool", StringComparison.Ordinal))
+            {
+                AppendConversation("工具", item.Text, Color.FromArgb(96, 62, 14));
+            }
+            else if (string.Equals(item.Kind, "error", StringComparison.Ordinal)
+                || string.Equals(item.Kind, "stderr", StringComparison.Ordinal)
+                || string.Equals(item.Kind, "exit", StringComparison.Ordinal))
+            {
+                AppendConversation("系统", item.Text, Color.DarkRed);
+            }
+
+            // 仅工具调用发起需要触发预演确认。
+            if (string.Equals(item.Kind, "tool_call", StringComparison.Ordinal))
+            {
+                TryPromptPreviewConfirmation(item.Raw);
+            }
+        }
+
+        // 工具调用/结果紧凑单行显示（无时间戳头、无空行分隔），让配对的 🔧/→ 视觉合并成一块。
+        private void AppendToolEntry(string marker, string text, Color color)
+        {
+            if (webViewConversation == null || webViewConversation.IsDisposed)
+            {
+                return;
+            }
+            bool isCall = marker != null && marker.Contains("🔧");
+            string cls = isCall ? "tool-call" : "tool-result";
+            string display = isCall ? "🔧" : "→";
+            string html = "<div class=\"" + cls + "\">" + display + " " + HtmlEncode(text) + "</div>";
+            EnqueueAppendHtml(html);
+        }
+
+        // 流式追加文本：累积 Markdown 源码，流式期间实时 Markdig 转 HTML 渲染（节流 50ms 避免卡顿）。
+        private void AppendStreamingText(string text)
+        {
+            if (webViewConversation == null || webViewConversation.IsDisposed || string.IsNullOrEmpty(text))
+            {
+                return;
+            }
+            if (!streamingAssistant)
+            {
+                streamingSegmentIndex++;
+                streamingDivId = "streaming-" + streamingSegmentIndex;
+                streamingMarkdown.Clear();
+                streamingMarkdown.Append(text);
+                streamingAssistant = true;
+                lastStreamRender = DateTime.Now;
+                string time = DateTime.Now.ToString("HH:mm:ss");
+                string html = "<div class=\"msg assistant\" id=\"" + streamingDivId + "\">"
+                    + "<span class=\"role\">Goose " + HtmlEncode(time) + "</span>"
+                    + "<div class=\"content streaming-preview\">" + MarkdownToHtml(streamingMarkdown.ToString()) + "</div></div>";
+                EnqueueAppendHtml(html);
+            }
+            else
+            {
+                streamingMarkdown.Append(text);
+                if ((DateTime.Now - lastStreamRender).TotalMilliseconds >= 50)
+                {
+                    lastStreamRender = DateTime.Now;
+                    UpdateStreamingPreview();
+                }
+            }
+        }
+
+        // 结束流式段：把累积的 Markdown 用 Markdig 转 HTML，替换临时预览 div 的内容并移除预览样式。
+        private void FinishStreaming()
+        {
+            if (!streamingAssistant)
+            {
+                return;
+            }
+            string renderedHtml = MarkdownToHtml(streamingMarkdown.ToString());
+            string htmlJson = JsonConvert.SerializeObject(renderedHtml);
+            string idJson = JsonConvert.SerializeObject(streamingDivId);
+            string js = "var el=document.getElementById(" + idJson + ");if(el){var c=el.querySelector('.content');if(c){c.innerHTML=" + htmlJson + ";c.classList.remove('streaming-preview');}}window.scrollTo(0,document.body.scrollHeight);";
+            EnqueueScript(js);
+            streamingAssistant = false;
+            streamingDivId = null;
+        }
+
+        // 追加对话消息：根据 role/color 决定 CSS 类，用户消息纯文本转义，Goose 消息走 Markdown→HTML。
+        private void AppendConversation(string role, string text, Color color)
+        {
+            if (webViewConversation == null || webViewConversation.IsDisposed)
+            {
+                return;
+            }
+            string time = DateTime.Now.ToString("HH:mm:ss");
+            string cls;
+            string contentHtml;
+            if (role == "用户")
+            {
+                cls = "msg user";
+                contentHtml = HtmlEncode(text);
+            }
+            else if (role == "Goose")
+            {
+                cls = "msg assistant";
+                contentHtml = MarkdownToHtml(text);
+            }
+            else if (role == "错误" || color.ToArgb() == Color.DarkRed.ToArgb())
+            {
+                cls = "msg error";
+                contentHtml = HtmlEncode(text);
+            }
+            else
+            {
+                cls = "msg assistant";
+                contentHtml = HtmlEncode(text);
+            }
+            string html = "<div class=\"" + cls + "\"><span class=\"role\">" + HtmlEncode(role) + " " + HtmlEncode(time) + "</span>"
+                + "<div class=\"content\">" + contentHtml + "</div></div>";
+            EnqueueAppendHtml(html);
+        }
+
+        // 更新当前流式预览 div 的 innerHTML 为 Markdig 渲染后的 HTML，并滚动到底部。
+        private void UpdateStreamingPreview()
+        {
+            if (string.IsNullOrEmpty(streamingDivId))
+            {
+                return;
+            }
+            string html = MarkdownToHtml(streamingMarkdown.ToString());
+            string htmlJson = JsonConvert.SerializeObject(html);
+            string idJson = JsonConvert.SerializeObject(streamingDivId);
+            string js = "var el=document.getElementById(" + idJson + ");if(el){var c=el.querySelector('.content');if(c){c.innerHTML=" + htmlJson + ";}}window.scrollTo(0,document.body.scrollHeight);";
+            EnqueueScript(js);
+        }
+
+        // 向 #messages 容器追加 HTML 片段并滚动到底部。
+        private void EnqueueAppendHtml(string html)
+        {
+            string htmlJson = JsonConvert.SerializeObject(html);
+            string js = "document.getElementById('messages').insertAdjacentHTML('beforeend'," + htmlJson + ");window.scrollTo(0,document.body.scrollHeight);";
+            EnqueueScript(js);
+        }
+
+        // 串行化 ExecuteScriptAsync：通过 ContinueWith 链保证脚本按入队顺序执行（状态修改在调用前同步完成，脚本内 HTML 已捕获）。
+        private void EnqueueScript(string js)
+        {
+            WebView2 localWebView = webViewConversation;
+            if (localWebView == null || localWebView.CoreWebView2 == null)
+            {
+                return;
+            }
+            pendingScriptTask = pendingScriptTask.ContinueWith(
+                async _ =>
+                {
+                    try
+                    {
+                        await localWebView.CoreWebView2.ExecuteScriptAsync(js);
+                    }
+                    catch
+                    {
+                        // 忽略脚本执行异常，避免单条脚本失败阻塞后续渲染。
+                    }
+                },
+                TaskScheduler.FromCurrentSynchronizationContext()).Unwrap();
+        }
+
+        // HTML 转义文本（< > & 等）。
+        private static string HtmlEncode(string text)
+        {
+            return WebUtility.HtmlEncode(text ?? string.Empty);
+        }
+
+        // Markdown→HTML（Markdig 高级扩展，支持表格、任务列表等）。
+        private static string MarkdownToHtml(string markdown)
+        {
+            if (string.IsNullOrEmpty(markdown))
+            {
+                return string.Empty;
+            }
+            return Markdown.ToHtml(markdown, markdownPipeline);
+        }
+
+        private void SetStatus(string text)
+        {
+            lblStatus.Text = text ?? string.Empty;
+            if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            {
+                SF.frmInfo.PrintInfo(text, FrmInfo.Level.Normal);
+            }
+        }
+
+        private void TryPromptPreviewConfirmation(JObject raw)
+        {
+            string previewId = FindFirstString(raw, "previewId");
+            if (string.IsNullOrWhiteSpace(previewId) || promptedPreviewIds.Contains(previewId))
+            {
+                return;
+            }
+            promptedPreviewIds.Add(previewId);
+
+            // 完全权限模式：自动确认预演，不弹 MessageBox（用户已授权自动批准）。
+            // 这里仍用 fire-and-forget，因为此路径来自 tool_call 事件而非权限响应，
+            // 真正的同步确认会在 HandlePermissionRequest 中完成（若 previewId 已在此确认，则那里会跳过）。
+            if (fullPermissionMode)
+            {
+                _ = ConfirmPreviewAsync(previewId);
+                return;
+            }
+
+            string patchHash = FindFirstString(raw, "patchHash") ?? string.Empty;
+            string summary = BuildPreviewSummary(raw, previewId, patchHash);
+            DialogResult result = MessageBox.Show(this, summary, "确认预演结果", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (result == DialogResult.Yes)
+            {
+                _ = ConfirmPreviewAsync(previewId);
+            }
+            else
+            {
+                AppendConversation("系统", $"预演未确认：{previewId}", Color.DarkOrange);
+            }
+        }
+
+        // 注意：使用 ConfigureAwait(false) + BeginInvoke 包装 UI 更新，
+        // 使得本方法可被 HandlePermissionRequest 同步等待（.GetAwaiter().GetResult()），
+        // 避免 fire-and-forget 导致 Goose 在确认完成前就提交变更触发 ValidateConfirmedPreview 失败。
+        private async Task ConfirmPreviewAsync(string previewId)
+        {
+            try
+            {
+                string response = await SendBridgeRequestAsync("POST", "/bridge/previews/confirm", new JObject
+                {
+                    ["previewId"] = previewId
+                }).ConfigureAwait(false);
+                lastConfirmedPreviewId = previewId;
+                BeginInvoke((Action)(() => AppendConversation("系统", $"预演已确认，previewId={previewId}。提交时必须携带该 previewId。", Color.FromArgb(35, 92, 48))));
+            }
+            catch (Exception ex)
+            {
+                BeginInvoke((Action)(() => AppendConversation("错误", "确认预演失败：" + ex.Message, Color.Red)));
+            }
+        }
+
+        private static string BuildPreviewSummary(JObject raw, string previewId, string patchHash)
+        {
+            JArray messages = FindFirstArray(raw, "messages");
+            JArray changes = FindFirstArray(raw, "changes");
+            StringBuilder builder = new StringBuilder();
+            builder.AppendLine("确认后才允许提交本次流程写入。");
+            builder.AppendLine();
+            builder.AppendLine("previewId: " + previewId);
+            builder.AppendLine("patchHash: " + patchHash);
+            builder.AppendLine("变更数量: " + (changes?.Count ?? 0));
+            if (messages != null && messages.Count > 0)
+            {
+                builder.AppendLine();
+                int count = Math.Min(messages.Count, 6);
+                for (int i = 0; i < count; i++)
+                {
+                    builder.AppendLine("- " + messages[i]);
+                }
+            }
+            builder.AppendLine();
+            builder.AppendLine("是否确认本次预演结果？");
+            return builder.ToString();
+        }
+
+        private static async Task<string> SendBridgeRequestAsync(string method, string path, JObject body)
+        {
+            return await Task.Run(() =>
+            {
+                string requestId = Guid.NewGuid().ToString("N");
+                JObject envelope = new JObject
+                {
+                    ["requestId"] = requestId,
+                    ["method"] = method,
+                    ["path"] = path,
+                    ["bodyJson"] = body == null ? "{}" : body.ToString(Formatting.None)
+                };
+                using (NamedPipeClientStream pipe = new NamedPipeClientStream(".", AutomationBridgeHost.DefaultPipeName, PipeDirection.InOut))
+                {
+                    pipe.Connect(30000);
+                    WritePipeMessage(pipe, envelope.ToString(Formatting.None));
+                    string responseText = ReadPipeMessage(pipe);
+                    JObject response = JObject.Parse(responseText);
+                    int statusCode = ReadCaseInsensitiveInt(response, "statusCode", "StatusCode") ?? 500;
+                    string bodyJson = ReadCaseInsensitiveString(response, "bodyJson", "BodyJson") ?? string.Empty;
+                    if (statusCode < 200 || statusCode >= 300)
+                    {
+                        throw new InvalidOperationException(bodyJson);
+                    }
+                    return bodyJson;
+                }
+            }).ConfigureAwait(false);
+        }
+
+        private static void WritePipeMessage(Stream stream, string text)
+        {
+            byte[] payload = Encoding.UTF8.GetBytes(text ?? string.Empty);
+            byte[] length = BitConverter.GetBytes(payload.Length);
+            stream.Write(length, 0, length.Length);
+            if (payload.Length > 0)
+            {
+                stream.Write(payload, 0, payload.Length);
+            }
+            stream.Flush();
+        }
+
+        private static string ReadPipeMessage(Stream stream)
+        {
+            byte[] lengthBuffer = ReadExactly(stream, sizeof(int));
             int length = BitConverter.ToInt32(lengthBuffer, 0);
             if (length < 0)
             {
-                throw new InvalidDataException("Pipe 响应长度非法。");
+                throw new InvalidDataException("Bridge 响应长度非法。");
             }
             if (length == 0)
             {
                 return string.Empty;
             }
-
-            byte[] payloadBuffer = await ReadPipeExactlyAsync(stream, length);
-            return Encoding.UTF8.GetString(payloadBuffer);
+            return Encoding.UTF8.GetString(ReadExactly(stream, length));
         }
 
-        private static async Task<byte[]> ReadPipeExactlyAsync(Stream stream, int length)
+        private static int? ReadCaseInsensitiveInt(JObject obj, params string[] names)
+        {
+            JToken token = ReadCaseInsensitiveToken(obj, names);
+            return token != null && token.Type == JTokenType.Integer ? token.Value<int>() : (int?)null;
+        }
+
+        private static string ReadCaseInsensitiveString(JObject obj, params string[] names)
+        {
+            JToken token = ReadCaseInsensitiveToken(obj, names);
+            return token != null && token.Type == JTokenType.String ? token.Value<string>() : null;
+        }
+
+        private static JToken ReadCaseInsensitiveToken(JObject obj, params string[] names)
+        {
+            if (obj == null || names == null)
+            {
+                return null;
+            }
+            foreach (string name in names)
+            {
+                if (obj.TryGetValue(name, StringComparison.OrdinalIgnoreCase, out JToken token))
+                {
+                    return token;
+                }
+            }
+            return null;
+        }
+
+        private static byte[] ReadExactly(Stream stream, int length)
         {
             byte[] buffer = new byte[length];
             int offset = 0;
             while (offset < length)
             {
-                int read = await stream.ReadAsync(buffer, offset, length - offset);
+                int read = stream.Read(buffer, offset, length - offset);
                 if (read <= 0)
                 {
-                    throw new EndOfStreamException("Pipe 连接在读取响应时提前关闭。");
+                    throw new EndOfStreamException("Bridge 连接提前关闭。");
                 }
                 offset += read;
             }
             return buffer;
         }
 
-        private bool TryGetCurrentDebugSelection(bool requireStep, bool requireOperation, out int procIndex, out int stepIndex, out int opIndex, out Proc proc, out Step step, out OperationType op, out string error)
-        {
-            procIndex = SF.frmProc?.SelectedProcNum ?? -1;
-            stepIndex = SF.frmProc?.SelectedStepNum ?? -1;
-            opIndex = SF.frmDataGrid?.iSelectedRow ?? -1;
-            proc = null;
-            step = null;
-            op = null;
-            error = null;
-
-            if (SF.frmProc?.procsList == null || procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
-            {
-                error = "请先切回流程页选中目标流程，再回到 AI 助手执行联调。";
-                return false;
-            }
-
-            proc = SF.frmProc.procsList[procIndex];
-            if (!requireStep && stepIndex < 0)
-            {
-                return true;
-            }
-
-            if (stepIndex < 0 || proc.steps == null || stepIndex >= proc.steps.Count)
-            {
-                error = "请先切回流程页选中目标步骤，再回到 AI 助手执行联调。";
-                return false;
-            }
-
-            step = proc.steps[stepIndex];
-            if (!requireOperation && opIndex < 0)
-            {
-                return true;
-            }
-
-            if (opIndex < 0 || step.Ops == null || opIndex >= step.Ops.Count)
-            {
-                error = "请先切回流程页选中目标指令，再回到 AI 助手执行联调。";
-                return false;
-            }
-
-            op = step.Ops[opIndex];
-            return true;
-        }
-
-        private string GetSuggestedTemplateId()
-        {
-            int procIndex;
-            int stepIndex;
-            int opIndex;
-            Proc proc;
-            Step step;
-            OperationType op;
-            string error;
-
-            if (TryGetCurrentDebugSelection(true, true, out procIndex, out stepIndex, out opIndex, out proc, out step, out op, out error))
-            {
-                return "update_operation_field";
-            }
-
-            if (TryGetCurrentDebugSelection(true, false, out procIndex, out stepIndex, out opIndex, out proc, out step, out op, out error))
-            {
-                return "update_step_field";
-            }
-
-            if (TryGetCurrentDebugSelection(false, false, out procIndex, out stepIndex, out opIndex, out proc, out step, out op, out error))
-            {
-                return "update_proc_head_field";
-            }
-
-            return "update_operation_field";
-        }
-
-        private bool TryParseDebugIntentJson(out JObject intent, out string error)
-        {
-            intent = null;
-            error = null;
-
-            string text = txtDebugIntentJson.Text.Trim();
-            if (text.Length == 0)
-            {
-                error = "测试意图 JSON 不能为空。";
-                return false;
-            }
-
-            try
-            {
-                JToken token = JToken.Parse(text);
-                if (token.Type != JTokenType.Object)
-                {
-                    error = "测试意图 JSON 必须是对象。";
-                    return false;
-                }
-
-                intent = (JObject)token;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                error = "测试意图 JSON 解析失败：" + ex.Message;
-                return false;
-            }
-        }
-
-        private void AppendDebugMessage(RichTextBox box, string title, string content)
-        {
-            if (box.TextLength > 0)
-            {
-                box.AppendText(Environment.NewLine + Environment.NewLine);
-            }
-
-            box.SelectionColor = Color.FromArgb(36, 74, 122);
-            box.SelectionFont = box.Font;
-            box.AppendText($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {title}");
-            box.SelectionColor = Color.Black;
-            box.AppendText(Environment.NewLine);
-            box.AppendText(content ?? string.Empty);
-            box.SelectionStart = box.TextLength;
-            box.ScrollToCaret();
-        }
-
-        private static string PrettyJson(string text)
+        private static string FormatJson(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
             {
                 return string.Empty;
             }
-
-            string trimmed = text.Trim();
             try
             {
-                return JToken.Parse(trimmed).ToString(Formatting.Indented);
+                return JToken.Parse(text).ToString(Formatting.Indented);
             }
             catch
             {
-                return trimmed;
+                return text;
             }
         }
 
-        private void ResetWorkflowSchemaState(string message)
+        private static string CheckGooseCore(GooseConfig config)
         {
-            workflowParameters = null;
-            rtbWorkflowSchema.Text = message ?? string.Empty;
-            if (txtPromptVariable.TextLength == 0)
-            {
-                txtPromptVariable.Text = string.Empty;
-            }
-            SetStatus("状态：已加载本地配置，等待手动刷新 workflow 参数");
-        }
-
-        private void LoadConfig()
-        {
-            lblConfigPath.Text = DifyConfigStorage.ConfigPath;
-            if (!DifyConfigStorage.TryLoad(out DifyConfig config, out string error))
-            {
-                MessageBox.Show(error, "Dify 配置读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                txtBaseUrl.Text = string.Empty;
-                txtApiKey.Text = string.Empty;
-                SetStatus("状态：Dify 配置读取失败");
-                return;
-            }
-
-            txtBaseUrl.Text = config.BaseUrl ?? string.Empty;
-            txtApiKey.Text = config.ApiKey ?? string.Empty;
-            SetStatus("状态：Dify 配置已加载，等待读取 workflow 参数");
-        }
-
-        private async void BtnSaveConfig_Click(object sender, EventArgs e)
-        {
-            if (!SF.EnsurePermission(PermissionKeys.AppConfigAccess, "保存 Dify 配置"))
-            {
-                return;
-            }
-
-            DifyConfig config = new DifyConfig
-            {
-                BaseUrl = txtBaseUrl.Text.Trim(),
-                ApiKey = txtApiKey.Text.Trim()
-            };
-            if (!DifyConfigStorage.TrySave(config, out string error))
-            {
-                MessageBox.Show(error, "保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                SetStatus("状态：Dify 配置保存失败");
-                return;
-            }
-
-            SetStatus("状态：Dify 配置已保存，正在刷新 workflow 参数");
-            MessageBox.Show("Dify 配置保存成功。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            await RefreshWorkflowSchemaAsync();
-        }
-
-        private async void BtnReloadConfig_Click(object sender, EventArgs e)
-        {
-            LoadConfig();
-            ApplyPermissions();
-            await RefreshWorkflowSchemaAsync();
-        }
-
-        private void BtnClearHistory_Click(object sender, EventArgs e)
-        {
-            rtbConversation.Clear();
-            SetStatus("状态：已清空当前运行记录");
-            txtPrompt.Focus();
-        }
-
-        private async void BtnSend_Click(object sender, EventArgs e)
-        {
-            await SendMessageAsync();
-        }
-
-        private async Task SendMessageAsync()
-        {
-            if (sending || loadingWorkflowSchema)
-            {
-                return;
-            }
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "使用 AI 助手"))
-            {
-                return;
-            }
-
-            if (!TryBuildConfig(out DifyConfig config, out string configError))
-            {
-                MessageBox.Show(configError, "参数错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                SetStatus("状态：Dify 配置不完整");
-                return;
-            }
-
-            string prompt = txtPrompt.Text.Trim();
-            bool includeContext = chkIncludeContext.Checked;
-            if (includeContext)
-            {
-                SetStatus("状态：正在收集本地上下文");
-            }
-            else
-            {
-                SetStatus("状态：当前不附带本地上下文，正在准备 workflow 输入");
-            }
-
-            JObject localContext = includeContext ? BuildLocalContext() : null;
-            if (!TryBuildWorkflowInputs(prompt, localContext, out JObject inputs, out string buildError))
-            {
-                MessageBox.Show(buildError, "输入参数错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                SetStatus("状态：workflow 输入构建失败");
-                return;
-            }
-
-            AppendMessage("用户", BuildRequestPreview(prompt, localContext, inputs, includeContext, txtContextVariable.Text.Trim()));
-            txtPrompt.Clear();
-            SetSendingState(true);
-
-            try
-            {
-                string userId = GetUserId();
-                DifyWorkflowRunReply reply = await Task.Run(() => DifyWorkflowClient.RunWorkflow(config, inputs, userId, ReportWorkflowTrace));
-                AppendMessage("Workflow", BuildWorkflowResultText(reply));
-                ReportWorkflowTrace("Dify workflow 结果已返回。", false);
-                SetStatus(string.IsNullOrWhiteSpace(reply.WorkflowRunId)
-                    ? "状态：workflow 已执行完成"
-                    : $"状态：workflow 已执行完成 {reply.WorkflowRunId}");
-            }
-            catch (Exception ex)
-            {
-                AppendMessage("系统", $"请求失败：{ex.Message}");
-                ReportWorkflowTrace("workflow 请求失败：" + ex.Message, true);
-                SetStatus("状态：请求失败");
-            }
-            finally
-            {
-                SetSendingState(false);
-            }
-        }
-
-        private void TxtPrompt_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Enter && e.Control)
-            {
-                e.SuppressKeyPress = true;
-                e.Handled = true;
-                _ = SendMessageAsync();
-            }
-        }
-
-        private async Task RefreshWorkflowSchemaAsync()
-        {
-            if (sending)
-            {
-                return;
-            }
-            if (!TryBuildConfig(out DifyConfig config, out string configError))
-            {
-                workflowParameters = null;
-                rtbWorkflowSchema.Text = "未读取到 workflow 参数。\r\n原因：" + configError;
-                txtPromptVariable.Text = string.Empty;
-                ApplyPermissions();
-                return;
-            }
-
-            loadingWorkflowSchema = true;
-            ApplyPermissions();
-            SetStatus("状态：正在读取 workflow 参数");
-
-            try
-            {
-                workflowParameters = await Task.Run(() => DifyWorkflowClient.GetParameters(config));
-                rtbWorkflowSchema.Text = BuildWorkflowSchemaText(workflowParameters);
-
-                if (string.IsNullOrWhiteSpace(txtPromptVariable.Text))
-                {
-                    string autoVariable = TryDetectSinglePromptVariable(workflowParameters);
-                    if (!string.IsNullOrWhiteSpace(autoVariable))
-                    {
-                        txtPromptVariable.Text = autoVariable;
-                    }
-                }
-
-                if (string.IsNullOrWhiteSpace(txtContextVariable.Text))
-                {
-                    string autoContextVariable = TryDetectContextVariable(workflowParameters);
-                    if (!string.IsNullOrWhiteSpace(autoContextVariable))
-                    {
-                        txtContextVariable.Text = autoContextVariable;
-                    }
-                }
-
-                SetStatus("状态：workflow 参数已刷新");
-            }
-            catch (Exception ex)
-            {
-                workflowParameters = null;
-                rtbWorkflowSchema.Text = "读取 workflow 参数失败。\r\n" + ex.Message;
-                SetStatus("状态：workflow 参数读取失败");
-            }
-            finally
-            {
-                loadingWorkflowSchema = false;
-                ApplyPermissions();
-            }
-        }
-
-        private bool TryBuildConfig(out DifyConfig config, out string error)
-        {
-            config = null;
-            error = null;
-
-            string baseUrl = txtBaseUrl.Text.Trim();
-            string apiKey = txtApiKey.Text.Trim();
-            if (baseUrl.Length == 0)
-            {
-                error = "Dify API 地址不能为空。";
-                return false;
-            }
-            if (apiKey.Length == 0)
-            {
-                error = "Dify API Key 不能为空。";
-                return false;
-            }
-
-            config = new DifyConfig
-            {
-                BaseUrl = baseUrl,
-                ApiKey = apiKey
-            };
-            return true;
-        }
-
-        private bool TryBuildWorkflowInputs(string prompt, JObject localContext, out JObject inputs, out string error)
-        {
-            inputs = null;
-            error = null;
-
-            if (!TryParseInputsJson(out JObject jsonInputs, out error))
-            {
-                return false;
-            }
-
-            string trimmedPrompt = prompt.Trim();
-            string promptVariable = txtPromptVariable.Text.Trim();
-            if (trimmedPrompt.Length > 0)
-            {
-                if (promptVariable.Length == 0)
-                {
-                    promptVariable = TryDetectSinglePromptVariable(workflowParameters);
-                    if (promptVariable.Length == 0)
-                    {
-                        error = "当前 workflow 存在多个或零个可用输入变量，请先填写“主问题变量名”或在 Inputs JSON 中手工提供 inputs。";
-                        return false;
-                    }
-                    txtPromptVariable.Text = promptVariable;
-                }
-
-                jsonInputs[promptVariable] = trimmedPrompt;
-            }
-
-            if (localContext != null)
-            {
-                string contextVariable = txtContextVariable.Text.Trim();
-                if (contextVariable.Length == 0)
-                {
-                    contextVariable = TryDetectContextVariable(workflowParameters);
-                    if (contextVariable.Length > 0)
-                    {
-                        txtContextVariable.Text = contextVariable;
-                    }
-                }
-
-                if (contextVariable.Length == 0)
-                {
-                    error = "已勾选附带上下文，但当前未配置“上下文变量名”。请在 workflow 中新增如 automation_context 的输入变量，或取消勾选。";
-                    return false;
-                }
-
-                jsonInputs[contextVariable] = BuildContextInputValue(localContext, FindFieldDefinition(workflowParameters, contextVariable));
-            }
-
-            if (!jsonInputs.HasValues)
-            {
-                error = "Workflow inputs 不能为空。请填写问题内容或 Inputs JSON。";
-                return false;
-            }
-
-            inputs = jsonInputs;
-            return true;
-        }
-
-        private bool TryParseInputsJson(out JObject inputs, out string error)
-        {
-            inputs = null;
-            error = null;
-
-            string text = txtInputsJson.Text.Trim();
-            if (text.Length == 0)
-            {
-                inputs = new JObject();
-                return true;
-            }
-
-            try
-            {
-                JToken token = JToken.Parse(text);
-                if (token.Type != JTokenType.Object)
-                {
-                    error = "Inputs JSON 必须是对象。";
-                    return false;
-                }
-
-                inputs = (JObject)token.DeepClone();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                error = $"Inputs JSON 解析失败:{ex.Message}";
-                return false;
-            }
-        }
-
-        private static string TryDetectSinglePromptVariable(DifyWorkflowParameters parameters)
-        {
-            if (parameters?.Fields == null || parameters.Fields.Count == 0)
-            {
-                return string.Empty;
-            }
-
-            string[] preferredNames = new[]
-            {
-                "user_request",
-                "query",
-                "prompt",
-                "question",
-                "message"
-            };
-
-            for (int i = 0; i < preferredNames.Length; i++)
-            {
-                string candidate = preferredNames[i];
-                DifyWorkflowFieldDefinition matched = parameters.Fields.Find(field =>
-                    field != null
-                    && !string.IsNullOrWhiteSpace(field.Variable)
-                    && string.Equals(field.Variable, candidate, StringComparison.OrdinalIgnoreCase));
-                if (matched != null)
-                {
-                    return matched.Variable;
-                }
-            }
-
-            string detectedVariable = string.Empty;
-            int count = 0;
-            for (int i = 0; i < parameters.Fields.Count; i++)
-            {
-                DifyWorkflowFieldDefinition field = parameters.Fields[i];
-                if (field == null || string.IsNullOrWhiteSpace(field.Variable))
-                {
-                    continue;
-                }
-                count++;
-                detectedVariable = field.Variable;
-            }
-
-            return count == 1 ? detectedVariable : string.Empty;
-        }
-
-        private static string TryDetectContextVariable(DifyWorkflowParameters parameters)
-        {
-            if (parameters?.Fields == null || parameters.Fields.Count == 0)
-            {
-                return string.Empty;
-            }
-
-            string[] preferredNames = new[]
-            {
-                "automation_context",
-                "local_context",
-                "context",
-                "workflow_context"
-            };
-
-            for (int i = 0; i < preferredNames.Length; i++)
-            {
-                string candidate = preferredNames[i];
-                DifyWorkflowFieldDefinition matched = parameters.Fields.Find(field =>
-                    field != null
-                    && !string.IsNullOrWhiteSpace(field.Variable)
-                    && string.Equals(field.Variable, candidate, StringComparison.OrdinalIgnoreCase));
-                if (matched != null)
-                {
-                    return matched.Variable;
-                }
-            }
-
-            DifyWorkflowFieldDefinition labelMatched = parameters.Fields.Find(field =>
-                field != null
-                && !string.IsNullOrWhiteSpace(field.Variable)
-                && !string.IsNullOrWhiteSpace(field.Label)
-                && field.Label.IndexOf("上下文", StringComparison.OrdinalIgnoreCase) >= 0);
-            return labelMatched?.Variable ?? string.Empty;
-        }
-
-        private static DifyWorkflowFieldDefinition FindFieldDefinition(DifyWorkflowParameters parameters, string variableName)
-        {
-            if (parameters?.Fields == null || string.IsNullOrWhiteSpace(variableName))
-            {
-                return null;
-            }
-
-            return parameters.Fields.Find(field =>
-                field != null
-                && string.Equals(field.Variable, variableName, StringComparison.OrdinalIgnoreCase));
-        }
-
-        private static JToken BuildContextInputValue(JObject localContext, DifyWorkflowFieldDefinition field)
-        {
-            if (localContext == null)
-            {
-                return JValue.CreateNull();
-            }
-
-            string controlType = field?.ControlType ?? string.Empty;
-            if (controlType.IndexOf("json", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return localContext.DeepClone();
-            }
-
-            return localContext.ToString(Formatting.None);
-        }
-
-        private static string BuildWorkflowSchemaText(DifyWorkflowParameters parameters)
-        {
-            if (parameters?.Fields == null || parameters.Fields.Count == 0)
-            {
-                return "当前 workflow 未暴露 user_input_form 字段。\r\n如果工作流完全由固定常量驱动，可直接在右侧 Inputs JSON 中手工填写 inputs。";
-            }
-
             StringBuilder builder = new StringBuilder();
-            for (int i = 0; i < parameters.Fields.Count; i++)
+            string gooseExecutable = ResolveGooseExecutablePath(config.GooseExecutablePath);
+            builder.AppendLine($"Goose 可执行文件：{gooseExecutable}");
+            builder.AppendLine(RunProcessCapture(gooseExecutable, "--version", config.WorkingDirectory, 10000));
+            builder.AppendLine(RunProcessCapture(gooseExecutable, "info -v", config.WorkingDirectory, 15000));
+            try
             {
-                DifyWorkflowFieldDefinition field = parameters.Fields[i];
-                builder.Append("控件类型: ").Append(field.ControlType ?? string.Empty).AppendLine();
-                builder.Append("显示名称: ").Append(field.Label ?? string.Empty).AppendLine();
-                builder.Append("变量名: ").Append(field.Variable ?? string.Empty).AppendLine();
-                builder.Append("是否必填: ").Append(field.Required ? "是" : "否").AppendLine();
-                if (field.DefaultValue != null)
+                GooseConfig resolvedConfig = new GooseConfig
                 {
-                    builder.Append("默认值: ").Append(field.DefaultValue.ToString(Formatting.None)).AppendLine();
-                }
-                if (field.RawDefinition != null)
+                    GooseExecutablePath = gooseExecutable,
+                    WorkingDirectory = config.WorkingDirectory,
+                    McpUri = config.McpUri,
+                    SessionName = config.SessionName,
+                    Provider = config.Provider,
+                    Model = config.Model,
+                    MaxTurns = config.MaxTurns
+                };
+                using (GooseAcpClient client = new GooseAcpClient(resolvedConfig))
+                using (CancellationTokenSource cts = new CancellationTokenSource(30000))
                 {
-                    builder.Append("原始定义: ").Append(field.RawDefinition.ToString(Formatting.None)).AppendLine();
+                    client.InitializeAsync(cts.Token).GetAwaiter().GetResult();
                 }
-                if (i < parameters.Fields.Count - 1)
-                {
-                    builder.AppendLine(new string('-', 48));
-                }
+                builder.AppendLine("goose acp initialize：成功");
+            }
+            catch (Exception ex)
+            {
+                builder.AppendLine("goose acp initialize：失败");
+                builder.AppendLine(ex.Message);
             }
             return builder.ToString();
         }
 
-        private JObject BuildLocalContext()
+        private static string ResolveGooseExecutablePath(string configuredPath)
         {
-            JObject context = new JObject
+            return TryResolveGooseExecutablePath(configuredPath, out string resolvedPath)
+                ? resolvedPath
+                : configuredPath;
+        }
+
+        private static bool TryResolveGooseExecutablePath(string configuredPath, out string resolvedPath)
+        {
+            resolvedPath = null;
+            List<string> candidates = new List<string>();
+            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            if (!string.IsNullOrWhiteSpace(configuredPath))
             {
-                ["capturedAt"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                ["userName"] = GetUserId(),
-                ["source"] = "Automation",
-                ["page"] = "AI助手"
-            };
-
-            int procIndex = SF.frmProc?.SelectedProcNum ?? -1;
-            int stepIndex = SF.frmProc?.SelectedStepNum ?? -1;
-            int opIndex = SF.frmDataGrid?.iSelectedRow ?? -1;
-            List<Proc> procs = SF.frmProc?.procsList;
-            Proc selectedProc = null;
-            Step selectedStep = null;
-            OperationType selectedOperation = null;
-
-            JObject selection = new JObject
-            {
-                ["procIndex"] = CreateNullableIntToken(procIndex),
-                ["stepIndex"] = CreateNullableIntToken(stepIndex),
-                ["opIndex"] = CreateNullableIntToken(opIndex)
-            };
-
-            if (procs != null && procIndex >= 0 && procIndex < procs.Count)
-            {
-                selectedProc = procs[procIndex];
-                selection["procId"] = selectedProc?.head?.Id.ToString();
-                selection["procName"] = selectedProc?.head?.Name ?? string.Empty;
-                selection["procDisable"] = selectedProc?.head?.Disable ?? false;
-                selection["stepCount"] = selectedProc?.steps?.Count ?? 0;
-
-                if (stepIndex >= 0 && selectedProc?.steps != null && stepIndex < selectedProc.steps.Count)
+                AddCandidate(candidates, configuredPath.Trim());
+                if (!Path.IsPathRooted(configuredPath))
                 {
-                    selectedStep = selectedProc.steps[stepIndex];
-                    selection["stepId"] = selectedStep?.Id.ToString();
-                    selection["stepName"] = selectedStep?.Name ?? string.Empty;
-                    selection["stepDisable"] = selectedStep?.Disable ?? false;
-                    selection["opCount"] = selectedStep?.Ops?.Count ?? 0;
-
-                    if (opIndex >= 0 && selectedStep?.Ops != null && opIndex < selectedStep.Ops.Count)
-                    {
-                        selectedOperation = selectedStep.Ops[opIndex];
-                        selection["opId"] = selectedOperation?.Id.ToString();
-                        selection["opName"] = selectedOperation?.Name ?? string.Empty;
-                        selection["operaType"] = selectedOperation?.OperaType ?? string.Empty;
-                        selection["opDisable"] = selectedOperation?.Disable ?? false;
-                        selection["opNote"] = selectedOperation?.Note ?? string.Empty;
-                    }
+                    AddCandidate(candidates, Path.Combine(baseDirectory, configuredPath.Trim()));
                 }
             }
+            AddCandidate(candidates, Path.Combine(baseDirectory, "Tools", "Goose", "goose.exe"));
+            AddCandidate(candidates, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", "goose.exe"));
 
-            context["selection"] = selection;
-
-            EngineSnapshot snapshot = null;
-            if (SF.DR != null && procIndex >= 0)
+            foreach (string candidate in candidates)
             {
-                snapshot = SF.DR.GetSnapshot(procIndex);
+                if (File.Exists(candidate))
+                {
+                    resolvedPath = candidate;
+                    return true;
+                }
             }
-
-            JObject runtime = new JObject
-            {
-                ["selectedProcState"] = snapshot?.State.ToString() ?? ProcRunState.Stopped.ToString(),
-                ["selectedProcAlarming"] = snapshot?.IsAlarm ?? false,
-                ["selectedProcBreakpoint"] = snapshot?.IsBreakpoint ?? false,
-                ["selectedProcAlarmMessage"] = snapshot?.AlarmMessage ?? string.Empty,
-                ["engineReady"] = SF.DR != null,
-                ["procCount"] = procs?.Count ?? 0
-            };
-            context["runtime"] = runtime;
-
-            return context;
+            return false;
         }
 
-        private static JToken CreateNullableIntToken(int value)
+        private static void AddCandidate(List<string> candidates, string path)
         {
-            if (value < 0)
-            {
-                return JValue.CreateNull();
-            }
-            return new JValue(value);
-        }
-
-        private static string BuildRequestPreview(string prompt, JObject localContext, JObject inputs, bool includeContext, string contextVariable)
-        {
-            StringBuilder builder = new StringBuilder();
-            if (!string.IsNullOrWhiteSpace(prompt))
-            {
-                builder.AppendLine("用户问题：");
-                builder.AppendLine(prompt);
-                builder.AppendLine();
-            }
-            builder.AppendLine(includeContext ? $"自动采集上下文（变量 {contextVariable}）：" : "自动采集上下文：未附带（纯AI聊天）");
-            if (includeContext)
-            {
-                builder.AppendLine(localContext?.ToString(Formatting.Indented) ?? "{}");
-            }
-            builder.AppendLine();
-            builder.AppendLine("inputs：");
-            builder.Append(inputs?.ToString(Formatting.Indented) ?? "{}");
-            return builder.ToString();
-        }
-
-        private static string BuildWorkflowResultText(DifyWorkflowRunReply reply)
-        {
-            StringBuilder builder = new StringBuilder();
-            if (!string.IsNullOrWhiteSpace(reply.WorkflowRunId))
-            {
-                builder.AppendLine("workflow_run_id: " + reply.WorkflowRunId);
-            }
-            if (!string.IsNullOrWhiteSpace(reply.TaskId))
-            {
-                builder.AppendLine("task_id: " + reply.TaskId);
-            }
-            if (!string.IsNullOrWhiteSpace(reply.Status))
-            {
-                builder.AppendLine("status: " + reply.Status);
-            }
-            if (!string.IsNullOrWhiteSpace(reply.Error))
-            {
-                builder.AppendLine("error: " + reply.Error);
-            }
-            builder.AppendLine("outputs:");
-            builder.Append(reply.Outputs == null ? "{}" : reply.Outputs.ToString(Formatting.Indented));
-            return builder.ToString();
-        }
-
-        private void AppendMessage(string role, string content)
-        {
-            if (rtbConversation.TextLength > 0)
-            {
-                rtbConversation.AppendText(Environment.NewLine + Environment.NewLine);
-            }
-
-            string timeText = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            rtbConversation.SelectionColor = Color.FromArgb(36, 74, 122);
-            rtbConversation.SelectionFont = conversationHeaderFont;
-            rtbConversation.AppendText($"{role}  [{timeText}]");
-            rtbConversation.SelectionColor = Color.Black;
-            rtbConversation.SelectionFont = conversationBodyFont;
-            rtbConversation.AppendText(Environment.NewLine);
-            rtbConversation.AppendText(content ?? string.Empty);
-            rtbConversation.SelectionStart = rtbConversation.TextLength;
-            rtbConversation.ScrollToCaret();
-        }
-
-        private void SetStatus(string text)
-        {
-            lblStatus.Text = text;
-        }
-
-        private void ReportWorkflowTrace(string message)
-        {
-            ReportWorkflowTrace(message, false);
-        }
-
-        private void ReportWorkflowTrace(string message, bool isError)
-        {
-            if (string.IsNullOrWhiteSpace(message) || IsDisposed)
+            if (string.IsNullOrWhiteSpace(path))
             {
                 return;
             }
-
-            Action action = delegate
+            foreach (string candidate in candidates)
             {
-                if (IsDisposed)
+                if (string.Equals(candidate, path, StringComparison.OrdinalIgnoreCase))
                 {
                     return;
                 }
+            }
+            candidates.Add(path);
+        }
 
-                SetStatus("状态：" + message);
-                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+        private static string RunProcessCapture(string fileName, string arguments, string workingDirectory, int timeoutMs)
+        {
+            try
+            {
+                ProcessStartInfo startInfo = new ProcessStartInfo
                 {
-                    SF.frmInfo.PrintInfo("AI助手：" + message, isError ? FrmInfo.Level.Error : FrmInfo.Level.Normal);
+                    FileName = fileName,
+                    Arguments = arguments,
+                    WorkingDirectory = Directory.Exists(workingDirectory) ? workingDirectory : AppDomain.CurrentDomain.BaseDirectory,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                };
+                using (Process process = Process.Start(startInfo))
+                {
+                    if (process == null)
+                    {
+                        return fileName + " " + arguments + "\r\n启动失败";
+                    }
+                    if (!process.WaitForExit(timeoutMs))
+                    {
+                        try
+                        {
+                            process.Kill();
+                        }
+                        catch
+                        {
+                        }
+                        return fileName + " " + arguments + "\r\n执行超时";
+                    }
+                    string output = process.StandardOutput.ReadToEnd();
+                    string error = process.StandardError.ReadToEnd();
+                    return fileName + " " + arguments + "\r\n" + output + error;
                 }
-            };
-
-            if (InvokeRequired)
-            {
-                BeginInvoke(action);
-                return;
             }
-
-            action();
+            catch (Exception ex)
+            {
+                return fileName + " " + arguments + "\r\n" + ex.Message;
+            }
         }
 
-        private void SetSendingState(bool isSending)
+        private static string FindFirstString(JToken token, string fieldName)
         {
-            sending = isSending;
-            ApplyPermissions();
+            if (token == null)
+            {
+                return null;
+            }
+            if (token is JObject obj)
+            {
+                if (obj.TryGetValue(fieldName, StringComparison.OrdinalIgnoreCase, out JToken value)
+                    && value != null
+                    && value.Type == JTokenType.String)
+                {
+                    return value.Value<string>();
+                }
+                foreach (JProperty property in obj.Properties())
+                {
+                    string nested = FindFirstString(property.Value, fieldName);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                    {
+                        return nested;
+                    }
+                }
+            }
+            else if (token is JArray array)
+            {
+                foreach (JToken item in array)
+                {
+                    string nested = FindFirstString(item, fieldName);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                    {
+                        return nested;
+                    }
+                }
+            }
+            return null;
         }
 
-        private static string GetUserId()
+        private static JArray FindFirstArray(JToken token, string fieldName)
         {
-            string userName = SF.userContextStore?.GetUserName();
-            if (!string.IsNullOrWhiteSpace(userName))
+            if (token == null)
             {
-                return userName;
+                return null;
             }
-            return Environment.UserName;
+            if (token is JObject obj)
+            {
+                if (obj.TryGetValue(fieldName, StringComparison.OrdinalIgnoreCase, out JToken value)
+                    && value is JArray array)
+                {
+                    return array;
+                }
+                foreach (JProperty property in obj.Properties())
+                {
+                    JArray nested = FindFirstArray(property.Value, fieldName);
+                    if (nested != null)
+                    {
+                        return nested;
+                    }
+                }
+            }
+            else if (token is JArray rootArray)
+            {
+                foreach (JToken item in rootArray)
+                {
+                    JArray nested = FindFirstArray(item, fieldName);
+                    if (nested != null)
+                    {
+                        return nested;
+                    }
+                }
+            }
+            return null;
+        }
+
+        // 公开以便 FrmMain.FormClosing 早期调用，先 Kill Goose 进程，
+        // 避免后台线程的 HandlePermissionRequest 同步 Invoke 等待已被阻塞的 UI 线程导致死锁。
+        public void DisposeGooseClient()
+        {
+            lock (clientLock)
+            {
+                try
+                {
+                    gooseClient?.Dispose();
+                }
+                catch
+                {
+                }
+                gooseClient = null;
+            }
         }
     }
 }

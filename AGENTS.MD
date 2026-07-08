@@ -1,430 +1,69 @@
 ## 语言约定
-- 所有代码注释、技术文档、提交说明一律使用**简体中文**。
-- 代码中的标识符、API 名称、JSON 字段保持英文；用户可见字符串按 UI 设计需求呈现。
-- 面向开发者的说明、分析、总结全部用简体中文输出。
+- 代码注释、技术文档、提交说明使用**简体中文**；标识符、API、JSON 字段保持英文。
 
 ## 编码约定
 - 避免过度包装：仅做透传/一行调用的 helper 不要新增，直接在调用处展开。
-- 多轮改动后必须清理冗余/无效代码与未使用的配置/引用，禁止保留不起作用的代码残留。
-- 需求回滚或取消时，必须同步移除相关实现/入口/配置，禁止保留“未来可能用到”的遗留代码。
-
-## 文档维护准则
-- 任何功能改动完成后，必须同步更新本文件中对应模块说明；未更新文档视为任务未完成。
-- 变更涉及协议、配置默认值、异常处理策略时，必须在本文件写明影响范围、运行约束与排查入口。
-- 本文件定位为“首次接手项目的全局说明书”：读者不依赖历史记录，仅通过本文件即可建立完整系统认知。
-- 文档只描述当前状态，不写“改动过程/前后对比/临时方案/兼容过渡”等叙事。
-- 全文按“先系统、后模块、再细节”组织；任何章节都从整体职责、边界、输入输出开始描述。
-- 涉及顺序、层级、布局、协议、权限、配置等结构化信息时，直接给出当前完整清单。
-- 更新文档前先对照代码事实，确保说明与实际实现一致。
+- 改动后同步清理冗余代码与未使用引用；需求回滚时同步移除相关实现/入口/配置。
 
 ## 安全准则
-- 安全是最高准则：任何异常或不确定状态必须优先停机/报警，禁止继续运行。
-- 参数解析必须严格遵循定义范式，禁止对参数进行宽松解析或容错修复。
+- 任何异常或不确定状态必须优先停机/报警，禁止继续运行。
+- 参数解析严格遵循定义范式，禁止宽松解析或容错修复。
 
 ## 会话启动
-- 每次新对话开始后，第一步必须先读取本文件（`AGENTS.md`/`AGENTS.MD`）再执行任何分析或改动。
-- 首次回复需明确一句“已读取 AGENTS 约束并按其执行”，用于确认规则已生效。
+- 每次新对话开始后，第一步必须先读取本文件再执行任何分析或改动。
+- 首次回复需明确一句“已读取 AGENTS 约束并按其执行”。
 
-## 不需要编译验证
+# Automation 项目结构
 
-# Automation 全局说明（一次性现状版）
+基于 Windows Forms 的低代码自动化平台，核心模型 `Proc -> Step -> OperationType`。
 
-## 1. 系统定位与主链路
-- 项目是基于 Windows Forms 的低代码自动化平台，核心对象是“流程（Proc）-步骤（Step）-操作（OperationType）”。
-- 系统围绕六类能力运行：流程编排与执行、运动控制与 IO、TCP/串口通讯、PLC 通讯、AI 工作流助手与流程辅助、账户权限与安全锁定。
-- 启动链路：
-  - 启动阶段强制加载 `Config/AppConfig.json`；文件缺失时自动生成默认值（`CommMaxMessageQueueSize=1000`），加载失败会提示错误并终止启动。
-  - 初始化账户系统（`AccountStore/UserContextStore/UserLoginStore`），加载 `Config/Account.json`。
-  - 启动时尝试使用默认系统管理员 `system/software_123` 登录会话。
-  - 进入 `FrmMain`，装配所有子窗体与运行时 Store，创建 `ProcessEngine`，加载配置并初始化硬件。
+## 目录结构
+- `Bridge/` — Automation Bridge，本机 Named Pipe 服务，暴露流程/Schema/意图预演能力。
+- `Communication/` — TCP/串口通讯枢纽 `CommunicationHub`。
+- `Engine/` — 流程引擎 `ProcessEngine`，按 `ExecuteOperation` 分发指令。
+- `IntentTemplates/` — 本地中间意图模板 `intent_templates.json`。
+- `McpServer/` — 独立进程，把 Bridge 透传为 MCP Streamable HTTP 服务。
+- `MotionControl/` — 运动控制（雷赛 LTDMC/LeiSei3000）。
+- `PLC/` — PLC 通讯（S7/ModbusTcp）。
+- `Runtime/` — `AppConfigStorage`、`GooseConfigStorage`、`AutomationMcpServerManager`。
+- `Stores/` — 各类配置 Store 与 `LocalFileLogger`。
+- `Security/` — `PermissionCatalog`、`UserAccount`。
+- `FrmAiAssistant.cs` — AI 助手前台，承载 Goose ACP 聊天、预演确认、联调。
+- `GooseAcpClient.cs` — 隐藏启动 `goose acp`，JSON-RPC over stdio 通信；本地日志落 `<exe>/Logs/GooseAcp/`。
+- `FrmMain.cs` / `FrmProc.cs` / `FrmDataGrid.cs` / `FrmPropertyGrid.cs` — 主窗体与流程编辑链。
 
-## 2. 运行时全局对象（SF）
-- `SF` 是全局运行容器，统一持有窗体实例、`ProcessEngine`、`MotionCtrl`、各类配置 Store 与权限会话。
-- 路径由可执行目录派生：
-  - `SF.ConfigPath = <exe>/Config/`
-  - `SF.workPath = <exe>/Config/Work/`
-- 权限与安全入口：
-  - `SF.EnsurePermission`：动作级权限校验并负责错误提示。
-  - `SF.HasPermission`：状态/按钮可用性校验。
-  - `SF.SetSecurityLock`：记录原因、停止全部流程、刷新权限 UI。
-  - `SF.SetUserSession`：切换用户并刷新权限 UI。
-- 流程发布入口：`SF.PublishProc(procIndex)`，发布前执行流程结构归一化和跳转地址校验。
+## 运行时全局对象
+- `SF` 是全局容器，持有窗体、`ProcessEngine`、`MotionCtrl`、各 Store、权限会话。
+- `SF.ConfigPath = <exe>/Config/`，`SF.workPath = <exe>/Config/Work/`。
+- 权限入口：`SF.EnsurePermission`（动作级）、`SF.HasPermission`（状态级）、`SF.SetSecurityLock`（停机锁定）。
+- 流程发布：`SF.PublishProc(procIndex)`。
 
-## 3. 主窗体装配与生命周期
-- `FrmMain` 构造阶段完成：
-  - 初始化 `cardStore/valueStore/dataStructStore/trayPointStore/alarmInfoStore/comm/plcStore`。
-  - 创建 `ProcessEngine` 并注入 `EngineContext`（流程、变量、数据结构、运动、通讯、PLC、IO 映射、工站、自定义函数）。
-  - 绑定日志器（UI + 本地文件）与报警处理器（`WinFormsAlarmHandler`）。
-  - 创建并嵌入子窗体（`TopLevel=false + Dock=Fill`），其中 `FrmAiAssistant` 为主区全屏页面，承载 Dify Workflow 配置、参数展示与人机交互界面。
-- `FrmMain_Load` 执行顺序：
-  - 刷新变量、卡/IO、数据结构、通讯、报警、PLC 配置。
-  - 初始化运动控制（`InitCardType -> InitCard -> DownLoadConfig -> SetAllAxisSevonOn -> SetAllAxisEquiv`）。
-  - 启动本地 `Automation Bridge`（固定管道 `\\.\pipe\AutomationBridgePipe`）。
-  - 非锁定模式下自动启动 `Proc.head.AutoStart=true` 且未禁用的流程。
-- 运行期系统状态变量：
-  - 固定读取变量名：`复位状态`、`系统状态`。
-  - 启动刷新变量后若缺少上述变量，会自动以 `double` 类型、默认值 `0` 补齐并保存回 `Config/value.json`。
-  - `复位状态` 允许值为 `0/1/2`，类型必须为 `double`。
-  - 变量已存在但类型或取值不合法时触发 `FailSystemStatus` 并进入安全处理路径。
-- 关闭流程：
-  - 停监控线程、停全部流程并等待、释放通讯、停止运动、释放引擎、保存流程停点与关键配置。
+## 配置文件（Config/ 目录）
+- `Work/*.json` — 流程（从 `0.json` 起连续索引）。
+- `value.json` — 变量表（固定 0..999，强制保留 `复位状态`、`系统状态`）。
+- `DataStruct.json`、`AlarmInfo.json`、`card.json`、`IOMap.json`、`DataStation.json`。
+- `SocketInfo.json`、`SerialPortInfo.json`、`PlcDevice.json`、`PlcMap.json`。
+- `Account.json` — `ENC:` 前缀密文（AES-CBC + HMAC-SHA256 + PBKDF2）。
+- `AppConfig.json` — 启动强校验，当前键 `CommMaxMessageQueueSize`（默认 1000）。
+- `GooseConfig.json` — AI 助手配置，键：`GooseExecutablePath/WorkingDirectory/McpUri/SessionName/Provider/Model/MaxTurns`。
 
-## 4. 页面结构与导航
-- `FrmMenu` 顶部按钮当前从左到右完整顺序：
-  - 流程、工站、变量、IO调试、通讯、PLC、变量调试、AI助手、控制卡配置。
-- 页面切换由 `SF.curPage` 驱动，`FrmMenu` 根据目标页面重排主窗体区域可见性：
-  - 流程页：树 + 指令表 + 属性区 + 工具栏 + 状态区。
-  - 工站页：主区显示 `FrmStation`，隐藏流程编辑区。
-  - 控制卡/IO页：树区显示 `FrmCard`，表区显示 `FrmIO`，工具栏切换为 IO 监视动作。
-  - 变量调试页：主区显示 `FrmValueDebug`，隐藏流程编辑区。
-  - AI 助手页：主区显示 `FrmAiAssistant`，隐藏流程编辑区；页面采用左右双栏布局，左侧固定提供 Dify Workflow 配置、`user_input_form` 参数展示和 `inputs JSON` 编辑，右侧为页签式“运行与联调”区与 workflow 执行输入区，底部独立状态栏显示当前操作状态；页面打开时只加载本地 `DifyConfig.json`，不会自动访问 Dify，只有点击“刷新参数”或执行 Workflow 时才发起请求。
-- 变量按钮行为：
-  - 进入 `FrmValue` 前执行 `SF.frmValue.FreshFrmValue()`，界面值以运行态变量为准。
+## 账户与权限
+- 角色：`SystemAdmin`（全量）、`Admin`（全量 - Account.Manage）、`Operator`（Process.Access/Run/Search）。
+- 默认系统管理员 `system / software_123`，不可改不可删。
+- 账户或权限配置异常触发 `SetSecurityLock`，仅恢复登录可用。
 
-## 5. 工具栏与交互行为
-- `FrmToolBar` 负责保存/取消、运行控制、搜索定位、报警配置、IO 监视、程序设置、账户管理、用户登录。
-- 报警信息配置页（`FrmAlarmConfig`）编辑规则：
-  - 表格采用 `CellSelect + EditOnEnter`，单击单元格即进入编辑态。
-  - 左键点击不强制提交编辑，避免输入过程被中断。
-  - 第 0 列“编号”只读；行校验要求“名称”和“信息”同填或同空，校验通过后按行自动保存 `Config/AlarmInfo.json`。
-- `FrmInfo` 运行信息页使用 `lvInfoLog`（`ListView.VirtualMode`）显示信息流，字体为 `Calibri 9pt`；`PrintInfo` 仅入队，UI 通过 `100ms` 定时批量刷新（单次最多 `256` 条），底层用固定容量 `200` 的环形缓冲保留最近日志；时间列显示 `[yyyy-MM-dd HH时mm分ss秒]` 并按级别染色，分隔符 `：` 与正文不染色；默认追加日志后自动滚动到底部，当用户上翻查看历史时会暂停自动滚动，空闲 `20s` 后恢复自动滚动；支持右键“清空”手动清除，双击日志行可弹窗查看全文。
-- 运行动作权限：
-  - 暂停/继续、单步依赖 `Process.Run`。
-  - 停止、停止全部不做权限限制。
-  - 停止全部会跳过名称以“系统”开头的流程。
-- 常用辅助动作权限：
-  - 流程搜索/定位依赖 `Process.Search`。
-  - IO 监视依赖 `IOMonitor.Use`。
-  - 打开程序目录依赖 `Tool.OpenConfigFolder`。
-  - 账户管理依赖 `Account.Manage`（恢复会话同样允许）。
-- AI 助手权限：
-  - 进入 `AI助手` 页面与发送对话依赖 `Process.Access`。
-  - 编辑并保存 Dify URL/Key 依赖 `AppConfig.Access`。
-  - AI 助手当前按 Dify Workflow 形态工作，发送按钮调用 `POST /workflows/run`，参数结构通过 `GET /parameters` 读取；页面加载本身不触发远程请求。
-  - 执行输入区提供“附带当前流程上下文”勾选框与“上下文变量名”；勾选时，客户端会先采集当前选中的流程/步骤/指令和基本运行态上下文，并把该上下文作为独立 workflow 输入变量发送，不再拼接到 `user_request`；不勾选时只发送用户问题与 `Inputs JSON`，按纯 AI 聊天/纯 workflow 输入处理。
-  - “主问题变量名”刷新参数后会优先自动识别 `user_request/query/prompt/question/message`；“上下文变量名”会优先自动识别 `automation_context/local_context/context/workflow_context`。
-  - 当前建议 workflow 侧显式定义 `automation_context` 一类输入变量；页面刷新参数后会优先自动识别 `automation_context/local_context/context/workflow_context`，未识别到时必须手工填写“上下文变量名”，否则禁止带上下文发送。
-  - Dify Agent 当前推荐走“本地模板 + 中间意图”写入路径：先调用 `list_intent_templates/get_intent_template` 读取模板，再调用 `preview_intent/apply_intent`；不再建议在系统提示词中内嵌长篇 Patch JSON 示例。
-  - Workflow 执行阶段状态栏会依次显示“正在收集本地上下文”“正在向 Dify 提交 workflow 请求”“请求已提交到 Dify，正在等待 Dify 返回”等阶段文案；同阶段信息会写入运行信息页，便于区分本地构建、Dify HTTP 请求与 blocking 等待阶段。
-  - AI 助手右侧“联调面板”不调用 Dify；它直接通过本机 `npipe` 连接 `Automation Bridge`，并可读取 `McpServer` 的 `/info`、`/healthz` 与最新日志，用于本地联合调试 `Automation + Bridge + McpServer`。
-  - 联调面板会优先从 `McpServer/bin/*/appsettings.json` 读取 MCP 地址与日志目录，找不到运行配置时回退到默认地址 `http://127.0.0.1:8081`。
-  - 联调面板提供 7 类动作：读取流程列表、读取当前选中流程详情、读取当前选中指令 Schema、读取中间意图模板、基于当前选中指令生成测试意图、预演当前意图、提交当前意图。
-  - 联调面板依赖流程页已有选中状态；若需读取详情、Schema 或基于选中项生成测试意图，必须先在流程页选中目标流程/步骤/指令，再切回 `AI助手` 页面执行。
-  - 联调面板内部两个 `SplitContainer` 在窗口过窄或初始化尺寸尚未稳定时，会自动压缩 `Panel1MinSize/Panel2MinSize/SplitterDistance` 到合法范围，避免页面初始化阶段因分隔条越界而直接抛出异常。
-- 右键目标策略（统一按鼠标命中项）：
-  - `FrmProc`：右键空白会清空流程/步骤/操作选择并清空属性绑定。
-  - `FrmDataGrid`：右键空白会清空选中行并取消菜单目标。
-  - `FrmStation` 点位表：右键空白取消菜单，不回退历史行。
-- `FrmProc` 流程树右键菜单当前从上到下顺序：
-  - 添加流程、添加步骤、启动流程、修改、复制、粘贴、禁用/启用、删除。
+## AI 助手 / MCP / Bridge 链路
+- `FrmAiAssistant` 是唯一前台，负责聊天、停止、会话重置、预演确认弹窗。
+- `GooseAcpClient` 通过 stdin/stdout 换行分隔 JSON-RPC 调用 `initialize/session/new/session/prompt/session/cancel`。
+- `session/new` 的 `mcpServers` 项字段为 `name/type/url/headers`；`type=http` 时 `headers` 必填（空数组也行）。
+- ACP 会话把 Automation MCP Server 作为 HTTP MCP Server 注入 Goose；Goose 不直接访问 Bridge 管道。
+- Provider/Model 仅作 `GOOSE_PROVIDER/GOOSE_MODEL` 环境变量覆盖，空值沿用 Goose 自身配置；不保存模型密钥。
+- AI 助手 Provider 下拉框优先从 Goose config.yaml（`%APPDATA%\Block\goose\config\config.yaml`）读取已注册的 provider 名（如 `custom_deepseek`），避免界面值与 Goose 实际注册名不一致导致 `Unknown provider`；解析由 `GooseConfigStorage.TryLoadGooseProviders` 完成（简单文本解析，无 YAML 依赖）。
+- Bridge 管道名固定 `AutomationBridgePipe`，协议为 `4字节长度前缀 + UTF-8 JSON`。
+- 写入推荐路径：模板 -> 中间意图 -> `preview_intent` -> 前台确认 -> `apply_intent`（携带 `previewId`）。
+- GooseAcpClient 本地日志：`<exe>/Logs/GooseAcp/yyyy-MM-dd/log_NNN.txt`（按天滚动、5MB 分卷）。
+- MCP Server 调用日志：`<exe>/Logs/McpServer/`。
 
-## 6. 流程模型与编辑体系
-- 模型关系：`Proc -> Step -> OperationType`。
-- 编辑器分工：
-  - `FrmProc` 管理流程树、流程/步骤增删与结构归一化。
-  - `FrmDataGrid` 管理步骤内操作列表、右键菜单、拖拽重排。
-  - `FrmPropertyGrid` 管理对象属性编辑。
-  - 指令属性分类中“常规”分组固定排序在最下，界面显示名仍为“常规”。
-- 指令编号显示约束：
-  - 指令表“编号”列固定绑定 `OperationType.Num`。
-  - 属性编辑器不再动态改写 `Num` 的 `Browsable` 特性，避免影响数据绑定导致编号列空白。
-- 流程加载规则（`FrmProc.Refresh`）：
-  - 扫描 `Config/Work/*.json`，索引必须从 `0` 连续递增。
-  - 索引扫描与连续性校验由 `FrmProc.BuildProcFileIndexMap`、`FrmProc.ValidateProcFileContinuity` 统一执行。
-  - 缺失或加载失败会记入 `loadErrors`，设置 `SF.ProcConfigFaulted=true` 并触发停机提示。
-- 流程保存规则：
-  - 支持单流程保存与重建 `Work` 目录连续索引。
-  - 跳转地址统一使用 `proc-step-op`，禁止跨流程，保存前做边界校验。
-  - 跳转地址结构校验可通过 `FrmProc.ValidateProcGotoTargets` 复用同一套规则。
-- 指令超时默认值策略：
-  - 统一约束：所有带“超时”参数的指令默认值禁止为 `0`。
-  - 通用超时容器 `TimeOutC.TimeOut` 默认 `3000ms`（`IoCheck`、`IoGroup`、`WaitProc` 等沿用该默认值）。
-  - 通讯等待/接收指令默认超时为 `3000ms`（`WaitTcpParam`、`WaitSerialPortParam`、`ReceoveTcpMsg`、`ReceoveSerialPortMsg`）。
-  - 运动等待类默认超时为 `120000ms`（`StationRunPos`、`StationRunRel`、`WaitStationStop`）。
-- 流程协同指令属性分类规则：
-  - `ProcOps.procParam.delayAfterV` 与 `WaitProc.delayAfterV` 在属性编辑器中归类为“参数”，不归类到“IO参数”。
-- 指令属性描述规则：
-  - `OperationType` 体系中 43 个指令的属性元数据均使用非空 `Description`。
-  - `Description` 文案按参数语义编写，至少说明“参数用途 + 对执行行为的影响/生效条件”，禁止使用“配置<显示名>。”这类空泛模板。
-
-## 7. 流程引擎（ProcessEngine）
-- 引擎结构：
-  - 每流程一个 `ProcAgent`，命令队列容量 128。
-  - 命令类型包含 `StartAt/RunSingleOpOnce/Pause/Resume/Step/Stop`。
-  - `ProcessControl` 用信号门闩控制暂停、单步、停止。
-- 状态发布：
-  - 引擎维护 `EngineSnapshot`，通过 `SnapshotChanged` 发布；`FrmMain` 用缓存 + 定时器合并刷新 UI。
-- 执行主链路：
-  - `RunProc -> RunStep -> ExecuteOperation`。
-  - 运行过程中支持断点、暂停信号、单步、热发布流程映射（按 Step/Operation 的 `Id` 对位）。
-  - 调度停机时 `ProcAgent` 会先解绑当前执行上下文再发出停止信号；`ProcessControl` 在释放后对 `RequestStop/RequestStep/SetRunning/SetPaused` 采用安全空操作，避免并发释放阶段抛出对象已释放异常。
-  - 单步状态语义：单步放行后当前指令执行期间状态显示为 `Running`，当前指令执行完成并进入下一条指令待执行阶段时状态恢复为 `SingleStep`。
-  - 热更新日志语义：热更新成功默认不输出日志，热更新失败才记录错误日志并触发报警/停机流程。
-- 报警模型：
-  - 任意异常通过 `MarkAlarm` 写入 `ProcHandle.isAlarm/alarmMsg`。
-  - `IoGroup` 在复用 `IoOperate/IoCheck` 时，若子阶段失败会追加阶段前缀（`IO组执行失败(输出阶段)`、`IO组执行失败(检测阶段)`）后再报警。
-  - 报警决策支持 `Stop/Ignore/Goto1/Goto2/Goto3`。
-  - 弹框类报警由 `IAlarmHandler`（`WinFormsAlarmHandler`）在 UI 线程处理。
-
-## 8. 操作库全量分类（ExecuteOperation 分发）
-- 自定义与逻辑：`CallCustomFunc`、`Delay`、`Goto`、`ParamGoto`、`PopupDialog`。
-- IO：`IoOperate`、`IoCheck`、`IoGroup`、`IoLogicGoto`。
-- 流程协同：`ProcOps`、`WaitProc`。
-- 变量与字符串：`GetValue`、`ModifyValue`、`StringFormat`、`Split`、`Replace`。
-- 数据结构：`Set/Get/Copy/Insert/Del/Find/GetCount DataStructItem`。
-- 通讯：`TcpOps`、`WaitTcp`、`SendTcpMsg`、`ReceoveTcpMsg`、`SerialPortOps`、`WaitSerialPort`、`SendSerialPortMsg`、`ReceoveSerialPortMsg`、`SendReceoveCommMsg`。
-- PLC：`PlcReadWrite`。
-- 运动与工站：`HomeRun`、`StationRunPos`、`StationRunRel`、`SetStationVel`、`StationStop`、`WaitStationStop`、`ModifyStationPos`、`GetStationPos`、`CreateTray`、`TrayRunPos`。
-
-## 9. 运动控制、卡、工站、IO
-- 控制卡与轴：
-  - `CardConfigStore` 持久化 `card.json`。
-  - 轴参数包含脉冲当量、回零模式、速度参数等。
-  - 运动控制封装入口 `MotionCtrl`，卡类型由 `InitCardType` 初始化。
-- 工站：
-  - `DataStation` 持有轴映射、回零顺序、点位集合（`ListDataPos`/`dicDataPos`）和运行状态。
-  - `DataStation.json` 为工站与点位持久化文件。
-- IO：
-  - `FrmIO` 管理 `IOMap` 与命名 IO 字典 `DicIO`，配置文件为 `IOMap.json`。
-  - IO 监视由 `FrmIO.ToggleIOMonitor` 与工具栏按钮联动。
-
-## 10. 通讯系统（TCP/串口）
-- 运行结构：
-  - `CommunicationHub` 统一管理 TCP Client/Server 与 SerialPort 通道。
-  - 帧模式支持 `Raw` 与 `Delimiter`，接收结果统一为 `CommReceiveResult`。
-  - 接收等待队列上限来自 `AppConfig.CommMaxMessageQueueSize`，`CommunicationHub` 启动时仅从 `AppConfigStorage` 启动缓存读取，不在模块内重复读取配置文件。
-- `FrmComunication` 交互规则：
-  - TCP 与串口表均包含“分隔符”列，固定选项：`无`、`\n`、`\r\n`。
-  - 映射规则：`无 -> FrameMode=Raw`；`\n/\r\n -> FrameMode=Delimiter + FrameDelimiter`。
-  - 通道名、地址、端口、串口参数均做严格校验，错误直接提示并回退显示。
-- 生命周期约束：
-  - 窗体关闭采用隐藏策略（不销毁窗口）。
-  - `Dispose` 前执行 `ReleaseRuntimeResources`：停止状态定时器、取消循环发送、解绑 `SF.comm.Log`。
-
-## 11. PLC 系统
-- 配置模型：
-  - `PlcDevice` 描述设备连接参数，`PlcMapItem` 描述变量映射关系。
-  - 支持协议：`S7`、`ModbusTcp`。
-- 存储与校验：
-  - `PlcConfigStore` 管理 `PlcDevice.json`、`PlcMap.json`。
-  - 设备与映射均执行严格合法性校验（协议、IP、端口、方向、数量、变量名等）。
-- 运行态：
-  - `PlcHub` 统一连接、重连、读写；单次异常会断开会话并返回错误。
-  - `FrmPlc` 的映射循环按方向执行读写，同步到 `valueStore`；任一失败会停止映射并报警。
-
-## 12. 变量与数据结构
-- 变量系统（`ValueConfigStore` + `FrmValue`）：
-  - 容量固定 `0..999`，文件 `value.json`。
-  - 变量键为名称，索引槽位固定，支持运行态值变更事件。
-  - 编辑规则：名称必填；`Type` 空值按 `double` 处理；`double` 空值按 `0` 处理；`string` 允许空字符串。
-  - 启动时强制保留系统变量 `复位状态`、`系统状态`；文件缺失这两个变量时会自动补齐到空闲槽位并持久化。
-  - 支持常用标记、复制粘贴、监控窗口、按名/按索引读写。
-- 数据结构系统（`DataStructStore` + `FrmDataStruct`）：
-  - 文件 `DataStruct.json`。
-  - 字段名称/类型/值字典强一致校验，支持结构和项的增删改查复制计数。
-
-## 13. 账户、权限与锁定模式
-- 角色：
-  - `SystemAdmin`、`Admin`、`Operator`。
-- 默认系统管理员：
-  - 用户名 `system`，口令 `software_123`。
-  - 系统管理员账号不可新增、删除、禁用、改名，口令不可修改。
-- 权限目录：
-  - 权限键由 `PermissionCatalog` 定义，覆盖流程、卡/IO、工站、IO调试、通讯、变量、变量调试、PLC、报警、程序设置、工具、账户管理。
-  - 默认权限：`SystemAdmin=全量`；`Admin=全量-Account.Manage`；`Operator=Process.Access/Process.Run/Process.Search`。
-- 账户配置安全：
-  - `Account.json` 必须是 `ENC:` 前缀密文。
-  - 加密方案：AES-CBC + HMAC-SHA256 + PBKDF2。
-  - 根字段仅允许 `Accounts`；账户字段白名单固定。
-- 锁定模式：
-  - 账户配置异常或权限配置异常触发 `SF.SetSecurityLock`。
-  - 锁定后仅允许默认系统管理员进行恢复登录（`IsRecovery=true`），恢复会话只保留 `Account.Manage`。
-- 对外接口：
-  - `SF.userContextStore`：`GetUserName/GetUserRole/GetSnapshot`。
-  - `SF.userLoginStore`：`TryLogin/TryLogout/IsLoggedIn`。
-
-## 14. 配置文件全量清单
-- 流程与编辑：
-  - `Config/Work/*.json`：按索引保存单流程（`0.json` 起连续）。
-- 运行数据：
-  - `Config/value.json`：变量表。
-  - `Config/DataStruct.json`：数据结构集合。
-  - `Config/AlarmInfo.json`：报警元数据（固定 1000 条）。
-- 设备与工站：
-  - `Config/card.json`：控制卡与轴。
-  - `Config/IOMap.json`：命名 IO 映射。
-  - `Config/DataStation.json`：工站与点位。
-  - `Config/MarkPoints.json`：标记点数据。
-  - `Config/card_*.ini`：运动卡下发参数。
-- 通讯与 PLC：
-  - `Config/SocketInfo.json`：TCP 配置。
-  - `Config/SerialPortInfo.json`：串口配置。
-  - `Config/PlcDevice.json`：PLC 设备配置。
-  - `Config/PlcMap.json`：PLC 映射配置。
-  - `Config/IODebugMap.json`：IO 调试映射。
-- 账户与程序：
-  - `Config/Account.json`：账户与权限密文配置。
-  - `Config/AppConfig.json`：程序运行参数（当前键：`CommMaxMessageQueueSize`，默认 `1000`）。
-  - `Config/DifyConfig.json`：AI 助手配置（当前键完整清单：`BaseUrl`、`ApiKey`）。
-  - `AppConfig.json` 在程序启动阶段由 `AppConfigStorage.TryLoad` 强制加载；缺失时自动创建默认文件，字段缺失/类型错误/非正数会终止启动。
-  - `AppConfigStorage` 在 `TryLoad/TrySave` 成功后刷新进程内缓存；运行期读取可通过 `TryGetCached` 获取当前缓存值。
-  - `DifyConfig.json` 不参与启动强校验；AI 助手首次打开时若文件不存在会自动生成空白配置，字段缺失或类型错误会在页面内报错并禁止正常执行 workflow。
-- 本地模板与辅助文件：
-  - `IntentTemplates/intent_templates.json`：Automation Bridge 加载的本地中间意图模板清单，定义各类写入动作的标准意图 JSON 形状；文件缺失或结构错误时，`list_intent_templates/get_intent_template/preview_intent/apply_intent` 会直接失败。
-- 外部辅助进程：
-  - `McpServer/appsettings.json`：独立 `Automation MCP Server` 的运行参数。
-  - 当前键完整清单：`AutomationMcp.ListenHost`、`AutomationMcp.ListenPort`、`AutomationMcp.BridgePipeName`、`AutomationMcp.BridgeTimeoutMs`、`AutomationMcp.EnableTrayIcon`、`AutomationMcp.LogRoot`。
-  - `ListenHost + ListenPort` 共同决定 MCP HTTP 服务监听地址；`BridgePipeName` 为本地 `Automation Bridge` 管道名；`BridgeTimeoutMs` 必须为正整数毫秒；`LogRoot` 支持相对 `McpServer` 可执行目录的相对路径。
-- 反序列化约束：
-  - 所有通过 `FrmMain.ReadJson<T>` 或各 Store `Load` 读取的 JSON 使用 `TypeNameHandling.All + ObjectCreationHandling.Replace`。
-  - 该策略要求配置文件字段结构与模型严格一致，不做宽松修复。
-
-## 15. 运行期故障与排查入口
-- 启动即退出（程序配置异常）：
-  - 查 `Config/AppConfig.json` 是否存在 `CommMaxMessageQueueSize`，类型是否为整数且值大于 `0`。
-- 启动即锁定：
-  - 先查 `Config/Account.json` 是否为合法 `ENC:` 密文，字段是否符合白名单。
-- AI 助手无法发送：
-  - 先查 `Config/DifyConfig.json` 的 `BaseUrl` 是否填写到 Dify API 根地址（例如 `http://127.0.0.1/v1`），`ApiKey` 是否为空。
-  - 再查当前 Dify 应用是否为 Workflow 应用，并确认 `GET /parameters` 能正常返回 `user_input_form`。
-  - 若 workflow 存在多个输入变量，页面中的“主问题变量名”必须显式填写；其他变量通过 `Inputs JSON` 传入。
-  - 若状态栏停在“正在等待 Dify 返回”，先查 Dify workflow 执行详情，再查 `McpServer` 调用日志；`DifyWorkflowClient` 的超时诊断会输出 `method + endpoint + elapsedMs + blocking 提示`，用于判断卡在 Dify 内部模型、Workflow 节点还是 MCP 工具调用。
-  - 若 `list_intent_templates/get_intent_template` 返回模板缺失或模板非法，先查输出目录下 `IntentTemplates/intent_templates.json` 是否存在，再查该文件是否包含顶层 `templates` 数组。
-- 流程禁止运行：
-  - 查 `SF.ProcConfigFaulted`，再查 `Config/Work` 是否从 `0.json` 连续、跳转地址是否跨流程或越界。
-- 通讯初始化异常：
-  - 查 `Config/AppConfig.json` 的 `CommMaxMessageQueueSize` 是否为正整数。
-  - 查 `SocketInfo.json/SerialPortInfo.json` 的参数合法性与分隔符取值。
-- PLC 映射中断：
-  - 查 `PlcDevice.json` 连接参数、`PlcMap.json` 方向/地址/数量/变量名。
-  - 查对应变量是否存在于 `value.json`。
-- 系统状态变量异常：
-  - 先查 `value.json` 是否可正常写回；启动时若缺少 `复位状态`、`系统状态` 会自动补齐。
-  - 再查变量 `复位状态` 与 `系统状态` 类型是否 `double`、`复位状态` 值是否在 `0/1/2`。
-
-## 16. 扩展开发入口
-- 新增操作类型：
-  - 在 `OperationType` 定义属性与编辑器行为。
-  - 在 `ProcessEngine.ExecuteOperation` 增加分发分支并实现执行函数。
-  - 对异常路径统一调用报警逻辑，禁止静默失败。
-- 新增权限：
-  - 在 `Security/PermissionCatalog.cs` 增加权限键与定义项，并同步默认角色模板与分组入口约束。
-- 新增自定义函数：
-  - 在 `CustomFunc.functionMap` 注册委托，流程通过 `CallCustomFunc` 调用。
-- 新增配置项：
-  - 明确配置文件、默认值、校验规则、错误处理策略，并同步更新本文件对应章节。
-
-## 17. 依赖与驱动
-- 主要 NuGet 依赖位于 `packages.config`，当前包含：`Newtonsoft.Json`、`S7netplus`、`System.Buffers`、`System.Memory`、`System.Numerics.Vectors`、`System.Runtime.CompilerServices.Unsafe`、`System.Runtime.InteropServices.RuntimeInformation`。
-- 本地驱动与随程序分发文件统一放在项目根目录 `SourceDLL/`。
-- 构建输出规则：`Automation.csproj` 在 `Build` 后自动将 `SourceDLL/` 下全部文件复制到 `$(TargetDir)`，并保留 `SourceDLL` 内部相对子目录结构。
-- 运动控制底层：
-  - `MotionControl/LTDMC.cs`：`LTDMC.dll` P/Invoke。
-  - `MotionControl/LeiSei3000.cs`：雷赛卡运动与 IO 实现。
-
-## 18. Automation Bridge 与 MCP Server
-- 系统定位：
-  - `Automation Bridge` 运行在 WinForms 主程序内部，负责把当前内存态流程、指令 Schema、引用目录、本地中间意图模板、Patch 预演与提交流程暴露为本地 `Named Pipe` 服务。
-  - `McpServer/` 是独立于 WinForms 主程序的辅助进程，负责把 `Automation Bridge` 透传成可供 Dify/LLM 调用的 MCP HTTP 服务。
-- Automation Bridge 边界与职责：
-  - 管道名固定为 `AutomationBridgePipe`，显示路径 `\\.\pipe\AutomationBridgePipe`，由 `FrmMain_Load` 启动，`FrmMain_FormClosing` 停止。
-  - Bridge 只接受本机进程通过 `NamedPipeClientStream` 访问，不读取磁盘快照作为主数据源；读写都以 `SF.frmProc.procsList` 当前内存态为准。
-  - Bridge 管道报文当前采用“`4字节长度前缀 + UTF-8 JSON`”协议，不再使用按行分隔的单行文本协议；`McpServer` 与主程序必须同时使用同一版协议。
-  - 管道外壳字段当前允许 `PascalCase/camelCase` 大小写差异，`McpServer` 反序列化时按大小写不敏感匹配 `requestId/statusCode/bodyJson`。
-  - Bridge 监听循环在 `WaitForConnection` 成功后会把当前连接实例移交给独立任务处理；等待下一个连接时使用新的管道实例，不复用已移交实例。
-  - Bridge 复用现有业务链路：`NormalizeProc -> SaveAsJson -> PublishProc -> FrmProc.Refresh`。
-  - Bridge 当前从 `<exe>/IntentTemplates/intent_templates.json` 读取本地模板；模板只定义“动作形状参考”，真正字段和值约束仍以 `get_operation_schema/get_reference_catalog` 为准。
-  - Bridge 支持把“中间意图 JSON”确定性转换为标准 patchJson；当前推荐写入路径是“模板 -> 意图 -> 预演/提交”，而不是让 LLM 直接拼 patchJson。
-  - Bridge 当前支持的写动作仅限：
-    - `update_proc_head_fields`
-    - `update_step_fields`
-    - `update_operation_fields`
-    - `append_step`
-    - `insert_step`
-    - `delete_step`
-    - `move_step`
-    - `append_operation`
-    - `insert_operation`
-    - `delete_operation`
-    - `move_operation`
-  - `ProcHead` 当前只允许修改 `Name/AutoStart/Disable`；步骤当前只允许修改 `Name/Disable`。
-  - 结构化动作会自动按当前流程拓扑重写同流程内的 `MarkedGoto` 跳转地址；若原目标被删除，会优先回退到最近存活指令，整个流程已无可跳转目标时清空该跳转字段。
-  - `move_step/move_operation` 的 `targetIndex` 语义均为“移除源项后的最终索引”。
-  - 指令字段名以 PropertyGrid 平铺后的属性键为准，例如 `timeOutC_TimeOut`、`IoParams_0_IOName`；不得自行猜测内部 JSON 字段。
-- Automation Bridge 当前逻辑路由：
-  - `GET /bridge/health`
-  - `POST /bridge/procs/list`
-  - `POST /bridge/procs/overview`
-  - `POST /bridge/procs/detail`
-  - `POST /bridge/operations/types`
-  - `POST /bridge/operations/schema`
-  - `POST /bridge/references/catalog`
-  - `POST /bridge/intents/catalog`
-  - `POST /bridge/intents/template`
-  - `POST /bridge/intents/build-patch`
-  - `POST /bridge/intents/preview`
-  - `POST /bridge/intents/apply`
-  - `POST /bridge/patch/preview`
-  - `POST /bridge/patch/apply`
-  - 上述路由不再通过本地 HTTP 暴露，而是在管道请求包中作为 `method + path + bodyJson` 被 Bridge 解析。
-- Automation Bridge 响应约束：
-  - 成功响应统一为 `{"ok":true,"type":"...","data":...}`。
-  - 失败响应统一为 `{"ok":false,"type":"bridge.error","errorCode":"...","message":"...","details":"..."}`。
-  - 参数解析严格按 JSON 类型校验：整数必须为 JSON number，布尔必须为 JSON boolean，`Guid` 必须为合法字符串；不做宽松修复。
-  - Patch 动作对象当前严格要求使用 `type`；字段更新严格要求使用 `fieldChanges`，新增指令初始字段严格要求使用 `fieldValues`；旧字段 `action/fields` 会直接返回 `400 INVALID_ARGUMENT`。
-  - 中间意图对象当前严格要求使用 `intentType`；`fieldChanges/fieldValues` 必须为 JSON 对象；Bridge 不做宽松映射或自动修补。
-  - Bridge 在构建 `proc detail / operation schema / operation summary` 时使用“只读指令上下文”，仅设置 `OperationTemp` 供 `TypeConverter` 读取，不再伪装成 PropertyGrid 正在编辑状态；只有 Patch 写入阶段才进入“编辑指令上下文”，以保留联动字段重建行为。
-- MCP Server 边界与职责：
-  - `McpServer` 只负责 MCP 协议接入、参数转发、超时控制、错误包装、调用日志。
-  - `McpServer` 不直接读取 `Config/Work/*.json`，不实现流程归一化、跳转校验、保存、发布等业务逻辑。
-  - 启动入口为 `McpServer/Program.cs`。
-  - 默认监听地址由 `AutomationMcp.ListenHost` 和 `AutomationMcp.ListenPort` 共同控制，默认值 `127.0.0.1:8081`。
-  - 默认桥接管道名由 `AutomationMcp.BridgePipeName` 控制，默认值 `AutomationBridgePipe`。
-  - `app.MapMcp()` 占用根路径作为 MCP HTTP 传输端点，禁止再把业务状态页绑定到 `/`。
-  - `/info` 返回服务器基本信息；`/healthz` 返回监听配置、Bridge 管道名与超时。
-  - `EnableTrayIcon=true` 时使用托盘常驻，托盘菜单仅包含“重启 MCP”“退出 MCP”。
-- 当前 MCP 工具清单：
-  - `list_procs`
-  - `get_proc_overview`
-  - `get_proc_detail`
-  - `list_operation_types`
-  - `get_operation_schema`
-  - `get_reference_catalog`
-  - `list_intent_templates`
-  - `get_intent_template`
-  - `build_patch_from_intent`
-  - `preview_intent`
-  - `apply_intent`
-  - `preview_patch`
-  - `apply_patch`
-  - `get_patch_contract`
-- MCP 到 Bridge 协议映射：
-  - `list_procs -> POST /bridge/procs/list`
-  - `get_proc_overview -> POST /bridge/procs/overview`
-  - `get_proc_detail -> POST /bridge/procs/detail`
-  - `list_operation_types -> POST /bridge/operations/types`
-  - `get_operation_schema -> POST /bridge/operations/schema`
-  - `get_reference_catalog -> POST /bridge/references/catalog`
-  - `list_intent_templates -> POST /bridge/intents/catalog`
-  - `get_intent_template -> POST /bridge/intents/template`
-  - `build_patch_from_intent -> POST /bridge/intents/build-patch`
-  - `preview_intent -> POST /bridge/intents/preview`
-  - `apply_intent -> POST /bridge/intents/apply`
-  - `preview_patch -> POST /bridge/patch/preview`
-  - `apply_patch -> POST /bridge/patch/apply`
-- Dify Agent 提示词模板：
-  - 当前可直接复用的 Dify Agent 提示词、开场白与输入建议统一维护在项目根目录 `Dify-Agent-Prompts.md`。
-  - 当前推荐系统提示词不再内嵌长篇 Patch JSON Few-shot，而是要求 Agent 先调用 `list_intent_templates/get_intent_template` 读取本地模板，再生成中间意图。
-  - 面向 Workflow 搭建的节点职责、变量映射、Code 节点示例与各 Agent 提示词统一维护在项目根目录 `Dify-Workflow-Node-Prompts.md`。
-  - 面向 Dify DSL 导入的多节点草稿统一维护在项目根目录 `Automation-proc-redesign-draft.yml`；该文件当前只使用 `start / code / agent / if-else / end` 这些在现有导出中已经出现过的节点形态，优先降低 DSL 兼容风险。
-- 错误与排查：
-  - Bridge 初始化或监听异常时，主程序运行信息页会记录 `Automation Bridge 监听异常`。
-  - Bridge 每次请求都会在主程序运行信息页记录 `收到请求 / 请求完成 / 响应已发送 / 响应发送失败`，并附带请求体/响应体 UTF-8 字节数；排查 `Pipe is broken` 时应先看这里，再看 `McpServer` 的 `Logs/McpServer/*.log`。
-  - 常见原因是同名管道实例异常未释放、主程序未启动、或 `McpServer` 配置的 `BridgePipeName` 与主程序不一致。
-  - Bridge 无响应或管道连接失败时，MCP 工具返回 `type=bridge.error`，并带 `errorCode=TIMEOUT/BRIDGE_ERROR/REQUEST_ERROR/EMPTY_RESPONSE/INVALID_RESPONSE`；`details` 当前会附带 `stage=request阶段(requestId/pipeName/path)`，用于区分卡在连接、写请求、读响应还是反序列化。
-  - `list_intent_templates/get_intent_template/preview_intent/apply_intent` 失败时，先查输出目录下 `IntentTemplates/intent_templates.json` 是否存在，再查文件结构是否包含合法的顶层 `templates` 数组。
-  - `preview_patch/apply_patch` 若收到旧版 Patch 键名（如 `action`、`fields`），会返回明确的 `400 INVALID_ARGUMENT`，提示应改用 `type`、`fieldChanges`、`fieldValues`。
-  - `preview_patch` 返回结果中的 `changes.type`（如 `field_change`、`goto_rewrite`）仅用于说明实际预演结果，不能直接拿来作为 `apply_patch.actions[].type`；若误用，Bridge 会返回明确的 `400 PATCH_UNSUPPORTED_ACTION`。
-  - `preview_intent/apply_intent` 若提示字段缺失、字段类型错误或意图类型不支持，应重新读取 `get_intent_template`，按 `intentShape` 重新生成意图；不要凭记忆修补。
-  - MCP 工具调用日志写入 `AutomationMcp.LogRoot` 指定目录，按天滚动 `.log` 文件。
-  - `BridgeTimeoutMs<=0` 时会回退为 `30000ms`。
+## 日志
+- 流程引擎日志：`D:\AutomationLogs\ProcessLog\`（`LocalFileLogger`，按天 + 5MB 分卷）。
+- 运行信息页：`FrmInfo`，`lvInfoLog` 虚拟模式，环形缓冲 200 条。

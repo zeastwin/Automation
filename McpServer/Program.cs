@@ -22,8 +22,11 @@ namespace Automation.McpServer
 
             builder.Services
                 .AddMcpServer()
-                .WithHttpTransport()
-                .WithToolsFromAssembly(typeof(Program).Assembly);
+                .WithHttpTransport(options =>
+                {
+                    options.Stateless = true;
+                })
+                .WithToolsFromAssembly();
 
             var app = builder.Build();
             app.MapMcp();
@@ -35,7 +38,8 @@ namespace Automation.McpServer
                 listenPort = options.ListenPort,
                 bridgePipeName = options.BridgePipeName,
                 bridgePipePath = @"\\.\pipe\" + options.BridgePipeName,
-                transport = "http"
+                transport = "streamable-http",
+                stateless = true
             }));
             app.MapGet("/healthz", () => Results.Json(new
             {

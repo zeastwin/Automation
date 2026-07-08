@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Windows.Forms;
 
 namespace Automation
@@ -31,47 +31,36 @@ namespace Automation
             {
                 return;
             }
-            if (SF.curPage != 7)
+            // 切换 ai_panel 显示/隐藏，不切换主页面（curPage 不变）
+            var p = SF.mainfrm.ai_panel;
+            if (p.Visible)
             {
-                SF.curPage = 7;
-                if (!SF.mainfrm.main_panel.Controls.Contains(SF.frmAiAssistant))
+                p.Visible = false;
+                p.Width = 0;
+                SetNoteColumnVisible(true);
+            }
+            else
+            {
+                // AI 助手占主面板宽度的 40%，最小 420px
+                int w = SF.mainfrm.main_panel.ClientSize.Width * 2 / 5;
+                p.Width = Math.Max(420, w);
+                p.Visible = true;
+                // 不调用 BringToFront：ai_panel 的 z-order(index 3) 必须保持在 propertyGrid_panel(index 2) 之后，
+                // 才能在 Dock=Right 布局中先于 propertyGrid 停靠，占据 propertyGrid 右侧的最右位置。
+                SetNoteColumnVisible(false);
+                if (SF.frmAiAssistant != null && !SF.frmAiAssistant.IsDisposed)
                 {
-                    SF.mainfrm.loadFillForm(SF.mainfrm.main_panel, SF.frmAiAssistant);
+                    SF.frmAiAssistant.RefreshAssistantView();
                 }
-                SF.frmAiAssistant.RefreshAssistantView();
+            }
+        }
 
-                SF.mainfrm.ToolBar_panel.Visible = false;
-                SF.mainfrm.treeView_panel.Visible = false;
-                SF.mainfrm.propertyGrid_panel.Visible = false;
-                SF.mainfrm.DataGrid_panel.Visible = false;
-                SF.mainfrm.panel_Info.Visible = false;
-                SF.mainfrm.state_panel.Visible = false;
-
-                SF.frmAiAssistant.Visible = true;
-                SF.frmAiAssistant.BringToFront();
-
-                SF.frmDataGrid.Visible = false;
-                SF.frmProc.Visible = false;
-                if (SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
-                {
-                    SF.frmIO.Visible = false;
-                }
-                if (SF.mainfrm.treeView_panel.Controls.Contains(SF.frmCard))
-                {
-                    SF.frmCard.Visible = false;
-                }
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
-                {
-                    SF.frmStation.Visible = false;
-                }
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
-                {
-                    SF.frmValueDebug.Visible = false;
-                }
-
-                SF.frmToolBar.btnIOMonitor.Visible = false;
-                SF.frmIO.StopIOMonitor();
-                SF.frmToolBar.btnIOMonitor.Text = "IO监视";
+        // AI 助手打开时隐藏流程列表的"备注"列，腾出空间给助手窗体
+        private void SetNoteColumnVisible(bool visible)
+        {
+            if (SF.frmDataGrid?.dataGridView1?.Columns?.Contains("Note") == true)
+            {
+                SF.frmDataGrid.dataGridView1.Columns["Note"].Visible = visible;
             }
         }
 
@@ -114,10 +103,6 @@ namespace Automation
                 if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
                 {
                     SF.frmValueDebug.Visible = false;
-                }
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmAiAssistant))
-                {
-                    SF.frmAiAssistant.Visible = false;
                 }
 
                 SF.frmCard.BringToFront();
@@ -182,10 +167,6 @@ namespace Automation
                 if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
                 {
                     SF.frmValueDebug.Visible = false;
-                }
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmAiAssistant))
-                {
-                    SF.frmAiAssistant.Visible = false;
                 }
 
                 bool canRun = SF.HasPermission(PermissionKeys.ProcessRun);
@@ -260,10 +241,6 @@ namespace Automation
                 if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
                 {
                     SF.frmValueDebug.Visible = false;
-                }
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmAiAssistant))
-                {
-                    SF.frmAiAssistant.Visible = false;
                 }
                 
                 SF.frmControl.comboBox1.DisplayMember = "Name";
@@ -344,10 +321,6 @@ namespace Automation
                 if (SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
                 {
                     SF.frmStation.Visible = false;
-                }
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmAiAssistant))
-                {
-                    SF.frmAiAssistant.Visible = false;
                 }
 
                 SF.frmToolBar.btnIOMonitor.Visible = false;

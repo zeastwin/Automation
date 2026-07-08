@@ -1,4 +1,4 @@
-﻿using Automation.Bridge;
+using Automation.Bridge;
 using Automation.MotionControl;
 using csLTDMC;
 using Newtonsoft.Json;
@@ -23,6 +23,7 @@ namespace Automation
         public FrmValue frmValue = new FrmValue();
         public FrmValueDebug frmValueDebug = new FrmValueDebug();
         public FrmAiAssistant frmAiAssistant = new FrmAiAssistant();
+        public Panel ai_panel;
         public FrmIO  frmIO = new FrmIO();
         public FrmCard  frmCard = new FrmCard();
         public ProcessEngine dataRun;
@@ -56,6 +57,7 @@ namespace Automation
         private readonly object popupLock = new object();
         private readonly Dictionary<int, List<ProcPopupItem>> procPopups = new Dictionary<int, List<ProcPopupItem>>();
         private readonly AutomationBridgeHost automationBridgeHost;
+        private readonly AutomationMcpServerManager automationMcpServerManager = new AutomationMcpServerManager();
 
         private sealed class ProcPopupItem
         {
@@ -135,6 +137,7 @@ namespace Automation
             automationBridgeHost = new AutomationBridgeHost(this);
 
             StartPosition = FormStartPosition.CenterScreen;
+            WindowState = FormWindowState.Maximized;
 
             loadFillForm(MenuPanel, SF.frmMenu);
             loadFillForm(treeView_panel, SF.frmProc);
@@ -143,11 +146,30 @@ namespace Automation
             loadFillForm(ToolBar_panel, SF.frmToolBar);
             loadFillForm(state_panel, SF.frmState);
             loadFillForm(panel_Info, SF.frmInfo);
+
+            // AI 助手面板：停靠在 propertyGrid_panel 右侧（更靠右），默认隐藏。
+            ai_panel = new Panel { Dock = DockStyle.Right, Width = 0, Visible = false, BackColor = Color.White };
+            main_panel.Controls.Add(ai_panel);
+            // 插入到 index 3（treeView 与 propertyGrid 之间）：
+            // 原顺序 [0]DataGrid [1]panel_Info [2]propertyGrid [3]treeView [4]ToolBar
+            // 插入后 [0]DataGrid [1]panel_Info [2]propertyGrid [3]ai_panel [4]treeView [5]ToolBar
+            // Dock 布局(高index先): ToolBar(Top)→treeView(Left)→ai_panel(Right)→propertyGrid(Right)→...
+            // 即 ai_panel 先占最右，propertyGrid 贴其左侧
+            main_panel.Controls.SetChildIndex(ai_panel, 3);
+
+            frmAiAssistant.TopLevel = false;
+            frmAiAssistant.FormBorderStyle = FormBorderStyle.None;
+            frmAiAssistant.Dock = DockStyle.Fill;
+            ai_panel.Controls.Add(frmAiAssistant);
+            frmAiAssistant.Show();
+
             StartSnapshotTimer();
             SF.RefreshPermissionUi();
             UpdateTitleWithUser();
             Shown += (s, e) => SF.RefreshPermissionUi();
         }
+
+        public AutomationMcpServerManager McpServerManager => automationMcpServerManager;
 
         
 
@@ -188,6 +210,7 @@ namespace Automation
                 Monitor();
             }
             automationBridgeHost.Start();
+            StartMcpServerOnStartup();
             if (SF.SecurityLocked)
             {
                 string lockReason = string.IsNullOrWhiteSpace(SF.SecurityLockReason)
@@ -223,6 +246,35 @@ namespace Automation
         
         public List<Dictionary<int, char[]>> StateDic = new List<Dictionary<int, char[]>>();
         public object StateDicLock { get; } = new object();
+
+        private async void StartMcpServerOnStartup()
+        {
+            string baseUri = GooseConfigStorage.CreateDefaultConfig().McpUri;
+            if (GooseConfigStorage.TryLoad(out GooseConfig config, out string loadError))
+            {
+                baseUri = config.McpUri;
+            }
+            else if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            {
+                SF.frmInfo.PrintInfo($"MCP Server：Goose 配置读取失败，使用默认 MCP 地址。{loadError}", FrmInfo.Level.Error);
+            }
+
+            try
+            {
+                string result = await automationMcpServerManager.EnsureStartedAsync(baseUri).ConfigureAwait(true);
+                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                {
+                    SF.frmInfo.PrintInfo("MCP Server：" + result, FrmInfo.Level.Normal);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                {
+                    SF.frmInfo.PrintInfo("MCP Server 启动失败：" + ex.Message, FrmInfo.Level.Error);
+                }
+            }
+        }
 
     
         public void Monitor()
@@ -1146,6 +1198,16 @@ namespace Automation
                     return;
                 }
             }
+            // 必须先释放 Goose 客户端：Kill Goose 进程后，后台读取线程不再调用
+            // HandlePermissionRequest 的同步 Invoke，避免与已阻塞的 UI 线程形成死锁导致程序关闭卡住。
+            try
+            {
+                SF.frmAiAssistant?.DisposeGooseClient();
+            }
+            catch
+            {
+            }
+            automationMcpServerManager?.Dispose();
             automationBridgeHost?.Stop();
             axisMonitorCts?.Cancel();
             if (axisMonitorTask != null)

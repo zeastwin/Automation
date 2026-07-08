@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -984,7 +984,6 @@ namespace Automation
         private void FrmProc_Load(object sender, EventArgs e)
         {
             Refresh();
-      
         }
 
         private void startProc_Click(object sender, EventArgs e)

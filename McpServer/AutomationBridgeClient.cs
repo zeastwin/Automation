@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace Automation.McpServer
@@ -104,11 +105,12 @@ namespace Automation.McpServer
             }, jsonOptions));
         }
 
-        public Task<string> ApplyIntentAsync(string intentJson)
+        public Task<string> ApplyIntentAsync(string intentJson, string previewId)
         {
             return SendAsync("POST", "/bridge/intents/apply", JsonSerializer.Serialize(new
             {
-                intentJson
+                intentJson,
+                previewId
             }, jsonOptions));
         }
 
@@ -117,9 +119,39 @@ namespace Automation.McpServer
             return SendAsync("POST", "/bridge/patch/preview", patchJson);
         }
 
-        public Task<string> ApplyPatchAsync(string patchJson)
+        public Task<string> ApplyPatchAsync(string patchJson, string previewId)
         {
-            return SendAsync("POST", "/bridge/patch/apply", patchJson);
+            JsonNode? node = JsonNode.Parse(patchJson);
+            if (node is not JsonObject obj)
+            {
+                return Task.FromResult(BuildBridgeError("INVALID_ARGUMENT", "patchJson 必须是 JSON 对象。"));
+            }
+            obj["previewId"] = previewId;
+            return SendAsync("POST", "/bridge/patch/apply", obj.ToJsonString(jsonOptions));
+        }
+
+        public Task<string> GetRuntimeSnapshotAsync(int? procIndex)
+        {
+            return PostAsync("/bridge/runtime/snapshot", new
+            {
+                procIndex
+            });
+        }
+
+        public Task<string> GetInfoLogTailAsync(int maxCount)
+        {
+            return PostAsync("/bridge/info-log/tail", new
+            {
+                maxCount
+            });
+        }
+
+        public Task<string> DiagnoseProcAsync(int procIndex)
+        {
+            return PostAsync("/bridge/procs/diagnose", new
+            {
+                procIndex
+            });
         }
 
         private Task<string> PostAsync(string path, object payload)

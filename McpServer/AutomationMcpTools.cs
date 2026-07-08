@@ -120,14 +120,15 @@ namespace Automation.McpServer
         }
 
         [McpServerTool, Description(
-            "使用中间意图 JSON 直接提交，不需要模型自行组装 patchJson。内部会先把意图转换成标准 Patch，再执行 apply。")]
+            "使用中间意图 JSON 直接提交。必须携带 Automation 前台已确认的 previewId，且意图内容必须与预演时完全一致。")]
         public static async Task<string> ApplyIntent(
-            [Description("中间意图 JSON。必须与预演通过的意图保持一致。")] string intentJson)
+            [Description("中间意图 JSON。必须与预演通过的意图保持一致。")] string intentJson,
+            [Description("Automation 前台确认预演后返回或提示的 previewId。")] string previewId)
         {
             return await ExecuteAsync(
                 toolName: nameof(ApplyIntent),
-                args: new { intentJson },
-                action: client => client.ApplyIntentAsync(intentJson)).ConfigureAwait(false);
+                args: new { intentJson, previewId },
+                action: client => client.ApplyIntentAsync(intentJson, previewId)).ConfigureAwait(false);
         }
 
         [McpServerTool, Description(
@@ -142,14 +143,48 @@ namespace Automation.McpServer
         }
 
         [McpServerTool, Description(
-            "应用结构化 Patch，触发保存与发布。只接受与 preview_patch 相同的完整 Patch JSON。调用前必须确认 preview 已通过。")]
+            "应用结构化 Patch，触发保存与发布。必须携带 Automation 前台已确认的 previewId，且 patchJson 必须与预演时完全一致。")]
         public static async Task<string> ApplyPatch(
-            [Description("结构化 Patch JSON。必须与预演通过的 patch 保持一致。")] string patchJson)
+            [Description("结构化 Patch JSON。必须与预演通过的 patch 保持一致。")] string patchJson,
+            [Description("Automation 前台确认预演后返回或提示的 previewId。")] string previewId)
         {
             return await ExecuteAsync(
                 toolName: nameof(ApplyPatch),
-                args: new { patchJson },
-                action: client => client.ApplyPatchAsync(patchJson)).ConfigureAwait(false);
+                args: new { patchJson, previewId },
+                action: client => client.ApplyPatchAsync(patchJson, previewId)).ConfigureAwait(false);
+        }
+
+        [McpServerTool, Description(
+            "读取 Automation 当前运行快照，包括流程状态、当前位置、报警状态、选中项和安全锁定状态。")]
+        public static async Task<string> GetRuntimeSnapshot(
+            [Description("可选流程索引。从 0 开始；为空时返回全部流程快照。")] int? procIndex = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetRuntimeSnapshot),
+                args: new { procIndex },
+                action: client => client.GetRuntimeSnapshotAsync(procIndex)).ConfigureAwait(false);
+        }
+
+        [McpServerTool, Description(
+            "读取 Automation 运行信息页最近日志。用于排查报警、Bridge/MCP 调用失败和流程运行异常。")]
+        public static async Task<string> GetInfoLogTail(
+            [Description("返回条数，范围 1..200。")] int maxCount = 50)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetInfoLogTail),
+                args: new { maxCount },
+                action: client => client.GetInfoLogTailAsync(maxCount)).ConfigureAwait(false);
+        }
+
+        [McpServerTool, Description(
+            "诊断指定流程的结构与运行风险，包括禁用、空步骤/指令、未知指令类型、跳转错误、报警和断点。")]
+        public static async Task<string> DiagnoseProc(
+            [Description("流程索引，从 0 开始。")] int procIndex)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(DiagnoseProc),
+                args: new { procIndex },
+                action: client => client.DiagnoseProcAsync(procIndex)).ConfigureAwait(false);
         }
 
         [McpServerTool, Description(
@@ -164,11 +199,11 @@ namespace Automation.McpServer
     "3. get_operation_schema / get_reference_catalog 获取字段约束与候选值",
     "4. list_intent_templates / get_intent_template 读取中间意图模板",
     "5. preview_intent 预演，或 build_patch_from_intent 后再 preview_patch",
-    "6. apply_intent 提交，或对同一份 patch 调用 apply_patch"
+    "6. Automation 前台确认 previewId 后，apply_intent 或 apply_patch 携带同一个 previewId 提交"
   ],
   "preferredWritePath": [
-    "优先使用中间意图：get_intent_template -> preview_intent -> apply_intent",
-    "仅在已经有标准 patchJson 时再直接调用 preview_patch/apply_patch"
+    "优先使用中间意图：get_intent_template -> preview_intent -> 等待 Automation 确认 previewId -> apply_intent",
+    "仅在已经有标准 patchJson 时再直接调用 preview_patch -> 等待 Automation 确认 previewId -> apply_patch"
   ],
   "supportedActions": [
     "update_proc_head_fields",
@@ -215,9 +250,11 @@ namespace Automation.McpServer
     "actions[] 中的动作键必须使用 type，禁止使用旧字段 action",
     "update_*_fields 必须使用 fieldChanges，insert/append_operation 需要初始字段时必须使用 fieldValues，禁止使用旧字段 fields",
     "apply_patch 必须复用原始 patch，不能把 preview_patch 返回结果里的 changes 直接当作 actions 提交",
+    "preview_intent/preview_patch 会返回 previewId 和 patchHash，提交必须携带 Automation 前台已确认的 previewId",
+    "未预演、预演未确认、Patch 与预演不一致、流程版本变化都会导致 apply 失败",
     "delete/move/insert 会触发 Automation Bridge 自动重写同流程内的跳转地址",
     "move_step/move_operation 的 targetIndex 表示移除源项后的最终索引",
-    "apply_patch 前必须先调用 preview_patch"
+    "apply_patch 前必须先调用 preview_patch 并等待 Automation 前台确认"
   ]
 }
 """;

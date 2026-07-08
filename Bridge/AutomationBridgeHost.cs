@@ -180,14 +180,13 @@ namespace Automation.Bridge
                         else
                         {
                             requestMethod = request.Method ?? string.Empty;
-                            requestPath = request.Path ?? string.Empty;
-                            ReportInfo($"Automation Bridge 收到请求：{requestMethod} {requestPath}，请求体 {GetUtf8ByteCount(request.BodyJson)} 字节");
-                            AutomationBridgeResponse bridgeResponse = service.Handle(
-                                request.Method,
-                                request.Path,
-                                request.BodyJson);
-                            response = PipeResponseMessage.FromBridgeResponse(request.RequestId, bridgeResponse);
-                            ReportInfo($"Automation Bridge 请求完成：{requestMethod} {requestPath} -> {bridgeResponse.StatusCode}，耗时 {stopwatch.ElapsedMilliseconds}ms，响应体 {GetUtf8ByteCount(response.BodyJson)} 字节");
+                        requestPath = request.Path ?? string.Empty;
+                        // 不向 FrmInfo 转发每请求的 INFO 日志，避免 AI 助手一跑就刷屏；异常仍由 ReportError 上报。
+                        AutomationBridgeResponse bridgeResponse = service.Handle(
+                            request.Method,
+                            request.Path,
+                            request.BodyJson);
+                        response = PipeResponseMessage.FromBridgeResponse(request.RequestId, bridgeResponse);
                         }
                     }
                 }
@@ -209,10 +208,6 @@ namespace Automation.Bridge
                 {
                     string responseText = JsonConvert.SerializeObject(response);
                     await WriteMessageAsync(server, responseText).ConfigureAwait(false);
-                    if (!string.IsNullOrWhiteSpace(requestPath))
-                    {
-                        ReportInfo($"Automation Bridge 响应已发送：{requestMethod} {requestPath}");
-                    }
                 }
                 catch (Exception ex)
                 {
