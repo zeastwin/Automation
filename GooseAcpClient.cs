@@ -111,13 +111,25 @@ namespace Automation
 
         public async Task EnsureSessionAsync(CancellationToken cancellationToken)
         {
+            bool sessionLost = false;
             if (process == null || process.HasExited)
             {
+                if (!string.IsNullOrWhiteSpace(sessionId))
+                {
+                    sessionLost = true;
+                }
                 sessionId = null;
             }
             if (!string.IsNullOrWhiteSpace(sessionId))
             {
                 return;
+            }
+
+            if (sessionLost)
+            {
+                // Goose 进程在两轮对话之间退出（崩溃/超时），EnsureSession 会重建会话。
+                // 新会话不携带之前的对话历史，必须提示用户，否则用户以为 AI 还记得上下文。
+                Report("exit", "⚠️ Goose 进程已退出并重建会话，之前对话上下文已丢失。如果之前的对话涉及方案选择，请重新说明。", null);
             }
 
             await InitializeAsync(cancellationToken).ConfigureAwait(false);
@@ -740,10 +752,55 @@ namespace Automation
         {
             string instructions =
                 "你正在 Automation 程序内辅助读取、编写和诊断流程。"
-                + "所有流程读写必须通过已连接的 automation MCP 工具完成。"
-                + "写入前必须先调用 preview_intent 或 preview_patch；提交时必须携带 Automation 已确认的 previewId。"
-                + $"本轮最多按 {config.MaxTurns} 次工具规划推进，遇到权限或预演确认不足时先向用户说明。";
-            return instructions + "\n\n用户请求：\n" + prompt.Trim();
+                + "所有流程读写必须通过已连接的 automation MCP 工具完成；工具列表是发现能力的唯一权威来源，使用前先查看工具描述。"
+                + $"本轮最多按 {config.MaxTurns} 次工具规划推进，遇到权限或预演确认不足时先向用户说明。"
+                + "分析流程逻辑时必须模拟执行流：从第一条指令开始逐条跟踪，非跳转类指令执行后自动流向 opIndex+1（get_proc_detail 返回的 flow 字段已标注），跳转类指令按条件跳转。重点检查：跳转目标执行完后是否会自然流向下一条指令，导致效果被旁路。"
+                + "排查流程时若涉及本地代码实现（如\"自定义函数\"指令对应 CustomFunc.cs 中的方法、指令执行逻辑对应 Engine 目录下的代码），你拥有原生的文件读写和命令执行工具（developer 扩展），可直接读取项目源码辅助排查；修改代码后需用户手动编译生效。";
+            string context = BuildSelectionContext();
+            return instructions + context + "\n\n用户请求：\n" + prompt.Trim();
+        }
+
+        /// <summary>
+        /// 构建当前用户选中流程/步骤的背景信息，附加到 prompt 中，
+        /// 让 AI 知道用户正在关注哪个流程，避免反复询问或定位偏差。
+        /// </summary>
+        private static string BuildSelectionContext()
+        {
+            try
+            {
+                if (SF.frmProc == null || SF.frmProc.IsDisposed)
+                {
+                    return string.Empty;
+                }
+                int procIndex = SF.frmProc.SelectedProcNum;
+                if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+                {
+                    return "\n\n当前用户未选中任何流程。";
+                }
+
+                Proc proc = SF.frmProc.procsList[procIndex];
+                string procName = proc.head?.Name ?? "(未命名)";
+                int stepCount = proc.steps?.Count ?? 0;
+
+                StringBuilder sb = new StringBuilder();
+                sb.Append("\n\n当前用户选中的流程背景信息（仅供参考定位，用户可能只是浏览该流程，不一定是要改动它；用户未明确指定时不要假设目标流程）：\n");
+                sb.Append($"- procIndex={procIndex}，流程名称=\"{procName}\"，共 {stepCount} 个步骤\n");
+
+                int stepIndex = SF.frmProc.SelectedStepNum;
+                if (stepIndex >= 0 && stepIndex < stepCount)
+                {
+                    Step step = proc.steps[stepIndex];
+                    string stepName = step?.Name ?? "(未命名)";
+                    int opCount = step?.Ops?.Count ?? 0;
+                    sb.Append($"- 选中步骤索引={stepIndex}，步骤名称=\"{stepName}\"，共 {opCount} 条指令\n");
+                }
+                sb.Append("注意：用户口语中的\"N号流程\"即 procIndex=N。选中状态仅表示用户正在浏览该流程，不等于用户要求改动它；实际改动目标以用户明确指定的为准。");
+                return sb.ToString();
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private static string ReadSessionId(JObject result)

@@ -20,6 +20,19 @@ using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
 
 namespace Automation
 {
+    /// <summary>
+    /// 流程变动类型，用于驱动 FrmProc 节点和 FrmDataGrid 行的闪烁动效颜色。
+    /// </summary>
+    public enum ProcChangeKind
+    {
+        /// <summary>修改（字段更新、指令移动）</summary>
+        Modified,
+        /// <summary>新增（插入流程、复制流程、插入指令）</summary>
+        Added,
+        /// <summary>删除（删除流程、删除指令）</summary>
+        Deleted
+    }
+
     public partial class FrmProc : Form
     {
         //存放所有流程信息
@@ -45,6 +58,13 @@ namespace Automation
         private readonly object procNodeMapLock = new object();
         private readonly Dictionary<Guid, TreeNode> procNodeMap = new Dictionary<Guid, TreeNode>();
         private readonly Dictionary<Guid, int> procIndexMap = new Dictionary<Guid, int>();
+
+        // 流程节点变动动效：AI 改动流程后在 proc_treeView 上闪烁对应节点，让用户直观看到改动位置。
+        private System.Windows.Forms.Timer procFlashTimer;
+        private TreeNode procFlashNode;
+        private Color procFlashColor;
+        private int procFlashCount;
+        private const int ProcFlashMaxCount = 6;
 
         private ProcHead editProcHeadBackup;
         private Step editStepBackup;
@@ -316,6 +336,108 @@ namespace Automation
                 string reason = "流程配置加载失败，已停机。\r\n" + string.Join("\r\n", loadErrors.Distinct());
                 SF.StopAllProcs(reason);
                 MessageBox.Show(reason, "流程配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// 在 proc_treeView 上闪烁指定流程节点，提示用户该流程被 AI 改动。
+        /// kind 决定闪烁颜色：Modified=橙黄、Added=浅绿、Deleted=浅红。
+        /// </summary>
+        public void FlashProcNode(int procIndex, ProcChangeKind kind)
+        {
+            if (IsDisposed || !IsHandleCreated)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)(() => FlashProcNode(procIndex, kind)));
+                return;
+            }
+
+            // 停止之前未完成的闪烁，恢复节点背景色
+            if (procFlashTimer != null)
+            {
+                procFlashTimer.Stop();
+                procFlashTimer.Dispose();
+                procFlashTimer = null;
+            }
+            if (procFlashNode != null && procFlashNode.TreeView != null)
+            {
+                procFlashNode.BackColor = Color.Empty;
+            }
+            procFlashNode = null;
+
+            if (procIndex < 0 || procIndex >= proc_treeView.Nodes.Count)
+            {
+                return;
+            }
+
+            procFlashNode = proc_treeView.Nodes[procIndex];
+            procFlashColor = kind == ProcChangeKind.Added ? Color.LightGreen
+                           : kind == ProcChangeKind.Deleted ? Color.LightPink
+                           : Color.Khaki;
+            procFlashCount = 0;
+            procFlashNode.EnsureVisible();
+
+            procFlashTimer = new System.Windows.Forms.Timer();
+            procFlashTimer.Interval = 300;
+            procFlashTimer.Tick += ProcFlashTimer_Tick;
+            procFlashTimer.Start();
+        }
+
+        private void ProcFlashTimer_Tick(object sender, EventArgs e)
+        {
+            if (procFlashNode == null || procFlashNode.TreeView == null)
+            {
+                procFlashTimer?.Stop();
+                return;
+            }
+            if (procFlashCount >= ProcFlashMaxCount)
+            {
+                procFlashNode.BackColor = Color.Empty;
+                procFlashNode = null;
+                procFlashTimer.Stop();
+                procFlashTimer.Dispose();
+                procFlashTimer = null;
+                return;
+            }
+            procFlashNode.BackColor = (procFlashCount % 2 == 0) ? procFlashColor : Color.Empty;
+            procFlashCount++;
+        }
+
+        /// <summary>
+        /// AI 改动流程后，重新绑定当前选中流程/步骤的数据到 FrmDataGrid，
+        /// 使指令列表立即反映最新内容，无需用户手动重新选中节点。
+        /// </summary>
+        public void RefreshCurrentBinding()
+        {
+            if (IsDisposed || !IsHandleCreated)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)RefreshCurrentBinding);
+                return;
+            }
+            if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
+            {
+                bindingSource.DataSource = null;
+                return;
+            }
+            if (SelectedStepNum >= 0 && SelectedStepNum < procsList[SelectedProcNum].steps.Count)
+            {
+                bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
+            }
+            else
+            {
+                bindingSource.DataSource = null;
+            }
+            bindingSource.ResetBindings(true);
+            if (SF.frmDataGrid != null && !SF.frmDataGrid.IsDisposed)
+            {
+                SF.frmDataGrid.dataGridView1.DataSource = bindingSource;
             }
         }
 

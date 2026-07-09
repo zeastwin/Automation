@@ -40,6 +40,11 @@ namespace Automation
             new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
         // 流式渲染节流：记录上次实时渲染 HTML 的时间，避免每个 token 都执行 Markdig 转换导致卡顿。
         private DateTime lastStreamRender;
+        // 思维链折叠窗口：工具调用/结果/思考过程放在固定高度可滚动窗口内，PromptAsync 结束后自动折叠。
+        private string currentThinkingBoxId;
+        private int thinkingBoxIndex;
+        // 最后一段流式 assistant 文本，PromptAsync 结束后作为最终回答渲染到对话区（其余段是思考过程，折叠在 thinking-box 内）。
+        private string lastAssistantText;
         private readonly TextBox txtPrompt = new TextBox();
         private readonly TextBox txtGooseExecutable = new TextBox();
         private readonly TextBox txtWorkingDirectory = new TextBox();
@@ -69,6 +74,10 @@ namespace Automation
         private bool fullPermissionMode = false;
         private bool disposingAll;
         private string lastConfirmedPreviewId;
+
+        // Bridge 服务在生成预演记录时读取此属性，若为 true 则直接标记预演为已确认，
+        // 避免 TryPromptPreviewConfirmation 通过 HTTP 回调 Bridge 确认导致 UI 线程死锁。
+        public bool IsFullPermissionMode => fullPermissionMode;
 
         public FrmAiAssistant()
         {
@@ -133,24 +142,42 @@ namespace Automation
         // 对话区基础 HTML：白底，#messages 容器，气泡布局 CSS（用户右对齐蓝气泡、AI 左对齐浅底）。
         private const string BaseConversationHtml =
 "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>" +
+"*{box-sizing:border-box;}" +
 "body{font-family:'微软雅黑',sans-serif;font-size:14px;margin:12px;color:#18202c;}" +
 ".msg{margin-bottom:14px;display:flex;flex-direction:column;}" +
 ".msg.user{align-items:flex-end;}" +
 ".msg.assistant{align-items:flex-start;}" +
 ".msg .role{font-size:11px;color:#999;margin-bottom:3px;padding:0 4px;}" +
-".msg.user .content{background:#e3f2fd;border-radius:12px 12px 2px 12px;padding:8px 12px;max-width:75%;display:inline-block;word-wrap:break-word;}" +
-".msg.assistant .content{max-width:92%;padding:4px 8px;}" +
+".msg.user .content{background:#e3f2fd;border-radius:12px 12px 2px 12px;padding:8px 12px;max-width:75%;word-break:break-word;overflow-wrap:anywhere;}" +
+".msg.assistant .content{max-width:92%;padding:4px 8px;word-break:break-word;overflow-wrap:anywhere;}" +
 ".msg.error .content{color:darkred;}" +
-".tool-call{color:#603e0e;font-family:monospace;padding:2px 0 2px 16px;align-self:flex-start;}" +
-".tool-result{color:gray;font-family:monospace;padding:2px 0 2px 16px;align-self:flex-start;}" +
-"table{border-collapse:collapse;width:100%;margin:6px 0;}" +
-"th,td{border:1px solid #ccc;padding:4px 8px;}" +
+".tool-call{color:#603e0e;font-family:monospace;padding:2px 0 2px 16px;align-self:flex-start;max-width:100%;overflow-wrap:anywhere;}" +
+".tool-result{color:gray;font-family:monospace;padding:2px 0 2px 16px;align-self:flex-start;max-width:100%;overflow-wrap:anywhere;}" +
+"p{margin:4px 0;}" +
+"ul,ol{margin:4px 0;padding-left:20px;}" +
+"li{margin:2px 0;}" +
+"blockquote{margin:4px 0;padding:4px 12px;border-left:3px solid #ddd;color:#666;background:#fafafa;}" +
+"table{border-collapse:collapse;width:100%;margin:6px 0;table-layout:fixed;}" +
+"th,td{border:1px solid #ccc;padding:4px 8px;word-break:break-word;overflow-wrap:anywhere;}" +
 "th{background:#f5f5f5;}" +
-"pre,code{background:#f6f8fa;padding:8px;border-radius:4px;overflow-x:auto;}" +
-"pre{white-space:pre-wrap;word-wrap:break-word;}" +
+"pre{background:#f6f8fa;padding:8px;border-radius:4px;overflow-x:auto;white-space:pre-wrap;word-wrap:break-word;max-width:100%;}" +
+"code{background:#f6f8fa;padding:2px 4px;border-radius:3px;font-size:13px;}" +
+"pre code{background:none;padding:0;}" +
 "h1,h2,h3{margin:8px 0;}" +
+"h1{font-size:1.3em;}h2{font-size:1.15em;}h3{font-size:1.05em;}" +
+"img{max-width:100%;}" +
+"hr{border:none;border-top:1px solid #ddd;margin:8px 0;}" +
 ".streaming-preview{font-family:inherit;background:#fafafa;padding:6px;border-radius:4px;}" +
-"</style></head><body><div id=\"messages\"></div></body></html>";
+".thinking-box{max-height:200px;overflow-y:auto;background:#fafbfc;border:1px solid #d0d7de;border-radius:6px;margin:4px 0 8px 0;padding:4px 8px;}" +
+".thinking-box.collapsed{max-height:36px;overflow:hidden;}" +
+".thinking-box .toggle-bar{color:#6a737d;font-size:11px;cursor:pointer;padding:4px 0;margin-bottom:2px;user-select:none;border-bottom:1px solid #eee;}" +
+".thinking-box.collapsed .toggle-bar{border-bottom:none;margin-bottom:0;}" +
+".thinking-box .toggle-bar:hover{color:#0366d6;}" +
+".thinking-box .toggle-bar::before{content:'▼ ';}" +
+".thinking-box.collapsed .toggle-bar::before{content:'▶ ';}" +
+"</style>" +
+"<script>function toggleThinkingBox(id){var el=document.getElementById(id);if(el){el.classList.toggle('collapsed');if(el.classList.contains('collapsed')){el.scrollTop=0;}}}</script>" +
+"</head><body><div id=\"messages\"></div></body></html>";
 
         private void FrmAiAssistant_FormClosing(object sender, FormClosingEventArgs e)
         {
@@ -512,6 +539,11 @@ namespace Automation
             cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? "使用 Goose 配置" : config.Provider;
             RefreshModelOptions(config.Provider, config.Model);
             nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, config.MaxTurns));
+            fullPermissionMode = config.FullPermissionMode;
+            if (chkFullPermission != null && !chkFullPermission.IsDisposed)
+            {
+                chkFullPermission.Checked = fullPermissionMode;
+            }
             SetStatus($"状态：Goose 配置已加载：{GooseConfigStorage.ConfigPath}");
         }
 
@@ -525,7 +557,8 @@ namespace Automation
                 SessionName = txtSessionName.Text.Trim(),
                 Provider = NormalizeGooseOverride(cboProvider.Text),
                 Model = NormalizeGooseOverride(cboModel.Text),
-                MaxTurns = (int)nudMaxTurns.Value
+                MaxTurns = (int)nudMaxTurns.Value,
+                FullPermissionMode = fullPermissionMode
             };
 
             if (TryResolveGooseExecutablePath(config.GooseExecutablePath, out string resolvedGoosePath))
@@ -557,6 +590,7 @@ namespace Automation
             AppendConversation("用户", prompt, Color.FromArgb(22, 72, 130));
             txtPrompt.Clear();
             sending = true;
+            lastAssistantText = null;
             promptCts?.Dispose();
             promptCts = new CancellationTokenSource();
             ApplyPermissions();
@@ -583,6 +617,14 @@ namespace Automation
                 // 保证本轮最后一段流式内容被完整渲染（AI 纯文字回复不调工具时，
                 // 不会有后续非 chunk 事件触发 FinishStreaming，必须在此兜底）。
                 FinishStreaming();
+                // 把最后一段 assistant 文本作为最终回答渲染到对话区（其余段是思考过程，已折叠在 thinking-box 内）。
+                if (!string.IsNullOrWhiteSpace(lastAssistantText))
+                {
+                    AppendConversation("Goose", lastAssistantText, Color.FromArgb(30, 104, 74));
+                    lastAssistantText = null;
+                }
+                // 折叠思维链窗口（思考过程 + 工具调用/结果），让最终回复占据视觉焦点。
+                CollapseThinkingBox();
                 sending = false;
                 ApplyPermissions();
             }
@@ -607,6 +649,8 @@ namespace Automation
             streamingMarkdown.Clear();
             streamingDivId = null;
             streamingSegmentIndex = 0;
+            lastAssistantText = null;
+            currentThinkingBoxId = null;
             pendingScriptTask = Task.CompletedTask;
             ResetConversationHtml();
             // 生成唯一会话名避免 Goose 加载磁盘上的同名历史上下文
@@ -686,12 +730,26 @@ namespace Automation
                 MessageBox.Show(error, "Goose 配置保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
+            // 在 TrySave 之前获取旧配置（TrySave 内部 SetCache 会覆盖缓存）
+            GooseConfigStorage.TryGetCached(out GooseConfig oldConfig, out _);
             if (!GooseConfigStorage.TrySave(config, out error))
             {
                 MessageBox.Show(error, "Goose 配置保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            DisposeGooseClient();
+            // 只有影响 Goose 进程的配置项变化时才重建客户端，避免仅 FullPermissionMode 变化时丢失会话上下文
+            bool needRestart = oldConfig == null
+                || !string.Equals(oldConfig.GooseExecutablePath, config.GooseExecutablePath, StringComparison.Ordinal)
+                || !string.Equals(oldConfig.WorkingDirectory, config.WorkingDirectory, StringComparison.Ordinal)
+                || !string.Equals(oldConfig.McpUri, config.McpUri, StringComparison.Ordinal)
+                || !string.Equals(oldConfig.SessionName, config.SessionName, StringComparison.Ordinal)
+                || !string.Equals(oldConfig.Provider, config.Provider, StringComparison.Ordinal)
+                || !string.Equals(oldConfig.Model, config.Model, StringComparison.Ordinal)
+                || oldConfig.MaxTurns != config.MaxTurns;
+            if (needRestart)
+            {
+                DisposeGooseClient();
+            }
             SetStatus("状态：Goose 配置已保存。");
             MessageBox.Show("Goose 配置保存成功。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -878,14 +936,21 @@ namespace Automation
             }
 
             // 非流式事件：若之前在流式输出，先换行结束当前流式段。
+            // justFinished 标记用于跳过紧随其后的 assistant 事件（内容与流式预览重复）。
+            bool justFinishedStreaming = false;
             if (streamingAssistant)
             {
                 FinishStreaming();
+                justFinishedStreaming = true;
             }
 
             if (string.Equals(item.Kind, "assistant", StringComparison.Ordinal))
             {
-                AppendConversation("Goose", item.Text, Color.FromArgb(30, 104, 74));
+                // 流式刚结束，内容已在流式 div 中完整渲染，跳过重复的 assistant 事件。
+                if (!justFinishedStreaming)
+                {
+                    AppendConversation("Goose", item.Text, Color.FromArgb(30, 104, 74));
+                }
             }
             else if (string.Equals(item.Kind, "tool_call", StringComparison.Ordinal))
             {
@@ -915,7 +980,7 @@ namespace Automation
             }
         }
 
-        // 工具调用/结果紧凑单行显示（无时间戳头、无空行分隔），让配对的 🔧/→ 视觉合并成一块。
+        // 工具调用/结果紧凑单行显示，放在思维链折叠窗口内（不单独占对话区空间）。
         private void AppendToolEntry(string marker, string text, Color color)
         {
             if (webViewConversation == null || webViewConversation.IsDisposed)
@@ -926,10 +991,50 @@ namespace Automation
             string cls = isCall ? "tool-call" : "tool-result";
             string display = isCall ? "🔧" : "→";
             string html = "<div class=\"" + cls + "\">" + display + " " + HtmlEncode(text) + "</div>";
+            AppendToThinkingBox(html);
+        }
+
+        // 确保思维链窗口存在（首次调用时创建），返回窗口 ID。
+        private string EnsureThinkingBox()
+        {
+            if (currentThinkingBoxId != null)
+            {
+                return currentThinkingBoxId;
+            }
+            thinkingBoxIndex++;
+            currentThinkingBoxId = "thinking-box-" + thinkingBoxIndex;
+            string boxId = currentThinkingBoxId;
+            string html = "<div class=\"thinking-box\" id=\"" + boxId + "\">"
+                + "<div class=\"toggle-bar\" onclick=\"toggleThinkingBox('" + boxId + "')\">思维过程（点击折叠/展开）</div>"
+                + "</div>";
             EnqueueAppendHtml(html);
+            return boxId;
+        }
+
+        // 将 HTML 追加到当前思维链窗口内部，并自动滚动到底部。
+        private void AppendToThinkingBox(string html)
+        {
+            string boxId = EnsureThinkingBox();
+            string htmlJson = JsonConvert.SerializeObject(html);
+            string js = "var box=document.getElementById('" + boxId + "');if(box){box.insertAdjacentHTML('beforeend'," + htmlJson + ");box.scrollTop=box.scrollHeight;}";
+            EnqueueScript(js);
+        }
+
+        // 折叠当前思维链窗口（PromptAsync 结束后调用）。
+        private void CollapseThinkingBox()
+        {
+            if (currentThinkingBoxId == null)
+            {
+                return;
+            }
+            string js = "var box=document.getElementById('" + currentThinkingBoxId + "');if(box){box.scrollTop=0;box.classList.add('collapsed');}";
+            EnqueueScript(js);
+            currentThinkingBoxId = null;
         }
 
         // 流式追加文本：累积 Markdown 源码，流式期间实时 Markdig 转 HTML 渲染（节流 50ms 避免卡顿）。
+        // 流式段渲染到思维链窗口内（思考过程），不直接显示在对话区。
+        // 最后一段会在 PromptAsync 结束后由 BtnSend_Click 作为最终回答渲染到对话区。
         private void AppendStreamingText(string text)
         {
             if (webViewConversation == null || webViewConversation.IsDisposed || string.IsNullOrEmpty(text))
@@ -944,11 +1049,9 @@ namespace Automation
                 streamingMarkdown.Append(text);
                 streamingAssistant = true;
                 lastStreamRender = DateTime.Now;
-                string time = DateTime.Now.ToString("HH:mm:ss");
-                string html = "<div class=\"msg assistant\" id=\"" + streamingDivId + "\">"
-                    + "<span class=\"role\">Goose " + HtmlEncode(time) + "</span>"
-                    + "<div class=\"content streaming-preview\">" + MarkdownToHtml(streamingMarkdown.ToString()) + "</div></div>";
-                EnqueueAppendHtml(html);
+                string html = "<div class=\"streaming-segment\" id=\"" + streamingDivId + "\">"
+                    + MarkdownToHtml(streamingMarkdown.ToString()) + "</div>";
+                AppendToThinkingBox(html);
             }
             else
             {
@@ -961,7 +1064,8 @@ namespace Automation
             }
         }
 
-        // 结束流式段：把累积的 Markdown 用 Markdig 转 HTML，替换临时预览 div 的内容并移除预览样式。
+        // 结束流式段：把累积的 Markdown 用 Markdig 转 HTML，替换思维链窗口内流式 div 的内容。
+        // 同时记录最后一段流式文本，BtnSend_Click finally 块会把它作为最终回答渲染到对话区。
         private void FinishStreaming()
         {
             if (!streamingAssistant)
@@ -971,8 +1075,10 @@ namespace Automation
             string renderedHtml = MarkdownToHtml(streamingMarkdown.ToString());
             string htmlJson = JsonConvert.SerializeObject(renderedHtml);
             string idJson = JsonConvert.SerializeObject(streamingDivId);
-            string js = "var el=document.getElementById(" + idJson + ");if(el){var c=el.querySelector('.content');if(c){c.innerHTML=" + htmlJson + ";c.classList.remove('streaming-preview');}}window.scrollTo(0,document.body.scrollHeight);";
+            string boxId = currentThinkingBoxId ?? "";
+            string js = "var el=document.getElementById(" + idJson + ");if(el){el.innerHTML=" + htmlJson + ";}var box=document.getElementById('" + boxId + "');if(box){box.scrollTop=box.scrollHeight;}";
             EnqueueScript(js);
+            lastAssistantText = streamingMarkdown.ToString();
             streamingAssistant = false;
             streamingDivId = null;
         }
@@ -1012,7 +1118,7 @@ namespace Automation
             EnqueueAppendHtml(html);
         }
 
-        // 更新当前流式预览 div 的 innerHTML 为 Markdig 渲染后的 HTML，并滚动到底部。
+        // 更新思维链窗口内流式 div 的 innerHTML 为 Markdig 渲染后的 HTML，并滚动窗口到底部。
         private void UpdateStreamingPreview()
         {
             if (string.IsNullOrEmpty(streamingDivId))
@@ -1022,7 +1128,8 @@ namespace Automation
             string html = MarkdownToHtml(streamingMarkdown.ToString());
             string htmlJson = JsonConvert.SerializeObject(html);
             string idJson = JsonConvert.SerializeObject(streamingDivId);
-            string js = "var el=document.getElementById(" + idJson + ");if(el){var c=el.querySelector('.content');if(c){c.innerHTML=" + htmlJson + ";}}window.scrollTo(0,document.body.scrollHeight);";
+            string boxId = currentThinkingBoxId ?? "";
+            string js = "var el=document.getElementById(" + idJson + ");if(el){el.innerHTML=" + htmlJson + ";}var box=document.getElementById('" + boxId + "');if(box){box.scrollTop=box.scrollHeight;}";
             EnqueueScript(js);
         }
 
@@ -1296,10 +1403,11 @@ namespace Automation
             }
             promptedPreviewIds.Add(previewId);
 
-            // 完全权限模式：自动确认预演，不弹 MessageBox。
+            // 完全权限模式：预演记录已在 Bridge 服务端直接标记为已确认（BuildRegisteredPatchPreview），
+            // 此处只需提示用户，不需要通过 HTTP 回调确认（避免 UI 线程死锁）。
             if (fullPermissionMode)
             {
-                _ = ConfirmPreviewAsync(previewId);
+                AppendConversation("系统", $"✅ 自动确认预演，previewId={previewId}", Color.FromArgb(35, 92, 48));
                 return;
             }
 

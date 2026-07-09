@@ -61,6 +61,45 @@ namespace Automation.Bridge
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
         }
 
+        /// <summary>
+        /// 流程被 AI 改动后，在 FrmProc 节点和 FrmDataGrid 上触发闪烁动效，让用户直观看到改动位置。
+        /// kind 决定颜色：Modified=橙黄、Added=浅绿、Deleted=浅红。
+        /// FrmDataGrid 仅在用户当前正在浏览的流程 == 被改动的流程时才闪烁，
+        /// 避免用户在查看别的流程时被打扰；FrmProc 节点闪烁不受影响（始终提示哪个流程被改）。
+        /// affectedOps 非空时走行级闪烁（只闪被改动的指令行），为空时走整体闪烁。
+        /// </summary>
+        private void NotifyProcChanged(int procIndex, ProcChangeKind kind, List<(int stepIndex, int opIndex, ProcChangeKind kind)> affectedOps = null)
+        {
+            try
+            {
+                SF.frmProc?.FlashProcNode(procIndex, kind);
+                if (SF.frmProc == null || SF.frmProc.IsDisposed
+                    || SF.frmDataGrid == null || SF.frmDataGrid.IsDisposed)
+                {
+                    return;
+                }
+                // 仅在用户当前正在浏览的流程 == 被改动的流程时刷新+闪烁 FrmDataGrid。
+                // 用户在看别的流程时不打断其浏览。
+                if (SF.frmProc.SelectedProcNum != procIndex)
+                {
+                    return;
+                }
+                SF.frmProc.RefreshCurrentBinding();
+                if (affectedOps != null && affectedOps.Count > 0)
+                {
+                    SF.frmDataGrid.FlashRows(affectedOps);
+                }
+                else
+                {
+                    SF.frmDataGrid.FlashGrid(kind);
+                }
+            }
+            catch
+            {
+                // 动效失败不影响主流程
+            }
+        }
+
         public AutomationBridgeResponse Handle(string method, string path, string body)
         {
             string normalizedPath = NormalizePath(path);
@@ -131,6 +170,51 @@ namespace Automation.Bridge
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.control", ExecuteOnUiThread(() => HandleControlProc(request))));
                     case "/bridge/procs/diagnose":
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.diagnose", ExecuteOnUiThread(() => HandleDiagnoseProc(request))));
+                    case "/bridge/operations/detail":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("operation.detail", ExecuteOnUiThread(() => HandleGetOperationDetail(request))));
+                    case "/bridge/steps/detail":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("step.detail", ExecuteOnUiThread(() => HandleGetStepDetail(request))));
+                    case "/bridge/operations/search":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("operation.search", ExecuteOnUiThread(() => HandleSearchOperations(request))));
+                    case "/bridge/procs/validate":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.validate", ExecuteOnUiThread(() => HandleValidateProc(request))));
+                    // === 资源查询与操作扩展端点 ===
+                    case "/bridge/variables/list":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("variable.list", ExecuteOnUiThread(() => HandleListVariables(request))));
+                    case "/bridge/variables/get":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("variable.get", ExecuteOnUiThread(() => HandleGetVariable(request))));
+                    case "/bridge/variables/search":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("variable.search", ExecuteOnUiThread(() => HandleSearchVariables(request))));
+                    case "/bridge/variables/set":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("variable.set", ExecuteOnUiThread(() => HandleSetVariable(request))));
+                    case "/bridge/variables/delete":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("variable.delete", ExecuteOnUiThread(() => HandleDeleteVariable(request))));
+                    case "/bridge/data-structs/list":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("dataStruct.list", ExecuteOnUiThread(() => HandleListDataStructs(request))));
+                    case "/bridge/data-structs/get":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("dataStruct.get", ExecuteOnUiThread(() => HandleGetDataStruct(request))));
+                    case "/bridge/data-structs/search":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("dataStruct.search", ExecuteOnUiThread(() => HandleSearchDataStructs(request))));
+                    case "/bridge/data-structs/set-field":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("dataStruct.setField", ExecuteOnUiThread(() => HandleSetDataStructField(request))));
+                    case "/bridge/io/list":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("io.list", ExecuteOnUiThread(() => HandleListIo(request))));
+                    case "/bridge/io/get":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("io.get", ExecuteOnUiThread(() => HandleGetIo(request))));
+                    case "/bridge/io/search":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("io.search", ExecuteOnUiThread(() => HandleSearchIo(request))));
+                    case "/bridge/io/state":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("io.state", ExecuteOnUiThread(() => HandleGetIoState(request))));
+                    case "/bridge/alarms/list":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("alarm.list", ExecuteOnUiThread(() => HandleListAlarms(request))));
+                    case "/bridge/plc/devices":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("plc.devices", ExecuteOnUiThread(() => HandleListPlcDevices(request))));
+                    case "/bridge/cards/list":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("card.list", ExecuteOnUiThread(() => HandleListCards(request))));
+                    case "/bridge/tray-points/list":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("trayPoint.list", ExecuteOnUiThread(() => HandleListTrayPoints(request))));
+                    case "/bridge/communications/list":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("communication.list", ExecuteOnUiThread(() => HandleListCommunications(request))));
                     default:
                         throw new BridgeRequestException(404, "ENDPOINT_NOT_FOUND", $"未找到端点：{normalizedPath}");
                 }
@@ -429,11 +513,18 @@ namespace Automation.Bridge
 
             if (matched == null)
             {
-                throw new BridgeRequestException(404, "INTENT_TEMPLATE_NOT_FOUND", "未找到匹配的中间意图模板。");
+                // 未找到模板不是错误，是正常的查询结果。诚实返回给 AI，引导其改用其他工具，
+                // 避免 throw BridgeRequestException 被 Bridge 客户端包装成模糊的 BRIDGE_ERROR。
+                return new JObject
+                {
+                    ["found"] = false,
+                    ["message"] = "未找到匹配的中间意图模板。可改用 preview_patch/apply_patch 直接构建 Patch，或调用 create_proc/delete_procs/reorder_proc/copy_proc 进行流程级操作。"
+                };
             }
 
             return new JObject
             {
+                ["found"] = true,
                 ["template"] = matched.DeepClone()
             };
         }
@@ -475,7 +566,7 @@ namespace Automation.Bridge
             JObject patch = ConvertIntentToPatch(intent);
             ValidateConfirmedPreview(previewId, patch);
             PatchExecutionResult result = ExecutePatch(patch);
-            CommitPatch(result.ProcIndex, result.Proc);
+            CommitPatch(result.ProcIndex, result.Proc, result.AffectedOps);
             RemovePreview(previewId);
 
             Proc current = GetProcByIndex(result.ProcIndex);
@@ -529,19 +620,27 @@ namespace Automation.Bridge
         {
             EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演流程结构操作");
             string action = ReadRequiredString(request, "action");
+            JObject preview;
             switch (action)
             {
                 case "create_proc":
-                    return PreviewCreateProc(request);
+                    preview = PreviewCreateProc(request);
+                    break;
                 case "delete_procs":
-                    return PreviewDeleteProcs(request);
+                    preview = PreviewDeleteProcs(request);
+                    break;
                 case "reorder_proc":
-                    return PreviewReorderProc(request);
+                    preview = PreviewReorderProc(request);
+                    break;
                 case "copy_proc":
-                    return PreviewCopyProc(request);
+                    preview = PreviewCopyProc(request);
+                    break;
                 default:
                     throw new BridgeRequestException(400, "UNSUPPORTED_ACTION", $"不支持的流程结构操作：{action}");
             }
+            // 完全权限模式下预演已在 RegisterManagePreview 中自动确认，AI 可直接提交。
+            preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
+            return preview;
         }
 
         private JObject HandleManageApply(JObject request)
@@ -787,6 +886,7 @@ namespace Automation.Bridge
             owner.SaveAsJson(SF.workPath, procIndex.ToString(CultureInfo.InvariantCulture), proc);
             SF.PublishProc(procIndex);
             SF.frmProc.Refresh();
+            NotifyProcChanged(procIndex, ProcChangeKind.Added);
 
             return new JObject
             {
@@ -820,6 +920,15 @@ namespace Automation.Bridge
             int minDeleted = sortedIndexes.Min();
             SF.frmProc.RebuildWorkConfig(minDeleted);
             SF.frmProc.Refresh();
+            // 删除后原 procIndex 节点已不存在，闪烁剩余列表中同索引位置（若有效）作为视觉提示。
+            if (minDeleted < SF.frmProc.procsList.Count)
+            {
+                NotifyProcChanged(minDeleted, ProcChangeKind.Deleted);
+            }
+            else if (SF.frmProc.procsList.Count > 0)
+            {
+                NotifyProcChanged(SF.frmProc.procsList.Count - 1, ProcChangeKind.Deleted);
+            }
 
             return new JObject
             {
@@ -856,6 +965,7 @@ namespace Automation.Bridge
             int minIndex = Math.Min(procIndex, targetIndex);
             SF.frmProc.RebuildWorkConfig(minIndex);
             SF.frmProc.Refresh();
+            NotifyProcChanged(targetIndex, ProcChangeKind.Modified);
 
             return new JObject
             {
@@ -896,6 +1006,7 @@ namespace Automation.Bridge
 
             SF.frmProc.RebuildWorkConfig(newProcIndex);
             SF.frmProc.Refresh();
+            NotifyProcChanged(newProcIndex, ProcChangeKind.Added);
 
             return new JObject
             {
@@ -929,6 +1040,8 @@ namespace Automation.Bridge
         private string RegisterManagePreview(JObject previewData)
         {
             string previewId = Guid.NewGuid().ToString("N");
+            // 完全权限模式：直接标记预演为已确认，避免 FrmAiAssistant 通过 HTTP 回调确认导致 UI 线程死锁。
+            bool autoConfirmed = SF.frmAiAssistant?.IsFullPermissionMode == true;
             lock (previewLock)
             {
                 CleanupExpiredPreviewsLocked();
@@ -942,8 +1055,12 @@ namespace Automation.Bridge
                     BaseProcId = string.Empty,
                     CreatedAtUtc = DateTime.UtcNow,
                     ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
-                    Confirmed = false
+                    Confirmed = autoConfirmed
                 };
+                if (autoConfirmed)
+                {
+                    record.ConfirmedAtUtc = DateTime.UtcNow;
+                }
                 previewRecords[record.PreviewId] = record;
             }
             return previewId;
@@ -978,7 +1095,7 @@ namespace Automation.Bridge
             string previewId = ReadRequiredString(request, "previewId");
             ValidateConfirmedPreview(previewId, request);
             PatchExecutionResult result = ExecutePatch(request);
-            CommitPatch(result.ProcIndex, result.Proc);
+            CommitPatch(result.ProcIndex, result.Proc, result.AffectedOps);
             RemovePreview(previewId);
 
             Proc current = GetProcByIndex(result.ProcIndex);
@@ -1163,6 +1280,1254 @@ namespace Automation.Bridge
             };
         }
 
+        // 读取单条指令的完整详情：字段值、Schema、执行流向、跳转目标有效性。
+        // 颗粒度介于 get_proc_detail 和 get_operation_schema 之间，适合聚焦分析某条指令。
+        private JObject HandleGetOperationDetail(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取指令详情");
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            int stepIndex = ReadRequiredInt(request, "stepIndex");
+            int opIndex = ReadRequiredInt(request, "opIndex");
+
+            Proc proc = GetProcByIndex(procIndex);
+            if (proc.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
+            {
+                throw new BridgeRequestException(400, "STEP_NOT_FOUND", $"步骤索引越界：{stepIndex}");
+            }
+            Step step = proc.steps[stepIndex];
+            if (step.Ops == null || opIndex < 0 || opIndex >= step.Ops.Count)
+            {
+                throw new BridgeRequestException(400, "OP_NOT_FOUND", $"指令索引越界：{opIndex}");
+            }
+            OperationType op = step.Ops[opIndex];
+            bool isJump = IsJumpOperation(op?.OperaType);
+            string flow = isJump
+                ? "条件跳转（不自动流向下一条）"
+                : (opIndex < step.Ops.Count - 1 ? $"执行后自动流向[{opIndex + 1}]" : "执行后步骤完成");
+
+            // 检查该指令的跳转目标是否有效（仅跳转类指令）
+            JArray gotoIssues = new JArray();
+            if (isJump)
+            {
+                foreach (string error in FrmProc.ValidateProcGotoTargets(procIndex, proc))
+                {
+                    if (error.Contains($"{stepIndex}-{opIndex}") || error.Contains($"步骤 {stepIndex} 指令 {opIndex}"))
+                    {
+                        gotoIssues.Add(new JObject { ["message"] = error });
+                    }
+                }
+            }
+
+            return new JObject
+            {
+                ["procIndex"] = procIndex,
+                ["stepIndex"] = stepIndex,
+                ["opIndex"] = opIndex,
+                ["opId"] = op?.Id.ToString("D"),
+                ["name"] = op?.Name ?? string.Empty,
+                ["operaType"] = op?.OperaType ?? string.Empty,
+                ["disable"] = op?.Disable ?? false,
+                ["isStopPoint"] = op?.isStopPoint ?? false,
+                ["isJump"] = isJump,
+                ["flow"] = flow,
+                ["summary"] = op == null ? string.Empty : BuildOperationSummary(op),
+                ["fields"] = op == null ? new JObject() : BuildOperationFields(op),
+                ["gotoIssues"] = gotoIssues
+            };
+        }
+
+        // 读取单个步骤的完整指令列表。介于 get_proc_overview 和 get_proc_detail 之间的颗粒度。
+        private JObject HandleGetStepDetail(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取步骤详情");
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            int stepIndex = ReadRequiredInt(request, "stepIndex");
+
+            Proc proc = GetProcByIndex(procIndex);
+            if (proc.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
+            {
+                throw new BridgeRequestException(400, "STEP_NOT_FOUND", $"步骤索引越界：{stepIndex}");
+            }
+            Step step = proc.steps[stepIndex];
+
+            JArray opDetails = new JArray();
+            if (step.Ops != null)
+            {
+                for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
+                {
+                    OperationType op = step.Ops[opIndex];
+                    bool isJump = IsJumpOperation(op?.OperaType);
+                    string flow = isJump
+                        ? "条件跳转（不自动流向下一条）"
+                        : (opIndex < step.Ops.Count - 1 ? $"执行后自动流向[{opIndex + 1}]" : "执行后步骤完成");
+                    opDetails.Add(new JObject
+                    {
+                        ["opIndex"] = opIndex,
+                        ["opId"] = op?.Id.ToString("D"),
+                        ["name"] = op?.Name ?? string.Empty,
+                        ["operaType"] = op?.OperaType ?? string.Empty,
+                        ["disable"] = op?.Disable ?? false,
+                        ["isJump"] = isJump,
+                        ["flow"] = flow,
+                        ["summary"] = op == null ? string.Empty : BuildOperationSummary(op),
+                        ["fields"] = op == null ? new JObject() : BuildOperationFields(op)
+                    });
+                }
+            }
+
+            return new JObject
+            {
+                ["procIndex"] = procIndex,
+                ["procName"] = proc.head?.Name ?? string.Empty,
+                ["stepIndex"] = stepIndex,
+                ["stepId"] = step.Id.ToString("D"),
+                ["stepName"] = step.Name ?? string.Empty,
+                ["stepDisable"] = step.Disable,
+                ["opCount"] = step.Ops?.Count ?? 0,
+                ["operations"] = opDetails
+            };
+        }
+
+        // 按条件搜索指令：支持按流程范围、指令类型、关键词（指令名/字段值）过滤。
+        // 用于快速定位"哪些指令引用了变量X""哪些是跳转类指令""哪些IO操作用了Y"等问题。
+        private JObject HandleSearchOperations(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索指令");
+            int? procIndex = ReadOptionalInt(request, "procIndex");
+            string operaType = ReadOptionalString(request, "operaType");
+            string keyword = ReadOptionalString(request, "keyword");
+
+            IList<Proc> procs = SF.frmProc?.procsList;
+            if (procs == null)
+            {
+                throw new BridgeRequestException(500, "PROCS_UNAVAILABLE", "流程列表不可用。");
+            }
+
+            JArray results = new JArray();
+            int scannedProcs = 0;
+            int matchedCount = 0;
+            string keywordLower = string.IsNullOrWhiteSpace(keyword) ? null : keyword.ToLowerInvariant();
+
+            int startProc = procIndex.HasValue ? procIndex.Value : 0;
+            int endProc = procIndex.HasValue ? procIndex.Value + 1 : procs.Count;
+
+            for (int pi = startProc; pi < endProc && pi < procs.Count; pi++)
+            {
+                Proc proc = procs[pi];
+                if (proc?.steps == null) continue;
+                scannedProcs++;
+                for (int si = 0; si < proc.steps.Count; si++)
+                {
+                    Step step = proc.steps[si];
+                    if (step?.Ops == null) continue;
+                    for (int oi = 0; oi < step.Ops.Count; oi++)
+                    {
+                        OperationType op = step.Ops[oi];
+                        if (op == null) continue;
+
+                        // 按指令类型过滤
+                        if (!string.IsNullOrWhiteSpace(operaType) &&
+                            !string.Equals(op.OperaType, operaType, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        // 按关键词过滤（匹配指令名或字段值的文本）
+                        if (keywordLower != null)
+                        {
+                            string summary = BuildOperationSummary(op) ?? string.Empty;
+                            if (!summary.ToLowerInvariant().Contains(keywordLower) &&
+                                !(op.Name?.ToLowerInvariant().Contains(keywordLower) ?? false))
+                            {
+                                continue;
+                            }
+                        }
+
+                        matchedCount++;
+                        results.Add(new JObject
+                        {
+                            ["procIndex"] = pi,
+                            ["procName"] = proc.head?.Name ?? string.Empty,
+                            ["stepIndex"] = si,
+                            ["stepName"] = step.Name ?? string.Empty,
+                            ["opIndex"] = oi,
+                            ["opName"] = op.Name ?? string.Empty,
+                            ["operaType"] = op.OperaType ?? string.Empty,
+                            ["disable"] = op.Disable,
+                            ["summary"] = BuildOperationSummary(op)
+                        });
+
+                        // 限制返回数量避免响应过大
+                        if (results.Count >= 200)
+                        {
+                            goto done;
+                        }
+                    }
+                }
+            }
+            done:
+
+            return new JObject
+            {
+                ["criteria"] = new JObject
+                {
+                    ["procIndex"] = procIndex,
+                    ["operaType"] = operaType,
+                    ["keyword"] = keyword
+                },
+                ["scannedProcCount"] = scannedProcs,
+                ["matchedCount"] = matchedCount,
+                ["truncated"] = results.Count >= 200,
+                ["results"] = results
+            };
+        }
+
+        // 轻量级结构验证：聚焦跳转目标有效性、空步骤/指令、禁用项。
+        // 比 diagnose_proc 更简洁，不包含运行时状态，适合修改前快速检查。
+        private JObject HandleValidateProc(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "验证流程结构");
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            Proc proc = GetProcByIndex(procIndex);
+
+            JArray errors = new JArray();
+            JArray warnings = new JArray();
+
+            // 1. 跳转目标有效性
+            foreach (string error in FrmProc.ValidateProcGotoTargets(procIndex, proc))
+            {
+                errors.Add(new JObject { ["message"] = error });
+            }
+
+            // 2. 空步骤/指令检查
+            if (proc.steps == null || proc.steps.Count == 0)
+            {
+                errors.Add(new JObject { ["message"] = "流程没有步骤。" });
+            }
+            else
+            {
+                for (int si = 0; si < proc.steps.Count; si++)
+                {
+                    Step step = proc.steps[si];
+                    if (step == null)
+                    {
+                        errors.Add(new JObject { ["message"] = $"步骤 {si} 为空。" });
+                        continue;
+                    }
+                    if (step.Disable)
+                    {
+                        warnings.Add(new JObject { ["message"] = $"步骤 {si} [{step.Name}] 已禁用。" });
+                    }
+                    if (step.Ops == null || step.Ops.Count == 0)
+                    {
+                        warnings.Add(new JObject { ["message"] = $"步骤 {si} [{step.Name}] 没有指令。" });
+                        continue;
+                    }
+                    for (int oi = 0; oi < step.Ops.Count; oi++)
+                    {
+                        OperationType op = step.Ops[oi];
+                        if (op == null)
+                        {
+                            errors.Add(new JObject { ["message"] = $"步骤 {si} 指令 {oi} 为空。" });
+                        }
+                        else if (op.Disable)
+                        {
+                            warnings.Add(new JObject { ["message"] = $"步骤 {si} 指令 {oi} [{op.Name}] 已禁用。" });
+                        }
+                    }
+                }
+            }
+
+            bool isValid = errors.Count == 0;
+            return new JObject
+            {
+                ["procIndex"] = procIndex,
+                ["procName"] = proc.head?.Name ?? string.Empty,
+                ["isValid"] = isValid,
+                ["errorCount"] = errors.Count,
+                ["warningCount"] = warnings.Count,
+                ["errors"] = errors,
+                ["warnings"] = warnings
+            };
+        }
+
+        #region 资源查询与操作扩展 Handler
+
+        // ===================== 变量操作 =====================
+
+        private JObject HandleListVariables(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询变量列表");
+            EnsureRuntimeReady();
+            ValueConfigStore store = SF.valueStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+            }
+            string typeFilter = request["type"]?.Value<string>();
+            string nameLike = request["nameLike"]?.Value<string>();
+            int offset = request["offset"]?.Value<int>() ?? 0;
+            int limit = request["limit"]?.Value<int>() ?? 0;
+            if (offset < 0) offset = 0;
+            if (limit <= 0) limit = 1000;
+
+            List<string> allNames = store.GetValueNames() ?? new List<string>();
+            var items = new List<JObject>();
+            int matched = 0;
+            int skipped = 0;
+            int taken = 0;
+            foreach (string name in allNames)
+            {
+                if (string.IsNullOrEmpty(name))
+                {
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(nameLike)
+                    && name.IndexOf(nameLike, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+                if (!store.TryGetValueByName(name, out DicValue val))
+                {
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(typeFilter)
+                    && !string.Equals(val.Type, typeFilter, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                matched++;
+                if (skipped < offset)
+                {
+                    skipped++;
+                    continue;
+                }
+                if (taken >= limit)
+                {
+                    continue;
+                }
+                items.Add(BuildVariableJObject(val));
+                taken++;
+            }
+            return new JObject
+            {
+                ["totalMatched"] = matched,
+                ["offset"] = offset,
+                ["limit"] = limit,
+                ["returned"] = items.Count,
+                ["items"] = new JArray(items)
+            };
+        }
+
+        private JObject HandleGetVariable(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询变量");
+            EnsureRuntimeReady();
+            ValueConfigStore store = SF.valueStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+            }
+            DicValue val = ResolveVariable(request, store);
+            return BuildVariableJObject(val);
+        }
+
+        private JObject HandleSearchVariables(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索变量");
+            EnsureRuntimeReady();
+            ValueConfigStore store = SF.valueStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+            }
+            string keyword = request["keyword"]?.Value<string>() ?? string.Empty;
+            string typeFilter = request["type"]?.Value<string>();
+            string valueLike = request["valueLike"]?.Value<string>();
+            int limit = request["limit"]?.Value<int>() ?? 100;
+            if (limit <= 0) limit = 100;
+
+            var items = new List<JObject>();
+            List<string> allNames = store.GetValueNames() ?? new List<string>();
+            foreach (string name in allNames)
+            {
+                if (string.IsNullOrEmpty(name)) continue;
+                bool nameMatched = string.IsNullOrEmpty(keyword)
+                    || name.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!nameMatched) continue;
+                if (!store.TryGetValueByName(name, out DicValue val)) continue;
+                if (!string.IsNullOrEmpty(typeFilter)
+                    && !string.Equals(val.Type, typeFilter, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(valueLike))
+                {
+                    string runtimeStr = val.Value?.ToString() ?? string.Empty;
+                    if (runtimeStr.IndexOf(valueLike, StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        continue;
+                    }
+                }
+                items.Add(BuildVariableJObject(val));
+                if (items.Count >= limit) break;
+            }
+            return new JObject
+            {
+                ["keyword"] = keyword,
+                ["type"] = typeFilter ?? string.Empty,
+                ["valueLike"] = valueLike ?? string.Empty,
+                ["returned"] = items.Count,
+                ["items"] = new JArray(items)
+            };
+        }
+
+        private JObject HandleSetVariable(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改变量");
+            EnsureRuntimeReady();
+            ValueConfigStore store = SF.valueStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+            }
+            DicValue val = ResolveVariable(request, store);
+            string newValue = request["value"]?.Value<string>();
+            if (newValue == null)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "缺少 value 字段。");
+            }
+            if (string.Equals(val.Type, "double", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!double.TryParse(newValue, out double dval))
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"变量[{val.Name}] 是 double 类型，value 不是有效数字：{newValue}");
+                }
+                store.setValueByIndex(val.Index, dval);
+            }
+            else
+            {
+                store.setValueByIndex(val.Index, newValue);
+            }
+            // 重新读取以返回最新值
+            store.TryGetValueByIndex(val.Index, out DicValue updated);
+            return new JObject
+            {
+                ["ok"] = true,
+                ["variable"] = BuildVariableJObject(updated ?? val),
+                ["message"] = $"变量[{val.Name}] 运行时值已更新为 {newValue}。"
+            };
+        }
+
+        private JObject HandleDeleteVariable(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "删除变量");
+            EnsureRuntimeReady();
+            ValueConfigStore store = SF.valueStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+            }
+            int index = ReadRequiredInt(request, "index");
+            if (index < 0 || index >= ValueConfigStore.ValueCapacity)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"index 超出范围 [0, {ValueConfigStore.ValueCapacity})。");
+            }
+            store.ClearValueByIndex(index);
+            store.TryGetValueByIndex(index, out DicValue cleared);
+            return new JObject
+            {
+                ["ok"] = true,
+                ["index"] = index,
+                ["variable"] = BuildVariableJObject(cleared),
+                ["message"] = $"变量槽位 {index} 已清空（Name/Value/Note 重置）。"
+            };
+        }
+
+        private static DicValue ResolveVariable(JObject request, ValueConfigStore store)
+        {
+            string name = request["name"]?.Value<string>();
+            int? index = request["index"]?.Value<int>();
+            if (string.IsNullOrWhiteSpace(name) && !index.HasValue)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "必须提供 name 或 index 之一。");
+            }
+            DicValue val = null;
+            if (index.HasValue)
+            {
+                if (index.Value < 0 || index.Value >= ValueConfigStore.ValueCapacity)
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"index 超出范围 [0, {ValueConfigStore.ValueCapacity})。");
+                }
+                if (!store.TryGetValueByIndex(index.Value, out val) || val == null || string.IsNullOrEmpty(val.Name))
+                {
+                    throw new BridgeRequestException(404, "VARIABLE_NOT_FOUND", $"未找到 index={index.Value} 的有效变量。");
+                }
+            }
+            else
+            {
+                if (!store.TryGetValueByName(name, out val) || val == null)
+                {
+                    throw new BridgeRequestException(404, "VARIABLE_NOT_FOUND", $"未找到 name={name} 的变量。");
+                }
+            }
+            return val;
+        }
+
+        private static JObject BuildVariableJObject(DicValue val)
+        {
+            if (val == null) return new JObject();
+            return new JObject
+            {
+                ["index"] = val.Index,
+                ["name"] = val.Name ?? string.Empty,
+                ["type"] = val.Type ?? string.Empty,
+                ["runtimeValue"] = val.Value ?? string.Empty,
+                ["configValue"] = val.ConfigValue ?? string.Empty,
+                ["note"] = val.Note ?? string.Empty,
+                ["isMark"] = val.isMark,
+                ["lastChangedAt"] = val.LastChangedAt == default(DateTime) ? string.Empty : val.LastChangedAt.ToString("yyyy-MM-dd HH:mm:ss"),
+                ["lastChangedBy"] = val.LastChangedBy ?? string.Empty,
+                ["oldValue"] = val.LastChangedOldValue ?? string.Empty,
+                ["newValue"] = val.LastChangedNewValue ?? string.Empty
+            };
+        }
+
+        // ===================== 数据结构操作 =====================
+
+        private JObject HandleListDataStructs(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询数据结构列表");
+            EnsureRuntimeReady();
+            DataStructStore store = SF.dataStructStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
+            }
+            List<string> names = store.GetStructNames() ?? new List<string>();
+            var items = new List<JObject>();
+            foreach (string name in names)
+            {
+                if (string.IsNullOrEmpty(name)) continue;
+                int count = 0;
+                if (store.TryGetStructIndexByName(name, out int sidx))
+                {
+                    count = store.GetItemCount(sidx);
+                }
+                items.Add(new JObject
+                {
+                    ["name"] = name,
+                    ["itemCount"] = count
+                });
+            }
+            return new JObject
+            {
+                ["total"] = items.Count,
+                ["items"] = new JArray(items)
+            };
+        }
+
+        private JObject HandleGetDataStruct(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询数据结构详情");
+            EnsureRuntimeReady();
+            DataStructStore store = SF.dataStructStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
+            }
+            string name = ReadRequiredString(request, "name");
+            if (!store.TryGetStructSnapshotByName(name, out DataStruct ds))
+            {
+                throw new BridgeRequestException(404, "DATA_STRUCT_NOT_FOUND", $"未找到数据结构：{name}");
+            }
+            return BuildDataStructJObject(name, ds);
+        }
+
+        private JObject HandleSearchDataStructs(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索数据结构");
+            EnsureRuntimeReady();
+            DataStructStore store = SF.dataStructStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
+            }
+            string structName = ReadRequiredString(request, "name");
+            string itemNameLike = request["itemNameLike"]?.Value<string>();
+            string strValueLike = request["strValueLike"]?.Value<string>();
+            double? numValueMin = request["numValueMin"]?.Value<double>();
+            double? numValueMax = request["numValueMax"]?.Value<double>();
+            int limit = request["limit"]?.Value<int>() ?? 100;
+            if (limit <= 0) limit = 100;
+
+            if (!store.TryGetStructSnapshotByName(structName, out DataStruct ds))
+            {
+                throw new BridgeRequestException(404, "DATA_STRUCT_NOT_FOUND", $"未找到数据结构：{structName}");
+            }
+            var items = new List<JObject>();
+            for (int i = 0; i < ds.dataStructItems.Count; i++)
+            {
+                DataStructItem item = ds.dataStructItems[i];
+                if (item == null) continue;
+                if (!string.IsNullOrEmpty(itemNameLike)
+                    && (item.Name ?? string.Empty).IndexOf(itemNameLike, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+                // 字段值过滤
+                bool hasFilter = !string.IsNullOrEmpty(strValueLike) || numValueMin.HasValue || numValueMax.HasValue;
+                if (hasFilter)
+                {
+                    bool fieldMatched = false;
+                    if (item.str != null)
+                    {
+                        foreach (var kv in item.str)
+                        {
+                            if (!string.IsNullOrEmpty(strValueLike)
+                                && (kv.Value ?? string.Empty).IndexOf(strValueLike, StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                fieldMatched = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!fieldMatched && item.num != null)
+                    {
+                        foreach (var kv in item.num)
+                        {
+                            if (numValueMin.HasValue && kv.Value >= numValueMin.Value)
+                            {
+                                fieldMatched = true;
+                                break;
+                            }
+                            if (numValueMax.HasValue && kv.Value <= numValueMax.Value)
+                            {
+                                fieldMatched = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!fieldMatched) continue;
+                }
+                items.Add(BuildDataStructItemJObject(i, item));
+                if (items.Count >= limit) break;
+            }
+            return new JObject
+            {
+                ["name"] = structName,
+                ["returned"] = items.Count,
+                ["items"] = new JArray(items)
+            };
+        }
+
+        private JObject HandleSetDataStructField(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改数据结构字段");
+            EnsureRuntimeReady();
+            DataStructStore store = SF.dataStructStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
+            }
+            string name = ReadRequiredString(request, "name");
+            int itemIndex = ReadRequiredInt(request, "itemIndex");
+            int fieldIndex = ReadRequiredInt(request, "fieldIndex");
+            string value = request["value"]?.Value<string>();
+            if (value == null)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "缺少 value 字段。");
+            }
+            if (!store.TryGetStructIndexByName(name, out int structIndex))
+            {
+                throw new BridgeRequestException(404, "DATA_STRUCT_NOT_FOUND", $"未找到数据结构：{name}");
+            }
+            // 先读取现有字段类型
+            if (!store.TryGetStructSnapshotByName(name, out DataStruct ds))
+            {
+                throw new BridgeRequestException(500, "DATA_STRUCT_ERROR", $"读取数据结构失败：{name}");
+            }
+            if (itemIndex < 0 || itemIndex >= ds.dataStructItems.Count)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"itemIndex 超出范围 [0, {ds.dataStructItems.Count})。");
+            }
+            DataStructItem itemSnap = ds.dataStructItems[itemIndex];
+            if (itemSnap == null || itemSnap.FieldTypes == null || !itemSnap.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType fieldType))
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"fieldIndex {fieldIndex} 不存在。");
+            }
+            string fieldTypeStr = fieldType == DataStructValueType.Number ? "Number" : "Text";
+            if (fieldType == DataStructValueType.Number)
+            {
+                if (!double.TryParse(value, out _))
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"字段是 Number 类型，value 不是有效数字：{value}");
+                }
+            }
+            if (!store.SetFieldValue(structIndex, itemIndex, fieldIndex, fieldType, value, out string error))
+            {
+                throw new BridgeRequestException(400, "SET_FIELD_FAILED", $"修改字段失败：{error}");
+            }
+            // 重新读取以返回最新值
+            store.TryGetStructSnapshotByName(name, out DataStruct updated);
+            DataStructItem updatedItem = updated.dataStructItems[itemIndex];
+            return new JObject
+            {
+                ["ok"] = true,
+                ["name"] = name,
+                ["itemIndex"] = itemIndex,
+                ["fieldIndex"] = fieldIndex,
+                ["fieldName"] = updatedItem.FieldNames.TryGetValue(fieldIndex, out string fn) ? fn : string.Empty,
+                ["fieldType"] = fieldTypeStr,
+                ["item"] = BuildDataStructItemJObject(itemIndex, updatedItem),
+                ["message"] = $"数据结构[{name}] item[{itemIndex}] 字段[{fieldIndex}] 已更新为 {value}。"
+            };
+        }
+
+        private static JObject BuildDataStructJObject(string name, DataStruct ds)
+        {
+            var items = new JArray();
+            for (int i = 0; i < ds.dataStructItems.Count; i++)
+            {
+                items.Add(BuildDataStructItemJObject(i, ds.dataStructItems[i]));
+            }
+            return new JObject
+            {
+                ["name"] = name,
+                ["itemCount"] = ds.dataStructItems.Count,
+                ["items"] = items
+            };
+        }
+
+        private static JObject BuildDataStructItemJObject(int index, DataStructItem item)
+        {
+            var fields = new JArray();
+            if (item != null && item.FieldNames != null)
+            {
+                // 按 fieldIndex 排序输出字段
+                foreach (int fidx in item.FieldNames.Keys.OrderBy(k => k))
+                {
+                    string fName = item.FieldNames[fidx];
+                    string fType = (item.FieldTypes != null && item.FieldTypes.TryGetValue(fidx, out DataStructValueType ft))
+                        ? (ft == DataStructValueType.Number ? "Number" : "Text") : string.Empty;
+                    string fStrVal = (item.str != null && item.str.TryGetValue(fidx, out string sv)) ? (sv ?? string.Empty) : string.Empty;
+                    double fNumVal = (item.num != null && item.num.TryGetValue(fidx, out double nv)) ? nv : 0;
+                    fields.Add(new JObject
+                    {
+                        ["index"] = fidx,
+                        ["name"] = fName ?? string.Empty,
+                        ["type"] = fType,
+                        ["strValue"] = fStrVal,
+                        ["numValue"] = fNumVal
+                    });
+                }
+            }
+            return new JObject
+            {
+                ["index"] = index,
+                ["name"] = item?.Name ?? string.Empty,
+                ["fields"] = fields
+            };
+        }
+
+        // ===================== IO 操作 =====================
+
+        private JObject HandleListIo(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 IO 列表");
+            EnsureRuntimeReady();
+            var ioMap = SF.frmIO?.DicIO;
+            if (ioMap == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
+            }
+            string typeFilter = request["type"]?.Value<string>();
+            string nameLike = request["nameLike"]?.Value<string>();
+            int limit = request["limit"]?.Value<int>() ?? 0;
+            if (limit <= 0) limit = 10000;
+
+            var items = new List<JObject>();
+            foreach (var kv in ioMap)
+            {
+                IO io = kv.Value;
+                if (io == null) continue;
+                if (!string.IsNullOrEmpty(typeFilter)
+                    && !string.Equals(io.IOType, typeFilter, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(nameLike)
+                    && (io.Name ?? string.Empty).IndexOf(nameLike, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+                items.Add(BuildIoJObject(io));
+                if (items.Count >= limit) break;
+            }
+            return new JObject
+            {
+                ["total"] = items.Count,
+                ["items"] = new JArray(items)
+            };
+        }
+
+        private JObject HandleGetIo(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 IO");
+            EnsureRuntimeReady();
+            var ioMap = SF.frmIO?.DicIO;
+            if (ioMap == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
+            }
+            string name = ReadRequiredString(request, "name");
+            if (!ioMap.TryGetValue(name, out IO io) || io == null)
+            {
+                throw new BridgeRequestException(404, "IO_NOT_FOUND", $"未找到 IO：{name}");
+            }
+            return BuildIoJObject(io);
+        }
+
+        private JObject HandleSearchIo(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索 IO");
+            EnsureRuntimeReady();
+            var ioMap = SF.frmIO?.DicIO;
+            if (ioMap == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
+            }
+            string keyword = request["keyword"]?.Value<string>() ?? string.Empty;
+            string typeFilter = request["type"]?.Value<string>();
+            int? cardNum = request["cardNum"]?.Value<int>();
+            int limit = request["limit"]?.Value<int>() ?? 100;
+            if (limit <= 0) limit = 100;
+
+            var items = new List<JObject>();
+            foreach (var kv in ioMap)
+            {
+                IO io = kv.Value;
+                if (io == null) continue;
+                if (!string.IsNullOrEmpty(keyword)
+                    && (io.Name ?? string.Empty).IndexOf(keyword, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(typeFilter)
+                    && !string.Equals(io.IOType, typeFilter, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (cardNum.HasValue && io.CardNum != cardNum.Value)
+                {
+                    continue;
+                }
+                items.Add(BuildIoJObject(io));
+                if (items.Count >= limit) break;
+            }
+            return new JObject
+            {
+                ["keyword"] = keyword,
+                ["type"] = typeFilter ?? string.Empty,
+                ["cardNum"] = cardNum.HasValue ? JToken.FromObject(cardNum.Value) : null,
+                ["returned"] = items.Count,
+                ["items"] = new JArray(items)
+            };
+        }
+
+        private JObject HandleGetIoState(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 IO 实时状态");
+            EnsureRuntimeReady();
+            var ioMap = SF.frmIO?.DicIO;
+            if (ioMap == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
+            }
+            string name = ReadRequiredString(request, "name");
+            if (!ioMap.TryGetValue(name, out IO io) || io == null)
+            {
+                throw new BridgeRequestException(404, "IO_NOT_FOUND", $"未找到 IO：{name}");
+            }
+            bool? state = null;
+            string error = null;
+            try
+            {
+                bool bval = false;
+                bool ok;
+                if (string.Equals(io.IOType, "通用输出", StringComparison.OrdinalIgnoreCase))
+                {
+                    ok = SF.motion?.GetOutIO(io, ref bval) ?? false;
+                }
+                else
+                {
+                    ok = SF.motion?.GetInIO(io, ref bval) ?? false;
+                }
+                if (ok)
+                {
+                    state = bval;
+                }
+                else
+                {
+                    error = "读取失败或硬件未就绪";
+                }
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+            }
+            return new JObject
+            {
+                ["name"] = name,
+                ["ioType"] = io.IOType ?? string.Empty,
+                ["cardNum"] = io.CardNum,
+                ["module"] = io.Module,
+                ["ioIndex"] = io.IOIndex ?? string.Empty,
+                ["state"] = state.HasValue ? JToken.FromObject(state.Value) : null,
+                ["error"] = error ?? string.Empty
+            };
+        }
+
+        private static JObject BuildIoJObject(IO io)
+        {
+            return new JObject
+            {
+                ["index"] = io.Index,
+                ["name"] = io.Name ?? string.Empty,
+                ["cardNum"] = io.CardNum,
+                ["module"] = io.Module,
+                ["ioIndex"] = io.IOIndex ?? string.Empty,
+                ["ioType"] = io.IOType ?? string.Empty,
+                ["usedType"] = io.UsedType ?? string.Empty,
+                ["effectLevel"] = io.EffectLevel ?? string.Empty,
+                ["note"] = io.Note ?? string.Empty,
+                ["isRemark"] = io.IsRemark
+            };
+        }
+
+        // ===================== 报警清单 =====================
+
+        private JObject HandleListAlarms(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询报警清单");
+            EnsureRuntimeReady();
+            AlarmInfoStore store = SF.alarmInfoStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "报警存储未初始化。");
+            }
+            bool includeEmpty = request["includeEmpty"]?.Value<bool>() ?? false;
+            string categoryLike = request["categoryLike"]?.Value<string>();
+            string nameLike = request["nameLike"]?.Value<string>();
+
+            List<int> indices = store.GetValidIndices();
+            var items = new List<JObject>();
+            if (includeEmpty)
+            {
+                for (int i = 0; i < AlarmInfoStore.AlarmCapacity; i++)
+                {
+                    if (store.TryGetByIndex(i, out AlarmInfo alarm))
+                    {
+                        items.Add(BuildAlarmJObject(alarm));
+                    }
+                }
+            }
+            else
+            {
+                foreach (int idx in indices)
+                {
+                    if (store.TryGetByIndex(idx, out AlarmInfo alarm))
+                    {
+                        items.Add(BuildAlarmJObject(alarm));
+                    }
+                }
+            }
+            // 过滤
+            if (!string.IsNullOrEmpty(categoryLike) || !string.IsNullOrEmpty(nameLike))
+            {
+                items = items.Where(a =>
+                {
+                    string cat = a["category"]?.Value<string>() ?? string.Empty;
+                    string nm = a["name"]?.Value<string>() ?? string.Empty;
+                    bool catOk = string.IsNullOrEmpty(categoryLike)
+                        || cat.IndexOf(categoryLike, StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool nameOk = string.IsNullOrEmpty(nameLike)
+                        || nm.IndexOf(nameLike, StringComparison.OrdinalIgnoreCase) >= 0;
+                    return catOk && nameOk;
+                }).ToList();
+            }
+            return new JObject
+            {
+                ["total"] = items.Count,
+                ["items"] = new JArray(items)
+            };
+        }
+
+        private static JObject BuildAlarmJObject(AlarmInfo alarm)
+        {
+            return new JObject
+            {
+                ["index"] = alarm.Index,
+                ["name"] = alarm.Name ?? string.Empty,
+                ["category"] = alarm.Category ?? string.Empty,
+                ["btn1"] = alarm.Btn1 ?? string.Empty,
+                ["btn2"] = alarm.Btn2 ?? string.Empty,
+                ["btn3"] = alarm.Btn3 ?? string.Empty,
+                ["note"] = alarm.Note ?? string.Empty
+            };
+        }
+
+        // ===================== PLC 设备清单 =====================
+
+        private JObject HandleListPlcDevices(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 PLC 设备清单");
+            EnsureRuntimeReady();
+            PlcConfigStore store = SF.plcStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "PLC 存储未初始化。");
+            }
+            bool includeMaps = request["includeMaps"]?.Value<bool>() ?? false;
+            var devices = store.Devices;
+            var items = new List<JObject>();
+            foreach (PlcDevice dev in devices)
+            {
+                if (dev == null) continue;
+                JObject obj = new JObject
+                {
+                    ["name"] = dev.Name ?? string.Empty,
+                    ["protocol"] = dev.Protocol ?? string.Empty,
+                    ["cpuType"] = dev.CpuType ?? string.Empty,
+                    ["ip"] = dev.Ip ?? string.Empty,
+                    ["port"] = dev.Port,
+                    ["rack"] = dev.Rack,
+                    ["slot"] = dev.Slot,
+                    ["timeoutMs"] = dev.TimeoutMs,
+                    ["unitId"] = dev.UnitId
+                };
+                if (includeMaps)
+                {
+                    var maps = store.Maps;
+                    var deviceMaps = new JArray();
+                    foreach (PlcMapItem map in maps)
+                    {
+                        if (map == null) continue;
+                        if (!string.Equals(map.PlcName, dev.Name, StringComparison.OrdinalIgnoreCase)) continue;
+                        deviceMaps.Add(new JObject
+                        {
+                            ["plcName"] = map.PlcName ?? string.Empty,
+                            ["dataType"] = map.DataType ?? string.Empty,
+                            ["direction"] = map.Direction ?? string.Empty,
+                            ["plcAddress"] = map.PlcAddress ?? string.Empty,
+                            ["valueName"] = map.ValueName ?? string.Empty,
+                            ["quantity"] = map.Quantity,
+                            ["writeConst"] = map.WriteConst ?? string.Empty
+                        });
+                    }
+                    obj["maps"] = deviceMaps;
+                }
+                items.Add(obj);
+            }
+            return new JObject
+            {
+                ["total"] = items.Count,
+                ["items"] = new JArray(items)
+            };
+        }
+
+        // ===================== 控制卡/轴清单 =====================
+
+        private JObject HandleListCards(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询控制卡/轴清单");
+            EnsureRuntimeReady();
+            CardConfigStore store = SF.cardStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "控制卡存储未初始化。");
+            }
+            bool includeAxes = request["includeAxes"]?.Value<bool>() ?? true;
+            var items = new List<JObject>();
+            int cardCount = store.GetControlCardCount();
+            for (int ci = 0; ci < cardCount; ci++)
+            {
+                if (!store.TryGetControlCard(ci, out FrmCard.ControlCard card) || card == null) continue;
+                JObject obj = new JObject
+                {
+                    ["cardIndex"] = ci,
+                    ["cardType"] = card.cardHead?.CardType ?? string.Empty,
+                    ["axisCount"] = card.cardHead?.AxisCount ?? 0,
+                    ["inputCount"] = card.cardHead?.InputCount ?? 0,
+                    ["outputCount"] = card.cardHead?.OutputCount ?? 0
+                };
+                if (includeAxes && card.axis != null)
+                {
+                    var axes = new JArray();
+                    for (int ai = 0; ai < card.axis.Count; ai++)
+                    {
+                        FrmCard.Axis axis = card.axis[ai];
+                        if (axis == null) continue;
+                        axes.Add(new JObject
+                        {
+                            ["axisIndex"] = ai,
+                            ["axisName"] = axis.AxisName ?? string.Empty,
+                            ["axisNum"] = axis.AxisNum,
+                            ["pulseToMM"] = axis.PulseToMM,
+                            ["homeType"] = axis.HomeType ?? string.Empty,
+                            ["homeSpeed"] = axis.HomeSpeed ?? string.Empty,
+                            ["limitSpeed"] = axis.LimitSpeed ?? string.Empty,
+                            ["speedInfo"] = axis.SpeedInfo,
+                            ["speedMax"] = axis.SpeedMax,
+                            ["accMax"] = axis.AccMax,
+                            ["decMax"] = axis.DecMax
+                        });
+                    }
+                    obj["axes"] = axes;
+                }
+                items.Add(obj);
+            }
+            return new JObject
+            {
+                ["total"] = items.Count,
+                ["items"] = new JArray(items)
+            };
+        }
+
+        // ===================== 托盘点位清单 =====================
+
+        private JObject HandleListTrayPoints(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询托盘点位清单");
+            // TrayPointStore 是运行时缓存，无持久化枚举 API，这里返回空列表提示 AI 当前无缓存。
+            // 流程通过指令写入 TrayPointStore，AI 若需查询需先知道 stationName + trayId。
+            string stationName = request["stationName"]?.Value<string>();
+            int trayId = request["trayId"]?.Value<int>() ?? -1;
+            var store = SF.trayPointStore;
+            if (store == null)
+            {
+                return new JObject
+                {
+                    ["available"] = false,
+                    ["message"] = "TrayPointStore 未初始化。",
+                    ["items"] = new JArray()
+                };
+            }
+            if (string.IsNullOrWhiteSpace(stationName) || trayId < 0)
+            {
+                return new JObject
+                {
+                    ["available"] = true,
+                    ["message"] = "需提供 stationName 和 trayId 才能读取已缓存的料盘点位。",
+                    ["items"] = new JArray()
+                };
+            }
+            if (!store.TryGet(stationName, trayId, out TrayPointGrid grid) || grid == null)
+            {
+                return new JObject
+                {
+                    ["available"] = true,
+                    ["stationName"] = stationName,
+                    ["trayId"] = trayId,
+                    ["message"] = "该料盘尚未缓存点位。",
+                    ["items"] = new JArray()
+                };
+            }
+            var points = new JArray();
+            foreach (TrayPoint pt in grid.Points)
+            {
+                points.Add(new JObject
+                {
+                    ["order"] = pt.Order,
+                    ["row"] = pt.Row,
+                    ["col"] = pt.Col,
+                    ["x"] = pt.X,
+                    ["y"] = pt.Y,
+                    ["z"] = pt.Z,
+                    ["u"] = pt.U,
+                    ["v"] = pt.V,
+                    ["w"] = pt.W
+                });
+            }
+            return new JObject
+            {
+                ["available"] = true,
+                ["stationName"] = stationName,
+                ["trayId"] = trayId,
+                ["rowCount"] = grid.RowCount,
+                ["colCount"] = grid.ColCount,
+                ["total"] = points.Count,
+                ["items"] = points
+            };
+        }
+
+        // ===================== 通讯清单 =====================
+
+        private JObject HandleListCommunications(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询通讯清单");
+            EnsureRuntimeReady();
+            bool includeStatus = request["includeStatus"]?.Value<bool>() ?? true;
+            var socketInfos = SF.frmComunication?.socketInfos ?? new List<SocketInfo>();
+            var serialPortInfos = SF.frmComunication?.serialPortInfos ?? new List<SerialPortInfo>();
+            var tcpItems = new JArray();
+            foreach (SocketInfo sock in socketInfos)
+            {
+                if (sock == null) continue;
+                JObject obj = new JObject
+                {
+                    ["name"] = sock.Name ?? string.Empty,
+                    ["type"] = sock.Type ?? string.Empty,
+                    ["port"] = sock.Port,
+                    ["address"] = sock.Address ?? string.Empty,
+                    ["isServer"] = sock.isServering,
+                    ["frameMode"] = sock.FrameMode ?? string.Empty,
+                    ["frameDelimiter"] = sock.FrameDelimiter ?? string.Empty,
+                    ["encodingName"] = sock.EncodingName ?? string.Empty,
+                    ["connectTimeoutMs"] = sock.ConnectTimeoutMs
+                };
+                if (includeStatus && SF.comm != null)
+                {
+                    TcpStatus status = SF.comm.GetTcpStatus(sock.Name);
+                    obj["isRunning"] = status.IsRunning;
+                    obj["clientCount"] = status.ClientCount;
+                }
+                tcpItems.Add(obj);
+            }
+            var serialItems = new JArray();
+            foreach (SerialPortInfo sp in serialPortInfos)
+            {
+                if (sp == null) continue;
+                JObject obj = new JObject
+                {
+                    ["name"] = sp.Name ?? string.Empty,
+                    ["port"] = sp.Port ?? string.Empty,
+                    ["bitRate"] = sp.BitRate ?? string.Empty,
+                    ["checkBit"] = sp.CheckBit ?? string.Empty,
+                    ["dataBit"] = sp.DataBit ?? string.Empty,
+                    ["stopBit"] = sp.StopBit ?? string.Empty,
+                    ["frameMode"] = sp.FrameMode ?? string.Empty,
+                    ["frameDelimiter"] = sp.FrameDelimiter ?? string.Empty,
+                    ["encodingName"] = sp.EncodingName ?? string.Empty
+                };
+                if (includeStatus && SF.comm != null)
+                {
+                    SerialStatus status = SF.comm.GetSerialStatus(sp.Name);
+                    obj["isOpen"] = status.IsOpen;
+                }
+                serialItems.Add(obj);
+            }
+            return new JObject
+            {
+                ["tcpCount"] = tcpItems.Count,
+                ["serialCount"] = serialItems.Count,
+                ["tcp"] = tcpItems,
+                ["serial"] = serialItems
+            };
+        }
+
+        #endregion
+
         private PatchExecutionResult ExecutePatch(JObject request)
         {
             EnsureRuntimeReady();
@@ -1244,7 +2609,7 @@ namespace Automation.Bridge
             return result;
         }
 
-        private void CommitPatch(int procIndex, Proc draft)
+        private void CommitPatch(int procIndex, Proc draft, List<(int stepIndex, int opIndex, ProcChangeKind kind)> affectedOps = null)
         {
             if (draft == null)
             {
@@ -1273,6 +2638,7 @@ namespace Automation.Bridge
             }
 
             SF.frmProc.Refresh();
+            NotifyProcChanged(procIndex, ProcChangeKind.Modified, affectedOps);
         }
 
         private void ApplyProcHeadUpdate(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
@@ -1308,6 +2674,14 @@ namespace Automation.Bridge
 
             JObject fieldChanges = ReadRequiredFieldChanges(action, actionIndex, "update_operation_fields");
             ApplyOperationPropertyChanges(op, fieldChanges, $"指令[{op.Name}]", actionIndex, result);
+
+            // 记录被修改指令的位置，供 FrmDataGrid 行级闪烁使用。
+            int stepIndex = FindStepIndexById(draft, step.Id);
+            int opIndex = FindOperationIndexById(step, op.Id);
+            if (stepIndex >= 0 && opIndex >= 0)
+            {
+                result.AffectedOps.Add((stepIndex, opIndex, ProcChangeKind.Modified));
+            }
         }
 
         private void ApplyAppendStep(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
@@ -1801,6 +3175,9 @@ namespace Automation.Bridge
                 ["operaType"] = op?.OperaType ?? string.Empty,
                 ["name"] = op?.Name ?? string.Empty
             });
+
+            // 记录移动后新位置的指令，供 FrmDataGrid 行级闪烁使用。
+            result.AffectedOps.Add((targetStepIndex, targetIndex, ProcChangeKind.Modified));
         }
 
         private void InsertOperationCore(JObject action, Proc draft, Step step, PatchExecutionResult result, int actionIndex, int insertIndex, string changeType)
@@ -1832,6 +3209,13 @@ namespace Automation.Bridge
                 ["operaType"] = op.OperaType ?? string.Empty,
                 ["name"] = op.Name ?? string.Empty
             });
+
+            // 记录新增指令的位置，供 FrmDataGrid 行级闪烁使用。
+            int stepIndex = FindStepIndexById(draft, step.Id);
+            if (stepIndex >= 0)
+            {
+                result.AffectedOps.Add((stepIndex, insertIndex, ProcChangeKind.Added));
+            }
         }
 
         private void ApplyDirectPropertyChanges(object target, ISet<string> editableFields, JObject fieldChanges, string targetLabel, int actionIndex, PatchExecutionResult result)
@@ -1941,10 +3325,25 @@ namespace Automation.Bridge
         private JObject BuildRegisteredPatchPreview(JObject patch, PatchExecutionResult result)
         {
             PreviewApprovalRecord record = RegisterPreview(patch, result);
+
+            // 完全权限模式：直接标记预演为已确认，避免 FrmAiAssistant 通过 HTTP 回调确认导致 UI 线程死锁。
+            bool autoConfirmed = SF.frmAiAssistant?.IsFullPermissionMode == true;
+            if (autoConfirmed)
+            {
+                lock (previewLock)
+                {
+                    if (previewRecords.TryGetValue(record.PreviewId, out PreviewApprovalRecord stored))
+                    {
+                        stored.Confirmed = true;
+                        stored.ConfirmedAtUtc = DateTime.UtcNow;
+                    }
+                }
+            }
+
             JObject preview = BuildPatchResult("preview", result);
             preview["previewId"] = record.PreviewId;
             preview["patchHash"] = record.PatchHash;
-            preview["confirmed"] = false;
+            preview["confirmed"] = autoConfirmed;
             preview["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
             preview["summary"] = new JObject
             {
@@ -2138,6 +3537,10 @@ namespace Automation.Bridge
                         for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
                         {
                             OperationType op = step.Ops[opIndex];
+                            bool isJump = IsJumpOperation(op?.OperaType);
+                            string flow = isJump
+                                ? "条件跳转（不自动流向下一条）"
+                                : (opIndex < step.Ops.Count - 1 ? $"执行后自动流向[{opIndex + 1}]" : "执行后步骤完成");
                             opDetails.Add(new JObject
                             {
                                 ["opIndex"] = opIndex,
@@ -2145,6 +3548,8 @@ namespace Automation.Bridge
                                 ["name"] = op?.Name ?? string.Empty,
                                 ["operaType"] = op?.OperaType ?? string.Empty,
                                 ["disable"] = op?.Disable ?? false,
+                                ["isJump"] = isJump,
+                                ["flow"] = flow,
                                 ["summary"] = op == null ? string.Empty : BuildOperationSummary(op),
                                 ["fields"] = op == null ? new JObject() : BuildOperationFields(op)
                             });
@@ -2168,6 +3573,19 @@ namespace Automation.Bridge
             }
 
             overview["steps"] = stepDetails;
+
+            // 跳转目标有效性检查：删除/插入指令后 opIndex 会变化，旧跳转目标可能越界。
+            // 将无效跳转目标列为 warnings，让 AI 在读取流程详情时直接发现，不必额外调用 diagnose_proc。
+            JArray gotoWarnings = new JArray();
+            foreach (string error in FrmProc.ValidateProcGotoTargets(procIndex, proc))
+            {
+                gotoWarnings.Add(new JObject { ["message"] = error });
+            }
+            if (gotoWarnings.Count > 0)
+            {
+                overview["gotoWarnings"] = gotoWarnings;
+            }
+
             return overview;
         }
 
@@ -2223,6 +3641,19 @@ namespace Automation.Bridge
                     ["fields"] = fields
                 };
             });
+        }
+
+        // 跳转类指令：执行后按条件跳转，不会自动流向 opIndex+1。
+        // 非跳转类指令：执行后自动流向 opIndex+1（默认顺序执行规则）。
+        // 此分类用于在 get_proc_detail 返回中标注每条指令的 flow 字段，帮助 AI 理解执行流。
+        private static readonly HashSet<string> jumpOperaTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "IO逻辑跳转", "逻辑判断", "跳转"
+        };
+
+        private static bool IsJumpOperation(string operaType)
+        {
+            return !string.IsNullOrWhiteSpace(operaType) && jumpOperaTypes.Contains(operaType);
         }
 
         private string BuildOperationSummary(OperationType op)
@@ -3316,6 +4747,10 @@ namespace Automation.Bridge
             public List<string> Messages { get; set; } = new List<string>();
 
             public JArray Changes { get; set; } = new JArray();
+
+            // 记录每个被改动指令的 (stepIndex, opIndex, kind)，供 FrmDataGrid 行级闪烁使用。
+            // 为空时降级为整体闪烁。
+            public List<(int stepIndex, int opIndex, ProcChangeKind kind)> AffectedOps { get; set; } = new List<(int, int, ProcChangeKind)>();
         }
 
         private sealed class GotoLocation

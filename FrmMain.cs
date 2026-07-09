@@ -1255,7 +1255,14 @@ namespace Automation
             StopAllProcsForSafety("系统关闭，停止所有流程。");
             WaitForAllProcsStopped(2000);
             // 关闭所有残留的报警弹框，避免弹框持有引用导致 UI 线程阻塞。
-            CloseAllProcPopups();
+            try
+            {
+                CloseAllProcPopups();
+            }
+            catch
+            {
+                // 关闭弹框失败不应阻塞程序退出
+            }
             try
             {
                 // comm.Dispose 内部使用 GetAwaiter().GetResult() 同步等待通道关闭，
@@ -1309,6 +1316,9 @@ namespace Automation
                 snapshotTimer.Dispose();
                 snapshotTimer = null;
             }
+            // 所有清理步骤均带超时保护，但可能存在未知的阻塞点导致 Application.Run 不返回。
+            // 兜底强制退出，确保用户点击关闭后程序一定能退出。
+            Environment.Exit(0);
         }
     }
 

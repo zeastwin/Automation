@@ -154,6 +154,43 @@ namespace Automation.McpServer
             });
         }
 
+        public Task<string> GetOperationDetailAsync(int procIndex, int stepIndex, int opIndex)
+        {
+            return PostAsync("/bridge/operations/detail", new
+            {
+                procIndex,
+                stepIndex,
+                opIndex
+            });
+        }
+
+        public Task<string> GetStepDetailAsync(int procIndex, int stepIndex)
+        {
+            return PostAsync("/bridge/steps/detail", new
+            {
+                procIndex,
+                stepIndex
+            });
+        }
+
+        public Task<string> SearchOperationsAsync(int? procIndex, string? operaType, string? keyword)
+        {
+            return PostAsync("/bridge/operations/search", new
+            {
+                procIndex,
+                operaType,
+                keyword
+            });
+        }
+
+        public Task<string> ValidateProcAsync(int procIndex)
+        {
+            return PostAsync("/bridge/procs/validate", new
+            {
+                procIndex
+            });
+        }
+
         public Task<string> ManageProcPreviewAsync(string action, string payloadJson)
         {
             JsonNode? node = JsonNode.Parse(payloadJson);
@@ -183,6 +220,174 @@ namespace Automation.McpServer
             {
                 procIndex,
                 action
+            });
+        }
+
+        // ===================== 资源查询与操作扩展 =====================
+
+        public Task<string> ListVariablesAsync(string? type, string? nameLike, int? offset, int? limit)
+        {
+            return PostAsync("/bridge/variables/list", new
+            {
+                type,
+                nameLike,
+                offset,
+                limit
+            });
+        }
+
+        public Task<string> GetVariableAsync(string? name, int? index)
+        {
+            return PostAsync("/bridge/variables/get", new
+            {
+                name,
+                index
+            });
+        }
+
+        public Task<string> SearchVariablesAsync(string keyword, string? type, string? valueLike, int? limit)
+        {
+            return PostAsync("/bridge/variables/search", new
+            {
+                keyword,
+                type,
+                valueLike,
+                limit
+            });
+        }
+
+        public Task<string> SetVariableAsync(string? name, int? index, string value)
+        {
+            return PostAsync("/bridge/variables/set", new
+            {
+                name,
+                index,
+                value
+            });
+        }
+
+        public Task<string> DeleteVariableAsync(int index)
+        {
+            return PostAsync("/bridge/variables/delete", new
+            {
+                index
+            });
+        }
+
+        public Task<string> ListDataStructsAsync()
+        {
+            return PostAsync("/bridge/data-structs/list", new { });
+        }
+
+        public Task<string> GetDataStructAsync(string name)
+        {
+            return PostAsync("/bridge/data-structs/get", new
+            {
+                name
+            });
+        }
+
+        public Task<string> SearchDataStructsAsync(string name, string? itemNameLike, string? strValueLike, double? numValueMin, double? numValueMax, int? limit)
+        {
+            return PostAsync("/bridge/data-structs/search", new
+            {
+                name,
+                itemNameLike,
+                strValueLike,
+                numValueMin,
+                numValueMax,
+                limit
+            });
+        }
+
+        public Task<string> SetDataStructFieldAsync(string name, int itemIndex, int fieldIndex, string value)
+        {
+            return PostAsync("/bridge/data-structs/set-field", new
+            {
+                name,
+                itemIndex,
+                fieldIndex,
+                value
+            });
+        }
+
+        public Task<string> ListIoAsync(string? type, string? nameLike, int? limit)
+        {
+            return PostAsync("/bridge/io/list", new
+            {
+                type,
+                nameLike,
+                limit
+            });
+        }
+
+        public Task<string> GetIoAsync(string name)
+        {
+            return PostAsync("/bridge/io/get", new
+            {
+                name
+            });
+        }
+
+        public Task<string> SearchIoAsync(string keyword, string? type, int? cardNum, int? limit)
+        {
+            return PostAsync("/bridge/io/search", new
+            {
+                keyword,
+                type,
+                cardNum,
+                limit
+            });
+        }
+
+        public Task<string> GetIoStateAsync(string name)
+        {
+            return PostAsync("/bridge/io/state", new
+            {
+                name
+            });
+        }
+
+        public Task<string> ListAlarmsAsync(bool? includeEmpty, string? categoryLike, string? nameLike)
+        {
+            return PostAsync("/bridge/alarms/list", new
+            {
+                includeEmpty,
+                categoryLike,
+                nameLike
+            });
+        }
+
+        public Task<string> ListPlcDevicesAsync(bool? includeMaps)
+        {
+            return PostAsync("/bridge/plc/devices", new
+            {
+                includeMaps
+            });
+        }
+
+        public Task<string> ListCardsAsync(bool? includeAxes)
+        {
+            return PostAsync("/bridge/cards/list", new
+            {
+                includeAxes
+            });
+        }
+
+        public Task<string> ListTrayPointsAsync(string? stationName, int? trayId)
+        {
+            return PostAsync("/bridge/tray-points/list", new
+            {
+                stationName,
+                trayId
+            });
+        }
+
+        public Task<string> ListCommunicationsAsync(bool? includeStatus)
+        {
+            return PostAsync("/bridge/communications/list", new
+            {
+                includeStatus
             });
         }
 

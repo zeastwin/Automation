@@ -22,6 +22,8 @@ namespace Automation
         public string Model { get; set; }
 
         public int MaxTurns { get; set; }
+
+        public bool FullPermissionMode { get; set; }
     }
 
     /// <summary>
@@ -47,6 +49,7 @@ namespace Automation
         public const string ProviderKey = "Provider";
         public const string ModelKey = "Model";
         public const string MaxTurnsKey = "MaxTurns";
+        public const string FullPermissionModeKey = "FullPermissionMode";
         public const int DefaultMaxTurns = 30;
 
         private static readonly object cacheLock = new object();
@@ -83,7 +86,8 @@ namespace Automation
                     SessionName = ReadRequiredString(obj, SessionNameKey),
                     Provider = ReadRequiredString(obj, ProviderKey),
                     Model = ReadRequiredString(obj, ModelKey),
-                    MaxTurns = ReadRequiredInt(obj, MaxTurnsKey)
+                    MaxTurns = ReadRequiredInt(obj, MaxTurnsKey),
+                    FullPermissionMode = ReadOptionalBool(obj, FullPermissionModeKey, false)
                 };
 
                 if (!Validate(config, out error))
@@ -134,7 +138,8 @@ namespace Automation
                 [SessionNameKey] = config.SessionName,
                 [ProviderKey] = config.Provider,
                 [ModelKey] = config.Model,
-                [MaxTurnsKey] = config.MaxTurns
+                [MaxTurnsKey] = config.MaxTurns,
+                [FullPermissionModeKey] = config.FullPermissionMode
             };
 
             string path = ConfigPath;
@@ -254,6 +259,25 @@ namespace Automation
             return token.Value<int>();
         }
 
+        // 可选布尔字段读取：旧配置文件可能缺少该字段，缺失时返回 defaultValue，兼容向前版本。
+        private static bool ReadOptionalBool(JObject obj, string key, bool defaultValue)
+        {
+            if (!obj.TryGetValue(key, StringComparison.Ordinal, out JToken token))
+            {
+                return defaultValue;
+            }
+            if (token.Type == JTokenType.Boolean)
+            {
+                return token.Value<bool>();
+            }
+            if (token.Type == JTokenType.String)
+            {
+                string s = token.Value<string>();
+                if (bool.TryParse(s, out bool v)) return v;
+            }
+            return defaultValue;
+        }
+
         private static void SetCache(GooseConfig config)
         {
             lock (cacheLock)
@@ -276,7 +300,8 @@ namespace Automation
                 SessionName = config.SessionName,
                 Provider = config.Provider,
                 Model = config.Model,
-                MaxTurns = config.MaxTurns
+                MaxTurns = config.MaxTurns,
+                FullPermissionMode = config.FullPermissionMode
             };
         }
 

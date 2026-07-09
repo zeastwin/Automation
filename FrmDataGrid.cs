@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -37,6 +37,14 @@ namespace Automation
         private bool lastHighlightActive = false;
         private bool contextMenuByMouse = false;
         private int contextMenuRowIndex = -1;
+
+        // 数据网格变动动效：AI 改动当前显示的流程后，闪烁整个网格提示用户。
+        private System.Windows.Forms.Timer gridFlashTimer;
+        private Color gridFlashColor;
+        private int gridFlashCount;
+        private const int GridFlashMaxCount = 6;
+        // 行级闪烁目标列表：(行索引, 颜色)。为空时闪烁整个 grid。
+        private List<(int rowIndex, Color color)> flashTargetRows;
 
         //记录要复制行的index
         public List<int> selectedRowIndexes4Copy = new List<int>();
@@ -412,6 +420,137 @@ namespace Automation
                 row.DefaultCellStyle.BackColor = Color.Empty;
             }
         }
+
+        /// <summary>
+        /// 闪烁整个数据网格的所有行，提示用户当前显示的流程/步骤被 AI 改动。
+        /// kind 决定闪烁颜色：Modified=橙黄、Added=浅绿、Deleted=浅红。
+        /// 仅在当前网格显示的流程/步骤是被改动的流程时调用。
+        /// </summary>
+        public void FlashGrid(ProcChangeKind kind)
+        {
+            if (IsDisposed || !IsHandleCreated)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)(() => FlashGrid(kind)));
+                return;
+            }
+
+            // 停止之前未完成的闪烁
+            if (gridFlashTimer != null)
+            {
+                gridFlashTimer.Stop();
+                gridFlashTimer.Dispose();
+                gridFlashTimer = null;
+            }
+            ClearAllRowColors();
+
+            gridFlashColor = kind == ProcChangeKind.Added ? Color.LightGreen
+                           : kind == ProcChangeKind.Deleted ? Color.LightPink
+                           : Color.Khaki;
+            gridFlashCount = 0;
+
+            gridFlashTimer = new System.Windows.Forms.Timer();
+            gridFlashTimer.Interval = 300;
+            gridFlashTimer.Tick += GridFlashTimer_Tick;
+            gridFlashTimer.Start();
+        }
+
+        private void GridFlashTimer_Tick(object sender, EventArgs e)
+        {
+            if (dataGridView1 == null || dataGridView1.IsDisposed)
+            {
+                gridFlashTimer?.Stop();
+                return;
+            }
+            if (gridFlashCount >= GridFlashMaxCount)
+            {
+                ClearAllRowColors();
+                gridFlashTimer.Stop();
+                gridFlashTimer.Dispose();
+                gridFlashTimer = null;
+                flashTargetRows = null;
+                return;
+            }
+            bool setColor = (gridFlashCount % 2 == 0);
+            if (flashTargetRows != null && flashTargetRows.Count > 0)
+            {
+                // 行级闪烁：只闪烁目标行
+                foreach (var (rowIndex, color) in flashTargetRows)
+                {
+                    if (rowIndex >= 0 && rowIndex < dataGridView1.Rows.Count)
+                    {
+                        dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = setColor ? color : Color.Empty;
+                    }
+                }
+            }
+            else
+            {
+                // 整体闪烁：闪烁所有行
+                Color c = setColor ? gridFlashColor : Color.Empty;
+                foreach (DataGridViewRow row in dataGridView1.Rows)
+                {
+                    row.DefaultCellStyle.BackColor = c;
+                }
+            }
+            gridFlashCount++;
+        }
+
+        /// <summary>
+        /// 只闪烁被修改的行。从 affectedOps 中筛选当前步骤匹配的 opIndex，只闪烁这些行。
+        /// kind 决定颜色：Modified=橙黄、Added=浅绿、Deleted=浅红。
+        /// </summary>
+        public void FlashRows(List<(int stepIndex, int opIndex, ProcChangeKind kind)> affectedOps)
+        {
+            if (IsDisposed || !IsHandleCreated)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)(() => FlashRows(affectedOps)));
+                return;
+            }
+
+            int currentStepIndex = SF.frmProc.SelectedStepNum;
+            var targetRows = new List<(int rowIndex, Color color)>();
+            foreach (var (stepIndex, opIndex, kind) in affectedOps)
+            {
+                if (stepIndex != currentStepIndex || opIndex < 0)
+                {
+                    continue;
+                }
+                Color color = kind == ProcChangeKind.Added ? Color.LightGreen
+                            : kind == ProcChangeKind.Deleted ? Color.LightPink
+                            : Color.Khaki;
+                targetRows.Add((opIndex, color));
+            }
+
+            if (targetRows.Count == 0)
+            {
+                return; // 当前步骤没有被修改的指令，不闪烁
+            }
+
+            // 停止之前未完成的闪烁
+            if (gridFlashTimer != null)
+            {
+                gridFlashTimer.Stop();
+                gridFlashTimer.Dispose();
+                gridFlashTimer = null;
+            }
+            ClearAllRowColors();
+
+            flashTargetRows = targetRows;
+            gridFlashCount = 0;
+
+            gridFlashTimer = new System.Windows.Forms.Timer();
+            gridFlashTimer.Interval = 300;
+            gridFlashTimer.Tick += GridFlashTimer_Tick;
+            gridFlashTimer.Start();
+        }
+
         public void SetRowColor(int rowIndex, Color color)
         {
             if (rowIndex >= 0 && rowIndex < dataGridView1.RowCount)
