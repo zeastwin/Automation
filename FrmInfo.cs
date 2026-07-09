@@ -1,10 +1,11 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 
 namespace Automation
@@ -72,10 +73,48 @@ namespace Automation
                 return;
             }
             infoMenu = new ContextMenuStrip();
+            ToolStripMenuItem menuCopyInfo = new ToolStripMenuItem("复制");
+            menuCopyInfo.Click += menuCopyInfo_Click;
+            infoMenu.Items.Add(menuCopyInfo);
+            infoMenu.Items.Add(new ToolStripSeparator());
             menuClearInfo = new ToolStripMenuItem("清空");
             menuClearInfo.Click += btnClearInfo_Click;
             infoMenu.Items.Add(menuClearInfo);
             lvInfoLog.ContextMenuStrip = infoMenu;
+        }
+
+        private void menuCopyInfo_Click(object sender, EventArgs e)
+        {
+            CopySelectedInfo();
+        }
+
+        private void CopySelectedInfo()
+        {
+            if (lvInfoLog == null || lvInfoLog.IsDisposed || infoLogBuffer.Count == 0)
+            {
+                return;
+            }
+            ListView.SelectedIndexCollection indices = lvInfoLog.SelectedIndices;
+            if (indices == null || indices.Count == 0)
+            {
+                return;
+            }
+            var sb = new StringBuilder();
+            foreach (int index in indices)
+            {
+                if (index < 0 || index >= infoLogBuffer.Count)
+                {
+                    continue;
+                }
+                InfoLogEntry entry = infoLogBuffer[index];
+                sb.Append(entry.TimeText).Append(entry.Message).Append("\r\n");
+            }
+            string text = sb.ToString().TrimEnd('\r', '\n');
+            if (text.Length > 0)
+            {
+                try { Clipboard.SetText(text); }
+                catch { /* 剪贴板被占用，忽略 */ }
+            }
         }
 
         private void InitializeInfoStreamBehavior()
@@ -136,6 +175,12 @@ namespace Automation
 
         private void lvInfoLog_KeyDown(object sender, KeyEventArgs e)
         {
+            if (e != null && e.Control && e.KeyCode == Keys.C)
+            {
+                CopySelectedInfo();
+                e.Handled = true;
+                return;
+            }
             OnInfoStreamUserInteraction();
         }
 

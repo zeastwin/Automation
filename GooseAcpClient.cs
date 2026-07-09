@@ -580,23 +580,56 @@ namespace Automation
         private static readonly Dictionary<string, string> toolDisplayNames = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             {"automation__list_procs", "列出所有流程"},
-            {"automation__get_runtime_snapshot", "获取运行时快照"},
+            {"automation__get_proc_overview", "获取流程概览"},
             {"automation__get_proc_detail", "获取流程详情"},
-            {"automation__diagnose_proc", "诊断流程"},
+            {"automation__list_operation_types", "列出指令类型"},
+            {"automation__get_operation_schema", "获取指令Schema"},
+            {"automation__get_operation_guide", "获取指令调用说明"},
             {"automation__get_reference_catalog", "获取引用目录"},
+            {"automation__list_intent_templates", "列出意图模板"},
+            {"automation__get_intent_template", "获取意图模板"},
+            {"automation__build_patch_from_intent", "构建补丁"},
             {"automation__preview_intent", "预览意图"},
+            {"automation__apply_intent", "提交意图"},
             {"automation__preview_patch", "预览补丁"},
-            {"automation__commit_preview", "提交预览"}
+            {"automation__apply_patch", "提交补丁"},
+            {"automation__get_runtime_snapshot", "获取运行时快照"},
+            {"automation__get_info_log_tail", "读取运行日志"},
+            {"automation__diagnose_proc", "诊断流程"},
+            {"automation__get_patch_contract", "获取调用约束"},
+            {"automation__create_proc", "创建流程"},
+            {"automation__apply_create_proc", "提交流程创建"},
+            {"automation__delete_procs", "批量删除流程"},
+            {"automation__apply_delete_procs", "提交流程删除"},
+            {"automation__reorder_proc", "重排流程"},
+            {"automation__apply_reorder_proc", "提交流程重排"},
+            {"automation__copy_proc", "复制流程"},
+            {"automation__apply_copy_proc", "提交流程复制"},
+            {"automation__control_proc", "控制流程运行"}
         };
 
         // 工具返回 type → 中文摘要名映射。
         private static readonly Dictionary<string, string> resultTypeNames = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             {"proc.list", "流程列表"},
+            {"proc.overview", "流程概览"},
             {"proc.detail", "流程详情"},
             {"proc.diagnose", "诊断结果"},
             {"runtime.snapshot", "运行时快照"},
-            {"reference.catalog", "引用目录"}
+            {"reference.catalog", "引用目录"},
+            {"operation.types", "指令类型"},
+            {"operation.schema", "指令Schema"},
+            {"intent.catalog", "意图模板列表"},
+            {"intent.template", "意图模板"},
+            {"intent.patch", "意图补丁"},
+            {"intent.preview", "意图预演"},
+            {"intent.apply", "意图提交"},
+            {"preview.confirm", "预演确认"},
+            {"patch.preview", "补丁预演"},
+            {"patch.apply", "补丁提交"},
+            {"proc.manage.preview", "流程结构预演"},
+            {"proc.manage.apply", "流程结构提交"},
+            {"proc.control", "流程控制"}
         };
 
         // 优先用 toolName 映射中文显示名，无映射则回退到 title。

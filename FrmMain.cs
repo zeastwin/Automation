@@ -369,8 +369,10 @@ namespace Automation
         {
             if (!string.IsNullOrWhiteSpace(reason))
             {
+                // Logger(FrmInfoLogger) 已会将消息转发到 FrmInfo.PrintInfo，
+                // 这里不再直接调 PrintInfo，避免重复输出两条相同日志。
                 dataRun?.Logger?.Log(reason, LogLevel.Error);
-                if (frmInfo != null && !frmInfo.IsDisposed)
+                if (dataRun?.Logger == null && frmInfo != null && !frmInfo.IsDisposed)
                 {
                     frmInfo.PrintInfo(reason, FrmInfo.Level.Error);
                 }
@@ -395,8 +397,9 @@ namespace Automation
             catch (Exception ex)
             {
                 string message = $"停止运动控制失败:{ex.Message}";
+                // Logger 已会转发到 FrmInfo，仅在 Logger 为空时直接 PrintInfo。
                 dataRun?.Logger?.Log(message, LogLevel.Error);
-                if (frmInfo != null && !frmInfo.IsDisposed)
+                if (dataRun?.Logger == null && frmInfo != null && !frmInfo.IsDisposed)
                 {
                     frmInfo.PrintInfo(message, FrmInfo.Level.Error);
                 }
@@ -863,6 +866,19 @@ namespace Automation
             }
         }
 
+        private void CloseAllProcPopups()
+        {
+            List<int> procIndexes;
+            lock (popupLock)
+            {
+                procIndexes = new List<int>(procPopups.Keys);
+            }
+            foreach (int procIndex in procIndexes)
+            {
+                CloseProcPopups(procIndex);
+            }
+        }
+
         private void UpdateProcText(EngineSnapshot snapshot)
         {
             if (SF.frmProc?.proc_treeView == null || SF.frmProc.procsList == null)
@@ -1207,8 +1223,22 @@ namespace Automation
             catch
             {
             }
-            automationMcpServerManager?.Dispose();
-            automationBridgeHost?.Stop();
+            try
+            {
+                automationMcpServerManager?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                dataRun?.Logger?.Log($"关闭 MCP Server 失败:{ex.Message}", LogLevel.Error);
+            }
+            try
+            {
+                automationBridgeHost?.Stop();
+            }
+            catch (Exception ex)
+            {
+                dataRun?.Logger?.Log($"关闭 Bridge Host 失败:{ex.Message}", LogLevel.Error);
+            }
             axisMonitorCts?.Cancel();
             if (axisMonitorTask != null)
             {
@@ -1224,16 +1254,39 @@ namespace Automation
 
             StopAllProcsForSafety("系统关闭，停止所有流程。");
             WaitForAllProcsStopped(2000);
+            // 关闭所有残留的报警弹框，避免弹框持有引用导致 UI 线程阻塞。
+            CloseAllProcPopups();
             try
             {
-                SF.comm?.Dispose();
+                // comm.Dispose 内部使用 GetAwaiter().GetResult() 同步等待通道关闭，
+                // 可能因 TCP 连接未响应而阻塞 UI 线程。放到线程池并加 3 秒超时保护。
+                if (SF.comm != null)
+                {
+                    Task commDisposeTask = Task.Run(() =>
+                    {
+                        try { SF.comm.Dispose(); }
+                        catch { }
+                    });
+                    if (!commDisposeTask.Wait(3000))
+                    {
+                        dataRun?.Logger?.Log("关闭通讯超时，继续关闭程序。", LogLevel.Error);
+                    }
+                }
             }
             catch (Exception ex)
             {
                 dataRun?.Logger?.Log($"关闭通讯失败:{ex.Message}", LogLevel.Error);
             }
             TryStopMotion();
-            dataRun?.Dispose();
+            try
+            {
+                dataRun?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                // 引擎释放失败不应阻塞程序关闭，记录后继续。
+                System.Diagnostics.Debug.WriteLine($"引擎释放失败:{ex.Message}");
+            }
 
             if (SF.frmProc != null && SF.frmProc.isStopPointDirty)
             {

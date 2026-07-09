@@ -1182,6 +1182,9 @@ namespace Automation
                     if (singleStepExecution)
                     {
                         control.WaitForStep();
+                        // WaitForStep 返回后需重新检查状态：用户可能在等待期间点击"继续"，
+                        // ResumeInternal 已将状态改为 Running，此时不应再切回 SingleStep。
+                        singleStepExecution = evt.State == ProcRunState.SingleStep;
                     }
                     if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                     {

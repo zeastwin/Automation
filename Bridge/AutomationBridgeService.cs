@@ -123,6 +123,12 @@ namespace Automation.Bridge
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("runtime.snapshot", ExecuteOnUiThread(() => HandleGetRuntimeSnapshot(request))));
                     case "/bridge/info-log/tail":
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("infoLog.tail", ExecuteOnUiThread(() => HandleGetInfoLogTail(request))));
+                    case "/bridge/procs/manage/preview":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.manage.preview", ExecuteOnUiThread(() => HandleManagePreview(request))));
+                    case "/bridge/procs/manage/apply":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.manage.apply", ExecuteOnUiThread(() => HandleManageApply(request))));
+                    case "/bridge/procs/control":
+                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.control", ExecuteOnUiThread(() => HandleControlProc(request))));
                     case "/bridge/procs/diagnose":
                         return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.diagnose", ExecuteOnUiThread(() => HandleDiagnoseProc(request))));
                     default:
@@ -517,6 +523,448 @@ namespace Automation.Bridge
             };
         }
 
+        // 流程级结构操作预演：创建/删除/重排/复制流程。
+        // 与单流程 Patch 不同，这些操作影响 procsList 结构，需要独立的预演确认流程。
+        private JObject HandleManagePreview(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演流程结构操作");
+            string action = ReadRequiredString(request, "action");
+            switch (action)
+            {
+                case "create_proc":
+                    return PreviewCreateProc(request);
+                case "delete_procs":
+                    return PreviewDeleteProcs(request);
+                case "reorder_proc":
+                    return PreviewReorderProc(request);
+                case "copy_proc":
+                    return PreviewCopyProc(request);
+                default:
+                    throw new BridgeRequestException(400, "UNSUPPORTED_ACTION", $"不支持的流程结构操作：{action}");
+            }
+        }
+
+        private JObject HandleManageApply(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交流程结构操作");
+            string previewId = ReadRequiredString(request, "previewId");
+            // 流程结构操作不修改单个 proc 的 patch，而是操作 procsList。
+            // 复用预演确认机制：确认后即可执行。
+            ValidateConfirmedManagePreview(previewId);
+            string action = ReadRequiredString(request, "action");
+            JObject result;
+            switch (action)
+            {
+                case "create_proc":
+                    result = ExecuteCreateProc(request);
+                    break;
+                case "delete_procs":
+                    result = ExecuteDeleteProcs(request);
+                    break;
+                case "reorder_proc":
+                    result = ExecuteReorderProc(request);
+                    break;
+                case "copy_proc":
+                    result = ExecuteCopyProc(request);
+                    break;
+                default:
+                    throw new BridgeRequestException(400, "UNSUPPORTED_ACTION", $"不支持的流程结构操作：{action}");
+            }
+            RemovePreview(previewId);
+            return result;
+        }
+
+        // 流程运行控制：启动/停止/暂停/恢复。不需要预演确认。
+        private JObject HandleControlProc(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "控制流程运行");
+            EnsureRuntimeReady();
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            string action = ReadRequiredString(request, "action");
+            Proc proc = GetProcByIndex(procIndex);
+            EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
+            ProcRunState currentState = snapshot?.State ?? ProcRunState.Stopped;
+
+            switch (action)
+            {
+                case "start":
+                    if (currentState == ProcRunState.Running || currentState == ProcRunState.Paused)
+                    {
+                        throw new BridgeRequestException(409, "PROC_ALREADY_RUNNING", $"流程 {procIndex} 已在运行或暂停状态。");
+                    }
+                    SF.DR.StartProc(proc, procIndex);
+                    break;
+                case "stop":
+                    if (currentState == ProcRunState.Stopped)
+                    {
+                        throw new BridgeRequestException(409, "PROC_NOT_RUNNING", $"流程 {procIndex} 未在运行。");
+                    }
+                    SF.DR.Stop(procIndex);
+                    break;
+                case "pause":
+                    if (currentState != ProcRunState.Running)
+                    {
+                        throw new BridgeRequestException(409, "PROC_NOT_RUNNING", $"流程 {procIndex} 不在运行状态，无法暂停。");
+                    }
+                    SF.DR.Pause(procIndex);
+                    break;
+                case "resume":
+                    if (currentState != ProcRunState.Paused)
+                    {
+                        throw new BridgeRequestException(409, "PROC_NOT_PAUSED", $"流程 {procIndex} 不在暂停状态，无法恢复。");
+                    }
+                    SF.DR.Resume(procIndex);
+                    break;
+                default:
+                    throw new BridgeRequestException(400, "UNSUPPORTED_ACTION", $"不支持的流程控制操作：{action}。支持：start, stop, pause, resume");
+            }
+
+            return new JObject
+            {
+                ["procIndex"] = procIndex,
+                ["action"] = action,
+                ["procName"] = proc?.head?.Name ?? string.Empty,
+                ["previousState"] = currentState.ToString(),
+                ["message"] = $"已发送{action}命令到流程 {procIndex}"
+            };
+        }
+
+        private JObject PreviewCreateProc(JObject request)
+        {
+            EnsureRuntimeReady();
+            string name = ReadRequiredString(request, "name");
+            bool autoStart = ReadOptionalBoolean(request, "autoStart") ?? false;
+            bool disable = ReadOptionalBoolean(request, "disable") ?? false;
+
+            // 预演：创建 proc 对象但不加入 procsList
+            Proc proc = new Proc();
+            proc.head = new ProcHead { Name = name, AutoStart = autoStart, Disable = disable };
+
+            int targetIndex = SF.frmProc.procsList.Count;
+            JObject preview = new JObject
+            {
+                ["action"] = "create_proc",
+                ["targetIndex"] = targetIndex,
+                ["procName"] = name,
+                ["autoStart"] = autoStart,
+                ["disable"] = disable,
+                ["messages"] = new JArray { $"将在索引 {targetIndex} 创建流程「{name}」" }
+            };
+
+            string previewId = RegisterManagePreview(preview);
+            preview["previewId"] = previewId;
+            return preview;
+        }
+
+        private JObject PreviewDeleteProcs(JObject request)
+        {
+            EnsureRuntimeReady();
+            JArray indexes = ReadRequiredArray(request, "procIndexes");
+            if (indexes == null || indexes.Count == 0)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "procIndexes 不能为空。");
+            }
+
+            var procInfos = new JArray();
+            var messages = new JArray();
+            for (int i = 0; i < indexes.Count; i++)
+            {
+                int procIndex = indexes[i].Value<int>();
+                if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"流程索引 {procIndex} 越界。");
+                }
+                Proc proc = SF.frmProc.procsList[procIndex];
+                EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
+                if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+                {
+                    throw new BridgeRequestException(409, "PROC_RUNNING", $"流程 {procIndex}「{proc?.head?.Name}」正在运行，请先停止。");
+                }
+                procInfos.Add(new JObject
+                {
+                    ["procIndex"] = procIndex,
+                    ["procName"] = proc?.head?.Name ?? string.Empty,
+                    ["procId"] = proc?.head?.Id.ToString("D") ?? string.Empty
+                });
+                messages.Add($"将删除流程 {procIndex}「{proc?.head?.Name ?? procIndex.ToString()}」");
+            }
+
+            JObject preview = new JObject
+            {
+                ["action"] = "delete_procs",
+                ["procIndexes"] = indexes,
+                ["procs"] = procInfos,
+                ["messages"] = messages
+            };
+
+            string previewId = RegisterManagePreview(preview);
+            preview["previewId"] = previewId;
+            return preview;
+        }
+
+        private JObject PreviewReorderProc(JObject request)
+        {
+            EnsureRuntimeReady();
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            int targetIndex = ReadRequiredInt(request, "targetIndex");
+            Proc proc = GetProcByIndex(procIndex);
+            if (targetIndex < 0 || targetIndex >= SF.frmProc.procsList.Count)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"目标索引 {targetIndex} 越界。");
+            }
+            EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
+            if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+            {
+                throw new BridgeRequestException(409, "PROC_RUNNING", $"流程 {procIndex} 正在运行，请先停止。");
+            }
+
+            JObject preview = new JObject
+            {
+                ["action"] = "reorder_proc",
+                ["procIndex"] = procIndex,
+                ["targetIndex"] = targetIndex,
+                ["procName"] = proc?.head?.Name ?? string.Empty,
+                ["messages"] = new JArray { $"将流程 {procIndex}「{proc?.head?.Name}」移动到索引 {targetIndex}" }
+            };
+
+            string previewId = RegisterManagePreview(preview);
+            preview["previewId"] = previewId;
+            return preview;
+        }
+
+        private JObject PreviewCopyProc(JObject request)
+        {
+            EnsureRuntimeReady();
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            string newName = ReadOptionalString(request, "newName");
+            Proc source = GetProcByIndex(procIndex);
+
+            Proc copy = FrmPropertyGrid.DeepCopy(source);
+            copy.head = new ProcHead
+            {
+                Name = string.IsNullOrWhiteSpace(newName) ? (source.head?.Name + "_副本") : newName,
+                AutoStart = false,
+                Disable = source.head?.Disable ?? false
+            };
+
+            int targetIndex = SF.frmProc.procsList.Count;
+            JObject preview = new JObject
+            {
+                ["action"] = "copy_proc",
+                ["sourceProcIndex"] = procIndex,
+                ["sourceProcName"] = source.head?.Name ?? string.Empty,
+                ["targetIndex"] = targetIndex,
+                ["newProcName"] = copy.head.Name,
+                ["stepCount"] = copy.steps?.Count ?? 0,
+                ["messages"] = new JArray { $"将复制流程 {procIndex}「{source.head?.Name}」到索引 {targetIndex}，新名称「{copy.head.Name}」" }
+            };
+
+            string previewId = RegisterManagePreview(preview);
+            preview["previewId"] = previewId;
+            return preview;
+        }
+
+        private JObject ExecuteCreateProc(JObject request)
+        {
+            string name = ReadRequiredString(request, "name");
+            bool autoStart = ReadOptionalBoolean(request, "autoStart") ?? false;
+            bool disable = ReadOptionalBoolean(request, "disable") ?? false;
+
+            Proc proc = new Proc();
+            proc.head = new ProcHead { Name = name, AutoStart = autoStart, Disable = disable };
+
+            int procIndex = SF.frmProc.procsList.Count;
+            SF.frmProc.procsList.Add(proc);
+
+            List<string> errors = new List<string>();
+            SF.frmProc.NormalizeProc(procIndex, proc, errors);
+            if (errors.Count > 0)
+            {
+                SF.frmProc.procsList.RemoveAt(procIndex);
+                throw new BridgeRequestException(400, "PROC_VALIDATE_FAILED", "流程创建校验失败。", string.Join("\r\n", errors.Distinct()));
+            }
+
+            owner.SaveAsJson(SF.workPath, procIndex.ToString(CultureInfo.InvariantCulture), proc);
+            SF.PublishProc(procIndex);
+            SF.frmProc.Refresh();
+
+            return new JObject
+            {
+                ["action"] = "create_proc",
+                ["procIndex"] = procIndex,
+                ["procName"] = name,
+                ["messages"] = new JArray { $"流程「{name}」已创建，索引 {procIndex}" }
+            };
+        }
+
+        private JObject ExecuteDeleteProcs(JObject request)
+        {
+            JArray indexes = ReadRequiredArray(request, "procIndexes");
+            // 从大到小删除，避免索引移位
+            var sortedIndexes = indexes.Select(t => t.Value<int>()).OrderByDescending(i => i).ToList();
+
+            var deleted = new JArray();
+            foreach (int procIndex in sortedIndexes)
+            {
+                if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+                {
+                    continue;
+                }
+                Proc proc = SF.frmProc.procsList[procIndex];
+                string procName = proc?.head?.Name ?? procIndex.ToString();
+                SF.frmProc.procsList.RemoveAt(procIndex);
+                deleted.Add(new JObject { ["procIndex"] = procIndex, ["procName"] = procName });
+            }
+
+            // 重建工作配置文件
+            int minDeleted = sortedIndexes.Min();
+            SF.frmProc.RebuildWorkConfig(minDeleted);
+            SF.frmProc.Refresh();
+
+            return new JObject
+            {
+                ["action"] = "delete_procs",
+                ["deleted"] = deleted,
+                ["remainingCount"] = SF.frmProc.procsList.Count,
+                ["messages"] = new JArray { $"已删除 {deleted.Count} 个流程，剩余 {SF.frmProc.procsList.Count} 个" }
+            };
+        }
+
+        private JObject ExecuteReorderProc(JObject request)
+        {
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            int targetIndex = ReadRequiredInt(request, "targetIndex");
+            if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"流程索引 {procIndex} 越界。");
+            }
+            if (targetIndex < 0 || targetIndex >= SF.frmProc.procsList.Count)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"目标索引 {targetIndex} 越界。");
+            }
+            if (procIndex == targetIndex)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "源索引与目标索引相同。");
+            }
+
+            Proc proc = SF.frmProc.procsList[procIndex];
+            string procName = proc?.head?.Name ?? string.Empty;
+            SF.frmProc.procsList.RemoveAt(procIndex);
+            SF.frmProc.procsList.Insert(targetIndex, proc);
+
+            // 重建工作配置
+            int minIndex = Math.Min(procIndex, targetIndex);
+            SF.frmProc.RebuildWorkConfig(minIndex);
+            SF.frmProc.Refresh();
+
+            return new JObject
+            {
+                ["action"] = "reorder_proc",
+                ["procName"] = procName,
+                ["newProcIndex"] = targetIndex,
+                ["messages"] = new JArray { $"流程「{procName}」已从索引 {procIndex} 移动到 {targetIndex}" }
+            };
+        }
+
+        private JObject ExecuteCopyProc(JObject request)
+        {
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            string newName = ReadOptionalString(request, "newName");
+            Proc source = GetProcByIndex(procIndex);
+
+            Proc copy = FrmPropertyGrid.DeepCopy(source);
+            copy.head = new ProcHead
+            {
+                Name = string.IsNullOrWhiteSpace(newName) ? (source.head?.Name + "_副本") : newName,
+                AutoStart = false,
+                Disable = source.head?.Disable ?? false
+            };
+
+            int newProcIndex = SF.frmProc.procsList.Count;
+            // 重置流程内步骤和指令的 Id，避免重复
+            ResetProcStepOpIds(copy);
+
+            SF.frmProc.procsList.Add(copy);
+
+            List<string> errors = new List<string>();
+            SF.frmProc.NormalizeProc(newProcIndex, copy, errors);
+            if (errors.Count > 0)
+            {
+                SF.frmProc.procsList.RemoveAt(newProcIndex);
+                throw new BridgeRequestException(400, "PROC_VALIDATE_FAILED", "流程复制校验失败。", string.Join("\r\n", errors.Distinct()));
+            }
+
+            SF.frmProc.RebuildWorkConfig(newProcIndex);
+            SF.frmProc.Refresh();
+
+            return new JObject
+            {
+                ["action"] = "copy_proc",
+                ["sourceProcIndex"] = procIndex,
+                ["newProcIndex"] = newProcIndex,
+                ["newProcName"] = copy.head.Name,
+                ["messages"] = new JArray { $"已复制流程 {procIndex}「{source.head?.Name}」到索引 {newProcIndex}，新名称「{copy.head.Name}」" }
+            };
+        }
+
+        private static void ResetProcStepOpIds(Proc proc)
+        {
+            if (proc?.steps == null) return;
+            foreach (var step in proc.steps)
+            {
+                if (step == null) continue;
+                step.Id = Guid.NewGuid();
+                if (step.Ops == null) continue;
+                foreach (var op in step.Ops)
+                {
+                    if (op != null)
+                    {
+                        op.Id = Guid.NewGuid();
+                    }
+                }
+            }
+        }
+
+        // 流程结构操作的预演记录，复用 previewLock 保证线程安全。
+        private string RegisterManagePreview(JObject previewData)
+        {
+            string previewId = Guid.NewGuid().ToString("N");
+            lock (previewLock)
+            {
+                CleanupExpiredPreviewsLocked();
+                // 复用 PreviewApprovalRecord，patch 字段存 previewData
+                var record = new PreviewApprovalRecord
+                {
+                    PreviewId = previewId,
+                    Patch = previewData,
+                    PatchHash = ComputePatchHash(previewData),
+                    ProcIndex = -1,  // 流程结构操作不绑定单个 procIndex
+                    BaseProcId = string.Empty,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
+                    Confirmed = false
+                };
+                previewRecords[record.PreviewId] = record;
+            }
+            return previewId;
+        }
+
+        private void ValidateConfirmedManagePreview(string previewId)
+        {
+            lock (previewLock)
+            {
+                CleanupExpiredPreviewsLocked();
+                if (!previewRecords.TryGetValue(previewId, out PreviewApprovalRecord record))
+                {
+                    throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
+                }
+                if (!record.Confirmed)
+                {
+                    throw new BridgeRequestException(403, "PREVIEW_NOT_CONFIRMED", "预演结果尚未由 Automation 前台确认，禁止提交。");
+                }
+            }
+        }
+
         private JObject HandlePreviewPatch(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演 Patch");
@@ -801,6 +1249,16 @@ namespace Automation.Bridge
             if (draft == null)
             {
                 throw new BridgeRequestException(500, "PATCH_EMPTY", "Patch 结果为空。");
+            }
+
+            // AI 改动流程前，若流程未停止（运行/暂停/单步），先停止再提交。
+            // 否则引擎 agent 线程仍持有旧的步骤/指令索引，热更新在 WaitForStep 阻塞期间无法生效，
+            // 导致后续单步/继续操作状态不一致（卡在单步、无法关闭等）。
+            EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
+            if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+            {
+                SF.DR.Stop(procIndex);
+                SF.DR.ClearPendingProcUpdates();
             }
 
             if (!owner.SaveAsJson(SF.workPath, procIndex.ToString(CultureInfo.InvariantCulture), draft))
@@ -1569,6 +2027,11 @@ namespace Automation.Bridge
 
         private void EnsurePreviewProcVersion(PreviewApprovalRecord record)
         {
+            // 流程结构操作（创建/删除/重排/复制）不绑定单个 procIndex，跳过版本校验
+            if (record.ProcIndex < 0)
+            {
+                return;
+            }
             Proc current = GetProcByIndex(record.ProcIndex);
             string currentProcId = current.head?.Id.ToString("D") ?? string.Empty;
             if (!string.Equals(currentProcId, record.BaseProcId, StringComparison.OrdinalIgnoreCase))

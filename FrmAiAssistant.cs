@@ -10,6 +10,7 @@ using System.Drawing;
 using System.IO;
 using System.IO.Pipes;
 using System.Net;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -772,27 +773,11 @@ namespace Automation
                 // 完全权限模式：把工具调用信息显示到聊天区，让用户看到批准了什么
                 AppendConversation("系统", "✅ 自动批准：" + title, Color.FromArgb(35, 92, 48));
 
-                // 如果权限请求中包含 previewId，必须同步等待确认完成再返回权限响应，
-                // 否则 Goose 会在确认前提交变更，触发 ValidateConfirmedPreview 失败。
-                // SendBridgeRequestAsync 内部用 Task.Run + ConfigureAwait(false)，同步等待不会死锁。
-                string previewId = FindFirstString(request, "previewId");
-                if (!string.IsNullOrWhiteSpace(previewId) && !promptedPreviewIds.Contains(previewId))
-                {
-                    promptedPreviewIds.Add(previewId);
-                    try
-                    {
-                        ConfirmPreviewAsync(previewId).GetAwaiter().GetResult();
-                    }
-                    catch (Exception ex)
-                    {
-                        AppendConversation("错误", "自动确认预演失败：" + ex.Message, Color.Red);
-                    }
-                }
+                // 预演确认在 tool_result 事件中自动完成（TryPromptPreviewConfirmation），
+                // 权限请求本身不含 previewId（previewId 由 Bridge 在工具执行后生成）。
 
                 JArray fullOptions = request["options"] as JArray;
-                string fullOptionId = fullOptions != null && fullOptions.Count > 0
-                    ? fullOptions[0]?["optionId"]?.Value<string>() ?? fullOptions[0]?["id"]?.Value<string>()
-                    : null;
+                string fullOptionId = FindAllowOptionId(fullOptions);
                 if (string.IsNullOrWhiteSpace(fullOptionId))
                 {
                     return new JObject { ["outcome"] = new JObject { ["outcome"] = "allowed" } };
@@ -807,12 +792,13 @@ namespace Automation
                 return BuildPermissionCancelled();
             }
 
+            // 用户批准后，在 options 中查找 "allow" 类选项（optionId 或 title 含 allow），
+            // 避免盲目取 options[0] 导致选中 "deny"/"modify" 等非执行选项。
             JArray options = request["options"] as JArray;
-            string optionId = options != null && options.Count > 0
-                ? options[0]?["optionId"]?.Value<string>() ?? options[0]?["id"]?.Value<string>()
-                : null;
+            string optionId = FindAllowOptionId(options);
             if (string.IsNullOrWhiteSpace(optionId))
             {
+                // 无选项或未找到 allow 选项：直接返回 allowed，允许工具执行。
                 return new JObject
                 {
                     ["outcome"] = new JObject
@@ -830,6 +816,35 @@ namespace Automation
                     ["optionId"] = optionId
                 }
             };
+        }
+
+        // 在权限请求的 options 数组中查找 "allow" 类选项。
+        // Goose ACP 的 options 顺序不保证 allow 在第一位，盲目取 [0] 可能选中 deny/modify。
+        private static string FindAllowOptionId(JArray options)
+        {
+            if (options == null || options.Count == 0)
+            {
+                return null;
+            }
+            // 优先匹配 optionId 或 title 中含 "allow" 的选项
+            foreach (JToken opt in options)
+            {
+                string oid = opt["optionId"]?.Value<string>() ?? opt["id"]?.Value<string>();
+                if (string.IsNullOrWhiteSpace(oid))
+                {
+                    continue;
+                }
+                string optTitle = opt["title"]?.Value<string>() ?? string.Empty;
+                if (oid.IndexOf("allow", StringComparison.OrdinalIgnoreCase) >= 0
+                    || optTitle.IndexOf("allow", StringComparison.OrdinalIgnoreCase) >= 0
+                    || optTitle.IndexOf("允许", StringComparison.Ordinal) >= 0
+                    || optTitle.IndexOf("通过", StringComparison.Ordinal) >= 0)
+                {
+                    return oid;
+                }
+            }
+            // 回退：取第一个选项（多数情况下第一个是 allow）
+            return options[0]?["optionId"]?.Value<string>() ?? options[0]?["id"]?.Value<string>();
         }
 
         private static JObject BuildPermissionCancelled()
@@ -891,8 +906,10 @@ namespace Automation
                 AppendConversation("系统", item.Text, Color.DarkRed);
             }
 
-            // 仅工具调用发起需要触发预演确认。
-            if (string.Equals(item.Kind, "tool_call", StringComparison.Ordinal))
+            // 预演确认：在工具返回结果（tool_result）时检查是否包含 previewId。
+            // previewId 由 Bridge 在 preview_intent/preview_patch 执行后生成并返回，
+            // tool_call 事件只有工具参数，还没有 previewId。
+            if (string.Equals(item.Kind, "tool_result", StringComparison.Ordinal))
             {
                 TryPromptPreviewConfirmation(item.Raw);
             }
@@ -1047,44 +1064,248 @@ namespace Automation
         }
 
         // Markdown→HTML（Markdig 高级扩展，支持表格、任务列表等）。
+        // 渲染前先做 NormalizeMarkdownForRendering 预处理，修复 AI 常见的表格格式问题：
+        //   1. 表格分隔行前缺少表头行 → 补空表头
+        //   2. 多行表格行被拼接到同一行 → 按列数拆分
         private static string MarkdownToHtml(string markdown)
         {
             if (string.IsNullOrEmpty(markdown))
             {
                 return string.Empty;
             }
-            return Markdown.ToHtml(markdown, markdownPipeline);
+            string normalized = NormalizeMarkdownForRendering(markdown);
+            return Markdown.ToHtml(normalized, markdownPipeline);
+        }
+
+        // 预处理 Markdown：修复 AI 生成的常见表格格式问题，使 Markdig 能正确解析。
+        private static string NormalizeMarkdownForRendering(string markdown)
+        {
+            if (string.IsNullOrEmpty(markdown))
+            {
+                return markdown;
+            }
+
+            string text = markdown.Replace("\r\n", "\n").Replace("\r", "\n");
+            string[] lines = text.Split('\n');
+            var result = new StringBuilder();
+            int tableColumns = 0;
+            bool prevLineIsTableRow = false;
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                string trimmed = line.Trim();
+
+                // 检测表格分隔行：|---|---| 或 |:---:|:---| 等
+                if (IsTableSeparator(trimmed, out int cols))
+                {
+                    tableColumns = cols;
+                    // 分隔行前必须有表头行；若前一行不是表格行，补一个空表头
+                    if (!prevLineIsTableRow)
+                    {
+                        result.AppendLine(BuildEmptyTableRow(cols));
+                    }
+                    result.AppendLine(line);
+                    prevLineIsTableRow = false;
+                    continue;
+                }
+
+                // 在表格上下文中，若一行含有多组表格行（| 数量超出单行预期），拆分为多行
+                if (tableColumns > 0 && trimmed.StartsWith("|"))
+                {
+                    string[] splitRows = SplitConcatenatedTableRows(trimmed, tableColumns);
+                    foreach (string row in splitRows)
+                    {
+                        result.AppendLine(row);
+                    }
+                    prevLineIsTableRow = true;
+                }
+                else
+                {
+                    if (!trimmed.StartsWith("|"))
+                    {
+                        // 离开表格上下文
+                        tableColumns = 0;
+                    }
+                    result.AppendLine(line);
+                    prevLineIsTableRow = trimmed.StartsWith("|");
+                }
+            }
+
+            return result.ToString();
+        }
+
+        // 判断是否为表格分隔行（如 |---|---| 或 |:---:|:---|），并输出列数。
+        private static bool IsTableSeparator(string line, out int columnCount)
+        {
+            columnCount = 0;
+            if (string.IsNullOrEmpty(line) || !line.StartsWith("|") || !line.EndsWith("|"))
+            {
+                return false;
+            }
+            // 去掉首尾 | 后按 | 分割，每段应包含 --- 
+            string inner = line.Substring(1, line.Length - 2);
+            string[] parts = inner.Split('|');
+            if (parts.Length == 0)
+            {
+                return false;
+            }
+            foreach (string part in parts)
+            {
+                string p = part.Trim();
+                if (p.Length == 0)
+                {
+                    return false;
+                }
+                // 允许 :---, ---:, :---:, ---
+                string core = p.Trim(':');
+                if (core.Length < 3 || !core.All(c => c == '-'))
+                {
+                    return false;
+                }
+            }
+            columnCount = parts.Length;
+            return true;
+        }
+
+        // 构建指定列数的空表头行：| | | | |
+        private static string BuildEmptyTableRow(int columnCount)
+        {
+            if (columnCount <= 0)
+            {
+                return "| |";
+            }
+            var sb = new StringBuilder();
+            for (int i = 0; i < columnCount; i++)
+            {
+                sb.Append("| ");
+            }
+            sb.Append("|");
+            return sb.ToString();
+        }
+
+        // 将拼接在同一行的多个表格行按列数拆分为独立行。
+        // 原理：每行有 columnCount+1 个 |，统计 | 数量后按组切分。
+        private static string[] SplitConcatenatedTableRows(string line, int columnCount)
+        {
+            int pipesPerRow = columnCount + 1;
+            int totalPipes = line.Count(c => c == '|');
+
+            // 只有一行，无需拆分
+            if (totalPipes <= pipesPerRow)
+            {
+                return new[] { line };
+            }
+
+            var rows = new List<string>();
+            var current = new StringBuilder();
+            int pipeCount = 0;
+
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                current.Append(c);
+                if (c == '|')
+                {
+                    pipeCount++;
+                    if (pipeCount == pipesPerRow)
+                    {
+                        // 当前行结束
+                        rows.Add(current.ToString().Trim());
+                        current.Clear();
+                        pipeCount = 0;
+                        // 跳过行间空格
+                        while (i + 1 < line.Length && char.IsWhiteSpace(line[i + 1]))
+                        {
+                            i++;
+                        }
+                    }
+                }
+            }
+
+            if (current.Length > 0)
+            {
+                string remaining = current.ToString().Trim();
+                if (remaining.Length > 0)
+                {
+                    rows.Add(remaining);
+                }
+            }
+
+            return rows.Count > 0 ? rows.ToArray() : new[] { line };
         }
 
         private void SetStatus(string text)
         {
             lblStatus.Text = text ?? string.Empty;
-            if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+        }
+
+        // 从 ACP tool_call_update 完成通知中提取工具返回的 JSON 文本。
+        // ACP 通知结构：message.params.update.content[0].text 或 message.params.content[0].text
+        // text 字段是 MCP 工具返回的 JSON 字符串，例如 {"ok":true,"type":"intent.preview","data":{"previewId":"..."}}
+        private static string ExtractToolResultText(JObject raw)
+        {
+            JToken parameters = raw?["params"];
+            JToken update = parameters?["update"] ?? parameters;
+            JToken content = update?["content"];
+            if (content is JArray arr && arr.Count > 0)
             {
-                SF.frmInfo.PrintInfo(text, FrmInfo.Level.Normal);
+                JToken first = arr[0];
+                JToken textToken = first["text"] ?? first?["content"]?["text"];
+                if (textToken != null && textToken.Type == JTokenType.String)
+                {
+                    return textToken.Value<string>();
+                }
             }
+            return null;
         }
 
         private void TryPromptPreviewConfirmation(JObject raw)
         {
-            string previewId = FindFirstString(raw, "previewId");
+            // 从工具返回结果中提取 previewId。
+            // previewId 只在 preview_intent / preview_patch 的返回值中存在，
+            // 且嵌套在 JSON 字符串里（MCP 工具返回 string），不能用 FindFirstString 深度搜索。
+            string resultText = ExtractToolResultText(raw);
+            if (string.IsNullOrWhiteSpace(resultText))
+            {
+                return;
+            }
+
+            JObject resultObj;
+            try
+            {
+                resultObj = JObject.Parse(resultText);
+            }
+            catch
+            {
+                return;
+            }
+
+            // 只处理预演类工具返回（intent.preview / patch.preview），避免误匹配。
+            string resultType = resultObj["type"]?.Value<string>() ?? string.Empty;
+            if (!string.Equals(resultType, "intent.preview", StringComparison.Ordinal)
+                && !string.Equals(resultType, "patch.preview", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            string previewId = resultObj["data"]?["previewId"]?.Value<string>();
             if (string.IsNullOrWhiteSpace(previewId) || promptedPreviewIds.Contains(previewId))
             {
                 return;
             }
             promptedPreviewIds.Add(previewId);
 
-            // 完全权限模式：自动确认预演，不弹 MessageBox（用户已授权自动批准）。
-            // 这里仍用 fire-and-forget，因为此路径来自 tool_call 事件而非权限响应，
-            // 真正的同步确认会在 HandlePermissionRequest 中完成（若 previewId 已在此确认，则那里会跳过）。
+            // 完全权限模式：自动确认预演，不弹 MessageBox。
             if (fullPermissionMode)
             {
                 _ = ConfirmPreviewAsync(previewId);
                 return;
             }
 
-            string patchHash = FindFirstString(raw, "patchHash") ?? string.Empty;
-            string summary = BuildPreviewSummary(raw, previewId, patchHash);
+            // 正常模式：弹窗让用户确认预演结果。
+            string patchHash = resultObj["data"]?["patchHash"]?.Value<string>() ?? string.Empty;
+            string summary = BuildPreviewSummary(resultObj, previewId, patchHash);
             DialogResult result = MessageBox.Show(this, summary, "确认预演结果", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (result == DialogResult.Yes)
             {

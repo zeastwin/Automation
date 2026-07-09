@@ -154,6 +154,38 @@ namespace Automation.McpServer
             });
         }
 
+        public Task<string> ManageProcPreviewAsync(string action, string payloadJson)
+        {
+            JsonNode? node = JsonNode.Parse(payloadJson);
+            if (node is not JsonObject obj)
+            {
+                return Task.FromResult(BuildBridgeError("INVALID_ARGUMENT", "payloadJson 必须是 JSON 对象。"));
+            }
+            obj["action"] = action;
+            return SendAsync("POST", "/bridge/procs/manage/preview", obj.ToJsonString(jsonOptions));
+        }
+
+        public Task<string> ManageProcApplyAsync(string action, string payloadJson, string previewId)
+        {
+            JsonNode? node = JsonNode.Parse(payloadJson);
+            if (node is not JsonObject obj)
+            {
+                return Task.FromResult(BuildBridgeError("INVALID_ARGUMENT", "payloadJson 必须是 JSON 对象。"));
+            }
+            obj["action"] = action;
+            obj["previewId"] = previewId;
+            return SendAsync("POST", "/bridge/procs/manage/apply", obj.ToJsonString(jsonOptions));
+        }
+
+        public Task<string> ControlProcAsync(int procIndex, string action)
+        {
+            return PostAsync("/bridge/procs/control", new
+            {
+                procIndex,
+                action
+            });
+        }
+
         private Task<string> PostAsync(string path, object payload)
         {
             string json = JsonSerializer.Serialize(payload, jsonOptions);
