@@ -18,6 +18,29 @@ namespace Automation.Simulation
 {
     public sealed class SimulationGatewayClient : IMotionRuntime, IIoRuntime, IDisposable
     {
+        [ThreadStatic]
+        private static HashSet<long> validatedCommands;
+
+        private sealed class CommandValidationLease : IDisposable
+        {
+            private HashSet<long> commands;
+
+            public CommandValidationLease(HashSet<long> commands)
+            {
+                this.commands = commands;
+            }
+
+            public void Dispose()
+            {
+                HashSet<long> current = commands;
+                commands = null;
+                if (current != null && ReferenceEquals(validatedCommands, current))
+                {
+                    validatedCommands = null;
+                }
+            }
+        }
+
         private const int ProtocolVersion = 1;
         private const int MaxFrameLength = 1024 * 1024;
         private const string PipeName = "AutomationSimulationPipe";
@@ -148,6 +171,7 @@ namespace Automation.Simulation
 
         public void StartHome(ushort card, ushort axis)
         {
+            EnsureAxisCommandValidated(card, axis, AxisCommandKind.Home, false);
             EnsureCommandSucceeded(SendCommand("motion.home", AxisPayload(card, axis)));
         }
 
@@ -179,6 +203,7 @@ namespace Automation.Simulation
 
         public void Mov(ushort card, ushort axis, double distance, ushort positionMode, bool wait)
         {
+            EnsureAxisCommandValidated(card, axis, AxisCommandKind.Motion, false);
             if (positionMode != 0 && positionMode != 1) throw new InvalidOperationException($"位置模式无效:{positionMode}");
             EnsureCommandSucceeded(SendCommand("motion.move", new JObject
             {
@@ -191,6 +216,7 @@ namespace Automation.Simulation
 
         public void Jog(ushort card, ushort axis, ushort direction)
         {
+            EnsureAxisCommandValidated(card, axis, AxisCommandKind.Motion, true);
             if (direction != 0 && direction != 1) throw new InvalidOperationException($"Jog方向无效:{direction}");
             EnsureCommandSucceeded(SendCommand("motion.jog", new JObject { ["card"] = (int)card, ["axis"] = (int)axis, ["direction"] = (int)direction }));
         }
@@ -234,11 +260,77 @@ namespace Automation.Simulation
         {
             GatewayAxisState state = GetAxis(card, axis);
             uint result = 0;
+            if (state.Alarm) result |= 1u;
             if (state.PositiveLimit) result |= 1u << 1;
             if (state.NegativeLimit) result |= 1u << 2;
-            if (state.Homed) result |= 1u << 3;
-            if (state.Alarm) result |= 1u << 4;
             return result;
+        }
+
+        public ushort GetAxisAlarmCode(ushort card, ushort axis)
+        {
+            return GetAxis(card, axis).Alarm ? (ushort)1 : (ushort)0;
+        }
+
+        public IDisposable ValidateAxesForCommand(IReadOnlyCollection<AxisCommandRequest> requests)
+        {
+            if (requests == null || requests.Count == 0)
+            {
+                throw new ArgumentException("轴状态校验列表为空。", nameof(requests));
+            }
+            HashSet<long> commands = new HashSet<long>();
+            foreach (AxisCommandRequest request in requests)
+            {
+                if (request == null)
+                {
+                    throw new InvalidOperationException("轴状态校验项为空。");
+                }
+                long key = BuildCommandKey(request.Card, request.Axis, request.Kind);
+                if (!commands.Add(key))
+                {
+                    continue;
+                }
+                GatewayAxisState state = GetAxis(request.Card, request.Axis);
+                if (state.Alarm)
+                {
+                    throw new InvalidOperationException($"轴存在伺服报警:{request.Card}-{request.Axis},错误码:1");
+                }
+                if (state.Running || !state.InPosition)
+                {
+                    throw new InvalidOperationException($"轴正在运动:{request.Card}-{request.Axis}");
+                }
+                if (!state.ServoOn)
+                {
+                    throw new InvalidOperationException($"轴未使能:{request.Card}-{request.Axis}");
+                }
+                if (request.Kind == AxisCommandKind.Motion && !state.Homed)
+                {
+                    throw new InvalidOperationException($"轴尚未回原完成:{request.Card}-{request.Axis}");
+                }
+            }
+            validatedCommands = commands;
+            return new CommandValidationLease(commands);
+        }
+
+        private static long BuildCommandKey(ushort card, ushort axis, AxisCommandKind kind)
+        {
+            return ((long)kind << 48) | ((long)card << 32) | axis;
+        }
+
+        private void EnsureAxisCommandValidated(ushort card, ushort axis, AxisCommandKind kind, bool allowHomeJog)
+        {
+            long key = BuildCommandKey(card, axis, kind);
+            if (validatedCommands != null && validatedCommands.Remove(key))
+            {
+                return;
+            }
+            if (allowHomeJog && validatedCommands != null
+                && validatedCommands.Remove(BuildCommandKey(card, axis, AxisCommandKind.Home)))
+            {
+                return;
+            }
+            using (ValidateAxesForCommand(new[] { new AxisCommandRequest(card, axis, kind) }))
+            {
+            }
         }
 
         public void Dispose()

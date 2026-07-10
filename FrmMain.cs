@@ -223,7 +223,10 @@ namespace Automation
                 InitializeSystemStatusValues();
                 systemStatusReady = true;
                 UpdateSystemStatusValue();
-                SF.cardStore.Load(SF.ConfigPath);
+                if (!SF.cardStore.Load(SF.ConfigPath))
+                {
+                    SF.DR?.Logger?.Log("轴配置加载校验失败；MES/通讯流程仍可运行，运动指令将继续执行运行时门禁。", LogLevel.Error);
+                }
                 SF.frmIO.RefreshIOMap();
                 SF.frmCard.RefreshStationList();
                 SF.dataStructStore.Load(SF.ConfigPath);

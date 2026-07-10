@@ -1,5 +1,28 @@
+using System;
+using System.Collections.Generic;
+
 namespace Automation.MotionControl
 {
+    public enum AxisCommandKind
+    {
+        Motion,
+        Home
+    }
+
+    public sealed class AxisCommandRequest
+    {
+        public ushort Card { get; }
+        public ushort Axis { get; }
+        public AxisCommandKind Kind { get; }
+
+        public AxisCommandRequest(ushort card, ushort axis, AxisCommandKind kind)
+        {
+            Card = card;
+            Axis = axis;
+            Kind = kind;
+        }
+    }
+
     public interface IIoRuntime
     {
         bool SetIO(IO io, bool isOpen);
@@ -31,5 +54,7 @@ namespace Automation.MotionControl
         void CleanAlarm();
         double GetAxisCurSpeed(ushort card, ushort axis);
         uint GetAxisIoStatus(ushort card, ushort axis);
+        ushort GetAxisAlarmCode(ushort card, ushort axis);
+        IDisposable ValidateAxesForCommand(IReadOnlyCollection<AxisCommandRequest> requests);
     }
 }

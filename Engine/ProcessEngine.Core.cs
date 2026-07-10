@@ -1016,6 +1016,7 @@ namespace Automation
                 try
                 {
                     Context?.Motion?.StopOneAxis(card, axis, 0);
+                    ReleaseManualMotionResource(card, axis);
                 }
                 catch (Exception ex)
                 {

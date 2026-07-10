@@ -270,7 +270,7 @@ namespace Automation
                         SF.frmIO.IOMap[newCardIndex].Add(io);
                     }
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", SF.frmIO.IOMap);
-                    SF.cardStore.Save(SF.ConfigPath);
+                    SF.cardStore.Save(SF.ConfigPath, false);
                     SF.frmCard.RefreshCardTree(); 
                     SF.frmIO.RefreshIOMap();
                     SF.mainfrm.ReflshDgv();
@@ -288,9 +288,10 @@ namespace Automation
                         for (int i = 0; i < AxisCount; i++)
                         {
                             Axis axis = new Axis() { AxisName = $"Axis{i}" };
+                            axis.AxisNum = i;
                             controlCard.axis.Add(axis);
                         }
-                        SF.cardStore.Save(SF.ConfigPath);
+                        SF.cardStore.Save(SF.ConfigPath, false);
                         SF.frmCard.RefreshCardTree();
                         SF.mainfrm.ReflshDgv();
                           
@@ -301,13 +302,31 @@ namespace Automation
                 }
                 if (SF.isModify == ModifyKind.Axis)
                 {
-                    SF.cardStore.Save(SF.ConfigPath);
+                    string axisError = null;
+                    if (!SF.frmCard.TryGetSelectedAxisIndex(out int cardIndex, out int axisIndex)
+                        || !SF.cardStore.TryGetAxis(cardIndex, axisIndex, out Axis axis)
+                        || !SF.cardStore.TryValidateAxis(cardIndex, axisIndex, axis, out axisError))
+                    {
+                        MessageBox.Show(axisError ?? "未选择有效轴。", "轴配置错误",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                    SF.cardStore.Save(SF.ConfigPath, false);
                     SF.frmCard.RefreshCardTree();
-                    SF.motion.SetAllAxisEquiv();
+                    if (SF.cardStore.TryValidateAllAxes(out _))
+                    {
+                        SF.motion.SetAllAxisEquiv();
+                    }
                     SF.isModify = ModifyKind.None;
                 }
                 if (SF.isModify == ModifyKind.Station)
                 {
+                    if (!SF.cardStore.TryValidateStations(SF.frmCard.dataStation, out List<string> stationErrors))
+                    {
+                        MessageBox.Show("工站配置校验失败：\r\n" + string.Join("\r\n", stationErrors),
+                            "工站配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
                     SF.frmCard.RefreshStationList();
                     SF.frmCard.RefreshStationTree();
@@ -358,6 +377,12 @@ namespace Automation
 
                 if (SF.frmCard.IsNewStation)
                 {
+                    if (!SF.cardStore.TryValidateStations(SF.frmCard.dataStation, out List<string> stationErrors))
+                    {
+                        MessageBox.Show("工站配置校验失败：\r\n" + string.Join("\r\n", stationErrors),
+                            "工站配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
                     SF.frmCard.RefreshStationList();
                     SF.frmCard.RefreshStationTree();

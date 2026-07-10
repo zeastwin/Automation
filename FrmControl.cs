@@ -21,6 +21,7 @@ using System.Text.RegularExpressions;
 using System.Globalization;
 using static System.Collections.Specialized.BitVector32;
 using System.Diagnostics;
+using Automation.MotionControl;
 
 namespace Automation
 {
@@ -283,7 +284,6 @@ namespace Automation
             {
                 throw new InvalidOperationException($"轴回零参数无效:{cardNum}-{axis}");
             }
-            axisInfo.State = Axis.Status.Run;
             int sfc = 1;
             if (axisInfo.HomeType == "从当前位回零")
             {
@@ -297,7 +297,7 @@ namespace Automation
             }
             int IOindexTemp = IOindex == 2 ? 3 : 2;
             Stopwatch timeout = Stopwatch.StartNew();
-            while (axisInfo.State == Axis.Status.Run)
+            while (!completed)
             {
                 if (!SF.DR.TryValidateStartGate(out _))
                 {
@@ -310,16 +310,18 @@ namespace Automation
                 switch (sfc)
                 {
                     case 1:
-                        SF.motion.SetMovParam(cardNum, axis, 0, limitSpeed, axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
-                        SF.motion.Jog(cardNum, axis, dir);
+                        using (SF.motion.ValidateAxesForCommand(new[]
+                        {
+                            new AxisCommandRequest(cardNum, axis, AxisCommandKind.Home)
+                        }))
+                        {
+                            SF.motion.SetMovParam(cardNum, axis, 0, limitSpeed, axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
+                            SF.motion.Jog(cardNum, axis, dir);
+                        }
                         Thread.Sleep(20);
                         sfc = 2;
                         break;
                     case 2:
-                        if (GetAxisStateBit(cardNum, axis, IOindex))
-                        {
-                            sfc = 10;
-                        }
                         if (GetAxisStateBit(cardNum, axis, IOindexTemp))
                         {
                             Thread.Sleep(1000);
@@ -328,15 +330,31 @@ namespace Automation
                                 throw new InvalidOperationException("限位方向错误，回零失败。");
                             }
                         }
+                        if (GetAxisStateBit(cardNum, axis, IOindex))
+                        {
+                            SF.motion.StopOneAxis(cardNum, axis, 0);
+                            while (!SF.motion.GetInPos(cardNum, axis))
+                            {
+                                Thread.Sleep(5);
+                            }
+                            sfc = 10;
+                            break;
+                        }
                         Thread.Sleep(20);
                         break;
                     case 10:
-                        SF.motion.SetMovParam(cardNum, axis, 0, homeSpeed, axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
-                        if (axisInfo.HomeType != "从当前位回零")
+                        using (SF.motion.ValidateAxesForCommand(new[]
                         {
-                            SF.motion.SettHomeParam(cardNum, axis, dir, 1, 1);
+                            new AxisCommandRequest(cardNum, axis, AxisCommandKind.Home)
+                        }))
+                        {
+                            SF.motion.SetMovParam(cardNum, axis, 0, homeSpeed, axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
+                            if (axisInfo.HomeType != "从当前位回零")
+                            {
+                                SF.motion.SettHomeParam(cardNum, axis, dir, 1, 1);
+                            }
+                            SF.motion.StartHome(cardNum, axis);
                         }
-                        SF.motion.StartHome(cardNum, axis);
                         Thread.Sleep(20);
                         sfc = 20;
                         break;
@@ -347,7 +365,6 @@ namespace Automation
                             if (SF.motion.HomeStatus(cardNum, axis))
                             {
                                 SF.motion.CleanPos(cardNum, axis);
-                                axisInfo.State = Axis.Status.Ready;
                                 completed = true;
                             }
                             else
@@ -364,10 +381,6 @@ namespace Automation
             {
                 if (!completed)
                 {
-                    if (axisInfo != null)
-                    {
-                        axisInfo.State = Axis.Status.NotReady;
-                    }
                     try
                     {
                         SF.motion?.StopOneAxis(cardNum, axis, 0);
@@ -928,7 +941,6 @@ namespace Automation
                 if (temp.dataAxis.axisConfigs[i].AxisName != "-1")
                 {
                     temp.SetState(DataStation.Status.Ready);
-                    temp.dataAxis.axisConfigs[i].axis.SetState(Axis.Status.Ready);
                     SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfigs[i].CardNum), (ushort)temp.dataAxis.axisConfigs[i].axis.AxisNum, 0);
                 }             
             }
@@ -936,10 +948,6 @@ namespace Automation
 
         public void StopAxis(int card,int axis)
         {
-            if (SF.cardStore.TryGetAxis(card, axis, out Axis axisInfo))
-            {
-                axisInfo.SetState(Axis.Status.Ready);
-            }
             SF.motion.StopOneAxis((ushort)card, (ushort)axis, 0);
         }
     }

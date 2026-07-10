@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using static Automation.FrmCard;
 
 namespace Automation.KernelTests
 {
@@ -15,6 +16,7 @@ namespace Automation.KernelTests
             Run("报警忽略后继续执行", TestAlarmIgnoreContinues);
             Run("停止超时拒绝重启", TestStopTimeoutRejectsRestart);
             Run("手动轴资源禁止重复占用", TestManualMotionResourceExclusion);
+            Run("轴与工站静态配置校验", TestMotionConfigurationValidation);
             Console.WriteLine(failures == 0 ? "内核回归测试全部通过。" : $"内核回归测试失败:{failures}");
             return failures == 0 ? 0 : 1;
         }
@@ -94,6 +96,51 @@ namespace Automation.KernelTests
             }
         }
 
+        private static void TestMotionConfigurationValidation()
+        {
+            Axis axis = new Axis
+            {
+                AxisName = "Axis0",
+                AxisNum = 0,
+                PulseToMM = 1000,
+                HomeType = "从负限位回零",
+                HomeSpeed = "10",
+                LimitSpeed = "20",
+                SpeedMax = 100,
+                AccMax = 0.2,
+                DecMax = 0.2
+            };
+            CardConfigStore store = new CardConfigStore();
+            store.SetCard(new Card
+            {
+                controlCards = new List<ControlCard>
+                {
+                    new ControlCard
+                    {
+                        cardHead = new CardHead { AxisCount = 1 },
+                        axis = new List<Axis> { axis }
+                    }
+                }
+            });
+            Assert(store.TryValidateAllAxes(out _), "有效轴配置被错误拒绝");
+            axis.PulseToMM = 0;
+            Assert(!store.TryValidateAllAxes(out _), "无效脉冲当量未被拒绝");
+            axis.PulseToMM = 1000;
+
+            DataStation station = new DataStation(false) { Name = "Station0" };
+            SF.cardStore = store;
+            SF.isModify = ModifyKind.Station;
+            station.dataAxis.axisConfig1.CardNum = "0";
+            station.dataAxis.axisConfig1.AxisName = "Axis0";
+            SF.isModify = ModifyKind.None;
+            Assert(store.TryValidateStations(new[] { station }, out _), "有效工站配置被错误拒绝");
+            SF.isModify = ModifyKind.Station;
+            station.dataAxis.axisConfig2.CardNum = "0";
+            station.dataAxis.axisConfig2.AxisName = "Axis0";
+            SF.isModify = ModifyKind.None;
+            Assert(!store.TryValidateStations(new[] { station }, out _), "工站重复物理轴未被拒绝");
+        }
+
         private static ProcessEngine CreateEngine(ValueConfigStore values, CustomFunc functions, Proc proc)
         {
             return new ProcessEngine(new EngineContext
@@ -150,7 +197,7 @@ namespace Automation.KernelTests
             catch (Exception ex)
             {
                 failures++;
-                Console.WriteLine($"失败: {name} - {ex.Message}");
+                Console.WriteLine($"失败: {name} - {ex}");
             }
         }
 

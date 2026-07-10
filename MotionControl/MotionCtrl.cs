@@ -35,6 +35,8 @@ namespace Automation.MotionControl
         public delegate void SetAllAxisEquivHandler();
         public delegate void CleanAlarmHandler();
         public delegate double GetAxisCurSpeedHandler(ushort card, ushort axis);
+        public delegate ushort GetAxisAlarmCodeHandler(ushort card, ushort axis);
+        public delegate uint GetAxisIoStatusHandler(ushort card, ushort axis);
 
         public event InitCardHandler initCard;
         public event SetIOHandler setIO;
@@ -58,7 +60,32 @@ namespace Automation.MotionControl
         public event SetAllAxisEquivHandler setAllAxisEquiv;
         public event CleanAlarmHandler cleanAlarm;
         public event GetAxisCurSpeedHandler getAxisCurSpeed;
+        public event GetAxisAlarmCodeHandler getAxisAlarmCode;
+        public event GetAxisIoStatusHandler getAxisIoStatus;
         public bool IsCardInitialized { get; private set; }
+
+        [ThreadStatic]
+        private static HashSet<long> validatedCommands;
+
+        private sealed class CommandValidationLease : IDisposable
+        {
+            private HashSet<long> commands;
+
+            public CommandValidationLease(HashSet<long> commands)
+            {
+                this.commands = commands;
+            }
+
+            public void Dispose()
+            {
+                HashSet<long> current = commands;
+                commands = null;
+                if (current != null && ReferenceEquals(validatedCommands, current))
+                {
+                    validatedCommands = null;
+                }
+            }
+        }
 
         private void EnsureCardInitialized()
         {
@@ -108,6 +135,75 @@ namespace Automation.MotionControl
             return false;
         }
 
+        public IDisposable ValidateAxesForCommand(IReadOnlyCollection<AxisCommandRequest> requests)
+        {
+            EnsureCardInitialized();
+            if (requests == null || requests.Count == 0)
+            {
+                throw new ArgumentException("轴状态校验列表为空。", nameof(requests));
+            }
+            HashSet<long> commands = new HashSet<long>();
+            foreach (AxisCommandRequest request in requests)
+            {
+                if (request == null)
+                {
+                    throw new InvalidOperationException("轴状态校验项为空。");
+                }
+                long key = BuildCommandKey(request.Card, request.Axis, request.Kind);
+                if (!commands.Add(key))
+                {
+                    continue;
+                }
+                uint ioStatus = GetAxisIoStatus(request.Card, request.Axis);
+                if ((ioStatus & 1u) != 0)
+                {
+                    ushort alarmCode = GetAxisAlarmCode(request.Card, request.Axis);
+                    string codeText = alarmCode == ushort.MaxValue ? "驱动器未提供详细码(ALM=ON)" : alarmCode.ToString();
+                    throw new InvalidOperationException($"轴存在伺服报警:{request.Card}-{request.Axis},错误码:{codeText}");
+                }
+                if ((ioStatus & (1u << 3)) != 0)
+                {
+                    throw new InvalidOperationException($"轴急停信号有效:{request.Card}-{request.Axis}");
+                }
+                if (!GetInPos(request.Card, request.Axis))
+                {
+                    throw new InvalidOperationException($"轴正在运动:{request.Card}-{request.Axis}");
+                }
+                if (!GetAxisSevon(request.Card, request.Axis))
+                {
+                    throw new InvalidOperationException($"轴未使能:{request.Card}-{request.Axis}");
+                }
+                if (request.Kind == AxisCommandKind.Motion && !HomeStatus(request.Card, request.Axis))
+                {
+                    throw new InvalidOperationException($"轴尚未回原完成:{request.Card}-{request.Axis}");
+                }
+            }
+            validatedCommands = commands;
+            return new CommandValidationLease(commands);
+        }
+
+        private static long BuildCommandKey(ushort card, ushort axis, AxisCommandKind kind)
+        {
+            return ((long)kind << 48) | ((long)card << 32) | axis;
+        }
+
+        private void EnsureCommandValidated(ushort card, ushort axis, AxisCommandKind kind, bool allowHomeJog)
+        {
+            long key = BuildCommandKey(card, axis, kind);
+            if (validatedCommands != null && validatedCommands.Remove(key))
+            {
+                return;
+            }
+            if (allowHomeJog && validatedCommands != null
+                && validatedCommands.Remove(BuildCommandKey(card, axis, AxisCommandKind.Home)))
+            {
+                return;
+            }
+            using (ValidateAxesForCommand(new[] { new AxisCommandRequest(card, axis, kind) }))
+            {
+            }
+        }
+
         public bool InitCard()
         {
             initCard?.Invoke();
@@ -144,6 +240,7 @@ namespace Automation.MotionControl
             }
             try
             {
+                EnsureCommandValidated(card, axis, AxisCommandKind.Home, false);
                 startHome?.Invoke(card , axis);
             }
             catch
@@ -181,6 +278,7 @@ namespace Automation.MotionControl
             bool manualOperation = Application.MessageLoop;
             try
             {
+                EnsureCommandValidated(card, axis, AxisCommandKind.Motion, false);
                 mov?.Invoke(card, axis, dDist, sPosi_mode, wait);
                 if (wait)
                 {
@@ -250,6 +348,7 @@ namespace Automation.MotionControl
             }
             try
             {
+                EnsureCommandValidated(card, axis, AxisCommandKind.Motion, true);
                 jog?.Invoke(card, axis, sDir);
             }
             catch
@@ -262,7 +361,10 @@ namespace Automation.MotionControl
         {
             EnsureCardInitialized();
             stopOneAxis?.Invoke(card, axis,  stop_mode);
-            SF.DR?.ReleaseManualMotionResource(card, axis);
+            if (Application.MessageLoop)
+            {
+                SF.DR?.ReleaseManualMotionResource(card, axis);
+            }
         }
         public void StopConnect()
         {
@@ -308,11 +410,15 @@ namespace Automation.MotionControl
         }
         public uint GetAxisIoStatus(ushort card, ushort axis)
         {
-            if (!IsCardInitialized)
-            {
-                throw new InvalidOperationException("运动控制卡未初始化");
-            }
-            return LTDMC.dmc_axis_io_status(card, axis);
+            EnsureCardInitialized();
+            return getAxisIoStatus?.Invoke(card, axis)
+                ?? throw new InvalidOperationException("轴IO状态读取接口未初始化");
+        }
+        public ushort GetAxisAlarmCode(ushort card, ushort axis)
+        {
+            EnsureCardInitialized();
+            return getAxisAlarmCode?.Invoke(card, axis)
+                ?? throw new InvalidOperationException("轴报警码读取接口未初始化");
         }
         public void InitCardType()
         {
@@ -340,6 +446,8 @@ namespace Automation.MotionControl
             setAllAxisEquiv = ls.SetAllAxisEquiv;
             cleanAlarm = ls.CleanAlarm;
             getAxisCurSpeed = ls.GetAxisCurSpeed;
+            getAxisAlarmCode = ls.GetAxisAlarmCode;
+            getAxisIoStatus = ls.GetAxisIoStatus;
         }
 
     }

@@ -231,26 +231,6 @@ namespace Automation
             [Browsable(false)]
             public double Vel { get; set; } = 1;
 
-            // 0 已就绪， 1 运动中 -1 未就绪
-
-            [Browsable(false)]
-            [JsonIgnore]
-            public Status State { get; set; } = 0;
-
-            public Status GetState()
-            {
-                return State;
-            }
-            public void SetState(Status state)
-            {
-                State = state;
-            }
-            public enum Status
-            {
-                NotReady = -1,
-                Ready,
-                Run,
-            }
             //运行过程中使用的速度参数
             [JsonIgnore]
             public double SpeedRun = 100;
@@ -399,7 +379,15 @@ namespace Automation
 
             List<DataStation> dataStationsTemp = SF.mainfrm.ReadJson<List<DataStation>>(SF.ConfigPath, "DataStation");
             if (dataStationsTemp != null)
+            {
                 dataStation = dataStationsTemp;
+            }
+            if (!SF.cardStore.TryValidateStations(dataStation, out List<string> stationErrors))
+            {
+                SF.DR?.Logger?.Log("工站配置加载校验失败：" + string.Join("; ", stationErrors), LogLevel.Error);
+                MessageBox.Show("工站配置校验失败：\r\n" + string.Join("\r\n", stationErrors),
+                    "工站配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
             if (SF.DR?.Context != null)
             {
                 SF.DR.Context.Stations = dataStation;
@@ -792,10 +780,10 @@ namespace Automation
             set
             {
                 cardNum = value;
-                if ((SF.isModify == ModifyKind.Station || CardNum != null) && value != "-1")
+                if (value != "-1" && CardNum != null && SF.cardStore != null)
                 {
-                    int num = int.Parse(cardNum);
-                    if (CardNum != null && SF.cardStore.TryGetControlCard(num, out ControlCard controlCard))
+                    if (int.TryParse(cardNum, out int num)
+                        && SF.cardStore.TryGetControlCard(num, out ControlCard controlCard))
                     {
                         axisItme.Clear();
                         foreach (var item in controlCard.axis)
@@ -818,9 +806,12 @@ namespace Automation
             set
             {
                 axisName = value;
-                if ((SF.isModify == ModifyKind.Station || SF.frmCard.IsNewStation) && value != "-1")
+                if (value != "-1"
+                    && (SF.isModify == ModifyKind.Station || SF.frmCard?.IsNewStation == true)
+                    && SF.cardStore != null
+                    && int.TryParse(CardNum, out int cardNum))
                 {
-                    if (SF.cardStore.TryGetAxisByName(int.Parse(CardNum), value, out Axis axis))
+                    if (SF.cardStore.TryGetAxisByName(cardNum, value, out Axis axis))
                     {
                         this.axis = axis;
                     }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Globalization;
 using System.Windows.Forms;
 using Newtonsoft.Json;
 using static Automation.FrmCard;
@@ -25,7 +26,7 @@ namespace Automation
             {
                 cardData = Normalize(null);
                 Save(configPath);
-                return false;
+                return true;
             }
 
             try
@@ -38,6 +39,12 @@ namespace Automation
                 };
                 Card temp = JsonConvert.DeserializeObject<Card>(json, settings);
                 cardData = Normalize(temp);
+                if (!TryValidateAllAxes(out List<string> errors))
+                {
+                    MessageBox.Show("轴配置校验失败：\r\n" + string.Join("\r\n", errors),
+                        "轴配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return false;
+                }
                 return true;
             }
             catch (Exception e)
@@ -48,13 +55,19 @@ namespace Automation
             }
         }
 
-        public bool Save(string configPath)
+        public bool Save(string configPath, bool validate = true)
         {
             if (!Directory.Exists(configPath))
             {
                 Directory.CreateDirectory(configPath);
             }
             cardData = Normalize(cardData);
+            if (validate && !TryValidateAllAxes(out List<string> errors))
+            {
+                MessageBox.Show("轴配置校验失败：\r\n" + string.Join("\r\n", errors),
+                    "轴配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
             string filePath = Path.Combine(configPath, "card.json");
             var settings = new JsonSerializerSettings
             {
@@ -63,6 +76,184 @@ namespace Automation
             string output = JsonConvert.SerializeObject(cardData, settings);
             File.WriteAllText(filePath, output);
             return true;
+        }
+
+        public bool TryValidateAllAxes(out List<string> errors)
+        {
+            errors = new List<string>();
+            if (cardData?.controlCards == null)
+            {
+                errors.Add("控制卡列表为空。");
+                return false;
+            }
+            for (int cardIndex = 0; cardIndex < cardData.controlCards.Count; cardIndex++)
+            {
+                ControlCard controlCard = cardData.controlCards[cardIndex];
+                if (controlCard?.cardHead == null || controlCard.axis == null)
+                {
+                    errors.Add($"{cardIndex}号卡配置为空。");
+                    continue;
+                }
+                if (controlCard.cardHead.AxisCount != controlCard.axis.Count)
+                {
+                    errors.Add($"{cardIndex}号卡轴数量与轴列表不一致。");
+                }
+                HashSet<string> names = new HashSet<string>(StringComparer.Ordinal);
+                for (int axisIndex = 0; axisIndex < controlCard.axis.Count; axisIndex++)
+                {
+                    Axis axis = controlCard.axis[axisIndex];
+                    if (!TryValidateAxis(cardIndex, axisIndex, axis, out string error))
+                    {
+                        errors.Add(error);
+                        continue;
+                    }
+                    if (!names.Add(axis.AxisName))
+                    {
+                        errors.Add($"{cardIndex}号卡轴名称重复:{axis.AxisName}");
+                    }
+                }
+            }
+            return errors.Count == 0;
+        }
+
+        public bool TryValidateAxis(int cardIndex, int axisIndex, Axis axis, out string error)
+        {
+            error = null;
+            string prefix = $"{cardIndex}号卡{axisIndex}号轴";
+            if (axis == null)
+            {
+                error = prefix + "配置为空。";
+                return false;
+            }
+            if (axis.AxisNum != axisIndex)
+            {
+                error = $"{prefix}的轴号配置错误:{axis.AxisNum}";
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(axis.AxisName))
+            {
+                error = prefix + "名称为空。";
+                return false;
+            }
+            if (axis.PulseToMM <= 0 || axis.SpeedMax <= 0 || axis.AccMax <= 0 || axis.DecMax <= 0)
+            {
+                error = prefix + "脉冲当量、最大速度或加减速参数必须大于0。";
+                return false;
+            }
+            if (!TryParsePositive(axis.HomeSpeed, out _) || !TryParsePositive(axis.LimitSpeed, out _))
+            {
+                error = prefix + "回原速度或找限位速度无效。";
+                return false;
+            }
+            if (axis.HomeType != "从正限位回零"
+                && axis.HomeType != "从负限位回零"
+                && axis.HomeType != "从当前位回零")
+            {
+                error = $"{prefix}回原模式无效:{axis.HomeType}";
+                return false;
+            }
+            return true;
+        }
+
+        public bool TryValidateStations(IEnumerable<DataStation> stations, out List<string> errors)
+        {
+            errors = new List<string>();
+            if (stations == null)
+            {
+                errors.Add("工站列表为空。");
+                return false;
+            }
+            HashSet<string> stationNames = new HashSet<string>(StringComparer.Ordinal);
+            int stationIndex = -1;
+            foreach (DataStation station in stations)
+            {
+                stationIndex++;
+                if (station == null || string.IsNullOrWhiteSpace(station.Name))
+                {
+                    errors.Add($"{stationIndex}号工站为空或名称为空。");
+                    continue;
+                }
+                if (!stationNames.Add(station.Name))
+                {
+                    errors.Add($"工站名称重复:{station.Name}");
+                }
+                if (station.dataAxis == null || station.homeSeq == null)
+                {
+                    errors.Add($"工站{station.Name}轴配置或回原顺序为空。");
+                    continue;
+                }
+                AxisConfig[] configs =
+                {
+                    station.dataAxis?.axisConfig1, station.dataAxis?.axisConfig2, station.dataAxis?.axisConfig3,
+                    station.dataAxis?.axisConfig4, station.dataAxis?.axisConfig5, station.dataAxis?.axisConfig6
+                };
+                if (station.dataAxis.axisConfigs == null)
+                {
+                    station.dataAxis.axisConfigs = new List<AxisConfig>();
+                }
+                station.dataAxis.axisConfigs.Clear();
+                station.dataAxis.axisConfigs.AddRange(configs);
+                HashSet<string> configuredNames = new HashSet<string>(StringComparer.Ordinal);
+                HashSet<long> physicalAxes = new HashSet<long>();
+                foreach (AxisConfig config in configs)
+                {
+                    if (config == null || config.AxisName == "-1")
+                    {
+                        continue;
+                    }
+                    if (!int.TryParse(config.CardNum, NumberStyles.None, CultureInfo.InvariantCulture, out int cardIndex)
+                        || !TryGetAxisByName(cardIndex, config.AxisName, out Axis resolvedAxis))
+                    {
+                        errors.Add($"工站{station.Name}轴配置不存在:{config.CardNum}-{config.AxisName}");
+                        continue;
+                    }
+                    long key = ((long)cardIndex << 32) | (uint)resolvedAxis.AxisNum;
+                    if (!physicalAxes.Add(key))
+                    {
+                        errors.Add($"工站{station.Name}重复配置同一物理轴:{config.CardNum}-{config.AxisName}");
+                    }
+                    configuredNames.Add(config.AxisName);
+                    config.axis = resolvedAxis;
+                }
+                AxisName[] sequence =
+                {
+                    station.homeSeq?.AxisName1, station.homeSeq?.AxisName2, station.homeSeq?.AxisName3,
+                    station.homeSeq?.AxisName4, station.homeSeq?.AxisName5, station.homeSeq?.AxisName6
+                };
+                if (station.homeSeq.axisSeq == null)
+                {
+                    station.homeSeq.axisSeq = new List<AxisName>();
+                }
+                station.homeSeq.axisSeq.Clear();
+                station.homeSeq.axisSeq.AddRange(sequence);
+                HashSet<string> sequenceNames = new HashSet<string>(StringComparer.Ordinal);
+                foreach (AxisName item in sequence)
+                {
+                    if (item == null || item.Name == "-1")
+                    {
+                        continue;
+                    }
+                    if (!configuredNames.Contains(item.Name))
+                    {
+                        errors.Add($"工站{station.Name}回原顺序引用了未配置轴:{item.Name}");
+                    }
+                    else if (!sequenceNames.Add(item.Name))
+                    {
+                        errors.Add($"工站{station.Name}回原顺序轴重复:{item.Name}");
+                    }
+                }
+                if (configuredNames.Count == 0)
+                {
+                    errors.Add($"工站{station.Name}没有配置任何轴。");
+                }
+            }
+            return errors.Count == 0;
+        }
+
+        private static bool TryParsePositive(string text, out double value)
+        {
+            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+                && value > 0 && !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         public void SetCard(Card card)

@@ -130,7 +130,10 @@ namespace Automation
                                     MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
                                     throw CreateAlarmException(evt, evt?.alarmMsg);
                                 }
-                                if (Context.CardStore.TryGetAxis(cardNum, i, out Axis axisInfo) && axisInfo.State == Axis.Status.Ready)
+                                AxisConfig axisConfig = station.dataAxis.axisConfigs[i];
+                                ushort axisNum = (ushort)axisConfig.axis.AxisNum;
+                                if (Context.Motion.GetInPos((ushort)cardNum, axisNum)
+                                    && Context.Motion.HomeStatus((ushort)cardNum, axisNum))
                                 {
                                     isInPos = true;
                                 }
@@ -272,22 +275,33 @@ namespace Automation
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     station.SetState(DataStation.Status.Run);
+                    List<AxisCommandRequest> motionRequests = new List<AxisCommandRequest>();
                     for (int i = 0; i < 6; i++)
                     {
-                        if (!commandEnabled[i])
+                        if (commandEnabled[i])
                         {
-                            continue;
+                            motionRequests.Add(new AxisCommandRequest(commandCards[i], commandAxes[i], AxisCommandKind.Motion));
                         }
-                        Context.Motion.SetMovParam(commandCards[i], commandAxes[i], 0, commandVel[i], commandAcc[i], commandDec[i],
-                            0, 0, commandEquiv[i]);
                     }
-                    for (int i = 0; i < 6; i++)
+                    using (Context.Motion.ValidateAxesForCommand(motionRequests))
                     {
-                        if (!commandEnabled[i])
+                        for (int i = 0; i < 6; i++)
                         {
-                            continue;
+                            if (!commandEnabled[i])
+                            {
+                                continue;
+                            }
+                            Context.Motion.SetMovParam(commandCards[i], commandAxes[i], 0, commandVel[i], commandAcc[i], commandDec[i],
+                                0, 0, commandEquiv[i]);
                         }
-                        Context.Motion.Mov(commandCards[i], commandAxes[i], Poses[i], 1, false);
+                        for (int i = 0; i < 6; i++)
+                        {
+                            if (!commandEnabled[i])
+                            {
+                                continue;
+                            }
+                            Context.Motion.Mov(commandCards[i], commandAxes[i], Poses[i], 1, false);
+                        }
                     }
                     if (!stationRunPos.isUnWait)
                     {
@@ -735,17 +749,22 @@ namespace Automation
                 throw CreateAlarmException(evt, trayResourceError);
             }
             station.SetState(DataStation.Status.Run);
-            for (int i = 0; i < cardNums.Count; i++)
+            List<AxisCommandRequest> trayRequests = cardNums
+                .Select((card, index) => new AxisCommandRequest(card, axisNums[index], AxisCommandKind.Motion))
+                .ToList();
+            using (Context.Motion.ValidateAxesForCommand(trayRequests))
             {
-                Axis axisInfo = axes[i];
-                int stationAxisIndex = stationAxisIndexes[i];
-                Context.Motion.SetMovParam(cardNums[i], axisNums[i], 0, velocities[i], accelerations[i], decelerations[i],
-                    0, 0, axisInfo.PulseToMM);
-            }
-            for (int i = 0; i < cardNums.Count; i++)
-            {
-                int stationAxisIndex = stationAxisIndexes[i];
-                Context.Motion.Mov(cardNums[i], axisNums[i], targetPos[stationAxisIndex], 1, false);
+                for (int i = 0; i < cardNums.Count; i++)
+                {
+                    Axis axisInfo = axes[i];
+                    Context.Motion.SetMovParam(cardNums[i], axisNums[i], 0, velocities[i], accelerations[i], decelerations[i],
+                        0, 0, axisInfo.PulseToMM);
+                }
+                for (int i = 0; i < cardNums.Count; i++)
+                {
+                    int stationAxisIndex = stationAxisIndexes[i];
+                    Context.Motion.Mov(cardNums[i], axisNums[i], targetPos[stationAxisIndex], 1, false);
+                }
             }
 
             if (!trayRunPos.isUnWait)
@@ -1275,15 +1294,21 @@ namespace Automation
                     throw CreateAlarmException(evt, relativeResourceError);
                 }
                 station.SetState(DataStation.Status.Run);
-                for (int i = 0; i < cardNums.Count; i++)
+                List<AxisCommandRequest> relativeRequests = cardNums
+                    .Select((card, index) => new AxisCommandRequest(card, axisNums[index], AxisCommandKind.Motion))
+                    .ToList();
+                using (Context.Motion.ValidateAxesForCommand(relativeRequests))
                 {
-                    Axis axisInfo = axes[i];
-                    Context.Motion.SetMovParam(cardNums[i], axisNums[i], 0, velocities[i], accelerations[i], decelerations[i],
-                        0, 0, axisInfo.PulseToMM);
-                }
-                for (int i = 0; i < cardNums.Count; i++)
-                {
-                    Context.Motion.Mov(cardNums[i], axisNums[i], distances[i], 0, false);
+                    for (int i = 0; i < cardNums.Count; i++)
+                    {
+                        Axis axisInfo = axes[i];
+                        Context.Motion.SetMovParam(cardNums[i], axisNums[i], 0, velocities[i], accelerations[i], decelerations[i],
+                            0, 0, axisInfo.PulseToMM);
+                    }
+                    for (int i = 0; i < cardNums.Count; i++)
+                    {
+                        Context.Motion.Mov(cardNums[i], axisNums[i], distances[i], 0, false);
+                    }
                 }
                 if (!stationRunRel.isUnWait)
                 {
@@ -1528,7 +1553,8 @@ namespace Automation
                             MarkAlarm(evt, $"工站：{waitStationStop.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在");
                             throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
-                        if (Context.Motion.HomeStatus(cardNums[i], axisNums[i]) && axisInfo.GetState() == Axis.Status.Ready)
+                        if (Context.Motion.GetInPos(cardNums[i], axisNums[i])
+                            && Context.Motion.HomeStatus(cardNums[i], axisNums[i]))
                         {
                             isInPos = true;
                         }
@@ -1575,7 +1601,6 @@ namespace Automation
                     Context.Motion.StopOneAxis(cardNum,
                         (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum,
                         0);
-                    station.dataAxis.axisConfigs[i].axis.SetState(Axis.Status.Ready);
                 }
             }
             station.SetState(DataStation.Status.Ready);
@@ -1584,10 +1609,6 @@ namespace Automation
         private void StopAxis(int card, int axis)
         {
             Context.Motion?.StopOneAxis((ushort)card, (ushort)axis, 0);
-            if (Context.CardStore != null && Context.CardStore.TryGetAxis(card, axis, out Axis axisInfo))
-            {
-                axisInfo.SetState(Axis.Status.Ready);
-            }
         }
 
         private void ReportHomeAlarm(ProcHandle evt, string message, bool stopOnAlarm)
@@ -1629,17 +1650,8 @@ namespace Automation
                             ReportHomeAlarm(evt, $"卡号无效:{item.CardNum}", stopOnAlarm);
                             return;
                         }
-                        HomeSingleAxis(cardNum, (ushort)item.axis.AxisNum, evt, stopOnAlarm);
-                        int configuredAxis = item.axis.AxisNum;
-                        if (Context.CardStore == null || !Context.CardStore.TryGetAxis(cardNum, configuredAxis, out Axis axisInfo))
+                        if (!HomeSingleAxis(cardNum, (ushort)item.axis.AxisNum, evt, stopOnAlarm))
                         {
-                            ReportHomeAlarm(evt, $"卡{item.CardNum}轴{configuredAxis}配置不存在，工站回零动作终止。", stopOnAlarm);
-                            return;
-                        }
-
-                        if (axisInfo.State == Axis.Status.NotReady)
-                        {
-                            ReportHomeAlarm(evt, $"卡{item.CardNum}轴{configuredAxis}回零失败,工站回零动作终止。", stopOnAlarm);
                             return;
                         }
                         break;
@@ -1716,27 +1728,26 @@ namespace Automation
             }
         }
 
-        private void HomeSingleAxis(ushort cardNum, ushort axis, ProcHandle evt, bool stopOnAlarm)
+        private bool HomeSingleAxis(ushort cardNum, ushort axis, ProcHandle evt, bool stopOnAlarm)
         {
             if (Context.Motion == null || Context.CardStore == null)
             {
                 ReportHomeAlarm(evt, "运动控制未初始化", stopOnAlarm);
-                return;
+                return false;
             }
             if (evt.CancellationToken.IsCancellationRequested)
             {
-                return;
+                return false;
             }
             if (!Context.Motion.GetInPos(cardNum, axis))
             {
                 ReportHomeAlarm(evt, $"轴未到位，禁止回零:{cardNum}-{axis}", stopOnAlarm);
-                return;
+                return false;
             }
-            ushort dir = 0;
             if (!Context.CardStore.TryGetAxis(cardNum, axis, out Axis axisInfo))
             {
                 ReportHomeAlarm(evt, $"轴配置不存在:{cardNum}-{axis}", stopOnAlarm);
-                return;
+                return false;
             }
             if (axisInfo.PulseToMM <= 0
                 || !double.TryParse(axisInfo.LimitSpeed, out double limitSpeed) || limitSpeed <= 0
@@ -1744,27 +1755,23 @@ namespace Automation
                 || axisInfo.AccMax <= 0 || axisInfo.DecMax <= 0)
             {
                 ReportHomeAlarm(evt, $"轴回零参数无效:{cardNum}-{axis}", stopOnAlarm);
-                return;
+                return false;
             }
             if (!TryAcquireMotionResource(evt, cardNum, axis, out string resourceError))
             {
                 ReportHomeAlarm(evt, resourceError, stopOnAlarm);
-                return;
+                return false;
             }
-            axisInfo.State = Axis.Status.Run;
-            int sfc = 1;
-            if (axisInfo.HomeType == "从当前位回零")
-            {
-                sfc = 10;
-            }
-            int IOindex = 3;
+
+            ushort dir = 0;
+            int sfc = axisInfo.HomeType == "从当前位回零" ? 10 : 1;
+            int limitBit = 3;
             if (axisInfo.HomeType == "从正限位回零")
             {
                 dir = 1;
-                IOindex = 2;
+                limitBit = 2;
             }
-            int IOindexTemp = IOindex == 2 ? 3 : 2;
-
+            int oppositeLimitBit = limitBit == 2 ? 3 : 2;
             Stopwatch homeStopwatch = Stopwatch.StartNew();
             using (evt.CancellationToken.Register(() =>
             {
@@ -1778,97 +1785,107 @@ namespace Automation
                 }
             }))
             {
-                while (axisInfo.State == Axis.Status.Run
-                    && !evt.CancellationToken.IsCancellationRequested)
+                while (!evt.CancellationToken.IsCancellationRequested)
                 {
                     if (homeStopwatch.ElapsedMilliseconds > 120000)
                     {
                         Context.Motion.StopOneAxis(cardNum, axis, 0);
-                        axisInfo.State = Axis.Status.NotReady;
                         ReportHomeAlarm(evt, $"轴回零超时:{cardNum}-{axis}", stopOnAlarm);
-                        return;
+                        return false;
                     }
                     switch (sfc)
                     {
-                    case 1:
-                        Context.Motion.SetMovParam(cardNum, axis, 0, limitSpeed, axisInfo.AccMax,
-                            axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
-                        Context.Motion.Jog(cardNum, axis, dir);
-                        if (!WaitDelay(20, evt.CancellationToken))
-                        {
-                            return;
-                        }
-                        sfc = 2;
-                        break;
-                    case 2:
-                        if (GetAxisStateBit(cardNum, axis, IOindex))
-                        {
-                            sfc = 10;
-                        }
-                        if (GetAxisStateBit(cardNum, axis, IOindexTemp))
-                        {
-                            if (!WaitDelay(1000, evt.CancellationToken))
+                        case 1:
+                            using (Context.Motion.ValidateAxesForCommand(new[]
                             {
-                                return;
+                                new AxisCommandRequest(cardNum, axis, AxisCommandKind.Home)
+                            }))
+                            {
+                                Context.Motion.SetMovParam(cardNum, axis, 0, limitSpeed, axisInfo.AccMax,
+                                    axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
+                                Context.Motion.Jog(cardNum, axis, dir);
                             }
-                            if (GetAxisStateBit(cardNum, axis, IOindexTemp))
+                            if (!WaitDelay(20, evt.CancellationToken))
                             {
-                                ReportHomeAlarm(evt, "限位方向错误，回零失败。", stopOnAlarm);
-                                axisInfo.State = Axis.Status.NotReady;
-                                return;
+                                return false;
                             }
-
-                        }
-                        if (!WaitDelay(20, evt.CancellationToken))
-                        {
-                            return;
-                        }
-                        break;
-                    case 10:
-                        Context.Motion.SetMovParam(cardNum, axis, 0, homeSpeed, axisInfo.AccMax,
-                            axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
-                        if (axisInfo.HomeType != "从当前位回零")
-                        {
-                            Context.Motion.SettHomeParam(cardNum, axis, dir, 1, 1);
-                        }
-                        Context.Motion.StartHome(cardNum, axis);
-                        if (!WaitDelay(20, evt.CancellationToken))
-                        {
-                            return;
-                        }
-                        sfc = 20;
-                        break;
-                    case 20:
-                        if (Context.Motion.GetInPos(cardNum, axis))
-                        {
-                            if (!WaitDelay(300, evt.CancellationToken))
+                            sfc = 2;
+                            break;
+                        case 2:
+                            if (GetAxisStateBit(cardNum, axis, oppositeLimitBit))
                             {
-                                return;
+                                if (!WaitDelay(1000, evt.CancellationToken))
+                                {
+                                    return false;
+                                }
+                                if (GetAxisStateBit(cardNum, axis, oppositeLimitBit))
+                                {
+                                    ReportHomeAlarm(evt, "限位方向错误，回零失败。", stopOnAlarm);
+                                    return false;
+                                }
                             }
-                            if (Context.Motion.HomeStatus(cardNum, axis) == true)
+                            if (GetAxisStateBit(cardNum, axis, limitBit))
                             {
+                                Context.Motion.StopOneAxis(cardNum, axis, 0);
+                                while (!Context.Motion.GetInPos(cardNum, axis))
+                                {
+                                    if (!WaitDelay(5, evt.CancellationToken))
+                                    {
+                                        return false;
+                                    }
+                                }
+                                sfc = 10;
+                                break;
+                            }
+                            if (!WaitDelay(20, evt.CancellationToken))
+                            {
+                                return false;
+                            }
+                            break;
+                        case 10:
+                            using (Context.Motion.ValidateAxesForCommand(new[]
+                            {
+                                new AxisCommandRequest(cardNum, axis, AxisCommandKind.Home)
+                            }))
+                            {
+                                Context.Motion.SetMovParam(cardNum, axis, 0, homeSpeed, axisInfo.AccMax,
+                                    axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
+                                if (axisInfo.HomeType != "从当前位回零")
+                                {
+                                    Context.Motion.SettHomeParam(cardNum, axis, dir, 1, 1);
+                                }
+                                Context.Motion.StartHome(cardNum, axis);
+                            }
+                            if (!WaitDelay(20, evt.CancellationToken))
+                            {
+                                return false;
+                            }
+                            sfc = 20;
+                            break;
+                        case 20:
+                            if (Context.Motion.GetInPos(cardNum, axis))
+                            {
+                                if (!WaitDelay(300, evt.CancellationToken))
+                                {
+                                    return false;
+                                }
+                                if (!Context.Motion.HomeStatus(cardNum, axis))
+                                {
+                                    ReportHomeAlarm(evt, "控制卡报告回零失败。", stopOnAlarm);
+                                    return false;
+                                }
                                 Context.Motion.CleanPos(cardNum, axis);
-                                axisInfo.State = 0;
-                                sfc = 0;
+                                return true;
                             }
-                            else
+                            if (!WaitDelay(20, evt.CancellationToken))
                             {
-                                ReportHomeAlarm(evt, "限位方向错误，回零失败。", stopOnAlarm);
-                                axisInfo.State = Axis.Status.NotReady;
-                                sfc = 0;
-                                return;
+                                return false;
                             }
-
-                        }
-                        if (!WaitDelay(20, evt.CancellationToken))
-                        {
-                            return;
-                        }
-                        break;
-
+                            break;
                     }
                 }
             }
+            return false;
         }
 
         private bool WaitDelay(int milliSecond, CancellationToken token)

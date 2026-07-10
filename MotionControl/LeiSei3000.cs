@@ -18,6 +18,25 @@ namespace Automation
     public class LS
     {
         public bool IsCardInitialized { get; private set; }
+        private readonly object profileLock = new object();
+        private readonly Dictionary<long, MotionProfile> appliedProfiles = new Dictionary<long, MotionProfile>();
+
+        private sealed class MotionProfile
+        {
+            public double MinVel;
+            public double MaxVel;
+            public double Acc;
+            public double Dec;
+            public double StopVel;
+            public double SPara;
+            public int Equiv;
+
+            public bool Matches(double minVel, double maxVel, double acc, double dec, double stopVel, double sPara, int equiv)
+            {
+                return MinVel == minVel && MaxVel == maxVel && Acc == acc && Dec == dec
+                    && StopVel == stopVel && SPara == sPara && Equiv == equiv;
+            }
+        }
 
         private static void EnsureSuccess(short result, string operation, ushort card, ushort axis)
         {
@@ -28,6 +47,10 @@ namespace Automation
         }
         public ushort InitCard()
         {
+            lock (profileLock)
+            {
+                appliedProfiles.Clear();
+            }
             IsCardInitialized = true;
             short num = LTDMC.dmc_board_init();//获取卡数量
             if (num <= 0 || num > 8)
@@ -54,11 +77,24 @@ namespace Automation
         public void SetMovParam(ushort card,ushort axis, double minVel, double dMaxVel, double acc, double dec, double dStopVel, double dS_para,int equiv)
         {
             if (equiv <= 0 || dMaxVel <= 0 || acc <= 0 || dec <= 0
+                || minVel < 0 || dStopVel < 0 || dS_para < 0
+                || double.IsNaN(minVel) || double.IsInfinity(minVel)
                 || double.IsNaN(dMaxVel) || double.IsInfinity(dMaxVel)
                 || double.IsNaN(acc) || double.IsInfinity(acc)
-                || double.IsNaN(dec) || double.IsInfinity(dec))
+                || double.IsNaN(dec) || double.IsInfinity(dec)
+                || double.IsNaN(dStopVel) || double.IsInfinity(dStopVel)
+                || double.IsNaN(dS_para) || double.IsInfinity(dS_para))
             {
                 throw new ArgumentOutOfRangeException(nameof(dMaxVel), $"运动参数无效:卡{card},轴{axis}");
+            }
+            long key = ((long)card << 32) | axis;
+            lock (profileLock)
+            {
+                if (appliedProfiles.TryGetValue(key, out MotionProfile profile)
+                    && profile.Matches(minVel, dMaxVel, acc, dec, dStopVel, dS_para, equiv))
+                {
+                    return;
+                }
             }
              //axis; //轴号
              //dEquiv; //脉冲当量
@@ -75,6 +111,20 @@ namespace Automation
           //  LTDMC.dmc_set_acc_profile(card, axis, minVel, dMaxVel, acc, dec, dStopVel);
 
              EnsureSuccess(LTDMC.dmc_set_s_profile(card, axis, 0, dS_para), "设置S曲线", card, axis);
+
+             lock (profileLock)
+             {
+                 appliedProfiles[key] = new MotionProfile
+                 {
+                     MinVel = minVel,
+                     MaxVel = dMaxVel,
+                     Acc = acc,
+                     Dec = dec,
+                     StopVel = dStopVel,
+                     SPara = dS_para,
+                     Equiv = equiv
+                 };
+             }
 
           //  LTDMC.dmc_set_dec_stop_time(_CardID, axis, dTdec); //设置减速停止时间
 
@@ -144,7 +194,16 @@ namespace Automation
         // 读取指定轴使能状态
         public bool GetAxisSevon(ushort card, ushort axis) 
         {
-            return LTDMC.dmc_read_sevon_pin(card, axis) == 0 ? true : false;
+            short result = LTDMC.dmc_read_sevon_pin(card, axis);
+            if (result == 0)
+            {
+                return true;
+            }
+            if (result == 1)
+            {
+                return false;
+            }
+            throw new InvalidOperationException($"读取轴使能状态失败:卡{card},轴{axis},返回值{result}");
         }
         // 设置指定轴使能状态
         public void SetAxisSevon(ushort card, ushort axis,bool isSevon)
@@ -179,6 +238,27 @@ namespace Automation
                 throw new InvalidOperationException($"关闭运动控制卡失败:错误码{result}");
             }
             IsCardInitialized = false;
+            lock (profileLock)
+            {
+                appliedProfiles.Clear();
+            }
+        }
+
+        public ushort GetAxisAlarmCode(ushort card, ushort axis)
+        {
+            uint ioStatus = GetAxisIoStatus(card, axis);
+            if ((ioStatus & 1u) == 0)
+            {
+                return 0;
+            }
+            ushort errorCode = 0;
+            short result = LTDMC.nmc_get_axis_errcode(card, axis, ref errorCode);
+            return result == 0 && errorCode != 0 ? errorCode : ushort.MaxValue;
+        }
+
+        public uint GetAxisIoStatus(ushort card, ushort axis)
+        {
+            return LTDMC.dmc_axis_io_status(card, axis);
         }
 
         //设置回零参数
@@ -199,12 +279,12 @@ namespace Automation
         //位置清零
         public void CleanPos(ushort card, ushort axis)
         {
-            LTDMC.dmc_set_position(card, axis, 0);
+            EnsureSuccess(LTDMC.dmc_set_position(card, axis, 0), "清零指令位置", card, axis);
         }
         //编码器位置清零
         public void CleanPosEncoder(ushort card, ushort axis)
         {
-            LTDMC.dmc_set_encoder(card, axis, 0);
+            EnsureSuccess(LTDMC.dmc_set_encoder(card, axis, 0), "清零编码器位置", card, axis);
         }
 
         public bool HomeStatus(ushort card, ushort axis) 
@@ -264,6 +344,10 @@ namespace Automation
 
         public void DownLoadConfig()
         {
+            lock (profileLock)
+            {
+                appliedProfiles.Clear();
+            }
             string folderPath = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) + "\\Config";
             string searchPattern = "card_*";
             if (Directory.Exists(folderPath))
@@ -308,6 +392,10 @@ namespace Automation
 
         public void SetAllAxisEquiv()
         {
+            lock (profileLock)
+            {
+                appliedProfiles.Clear();
+            }
             for (int i = 0; i < SF.cardStore.GetControlCardCount(); i++)
             {
 
