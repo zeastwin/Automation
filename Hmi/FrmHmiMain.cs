@@ -2,27 +2,33 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace Automation.Peripheral
+namespace Automation.Hmi
 {
-    public sealed partial class FrmPeripheralMain : Form
+    public sealed partial class FrmHmiMain : Form
     {
         private readonly System.Windows.Forms.Timer refreshTimer;
-        private readonly PeripheralHomePage homePage;
-        private readonly PeripheralDebugPage debugPage;
+        private readonly HmiHomePage homePage;
+        private readonly HmiDebugPage debugPage;
         private readonly AlarmHistoryPage alarmHistoryPage;
-        private readonly PeripheralCapacityPage capacityPage;
+        private readonly HmiCapacityPage capacityPage;
         private readonly Form[] pageForms;
         private AutomationPlatformHost platformHost;
         private bool closingConfirmed;
         private bool hostEventsDetached;
 
-        public FrmPeripheralMain()
+        public FrmHmiMain()
         {
             InitializeComponent();
-            homePage = new PeripheralHomePage();
-            debugPage = new PeripheralDebugPage();
+            Icon executableIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            if (executableIcon != null)
+            {
+                Icon = executableIcon;
+            }
+            headerPanel.Resize += HeaderPanel_Resize;
+            homePage = new HmiHomePage();
+            debugPage = new HmiDebugPage();
             alarmHistoryPage = new AlarmHistoryPage();
-            capacityPage = new PeripheralCapacityPage();
+            capacityPage = new HmiCapacityPage();
             pageForms = new Form[] { homePage, debugPage, alarmHistoryPage, capacityPage };
             foreach (Form pageForm in pageForms)
             {
@@ -34,13 +40,27 @@ namespace Automation.Peripheral
             }
             refreshTimer = new System.Windows.Forms.Timer { Interval = 500 };
             refreshTimer.Tick += RefreshTimer_Tick;
-            Shown += FrmPeripheralMain_Shown;
-            FormClosing += FrmPeripheralMain_FormClosing;
-            Disposed += FrmPeripheralMain_Disposed;
+            Shown += FrmHmiMain_Shown;
+            FormClosing += FrmHmiMain_FormClosing;
+            Disposed += FrmHmiMain_Disposed;
             ShowPage(homePage, btnHome);
+            CenterNavigationButtons();
         }
 
-        public FrmPeripheralMain(AutomationPlatformHost platformHost)
+        private void HeaderPanel_Resize(object sender, EventArgs e)
+        {
+            CenterNavigationButtons();
+        }
+
+        private void CenterNavigationButtons()
+        {
+            int centeredLeft = (headerPanel.ClientSize.Width - navigationPanel.Width) / 2;
+            int maximumLeft = btnStartProcess.Left - navigationPanel.Width - 12;
+            navigationPanel.Left = Math.Max(12, Math.Min(centeredLeft, maximumLeft));
+            navigationPanel.Top = Math.Max(0, (headerPanel.ClientSize.Height - navigationPanel.Height) / 2);
+        }
+
+        public FrmHmiMain(AutomationPlatformHost platformHost)
             : this()
         {
             this.platformHost = platformHost ?? throw new ArgumentNullException(nameof(platformHost));
@@ -50,7 +70,7 @@ namespace Automation.Peripheral
             platformHost.ValueChanged += PlatformHost_ValueChanged;
         }
 
-        private void FrmPeripheralMain_Shown(object sender, EventArgs e)
+        private void FrmHmiMain_Shown(object sender, EventArgs e)
         {
             refreshTimer.Start();
             RefreshRuntimeView();
@@ -143,8 +163,8 @@ namespace Automation.Peripheral
             foreach (Button button in buttons)
             {
                 bool active = ReferenceEquals(button, selected);
-                button.BackColor = active ? Color.FromArgb(32, 104, 163) : Color.FromArgb(24, 38, 54);
-                button.ForeColor = active ? Color.White : Color.FromArgb(202, 216, 228);
+                button.BackColor = active ? Color.FromArgb(20, 126, 197) : Color.FromArgb(24, 38, 54);
+                button.ForeColor = Color.White;
             }
         }
 
@@ -168,11 +188,11 @@ namespace Automation.Peripheral
             // 由界面定时器统一读取状态，避免流程线程操作 WinForms 控件。
         }
 
-        private void FrmPeripheralMain_FormClosing(object sender, FormClosingEventArgs e)
+        private void FrmHmiMain_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (!closingConfirmed && e.CloseReason == CloseReason.UserClosing)
             {
-                if (MessageBox.Show(this, "确认退出外围程序并停止全部流程？", "退出确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                if (MessageBox.Show(this, "确认退出 HMI 程序并停止全部流程？", "退出确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
                 {
                     e.Cancel = true;
                     return;
@@ -185,7 +205,7 @@ namespace Automation.Peripheral
             platformHost?.Shutdown();
         }
 
-        private void FrmPeripheralMain_Disposed(object sender, EventArgs e)
+        private void FrmHmiMain_Disposed(object sender, EventArgs e)
         {
             refreshTimer.Dispose();
             DetachHostEvents();

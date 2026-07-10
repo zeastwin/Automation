@@ -24,7 +24,7 @@
 - `IntentTemplates/` — 本地中间意图模板 `intent_templates.json`。
 - `McpServer/` — 独立进程，把 Bridge 透传为 MCP Streamable HTTP 服务。
 - `MotionControl/` — 运动控制（雷赛 LTDMC/LeiSei3000）。
-- `Peripheral/` — 正式外围 WinForms 应用层；`FrmPeripheralMain` 是默认启动窗体，外围只能通过 `AutomationPlatformHost` 访问平台能力。
+- `Hmi/` — 面向客户和现场操作的正式 HMI 应用层；`FrmHmiMain` 是默认启动窗体，HMI 只能通过 `AutomationPlatformHost` 访问平台能力。
 - `PLC/` — PLC 通讯（S7/ModbusTcp）。
 - `Runtime/` — `AutomationPlatformHost`、`AppConfigStorage`、`GooseConfigStorage`、`AutomationMcpServerManager`。
 - `Stores/` — 各类配置 Store 与 `LocalFileLogger`。
@@ -33,13 +33,13 @@
 - `FrmMain.cs` / `FrmProc.cs` / `FrmDataGrid.cs` / `FrmPropertyGrid.cs` — 可隐藏的平台编辑器与流程编辑链。
 
 ## 启动模式
-- `Automation.exe` 无参数启动正式外围 `FrmPeripheralMain`。
+- `Automation.exe` 无参数启动正式 HMI `FrmHmiMain`。
 - `Automation.exe --platform` 直接启动平台编辑器，便于开发调试；其他参数一律拒绝。
-- 外围和平台处于同一 UI 线程、同一进程、同一程序集，共用 `<exe>/Config/`。
+- HMI 和平台处于同一 UI 线程、同一进程、同一程序集，共用 `<exe>/Config/`。
 
 ## 运行时全局对象
 - `SF` 是全局容器，持有窗体、`ProcessEngine`、`MotionCtrl`、各 Store、权限会话。
-- `SF` 仅允许平台内部适配使用；`Peripheral/` 禁止直接引用 `SF`、平台窗体、Store、引擎和原生运动对象。
+- `SF` 仅允许平台内部适配使用；`Hmi/` 禁止直接引用 `SF`、平台窗体、Store、引擎和原生运动对象。
 - `SF.ConfigPath = <exe>/Config/`，`SF.workPath = <exe>/Config/Work/`。
 - 权限入口：`SF.EnsurePermission`（动作级）、`SF.HasPermission`（状态级）、`SF.SetSecurityLock`（停机锁定）。
 - 流程发布：`SF.PublishProc(procIndex)`。
@@ -65,7 +65,7 @@
 - ACP 会话把 Automation MCP Server 作为 HTTP MCP Server 注入 Goose；Goose 不直接访问 Bridge 管道。
 - Provider/Model 仅作 `GOOSE_PROVIDER/GOOSE_MODEL` 环境变量覆盖，空值沿用 Goose 自身配置；不保存模型密钥。
 - AI 助手 Provider 下拉框优先从 Goose config.yaml（`%APPDATA%\Block\goose\config\config.yaml`）读取已注册的 provider 名（如 `custom_deepseek`），避免界面值与 Goose 实际注册名不一致导致 `Unknown provider`；解析由 `GooseConfigStorage.TryLoadGooseProviders` 完成（简单文本解析，无 YAML 依赖）。
-- 正常外围启动不启动 Bridge/MCP；首次显示平台编辑器或打开 AI 页面时启动一次，最终退出时统一关闭。
+- 正常 HMI 启动不启动 Bridge/MCP；首次显示平台编辑器或打开 AI 页面时启动一次，最终退出时统一关闭。
 - Bridge 管道名固定 `AutomationBridgePipe`，协议为 `4字节长度前缀 + UTF-8 JSON`。
 - 写入推荐路径：模板 -> 中间意图 -> `preview_intent` -> 前台确认 -> `apply_intent`（携带 `previewId`）。
 - GooseAcpClient 本地日志：`<exe>/Logs/GooseAcp/yyyy-MM-dd/log_NNN.txt`（按天滚动、5MB 分卷）。

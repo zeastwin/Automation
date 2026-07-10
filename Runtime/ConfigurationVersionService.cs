@@ -47,14 +47,14 @@ namespace Automation
     }
 
     /// <summary>
-    /// 运行时配置的私有 Git 版本服务。工艺层同时保存流程配置和外围源码镜像。
+    /// 运行时配置的私有 Git 版本服务。工艺层同时保存流程配置和 HMI 源码镜像。
     /// </summary>
     public sealed class ConfigurationVersionService
     {
         private const string SnapshotDirectoryName = "Snapshot";
         private const string VersionDirectoryName = ".AutomationVersions";
         private readonly string configPath;
-        private readonly string peripheralSourceRoot;
+        private readonly string hmiSourceRoot;
         private readonly object syncRoot = new object();
         private static readonly object nativeLibraryLock = new object();
         private static bool nativeLibraryConfigured;
@@ -69,7 +69,7 @@ namespace Automation
                 throw new ArgumentException("配置目录不能为空。", nameof(configPath));
             }
             this.configPath = Path.GetFullPath(configPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            peripheralSourceRoot = ResolvePeripheralSourceRoot();
+            hmiSourceRoot = ResolveHmiSourceRoot();
         }
 
         public bool CreateManualSnapshot(ConfigurationVersionLayer layer, string note, string userName, out string error)
@@ -701,26 +701,26 @@ namespace Automation
             }
 
             foreach (string path in beforeFiles.Keys.Union(afterFiles.Keys, StringComparer.OrdinalIgnoreCase)
-                .Where(IsPeripheralRelativePath)
+                .Where(IsHmiRelativePath)
                 .OrderBy(item => item, StringComparer.OrdinalIgnoreCase))
             {
                 beforeFiles.TryGetValue(path, out string beforeText);
                 afterFiles.TryGetValue(path, out string afterText);
                 if (beforeText != afterText)
                 {
-                    AddPeripheralSourceChange(path, beforeText, afterText, result);
+                    AddHmiSourceChange(path, beforeText, afterText, result);
                 }
             }
         }
 
-        private static void AddPeripheralSourceChange(string path, string beforeText, string afterText, ICollection<ConfigurationVersionDiffEntry> result)
+        private static void AddHmiSourceChange(string path, string beforeText, string afterText, ICollection<ConfigurationVersionDiffEntry> result)
         {
             string changeType = beforeText == null ? "新增" : afterText == null ? "删除" : "修改";
             result.Add(NewBusinessDiff(
-                "外围代码",
+                "HMI 代码",
                 changeType,
-                "外围代码「" + Path.GetFileName(path) + "」",
-                "外围应用",
+                "HMI 代码「" + Path.GetFileName(path) + "」",
+                "HMI 应用",
                 "文件内容",
                 GetSourceSummary(beforeText),
                 GetSourceSummary(afterText),
@@ -1109,10 +1109,10 @@ namespace Automation
                 JsonConvert.DeserializeObject<List<DataStruct>>(File.ReadAllText(structPath, Encoding.UTF8), new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, ObjectCreationHandling = ObjectCreationHandling.Replace });
             }
 
-            string peripheralPath = Path.Combine(staging, "Peripheral");
-            if (!Directory.Exists(peripheralPath) || !Directory.GetFiles(peripheralPath, "*.cs", SearchOption.AllDirectories).Any())
+            string hmiPath = Path.Combine(staging, "Hmi");
+            if (!Directory.Exists(hmiPath) || !Directory.GetFiles(hmiPath, "*.cs", SearchOption.AllDirectories).Any())
             {
-                throw new InvalidDataException("工艺层版本缺少外围源码，拒绝还原。");
+                throw new InvalidDataException("工艺层版本缺少 HMI 源码，拒绝还原。");
             }
         }
 
@@ -1180,28 +1180,28 @@ namespace Automation
                 yield break;
             }
 
-            EnsurePeripheralSourceRoot();
-            foreach (string path in Directory.GetFiles(peripheralSourceRoot, "*.*", SearchOption.AllDirectories))
+            EnsureHmiSourceRoot();
+            foreach (string path in Directory.GetFiles(hmiSourceRoot, "*.*", SearchOption.AllDirectories))
             {
-                if (!IsPeripheralSourceFile(path))
+                if (!IsHmiSourceFile(path))
                 {
                     continue;
                 }
-                yield return "Peripheral" + Path.DirectorySeparatorChar + GetRelativePath(peripheralSourceRoot, path);
+                yield return "Hmi" + Path.DirectorySeparatorChar + GetRelativePath(hmiSourceRoot, path);
             }
         }
 
         private string GetManagedFilePath(ConfigurationVersionLayer layer, string relativePath)
         {
-            if (layer == ConfigurationVersionLayer.Process && IsPeripheralRelativePath(relativePath))
+            if (layer == ConfigurationVersionLayer.Process && IsHmiRelativePath(relativePath))
             {
-                EnsurePeripheralSourceRoot();
-                string suffix = relativePath.Substring("Peripheral".Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                string target = Path.GetFullPath(Path.Combine(peripheralSourceRoot, suffix));
-                string root = AppendDirectorySeparator(Path.GetFullPath(peripheralSourceRoot));
+                EnsureHmiSourceRoot();
+                string suffix = relativePath.Substring("Hmi".Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string target = Path.GetFullPath(Path.Combine(hmiSourceRoot, suffix));
+                string root = AppendDirectorySeparator(Path.GetFullPath(hmiSourceRoot));
                 if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new InvalidOperationException("外围源码路径越界:" + relativePath);
+                    throw new InvalidOperationException("HMI 源码路径越界:" + relativePath);
                 }
                 return target;
             }
@@ -1211,43 +1211,43 @@ namespace Automation
         private static bool IsSnapshotManagedRelativePath(ConfigurationVersionLayer layer, string relativePath)
         {
             return IsManagedRelativePath(layer, relativePath)
-                || (layer == ConfigurationVersionLayer.Process && IsPeripheralRelativePath(relativePath) && IsPeripheralSourceFile(relativePath));
+                || (layer == ConfigurationVersionLayer.Process && IsHmiRelativePath(relativePath) && IsHmiSourceFile(relativePath));
         }
 
-        private static bool IsPeripheralRelativePath(string relativePath)
+        private static bool IsHmiRelativePath(string relativePath)
         {
             string normalized = relativePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
                 .TrimStart(Path.DirectorySeparatorChar);
-            return normalized.StartsWith("Peripheral" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            return normalized.StartsWith("Hmi" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool IsPeripheralSourceFile(string path)
+        private static bool IsHmiSourceFile(string path)
         {
             string extension = Path.GetExtension(path);
             return string.Equals(extension, ".cs", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(extension, ".resx", StringComparison.OrdinalIgnoreCase);
         }
 
-        private void EnsurePeripheralSourceRoot()
+        private void EnsureHmiSourceRoot()
         {
-            if (string.IsNullOrWhiteSpace(peripheralSourceRoot) || !Directory.Exists(peripheralSourceRoot))
+            if (string.IsNullOrWhiteSpace(hmiSourceRoot) || !Directory.Exists(hmiSourceRoot))
             {
-                throw new DirectoryNotFoundException("未找到 Peripheral 源码目录，工艺层版本管理不能继续。");
+                throw new DirectoryNotFoundException("未找到 Hmi 源码目录，工艺层版本管理不能继续。");
             }
         }
 
-        private string ResolvePeripheralSourceRoot()
+        private string ResolveHmiSourceRoot()
         {
-            return FindPeripheralSourceRoot(configPath) ?? FindPeripheralSourceRoot(AppDomain.CurrentDomain.BaseDirectory);
+            return FindHmiSourceRoot(configPath) ?? FindHmiSourceRoot(AppDomain.CurrentDomain.BaseDirectory);
         }
 
-        private static string FindPeripheralSourceRoot(string startPath)
+        private static string FindHmiSourceRoot(string startPath)
         {
             string current = startPath;
             for (int i = 0; i < 8 && !string.IsNullOrWhiteSpace(current); i++)
             {
                 string projectFile = Path.Combine(current, "Automation.csproj");
-                string candidate = Path.Combine(current, "Peripheral");
+                string candidate = Path.Combine(current, "Hmi");
                 if (File.Exists(projectFile) && Directory.Exists(candidate))
                 {
                     return Path.GetFullPath(candidate);
@@ -1293,7 +1293,7 @@ namespace Automation
             {
                 if (path.StartsWith("Work" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return "流程";
                 if (string.Equals(file, "value.json", StringComparison.OrdinalIgnoreCase)) return "变量";
-                if (IsPeripheralRelativePath(path)) return "外围代码";
+                if (IsHmiRelativePath(path)) return "HMI 代码";
                 return "数据结构";
             }
             if (string.Equals(file, "DataStation.json", StringComparison.OrdinalIgnoreCase)) return "工站点位";

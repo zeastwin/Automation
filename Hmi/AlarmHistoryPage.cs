@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using System.Windows.Forms;
 
-namespace Automation.Peripheral
+namespace Automation.Hmi
 {
     public partial class AlarmHistoryPage : Form
     {

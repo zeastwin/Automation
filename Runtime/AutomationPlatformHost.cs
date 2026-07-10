@@ -377,7 +377,7 @@ namespace Automation
                 error = "变量值不能为空。";
                 return false;
             }
-            if (SF.valueStore == null || !SF.valueStore.setValueByName(name, value, "外围代码"))
+            if (SF.valueStore == null || !SF.valueStore.setValueByName(name, value, "HMI 代码"))
             {
                 error = $"变量写入失败:{name}";
                 return false;

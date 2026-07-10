@@ -1,6 +1,6 @@
 using System;
 using System.Windows.Forms;
-using Automation.Peripheral;
+using Automation.Hmi;
 
 namespace Automation
 {
@@ -45,14 +45,14 @@ namespace Automation
                     return;
                 }
 
-                using (FrmPeripheralMain peripheralMain = new FrmPeripheralMain(platformHost))
+                using (FrmHmiMain hmiMain = new FrmHmiMain(platformHost))
                 {
                     if (!platformHost.Initialize(out string platformError))
                     {
-                        MessageBox.Show(platformError ?? "平台初始化失败。", "外围启动失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        MessageBox.Show(platformError ?? "平台初始化失败。", "HMI 启动失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
                     }
-                    Application.Run(peripheralMain);
+                    Application.Run(hmiMain);
                 }
             }
         }

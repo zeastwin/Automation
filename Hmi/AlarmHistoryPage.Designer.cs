@@ -1,4 +1,4 @@
-namespace Automation.Peripheral
+namespace Automation.Hmi
 {
     partial class AlarmHistoryPage
     {
@@ -15,7 +15,7 @@ namespace Automation.Peripheral
 
         private void InitializeComponent()
         {
-            System.Windows.Forms.DataGridViewCellStyle headerStyle = new System.Windows.Forms.DataGridViewCellStyle();
+            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle1 = new System.Windows.Forms.DataGridViewCellStyle();
             this.toolbarLayout = new System.Windows.Forms.TableLayoutPanel();
             this.lblDate = new System.Windows.Forms.Label();
             this.dtpDate = new System.Windows.Forms.DateTimePicker();
@@ -24,20 +24,13 @@ namespace Automation.Peripheral
             this.btnChoosePath = new System.Windows.Forms.Button();
             this.btnRead = new System.Windows.Forms.Button();
             this.gridAlarmHistory = new System.Windows.Forms.DataGridView();
-            this.columnAlarmCode = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.columnAlarmContent = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.columnAlarmCategory = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.columnStartTime = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.columnEndTime = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.columnDuration = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.columnLocation = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.toolbarLayout.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.gridAlarmHistory)).BeginInit();
             this.SuspendLayout();
             // 
             // toolbarLayout
             // 
-            this.toolbarLayout.BackColor = System.Drawing.Color.FromArgb(247, 249, 251);
+            this.toolbarLayout.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(247)))), ((int)(((byte)(249)))), ((int)(((byte)(251)))));
             this.toolbarLayout.ColumnCount = 6;
             this.toolbarLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 52F));
             this.toolbarLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 150F));
@@ -64,35 +57,74 @@ namespace Automation.Peripheral
             // 
             this.lblDate.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblDate.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Bold);
-            this.lblDate.ForeColor = System.Drawing.Color.FromArgb(47, 66, 82);
+            this.lblDate.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(47)))), ((int)(((byte)(66)))), ((int)(((byte)(82)))));
+            this.lblDate.Location = new System.Drawing.Point(15, 10);
+            this.lblDate.Name = "lblDate";
+            this.lblDate.Size = new System.Drawing.Size(46, 52);
+            this.lblDate.TabIndex = 0;
             this.lblDate.Text = "日期";
             this.lblDate.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            // 
+            // dtpDate
+            // 
             this.dtpDate.CustomFormat = "yyyy-MM-dd";
             this.dtpDate.Dock = System.Windows.Forms.DockStyle.Fill;
             this.dtpDate.Format = System.Windows.Forms.DateTimePickerFormat.Custom;
+            this.dtpDate.Location = new System.Drawing.Point(64, 17);
             this.dtpDate.Margin = new System.Windows.Forms.Padding(0, 7, 12, 7);
+            this.dtpDate.Name = "dtpDate";
+            this.dtpDate.Size = new System.Drawing.Size(138, 23);
+            this.dtpDate.TabIndex = 1;
+            // 
+            // lblPath
+            // 
             this.lblPath.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblPath.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Bold);
-            this.lblPath.ForeColor = System.Drawing.Color.FromArgb(47, 66, 82);
+            this.lblPath.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(47)))), ((int)(((byte)(66)))), ((int)(((byte)(82)))));
+            this.lblPath.Location = new System.Drawing.Point(217, 10);
+            this.lblPath.Name = "lblPath";
+            this.lblPath.Size = new System.Drawing.Size(86, 52);
+            this.lblPath.TabIndex = 2;
             this.lblPath.Text = "读取路径";
             this.lblPath.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            // 
+            // txtPath
+            // 
             this.txtPath.BackColor = System.Drawing.Color.White;
             this.txtPath.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.txtPath.Location = new System.Drawing.Point(306, 18);
             this.txtPath.Margin = new System.Windows.Forms.Padding(0, 8, 12, 7);
+            this.txtPath.Name = "txtPath";
             this.txtPath.ReadOnly = true;
-            this.btnChoosePath.BackColor = System.Drawing.Color.FromArgb(47, 85, 87);
+            this.txtPath.Size = new System.Drawing.Size(636, 23);
+            this.txtPath.TabIndex = 3;
+            // 
+            // btnChoosePath
+            // 
+            this.btnChoosePath.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(47)))), ((int)(((byte)(85)))), ((int)(((byte)(87)))));
             this.btnChoosePath.Dock = System.Windows.Forms.DockStyle.Fill;
             this.btnChoosePath.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnChoosePath.ForeColor = System.Drawing.Color.White;
+            this.btnChoosePath.Location = new System.Drawing.Point(954, 14);
             this.btnChoosePath.Margin = new System.Windows.Forms.Padding(0, 4, 8, 4);
+            this.btnChoosePath.Name = "btnChoosePath";
+            this.btnChoosePath.Size = new System.Drawing.Size(110, 44);
+            this.btnChoosePath.TabIndex = 4;
             this.btnChoosePath.Text = "选择路径";
             this.btnChoosePath.UseVisualStyleBackColor = false;
             this.btnChoosePath.Click += new System.EventHandler(this.btnChoosePath_Click);
-            this.btnRead.BackColor = System.Drawing.Color.FromArgb(35, 116, 177);
+            // 
+            // btnRead
+            // 
+            this.btnRead.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(35)))), ((int)(((byte)(116)))), ((int)(((byte)(177)))));
             this.btnRead.Dock = System.Windows.Forms.DockStyle.Fill;
             this.btnRead.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnRead.ForeColor = System.Drawing.Color.White;
+            this.btnRead.Location = new System.Drawing.Point(1072, 14);
             this.btnRead.Margin = new System.Windows.Forms.Padding(0, 4, 0, 4);
+            this.btnRead.Name = "btnRead";
+            this.btnRead.Size = new System.Drawing.Size(92, 44);
+            this.btnRead.TabIndex = 5;
             this.btnRead.Text = "读取";
             this.btnRead.UseVisualStyleBackColor = false;
             this.btnRead.Click += new System.EventHandler(this.btnRead_Click);
@@ -101,48 +133,27 @@ namespace Automation.Peripheral
             // 
             this.gridAlarmHistory.AllowUserToAddRows = false;
             this.gridAlarmHistory.AllowUserToDeleteRows = false;
-            this.gridAlarmHistory.AllowUserToOrderColumns = false;
-            this.gridAlarmHistory.AutoGenerateColumns = false;
             this.gridAlarmHistory.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
             this.gridAlarmHistory.BackgroundColor = System.Drawing.Color.White;
             this.gridAlarmHistory.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            dataGridViewCellStyle1.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
+            dataGridViewCellStyle1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(47)))), ((int)(((byte)(85)))), ((int)(((byte)(87)))));
+            dataGridViewCellStyle1.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F);
+            dataGridViewCellStyle1.ForeColor = System.Drawing.Color.White;
+            this.gridAlarmHistory.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle1;
             this.gridAlarmHistory.ColumnHeadersHeight = 44;
             this.gridAlarmHistory.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
-            headerStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            headerStyle.BackColor = System.Drawing.Color.FromArgb(47, 85, 87);
-            headerStyle.ForeColor = System.Drawing.Color.White;
-            headerStyle.Font = new System.Drawing.Font("Microsoft YaHei UI", 10.5F, System.Drawing.FontStyle.Bold);
-            this.gridAlarmHistory.ColumnHeadersDefaultCellStyle = headerStyle;
-            this.gridAlarmHistory.EnableHeadersVisualStyles = false;
-            this.gridAlarmHistory.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] { this.columnAlarmCode, this.columnAlarmContent, this.columnAlarmCategory, this.columnStartTime, this.columnEndTime, this.columnDuration, this.columnLocation });
             this.gridAlarmHistory.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.gridAlarmHistory.EnableHeadersVisualStyles = false;
             this.gridAlarmHistory.Location = new System.Drawing.Point(0, 72);
             this.gridAlarmHistory.MultiSelect = false;
+            this.gridAlarmHistory.Name = "gridAlarmHistory";
             this.gridAlarmHistory.ReadOnly = true;
             this.gridAlarmHistory.RowHeadersVisible = false;
             this.gridAlarmHistory.RowTemplate.Height = 36;
             this.gridAlarmHistory.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
-            this.columnAlarmCode.DataPropertyName = "AlarmCode";
-            this.columnAlarmCode.FillWeight = 12F;
-            this.columnAlarmCode.HeaderText = "报警代码";
-            this.columnAlarmContent.DataPropertyName = "AlarmContent";
-            this.columnAlarmContent.FillWeight = 28F;
-            this.columnAlarmContent.HeaderText = "报警内容";
-            this.columnAlarmCategory.DataPropertyName = "AlarmCategory";
-            this.columnAlarmCategory.FillWeight = 12F;
-            this.columnAlarmCategory.HeaderText = "报警类别";
-            this.columnStartTime.DataPropertyName = "StartTime";
-            this.columnStartTime.FillWeight = 16F;
-            this.columnStartTime.HeaderText = "开始时间";
-            this.columnEndTime.DataPropertyName = "EndTime";
-            this.columnEndTime.FillWeight = 16F;
-            this.columnEndTime.HeaderText = "结束时间";
-            this.columnDuration.DataPropertyName = "Duration";
-            this.columnDuration.FillWeight = 10F;
-            this.columnDuration.HeaderText = "报警时间(s)";
-            this.columnLocation.DataPropertyName = "Location";
-            this.columnLocation.FillWeight = 12F;
-            this.columnLocation.HeaderText = "报警位置";
+            this.gridAlarmHistory.Size = new System.Drawing.Size(1176, 560);
+            this.gridAlarmHistory.TabIndex = 0;
             // 
             // AlarmHistoryPage
             // 
@@ -158,6 +169,7 @@ namespace Automation.Peripheral
             this.toolbarLayout.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.gridAlarmHistory)).EndInit();
             this.ResumeLayout(false);
+
         }
 
         private System.Windows.Forms.TableLayoutPanel toolbarLayout;

@@ -151,35 +151,35 @@
     <Compile Include="Bridge\\AutomationBridgeHost.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.cs" />
     <Compile Include="GooseAcpClient.cs" />
-    <Compile Include="Peripheral\\FrmPeripheralMain.cs">
+    <Compile Include="Hmi\\FrmHmiMain.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Peripheral\\FrmPeripheralMain.Designer.cs">
-      <DependentUpon>FrmPeripheralMain.cs</DependentUpon>
+    <Compile Include="Hmi\\FrmHmiMain.Designer.cs">
+      <DependentUpon>FrmHmiMain.cs</DependentUpon>
     </Compile>
-    <Compile Include="Peripheral\\PeripheralHomePage.cs">
+    <Compile Include="Hmi\\HmiHomePage.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Peripheral\\PeripheralHomePage.Designer.cs">
-      <DependentUpon>PeripheralHomePage.cs</DependentUpon>
+    <Compile Include="Hmi\\HmiHomePage.Designer.cs">
+      <DependentUpon>HmiHomePage.cs</DependentUpon>
     </Compile>
-    <Compile Include="Peripheral\\PeripheralDebugPage.cs">
+    <Compile Include="Hmi\\HmiDebugPage.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Peripheral\\PeripheralDebugPage.Designer.cs">
-      <DependentUpon>PeripheralDebugPage.cs</DependentUpon>
+    <Compile Include="Hmi\\HmiDebugPage.Designer.cs">
+      <DependentUpon>HmiDebugPage.cs</DependentUpon>
     </Compile>
-    <Compile Include="Peripheral\\AlarmHistoryPage.cs">
+    <Compile Include="Hmi\\AlarmHistoryPage.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Peripheral\\AlarmHistoryPage.Designer.cs">
+    <Compile Include="Hmi\\AlarmHistoryPage.Designer.cs">
       <DependentUpon>AlarmHistoryPage.cs</DependentUpon>
     </Compile>
-    <Compile Include="Peripheral\\PeripheralCapacityPage.cs">
+    <Compile Include="Hmi\\HmiCapacityPage.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Peripheral\\PeripheralCapacityPage.Designer.cs">
-      <DependentUpon>PeripheralCapacityPage.cs</DependentUpon>
+    <Compile Include="Hmi\\HmiCapacityPage.Designer.cs">
+      <DependentUpon>HmiCapacityPage.cs</DependentUpon>
     </Compile>
     <Compile Include="FrmAppConfig.cs">
       <SubType>Form</SubType>
@@ -337,11 +337,11 @@
     <Compile Include="Tool\FrmSearch4Value.Designer.cs">
       <DependentUpon>FrmSearch4Value.cs</DependentUpon>
     </Compile>
-    <EmbeddedResource Include="Peripheral\AlarmHistoryPage.resx">
+    <EmbeddedResource Include="Hmi\AlarmHistoryPage.resx">
       <DependentUpon>AlarmHistoryPage.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="Peripheral\PeripheralDebugPage.resx">
-      <DependentUpon>PeripheralDebugPage.cs</DependentUpon>
+    <EmbeddedResource Include="Hmi\HmiDebugPage.resx">
+      <DependentUpon>HmiDebugPage.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="FrmAlarmConfig.resx">
       <DependentUpon>FrmAlarmConfig.cs</DependentUpon>
