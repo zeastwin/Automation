@@ -2,7 +2,6 @@
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace Automation
 {
@@ -15,7 +14,7 @@ namespace Automation
                 MarkAlarm(evt, "TCP操作参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (Context?.Comm == null || Context.SocketInfos == null)
+            if (Context?.Comm == null)
             {
                 MarkAlarm(evt, "通讯未初始化");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -29,8 +28,7 @@ namespace Automation
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
 
-                SocketInfo socketInfo = Context.SocketInfos.FirstOrDefault(sc => sc != null && sc.Name == op.Name);
-                if (socketInfo == null)
+                if (!TryGetSocketConfig(op.Name, out SocketInfo socketInfo))
                 {
                     MarkAlarm(evt, $"TCP配置不存在:{op.Name}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -38,7 +36,7 @@ namespace Automation
 
                 if (string.Equals(op.Ops, "启动", StringComparison.Ordinal))
                 {
-                    Context.Comm.StartTcpAsync(socketInfo).GetAwaiter().GetResult();
+                    Context.Comm.StartTcpAsync(socketInfo, 0, evt.CancellationToken).GetAwaiter().GetResult();
                     TcpStatus status = Context.Comm.GetTcpStatus(op.Name);
                     bool isServer = string.Equals(socketInfo.Type, "Server", StringComparison.Ordinal);
                     bool started = isServer ? status.IsServer && status.IsRunning : !status.IsServer && status.IsRunning;
@@ -81,12 +79,6 @@ namespace Automation
                 MarkAlarm(evt, "通讯未初始化");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (Context.SocketInfos == null)
-            {
-                MarkAlarm(evt, "TCP配置为空");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
-            }
-
             foreach (var op in waitTcp.Params)
             {
                 if (string.IsNullOrWhiteSpace(op.Name))
@@ -99,7 +91,7 @@ namespace Automation
                     MarkAlarm(evt, $"等待TCP连接超时配置无效:{op.Name}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.SocketInfos.Any(info => info != null && info.Name == op.Name))
+                if (!TryGetSocketConfig(op.Name, out _))
                 {
                     MarkAlarm(evt, $"TCP配置不存在:{op.Name}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -150,26 +142,22 @@ namespace Automation
             }
 
             string sendValue = Context.ValueStore.get_Str_ValueByName(sendTcpMsg.Msg);
-            Task<bool> sendTask = Context.Comm.SendTcpAsync(sendTcpMsg.ID, sendValue, sendTcpMsg.isConVert, evt.CancellationToken);
-            Task completed = Task.WhenAny(sendTask, Task.Delay(sendTcpMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
-            if (!ReferenceEquals(completed, sendTask))
+            bool success;
+            bool timedOut;
+            using (CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(evt.CancellationToken))
             {
-                if (evt.CancellationToken.IsCancellationRequested)
-                {
-                    return true;
-                }
-                MarkAlarm(evt, $"TCP发送超时:{sendTcpMsg.ID}");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                timeoutCts.CancelAfter(sendTcpMsg.TimeOut);
+                success = Context.Comm.SendTcpAsync(sendTcpMsg.ID, sendValue, sendTcpMsg.isConVert, timeoutCts.Token)
+                    .GetAwaiter().GetResult();
+                timedOut = timeoutCts.IsCancellationRequested && !evt.CancellationToken.IsCancellationRequested;
             }
-
-            bool success = sendTask.GetAwaiter().GetResult();
             if (!success)
             {
                 if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return true;
                 }
-                MarkAlarm(evt, $"TCP发送失败:{sendTcpMsg.ID}");
+                MarkAlarm(evt, timedOut ? $"TCP发送超时:{sendTcpMsg.ID}" : $"TCP发送失败:{sendTcpMsg.ID}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             return true;
@@ -247,26 +235,22 @@ namespace Automation
             }
 
             string sendValue = Context.ValueStore.get_Str_ValueByName(sendSerialPortMsg.Msg);
-            Task<bool> sendTask = Context.Comm.SendSerialAsync(sendSerialPortMsg.ID, sendValue, sendSerialPortMsg.isConVert, evt.CancellationToken);
-            Task completed = Task.WhenAny(sendTask, Task.Delay(sendSerialPortMsg.TimeOut, evt.CancellationToken)).GetAwaiter().GetResult();
-            if (!ReferenceEquals(completed, sendTask))
+            bool success;
+            bool timedOut;
+            using (CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(evt.CancellationToken))
             {
-                if (evt.CancellationToken.IsCancellationRequested)
-                {
-                    return true;
-                }
-                MarkAlarm(evt, $"串口发送超时:{sendSerialPortMsg.ID}");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                timeoutCts.CancelAfter(sendSerialPortMsg.TimeOut);
+                success = Context.Comm.SendSerialAsync(sendSerialPortMsg.ID, sendValue, sendSerialPortMsg.isConVert, timeoutCts.Token)
+                    .GetAwaiter().GetResult();
+                timedOut = timeoutCts.IsCancellationRequested && !evt.CancellationToken.IsCancellationRequested;
             }
-
-            bool success = sendTask.GetAwaiter().GetResult();
             if (!success)
             {
                 if (evt.CancellationToken.IsCancellationRequested)
                 {
                     return true;
                 }
-                MarkAlarm(evt, $"串口发送失败:{sendSerialPortMsg.ID}");
+                MarkAlarm(evt, timedOut ? $"串口发送超时:{sendSerialPortMsg.ID}" : $"串口发送失败:{sendSerialPortMsg.ID}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             return true;
@@ -353,70 +337,28 @@ namespace Automation
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
 
-                using (IDisposable transaction = Context.Comm.EnterTcpTransactionAsync(sendReceoveCommMsg.ID, evt.CancellationToken)
-                    .GetAwaiter().GetResult())
-                using (CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(evt.CancellationToken))
+                CommReceiveResult receiveResult = Context.Comm.SendReceiveTcpAsync(
+                    sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert,
+                    sendReceoveCommMsg.TimeOut, evt.CancellationToken).GetAwaiter().GetResult();
+                if (!receiveResult.Success)
                 {
-                    Task<CommReceiveResult> receiveTask = Context.Comm.ReceiveTcpAsync(sendReceoveCommMsg.ID, sendReceoveCommMsg.TimeOut, linkedCts.Token);
-                    Task<bool> sendTask = Context.Comm.SendTcpAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert, linkedCts.Token);
-
-                    Task sendCompleted = Task.WhenAny(sendTask, Task.Delay(sendReceoveCommMsg.TimeOut, linkedCts.Token)).GetAwaiter().GetResult();
-                    if (!ReferenceEquals(sendCompleted, sendTask))
+                    if (evt.CancellationToken.IsCancellationRequested)
                     {
-                        linkedCts.Cancel();
-                        if (evt.CancellationToken.IsCancellationRequested)
-                        {
-                            return true;
-                        }
-                        MarkAlarm(evt, $"TCP发送超时:{sendReceoveCommMsg.ID}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                        return true;
                     }
+                    string receiveError = string.IsNullOrWhiteSpace(receiveResult.ErrorMessage) ? "未知错误" : receiveResult.ErrorMessage;
+                    MarkAlarm(evt, $"TCP请求失败:{sendReceoveCommMsg.ID}，{receiveError}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
 
-                    bool sendSuccess = sendTask.GetAwaiter().GetResult();
-                    if (!sendSuccess)
+                string msg = sendReceoveCommMsg.ReceiveConvert ? receiveResult.MessageHex : receiveResult.MessageText;
+                if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
+                {
+                    string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+                    if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg, source))
                     {
-                        linkedCts.Cancel();
-                        if (evt.CancellationToken.IsCancellationRequested)
-                        {
-                            return true;
-                        }
-                        MarkAlarm(evt, $"TCP发送失败:{sendReceoveCommMsg.ID}");
+                        MarkAlarm(evt, $"保存TCP接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-
-                    Task receiveCompleted = Task.WhenAny(receiveTask, Task.Delay(sendReceoveCommMsg.TimeOut, linkedCts.Token)).GetAwaiter().GetResult();
-                    if (!ReferenceEquals(receiveCompleted, receiveTask))
-                    {
-                        linkedCts.Cancel();
-                        if (evt.CancellationToken.IsCancellationRequested)
-                        {
-                            return true;
-                        }
-                        MarkAlarm(evt, $"TCP接收超时:{sendReceoveCommMsg.ID}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-
-                    CommReceiveResult receiveResult = receiveTask.GetAwaiter().GetResult();
-                    if (!receiveResult.Success)
-                    {
-                        if (evt.CancellationToken.IsCancellationRequested)
-                        {
-                            return true;
-                        }
-                        string receiveError = string.IsNullOrWhiteSpace(receiveResult.ErrorMessage) ? "未知错误" : receiveResult.ErrorMessage;
-                        MarkAlarm(evt, $"TCP接收失败:{sendReceoveCommMsg.ID}，{receiveError}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-
-                    string msg = sendReceoveCommMsg.ReceiveConvert ? receiveResult.MessageHex : receiveResult.MessageText;
-                    if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
-                    {
-                        string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
-                        if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg, source))
-                        {
-                            MarkAlarm(evt, $"保存TCP接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}");
-                            throw CreateAlarmException(evt, evt?.alarmMsg);
-                        }
                     }
                 }
 
@@ -431,70 +373,28 @@ namespace Automation
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
 
-                using (IDisposable transaction = Context.Comm.EnterSerialTransactionAsync(sendReceoveCommMsg.ID, evt.CancellationToken)
-                    .GetAwaiter().GetResult())
-                using (CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(evt.CancellationToken))
+                CommReceiveResult receiveResult = Context.Comm.SendReceiveSerialAsync(
+                    sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert,
+                    sendReceoveCommMsg.TimeOut, evt.CancellationToken).GetAwaiter().GetResult();
+                if (!receiveResult.Success)
                 {
-                    Task<CommReceiveResult> receiveTask = Context.Comm.ReceiveSerialAsync(sendReceoveCommMsg.ID, sendReceoveCommMsg.TimeOut, linkedCts.Token);
-                    Task<bool> sendTask = Context.Comm.SendSerialAsync(sendReceoveCommMsg.ID, sendValue, sendReceoveCommMsg.SendConvert, linkedCts.Token);
-
-                    Task sendCompleted = Task.WhenAny(sendTask, Task.Delay(sendReceoveCommMsg.TimeOut, linkedCts.Token)).GetAwaiter().GetResult();
-                    if (!ReferenceEquals(sendCompleted, sendTask))
+                    if (evt.CancellationToken.IsCancellationRequested)
                     {
-                        linkedCts.Cancel();
-                        if (evt.CancellationToken.IsCancellationRequested)
-                        {
-                            return true;
-                        }
-                        MarkAlarm(evt, $"串口发送超时:{sendReceoveCommMsg.ID}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                        return true;
                     }
+                    string receiveError = string.IsNullOrWhiteSpace(receiveResult.ErrorMessage) ? "未知错误" : receiveResult.ErrorMessage;
+                    MarkAlarm(evt, $"串口请求失败:{sendReceoveCommMsg.ID}，{receiveError}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
 
-                    bool sendSuccess = sendTask.GetAwaiter().GetResult();
-                    if (!sendSuccess)
+                string msg = sendReceoveCommMsg.ReceiveConvert ? receiveResult.MessageHex : receiveResult.MessageText;
+                if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
+                {
+                    string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+                    if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg, source))
                     {
-                        linkedCts.Cancel();
-                        if (evt.CancellationToken.IsCancellationRequested)
-                        {
-                            return true;
-                        }
-                        MarkAlarm(evt, $"串口发送失败:{sendReceoveCommMsg.ID}");
+                        MarkAlarm(evt, $"保存串口接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-
-                    Task receiveCompleted = Task.WhenAny(receiveTask, Task.Delay(sendReceoveCommMsg.TimeOut, linkedCts.Token)).GetAwaiter().GetResult();
-                    if (!ReferenceEquals(receiveCompleted, receiveTask))
-                    {
-                        linkedCts.Cancel();
-                        if (evt.CancellationToken.IsCancellationRequested)
-                        {
-                            return true;
-                        }
-                        MarkAlarm(evt, $"串口接收超时:{sendReceoveCommMsg.ID}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-
-                    CommReceiveResult receiveResult = receiveTask.GetAwaiter().GetResult();
-                    if (!receiveResult.Success)
-                    {
-                        if (evt.CancellationToken.IsCancellationRequested)
-                        {
-                            return true;
-                        }
-                        string receiveError = string.IsNullOrWhiteSpace(receiveResult.ErrorMessage) ? "未知错误" : receiveResult.ErrorMessage;
-                        MarkAlarm(evt, $"串口接收失败:{sendReceoveCommMsg.ID}，{receiveError}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-
-                    string msg = sendReceoveCommMsg.ReceiveConvert ? receiveResult.MessageHex : receiveResult.MessageText;
-                    if (!string.IsNullOrEmpty(sendReceoveCommMsg.ReceiveSaveValue))
-                    {
-                        string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
-                        if (!Context.ValueStore.setValueByName(sendReceoveCommMsg.ReceiveSaveValue, msg, source))
-                        {
-                            MarkAlarm(evt, $"保存串口接收变量失败:{sendReceoveCommMsg.ReceiveSaveValue}");
-                            throw CreateAlarmException(evt, evt?.alarmMsg);
-                        }
                     }
                 }
 
@@ -512,7 +412,7 @@ namespace Automation
                 MarkAlarm(evt, "串口操作参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (Context?.Comm == null || Context.SerialPortInfos == null)
+            if (Context?.Comm == null)
             {
                 MarkAlarm(evt, "通讯未初始化");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -526,8 +426,7 @@ namespace Automation
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
 
-                SerialPortInfo serialPortInfo = Context.SerialPortInfos.FirstOrDefault(sc => sc != null && sc.Name == op.Name);
-                if (serialPortInfo == null)
+                if (!TryGetSerialConfig(op.Name, out SerialPortInfo serialPortInfo))
                 {
                     MarkAlarm(evt, $"串口配置不存在:{op.Name}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -535,7 +434,7 @@ namespace Automation
 
                 if (string.Equals(op.Ops, "启动", StringComparison.Ordinal))
                 {
-                    Context.Comm.StartSerialAsync(serialPortInfo).GetAwaiter().GetResult();
+                    Context.Comm.StartSerialAsync(serialPortInfo, evt.CancellationToken).GetAwaiter().GetResult();
                     if (!Context.Comm.IsSerialOpen(op.Name))
                     {
                         MarkAlarm(evt, $"串口启动失败:{op.Name}");
@@ -587,7 +486,7 @@ namespace Automation
                     MarkAlarm(evt, $"等待串口连接超时配置无效:{op.Name}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (Context.SerialPortInfos == null || !Context.SerialPortInfos.Any(info => info != null && info.Name == op.Name))
+                if (!TryGetSerialConfig(op.Name, out _))
                 {
                     MarkAlarm(evt, $"串口配置不存在:{op.Name}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -618,6 +517,40 @@ namespace Automation
             }
 
             return true;
+        }
+
+        private bool TryGetSocketConfig(string name, out SocketInfo info)
+        {
+            if (AutomationRuntimeOptions.Current.IsSimulation)
+            {
+                info = Context?.SocketInfos?.FirstOrDefault(item => item != null
+                    && string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+                return info != null;
+            }
+            if (Context?.CommunicationStore != null)
+            {
+                return Context.CommunicationStore.TryGetSocket(name, out info);
+            }
+            info = Context?.SocketInfos?.FirstOrDefault(item => item != null
+                && string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+            return info != null;
+        }
+
+        private bool TryGetSerialConfig(string name, out SerialPortInfo info)
+        {
+            if (AutomationRuntimeOptions.Current.IsSimulation)
+            {
+                info = Context?.SerialPortInfos?.FirstOrDefault(item => item != null
+                    && string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+                return info != null;
+            }
+            if (Context?.CommunicationStore != null)
+            {
+                return Context.CommunicationStore.TryGetSerial(name, out info);
+            }
+            info = Context?.SerialPortInfos?.FirstOrDefault(item => item != null
+                && string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+            return info != null;
         }
     }
 }

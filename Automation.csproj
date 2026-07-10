@@ -108,6 +108,7 @@
     <Compile Include="Engine\ValueRef.cs" />
     <Compile Include="Stores\\AlarmInfoStore.cs" />
     <Compile Include="Stores\\CardConfigStore.cs" />
+    <Compile Include="Stores\\CommunicationConfigStore.cs" />
     <Compile Include="Hmi\\CustomFunc.cs" />
     <Compile Include="Engine\\ProcessEngine.Core.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Comm.cs" />

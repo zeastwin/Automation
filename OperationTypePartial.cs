@@ -365,17 +365,21 @@ namespace Automation
                 {
                     if (string.Equals(commMsg.CommType, "TCP", StringComparison.OrdinalIgnoreCase))
                     {
-                        return new StandardValuesCollection(SF.frmComunication.socketInfos.Select(item => item.Name).ToList());
+                        return new StandardValuesCollection((SF.communicationStore?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>())
+                            .Where(item => item != null).Select(item => item.Name).ToList());
                     }
                     if (string.Equals(commMsg.CommType, "串口", StringComparison.OrdinalIgnoreCase))
                     {
-                        return new StandardValuesCollection(SF.frmComunication.serialPortInfos.Select(item => item.Name).ToList());
+                        return new StandardValuesCollection((SF.communicationStore?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>())
+                            .Where(item => item != null).Select(item => item.Name).ToList());
                     }
                 }
 
                 List<string> all = new List<string>();
-                all.AddRange(SF.frmComunication.socketInfos.Select(item => item.Name));
-                all.AddRange(SF.frmComunication.serialPortInfos.Select(item => item.Name));
+                all.AddRange((SF.communicationStore?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>())
+                    .Where(item => item != null).Select(item => item.Name));
+                all.AddRange((SF.communicationStore?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>())
+                    .Where(item => item != null).Select(item => item.Name));
                 return new StandardValuesCollection(all);
             }
         }
@@ -440,7 +444,8 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(SF.frmComunication.socketInfos.Select(socketInfo => socketInfo.Name).ToList());
+                return new StandardValuesCollection((SF.communicationStore?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>())
+                    .Where(item => item != null).Select(item => item.Name).ToList());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -456,7 +461,8 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(SF.frmComunication.serialPortInfos.Select(Info => Info.Name).ToList());
+                return new StandardValuesCollection((SF.communicationStore?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>())
+                    .Where(item => item != null).Select(item => item.Name).ToList());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {

@@ -256,7 +256,7 @@ namespace Automation
                     return;
                 }
 
-                if (SF.frmProc == null || SF.frmComunication == null || SF.frmInfo == null || SF.mainfrm == null)
+                if (SF.frmProc == null || SF.mainfrm == null)
                 {
                     return;
                 }
@@ -273,7 +273,7 @@ namespace Automation
                     return;
                 }
 
-                if (!SF.frmComunication.CheckFormIsOpen(SF.frmInfo) || !SF.frmComunication.CheckFormIsOpen(SF.mainfrm))
+                if (SF.mainfrm.IsDisposed || !SF.mainfrm.IsHandleCreated || !SF.mainfrm.Visible)
                 {
                     return;
                 }

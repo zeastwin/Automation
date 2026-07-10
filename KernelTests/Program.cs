@@ -5,6 +5,10 @@ using System.Threading;
 using static Automation.FrmCard;
 using Automation.MotionControl;
 using System.Threading.Tasks;
+using System.IO;
+using System.Text;
+using System.Net;
+using System.Net.Sockets;
 
 namespace Automation.KernelTests
 {
@@ -23,6 +27,9 @@ namespace Automation.KernelTests
             Run("手动轴资源禁止重复占用", TestManualMotionResourceExclusion);
             Run("轴与工站静态配置校验", TestMotionConfigurationValidation);
             Run("轴状态快照并发与过期保护", TestAxisStatusCache);
+            Run("通讯帧拆包与有界缓存", TestCommunicationReceiveDispatcher);
+            Run("通讯配置独立存储与严格校验", TestCommunicationConfigStore);
+            Run("TCP请求响应事务与生命周期", TestTcpRequestResponse);
             Console.WriteLine(failures == 0 ? "内核回归测试全部通过。" : $"内核回归测试失败:{failures}");
             return failures == 0 ? 0 : 1;
         }
@@ -158,6 +165,151 @@ namespace Automation.KernelTests
                     Assert(Volatile.Read(ref invocationCount) == 1, "检测到同流程工作线程重叠");
                     WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 3000, "阻塞流程最终未停止");
                 }
+            }
+        }
+
+        private static void TestCommunicationReceiveDispatcher()
+        {
+            var dispatcher = new ReceiveDispatcher(2);
+            dispatcher.Publish(new ReceivedFrame(new byte[] { 1 }, "A"));
+            dispatcher.Publish(new ReceivedFrame(new byte[] { 2 }, "B"));
+            dispatcher.Publish(new ReceivedFrame(new byte[] { 3 }, "C"));
+            Assert(dispatcher.DroppedFrames == 1, "接收队列溢出未记录丢帧计数");
+            ReceivedFrame first = dispatcher.WaitNextAsync(1000, CancellationToken.None).GetAwaiter().GetResult();
+            ReceivedFrame second = dispatcher.WaitNextAsync(1000, CancellationToken.None).GetAwaiter().GetResult();
+            Assert(first.Payload[0] == 2 && second.Payload[0] == 3, "有界缓存未按预期丢弃最旧帧");
+
+            Task<ReceivedFrame> waiter = dispatcher.WaitNextAsync(1000, CancellationToken.None);
+            dispatcher.Publish(new ReceivedFrame(new byte[] { 4 }, "D"));
+            Assert(waiter.GetAwaiter().GetResult().Payload[0] == 4, "等待者未收到后续帧");
+
+            var settings = new CommFrameSettings(CommFrameMode.Delimiter, new byte[] { (byte)'\r', (byte)'\n' }, Encoding.UTF8);
+            var decoder = new FrameDecoder(settings, 1024);
+            Assert(decoder.Push(Encoding.UTF8.GetBytes("AB\r"), 3).Count == 0, "半包被错误地解析为完整帧");
+            byte[] remaining = Encoding.UTF8.GetBytes("\nCD\r\n");
+            IList<byte[]> frames = decoder.Push(remaining, remaining.Length);
+            Assert(frames.Count == 2
+                && Encoding.UTF8.GetString(frames[0]) == "AB"
+                && Encoding.UTF8.GetString(frames[1]) == "CD", "粘包或拆包解析错误");
+        }
+
+        private static void TestCommunicationConfigStore()
+        {
+            var store = new CommunicationConfigStore();
+            var sockets = new[]
+            {
+                new SocketInfo
+                {
+                    ID = 1,
+                    Name = "MES",
+                    Type = "Client",
+                    Address = "127.0.0.1",
+                    Port = 9000,
+                    FrameMode = "Delimiter",
+                    FrameDelimiter = "\\r\\n",
+                    EncodingName = "UTF-8",
+                    ConnectTimeoutMs = 1500
+                }
+            };
+            Assert(store.ReplaceSockets(sockets, out _), "有效TCP配置未通过校验");
+            Assert(store.TryGetSocket("mes", out SocketInfo snapshot) && snapshot.ConnectTimeoutMs == 1500,
+                "配置Store未按名称返回独立快照");
+            snapshot.Port = 1;
+            Assert(store.TryGetSocket("MES", out SocketInfo unchanged) && unchanged.Port == 9000,
+                "外部修改污染了配置Store");
+
+            var duplicate = new[] { sockets[0], new SocketInfo
+            {
+                ID = 2,
+                Name = "mes",
+                Type = "Server",
+                Address = "0.0.0.0",
+                Port = 9001,
+                FrameMode = "Raw",
+                EncodingName = "UTF-8",
+                ConnectTimeoutMs = 1000
+            }};
+            Assert(!store.ReplaceSockets(duplicate, out _), "重复名称错误地通过通讯配置校验");
+
+            string tempPath = Path.Combine(Path.GetTempPath(), "AutomationCommStore_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                store.Save(tempPath);
+                var reloaded = new CommunicationConfigStore();
+                Assert(reloaded.Load(tempPath, out string loadError), "通讯配置重新加载失败:" + loadError);
+                Assert(reloaded.TryGetSocket("MES", out SocketInfo loaded) && loaded.Port == 9000,
+                    "通讯配置持久化结果不一致");
+            }
+            finally
+            {
+                if (Directory.Exists(tempPath))
+                {
+                    Directory.Delete(tempPath, true);
+                }
+            }
+        }
+
+        private static void TestTcpRequestResponse()
+        {
+            Assert(AppConfigStorage.TrySave(new AppConfig
+            {
+                CommMaxMessageQueueSize = 32,
+                RuntimeMode = AutomationRuntimeMode.Hardware
+            }, out string configError), "初始化通讯测试参数失败:" + configError);
+
+            int port;
+            var probe = new TcpListener(IPAddress.Loopback, 0);
+            probe.Start();
+            port = ((IPEndPoint)probe.LocalEndpoint).Port;
+            probe.Stop();
+
+            using (var hub = new CommunicationHub())
+            using (var client = new TcpClient())
+            {
+                hub.StartTcpAsync(new SocketInfo
+                {
+                    ID = 1,
+                    Name = "Loopback",
+                    Type = "Server",
+                    Address = "127.0.0.1",
+                    Port = port,
+                    FrameMode = "Delimiter",
+                    FrameDelimiter = "\\n",
+                    EncodingName = "UTF-8",
+                    ConnectTimeoutMs = 1000
+                }).GetAwaiter().GetResult();
+
+                client.Connect(IPAddress.Loopback, port);
+                WaitUntil(() => hub.GetTcpStatus("Loopback").ClientCount == 1, 2000, "TCP测试客户端未接入");
+                Task responder = Task.Run(() =>
+                {
+                    NetworkStream stream = client.GetStream();
+                    var received = new List<byte>();
+                    while (true)
+                    {
+                        int value = stream.ReadByte();
+                        if (value < 0 || value == '\n') break;
+                        received.Add((byte)value);
+                    }
+                    Assert(Encoding.UTF8.GetString(received.ToArray()) == "PING", "TCP请求内容不正确");
+                    byte[] response = Encoding.UTF8.GetBytes("PONG\n");
+                    stream.Write(response, 0, response.Length);
+                });
+
+                CommReceiveResult result = hub.SendReceiveTcpAsync("Loopback", "PING", false, 2000)
+                    .GetAwaiter().GetResult();
+                Assert(result.Success && result.MessageText == "PONG", "TCP请求响应事务失败:" + result.ErrorMessage);
+                Assert(responder.Wait(2000), "TCP测试响应线程未结束");
+                using (IDisposable transaction = hub.EnterTcpTransactionAsync("Loopback", CancellationToken.None)
+                    .GetAwaiter().GetResult())
+                {
+                    Stopwatch timeoutWatch = Stopwatch.StartNew();
+                    CommReceiveResult queuedResult = hub.ReceiveTcpAsync("Loopback", 100).GetAwaiter().GetResult();
+                    Assert(!queuedResult.Success && queuedResult.ErrorMessage.Contains("超时")
+                        && timeoutWatch.ElapsedMilliseconds < 500, "通讯事务排队时间未计入超时");
+                }
+                hub.StopTcpAsync("Loopback").GetAwaiter().GetResult();
+                Assert(!hub.GetTcpStatus("Loopback").IsRunning, "TCP停止后状态仍为运行");
             }
         }
 

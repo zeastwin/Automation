@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -101,6 +102,7 @@ namespace Automation
             SF.dataStructStore = new DataStructStore();
             SF.trayPointStore = new TrayPointStore();
             SF.alarmInfoStore = new AlarmInfoStore();
+            SF.communicationStore = new CommunicationConfigStore();
             SF.comm = new CommunicationHub();
             SF.plcStore = new PlcConfigStore();
             SF.mainfrm = this;
@@ -115,12 +117,13 @@ namespace Automation
                 Motion = motion,
                 Io = io,
                 Comm = SF.comm,
+                CommunicationStore = SF.communicationStore,
                 PlcStore = SF.plcStore,
                 AlarmInfoStore = SF.alarmInfoStore,
                 IoMap = frmIO.DicIO,
                 Stations = frmCard.dataStation,
-                SocketInfos = frmComunication.socketInfos,
-                SerialPortInfos = frmComunication.serialPortInfos,
+                SocketInfos = new List<SocketInfo>(),
+                SerialPortInfos = new List<SerialPortInfo>(),
                 CustomFunc = customFunc,
                 AxisStatuses = new AxisStatusCache(),
                 AxisMotionParameters = new AxisMotionParameterStore()
@@ -232,6 +235,10 @@ namespace Automation
                 SF.dataStructStore.Load(SF.ConfigPath);
                 SF.frmdataStruct.RefreshDataSturctList();
                 SF.frmIODebug.RefreshIODebugMap();
+                if (!SF.communicationStore.Load(SF.ConfigPath, out string communicationError))
+                {
+                    SF.SetSecurityLock(communicationError);
+                }
                 SF.frmComunication.RefreshSocketMap();
                 SF.frmComunication.RefreshSerialPortInfo();
                 SF.frmAlarmConfig.RefreshAlarmInfo();
@@ -240,8 +247,8 @@ namespace Automation
                 if (SF.DR?.Context != null)
                 {
                     SF.DR.Context.Stations = SF.frmCard.dataStation;
-                    SF.DR.Context.SocketInfos = SF.frmComunication.socketInfos;
-                    SF.DR.Context.SerialPortInfos = SF.frmComunication.serialPortInfos;
+                    SF.DR.Context.SocketInfos = SF.communicationStore.GetSocketSnapshot().ToList();
+                    SF.DR.Context.SerialPortInfos = SF.communicationStore.GetSerialSnapshot().ToList();
                     SF.DR.Context.IoMap = SF.frmIO.DicIO;
                     SF.DR.Context.PlcStore = SF.plcStore;
                 }

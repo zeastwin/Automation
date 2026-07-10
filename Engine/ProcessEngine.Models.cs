@@ -296,6 +296,7 @@ namespace Automation
         public IMotionRuntime Motion { get; set; }
         public IIoRuntime Io { get; set; }
         public CommunicationHub Comm { get; set; }
+        public CommunicationConfigStore CommunicationStore { get; set; }
         public PlcConfigStore PlcStore { get; set; }
         public AlarmInfoStore AlarmInfoStore { get; set; }
         public IDictionary<string, IO> IoMap { get; set; }

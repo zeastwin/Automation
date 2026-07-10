@@ -3175,8 +3175,8 @@ namespace Automation.Bridge
         {
             EnsureRuntimeReady();
             bool includeStatus = request["includeStatus"]?.Value<bool>() ?? true;
-            var socketInfos = SF.frmComunication?.socketInfos ?? new List<SocketInfo>();
-            var serialPortInfos = SF.frmComunication?.serialPortInfos ?? new List<SerialPortInfo>();
+            IReadOnlyList<SocketInfo> socketInfos = SF.communicationStore?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>();
+            IReadOnlyList<SerialPortInfo> serialPortInfos = SF.communicationStore?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>();
             var tcpItems = new JArray();
             foreach (SocketInfo sock in socketInfos)
             {
@@ -3187,7 +3187,7 @@ namespace Automation.Bridge
                     ["type"] = sock.Type ?? string.Empty,
                     ["port"] = sock.Port,
                     ["address"] = sock.Address ?? string.Empty,
-                    ["isServer"] = sock.isServering,
+                    ["isServer"] = string.Equals(sock.Type, "Server", StringComparison.Ordinal),
                     ["frameMode"] = sock.FrameMode ?? string.Empty,
                     ["frameDelimiter"] = sock.FrameDelimiter ?? string.Empty,
                     ["encodingName"] = sock.EncodingName ?? string.Empty,
@@ -3198,6 +3198,7 @@ namespace Automation.Bridge
                     TcpStatus status = SF.comm.GetTcpStatus(sock.Name);
                     obj["isRunning"] = status.IsRunning;
                     obj["clientCount"] = status.ClientCount;
+                    obj["droppedFrames"] = status.DroppedFrames;
                 }
                 tcpItems.Add(obj);
             }
@@ -3221,6 +3222,7 @@ namespace Automation.Bridge
                 {
                     SerialStatus status = SF.comm.GetSerialStatus(sp.Name);
                     obj["isOpen"] = status.IsOpen;
+                    obj["droppedFrames"] = status.DroppedFrames;
                 }
                 serialItems.Add(obj);
             }
@@ -4547,13 +4549,13 @@ namespace Automation.Bridge
 
         private CommReferenceCatalog GetCommNames()
         {
-            List<string> tcp = (SF.frmComunication?.socketInfos ?? new List<SocketInfo>())
+            List<string> tcp = (SF.communicationStore?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>())
                 .Where(item => item != null && !string.IsNullOrWhiteSpace(item.Name))
                 .Select(item => item.Name)
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
 
-            List<string> serial = (SF.frmComunication?.serialPortInfos ?? new List<SerialPortInfo>())
+            List<string> serial = (SF.communicationStore?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>())
                 .Where(item => item != null && !string.IsNullOrWhiteSpace(item.Name))
                 .Select(item => item.Name)
                 .Distinct(StringComparer.Ordinal)

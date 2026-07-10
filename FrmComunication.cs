@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Drawing;
-using System.IO;
 using System.Linq;
 using System.Net;
 using System.Reflection;
@@ -15,18 +15,25 @@ namespace Automation
     public partial class FrmComunication : Form
     {
         private const int MaxLogLength = 200000;
+        private const int MaxPendingUiLogEntries = 2000;
+        private const int UiLogFlushBatchSize = 256;
+        private const int DebugSendTimeoutMs = 5000;
         private const string TcpStateColumnName = "state";
         private const string TcpDelimiterColumnName = "tcpFrameDelimiter";
         private const string SerialStateColumnName = "dataGridViewTextBoxColumn5";
         private const string SerialDelimiterColumnName = "serialFrameDelimiter";
 
-        public List<SocketInfo> socketInfos = new List<SocketInfo>();
-        public List<SerialPortInfo> serialPortInfos = new List<SerialPortInfo>();
+        private List<SocketInfo> socketInfos = new List<SocketInfo>();
+        private List<SerialPortInfo> serialPortInfos = new List<SerialPortInfo>();
 
         public int iSelectedSocketRow;
         public int iSelectedSerialPortRow;
 
         private readonly System.Windows.Forms.Timer stateTimer = new System.Windows.Forms.Timer();
+        private readonly System.Windows.Forms.Timer logFlushTimer = new System.Windows.Forms.Timer();
+        private readonly ConcurrentQueue<CommLogEventArgs> pendingUiLogs = new ConcurrentQueue<CommLogEventArgs>();
+        private int pendingUiLogCount;
+        private volatile bool captureUiLogs;
         private CancellationTokenSource sendLoopCts;
         private int runtimeReleased;
 
@@ -55,19 +62,46 @@ namespace Automation
 
             iSelectedSocketRow = -1;
             iSelectedSerialPortRow = -1;
+            VisibleChanged += FrmComunication_VisibleChanged;
         }
 
         private void FrmComunication_Load(object sender, EventArgs e)
         {
             RefleshSocketDgv();
             RefleshSerialPortDgv();
-            if (SF.comm != null)
+            UpdateLogSubscription();
+            StartStateTimer();
+            logFlushTimer.Interval = 100;
+            logFlushTimer.Tick -= LogFlushTimer_Tick;
+            logFlushTimer.Tick += LogFlushTimer_Tick;
+            logFlushTimer.Start();
+            UpdateOnlineState();
+        }
+
+        private void FrmComunication_VisibleChanged(object sender, EventArgs e)
+        {
+            UpdateLogSubscription();
+            if (!Visible)
             {
-                SF.comm.Log -= Comm_Log;
+                while (pendingUiLogs.TryDequeue(out _))
+                {
+                    Interlocked.Decrement(ref pendingUiLogCount);
+                }
+            }
+        }
+
+        private void UpdateLogSubscription()
+        {
+            captureUiLogs = Visible && !IsDisposed && !Disposing;
+            if (SF.comm == null)
+            {
+                return;
+            }
+            SF.comm.Log -= Comm_Log;
+            if (captureUiLogs)
+            {
                 SF.comm.Log += Comm_Log;
             }
-            StartStateTimer();
-            UpdateOnlineState();
         }
 
         private void StartStateTimer()
@@ -80,7 +114,7 @@ namespace Automation
 
         private void StateTimer_Tick(object sender, EventArgs e)
         {
-            if (!CheckFormIsOpen(this))
+            if (!Visible || WindowState == FormWindowState.Minimized)
             {
                 return;
             }
@@ -104,6 +138,7 @@ namespace Automation
                 }
 
                 TcpStatus status = SF.comm.GetTcpStatus(info.Name);
+                string droppedSuffix = status.DroppedFrames > 0 ? $" 丢帧:{status.DroppedFrames}" : string.Empty;
                 if (ReferenceEquals(status, TcpStatus.Empty))
                 {
                     SetRowCellValue(dataGridView1.Rows[i], TcpStateColumnName, string.Empty);
@@ -112,13 +147,15 @@ namespace Automation
 
                 if (string.Equals(info.Type, "Client", StringComparison.Ordinal))
                 {
-                    SetRowCellValue(dataGridView1.Rows[i], TcpStateColumnName, status.IsRunning ? "已连接" : "未连接");
+                    SetRowCellValue(dataGridView1.Rows[i], TcpStateColumnName,
+                        (status.IsRunning ? "已连接" : "未连接") + droppedSuffix);
                     continue;
                 }
 
                 if (status.IsRunning)
                 {
-                    SetRowCellValue(dataGridView1.Rows[i], TcpStateColumnName, status.ClientCount > 0 ? $"已连接({status.ClientCount})" : "已启动");
+                    SetRowCellValue(dataGridView1.Rows[i], TcpStateColumnName,
+                        (status.ClientCount > 0 ? $"已连接({status.ClientCount})" : "已启动") + droppedSuffix);
                 }
                 else
                 {
@@ -135,45 +172,40 @@ namespace Automation
                 }
 
                 SerialStatus status = SF.comm.GetSerialStatus(info.Name);
-                SetRowCellValue(dataGridView2.Rows[i], SerialStateColumnName, status.IsOpen ? "已打开" : "已关闭");
+                string droppedSuffix = status.DroppedFrames > 0 ? $" 丢帧:{status.DroppedFrames}" : string.Empty;
+                SetRowCellValue(dataGridView2.Rows[i], SerialStateColumnName,
+                    (status.IsOpen ? "已打开" : "已关闭") + droppedSuffix);
             }
         }
 
         private void Comm_Log(object sender, CommLogEventArgs e)
         {
-            if (e == null || IsDisposed || Disposing || !IsHandleCreated)
+            if (e == null || !captureUiLogs)
             {
                 return;
             }
+            pendingUiLogs.Enqueue(e);
+            Interlocked.Increment(ref pendingUiLogCount);
+            while (Volatile.Read(ref pendingUiLogCount) > MaxPendingUiLogEntries
+                && pendingUiLogs.TryDequeue(out _))
+            {
+                Interlocked.Decrement(ref pendingUiLogCount);
+            }
+        }
 
-            if (!CheckFormIsOpen(this))
+        private void LogFlushTimer_Tick(object sender, EventArgs e)
+        {
+            if (!Visible || WindowState == FormWindowState.Minimized)
             {
                 return;
             }
-
-            if (InvokeRequired)
+            int count = 0;
+            while (count < UiLogFlushBatchSize && pendingUiLogs.TryDequeue(out CommLogEventArgs entry))
             {
-                try
-                {
-                    BeginInvoke(new Action(() =>
-                    {
-                        if (IsDisposed || Disposing)
-                        {
-                            return;
-                        }
-                        AppendCommLog(e);
-                    }));
-                }
-                catch (ObjectDisposedException)
-                {
-                }
-                catch (InvalidOperationException)
-                {
-                }
-                return;
+                Interlocked.Decrement(ref pendingUiLogCount);
+                AppendCommLog(entry);
+                count++;
             }
-
-            AppendCommLog(e);
         }
 
         private void AppendCommLog(CommLogEventArgs e)
@@ -293,7 +325,8 @@ namespace Automation
                 return;
             }
 
-            ReceiveTextBox.Select(0, over);
+            int removeLength = Math.Min(ReceiveTextBox.TextLength, Math.Max(over, MaxLogLength / 10));
+            ReceiveTextBox.Select(0, removeLength);
             ReceiveTextBox.SelectedText = string.Empty;
         }
 
@@ -310,39 +343,15 @@ namespace Automation
             ReceiveTextBox.ScrollToCaret();
         }
 
-        public async Task SendSocketMessageFormAsync(string name, string sendMessage, bool convert, CancellationToken cancellationToken)
-        {
-            if (SF.comm == null || string.IsNullOrWhiteSpace(name))
-            {
-                return;
-            }
-
-            bool success = await SF.comm.SendTcpAsync(name, sendMessage, convert, cancellationToken).ConfigureAwait(false);
-            if (!success)
-            {
-                throw new InvalidOperationException($"TCP发送失败:{name}");
-            }
-        }
-
-        public async Task SendSerialPortMessageFormAsync(string name, string sendMessage, bool convert, CancellationToken cancellationToken)
-        {
-            if (SF.comm == null || string.IsNullOrWhiteSpace(name))
-            {
-                return;
-            }
-
-            bool success = await SF.comm.SendSerialAsync(name, sendMessage, convert, cancellationToken).ConfigureAwait(false);
-            if (!success)
-            {
-                throw new InvalidOperationException($"串口发送失败:{name}");
-            }
-        }
-
         private void FrmComunication_FormClosing(object sender, FormClosingEventArgs e)
         {
             sendLoopCts?.Cancel();
             sendLoopCts?.Dispose();
             sendLoopCts = null;
+            while (pendingUiLogs.TryDequeue(out _))
+            {
+                Interlocked.Decrement(ref pendingUiLogCount);
+            }
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
@@ -354,119 +363,56 @@ namespace Automation
 
         private void FrmComunication_Disposed(object sender, EventArgs e)
         {
+            VisibleChanged -= FrmComunication_VisibleChanged;
             ReleaseRuntimeResources();
             stateTimer.Dispose();
+            logFlushTimer.Stop();
+            logFlushTimer.Tick -= LogFlushTimer_Tick;
+            logFlushTimer.Dispose();
         }
 
         public void RefreshSocketMap()
         {
-            if (!Directory.Exists(SF.ConfigPath))
-            {
-                Directory.CreateDirectory(SF.ConfigPath);
-            }
-            if (!File.Exists(SF.ConfigPath + "SocketInfo.json"))
-            {
-                socketInfos = new List<SocketInfo>();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "SocketInfo", socketInfos);
-            }
-
-            socketInfos = SF.mainfrm.ReadJson<List<SocketInfo>>(SF.ConfigPath, "SocketInfo") ?? new List<SocketInfo>();
-            bool changed = false;
-            foreach (SocketInfo info in socketInfos)
-            {
-                if (info == null)
-                {
-                    continue;
-                }
-                if (string.IsNullOrWhiteSpace(info.ChannelId))
-                {
-                    info.ChannelId = Guid.NewGuid().ToString("N");
-                    changed = true;
-                }
-                if (string.IsNullOrWhiteSpace(info.FrameMode))
-                {
-                    info.FrameMode = "Raw";
-                    changed = true;
-                }
-                if (string.IsNullOrWhiteSpace(info.FrameDelimiter))
-                {
-                    info.FrameDelimiter = "\\n";
-                    changed = true;
-                }
-                if (string.IsNullOrWhiteSpace(info.EncodingName))
-                {
-                    info.EncodingName = "UTF-8";
-                    changed = true;
-                }
-                if (info.ConnectTimeoutMs <= 0)
-                {
-                    info.ConnectTimeoutMs = 5000;
-                    changed = true;
-                }
-            }
-
-            if (changed)
-            {
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "SocketInfo", socketInfos);
-            }
-
-            if (SF.DR?.Context != null)
-            {
-                SF.DR.Context.SocketInfos = socketInfos;
-            }
+            socketInfos = SF.communicationStore?.GetSocketSnapshot().ToList() ?? new List<SocketInfo>();
         }
 
         public void RefreshSerialPortInfo()
         {
-            if (!Directory.Exists(SF.ConfigPath))
-            {
-                Directory.CreateDirectory(SF.ConfigPath);
-            }
-            if (!File.Exists(SF.ConfigPath + "SerialPortInfo.json"))
-            {
-                serialPortInfos = new List<SerialPortInfo>();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "SerialPortInfo", serialPortInfos);
-            }
+            serialPortInfos = SF.communicationStore?.GetSerialSnapshot().ToList() ?? new List<SerialPortInfo>();
+        }
 
-            serialPortInfos = SF.mainfrm.ReadJson<List<SerialPortInfo>>(SF.ConfigPath, "SerialPortInfo") ?? new List<SerialPortInfo>();
-            bool changed = false;
-            foreach (SerialPortInfo info in serialPortInfos)
+        private bool TryPersistSocketConfigs()
+        {
+            string error = null;
+            if (SF.communicationStore == null
+                || !SF.communicationStore.TryReplaceSocketsAndSave(socketInfos, SF.ConfigPath, out error))
             {
-                if (info == null)
-                {
-                    continue;
-                }
-                if (string.IsNullOrWhiteSpace(info.ChannelId))
-                {
-                    info.ChannelId = Guid.NewGuid().ToString("N");
-                    changed = true;
-                }
-                if (string.IsNullOrWhiteSpace(info.FrameMode))
-                {
-                    info.FrameMode = "Delimiter";
-                    changed = true;
-                }
-                if (string.IsNullOrWhiteSpace(info.FrameDelimiter))
-                {
-                    info.FrameDelimiter = "\\n";
-                    changed = true;
-                }
-                if (string.IsNullOrWhiteSpace(info.EncodingName))
-                {
-                    info.EncodingName = "UTF-8";
-                    changed = true;
-                }
+                MessageBox.Show(error ?? "通讯配置存储未初始化。", "TCP配置错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
             }
-
-            if (changed)
-            {
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "SerialPortInfo", serialPortInfos);
-            }
-
             if (SF.DR?.Context != null)
             {
-                SF.DR.Context.SerialPortInfos = serialPortInfos;
+                SF.DR.Context.SocketInfos = SF.communicationStore.GetSocketSnapshot().ToList();
             }
+            return true;
+        }
+
+        private bool TryPersistSerialConfigs()
+        {
+            string error = null;
+            if (SF.communicationStore == null
+                || !SF.communicationStore.TryReplaceSerialPortsAndSave(serialPortInfos, SF.ConfigPath, out error))
+            {
+                MessageBox.Show(error ?? "通讯配置存储未初始化。", "串口配置错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
+            if (SF.DR?.Context != null)
+            {
+                SF.DR.Context.SerialPortInfos = SF.communicationStore.GetSerialSnapshot().ToList();
+            }
+            return true;
         }
 
         public void RefleshSocketDgv()
@@ -552,7 +498,12 @@ namespace Automation
                 ConnectTimeoutMs = 5000
             };
             socketInfos.Add(socketInfo);
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "SocketInfo", socketInfos);
+            if (!TryPersistSocketConfigs())
+            {
+                RefreshSocketMap();
+                RefleshSocketDgv();
+                return;
+            }
             RefreshSocketMap();
             RefleshSocketDgv();
         }
@@ -569,6 +520,12 @@ namespace Automation
             }
 
             SocketInfo selected = socketInfos[iSelectedSocketRow];
+            if (selected != null && TryFindCommunicationReference(selected.Name, true, out string reference))
+            {
+                MessageBox.Show($"TCP配置正在被流程引用，禁止删除：{reference}", "TCP配置",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             try
             {
                 if (selected != null && SF.comm != null)
@@ -583,7 +540,12 @@ namespace Automation
             }
 
             socketInfos.RemoveAt(iSelectedSocketRow);
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "SocketInfo", socketInfos);
+            if (!TryPersistSocketConfigs())
+            {
+                RefreshSocketMap();
+                RefleshSocketDgv();
+                return;
+            }
             RefreshSocketMap();
             RefleshSocketDgv();
         }
@@ -596,7 +558,7 @@ namespace Automation
             }
         }
 
-        private void dataGridView1_CellEndEdit(object sender, DataGridViewCellEventArgs e)
+        private async void dataGridView1_CellEndEdit(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex < 0 || e.RowIndex >= socketInfos.Count)
             {
@@ -617,8 +579,27 @@ namespace Automation
                 return;
             }
 
+            SocketInfo previous = socketInfos[e.RowIndex];
+            if (previous != null && !string.Equals(previous.Name, parsed.Name, StringComparison.OrdinalIgnoreCase)
+                && TryFindCommunicationReference(previous.Name, true, out string reference))
+            {
+                MessageBox.Show($"TCP配置正在被流程引用，禁止改名：{reference}", "TCP配置",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ApplySocketInfoToRow(e.RowIndex, previous);
+                return;
+            }
+            if (previous != null && SF.comm?.GetTcpStatus(previous.Name).IsRunning == true)
+            {
+                await SF.comm.StopTcpAsync(previous.Name);
+                SF.frmInfo?.PrintInfo($"TCP配置已修改，原连接已停止:{previous.Name}", FrmInfo.Level.Normal);
+            }
             socketInfos[e.RowIndex] = parsed;
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "SocketInfo", socketInfos);
+            if (!TryPersistSocketConfigs())
+            {
+                RefreshSocketMap();
+                RefleshSocketDgv();
+                return;
+            }
             RefreshSocketMap();
             ApplySocketInfoToRow(e.RowIndex, parsed);
         }
@@ -673,16 +654,14 @@ namespace Automation
             parsed = new SocketInfo
             {
                 ID = id,
-                ChannelId = string.IsNullOrWhiteSpace(current.ChannelId) ? Guid.NewGuid().ToString("N") : current.ChannelId,
                 Name = name,
                 Type = type,
                 Address = address,
                 Port = port,
                 FrameMode = frameMode,
                 FrameDelimiter = frameDelimiter,
-                EncodingName = "UTF-8",
-                ConnectTimeoutMs = 5000,
-                isServering = current.isServering
+                EncodingName = string.IsNullOrWhiteSpace(current.EncodingName) ? "UTF-8" : current.EncodingName,
+                ConnectTimeoutMs = current.ConnectTimeoutMs > 0 ? current.ConnectTimeoutMs : 5000
             };
             return true;
         }
@@ -702,15 +681,6 @@ namespace Automation
                 }
             }
             return false;
-        }
-
-        public bool CheckFormIsOpen(Form form)
-        {
-            return form != null
-                && !form.IsDisposed
-                && form.IsHandleCreated
-                && form.Visible
-                && form.WindowState != FormWindowState.Minimized;
         }
 
         public async Task SendMessageAsync()
@@ -746,6 +716,9 @@ namespace Automation
             {
                 do
                 {
+                    using (CancellationTokenSource sendTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                    {
+                    sendTimeoutCts.CancelAfter(DebugSendTimeoutMs);
                     TabPage selectedTabPage = tabControl1.SelectedTab;
                     if (selectedTabPage == tabPage1)
                     {
@@ -755,7 +728,11 @@ namespace Automation
                         }
 
                         SocketInfo socketInfo = socketInfos[iSelectedSocketRow];
-                        await SendSocketMessageFormAsync(socketInfo.Name, text, convert, cancellationToken);
+                        if (SF.comm == null
+                            || !await SF.comm.SendTcpAsync(socketInfo.Name, text, convert, sendTimeoutCts.Token))
+                        {
+                            throw new InvalidOperationException($"TCP发送失败:{socketInfo.Name}");
+                        }
                     }
                     else if (selectedTabPage == tabPage2)
                     {
@@ -765,11 +742,16 @@ namespace Automation
                         }
 
                         SerialPortInfo serialPortInfo = serialPortInfos[iSelectedSerialPortRow];
-                        await SendSerialPortMessageFormAsync(serialPortInfo.Name, text, convert, cancellationToken);
+                        if (SF.comm == null
+                            || !await SF.comm.SendSerialAsync(serialPortInfo.Name, text, convert, sendTimeoutCts.Token))
+                        {
+                            throw new InvalidOperationException($"串口发送失败:{serialPortInfo.Name}");
+                        }
                     }
                     else
                     {
                         throw new InvalidOperationException("未选择通讯页签。");
+                    }
                     }
 
                     if (!loopSend)
@@ -869,7 +851,7 @@ namespace Automation
             if (string.Equals(channelType, "Client", StringComparison.Ordinal))
             {
                 contextMenuStrip1.Items[2].Text = "连接";
-                bool connected = string.Equals(state, "已连接", StringComparison.Ordinal);
+                bool connected = !string.IsNullOrEmpty(state) && state.StartsWith("已连接", StringComparison.Ordinal);
                 contextMenuStrip1.Items[2].Enabled = !connected;
                 contextMenuStrip1.Items[3].Enabled = connected;
                 return;
@@ -931,7 +913,12 @@ namespace Automation
                 EncodingName = "UTF-8"
             };
             serialPortInfos.Add(serialPortInfo);
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "SerialPortInfo", serialPortInfos);
+            if (!TryPersistSerialConfigs())
+            {
+                RefreshSerialPortInfo();
+                RefleshSerialPortDgv();
+                return;
+            }
             RefreshSerialPortInfo();
             RefleshSerialPortDgv();
         }
@@ -948,6 +935,12 @@ namespace Automation
             }
 
             SerialPortInfo selected = serialPortInfos[iSelectedSerialPortRow];
+            if (selected != null && TryFindCommunicationReference(selected.Name, false, out string reference))
+            {
+                MessageBox.Show($"串口配置正在被流程引用，禁止删除：{reference}", "串口配置",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             try
             {
                 if (selected != null && SF.comm != null)
@@ -962,7 +955,12 @@ namespace Automation
             }
 
             serialPortInfos.RemoveAt(iSelectedSerialPortRow);
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "SerialPortInfo", serialPortInfos);
+            if (!TryPersistSerialConfigs())
+            {
+                RefreshSerialPortInfo();
+                RefleshSerialPortDgv();
+                return;
+            }
             RefreshSerialPortInfo();
             RefleshSerialPortDgv();
         }
@@ -1013,7 +1011,7 @@ namespace Automation
             }
         }
 
-        private void dataGridView2_CellEndEdit(object sender, DataGridViewCellEventArgs e)
+        private async void dataGridView2_CellEndEdit(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex < 0 || e.RowIndex >= serialPortInfos.Count)
             {
@@ -1034,8 +1032,27 @@ namespace Automation
                 return;
             }
 
+            SerialPortInfo previous = serialPortInfos[e.RowIndex];
+            if (previous != null && !string.Equals(previous.Name, parsed.Name, StringComparison.OrdinalIgnoreCase)
+                && TryFindCommunicationReference(previous.Name, false, out string reference))
+            {
+                MessageBox.Show($"串口配置正在被流程引用，禁止改名：{reference}", "串口配置",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ApplySerialInfoToRow(e.RowIndex, previous);
+                return;
+            }
+            if (previous != null && SF.comm?.GetSerialStatus(previous.Name).IsOpen == true)
+            {
+                await SF.comm.StopSerialAsync(previous.Name);
+                SF.frmInfo?.PrintInfo($"串口配置已修改，原连接已停止:{previous.Name}", FrmInfo.Level.Normal);
+            }
             serialPortInfos[e.RowIndex] = parsed;
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "SerialPortInfo", serialPortInfos);
+            if (!TryPersistSerialConfigs())
+            {
+                RefreshSerialPortInfo();
+                RefleshSerialPortDgv();
+                return;
+            }
             RefreshSerialPortInfo();
             ApplySerialInfoToRow(e.RowIndex, parsed);
         }
@@ -1105,7 +1122,6 @@ namespace Automation
             parsed = new SerialPortInfo
             {
                 ID = id,
-                ChannelId = string.IsNullOrWhiteSpace(current.ChannelId) ? Guid.NewGuid().ToString("N") : current.ChannelId,
                 Name = name,
                 Port = port,
                 BitRate = bitRate,
@@ -1114,7 +1130,7 @@ namespace Automation
                 StopBit = stopBit,
                 FrameMode = frameMode,
                 FrameDelimiter = frameDelimiter,
-                EncodingName = "UTF-8"
+                EncodingName = string.IsNullOrWhiteSpace(current.EncodingName) ? "UTF-8" : current.EncodingName
             };
             return true;
         }
@@ -1131,6 +1147,47 @@ namespace Automation
                 if (info != null && string.Equals(info.Name, name, StringComparison.Ordinal))
                 {
                     return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool TryFindCommunicationReference(string name, bool tcp, out string reference)
+        {
+            reference = null;
+            if (string.IsNullOrWhiteSpace(name) || SF.frmProc?.procsList == null)
+            {
+                return false;
+            }
+            bool IsSameName(string candidate) => string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase);
+            for (int procIndex = 0; procIndex < SF.frmProc.procsList.Count; procIndex++)
+            {
+                Proc proc = SF.frmProc.procsList[procIndex];
+                if (proc?.steps == null) continue;
+                for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
+                {
+                    Step step = proc.steps[stepIndex];
+                    if (step?.Ops == null) continue;
+                    for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
+                    {
+                        OperationType operation = step.Ops[opIndex];
+                        bool matched = tcp
+                            ? (operation is TcpOps tcpOps && tcpOps.Params?.Any(item => IsSameName(item?.Name)) == true)
+                                || (operation is WaitTcp waitTcp && waitTcp.Params?.Any(item => IsSameName(item?.Name)) == true)
+                                || (operation is SendTcpMsg sendTcp && IsSameName(sendTcp.ID))
+                                || (operation is ReceoveTcpMsg receiveTcp && IsSameName(receiveTcp.ID))
+                                || (operation is SendReceoveCommMsg tcpRequest && tcpRequest.CommType == "TCP" && IsSameName(tcpRequest.ID))
+                            : (operation is SerialPortOps serialOps && serialOps.Params?.Any(item => IsSameName(item?.Name)) == true)
+                                || (operation is WaitSerialPort waitSerial && waitSerial.Params?.Any(item => IsSameName(item?.Name)) == true)
+                                || (operation is SendSerialPortMsg sendSerial && IsSameName(sendSerial.ID))
+                                || (operation is ReceoveSerialPortMsg receiveSerial && IsSameName(receiveSerial.ID))
+                                || (operation is SendReceoveCommMsg serialRequest && serialRequest.CommType == "串口" && IsSameName(serialRequest.ID));
+                        if (matched)
+                        {
+                            reference = $"流程{procIndex}-步骤{stepIndex}-指令{opIndex}";
+                            return true;
+                        }
+                    }
                 }
             }
             return false;
@@ -1160,7 +1217,8 @@ namespace Automation
                 return;
             }
 
-            bool opened = string.Equals(GetCellValue(dataGridView2.Rows[iSelectedSerialPortRow], SerialStateColumnName), "已打开", StringComparison.Ordinal);
+            string state = GetCellValue(dataGridView2.Rows[iSelectedSerialPortRow], SerialStateColumnName);
+            bool opened = !string.IsNullOrEmpty(state) && state.StartsWith("已打开", StringComparison.Ordinal);
             contextMenuStrip3.Items[2].Enabled = !opened;
             contextMenuStrip3.Items[3].Enabled = opened;
         }
@@ -1260,6 +1318,8 @@ namespace Automation
             {
                 return;
             }
+
+            captureUiLogs = false;
 
             try
             {

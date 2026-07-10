@@ -540,6 +540,111 @@ namespace Automation
                 for (int j = 0; j < step.Ops.Count; j++)
                 {
                     ValidateGotoTargets(step.Ops[j], procIndex, proc, errors, $"流程{procIndex}步骤{i}指令{j}");
+                    ValidateCommunicationOperation(step.Ops[j], errors, $"流程{procIndex}步骤{i}指令{j}");
+                }
+            }
+        }
+
+        private static void ValidateCommunicationOperation(OperationType operation, List<string> errors, string location)
+        {
+            if (operation == null || operation.Disable)
+            {
+                return;
+            }
+
+            bool HasValue(string name) => !string.IsNullOrWhiteSpace(name)
+                && SF.valueStore != null && SF.valueStore.TryGetValueByName(name, out _);
+            bool HasTcp(string name) => SF.communicationStore != null
+                && SF.communicationStore.TryGetSocket(name, out _);
+            bool HasSerial(string name) => SF.communicationStore != null
+                && SF.communicationStore.TryGetSerial(name, out _);
+
+            if (operation is TcpOps tcpOps)
+            {
+                if (tcpOps.Params == null || tcpOps.Params.Count == 0)
+                {
+                    errors.Add($"{location} TCP操作参数为空");
+                    return;
+                }
+                foreach (TcpOpsParam item in tcpOps.Params)
+                {
+                    if (item == null || !HasTcp(item.Name)
+                        || (item.Ops != "启动" && item.Ops != "断开"))
+                    {
+                        errors.Add($"{location} TCP操作配置无效");
+                    }
+                }
+                return;
+            }
+            if (operation is WaitTcp waitTcp)
+            {
+                if (waitTcp.Params == null || waitTcp.Params.Count == 0
+                    || waitTcp.Params.Any(item => item == null || !HasTcp(item.Name) || item.TimeOut <= 0))
+                {
+                    errors.Add($"{location} 等待TCP配置无效");
+                }
+                return;
+            }
+            if (operation is SendTcpMsg sendTcp)
+            {
+                if (!HasTcp(sendTcp.ID) || !HasValue(sendTcp.Msg) || sendTcp.TimeOut <= 0)
+                {
+                    errors.Add($"{location} TCP发送配置无效");
+                }
+                return;
+            }
+            if (operation is ReceoveTcpMsg receiveTcp)
+            {
+                if (!HasTcp(receiveTcp.ID) || !HasValue(receiveTcp.MsgSaveValue) || receiveTcp.TImeOut <= 0)
+                {
+                    errors.Add($"{location} TCP接收配置无效");
+                }
+                return;
+            }
+            if (operation is SerialPortOps serialOps)
+            {
+                if (serialOps.Params == null || serialOps.Params.Count == 0
+                    || serialOps.Params.Any(item => item == null || !HasSerial(item.Name)
+                        || (item.Ops != "启动" && item.Ops != "断开")))
+                {
+                    errors.Add($"{location} 串口操作配置无效");
+                }
+                return;
+            }
+            if (operation is WaitSerialPort waitSerial)
+            {
+                if (waitSerial.Params == null || waitSerial.Params.Count == 0
+                    || waitSerial.Params.Any(item => item == null || !HasSerial(item.Name) || item.TimeOut <= 0))
+                {
+                    errors.Add($"{location} 等待串口配置无效");
+                }
+                return;
+            }
+            if (operation is SendSerialPortMsg sendSerial)
+            {
+                if (!HasSerial(sendSerial.ID) || !HasValue(sendSerial.Msg) || sendSerial.TimeOut <= 0)
+                {
+                    errors.Add($"{location} 串口发送配置无效");
+                }
+                return;
+            }
+            if (operation is ReceoveSerialPortMsg receiveSerial)
+            {
+                if (!HasSerial(receiveSerial.ID) || !HasValue(receiveSerial.MsgSaveValue) || receiveSerial.TImeOut <= 0)
+                {
+                    errors.Add($"{location} 串口接收配置无效");
+                }
+                return;
+            }
+            if (operation is SendReceoveCommMsg request)
+            {
+                bool validChannel = request.CommType == "TCP"
+                    ? HasTcp(request.ID)
+                    : request.CommType == "串口" && HasSerial(request.ID);
+                if (!validChannel || !HasValue(request.SendMsg) || request.TimeOut <= 0
+                    || (!string.IsNullOrWhiteSpace(request.ReceiveSaveValue) && !HasValue(request.ReceiveSaveValue)))
+                {
+                    errors.Add($"{location} 通讯请求响应配置无效");
                 }
             }
         }

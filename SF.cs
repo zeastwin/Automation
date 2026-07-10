@@ -54,6 +54,7 @@ namespace Automation
         public static AlarmInfoStore alarmInfoStore;
         public static IProcessEngineStore procStore;
         public static CommunicationHub comm;
+        public static CommunicationConfigStore communicationStore;
         public static PlcConfigStore plcStore;
         public static FrmVersionManager frmVersionManager;
         public static ConfigurationVersionService versionService;

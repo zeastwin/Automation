@@ -86,30 +86,34 @@ namespace Automation
 
     public sealed class TcpStatus
     {
-        public static readonly TcpStatus Empty = new TcpStatus(false, false, 0);
+        public static readonly TcpStatus Empty = new TcpStatus(false, false, 0, 0);
 
-        public TcpStatus(bool isServer, bool isRunning, int clientCount)
+        public TcpStatus(bool isServer, bool isRunning, int clientCount, long droppedFrames)
         {
             IsServer = isServer;
             IsRunning = isRunning;
             ClientCount = clientCount;
+            DroppedFrames = droppedFrames;
         }
 
         public bool IsServer { get; }
         public bool IsRunning { get; }
         public int ClientCount { get; }
+        public long DroppedFrames { get; }
     }
 
     public sealed class SerialStatus
     {
-        public static readonly SerialStatus Empty = new SerialStatus(false);
+        public static readonly SerialStatus Empty = new SerialStatus(false, 0);
 
-        public SerialStatus(bool isOpen)
+        public SerialStatus(bool isOpen, long droppedFrames)
         {
             IsOpen = isOpen;
+            DroppedFrames = droppedFrames;
         }
 
         public bool IsOpen { get; }
+        public long DroppedFrames { get; }
     }
 
     internal static class RuntimeConfig
@@ -218,34 +222,49 @@ namespace Automation
                 return new[] { raw };
             }
 
-            buffer.AddRange(data.Take(count));
-            if (buffer.Count > maxFrameBytes)
+            int previousCount = buffer.Count;
+            for (int i = 0; i < count; i++)
             {
-                throw new InvalidOperationException($"接收缓冲超限:{buffer.Count}");
+                buffer.Add(data[i]);
             }
-
             List<byte[]> frames = new List<byte[]>();
+            int frameStart = 0;
+            int searchStart = Math.Max(0, previousCount - delimiter.Length + 1);
             while (true)
             {
-                int index = IndexOf(buffer, delimiter);
+                int index = IndexOf(buffer, delimiter, searchStart);
                 if (index < 0)
                 {
                     break;
                 }
 
-                byte[] frame = new byte[index];
-                if (index > 0)
+                int frameLength = index - frameStart;
+                if (frameLength > maxFrameBytes)
                 {
-                    buffer.CopyTo(0, frame, 0, index);
+                    throw new InvalidOperationException($"接收帧长度超限:{frameLength}");
+                }
+                byte[] frame = new byte[frameLength];
+                if (frameLength > 0)
+                {
+                    buffer.CopyTo(frameStart, frame, 0, frameLength);
                 }
                 frames.Add(frame);
-                buffer.RemoveRange(0, index + delimiter.Length);
+                frameStart = index + delimiter.Length;
+                searchStart = frameStart;
+            }
+            if (frameStart > 0)
+            {
+                buffer.RemoveRange(0, frameStart);
+            }
+            if (buffer.Count > maxFrameBytes)
+            {
+                throw new InvalidOperationException($"接收缓冲超限:{buffer.Count}");
             }
 
             return frames;
         }
 
-        private static int IndexOf(List<byte> source, byte[] pattern)
+        private static int IndexOf(List<byte> source, byte[] pattern, int startIndex)
         {
             if (source == null || pattern == null || pattern.Length == 0 || source.Count < pattern.Length)
             {
@@ -253,7 +272,7 @@ namespace Automation
             }
 
             int max = source.Count - pattern.Length;
-            for (int i = 0; i <= max; i++)
+            for (int i = Math.Max(0, startIndex); i <= max; i++)
             {
                 bool matched = true;
                 for (int j = 0; j < pattern.Length; j++)
@@ -276,11 +295,19 @@ namespace Automation
 
     internal sealed class ReceiveDispatcher
     {
-        private readonly ConcurrentDictionary<long, Waiter> waiters = new ConcurrentDictionary<long, Waiter>();
+        private const long MaxPendingBytes = 16L * 1024 * 1024;
+        private readonly object sync = new object();
+        private readonly Dictionary<long, Waiter> waiters = new Dictionary<long, Waiter>();
+        private readonly Queue<long> waiterOrder = new Queue<long>();
+        private readonly Queue<ReceivedFrame> pendingFrames = new Queue<ReceivedFrame>();
         private readonly int pendingLimit;
         private long waiterId;
-        private volatile bool closed;
+        private bool closed;
         private string closeReason;
+        private long droppedFrames;
+        private long pendingBytes;
+
+        public long DroppedFrames => Interlocked.Read(ref droppedFrames);
 
         private sealed class Waiter : IDisposable
         {
@@ -318,44 +345,38 @@ namespace Automation
                 throw new ArgumentOutOfRangeException(nameof(timeoutMs), $"接收超时无效:{timeoutMs}");
             }
 
-            if (closed)
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (sync)
             {
-                throw new InvalidOperationException(closeReason ?? "通讯通道已关闭");
-            }
-
-            if (waiters.Count >= pendingLimit)
-            {
-                throw new InvalidOperationException($"接收等待队列已满:{pendingLimit}");
-            }
-
-            long id = Interlocked.Increment(ref waiterId);
-            TaskCompletionSource<ReceivedFrame> source = new TaskCompletionSource<ReceivedFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Waiter waiter = new Waiter(id, source);
-
-            if (!waiters.TryAdd(id, waiter))
-            {
-                throw new InvalidOperationException("创建接收等待失败");
-            }
-
-            waiter.TimeoutTimer = new Timer(_ =>
-            {
-                CancelWaiter(id, new TimeoutException("接收超时"));
-            }, null, timeoutMs, Timeout.Infinite);
-
-            if (cancellationToken.CanBeCanceled)
-            {
-                waiter.CancellationRegistration = cancellationToken.Register(() =>
+                if (closed)
                 {
-                    CancelWaiter(id, new OperationCanceledException("接收已取消", cancellationToken));
-                });
-            }
+                    throw new InvalidOperationException(closeReason ?? "通讯通道已关闭");
+                }
+                if (pendingFrames.Count > 0)
+                {
+                    ReceivedFrame pending = pendingFrames.Dequeue();
+                    pendingBytes -= pending.Payload?.Length ?? 0;
+                    return Task.FromResult(pending);
+                }
+                if (waiters.Count >= pendingLimit)
+                {
+                    throw new InvalidOperationException($"接收等待队列已满:{pendingLimit}");
+                }
 
-            if (closed)
-            {
-                CancelWaiter(id, new InvalidOperationException(closeReason ?? "通讯通道已关闭"));
+                long id = Interlocked.Increment(ref waiterId);
+                var source = new TaskCompletionSource<ReceivedFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var waiter = new Waiter(id, source);
+                waiters.Add(id, waiter);
+                waiterOrder.Enqueue(id);
+                waiter.TimeoutTimer = new Timer(_ => CancelWaiter(id, new TimeoutException("接收超时")),
+                    null, timeoutMs, Timeout.Infinite);
+                if (cancellationToken.CanBeCanceled)
+                {
+                    waiter.CancellationRegistration = cancellationToken.Register(() =>
+                        CancelWaiter(id, new OperationCanceledException("接收已取消", cancellationToken)));
+                }
+                return source.Task;
             }
-
-            return source.Task;
         }
 
         public void Publish(ReceivedFrame frame)
@@ -365,31 +386,60 @@ namespace Automation
                 return;
             }
 
-            foreach (KeyValuePair<long, Waiter> pair in waiters.ToArray().OrderBy(item => item.Key))
+            Waiter target = null;
+            lock (sync)
             {
-                if (!waiters.TryRemove(pair.Key, out Waiter waiter))
+                if (closed)
                 {
-                    continue;
+                    return;
                 }
-
-                waiter.Dispose();
-                waiter.Source.TrySetResult(frame);
-                return;
+                while (waiterOrder.Count > 0)
+                {
+                    long id = waiterOrder.Dequeue();
+                    if (waiters.TryGetValue(id, out target))
+                    {
+                        waiters.Remove(id);
+                        break;
+                    }
+                }
+                if (target == null)
+                {
+                    int frameBytes = frame.Payload?.Length ?? 0;
+                    while (pendingFrames.Count > 0
+                        && (pendingFrames.Count >= pendingLimit || pendingBytes + frameBytes > MaxPendingBytes))
+                    {
+                        ReceivedFrame dropped = pendingFrames.Dequeue();
+                        pendingBytes -= dropped.Payload?.Length ?? 0;
+                        Interlocked.Increment(ref droppedFrames);
+                    }
+                    pendingFrames.Enqueue(frame);
+                    pendingBytes += frameBytes;
+                    return;
+                }
             }
+            target.Dispose();
+            target.Source.TrySetResult(frame);
         }
 
         public void Close(string reason)
         {
-            closed = true;
-            closeReason = string.IsNullOrWhiteSpace(reason) ? "通讯通道已关闭" : reason;
-
-            foreach (KeyValuePair<long, Waiter> pair in waiters.ToArray())
+            List<Waiter> closingWaiters;
+            lock (sync)
             {
-                if (!waiters.TryRemove(pair.Key, out Waiter waiter))
+                if (closed)
                 {
-                    continue;
+                    return;
                 }
-
+                closed = true;
+                closeReason = string.IsNullOrWhiteSpace(reason) ? "通讯通道已关闭" : reason;
+                closingWaiters = waiters.Values.ToList();
+                waiters.Clear();
+                waiterOrder.Clear();
+                pendingFrames.Clear();
+                pendingBytes = 0;
+            }
+            foreach (Waiter waiter in closingWaiters)
+            {
                 waiter.Dispose();
                 waiter.Source.TrySetException(new InvalidOperationException(closeReason));
             }
@@ -397,13 +447,26 @@ namespace Automation
 
         private void CancelWaiter(long id, Exception ex)
         {
-            if (!waiters.TryRemove(id, out Waiter waiter))
+            Waiter waiter;
+            lock (sync)
             {
-                return;
+                if (!waiters.TryGetValue(id, out waiter))
+                {
+                    return;
+                }
+                waiters.Remove(id);
             }
-
             waiter.Dispose();
             waiter.Source.TrySetException(ex);
+        }
+
+        public void ClearPending()
+        {
+            lock (sync)
+            {
+                pendingFrames.Clear();
+                pendingBytes = 0;
+            }
         }
     }
 
@@ -413,20 +476,24 @@ namespace Automation
 
         private readonly ParsedSocketInfo info;
         private readonly Action<CommLogEventArgs> log;
+        private readonly Func<bool> loggingEnabled;
         private readonly ReceiveDispatcher dispatcher;
         private readonly SemaphoreSlim sendGate = new SemaphoreSlim(1, 1);
         private readonly object clientLock = new object();
         private readonly List<TcpClient> clients = new List<TcpClient>();
+        private readonly ConcurrentDictionary<TcpClient, Task> readTasks = new ConcurrentDictionary<TcpClient, Task>();
 
         private CancellationTokenSource cts;
         private TcpClient client;
         private TcpListener listener;
+        private Task acceptTask;
         private volatile bool isRunning;
 
-        public TcpChannel(ParsedSocketInfo info, Action<CommLogEventArgs> log, int pendingLimit)
+        public TcpChannel(ParsedSocketInfo info, Action<CommLogEventArgs> log, Func<bool> loggingEnabled, int pendingLimit)
         {
             this.info = info;
             this.log = log;
+            this.loggingEnabled = loggingEnabled;
             dispatcher = new ReceiveDispatcher(pendingLimit);
         }
 
@@ -469,11 +536,12 @@ namespace Automation
                 clientCount = isRunning ? 1 : 0;
             }
 
-            return new TcpStatus(IsServer, isRunning, clientCount);
+            return new TcpStatus(IsServer, isRunning, clientCount, dispatcher.DroppedFrames);
         }
 
-        public async Task StartAsync()
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (isRunning)
             {
                 return;
@@ -485,24 +553,26 @@ namespace Automation
                 listener = new TcpListener(info.Address, info.Port);
                 listener.Start();
                 isRunning = true;
-                _ = Task.Run(() => AcceptLoopAsync(cts.Token));
+                acceptTask = AcceptLoopAsync(cts.Token);
                 return;
             }
 
             client = new TcpClient();
-            CancellationToken token = cts.Token;
+            using (CancellationTokenSource connectCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken))
             try
             {
                 Task connectTask = client.ConnectAsync(info.Address, info.Port);
-                Task timeoutTask = Task.Delay(info.ConnectTimeoutMs, token);
+                Task timeoutTask = Task.Delay(info.ConnectTimeoutMs, connectCts.Token);
                 Task completed = await Task.WhenAny(connectTask, timeoutTask).ConfigureAwait(false);
                 if (!ReferenceEquals(completed, connectTask))
                 {
-                    if (token.IsCancellationRequested)
+                    _ = connectTask.ContinueWith(task => _ = task.Exception,
+                        CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                    if (connectCts.IsCancellationRequested)
                     {
                         SafeCloseClient(client);
                         client = null;
-                        throw new OperationCanceledException("TCP连接已取消", token);
+                        throw new OperationCanceledException("TCP连接已取消", connectCts.Token);
                     }
 
                     SafeCloseClient(client);
@@ -511,6 +581,7 @@ namespace Automation
                 }
 
                 await connectTask.ConfigureAwait(false);
+                connectCts.Cancel();
             }
             catch
             {
@@ -519,12 +590,14 @@ namespace Automation
                 throw;
             }
             isRunning = true;
-            _ = Task.Run(() => ReadLoopAsync(client, cts.Token));
+            TrackReadTask(client, ReadLoopAsync(client, cts.Token));
         }
 
-        public Task StopAsync()
+        public async Task StopAsync()
         {
-            cts?.Cancel();
+            CancellationTokenSource currentCts = cts;
+            cts = null;
+            currentCts?.Cancel();
 
             if (IsServer)
             {
@@ -553,7 +626,27 @@ namespace Automation
 
             isRunning = false;
             dispatcher.Close("TCP通道已关闭");
-            return Task.CompletedTask;
+            currentCts?.Dispose();
+            List<Task> backgroundTasks = readTasks.Values.ToList();
+            if (acceptTask != null)
+            {
+                backgroundTasks.Add(acceptTask);
+            }
+            if (backgroundTasks.Count > 0)
+            {
+                Task allTasks = Task.WhenAll(backgroundTasks);
+                Task completed = await Task.WhenAny(allTasks, Task.Delay(1000)).ConfigureAwait(false);
+                if (ReferenceEquals(completed, allTasks))
+                {
+                    await allTasks.ConfigureAwait(false);
+                }
+                else
+                {
+                    _ = allTasks.ContinueWith(task => _ = task.Exception,
+                        CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                }
+            }
+            acceptTask = null;
         }
 
         public async Task SendAsync(byte[] payload, bool appendDelimiter, CancellationToken cancellationToken)
@@ -650,6 +743,11 @@ namespace Automation
             return dispatcher.WaitNextAsync(timeoutMs, cancellationToken);
         }
 
+        public void ClearPendingMessages()
+        {
+            dispatcher.ClearPending();
+        }
+
         public string DecodeText(byte[] payload)
         {
             return Encoding.GetString(payload ?? Array.Empty<byte>());
@@ -691,6 +789,16 @@ namespace Automation
                     if (!token.IsCancellationRequested)
                     {
                         log?.Invoke(new CommLogEventArgs(Kind, CommDirection.Error, info.Name, ex.Message, null, null, ex));
+                        isRunning = false;
+                        dispatcher.Close("TCP服务监听异常");
+                        lock (clientLock)
+                        {
+                            foreach (TcpClient connectedClient in clients.ToList())
+                            {
+                                SafeCloseClient(connectedClient);
+                            }
+                            clients.Clear();
+                        }
                     }
                     break;
                 }
@@ -705,8 +813,18 @@ namespace Automation
                     clients.Add(accepted);
                 }
 
-                _ = Task.Run(() => ReadLoopAsync(accepted, token));
+                TrackReadTask(accepted, ReadLoopAsync(accepted, token));
             }
+        }
+
+        private void TrackReadTask(TcpClient targetClient, Task task)
+        {
+            readTasks[targetClient] = task;
+            _ = task.ContinueWith(completedTask =>
+            {
+                readTasks.TryRemove(targetClient, out _);
+                _ = completedTask.Exception;
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
 
         private async Task ReadLoopAsync(TcpClient targetClient, CancellationToken token)
@@ -773,9 +891,12 @@ namespace Automation
                 foreach (byte[] frame in frames)
                 {
                     dispatcher.Publish(new ReceivedFrame(frame, remoteEndPoint));
-                    string text = DecodeText(frame);
-                    string hex = CommunicationHub.BytesToHex(frame);
-                    log?.Invoke(new CommLogEventArgs(Kind, CommDirection.Receive, info.Name, text, hex, remoteEndPoint, null));
+                    if (loggingEnabled?.Invoke() == true)
+                    {
+                        string text = DecodeText(frame);
+                        string hex = CommunicationHub.BytesToHex(frame);
+                        log?.Invoke(new CommLogEventArgs(Kind, CommDirection.Receive, info.Name, text, hex, remoteEndPoint, null));
+                    }
                 }
             }
 
@@ -829,18 +950,21 @@ namespace Automation
 
         private readonly ParsedSerialInfo info;
         private readonly Action<CommLogEventArgs> log;
+        private readonly Func<bool> loggingEnabled;
         private readonly ReceiveDispatcher dispatcher;
         private readonly SemaphoreSlim sendGate = new SemaphoreSlim(1, 1);
         private readonly object sync = new object();
 
         private CancellationTokenSource cts;
         private SerialPort serialPort;
+        private Task readTask;
         private volatile bool isOpen;
 
-        public SerialPortChannel(ParsedSerialInfo info, Action<CommLogEventArgs> log, int pendingLimit)
+        public SerialPortChannel(ParsedSerialInfo info, Action<CommLogEventArgs> log, Func<bool> loggingEnabled, int pendingLimit)
         {
             this.info = info;
             this.log = log;
+            this.loggingEnabled = loggingEnabled;
             dispatcher = new ReceiveDispatcher(pendingLimit);
         }
 
@@ -870,11 +994,12 @@ namespace Automation
 
         public SerialStatus GetStatus()
         {
-            return new SerialStatus(isOpen);
+            return new SerialStatus(isOpen, dispatcher.DroppedFrames);
         }
 
-        public Task StartAsync()
+        public Task StartAsync(CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (isOpen)
             {
                 return Task.CompletedTask;
@@ -891,13 +1016,15 @@ namespace Automation
                 isOpen = true;
             }
 
-            _ = Task.Run(() => ReadLoopAsync(cts.Token));
+            readTask = ReadLoopAsync(cts.Token);
             return Task.CompletedTask;
         }
 
-        public Task StopAsync()
+        public async Task StopAsync()
         {
-            cts?.Cancel();
+            CancellationTokenSource currentCts = cts;
+            cts = null;
+            currentCts?.Cancel();
 
             lock (sync)
             {
@@ -921,7 +1048,22 @@ namespace Automation
             }
 
             dispatcher.Close("串口已关闭");
-            return Task.CompletedTask;
+            currentCts?.Dispose();
+            Task currentReadTask = readTask;
+            readTask = null;
+            if (currentReadTask != null)
+            {
+                Task completed = await Task.WhenAny(currentReadTask, Task.Delay(1000)).ConfigureAwait(false);
+                if (ReferenceEquals(completed, currentReadTask))
+                {
+                    await currentReadTask.ConfigureAwait(false);
+                }
+                else
+                {
+                    _ = currentReadTask.ContinueWith(task => _ = task.Exception,
+                        CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                }
+            }
         }
 
         public async Task SendAsync(byte[] payload, bool appendDelimiter, CancellationToken cancellationToken)
@@ -956,6 +1098,11 @@ namespace Automation
         public Task<ReceivedFrame> WaitReceiveAsync(int timeoutMs, CancellationToken cancellationToken)
         {
             return dispatcher.WaitNextAsync(timeoutMs, cancellationToken);
+        }
+
+        public void ClearPendingMessages()
+        {
+            dispatcher.ClearPending();
         }
 
         public string DecodeText(byte[] payload)
@@ -1035,13 +1182,28 @@ namespace Automation
                 foreach (byte[] frame in frames)
                 {
                     dispatcher.Publish(new ReceivedFrame(frame, info.PortName));
-                    string text = DecodeText(frame);
-                    string hex = CommunicationHub.BytesToHex(frame);
-                    log?.Invoke(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Receive, info.Name, text, hex, info.PortName, null));
+                    if (loggingEnabled?.Invoke() == true)
+                    {
+                        string text = DecodeText(frame);
+                        string hex = CommunicationHub.BytesToHex(frame);
+                        log?.Invoke(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Receive, info.Name, text, hex, info.PortName, null));
+                    }
                 }
             }
 
-            isOpen = false;
+            lock (sync)
+            {
+                try
+                {
+                    serialPort?.Close();
+                }
+                catch
+                {
+                }
+                serialPort?.Dispose();
+                serialPort = null;
+                isOpen = false;
+            }
             dispatcher.Close("串口已关闭");
         }
 
@@ -1061,6 +1223,7 @@ namespace Automation
 
     public sealed class CommunicationHub : IDisposable
     {
+        private const int MaxMessageBytes = 1024 * 1024;
         private sealed class TransactionLease : IDisposable
         {
             private SemaphoreSlim gate;
@@ -1077,48 +1240,58 @@ namespace Automation
         }
 
         private readonly ConcurrentDictionary<string, SemaphoreSlim> transactionGates =
-            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
+            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> lifecycleGates =
+            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, TcpChannel> tcpChannels = new ConcurrentDictionary<string, TcpChannel>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, SerialPortChannel> serialChannels = new ConcurrentDictionary<string, SerialPortChannel>(StringComparer.OrdinalIgnoreCase);
+        private int disposed;
 
         public event EventHandler<CommLogEventArgs> Log;
 
-        public async Task StartTcpAsync(SocketInfo info, int connectTimeoutMs = 5000)
+        public async Task StartTcpAsync(SocketInfo info, int connectTimeoutMs = 0,
+            CancellationToken cancellationToken = default)
         {
-            ParsedSocketInfo parsed;
+            ThrowIfDisposed();
+            ParsedSocketInfo parsed = ParseSocketInfo(info, connectTimeoutMs);
+            SemaphoreSlim lifecycleGate = lifecycleGates.GetOrAdd("TCP:" + parsed.Name, _ => new SemaphoreSlim(1, 1));
+            await lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                parsed = ParseSocketInfo(info, connectTimeoutMs);
-            }
-            catch (Exception ex)
-            {
-                string name = info?.Name ?? string.Empty;
-                RaiseLog(new CommLogEventArgs(CommChannelKind.TcpClient, CommDirection.Error, name, ex.Message, null, null, ex));
-                return;
-            }
 
-            if (tcpChannels.TryGetValue(parsed.Name, out TcpChannel existing))
-            {
-                if (existing.Matches(parsed) && existing.IsRunning)
+                if (tcpChannels.TryGetValue(parsed.Name, out TcpChannel existing))
                 {
-                    return;
+                    if (existing.Matches(parsed) && existing.IsRunning)
+                    {
+                        return;
+                    }
+
+                    await existing.StopAsync().ConfigureAwait(false);
                 }
 
-                await existing.StopAsync().ConfigureAwait(false);
-            }
+                TcpChannel channel = new TcpChannel(parsed, RaiseLog, () => Log != null, RuntimeConfig.PendingReceiverLimit);
+                tcpChannels[parsed.Name] = channel;
 
-            TcpChannel channel = new TcpChannel(parsed, RaiseLog, RuntimeConfig.PendingReceiverLimit);
-            tcpChannels[parsed.Name] = channel;
-
-            try
-            {
-                await channel.StartAsync().ConfigureAwait(false);
+                try
+                {
+                    await channel.StartAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    await channel.StopAsync().ConfigureAwait(false);
+                    tcpChannels.TryRemove(parsed.Name, out _);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        throw new OperationCanceledException("TCP启动已取消", ex, cancellationToken);
+                    }
+                    string message = GetBaseErrorMessage(ex);
+                    RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Error, parsed.Name, message, null, null, ex));
+                    throw new InvalidOperationException($"TCP启动失败:{parsed.Name} {message}", ex);
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                tcpChannels.TryRemove(parsed.Name, out _);
-                string message = GetBaseErrorMessage(ex);
-                RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Error, parsed.Name, message, null, null, ex));
+                lifecycleGate.Release();
             }
         }
 
@@ -1129,9 +1302,18 @@ namespace Automation
                 return;
             }
 
-            if (tcpChannels.TryRemove(name, out TcpChannel channel))
+            SemaphoreSlim lifecycleGate = lifecycleGates.GetOrAdd("TCP:" + name, _ => new SemaphoreSlim(1, 1));
+            await lifecycleGate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                await channel.StopAsync().ConfigureAwait(false);
+                if (tcpChannels.TryRemove(name, out TcpChannel channel))
+                {
+                    await channel.StopAsync().ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                lifecycleGate.Release();
             }
         }
 
@@ -1168,6 +1350,21 @@ namespace Automation
 
         public async Task<bool> SendTcpAsync(string name, string message, bool convertHex, CancellationToken cancellationToken = default)
         {
+            try
+            {
+                using (IDisposable transaction = await EnterTcpTransactionAsync(name, cancellationToken).ConfigureAwait(false))
+                {
+                    return await SendTcpCoreAsync(name, message, convertHex, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+        }
+
+        private async Task<bool> SendTcpCoreAsync(string name, string message, bool convertHex, CancellationToken cancellationToken)
+        {
             if (string.IsNullOrWhiteSpace(name))
             {
                 RaiseLog(new CommLogEventArgs(CommChannelKind.TcpClient, CommDirection.Error, name, "TCP名称为空", null, null, null));
@@ -1185,9 +1382,12 @@ namespace Automation
                 byte[] payload = BuildSendPayload(message, convertHex, channel.Encoding);
                 bool appendDelimiter = !convertHex && channel.UseDelimiter;
                 await channel.SendAsync(payload, appendDelimiter, cancellationToken).ConfigureAwait(false);
-                string text = convertHex ? BytesToHex(payload) : channel.DecodeText(payload);
-                string hex = BytesToHex(payload);
-                RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Send, name, text, hex, null, null));
+                if (Log != null)
+                {
+                    string text = convertHex ? BytesToHex(payload) : channel.DecodeText(payload);
+                    string hex = BytesToHex(payload);
+                    RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Send, name, text, hex, null, null));
+                }
                 return true;
             }
             catch (OperationCanceledException)
@@ -1212,6 +1412,89 @@ namespace Automation
             return await EnterTransactionAsync("SERIAL:" + (name ?? string.Empty), cancellationToken).ConfigureAwait(false);
         }
 
+        public async Task<CommReceiveResult> SendReceiveTcpAsync(string name, string message, bool convertHex,
+            int timeoutMs, CancellationToken cancellationToken = default)
+        {
+            if (timeoutMs <= 0)
+            {
+                return CommReceiveResult.CreateFailure($"TCP请求超时配置无效:{timeoutMs}");
+            }
+            using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                timeoutCts.CancelAfter(timeoutMs);
+                IDisposable transaction;
+                try
+                {
+                    transaction = await EnterTcpTransactionAsync(name, timeoutCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return CommReceiveResult.CreateFailure(cancellationToken.IsCancellationRequested
+                        ? "TCP请求已取消" : "TCP请求超时");
+                }
+                using (transaction)
+                {
+                if (tcpChannels.TryGetValue(name ?? string.Empty, out TcpChannel requestChannel)
+                    && requestChannel.IsServer && requestChannel.GetStatus().ClientCount != 1)
+                {
+                    return CommReceiveResult.CreateFailure("TCP服务端请求-响应模式要求恰好一个在线客户端");
+                }
+                ClearTcpMessages(name);
+                Task<CommReceiveResult> receiveTask = ReceiveTcpCoreAsync(name, timeoutMs, timeoutCts.Token);
+                bool sent = await SendTcpCoreAsync(name, message, convertHex, timeoutCts.Token).ConfigureAwait(false);
+                if (!sent)
+                {
+                    bool timedOut = timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
+                    timeoutCts.Cancel();
+                    await receiveTask.ConfigureAwait(false);
+                    return CommReceiveResult.CreateFailure(cancellationToken.IsCancellationRequested
+                        ? "TCP请求已取消"
+                        : timedOut ? "TCP请求超时" : "TCP发送失败");
+                }
+                return await receiveTask.ConfigureAwait(false);
+                }
+            }
+        }
+
+        public async Task<CommReceiveResult> SendReceiveSerialAsync(string name, string message, bool convertHex,
+            int timeoutMs, CancellationToken cancellationToken = default)
+        {
+            if (timeoutMs <= 0)
+            {
+                return CommReceiveResult.CreateFailure($"串口请求超时配置无效:{timeoutMs}");
+            }
+            using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                timeoutCts.CancelAfter(timeoutMs);
+                IDisposable transaction;
+                try
+                {
+                    transaction = await EnterSerialTransactionAsync(name, timeoutCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return CommReceiveResult.CreateFailure(cancellationToken.IsCancellationRequested
+                        ? "串口请求已取消" : "串口请求超时");
+                }
+                using (transaction)
+                {
+                ClearSerialMessages(name);
+                Task<CommReceiveResult> receiveTask = ReceiveSerialCoreAsync(name, timeoutMs, timeoutCts.Token);
+                bool sent = await SendSerialCoreAsync(name, message, convertHex, timeoutCts.Token).ConfigureAwait(false);
+                if (!sent)
+                {
+                    bool timedOut = timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
+                    timeoutCts.Cancel();
+                    await receiveTask.ConfigureAwait(false);
+                    return CommReceiveResult.CreateFailure(cancellationToken.IsCancellationRequested
+                        ? "串口请求已取消"
+                        : timedOut ? "串口请求超时" : "串口发送失败");
+                }
+                return await receiveTask.ConfigureAwait(false);
+                }
+            }
+        }
+
         private async Task<IDisposable> EnterTransactionAsync(string key, CancellationToken cancellationToken)
         {
             SemaphoreSlim gate = transactionGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
@@ -1220,6 +1503,28 @@ namespace Automation
         }
 
         public async Task<CommReceiveResult> ReceiveTcpAsync(string name, int timeoutMs, CancellationToken cancellationToken = default)
+        {
+            if (timeoutMs <= 0)
+            {
+                return CommReceiveResult.CreateFailure($"TCP接收超时配置无效:{timeoutMs}");
+            }
+            using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            try
+            {
+                timeoutCts.CancelAfter(timeoutMs);
+                using (IDisposable transaction = await EnterTcpTransactionAsync(name, timeoutCts.Token).ConfigureAwait(false))
+                {
+                    return await ReceiveTcpCoreAsync(name, timeoutMs, timeoutCts.Token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return CommReceiveResult.CreateFailure(cancellationToken.IsCancellationRequested
+                    ? "TCP接收已取消" : "TCP接收超时");
+            }
+        }
+
+        private async Task<CommReceiveResult> ReceiveTcpCoreAsync(string name, int timeoutMs, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -1292,45 +1597,54 @@ namespace Automation
 
         public void ClearTcpMessages(string name)
         {
-            // 新实现无全局消息队列，保留空实现以避免误用导致抛错。
+            if (!string.IsNullOrWhiteSpace(name) && tcpChannels.TryGetValue(name, out TcpChannel channel))
+            {
+                channel.ClearPendingMessages();
+            }
         }
 
-        public async Task StartSerialAsync(SerialPortInfo info)
+        public async Task StartSerialAsync(SerialPortInfo info, CancellationToken cancellationToken = default)
         {
-            ParsedSerialInfo parsed;
+            ThrowIfDisposed();
+            ParsedSerialInfo parsed = ParseSerialInfo(info);
+            SemaphoreSlim lifecycleGate = lifecycleGates.GetOrAdd("SERIAL:" + parsed.Name, _ => new SemaphoreSlim(1, 1));
+            await lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                parsed = ParseSerialInfo(info);
-            }
-            catch (Exception ex)
-            {
-                string name = info?.Name ?? string.Empty;
-                RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, name, ex.Message, null, info?.Port, ex));
-                return;
-            }
 
-            if (serialChannels.TryGetValue(parsed.Name, out SerialPortChannel existing))
-            {
-                if (existing.Matches(parsed) && existing.IsOpen)
+                if (serialChannels.TryGetValue(parsed.Name, out SerialPortChannel existing))
                 {
-                    return;
+                    if (existing.Matches(parsed) && existing.IsOpen)
+                    {
+                        return;
+                    }
+
+                    await existing.StopAsync().ConfigureAwait(false);
                 }
 
-                await existing.StopAsync().ConfigureAwait(false);
-            }
+                SerialPortChannel channel = new SerialPortChannel(parsed, RaiseLog, () => Log != null, RuntimeConfig.PendingReceiverLimit);
+                serialChannels[parsed.Name] = channel;
 
-            SerialPortChannel channel = new SerialPortChannel(parsed, RaiseLog, RuntimeConfig.PendingReceiverLimit);
-            serialChannels[parsed.Name] = channel;
-
-            try
-            {
-                await channel.StartAsync().ConfigureAwait(false);
+                try
+                {
+                    await channel.StartAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    await channel.StopAsync().ConfigureAwait(false);
+                    serialChannels.TryRemove(parsed.Name, out _);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        throw new OperationCanceledException("串口启动已取消", ex, cancellationToken);
+                    }
+                    string message = GetBaseErrorMessage(ex);
+                    RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, parsed.Name, message, null, parsed.PortName, ex));
+                    throw new InvalidOperationException($"串口启动失败:{parsed.Name} {message}", ex);
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                serialChannels.TryRemove(parsed.Name, out _);
-                string message = GetBaseErrorMessage(ex);
-                RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, parsed.Name, message, null, parsed.PortName, ex));
+                lifecycleGate.Release();
             }
         }
 
@@ -1341,9 +1655,18 @@ namespace Automation
                 return;
             }
 
-            if (serialChannels.TryRemove(name, out SerialPortChannel channel))
+            SemaphoreSlim lifecycleGate = lifecycleGates.GetOrAdd("SERIAL:" + name, _ => new SemaphoreSlim(1, 1));
+            await lifecycleGate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                await channel.StopAsync().ConfigureAwait(false);
+                if (serialChannels.TryRemove(name, out SerialPortChannel channel))
+                {
+                    await channel.StopAsync().ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                lifecycleGate.Release();
             }
         }
 
@@ -1369,6 +1692,21 @@ namespace Automation
 
         public async Task<bool> SendSerialAsync(string name, string message, bool convertHex, CancellationToken cancellationToken = default)
         {
+            try
+            {
+                using (IDisposable transaction = await EnterSerialTransactionAsync(name, cancellationToken).ConfigureAwait(false))
+                {
+                    return await SendSerialCoreAsync(name, message, convertHex, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+        }
+
+        private async Task<bool> SendSerialCoreAsync(string name, string message, bool convertHex, CancellationToken cancellationToken)
+        {
             if (string.IsNullOrWhiteSpace(name))
             {
                 RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, name, "串口名称为空", null, null, null));
@@ -1386,9 +1724,12 @@ namespace Automation
                 byte[] payload = BuildSendPayload(message, convertHex, channel.Encoding);
                 bool appendDelimiter = !convertHex && channel.UseDelimiter;
                 await channel.SendAsync(payload, appendDelimiter, cancellationToken).ConfigureAwait(false);
-                string text = convertHex ? BytesToHex(payload) : channel.DecodeText(payload);
-                string hex = BytesToHex(payload);
-                RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Send, name, text, hex, channel.PortName, null));
+                if (Log != null)
+                {
+                    string text = convertHex ? BytesToHex(payload) : channel.DecodeText(payload);
+                    string hex = BytesToHex(payload);
+                    RaiseLog(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Send, name, text, hex, channel.PortName, null));
+                }
                 return true;
             }
             catch (OperationCanceledException)
@@ -1404,6 +1745,28 @@ namespace Automation
         }
 
         public async Task<CommReceiveResult> ReceiveSerialAsync(string name, int timeoutMs, CancellationToken cancellationToken = default)
+        {
+            if (timeoutMs <= 0)
+            {
+                return CommReceiveResult.CreateFailure($"串口接收超时配置无效:{timeoutMs}");
+            }
+            using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            try
+            {
+                timeoutCts.CancelAfter(timeoutMs);
+                using (IDisposable transaction = await EnterSerialTransactionAsync(name, timeoutCts.Token).ConfigureAwait(false))
+                {
+                    return await ReceiveSerialCoreAsync(name, timeoutMs, timeoutCts.Token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return CommReceiveResult.CreateFailure(cancellationToken.IsCancellationRequested
+                    ? "串口接收已取消" : "串口接收超时");
+            }
+        }
+
+        private async Task<CommReceiveResult> ReceiveSerialCoreAsync(string name, int timeoutMs, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -1476,22 +1839,36 @@ namespace Automation
 
         public void ClearSerialMessages(string name)
         {
-            // 新实现无全局消息队列，保留空实现以避免误用导致抛错。
+            if (!string.IsNullOrWhiteSpace(name) && serialChannels.TryGetValue(name, out SerialPortChannel channel))
+            {
+                channel.ClearPendingMessages();
+            }
         }
 
         public void Dispose()
         {
-            foreach (KeyValuePair<string, TcpChannel> item in tcpChannels.ToArray())
+            if (Interlocked.Exchange(ref disposed, 1) != 0)
             {
-                item.Value.StopAsync().GetAwaiter().GetResult();
+                return;
             }
+            Task[] tcpStops = tcpChannels.Values.Select(channel => channel.StopAsync()).ToArray();
+            Task.WhenAll(tcpStops).GetAwaiter().GetResult();
             tcpChannels.Clear();
 
-            foreach (KeyValuePair<string, SerialPortChannel> item in serialChannels.ToArray())
-            {
-                item.Value.StopAsync().GetAwaiter().GetResult();
-            }
+            Task[] serialStops = serialChannels.Values.Select(channel => channel.StopAsync()).ToArray();
+            Task.WhenAll(serialStops).GetAwaiter().GetResult();
             serialChannels.Clear();
+            transactionGates.Clear();
+            lifecycleGates.Clear();
+            Log = null;
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                throw new ObjectDisposedException(nameof(CommunicationHub));
+            }
         }
 
         internal static string BytesToHex(byte[] payload)
@@ -1515,7 +1892,52 @@ namespace Automation
 
         private void RaiseLog(CommLogEventArgs args)
         {
-            Log?.Invoke(this, args);
+            EventHandler<CommLogEventArgs> handlers = Log;
+            if (handlers == null)
+            {
+                return;
+            }
+            foreach (EventHandler<CommLogEventArgs> handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    handler(this, args);
+                }
+                catch
+                {
+                    // 日志观察者不能破坏通讯收发线程。
+                }
+            }
+        }
+
+        public static bool TryValidateSocketInfo(SocketInfo info, out string error)
+        {
+            try
+            {
+                ParseSocketInfo(info, info?.ConnectTimeoutMs ?? 0);
+                error = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = GetBaseErrorMessage(ex);
+                return false;
+            }
+        }
+
+        public static bool TryValidateSerialPortInfo(SerialPortInfo info, out string error)
+        {
+            try
+            {
+                ParseSerialInfo(info);
+                error = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = GetBaseErrorMessage(ex);
+                return false;
+            }
         }
 
         private static string GetBaseErrorMessage(Exception ex)
@@ -1534,8 +1956,13 @@ namespace Automation
             {
                 return ParseHexPayload(message);
             }
-
-            return encoding.GetBytes(message ?? string.Empty);
+            string text = message ?? string.Empty;
+            int byteCount = encoding.GetByteCount(text);
+            if (byteCount > MaxMessageBytes)
+            {
+                throw new InvalidOperationException($"发送消息长度超限:{byteCount}");
+            }
+            return encoding.GetBytes(text);
         }
 
         private static byte[] ParseHexPayload(string message)
@@ -1563,6 +1990,10 @@ namespace Automation
                 }
 
                 compact.Append(char.ToUpperInvariant(c));
+                if (compact.Length > MaxMessageBytes * 2)
+                {
+                    throw new FormatException($"十六进制发送长度超限:{compact.Length / 2}");
+                }
             }
 
             if (compact.Length == 0)
@@ -1576,13 +2007,19 @@ namespace Automation
             }
 
             byte[] result = new byte[compact.Length / 2];
+            string hex = compact.ToString();
             for (int i = 0; i < result.Length; i++)
             {
-                string part = compact.ToString(i * 2, 2);
-                result[i] = Convert.ToByte(part, 16);
+                result[i] = (byte)((ParseHexNibble(hex[i * 2]) << 4) | ParseHexNibble(hex[i * 2 + 1]));
             }
 
             return result;
+        }
+
+        private static int ParseHexNibble(char value)
+        {
+            if (value >= '0' && value <= '9') return value - '0';
+            return value - 'A' + 10;
         }
 
         private static ParsedSocketInfo ParseSocketInfo(SocketInfo info, int connectTimeoutMs)
