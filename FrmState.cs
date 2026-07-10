@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -30,14 +30,7 @@ namespace Automation
                 return;
             }
 
-            string userName = "未登录";
-            UserContextSnapshot snapshot = SF.userContextStore?.GetSnapshot();
-            if (snapshot != null && snapshot.IsLoggedIn)
-            {
-                userName = snapshot.UserName;
-            }
-
-            basicInfo = $"用户:{userName}";
+            basicInfo = string.Empty;
             bool hasStatus = TryGetSystemStatus(out SystemStatus status);
             string systemStatus = GetSystemStatusText(hasStatus, status);
             SysInfo.Text = basicInfo;

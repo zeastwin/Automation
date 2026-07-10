@@ -55,10 +55,6 @@ namespace Automation
             }
             cardData = Normalize(cardData);
             string filePath = Path.Combine(configPath, "card.json");
-            if (SF.mainfrm != null && !SF.mainfrm.EnsureAiVersionProtection(filePath, out string protectionError))
-            {
-                throw new InvalidOperationException("AI 控制卡写入被版本保护拒绝：" + protectionError);
-            }
             var settings = new JsonSerializerSettings
             {
                 TypeNameHandling = TypeNameHandling.All

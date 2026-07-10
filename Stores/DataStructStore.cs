@@ -80,10 +80,6 @@ namespace Automation
                 Directory.CreateDirectory(configPath);
             }
             string filePath = Path.Combine(configPath, "DataStruct.json");
-            if (SF.mainfrm != null && !SF.mainfrm.EnsureAiVersionProtection(filePath, out string protectionError))
-            {
-                throw new InvalidOperationException("AI 数据结构写入被版本保护拒绝：" + protectionError);
-            }
             var settings = new JsonSerializerSettings
             {
                 TypeNameHandling = TypeNameHandling.All

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Reflection;
@@ -182,7 +182,6 @@ namespace Automation
 
             dgvValue.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             dgvValue.RowTemplate.Height = 28;
-            ApplyPermissions();
         }
 
         private void FrmValue_FormClosing(object sender, FormClosingEventArgs e)
@@ -469,10 +468,6 @@ namespace Automation
 
         private void PasteToSelectedValueRow()
         {
-            if (!SF.EnsurePermission(PermissionKeys.ValueAccess, "变量粘贴"))
-            {
-                return;
-            }
             if (clipboardItem == null)
             {
                 MessageBox.Show("没有可粘贴的数据");
@@ -527,10 +522,6 @@ namespace Automation
 
         private void ClearSelectedValueRows(bool requireConfirm = false)
         {
-            if (!SF.EnsurePermission(PermissionKeys.ValueAccess, "变量清除"))
-            {
-                return;
-            }
             List<int> indexes = GetSelectedRowIndexes();
             if (indexes.Count == 0)
             {
@@ -645,10 +636,6 @@ namespace Automation
 
         private void btnSet_Click(object sender, EventArgs e)
         {
-            if (!SF.EnsurePermission(PermissionKeys.ValueAccess, "变量标记设置"))
-            {
-                return;
-            }
             if (dgvValue.CurrentCell != null)
             {
                 // 获取当前选定单元格的行列索引
@@ -1041,17 +1028,6 @@ namespace Automation
                     dgvValue.FirstDisplayedScrollingRowIndex = index;
                 }
             }
-        }
-
-        public void ApplyPermissions()
-        {
-            bool canUse = SF.HasPermission(PermissionKeys.ValueAccess);
-            dgvValue.ReadOnly = !canUse;
-            btnSet.Enabled = canUse;
-            btnPaste.Enabled = canUse;
-            btnClearData.Enabled = canUse;
-            btnMonitorAdd.Enabled = canUse;
-            btnMonitorRemove.Enabled = canUse;
         }
 
     }

@@ -1112,10 +1112,6 @@ namespace Automation
         {
             if (SelectedProcNum != -1)
             {
-                if (!SF.EnsurePermission(PermissionKeys.ProcessRun, "启动流程"))
-                {
-                    return;
-                }
                 if (SelectedProcNum >= 0 && SelectedProcNum < procsList.Count && procsList[SelectedProcNum]?.head?.Disable == true)
                 {
                     MessageBox.Show("流程已禁用，无法启动。");
@@ -1183,7 +1179,7 @@ namespace Automation
             ToggleDisable.Text = isDisabled
                 ? (isStep ? "启用步骤" : "启用流程")
                 : (isStep ? "禁用步骤" : "禁用流程");
-            ToggleDisable.Enabled = SF.HasPermission(PermissionKeys.ProcessEdit);
+            ToggleDisable.Enabled = true;
         }
 
         private void UpdateCopyPasteMenu()

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -66,10 +66,6 @@ namespace Automation
                     if (targetState != ProcRunState.Stopped)
                     {
                         MarkAlarm(evt, $"流程未停止:{proc?.head?.Name}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-                    if (!CheckPermission(PermissionKeys.ProcessRun, "流程联动运行", evt))
-                    {
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     StartProcAuto(proc, index);

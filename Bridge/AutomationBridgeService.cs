@@ -320,7 +320,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListProcs(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取流程列表");
             bool includeStepSummary = ReadOptionalBoolean(request, "includeStepSummary") ?? false;
             EnsureRuntimeReady();
 
@@ -373,7 +372,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetProcOverview(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取流程摘要");
             int procIndex = ReadRequiredInt(request, "procIndex");
             Proc proc = GetProcByIndex(procIndex);
             return BuildProcOverview(procIndex, proc);
@@ -382,7 +380,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetProcDetail(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取流程详情");
             int procIndex = ReadRequiredInt(request, "procIndex");
             Proc proc = GetProcByIndex(procIndex);
             return BuildProcDetail(procIndex, proc);
@@ -391,7 +388,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListOperationTypes()
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取指令类型");
             EnsureRuntimeReady();
             JArray items = new JArray();
             foreach (OperationType template in SF.frmPropertyGrid.OperationTypeList.OfType<OperationType>())
@@ -417,7 +413,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetOperationSchema(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取指令 Schema");
             EnsureRuntimeReady();
 
             int? procIndex = ReadOptionalInt(request, "procIndex");
@@ -473,7 +468,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetReferenceCatalog(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取引用目录");
             EnsureRuntimeReady();
             int? procIndex = ReadOptionalInt(request, "procIndex");
             CommReferenceCatalog commNames = GetCommNames();
@@ -542,7 +536,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListIntentTemplates(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取中间意图模板");
             string patchAction = ReadOptionalString(request, "patchAction");
             JArray templates = LoadIntentTemplateCatalog();
             JArray items = new JArray();
@@ -573,7 +566,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetIntentTemplate(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取中间意图模板");
             string templateId = ReadOptionalString(request, "templateId");
             string patchAction = ReadOptionalString(request, "patchAction");
             JArray templates = LoadIntentTemplateCatalog();
@@ -606,7 +598,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleBuildPatchFromIntent(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "构建 Patch");
             JObject intent = ReadIntentObject(request);
             JObject patch = ConvertIntentToPatch(intent);
             return new JObject
@@ -619,7 +610,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandlePreviewIntent(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演中间意图");
             JObject intent = ReadIntentObject(request);
             JObject patch = ConvertIntentToPatch(intent);
             PatchExecutionResult result = ExecutePatch(patch);
@@ -637,7 +627,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleApplyIntent(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交中间意图");
             string previewId = ReadRequiredString(request, "previewId");
             JObject intent = ReadIntentObject(request);
             JObject patch = ConvertIntentToPatch(intent);
@@ -665,7 +654,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleConfirmPreview(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "确认预演结果");
             string previewId = ReadRequiredString(request, "previewId");
             PreviewApprovalRecord record;
             lock (previewLock)
@@ -696,7 +684,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleControlProc(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "控制流程运行");
             EnsureRuntimeReady();
             int procIndex = ReadRequiredInt(request, "procIndex");
             string action = ReadRequiredString(request, "action");
@@ -1116,7 +1103,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandlePreviewPatch(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演 Patch");
             PatchExecutionResult result = ExecutePatch(request);
             return BuildRegisteredPatchPreview(request, result);
         }
@@ -1124,7 +1110,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleApplyPatch(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交 Patch");
             string previewId = ReadRequiredString(request, "previewId");
             ValidateConfirmedPreview(previewId, request);
             PatchExecutionResult result = ExecutePatch(request);
@@ -1146,7 +1131,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetRuntimeSnapshot(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取运行快照");
             EnsureRuntimeReady();
             int? procIndex = ReadOptionalInt(request, "procIndex");
             JArray snapshots = new JArray();
@@ -1181,7 +1165,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetInfoLogTail(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取运行日志");
             int maxCount = ReadOptionalInt(request, "maxCount") ?? 50;
             if (maxCount <= 0 || maxCount > 200)
             {
@@ -1209,7 +1192,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleDiagnoseProc(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "诊断流程");
             int procIndex = ReadRequiredInt(request, "procIndex");
             Proc proc = GetProcByIndex(procIndex);
             JArray findings = new JArray();
@@ -1321,7 +1303,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetOperationDetail(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取指令详情");
             int procIndex = ReadRequiredInt(request, "procIndex");
             int stepIndex = ReadRequiredInt(request, "stepIndex");
             int opIndex = ReadRequiredInt(request, "opIndex");
@@ -1377,7 +1358,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetStepDetail(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取步骤详情");
             int procIndex = ReadRequiredInt(request, "procIndex");
             int stepIndex = ReadRequiredInt(request, "stepIndex");
 
@@ -1431,7 +1411,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSearchOperations(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索指令");
             int? procIndex = ReadOptionalInt(request, "procIndex");
             string operaType = ReadOptionalString(request, "operaType");
             string keyword = ReadOptionalString(request, "keyword");
@@ -1526,7 +1505,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleValidateProc(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "验证流程结构");
             int procIndex = ReadRequiredInt(request, "procIndex");
             Proc proc = GetProcByIndex(procIndex);
 
@@ -1632,12 +1610,10 @@ namespace Automation.Bridge
             string previewId = ReadOptionalString(request, "previewId");
             if (string.IsNullOrEmpty(previewId))
             {
-                EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演创建流程");
                 JObject preview = PreviewCreateProc(request);
                 preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
                 return preview;
             }
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交创建流程");
             ValidateConfirmedManagePreview(previewId);
             JObject result = ExecuteCreateProc(request);
             RemovePreview(previewId);
@@ -1650,12 +1626,10 @@ namespace Automation.Bridge
             string previewId = ReadOptionalString(request, "previewId");
             if (string.IsNullOrEmpty(previewId))
             {
-                EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演删除流程");
                 JObject preview = PreviewDeleteProcs(request);
                 preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
                 return preview;
             }
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交删除流程");
             ValidateConfirmedManagePreview(previewId);
             JObject result = ExecuteDeleteProcs(request);
             RemovePreview(previewId);
@@ -1668,12 +1642,10 @@ namespace Automation.Bridge
             string previewId = ReadOptionalString(request, "previewId");
             if (string.IsNullOrEmpty(previewId))
             {
-                EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演重排流程");
                 JObject preview = PreviewReorderProc(request);
                 preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
                 return preview;
             }
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交重排流程");
             ValidateConfirmedManagePreview(previewId);
             JObject result = ExecuteReorderProc(request);
             RemovePreview(previewId);
@@ -1686,12 +1658,10 @@ namespace Automation.Bridge
             string previewId = ReadOptionalString(request, "previewId");
             if (string.IsNullOrEmpty(previewId))
             {
-                EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演复制流程");
                 JObject preview = PreviewCopyProc(request);
                 preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
                 return preview;
             }
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交复制流程");
             ValidateConfirmedManagePreview(previewId);
             JObject result = ExecuteCopyProc(request);
             RemovePreview(previewId);
@@ -1714,7 +1684,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListVariables(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询变量列表");
             EnsureRuntimeReady();
             ValueConfigStore store = SF.valueStore;
             if (store == null)
@@ -1779,7 +1748,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetVariable(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询变量");
             EnsureRuntimeReady();
             ValueConfigStore store = SF.valueStore;
             if (store == null)
@@ -1793,7 +1761,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSearchVariables(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索变量");
             EnsureRuntimeReady();
             ValueConfigStore store = SF.valueStore;
             if (store == null)
@@ -1844,7 +1811,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSetVariable(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改变量");
             EnsureRuntimeReady();
             ValueConfigStore store = SF.valueStore;
             if (store == null)
@@ -1882,7 +1848,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleDeleteVariable(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "删除变量");
             EnsureRuntimeReady();
             ValueConfigStore store = SF.valueStore;
             if (store == null)
@@ -1908,7 +1873,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleAddVariable(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "创建变量");
             EnsureRuntimeReady();
             ValueConfigStore store = SF.valueStore;
             if (store == null)
@@ -1974,7 +1938,6 @@ namespace Automation.Bridge
                 }
             }
 
-            EnsureAiVersionProtectionForFile("value.json");
             if (!store.TrySetValue(targetIndex, name, type, value, note, "EW-AI"))
             {
                 return BridgeError(500, "SET_FAILED", $"变量 [{name}] 写入 index={targetIndex} 失败。");
@@ -2075,29 +2038,14 @@ namespace Automation.Bridge
 
         private static void SaveStationAndRefresh()
         {
-            EnsureAiVersionProtectionForFile("DataStation.json");
             SF.mainfrm?.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard?.dataStation);
             SF.frmCard?.RefreshStationList();
             SF.frmCard?.RefreshStationTree();
         }
 
-        private static void EnsureAiVersionProtectionForFile(string fileName)
-        {
-            if (SF.mainfrm == null)
-            {
-                throw new BridgeRequestException(500, "VERSION_SERVICE_UNAVAILABLE", "版本服务未初始化，拒绝写入配置。");
-            }
-            string path = System.IO.Path.Combine(SF.ConfigPath, fileName);
-            if (!SF.mainfrm.EnsureAiVersionProtection(path, out string error))
-            {
-                throw new BridgeRequestException(500, "VERSION_PROTECTION_FAILED", "AI 保护点创建失败，拒绝写入配置。", error);
-            }
-        }
-
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListStations(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询工站列表");
             EnsureRuntimeReady();
             if (SF.frmCard?.dataStation == null)
             {
@@ -2135,7 +2083,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetStation(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询工站详情");
             EnsureRuntimeReady();
             int stationIndex = ReadRequiredInt(request, "stationIndex");
             DataStation station = ResolveStation(stationIndex);
@@ -2160,7 +2107,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleAddStation(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "创建工站");
             EnsureRuntimeReady();
             if (SF.frmCard?.dataStation == null)
             {
@@ -2200,7 +2146,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleDeleteStation(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "删除工站");
             EnsureRuntimeReady();
             int stationIndex = ReadRequiredInt(request, "stationIndex");
             // 先校验范围与存在性
@@ -2221,7 +2166,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleUpdateStation(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改工站");
             EnsureRuntimeReady();
             int stationIndex = ReadRequiredInt(request, "stationIndex");
             DataStation station = ResolveStation(stationIndex);
@@ -2269,7 +2213,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListPoints(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询点位列表");
             EnsureRuntimeReady();
             int stationIndex = ReadRequiredInt(request, "stationIndex");
             DataStation station = ResolveStation(stationIndex);
@@ -2294,7 +2237,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetPoint(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询点位详情");
             EnsureRuntimeReady();
             int stationIndex = ReadRequiredInt(request, "stationIndex");
             int index = ReadRequiredInt(request, "index");
@@ -2310,7 +2252,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSetPoint(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改点位");
             EnsureRuntimeReady();
             int stationIndex = ReadRequiredInt(request, "stationIndex");
             int index = ReadRequiredInt(request, "index");
@@ -2376,7 +2317,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleDeletePoint(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "删除点位");
             EnsureRuntimeReady();
             int stationIndex = ReadRequiredInt(request, "stationIndex");
             int index = ReadRequiredInt(request, "index");
@@ -2472,7 +2412,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListDataStructs(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询数据结构列表");
             EnsureRuntimeReady();
             DataStructStore store = SF.dataStructStore;
             if (store == null)
@@ -2505,7 +2444,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetDataStruct(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询数据结构详情");
             EnsureRuntimeReady();
             DataStructStore store = SF.dataStructStore;
             if (store == null)
@@ -2523,7 +2461,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSearchDataStructs(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索数据结构");
             EnsureRuntimeReady();
             DataStructStore store = SF.dataStructStore;
             if (store == null)
@@ -2601,7 +2538,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSetDataStructField(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改数据结构字段");
             EnsureRuntimeReady();
             DataStructStore store = SF.dataStructStore;
             if (store == null)
@@ -2713,7 +2649,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListIo(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 IO 列表");
             EnsureRuntimeReady();
             var ioMap = SF.frmIO?.DicIO;
             if (ioMap == null)
@@ -2753,7 +2688,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetIo(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 IO");
             EnsureRuntimeReady();
             var ioMap = SF.frmIO?.DicIO;
             if (ioMap == null)
@@ -2771,7 +2705,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSearchIo(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索 IO");
             EnsureRuntimeReady();
             var ioMap = SF.frmIO?.DicIO;
             if (ioMap == null)
@@ -2819,7 +2752,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetIoState(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 IO 实时状态");
             EnsureRuntimeReady();
             var ioMap = SF.frmIO?.DicIO;
             if (ioMap == null)
@@ -2892,7 +2824,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListAlarms(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询报警清单");
             EnsureRuntimeReady();
             AlarmInfoStore store = SF.alarmInfoStore;
             if (store == null)
@@ -2963,7 +2894,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetAlarm(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询报警信息");
             EnsureRuntimeReady();
             int index = ReadRequiredInt(request, "index");
             AlarmInfo alarm = ResolveAlarm(index);
@@ -2977,7 +2907,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSetAlarm(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改报警信息");
             EnsureRuntimeReady();
             int index = ReadRequiredInt(request, "index");
             string name = ReadRequiredString(request, "name");
@@ -2994,7 +2923,6 @@ namespace Automation.Bridge
             }
 
             AlarmInfo alarm = ResolveAlarm(index);
-            EnsureAiVersionProtectionForFile("AlarmInfo.json");
             alarm.Name = name.Trim();
             alarm.Note = note.Trim();
             alarm.Category = category?.Trim() ?? string.Empty;
@@ -3015,12 +2943,9 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleDeleteAlarm(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "删除报警信息");
             EnsureRuntimeReady();
             int index = ReadRequiredInt(request, "index");
             AlarmInfo alarm = ResolveAlarm(index);
-            EnsureAiVersionProtectionForFile("AlarmInfo.json");
-
             if (string.IsNullOrEmpty(alarm.Name) && string.IsNullOrEmpty(alarm.Note))
             {
                 return BridgeError(404, "ALARM_NOT_FOUND", $"报警 index={index} 本身为空，无需删除。");
@@ -3058,7 +2983,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListPlcDevices(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 PLC 设备清单");
             EnsureRuntimeReady();
             PlcConfigStore store = SF.plcStore;
             if (store == null)
@@ -3118,7 +3042,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListCards(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询控制卡/轴清单");
             EnsureRuntimeReady();
             CardConfigStore store = SF.cardStore;
             if (store == null)
@@ -3177,7 +3100,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListTrayPoints(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询托盘点位清单");
             // TrayPointStore 是运行时缓存，无持久化枚举 API，这里返回空列表提示 AI 当前无缓存。
             // 流程通过指令写入 TrayPointStore，AI 若需查询需先知道 stationName + trayId。
             string stationName = request["stationName"]?.Value<string>();
@@ -3245,7 +3167,6 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListCommunications(JObject request)
         {
-            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询通讯清单");
             EnsureRuntimeReady();
             bool includeStatus = request["includeStatus"]?.Value<bool>() ?? true;
             var socketInfos = SF.frmComunication?.socketInfos ?? new List<SocketInfo>();
@@ -4616,15 +4537,6 @@ namespace Automation.Bridge
                 ["code"] = code ?? string.Empty,
                 ["message"] = message ?? string.Empty
             });
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private static void EnsureBridgePermission(string permissionKey, string action)
-        {
-            if (!SF.HasPermission(permissionKey))
-            {
-                throw new BridgeRequestException(403, "PERMISSION_DENIED", $"当前账号无权限：{action}");
-            }
         }
 
         private CommReferenceCatalog GetCommNames()

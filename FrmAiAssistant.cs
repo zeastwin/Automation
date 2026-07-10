@@ -78,18 +78,15 @@ namespace Automation
 
         public void ApplyPermissions()
         {
-            bool canAccess = SF.HasPermission(PermissionKeys.ProcessAccess);
-            bool canEditConfig = SF.HasPermission(PermissionKeys.AppConfigAccess);
-
-            txtPrompt.Enabled = canAccess;
+            txtPrompt.Enabled = true;
             txtPrompt.ReadOnly = sending;
-            txtGooseExecutable.ReadOnly = !canEditConfig || sending;
-            txtWorkingDirectory.ReadOnly = !canEditConfig || sending;
-            txtMcpUri.ReadOnly = !canEditConfig || sending;
-            txtSessionName.ReadOnly = !canEditConfig || sending;
-            cboProvider.Enabled = canEditConfig && !sending;
-            cboModel.Enabled = canEditConfig && !sending;
-            nudMaxTurns.Enabled = canEditConfig && !sending;
+            txtGooseExecutable.ReadOnly = sending;
+            txtWorkingDirectory.ReadOnly = sending;
+            txtMcpUri.ReadOnly = sending;
+            txtSessionName.ReadOnly = sending;
+            cboProvider.Enabled = !sending;
+            cboModel.Enabled = !sending;
+            nudMaxTurns.Enabled = !sending;
             PushWebAppState();
         }
 
@@ -746,7 +743,7 @@ document.addEventListener('DOMContentLoaded',function(){
                     BtnSend_Click(sender, EventArgs.Empty);
                     break;
                 case "stop":
-                    if (sending && SF.EnsurePermission(PermissionKeys.ProcessAccess, "停止 AI 对话"))
+                    if (sending)
                     {
                         StopCurrentPrompt();
                     }
@@ -783,8 +780,8 @@ document.addEventListener('DOMContentLoaded',function(){
             return new JObject
             {
                 ["sending"] = sending,
-                ["canAccess"] = SF.HasPermission(PermissionKeys.ProcessAccess),
-                ["canEditConfig"] = SF.HasPermission(PermissionKeys.AppConfigAccess),
+                ["canAccess"] = true,
+                ["canEditConfig"] = true,
                 ["config"] = new JObject
                 {
                     ["gooseExecutablePath"] = txtGooseExecutable.Text,
@@ -855,11 +852,6 @@ document.addEventListener('DOMContentLoaded',function(){
 
         private void SaveWebConfig()
         {
-            if (!SF.EnsurePermission(PermissionKeys.AppConfigAccess, "保存 EW-AI 配置"))
-            {
-                PushWebAppState();
-                return;
-            }
             if (!TryBuildConfig(out GooseConfig config, out string error))
             {
                 ShowWebToast("配置无效：" + error);
@@ -895,10 +887,6 @@ document.addEventListener('DOMContentLoaded',function(){
 
         private async Task CheckWebConfigAsync()
         {
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "检查 Goose"))
-            {
-                return;
-            }
             if (!TryBuildConfig(out GooseConfig config, out string error))
             {
                 ShowWebToast("配置无效：" + error);
@@ -949,18 +937,10 @@ document.addEventListener('DOMContentLoaded',function(){
         {
             if (sending)
             {
-                if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "停止 AI 对话"))
-                {
-                    return;
-                }
                 StopCurrentPrompt();
                 return;
             }
 
-            if (!SF.EnsurePermission(PermissionKeys.ProcessAccess, "发送 AI 对话"))
-            {
-                return;
-            }
             string prompt = txtPrompt.Text.Trim();
             if (string.IsNullOrWhiteSpace(prompt))
             {
@@ -978,7 +958,6 @@ document.addEventListener('DOMContentLoaded',function(){
             EnqueueScript("document.querySelectorAll('.thinking-box').forEach(function(b){b.classList.remove('user-scrolled');if(!b.classList.contains('collapsed')){b.scrollTop=b.scrollHeight;}});if(window.scrollMessagesToBottom){scrollMessagesToBottom();}");
             txtPrompt.Clear();
             sending = true;
-            SF.ActiveAiTurnId = Guid.NewGuid().ToString("N");
             promptCts?.Dispose();
             promptCts = new CancellationTokenSource();
             ApplyPermissions();
@@ -1003,7 +982,6 @@ document.addEventListener('DOMContentLoaded',function(){
                 FinishThoughtStreaming();
                 CollapseThinkingBox();
                 sending = false;
-                SF.ActiveAiTurnId = null;
                 ApplyPermissions();
             }
         }

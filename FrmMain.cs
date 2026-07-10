@@ -39,7 +39,6 @@ namespace Automation
         public FrmSearch4Value frmSearch4Value = new FrmSearch4Value();
         public FrmInfo frmInfo = new FrmInfo();
         public FrmPlc frmPlc = new FrmPlc();
-        public FrmAccountManager frmAccountManager = new FrmAccountManager();
         public MotionCtrl motion = new MotionCtrl();
         private readonly Dictionary<Guid, EngineSnapshot> snapshotCache = new Dictionary<Guid, EngineSnapshot>();
         private readonly HashSet<Guid> snapshotDirty = new HashSet<Guid>();
@@ -102,7 +101,6 @@ namespace Automation
                 AxisStateBitGetter = TryGetAxisStateBit
             };
             dataRun = new ProcessEngine(engineContext);
-            dataRun.PermissionChecker = key => SF.HasPermission(key);
             ILogger uiLogger = new FrmInfoLogger(frmInfo);
             ILogger fileLogger = new LocalFileLogger(@"D:\AutomationLogs\ProcessLog");
             dataRun.Logger = new CompositeLogger(uiLogger, fileLogger);
@@ -134,7 +132,6 @@ namespace Automation
             SF.frmSearch4Value = frmSearch4Value;
             SF.frmInfo = frmInfo;
             SF.frmPlc = frmPlc;
-            SF.frmAccountManager = frmAccountManager;
             automationBridgeHost = new AutomationBridgeHost(this);
 
             StartPosition = FormStartPosition.CenterScreen;
@@ -161,9 +158,8 @@ namespace Automation
             frmAiAssistant.Show();
 
             StartSnapshotTimer();
-            SF.RefreshPermissionUi();
-            UpdateTitleWithUser();
-            Shown += (s, e) => SF.RefreshPermissionUi();
+            Text = "Automation";
+            Shown += (s, e) => Text = "Automation";
         }
 
         public AutomationMcpServerManager McpServerManager => automationMcpServerManager;
@@ -333,11 +329,6 @@ namespace Automation
             }, token);
         }
 
-        public void UpdateTitleWithUser()
-        {
-            Text = "Automation";
-        }
-       
         public void ReflshDgv()
         {
             lock (StateDicLock)
@@ -1032,13 +1023,6 @@ namespace Automation
         public bool SaveAsJson<T>(string FilePath, string Name, T t)
         {
             string strFilePath = Path.Combine(FilePath, Name + ".json");
-            if (!EnsureAiVersionProtection(strFilePath, out string protectionError))
-            {
-                string protectionReason = "AI 配置写入被拒绝：" + protectionError;
-                dataRun?.Logger?.Log(protectionReason, LogLevel.Error);
-                MessageBox.Show(protectionReason, "版本保护", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return false;
-            }
             string directory = Path.GetDirectoryName(strFilePath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
@@ -1112,21 +1096,6 @@ namespace Automation
             return false;
         }
 
-        public bool EnsureAiVersionProtection(string filePath, out string error)
-        {
-            error = null;
-            if (string.IsNullOrWhiteSpace(SF.ActiveAiTurnId) || SF.versionService == null)
-            {
-                return true;
-            }
-            ConfigurationVersionLayer? layer = SF.versionService.GetLayerForPath(filePath);
-            if (!layer.HasValue)
-            {
-                return true;
-            }
-            return SF.versionService.EnsureAiProtection(layer.Value, SF.ActiveAiTurnId, SF.userSession?.Account?.UserName, out error);
-        }
-
         public bool AreAllProcessesStopped()
         {
             if (SF.frmProc?.procsList == null || SF.DR == null)
@@ -1162,7 +1131,6 @@ namespace Automation
         {
             SF.VersionRestartRequired = true;
             SF.StopAllProcs("设备配置已还原，必须重启程序后才能继续运行。");
-            SF.RefreshPermissionUi();
         }
 
         private void FrmMain_KeyDown(object sender, KeyEventArgs e)

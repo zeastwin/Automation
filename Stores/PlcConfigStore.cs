@@ -138,10 +138,6 @@ namespace Automation
                 Directory.CreateDirectory(configPath);
             }
             string filePath = Path.Combine(configPath, "PlcDevice.json");
-            if (SF.mainfrm != null && !SF.mainfrm.EnsureAiVersionProtection(filePath, out string protectionError))
-            {
-                throw new InvalidOperationException("AI PLC 设备写入被版本保护拒绝：" + protectionError);
-            }
             var settings = new JsonSerializerSettings
             {
                 TypeNameHandling = TypeNameHandling.All
@@ -163,10 +159,6 @@ namespace Automation
                 Directory.CreateDirectory(configPath);
             }
             string filePath = Path.Combine(configPath, "PlcMap.json");
-            if (SF.mainfrm != null && !SF.mainfrm.EnsureAiVersionProtection(filePath, out string protectionError))
-            {
-                throw new InvalidOperationException("AI PLC 映射写入被版本保护拒绝：" + protectionError);
-            }
             var settings = new JsonSerializerSettings
             {
                 TypeNameHandling = TypeNameHandling.All

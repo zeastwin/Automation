@@ -27,7 +27,6 @@
 - `PLC/` — PLC 通讯（S7/ModbusTcp）。
 - `Runtime/` — `AppConfigStorage`、`GooseConfigStorage`、`AutomationMcpServerManager`。
 - `Stores/` — 各类配置 Store 与 `LocalFileLogger`。
-- `Security/` — `PermissionCatalog`、`UserAccount`。
 - `FrmAiAssistant.cs` — AI 助手前台，承载 Goose ACP 聊天、预演确认、联调。
 - `GooseAcpClient.cs` — 隐藏启动 `goose acp`，JSON-RPC over stdio 通信；本地日志落 `<exe>/Logs/GooseAcp/`。
 - `FrmMain.cs` / `FrmProc.cs` / `FrmDataGrid.cs` / `FrmPropertyGrid.cs` — 主窗体与流程编辑链。
