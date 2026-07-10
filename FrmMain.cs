@@ -1510,7 +1510,7 @@ namespace Automation
 
         public Task<AlarmDecision> HandleAsync(AlarmContext context)
         {
-            var tcs = new TaskCompletionSource<AlarmDecision>();
+            var tcs = new TaskCompletionSource<AlarmDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (context == null)
             {
                 tcs.TrySetResult(AlarmDecision.Stop);

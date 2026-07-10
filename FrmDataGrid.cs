@@ -750,7 +750,7 @@ namespace Automation
             {
                 warnMsg = $"警告：即将删除{selectedRowIndexes4Del.Count}条指令\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n此操作不可恢复，确认删除？";
             }
-            var tcs = new TaskCompletionSource<bool>();
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             Message confirmForm = new Message(
                 "删除指令确认",
                 warnMsg,

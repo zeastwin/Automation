@@ -493,7 +493,7 @@ namespace Automation
                 btnPause.Enabled = false;
                 try
                 {
-                    var tcs = new TaskCompletionSource<bool>();
+                    var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                     Message confirmForm = new Message(
                         "继续运行确认",
                         message,

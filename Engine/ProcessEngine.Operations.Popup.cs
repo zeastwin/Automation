@@ -285,7 +285,7 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
-            var tcs = new TaskCompletionSource<AlarmDecision>();
+            var tcs = new TaskCompletionSource<AlarmDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
             Message dialog = null;
 
             void ShowDialog()
@@ -310,9 +310,7 @@ namespace Automation
                     dialog = new Message(title, messageText, () => tcs.TrySetResult(AlarmDecision.Goto1), btn1Text, false);
                 }
 
-                dialog.BackColor = popup.PopupBackColor;
-                dialog.txtMsg.ForeColor = popup.PopupFontColor;
-                dialog.txtMsg.BackColor = popup.PopupBackColor;
+                dialog.ApplyContentTheme(popup.PopupBackColor, popup.PopupFontColor);
                 if (UiInvoker is FrmMain main)
                 {
                     int procIndex = evt?.procNum ?? -1;
@@ -341,10 +339,23 @@ namespace Automation
                 {
                     System.Windows.Forms.Timer closeTimer = new System.Windows.Forms.Timer();
                     closeTimer.Interval = popup.DelayCloseTimeMs;
+                    dialog.FormClosed += (sender, args) =>
+                    {
+                        System.Windows.Forms.Timer timer = closeTimer;
+                        closeTimer = null;
+                        if (timer == null)
+                        {
+                            return;
+                        }
+                        timer.Stop();
+                        timer.Dispose();
+                    };
                     closeTimer.Tick += (sender, args) =>
                     {
-                        closeTimer.Stop();
-                        closeTimer.Dispose();
+                        System.Windows.Forms.Timer timer = closeTimer;
+                        closeTimer = null;
+                        timer?.Stop();
+                        timer?.Dispose();
                         if (dialog != null && !dialog.IsDisposed && !dialog.isChoiced)
                         {
                             dialog.btnCanel();
