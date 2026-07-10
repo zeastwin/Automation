@@ -31,8 +31,18 @@ namespace Automation
             string path = ConfigPath;
             if (!File.Exists(path))
             {
-                error = $"程序配置文件不存在:{path}";
-                return false;
+                AppConfig defaultConfig = new AppConfig
+                {
+                    CommMaxMessageQueueSize = DefaultCommMaxMessageQueueSize,
+                    RuntimeMode = AutomationRuntimeMode.Hardware
+                };
+                if (!TrySave(defaultConfig, out string saveError))
+                {
+                    error = $"默认程序配置生成失败:{saveError}";
+                    return false;
+                }
+                config = Clone(defaultConfig);
+                return true;
             }
             try
             {

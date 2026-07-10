@@ -117,7 +117,14 @@ namespace Automation.Hmi
             {
                 return;
             }
-            platformHost.ShowPlatformEditor(this);
+            try
+            {
+                platformHost.ShowPlatformEditor(this);
+            }
+            catch (InvalidOperationException ex)
+            {
+                MessageBox.Show(this, ex.Message, "平台不可用", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void btnStopAll_Click(object sender, EventArgs e)

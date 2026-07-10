@@ -529,6 +529,7 @@ namespace Automation
             }
             if (!File.Exists(path))
             {
+                SaveDebugConfig();
                 isConfigLoaded = true;
                 return;
             }

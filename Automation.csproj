@@ -132,6 +132,7 @@
     <Compile Include="Stores\\TrayPointStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="Runtime\\AppConfigStorage.cs" />
+    <Compile Include="Runtime\\RuntimeExceptionLogger.cs" />
     <Compile Include="Runtime\\AutomationPlatformHost.cs" />
     <Compile Include="Runtime\\AutomationMcpServerManager.cs" />
     <Compile Include="Runtime\\AutomationRuntimeOptions.cs" />

@@ -12,6 +12,7 @@ namespace Automation
         [STAThread]
         static void Main(string[] args)
         {
+            RuntimeExceptionLogger.Initialize();
             if (!AppConfigStorage.TryLoad(out AppConfig appConfig, out string appConfigError))
             {
                 MessageBox.Show(appConfigError ?? "程序参数配置异常，程序已停止启动。", "程序配置异常", MessageBoxButtons.OK, MessageBoxIcon.Error);

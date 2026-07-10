@@ -387,6 +387,16 @@ namespace Automation
                 Directory.CreateDirectory(SF.ConfigPath);
             }
 
+            string filePath = Path.Combine(SF.ConfigPath, "DataStation.json");
+            if (!File.Exists(filePath))
+            {
+                dataStation = new List<DataStation>();
+                if (!SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", dataStation))
+                {
+                    throw new InvalidOperationException($"工站配置模板生成失败:{filePath}");
+                }
+            }
+
             List<DataStation> dataStationsTemp = SF.mainfrm.ReadJson<List<DataStation>>(SF.ConfigPath, "DataStation");
             if (dataStationsTemp != null)
                 dataStation = dataStationsTemp;

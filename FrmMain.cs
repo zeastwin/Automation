@@ -1347,7 +1347,7 @@ namespace Automation
             {
                 return;
             }
-            if (HideOnUserClose && e.CloseReason == CloseReason.UserClosing)
+            if (HideOnUserClose)
             {
                 e.Cancel = true;
                 Hide();

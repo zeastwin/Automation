@@ -64,23 +64,6 @@ namespace Automation
 
     public sealed class AutomationPlatformHost : IDisposable
     {
-        private static readonly string[] RequiredConfigFiles =
-        {
-            "AppConfig.json",
-            "value.json",
-            "DataStruct.json",
-            "AlarmInfo.json",
-            "card.json",
-            "IOMap.json",
-            "IODebugMap.json",
-            "DataStation.json",
-            "SocketInfo.json",
-            "SerialPortInfo.json",
-            "PlcDevice.json",
-            "PlcMap.json",
-            "GooseConfig.json"
-        };
-
         private readonly int uiThreadId = Thread.CurrentThread.ManagedThreadId;
         private readonly Dictionary<string, CustomFunc.FunctionDelegate> pendingCustomFunctions =
             new Dictionary<string, CustomFunc.FunctionDelegate>(StringComparer.Ordinal);
@@ -200,25 +183,36 @@ namespace Automation
         {
             EnsureUiThread();
             EnsureReadyOrFaulted();
-            platformEditor.HideOnUserClose = true;
-            platformEditor.EnsureAiInfrastructureStarted();
-            if (!platformEditor.Visible)
+            if (platformEditor == null || platformEditor.IsDisposed)
             {
-                if (owner == null)
-                {
-                    platformEditor.Show();
-                }
-                else
-                {
-                    platformEditor.Show(owner);
-                }
+                HandleDisposedPlatformEditor();
             }
-            if (platformEditor.WindowState == FormWindowState.Minimized)
+            try
             {
-                platformEditor.WindowState = FormWindowState.Maximized;
+                platformEditor.HideOnUserClose = true;
+                platformEditor.EnsureAiInfrastructureStarted();
+                if (!platformEditor.Visible)
+                {
+                    if (owner == null)
+                    {
+                        platformEditor.Show();
+                    }
+                    else
+                    {
+                        platformEditor.Show(owner);
+                    }
+                }
+                if (platformEditor.WindowState == FormWindowState.Minimized)
+                {
+                    platformEditor.WindowState = FormWindowState.Maximized;
+                }
+                platformEditor.BringToFront();
+                platformEditor.Activate();
             }
-            platformEditor.BringToFront();
-            platformEditor.Activate();
+            catch (ObjectDisposedException)
+            {
+                HandleDisposedPlatformEditor();
+            }
         }
 
         public void HidePlatformEditor()
@@ -537,6 +531,20 @@ namespace Automation
             }
         }
 
+        private void HandleDisposedPlatformEditor()
+        {
+            const string reason = "平台编辑器窗体已释放，无法确认运行时资源状态。已停止全部流程，请重启程序。";
+            try
+            {
+                SF.StopAllProcs(reason);
+            }
+            finally
+            {
+                SetState(PlatformRuntimeState.Faulted, reason);
+            }
+            throw new InvalidOperationException(reason);
+        }
+
         private void EnsureUiThread()
         {
             if (Thread.CurrentThread.ManagedThreadId != uiThreadId)
@@ -547,24 +555,18 @@ namespace Automation
 
         private void ValidateConfigLayout()
         {
-            if (!Directory.Exists(ConfigRoot))
+            Directory.CreateDirectory(ConfigRoot);
+            if (!AppConfigStorage.TryLoad(out _, out string appConfigError))
             {
-                throw new DirectoryNotFoundException($"Config 目录不存在:{ConfigRoot}");
+                throw new InvalidDataException($"程序配置初始化失败:{appConfigError}");
             }
-            foreach (string fileName in RequiredConfigFiles)
+            if (!GooseConfigStorage.TryLoad(out _, out string gooseConfigError))
             {
-                string filePath = Path.Combine(ConfigRoot, fileName);
-                if (!File.Exists(filePath))
-                {
-                    throw new FileNotFoundException($"Config 缺少文件:{fileName}", filePath);
-                }
+                throw new InvalidDataException($"AI 配置初始化失败:{gooseConfigError}");
             }
 
             string workRoot = Path.Combine(ConfigRoot, "Work");
-            if (!Directory.Exists(workRoot))
-            {
-                throw new DirectoryNotFoundException($"流程目录不存在:{workRoot}");
-            }
+            Directory.CreateDirectory(workRoot);
             List<int> indices = new List<int>();
             foreach (string filePath in Directory.GetFiles(workRoot, "*.json", SearchOption.TopDirectoryOnly))
             {

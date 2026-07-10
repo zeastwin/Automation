@@ -24,6 +24,7 @@ namespace Automation
             if (!File.Exists(filePath))
             {
                 cardData = Normalize(null);
+                Save(configPath);
                 return false;
             }
 
