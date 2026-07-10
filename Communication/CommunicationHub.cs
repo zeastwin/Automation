@@ -365,7 +365,7 @@ namespace Automation
                 return;
             }
 
-            foreach (KeyValuePair<long, Waiter> pair in waiters.ToArray())
+            foreach (KeyValuePair<long, Waiter> pair in waiters.ToArray().OrderBy(item => item.Key))
             {
                 if (!waiters.TryRemove(pair.Key, out Waiter waiter))
                 {
@@ -374,6 +374,7 @@ namespace Automation
 
                 waiter.Dispose();
                 waiter.Source.TrySetResult(frame);
+                return;
             }
         }
 
@@ -1060,6 +1061,23 @@ namespace Automation
 
     public sealed class CommunicationHub : IDisposable
     {
+        private sealed class TransactionLease : IDisposable
+        {
+            private SemaphoreSlim gate;
+
+            public TransactionLease(SemaphoreSlim gate)
+            {
+                this.gate = gate;
+            }
+
+            public void Dispose()
+            {
+                Interlocked.Exchange(ref gate, null)?.Release();
+            }
+        }
+
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> transactionGates =
+            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, TcpChannel> tcpChannels = new ConcurrentDictionary<string, TcpChannel>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, SerialPortChannel> serialChannels = new ConcurrentDictionary<string, SerialPortChannel>(StringComparer.OrdinalIgnoreCase);
 
@@ -1182,6 +1200,23 @@ namespace Automation
                 RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Error, name, ex.Message, null, null, ex));
                 return false;
             }
+        }
+
+        public async Task<IDisposable> EnterTcpTransactionAsync(string name, CancellationToken cancellationToken)
+        {
+            return await EnterTransactionAsync("TCP:" + (name ?? string.Empty), cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task<IDisposable> EnterSerialTransactionAsync(string name, CancellationToken cancellationToken)
+        {
+            return await EnterTransactionAsync("SERIAL:" + (name ?? string.Empty), cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task<IDisposable> EnterTransactionAsync(string key, CancellationToken cancellationToken)
+        {
+            SemaphoreSlim gate = transactionGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return new TransactionLease(gate);
         }
 
         public async Task<CommReceiveResult> ReceiveTcpAsync(string name, int timeoutMs, CancellationToken cancellationToken = default)

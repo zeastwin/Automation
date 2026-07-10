@@ -62,13 +62,22 @@ namespace Automation
                         MarkAlarm(evt, "流程索引无效");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
+                    if (index == evt.procNum)
+                    {
+                        MarkAlarm(evt, "禁止流程启动自身");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
                     ProcRunState targetState = GetProcState(index);
                     if (targetState != ProcRunState.Stopped)
                     {
                         MarkAlarm(evt, $"流程未停止:{proc?.head?.Name}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    StartProcAuto(proc, index);
+                    if (!StartProcAuto(proc, index))
+                    {
+                        MarkAlarm(evt, $"启动流程失败:{proc?.head?.Name}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
                 }
                 else
                 {

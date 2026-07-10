@@ -31,7 +31,9 @@ namespace Automation
         Paused = 1,
         SingleStep = 2,
         Running = 3,
-        Alarming = 4
+        Alarming = 4,
+        Pausing = 5,
+        Stopping = 6
     }
 
     //复位状态（变量表：复位状态）
@@ -77,6 +79,7 @@ namespace Automation
         public CancellationToken CancellationToken { get; set; }
         internal ProcessControl Control { get; set; }
         public ConcurrentBag<Task> RunningTasks { get; } = new ConcurrentBag<Task>();
+        internal ConcurrentDictionary<long, byte> OwnedAxes { get; } = new ConcurrentDictionary<long, byte>();
         public bool PauseBySignal { get; set; }
         public Proc Proc { get; set; }
 
@@ -115,6 +118,8 @@ namespace Automation
         public bool SingleOpOnce { get; }
         public bool AutoStep { get; }
         internal long Generation { get; set; }
+        internal TaskCompletionSource<bool> Completion { get; } =
+            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public static EngineCommand Start(int procIndex, Proc proc, int stepIndex, int opIndex, ProcRunState startState)
         {

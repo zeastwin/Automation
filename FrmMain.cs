@@ -54,6 +54,7 @@ namespace Automation
         private volatile bool axisMonitorFaulted;
         private volatile bool systemStatusReady;
         private volatile bool systemStatusFaulted;
+        private bool autoStartTriggeredForCurrentReset;
         private int popupAlarmCount;
         private readonly object popupLock = new object();
         private readonly Dictionary<int, List<ProcPopupItem>> procPopups = new Dictionary<int, List<ProcPopupItem>>();
@@ -281,29 +282,7 @@ namespace Automation
                     SF.StopAllProcs(lockReason);
                     return;
                 }
-                if (SF.frmProc?.procsList != null && SF.frmProc.procsList.Count > 0)
-                {
-                    for (int i = 0; i < SF.frmProc.procsList.Count; i++)
-                    {
-                        Proc proc = SF.DR?.Context?.Procs != null && i >= 0 && i < SF.DR.Context.Procs.Count
-                            ? SF.DR.Context.Procs[i]
-                            : SF.frmProc.procsList[i];
-                        if (proc?.head?.AutoStart != true)
-                        {
-                            continue;
-                        }
-                        if (proc?.head?.Disable == true)
-                        {
-                            continue;
-                        }
-                        EngineSnapshot snapshot = SF.DR.GetSnapshot(i);
-                        if (snapshot != null && snapshot.State != ProcRunState.Stopped)
-                        {
-                            continue;
-                        }
-                        SF.DR.StartProcAuto(null, i);
-                    }
-                }
+                TryStartAutoProcessesAfterReset();
             }
             catch (Exception ex)
             {
@@ -636,6 +615,40 @@ namespace Automation
             }
             UpdateHighlightFromCache();
             UpdateSystemStatusValue();
+            TryStartAutoProcessesAfterReset();
+        }
+
+        private void TryStartAutoProcessesAfterReset()
+        {
+            if (SF.DR == null || !SF.DR.TryValidateStartGate(out _))
+            {
+                autoStartTriggeredForCurrentReset = false;
+                return;
+            }
+            if (autoStartTriggeredForCurrentReset)
+            {
+                return;
+            }
+            autoStartTriggeredForCurrentReset = true;
+            if (SF.frmProc?.procsList == null)
+            {
+                return;
+            }
+            for (int i = 0; i < SF.frmProc.procsList.Count; i++)
+            {
+                Proc proc = SF.DR.Context?.Procs != null && i < SF.DR.Context.Procs.Count
+                    ? SF.DR.Context.Procs[i]
+                    : SF.frmProc.procsList[i];
+                if (proc?.head?.AutoStart != true || proc.head.Disable)
+                {
+                    continue;
+                }
+                EngineSnapshot snapshot = SF.DR.GetSnapshot(i);
+                if (snapshot == null || snapshot.State == ProcRunState.Stopped)
+                {
+                    SF.DR.StartProcAuto(proc, i);
+                }
+            }
         }
 
         private void UpdateHighlightFromCache()
@@ -821,6 +834,8 @@ namespace Automation
                         case ProcRunState.Paused:
                             hasPaused = true;
                             break;
+                        case ProcRunState.Pausing:
+                        case ProcRunState.Stopping:
                         case ProcRunState.Running:
                         case ProcRunState.SingleStep:
                             if (!isSystemProc)
@@ -1038,6 +1053,12 @@ namespace Automation
                             break;
                         case ProcRunState.Alarming:
                             nextColor = Color.Red;
+                            break;
+                        case ProcRunState.Pausing:
+                            nextColor = Color.DarkOrange;
+                            break;
+                        case ProcRunState.Stopping:
+                            nextColor = Color.DarkRed;
                             break;
                         case ProcRunState.Stopped:
                             nextColor = Color.Black;

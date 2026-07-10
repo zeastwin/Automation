@@ -353,6 +353,8 @@ namespace Automation
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
 
+                using (IDisposable transaction = Context.Comm.EnterTcpTransactionAsync(sendReceoveCommMsg.ID, evt.CancellationToken)
+                    .GetAwaiter().GetResult())
                 using (CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(evt.CancellationToken))
                 {
                     Task<CommReceiveResult> receiveTask = Context.Comm.ReceiveTcpAsync(sendReceoveCommMsg.ID, sendReceoveCommMsg.TimeOut, linkedCts.Token);
@@ -429,6 +431,8 @@ namespace Automation
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
 
+                using (IDisposable transaction = Context.Comm.EnterSerialTransactionAsync(sendReceoveCommMsg.ID, evt.CancellationToken)
+                    .GetAwaiter().GetResult())
                 using (CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(evt.CancellationToken))
                 {
                     Task<CommReceiveResult> receiveTask = Context.Comm.ReceiveSerialAsync(sendReceoveCommMsg.ID, sendReceoveCommMsg.TimeOut, linkedCts.Token);

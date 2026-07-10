@@ -698,7 +698,13 @@ namespace Automation.Bridge
                     {
                         return BridgeError(409, "PROC_ALREADY_RUNNING", $"流程 {procIndex} 已在运行或暂停状态。");
                     }
-                    SF.DR.StartProc(proc, procIndex);
+                    if (!SF.DR.StartProc(proc, procIndex))
+                    {
+                        string startError = SF.DR.TryValidateStartGate(out string gateError)
+                            ? "流程启动请求未被内核接受，详见流程日志。"
+                            : gateError;
+                        return BridgeError(409, "START_GATE_REJECTED", startError);
+                    }
                     break;
                 case "stop":
                     if (currentState == ProcRunState.Stopped)

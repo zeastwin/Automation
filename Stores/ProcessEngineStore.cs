@@ -76,8 +76,7 @@ namespace Automation
             {
                 return false;
             }
-            engine.StartProc(proc, procIndex);
-            return true;
+            return engine.StartProc(proc, procIndex);
         }
 
         public bool StartProcAt(int procIndex, int stepIndex, int opIndex, ProcRunState startState)
@@ -86,8 +85,7 @@ namespace Automation
             {
                 return false;
             }
-            engine.StartProcAt(proc, procIndex, stepIndex, opIndex, startState);
-            return true;
+            return engine.StartProcAt(proc, procIndex, stepIndex, opIndex, startState);
         }
 
         public bool RunSingleOpOnce(int procIndex, int stepIndex, int opIndex)
@@ -96,8 +94,7 @@ namespace Automation
             {
                 return false;
             }
-            engine.RunSingleOpOnce(proc, procIndex, stepIndex, opIndex);
-            return true;
+            return engine.RunSingleOpOnce(proc, procIndex, stepIndex, opIndex);
         }
 
         public bool Pause(int procIndex)

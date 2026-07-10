@@ -777,6 +777,10 @@ namespace Automation
                     return "运行";
                 case ProcRunState.Alarming:
                     return "报警中";
+                case ProcRunState.Pausing:
+                    return "暂停中";
+                case ProcRunState.Stopping:
+                    return "停止中";
                 default:
                     return "未知";
             }
@@ -789,10 +793,13 @@ namespace Automation
                 case ProcRunState.Running:
                     return Color.ForestGreen;
                 case ProcRunState.Paused:
+                case ProcRunState.Pausing:
                 case ProcRunState.SingleStep:
                     return Color.DarkOrange;
                 case ProcRunState.Alarming:
                     return Color.Red;
+                case ProcRunState.Stopping:
+                    return Color.DarkRed;
                 case ProcRunState.Stopped:
                     return Color.DimGray;
                 default:
@@ -807,10 +814,13 @@ namespace Automation
                 case ProcRunState.Running:
                     return Color.FromArgb(220, 245, 228);
                 case ProcRunState.Paused:
+                case ProcRunState.Pausing:
                 case ProcRunState.SingleStep:
                     return Color.FromArgb(255, 236, 208);
                 case ProcRunState.Alarming:
                     return Color.FromArgb(255, 214, 214);
+                case ProcRunState.Stopping:
+                    return Color.FromArgb(255, 224, 224);
                 case ProcRunState.Stopped:
                     return Color.FromArgb(238, 238, 238);
                 default:

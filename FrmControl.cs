@@ -20,6 +20,7 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Globalization;
 using static System.Collections.Specialized.BitVector32;
+using System.Diagnostics;
 
 namespace Automation
 {
@@ -196,76 +197,91 @@ namespace Automation
             lastStationIndex = selectedIndex;
         }
     
-       //轴按顺序回原
+        //轴按顺序回原
         public async Task HomeStationByseq(int dataStationIndex)
         {
-            for (int i = 0; i < 6; i++)
+            if (SF.frmCard?.dataStation == null || dataStationIndex < 0 || dataStationIndex >= SF.frmCard.dataStation.Count)
             {
-                List<AxisName> Seq = SF.frmCard.dataStation[dataStationIndex].homeSeq.axisSeq;
-                foreach (var item in SF.frmCard.dataStation[dataStationIndex].dataAxis.axisConfigs)
-                {
-                    if (item.AxisName == Seq[i].Name && item.AxisName != "-1")
-                    {
-                        Task task = Task.Run(() =>
-                        {
-                            HomeSingleAxis(ushort.Parse(item.CardNum), (ushort)item.axis.AxisNum);
-                        });
-                        if (!SF.cardStore.TryGetAxis(int.Parse(item.CardNum), i, out Axis axisInfo))
-                        {
-                            MessageBox.Show($"卡{item.CardNum}轴{i}配置不存在，工站回零动作终止。");
-                            return;
-                        }
-                      
-                        await task;
-
-                        if (axisInfo.State == Axis.Status.NotReady)
-                        {
-                            MessageBox.Show($"卡{item.CardNum}轴{i}回零失败,工站回零动作终止。");
-                            return;
-                        }
-                        else
-                        {
-                            break ;
-                        }
-                    }
-                }
+                throw new InvalidOperationException("工站索引无效");
             }
-            for (int j = 0; j < SF.frmCard.dataStation[dataStationIndex].dataAxis.axisConfigs.Count; j++)
+            DataStation station = SF.frmCard.dataStation[dataStationIndex];
+            if (station.homeSeq?.axisSeq == null || station.dataAxis?.axisConfigs == null)
             {
-                ushort index = (ushort)j;
-                if (SF.frmCard.dataStation[dataStationIndex].dataAxis.axisConfigs[j].AxisName != "-1" && !SF.motion.HomeStatus(ushort.Parse(SF.frmCard.dataStation[dataStationIndex].dataAxis.axisConfigs[index].CardNum), (ushort)(SF.frmCard.dataStation[dataStationIndex].dataAxis.axisConfigs[index].axis.AxisNum)))
-                {
-                    Task task = Task.Run(() =>
-                    {
-                        HomeSingleAxis(ushort.Parse(SF.frmCard.dataStation[dataStationIndex].dataAxis.axisConfigs[index].CardNum), (ushort)(SF.frmCard.dataStation[dataStationIndex].dataAxis.axisConfigs[index].axis.AxisNum));
-                    });
-                }
+                throw new InvalidOperationException("工站回零配置不完整");
             }
+            station.SetState(DataStation.Status.NotReady);
+            foreach (AxisName sequenceItem in station.homeSeq.axisSeq)
+            {
+                if (sequenceItem == null || sequenceItem.Name == "-1")
+                {
+                    continue;
+                }
+                AxisConfig axisConfig = station.dataAxis.axisConfigs.FirstOrDefault(item => item?.AxisName == sequenceItem.Name);
+                if (axisConfig?.axis == null || !ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
+                {
+                    throw new InvalidOperationException($"回零轴配置无效:{sequenceItem.Name}");
+                }
+                await Task.Run(() => HomeSingleAxis(cardNum, (ushort)axisConfig.axis.AxisNum));
+            }
+            station.SetState(DataStation.Status.Ready);
         }
 
         //所有轴同步回
         public async Task HomeStationByAll(int dataStationIndex)
         {
-            for (int j = 0; j < SF.frmCard.dataStation[dataStationIndex].dataAxis.axisConfigs.Count; j++)
+            if (SF.frmCard?.dataStation == null || dataStationIndex < 0 || dataStationIndex >= SF.frmCard.dataStation.Count)
             {
-                ushort index = (ushort)j;
-                if (SF.frmCard.dataStation[dataStationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
-                {
-                    Task task = Task.Run(() =>
-                    {
-                        HomeSingleAxis(ushort.Parse(SF.frmCard.dataStation[dataStationIndex].dataAxis.axisConfigs[index].CardNum), (ushort)(SF.frmCard.dataStation[dataStationIndex].dataAxis.axisConfigs[index].axis.AxisNum));
-                    });
-                }
+                throw new InvalidOperationException("工站索引无效");
             }
+            DataStation station = SF.frmCard.dataStation[dataStationIndex];
+            if (station.dataAxis?.axisConfigs == null)
+            {
+                throw new InvalidOperationException("工站回零配置不完整");
+            }
+            station.SetState(DataStation.Status.NotReady);
+            List<Task> tasks = new List<Task>();
+            foreach (AxisConfig axisConfig in station.dataAxis.axisConfigs)
+            {
+                if (axisConfig?.AxisName == "-1")
+                {
+                    continue;
+                }
+                if (axisConfig?.axis == null || !ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
+                {
+                    throw new InvalidOperationException($"回零轴配置无效:{axisConfig?.AxisName}");
+                }
+                ushort axisNum = (ushort)axisConfig.axis.AxisNum;
+                tasks.Add(Task.Run(() => HomeSingleAxis(cardNum, axisNum)));
+            }
+            await Task.WhenAll(tasks);
+            station.SetState(DataStation.Status.Ready);
         }
+
         public void HomeSingleAxis(ushort cardNum, ushort axis)
         {
-            if (!SF.motion.GetInPos(cardNum, axis))
-                return;
-            ushort dir = 0;
-            if (!SF.cardStore.TryGetAxis(cardNum, axis, out Axis axisInfo))
+            if (SF.DR == null || !SF.DR.TryValidateStartGate(out _))
             {
-                return;
+                throw new InvalidOperationException("系统尚未复位完成，禁止手动回零。");
+            }
+            if (!SF.DR.TryAcquireManualMotionResource(cardNum, axis, out string resourceError))
+            {
+                throw new InvalidOperationException(resourceError);
+            }
+            Axis axisInfo = null;
+            bool completed = false;
+            try
+            {
+            if (!SF.motion.GetInPos(cardNum, axis))
+            {
+                throw new InvalidOperationException($"轴正在运动，禁止启动回零:{cardNum}-{axis}");
+            }
+            ushort dir = 0;
+            if (SF.cardStore == null || !SF.cardStore.TryGetAxis(cardNum, axis, out axisInfo)
+                || axisInfo.PulseToMM <= 0 || axisInfo.AccMax <= 0 || axisInfo.DecMax <= 0
+                || !double.TryParse(axisInfo.LimitSpeed, out double limitSpeed) || limitSpeed <= 0
+                || !double.TryParse(axisInfo.HomeSpeed, out double homeSpeed) || homeSpeed <= 0)
+            {
+                throw new InvalidOperationException($"轴回零参数无效:{cardNum}-{axis}");
             }
             axisInfo.State = Axis.Status.Run;
             int sfc = 1;
@@ -280,15 +296,23 @@ namespace Automation
                 IOindex = 2;
             }
             int IOindexTemp = IOindex == 2 ? 3 : 2;
-
+            Stopwatch timeout = Stopwatch.StartNew();
             while (axisInfo.State == Axis.Status.Run)
             {
+                if (!SF.DR.TryValidateStartGate(out _))
+                {
+                    throw new InvalidOperationException("回零过程中复位状态失效");
+                }
+                if (timeout.ElapsedMilliseconds > 120000)
+                {
+                    throw new TimeoutException($"轴回零超时:{cardNum}-{axis}");
+                }
                 switch (sfc)
                 {
                     case 1:
-                        SF.motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.LimitSpeed), axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
+                        SF.motion.SetMovParam(cardNum, axis, 0, limitSpeed, axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
                         SF.motion.Jog(cardNum, axis, dir);
-                        Task.Delay(20);
+                        Thread.Sleep(20);
                         sfc = 2;
                         break;
                     case 2:
@@ -298,52 +322,63 @@ namespace Automation
                         }
                         if (GetAxisStateBit(cardNum, axis, IOindexTemp))
                         {
-                            SF.Delay(1000);
+                            Thread.Sleep(1000);
                             if (GetAxisStateBit(cardNum, axis, IOindexTemp))
                             {
-                                MessageBox.Show("限位方向错误，回零失败。");
-                                sfc = 0;
+                                throw new InvalidOperationException("限位方向错误，回零失败。");
                             }
-
                         }
-                        Task.Delay(20);
+                        Thread.Sleep(20);
                         break;
                     case 10:
-                        SF.motion.SetMovParam(cardNum, axis, 0, double.Parse(axisInfo.HomeSpeed), axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
+                        SF.motion.SetMovParam(cardNum, axis, 0, homeSpeed, axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
                         if (axisInfo.HomeType != "从当前位回零")
                         {
                             SF.motion.SettHomeParam(cardNum, axis, dir, 1, 1);
                         }
                         SF.motion.StartHome(cardNum, axis);
-                        Task.Delay(20);
+                        Thread.Sleep(20);
                         sfc = 20;
                         break;
                     case 20:
                         if (SF.motion.GetInPos(cardNum, axis))
                         {
-                            Task.Delay(300);
-                            if (SF.motion.HomeStatus(cardNum, axis) == true)
+                            Thread.Sleep(300);
+                            if (SF.motion.HomeStatus(cardNum, axis))
                             {
                                 SF.motion.CleanPos(cardNum, axis);
-                                axisInfo.State = 0;
-                                sfc = 0;
+                                axisInfo.State = Axis.Status.Ready;
+                                completed = true;
                             }
                             else
                             {
-                                MessageBox.Show("限位方向错误，回零失败。");
-                                axisInfo.State = Axis.Status.NotReady;
-                                sfc = 0;
-                                return;
+                                throw new InvalidOperationException("控制卡报告回零失败。");
                             }
-
                         }
-                        Task.Delay(20);
+                        Thread.Sleep(20);
                         break;
-
                 }
             }
-                
-            
+            }
+            finally
+            {
+                if (!completed)
+                {
+                    if (axisInfo != null)
+                    {
+                        axisInfo.State = Axis.Status.NotReady;
+                    }
+                    try
+                    {
+                        SF.motion?.StopOneAxis(cardNum, axis, 0);
+                    }
+                    catch (Exception ex)
+                    {
+                        SF.DR?.Logger?.Log($"手动回零失败后停止轴异常:{cardNum}-{axis} {ex.Message}", LogLevel.Error);
+                    }
+                }
+                SF.DR?.ReleaseManualMotionResource(cardNum, axis);
+            }
         }
 
         private bool GetAxisStateBit(ushort cardNum, ushort axis, int bitIndex)
@@ -375,52 +410,50 @@ namespace Automation
           
         }
 
-        private void btnHome1_Click(object sender, EventArgs e)
+        private async Task RunManualAxisHomeAsync(AxisConfig axisConfig)
         {
-            Task task = Task.Run(() =>
+            try
             {
-                HomeSingleAxis(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum);
-            });
+                if (axisConfig?.axis == null || !ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
+                {
+                    throw new InvalidOperationException("回零轴配置无效");
+                }
+                await Task.Run(() => HomeSingleAxis(cardNum, (ushort)axisConfig.axis.AxisNum));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "手动回零失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
-        private void btnHome2_Click(object sender, EventArgs e)
+        private async void btnHome1_Click(object sender, EventArgs e)
         {
-            Task task = Task.Run(() =>
-            {
-                HomeSingleAxis(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum);
-            });
+            await RunManualAxisHomeAsync(temp?.dataAxis?.axisConfig1);
         }
 
-        private void btnHome3_Click(object sender, EventArgs e)
+        private async void btnHome2_Click(object sender, EventArgs e)
         {
-            Task task = Task.Run(() =>
-            {
-                HomeSingleAxis(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum);
-            });
+            await RunManualAxisHomeAsync(temp?.dataAxis?.axisConfig2);
         }
 
-        private void btnHome4_Click(object sender, EventArgs e)
+        private async void btnHome3_Click(object sender, EventArgs e)
         {
-            Task task = Task.Run(() =>
-            {
-                HomeSingleAxis(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum);
-            });
+            await RunManualAxisHomeAsync(temp?.dataAxis?.axisConfig3);
         }
 
-        private void btnHome5_Click(object sender, EventArgs e)
+        private async void btnHome4_Click(object sender, EventArgs e)
         {
-            Task task = Task.Run(() =>
-            {
-                HomeSingleAxis(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum);
-            });
+            await RunManualAxisHomeAsync(temp?.dataAxis?.axisConfig4);
         }
 
-        private void btnHome6_Click(object sender, EventArgs e)
+        private async void btnHome5_Click(object sender, EventArgs e)
         {
-            Task task = Task.Run(() =>
-            {
-                HomeSingleAxis(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum);
-            });
+            await RunManualAxisHomeAsync(temp?.dataAxis?.axisConfig5);
+        }
+
+        private async void btnHome6_Click(object sender, EventArgs e)
+        {
+            await RunManualAxisHomeAsync(temp?.dataAxis?.axisConfig6);
         }
 
         private bool TryGetStepDistance(string customText, out double distance)
@@ -807,10 +840,16 @@ namespace Automation
                 SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 0);
         }
 
-        private void btnStationHome_Click(object sender, EventArgs e)
+        private async void btnStationHome_Click(object sender, EventArgs e)
         {
-            HomeStationByseq(comboBox1.SelectedIndex);
-        
+            try
+            {
+                await HomeStationByseq(comboBox1.SelectedIndex);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "工站回零失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void btnStop_Click(object sender, EventArgs e)

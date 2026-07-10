@@ -1825,6 +1825,10 @@ namespace Automation
                     return "运行";
                 case ProcRunState.Alarming:
                     return "报警中";
+                case ProcRunState.Pausing:
+                    return "暂停中";
+                case ProcRunState.Stopping:
+                    return "停止中";
                 default:
                     return "未知";
             }

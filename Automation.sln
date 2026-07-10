@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Automation", "Automation.cs
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpServer", "McpServer\McpServer.csproj", "{8B3A187B-DF59-EFF4-34F3-CA37CC868C80}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KernelTests", "KernelTests\KernelTests.csproj", "{B1C5F06B-7696-40D2-AD74-C73C831403D3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,6 +23,10 @@ Global
 		{8B3A187B-DF59-EFF4-34F3-CA37CC868C80}.Debug|x64.Build.0 = Debug|Any CPU
 		{8B3A187B-DF59-EFF4-34F3-CA37CC868C80}.Release|x64.ActiveCfg = Release|Any CPU
 		{8B3A187B-DF59-EFF4-34F3-CA37CC868C80}.Release|x64.Build.0 = Release|Any CPU
+		{B1C5F06B-7696-40D2-AD74-C73C831403D3}.Debug|x64.ActiveCfg = Debug|x64
+		{B1C5F06B-7696-40D2-AD74-C73C831403D3}.Debug|x64.Build.0 = Debug|x64
+		{B1C5F06B-7696-40D2-AD74-C73C831403D3}.Release|x64.ActiveCfg = Release|x64
+		{B1C5F06B-7696-40D2-AD74-C73C831403D3}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

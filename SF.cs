@@ -123,6 +123,7 @@ namespace Automation
                     frmInfo.PrintInfo(reason, FrmInfo.Level.Error);
                 }
             }
+            DR?.StopAllManualMotion();
             if (DR == null || frmProc?.procsList == null)
             {
                 return;

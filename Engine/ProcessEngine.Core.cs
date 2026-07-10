@@ -37,6 +37,8 @@ namespace Automation
         private readonly ConcurrentDictionary<int, Proc> pendingProcUpdates = new ConcurrentDictionary<int, Proc>();
         private readonly object snapshotDispatchLock = new object();
         private readonly object procPublishLock = new object();
+        private readonly object motionResourceLock = new object();
+        private readonly Dictionary<long, int> motionResourceOwners = new Dictionary<long, int>();
         private System.Threading.Timer snapshotTimer;
         private int snapshotFlushRunning;
         private int disposed;
@@ -212,13 +214,13 @@ namespace Automation
             {
                 return;
             }
-            if (procIndex < agents.Length)
+            if (procIndex < agents.Length && procIndex < snapshots.Length)
             {
                 return;
             }
             lock (agentLock)
             {
-                if (procIndex < agents.Length)
+                if (procIndex < agents.Length && procIndex < snapshots.Length)
                 {
                     return;
                 }
@@ -827,16 +829,33 @@ namespace Automation
 
             return true;
         }
-        public void StartProc(Proc proc, int procIndex)
+        public bool StartProc(Proc proc, int procIndex)
         {
-            StartProcAt(proc, procIndex, 0, 0, ProcRunState.Running);
+            return StartProcAt(proc, procIndex, 0, 0, ProcRunState.Running);
         }
-        public void StartProcAuto(Proc proc, int index)
+
+        internal void RaiseProcessCompleted(int procIndex, Guid procId)
         {
-            StartProcAt(proc, index, 0, 0, ProcRunState.Running);
+            try
+            {
+                ProcessCompleted?.Invoke(procIndex, procId);
+            }
+            catch (Exception ex)
+            {
+                Logger?.Log($"流程完成事件处理失败:{ex.Message}", LogLevel.Error);
+            }
         }
-        public void StartProcAt(Proc proc, int procIndex, int stepIndex, int opIndex, ProcRunState startState)
+        public bool StartProcAuto(Proc proc, int index)
         {
+            return StartProcAt(proc, index, 0, 0, ProcRunState.Running);
+        }
+        public bool StartProcAt(Proc proc, int procIndex, int stepIndex, int opIndex, ProcRunState startState)
+        {
+            if (!TryValidateStartGate(out string gateError))
+            {
+                Logger?.Log($"启动流程失败:{gateError}", LogLevel.Error);
+                return false;
+            }
             if (proc == null && Context?.Procs != null && procIndex >= 0 && procIndex < Context.Procs.Count)
             {
                 proc = Context.Procs[procIndex];
@@ -844,16 +863,30 @@ namespace Automation
             if (proc == null)
             {
                 Logger?.Log("启动流程失败：流程为空。", LogLevel.Error);
-                return;
+                return false;
             }
             if (proc.head?.Disable == true)
             {
                 string name = string.IsNullOrWhiteSpace(proc.head?.Name) ? $"索引{procIndex}" : proc.head.Name;
                 Logger?.Log($"流程已禁用，禁止启动：{name}", LogLevel.Normal);
-                return;
+                return false;
+            }
+            if (proc.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count
+                || proc.steps[stepIndex]?.Ops == null || opIndex < 0
+                || (proc.steps[stepIndex].Ops.Count > 0 && opIndex >= proc.steps[stepIndex].Ops.Count))
+            {
+                Logger?.Log($"启动流程失败：启动位置无效:{procIndex}-{stepIndex}-{opIndex}", LogLevel.Error);
+                return false;
+            }
+            if (startState != ProcRunState.Running
+                && startState != ProcRunState.Paused
+                && startState != ProcRunState.SingleStep)
+            {
+                Logger?.Log($"启动流程失败：启动状态无效:{startState}", LogLevel.Error);
+                return false;
             }
             EngineCommand command = EngineCommand.Start(procIndex, proc, stepIndex, opIndex, startState);
-            EnqueueCommand(procIndex, command);
+            return EnqueueCommand(procIndex, command);
         }
         public void Pause(int procIndex)
         {
@@ -867,8 +900,13 @@ namespace Automation
         {
             EnqueueCommand(procIndex, EngineCommand.Step(procIndex));
         }
-        public void RunSingleOpOnce(Proc proc, int procIndex, int stepIndex, int opIndex)
+        public bool RunSingleOpOnce(Proc proc, int procIndex, int stepIndex, int opIndex)
         {
+            if (!TryValidateStartGate(out string gateError))
+            {
+                Logger?.Log($"单次执行指令失败:{gateError}", LogLevel.Error);
+                return false;
+            }
             if (proc == null && Context?.Procs != null && procIndex >= 0 && procIndex < Context.Procs.Count)
             {
                 proc = Context.Procs[procIndex];
@@ -876,24 +914,200 @@ namespace Automation
             if (proc == null)
             {
                 Logger?.Log("单步执行指令失败：流程为空。", LogLevel.Error);
-                return;
+                return false;
+            }
+            if (proc.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count
+                || proc.steps[stepIndex]?.Ops == null || opIndex < 0 || opIndex >= proc.steps[stepIndex].Ops.Count)
+            {
+                Logger?.Log($"单次执行指令失败：位置无效:{procIndex}-{stepIndex}-{opIndex}", LogLevel.Error);
+                return false;
             }
             EngineCommand command = EngineCommand.RunSingleOpOnce(procIndex, proc, stepIndex, opIndex);
-            EnqueueCommand(procIndex, command);
+            return EnqueueCommand(procIndex, command);
+        }
+
+        internal bool TryAcquireMotionResource(ProcHandle evt, ushort card, ushort axis, out string error)
+        {
+            return TryAcquireMotionResources(evt, new[] { BuildMotionResourceKey(card, axis) }, out error);
+        }
+
+        internal bool TryAcquireMotionResources(ProcHandle evt, IEnumerable<long> resourceKeys, out string error)
+        {
+            error = null;
+            if (evt == null || resourceKeys == null)
+            {
+                error = "流程句柄或运动资源为空。";
+                return false;
+            }
+            long[] keys = resourceKeys.Distinct().ToArray();
+            lock (motionResourceLock)
+            {
+                foreach (long key in keys)
+                {
+                    if (motionResourceOwners.TryGetValue(key, out int owner) && owner != evt.procNum)
+                    {
+                        ushort card = (ushort)(key >> 32);
+                        ushort axis = (ushort)key;
+                        error = $"轴资源被流程{owner}占用:{card}-{axis}";
+                        return false;
+                    }
+                }
+                foreach (long key in keys)
+                {
+                    motionResourceOwners[key] = evt.procNum;
+                    evt.OwnedAxes[key] = 0;
+                }
+                return true;
+            }
+        }
+
+        internal static long BuildMotionResourceKey(ushort card, ushort axis)
+        {
+            return ((long)card << 32) | axis;
+        }
+
+        public bool TryAcquireManualMotionResource(ushort card, ushort axis, out string error)
+        {
+            error = null;
+            long key = BuildMotionResourceKey(card, axis);
+            lock (motionResourceLock)
+            {
+                if (motionResourceOwners.TryGetValue(key, out int owner))
+                {
+                    if (owner == int.MinValue)
+                    {
+                        error = $"轴资源已被手动操作占用:{card}-{axis}";
+                        return false;
+                    }
+                    error = $"轴资源被流程{owner}占用:{card}-{axis}";
+                    return false;
+                }
+                motionResourceOwners[key] = int.MinValue;
+                return true;
+            }
+        }
+
+        public void ReleaseManualMotionResource(ushort card, ushort axis)
+        {
+            long key = BuildMotionResourceKey(card, axis);
+            lock (motionResourceLock)
+            {
+                if (motionResourceOwners.TryGetValue(key, out int owner) && owner == int.MinValue)
+                {
+                    motionResourceOwners.Remove(key);
+                }
+            }
+        }
+
+        public void StopAllManualMotion()
+        {
+            long[] keys;
+            lock (motionResourceLock)
+            {
+                keys = motionResourceOwners
+                    .Where(item => item.Value == int.MinValue)
+                    .Select(item => item.Key)
+                    .ToArray();
+            }
+            foreach (long key in keys)
+            {
+                ushort card = (ushort)(key >> 32);
+                ushort axis = (ushort)key;
+                try
+                {
+                    Context?.Motion?.StopOneAxis(card, axis, 0);
+                }
+                catch (Exception ex)
+                {
+                    Logger?.Log($"安全停机时停止手动轴失败:{card}-{axis} {ex.Message}", LogLevel.Error);
+                }
+            }
+        }
+
+        internal void StopOwnedMotion(ProcHandle evt, bool release)
+        {
+            if (evt == null || evt.OwnedAxes.IsEmpty)
+            {
+                return;
+            }
+            long[] keys = evt.OwnedAxes.Keys.ToArray();
+            string stopError = null;
+            foreach (long key in keys)
+            {
+                ushort card = (ushort)(key >> 32);
+                ushort axis = (ushort)key;
+                try
+                {
+                    Context?.Motion?.StopOneAxis(card, axis, 0);
+                }
+                catch (Exception ex)
+                {
+                    stopError = $"停止轴失败:{card}-{axis} {ex.Message}";
+                    Logger?.Log(stopError, LogLevel.Error);
+                }
+            }
+            if (release)
+            {
+                lock (motionResourceLock)
+                {
+                    foreach (long key in keys)
+                    {
+                        if (motionResourceOwners.TryGetValue(key, out int owner) && owner == evt.procNum)
+                        {
+                            motionResourceOwners.Remove(key);
+                        }
+                        evt.OwnedAxes.TryRemove(key, out _);
+                    }
+                }
+            }
+            if (!string.IsNullOrEmpty(stopError) && !SF.SecurityLocked)
+            {
+                SF.SetSecurityLock(stopError);
+            }
+        }
+
+        public bool TryValidateStartGate(out string error)
+        {
+            error = null;
+            if (SF.SecurityLocked)
+            {
+                error = string.IsNullOrWhiteSpace(SF.SecurityLockReason)
+                    ? "系统处于安全锁定状态，禁止启动流程。"
+                    : $"系统处于安全锁定状态:{SF.SecurityLockReason}";
+                return false;
+            }
+            if (Context?.ValueStore == null)
+            {
+                error = "变量库未初始化，禁止启动流程。";
+                return false;
+            }
+            if (!Context.ValueStore.TryGetValueByName("复位状态", out DicValue resetValue) || resetValue == null)
+            {
+                error = "缺少系统变量：复位状态。";
+                return false;
+            }
+            if (!string.Equals(resetValue.Type, "double", StringComparison.OrdinalIgnoreCase)
+                || !double.TryParse(resetValue.Value, out double resetRaw)
+                || resetRaw != (double)ResetStatus.ResetCompleted)
+            {
+                error = "系统尚未复位完成，禁止启动流程。";
+                return false;
+            }
+            return true;
         }
         public void Stop(int procIndex)
         {
             ProcAgent agent = GetOrCreateAgent(procIndex);
             agent?.RequestStop();
         }
-        private void EnqueueCommand(int procIndex, EngineCommand command)
+        private bool EnqueueCommand(int procIndex, EngineCommand command)
         {
             ProcAgent agent = GetOrCreateAgent(procIndex);
             if (agent == null || command == null)
             {
-                return;
+                return false;
             }
-            agent.Enqueue(command);
+            return agent.Enqueue(command);
         }
         internal void RunProc(Proc proc, ProcHandle evt, ProcessControl control)
         {
@@ -997,10 +1211,6 @@ namespace Automation
                 evt.opsNum = 0;
                 evt.stepNum++;
             }
-            evt.State = ProcRunState.Stopped;
-            evt.isBreakpoint = false;
-            UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
-            ProcessCompleted?.Invoke(evt.procNum, evt.procId);
         }
         //运行步骤
         private bool RunStep(ProcHandle evt, ProcessControl control)
@@ -1134,6 +1344,12 @@ namespace Automation
                         }
                         UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                     }
+                    if (evt.State == ProcRunState.Pausing)
+                    {
+                        evt.State = ProcRunState.Paused;
+                        UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum,
+                            evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                    }
                     control.WaitForRun();
                     if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                     {
@@ -1203,7 +1419,25 @@ namespace Automation
                     {
                         MarkAlarm(evt, ex.Message);
                         HandleAlarm(operation, evt);
-                        return false;
+                        if (evt.isGoto)
+                        {
+                            if (singleStepExecution && evt.State == ProcRunState.Running)
+                            {
+                                evt.State = ProcRunState.SingleStep;
+                                UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum,
+                                    evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+                            }
+                            return true;
+                        }
+                        if (evt.State == ProcRunState.Alarming)
+                        {
+                            return false;
+                        }
+                        if (evt.singleOpOnce && evt.stepNum == evt.singleOpStep && evt.opsNum == evt.singleOpOp)
+                        {
+                            control.RequestStop();
+                            return false;
+                        }
                     }
                     if (singleStepExecution && evt.State == ProcRunState.Running)
                     {
@@ -1229,6 +1463,7 @@ namespace Automation
             UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
 
             Logger?.Log($"发生报警:{evt.procNum}---{evt.stepNum}---{evt.opsNum} {evt.alarmMsg}", LogLevel.Error);
+            StopOwnedMotion(evt, false);
 
             AlarmDecision decision = ResolveAlarmDecision(operation, evt);
             ApplyAlarmDecision(operation, evt, decision);
@@ -1413,34 +1648,61 @@ namespace Automation
             switch (decision)
             {
                 case AlarmDecision.Stop:
+                    evt.Control?.SetPaused();
                     break;
                 case AlarmDecision.Ignore:
+                    evt.isAlarm = false;
+                    evt.alarmMsg = null;
+                    evt.State = ProcRunState.Running;
+                    evt.Control?.SetRunning();
+                    UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum,
+                        evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
                     break;
                 case AlarmDecision.Goto1:
-                    evt.isGoto = true;
                     if (!TryExecuteGoto(operation.Goto1, evt, out string goto1Error))
                     {
                         MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto1Error : $"{evt.alarmMsg}; {goto1Error}");
                         RaiseAlarmState(evt);
                     }
+                    else
+                    {
+                        ResumeAfterAlarmGoto(evt);
+                    }
                     break;
                 case AlarmDecision.Goto2:
-                    evt.isGoto = true;
                     if (!TryExecuteGoto(operation.Goto2, evt, out string goto2Error))
                     {
                         MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto2Error : $"{evt.alarmMsg}; {goto2Error}");
                         RaiseAlarmState(evt);
                     }
+                    else
+                    {
+                        ResumeAfterAlarmGoto(evt);
+                    }
                     break;
                 case AlarmDecision.Goto3:
-                    evt.isGoto = true;
                     if (!TryExecuteGoto(operation.Goto3, evt, out string goto3Error))
                     {
                         MarkAlarm(evt, string.IsNullOrWhiteSpace(evt.alarmMsg) ? goto3Error : $"{evt.alarmMsg}; {goto3Error}");
                         RaiseAlarmState(evt);
                     }
+                    else
+                    {
+                        ResumeAfterAlarmGoto(evt);
+                    }
                     break;
             }
+        }
+
+        private void ResumeAfterAlarmGoto(ProcHandle evt)
+        {
+            evt.isGoto = true;
+            evt.isAlarm = false;
+            evt.alarmMsg = null;
+            evt.State = ProcRunState.Running;
+            evt.Control?.SetRunning();
+            UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum,
+                evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
         }
 
         public void Dispose()
@@ -1471,6 +1733,10 @@ namespace Automation
             }
             pendingSnapshots.Clear();
             pendingProcUpdates.Clear();
+            lock (motionResourceLock)
+            {
+                motionResourceOwners.Clear();
+            }
             GC.SuppressFinalize(this);
         }
 
@@ -1508,12 +1774,13 @@ namespace Automation
             dispatcher.Start();
         }
 
-        public void Enqueue(EngineCommand command)
+        public bool Enqueue(EngineCommand command)
         {
             if (disposed || command == null)
             {
-                return;
+                return false;
             }
+            bool overflow = false;
             lock (queueLock)
             {
                 command.Generation = Volatile.Read(ref generation);
@@ -1526,17 +1793,25 @@ namespace Automation
                 {
                     if (queue.IsAddingCompleted)
                     {
-                        return;
+                        return false;
                     }
-                    while (!queue.TryAdd(command))
-                    {
-                        if (!queue.TryTake(out _))
-                        {
-                            break;
-                        }
-                    }
+                    overflow = true;
                 }
             }
+            if (overflow)
+            {
+                engine.Logger?.Log($"流程{procIndex}控制命令队列已满，触发安全停止。", LogLevel.Error);
+                command.Completion.TrySetResult(false);
+                RequestStop();
+                return false;
+            }
+            if (!command.Completion.Task.Wait(engine.StopJoinTimeout + TimeSpan.FromMilliseconds(500)))
+            {
+                engine.Logger?.Log($"流程{procIndex}控制命令确认超时:{command.Type}", LogLevel.Error);
+                RequestStop();
+                return false;
+            }
+            return command.Completion.Task.Result;
         }
 
         public void RequestStop()
@@ -1558,12 +1833,28 @@ namespace Automation
             disposed = true;
             queue.CompleteAdding();
             StopCurrent(false);
+            if (!ReferenceEquals(dispatcher, Thread.CurrentThread))
+            {
+                dispatcher.Join(engine.StopJoinTimeout);
+            }
+            ExecutionContext running;
+            lock (sync)
+            {
+                running = current;
+            }
+            if (running?.Thread != null
+                && !ReferenceEquals(running.Thread, Thread.CurrentThread)
+                && running.Thread.IsAlive)
+            {
+                running.Thread.Join(engine.StopJoinTimeout);
+            }
         }
 
         private void ClearQueue()
         {
-            while (queue.TryTake(out _))
+            while (queue.TryTake(out EngineCommand removed))
             {
+                removed?.Completion.TrySetResult(false);
             }
         }
 
@@ -1579,11 +1870,12 @@ namespace Automation
                     }
                     try
                     {
-                        HandleCommand(command);
+                        command.Completion.TrySetResult(HandleCommand(command));
                     }
                     catch (Exception ex)
                     {
                         engine.Logger?.Log($"调度处理异常:{command?.Type} {ex.Message}，触发安全停机", LogLevel.Error);
+                        command?.Completion.TrySetResult(false);
                         if (!disposed)
                         {
                             RequestStop();
@@ -1601,35 +1893,35 @@ namespace Automation
             }
         }
 
-        private void HandleCommand(EngineCommand command)
+        private bool HandleCommand(EngineCommand command)
         {
             long currentGen = Volatile.Read(ref generation);
             if (command.Generation != currentGen)
             {
-                return;
+                return false;
             }
             switch (command.Type)
             {
                 case EngineCommandType.StartAt:
                 case EngineCommandType.RunSingleOpOnce:
-                    StartInternal(command);
-                    break;
+                    return StartInternal(command);
                 case EngineCommandType.Pause:
                     PauseInternal();
-                    break;
+                    return true;
                 case EngineCommandType.Resume:
                     ResumeInternal();
-                    break;
+                    return true;
                 case EngineCommandType.Step:
                     StepInternal();
-                    break;
+                    return true;
                 case EngineCommandType.Stop:
                     RequestStop();
-                    break;
+                    return true;
             }
+            return false;
         }
 
-        private void StartInternal(EngineCommand command)
+        private bool StartInternal(EngineCommand command)
         {
             Proc proc = command.Proc;
             if (proc == null && engine.Context?.Procs != null && command.ProcIndex >= 0 && command.ProcIndex < engine.Context.Procs.Count)
@@ -1639,7 +1931,7 @@ namespace Automation
             if (proc == null)
             {
                 engine.Logger?.Log("启动流程失败：流程为空。", LogLevel.Error);
-                return;
+                return false;
             }
 
             ExecutionContext runningContext;
@@ -1667,7 +1959,7 @@ namespace Automation
                         Guid procId = proc.head?.Id ?? Guid.Empty;
                         engine.UpdateSnapshot(procIndex, procId, proc.head?.Name, ProcRunState.Stopped, -1, -1, false, true, timeoutMessage, true);
                     }
-                    return;
+                    return false;
                 }
             }
 
@@ -1718,6 +2010,7 @@ namespace Automation
             {
                 control.RequestStep();
             }
+            return true;
         }
 
         private void PauseInternal()
@@ -1733,11 +2026,11 @@ namespace Automation
             {
                 return;
             }
-            if (handle.State != ProcRunState.Running && handle.State != ProcRunState.Alarming)
+            if (handle.State != ProcRunState.Running)
             {
                 return;
             }
-            handle.State = ProcRunState.Paused;
+            handle.State = ProcRunState.Pausing;
             handle.isBreakpoint = false;
             handle.PauseBySignal = false;
             control.SetPaused();
@@ -1758,7 +2051,9 @@ namespace Automation
             {
                 return;
             }
-            if (handle.State != ProcRunState.Paused && handle.State != ProcRunState.SingleStep)
+            if (handle.State != ProcRunState.Paused
+                && handle.State != ProcRunState.Pausing
+                && handle.State != ProcRunState.SingleStep)
             {
                 return;
             }
@@ -1808,14 +2103,14 @@ namespace Automation
             {
                 handle = current?.Handle;
                 control = current?.Control;
-                current = null;
             }
             if (handle == null || control == null)
             {
                 return;
             }
-            handle.State = ProcRunState.Stopped;
+            handle.State = ProcRunState.Stopping;
             handle.isBreakpoint = false;
+            engine.StopOwnedMotion(handle, false);
             try
             {
                 control.RequestStop();
@@ -1840,14 +2135,12 @@ namespace Automation
             {
                 runHandle.isAlarm = true;
                 runHandle.alarmMsg = ex.Message;
-                runHandle.State = ProcRunState.Stopped;
                 runControl?.RequestStop();
-                engine.UpdateSnapshot(runHandle.procNum, runHandle.procId, runHandle.procName, runHandle.State, runHandle.stepNum, runHandle.opsNum,
-                    runHandle.isBreakpoint, runHandle.isAlarm, runHandle.alarmMsg, true);
                 engine.Logger?.Log(ex.Message, LogLevel.Error);
             }
             finally
             {
+                engine.StopOwnedMotion(runHandle, true);
                 if (runHandle != null && runHandle.RunningTasks != null)
                 {
                     Task[] tasks = runHandle.RunningTasks.ToArray();
@@ -1870,6 +2163,11 @@ namespace Automation
                         }
                     }
                 }
+                runHandle.State = ProcRunState.Stopped;
+                runHandle.isBreakpoint = false;
+                engine.UpdateSnapshot(runHandle.procNum, runHandle.procId, runHandle.procName, runHandle.State,
+                    runHandle.stepNum, runHandle.opsNum, runHandle.isBreakpoint, runHandle.isAlarm, runHandle.alarmMsg, true);
+                engine.RaiseProcessCompleted(runHandle.procNum, runHandle.procId);
                 lock (sync)
                 {
                     if (current != null && ReferenceEquals(current.Thread, Thread.CurrentThread))
