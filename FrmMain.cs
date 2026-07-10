@@ -51,7 +51,6 @@ namespace Automation
         private System.Windows.Forms.Timer snapshotTimer;
         private CancellationTokenSource axisMonitorCts;
         private Task axisMonitorTask;
-        private volatile bool axisMonitorFaulted;
         private volatile bool systemStatusReady;
         private volatile bool systemStatusFaulted;
         private bool autoStartTriggeredForCurrentReset;
@@ -123,7 +122,8 @@ namespace Automation
                 SocketInfos = frmComunication.socketInfos,
                 SerialPortInfos = frmComunication.serialPortInfos,
                 CustomFunc = customFunc,
-                AxisStateBitGetter = TryGetAxisStateBit
+                AxisStatuses = new AxisStatusCache(),
+                AxisMotionParameters = new AxisMotionParameterStore()
             };
             dataRun = new ProcessEngine(engineContext);
             ILogger uiLogger = new FrmInfoLogger(frmInfo);
@@ -316,9 +316,6 @@ namespace Automation
             }
         }
         
-        public List<Dictionary<int, char[]>> StateDic = new List<Dictionary<int, char[]>>();
-        public object StateDicLock { get; } = new object();
-
         private async void StartMcpServerOnStartup()
         {
             string baseUri = GooseConfigStorage.CreateDefaultConfig().McpUri;
@@ -351,13 +348,13 @@ namespace Automation
     
         public void Monitor()
         {
-            ReflshDgv();
-            axisMonitorFaulted = false;
+            ResetAxisRuntimeState();
             axisMonitorCts?.Cancel();
             axisMonitorCts = new CancellationTokenSource();
             CancellationToken token = axisMonitorCts.Token;
             axisMonitorTask = Task.Run(() =>
             {
+                int pollCycle = 0;
                 while (!token.IsCancellationRequested)
                 {
                     try
@@ -374,21 +371,22 @@ namespace Automation
                                 int axisCount = SF.cardStore.GetAxisCount(i);
                                 for (int j = 0; j < axisCount; j++)
                                 {
-                                    uint number = motion.GetAxisIoStatus((ushort)i, (ushort)j);
-                                    char[] state = Convert.ToString(number, 2).PadLeft(16, '0').ToCharArray();
-                                    lock (StateDicLock)
+                                    ushort card = (ushort)i;
+                                    ushort axis = (ushort)j;
+                                    uint ioStatus = motion.GetAxisIoStatus(card, axis);
+                                    dataRun.Context.AxisStatuses.UpdateIo(card, axis, ioStatus);
+                                    if (pollCycle % 10 == 0)
                                     {
-                                        if (i >= StateDic.Count)
-                                        {
-                                            continue;
-                                        }
-                                        Dictionary<int, char[]> axisStates = StateDic[i];
-                                        if (axisStates == null)
-                                        {
-                                            axisStates = new Dictionary<int, char[]>();
-                                            StateDic[i] = axisStates;
-                                        }
-                                        axisStates[j] = state;
+                                        bool isStopped = motion.GetInPos(card, axis);
+                                        bool isHomed = motion.HomeStatus(card, axis);
+                                        bool servoOn = motion.GetAxisSevon(card, axis);
+                                        double position = motion.GetAxisPos(card, axis);
+                                        double speed = motion.GetAxisCurSpeed(card, axis);
+                                        ushort alarmCode = (ioStatus & 1u) == 0
+                                            ? (ushort)0
+                                            : motion.GetAxisAlarmCode(card, axis);
+                                        dataRun.Context.AxisStatuses.UpdateDetails(
+                                            card, axis, isStopped, isHomed, servoOn, position, speed, alarmCode);
                                     }
                                 }
                             }
@@ -396,10 +394,10 @@ namespace Automation
                     }
                     catch (Exception ex)
                     {
-                        axisMonitorFaulted = true;
                         HandleAxisMonitorFailure(ex);
                         break;
                     }
+                    pollCycle = pollCycle == int.MaxValue ? 0 : pollCycle + 1;
                     if (token.WaitHandle.WaitOne(10))
                     {
                         break;
@@ -408,17 +406,10 @@ namespace Automation
             }, token);
         }
 
-        public void ReflshDgv()
+        public void ResetAxisRuntimeState()
         {
-            lock (StateDicLock)
-            {
-                StateDic.Clear();
-                for (int i = 0; i < SF.cardStore.GetControlCardCount(); i++)
-                {
-                    Dictionary<int, char[]> dictionary1 = new Dictionary<int, char[]>();
-                    StateDic.Add(dictionary1);
-                }
-            }
+            dataRun?.Context?.AxisStatuses?.Clear();
+            dataRun?.Context?.AxisMotionParameters?.Clear();
         }
 
         private void HandleAxisMonitorFailure(Exception ex)
@@ -426,10 +417,7 @@ namespace Automation
             string message = $"轴IO监视线程异常:{ex.Message}";
             StopAllProcsForSafety(message);
             TryStopMotion();
-            lock (StateDicLock)
-            {
-                StateDic.Clear();
-            }
+            dataRun?.Context?.AxisStatuses?.Clear();
         }
 
         private void HandleSimulationGatewayFault(string reason)
@@ -437,7 +425,7 @@ namespace Automation
             string message = $"仿真连接故障:{reason}";
             Action stopAction = () =>
             {
-                axisMonitorFaulted = true;
+                dataRun?.Context?.AxisStatuses?.Clear();
                 StopAllProcsForSafety(message);
             };
             if (IsHandleCreated && InvokeRequired)
@@ -522,34 +510,6 @@ namespace Automation
             dataRun?.Logger?.Log("等待流程停止超时，继续关闭。", LogLevel.Error);
         }
 
-        public bool TryGetAxisStateBit(ushort cardNum, ushort axis, int bitIndex)
-        {
-            if (bitIndex <= 0)
-            {
-                return false;
-            }
-            if (axisMonitorFaulted || axisMonitorCts == null || axisMonitorCts.IsCancellationRequested)
-            {
-                return false;
-            }
-            lock (StateDicLock)
-            {
-                if (cardNum >= StateDic.Count)
-                {
-                    return false;
-                }
-                Dictionary<int, char[]> axisStates = StateDic[cardNum];
-                if (axisStates == null || !axisStates.TryGetValue(axis, out char[] state) || state == null)
-                {
-                    return false;
-                }
-                if (state.Length < bitIndex)
-                {
-                    return false;
-                }
-                return state[state.Length - bitIndex] == '1';
-            }
-        }
 
         private void CacheSnapshot(EngineSnapshot snapshot)
         {

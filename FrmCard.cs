@@ -228,27 +228,6 @@ namespace Automation
             public double AccMax { get; set; }
             [DisplayName("减速度时间"), Category("C运动参数"), Description(""), ReadOnly(false)]
             public double DecMax { get; set; }
-            [Browsable(false)]
-            public double Vel { get; set; } = 1;
-
-            //运行过程中使用的速度参数
-            [JsonIgnore]
-            public double SpeedRun = 100;
-            [JsonIgnore]
-            public double AccRun = 100;
-            [JsonIgnore]
-            public double DecRun = 100;
-
-            public List<double> GetVelRun()
-            {
-                List<double> allValues = new List<double>
-        {
-            SpeedRun,
-            AccRun,
-            DecRun,
-            };
-                return allValues;
-            }
         }
         private void FrmCard_Load(object sender, EventArgs e)
         {
@@ -591,26 +570,24 @@ namespace Automation
         public Dictionary<string, DataPos> dicDataPos { get; set; }
 
         [Browsable(false)]
-        public List<Axis> axes;
-
-        [Browsable(false)]
         public List<DataPos> ListDataPos;
 
         [Browsable(false)]
         public double Vel { get; set; } = 1;
 
-        //工站状态 1 表示运动，0表示停止
-        [Browsable(false)]
-        [JsonIgnore]
-        public Status State { get; set; } = 0;
+        private int state = (int)Status.Ready;
 
         public Status GetState()
         {
-            return State;
+            return (Status)System.Threading.Volatile.Read(ref state);
         }
         public void SetState(Status state)
         {
-            State = state;
+            if (state != Status.NotReady && state != Status.Ready && state != Status.Run)
+            {
+                throw new ArgumentOutOfRangeException(nameof(state));
+            }
+            System.Threading.Volatile.Write(ref this.state, (int)state);
         }
         public enum Status
         {
@@ -727,6 +704,7 @@ namespace Automation
         [DisplayName("轴6"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
         public AxisConfig axisConfig6 { get; set; }
         [Browsable(false)]
+        [JsonIgnore]
         public List<AxisConfig> axisConfigs = new List<AxisConfig>();
         
 
@@ -860,6 +838,7 @@ namespace Automation
         public AxisName AxisName6 { get; set; }
 
         [Browsable(false)]
+        [JsonIgnore]
         public List<AxisName> axisSeq = new List<AxisName>(); 
 
         public override string ToString()

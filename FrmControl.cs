@@ -396,27 +396,12 @@ namespace Automation
 
         private bool GetAxisStateBit(ushort cardNum, ushort axis, int bitIndex)
         {
-            if (bitIndex <= 0)
+            if (SF.DR?.Context?.AxisStatuses == null)
             {
-                return false;
+                throw new InvalidOperationException("轴状态缓存未初始化。");
             }
-            lock (SF.mainfrm.StateDicLock)
-            {
-                if (cardNum >= SF.mainfrm.StateDic.Count)
-                {
-                    return false;
-                }
-                Dictionary<int, char[]> axisStates = SF.mainfrm.StateDic[cardNum];
-                if (axisStates == null || !axisStates.TryGetValue(axis, out char[] state) || state == null)
-                {
-                    return false;
-                }
-                if (state.Length < bitIndex)
-                {
-                    return false;
-                }
-                return state[state.Length - bitIndex] == '1';
-            }
+            return SF.DR.Context.AxisStatuses.GetRequiredSignal(
+                cardNum, axis, bitIndex, AxisStatusCache.SafetyIoMaxAgeMilliseconds);
         }
         private void FrmControl_Load(object sender, EventArgs e)
         {

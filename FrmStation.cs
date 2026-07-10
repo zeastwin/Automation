@@ -13,6 +13,7 @@ using System.Collections;
 using Newtonsoft.Json.Linq;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using System.Runtime.InteropServices;
+using Automation.MotionControl;
 
 namespace Automation
 {
@@ -68,11 +69,9 @@ namespace Automation
             RefleshFrmStation();
 
         }
-        public Dictionary<int, char[]> StateDicTemp = new Dictionary<int, char[]>();
         public void RefleshDgvState()
         {
             dataGridView2.Rows.Clear();
-            StateDicTemp.Clear();
             axisRowMap = Array.Empty<int>();
 
             int stationIndex = SF.frmControl.CurrentStationIndex;
@@ -115,7 +114,6 @@ namespace Automation
                 }
 
                 axisRowMap[i] = dataGridView2.Rows.Add();
-                StateDicTemp[i] = Array.Empty<char>();
             }
         }
         public System.Drawing.Image validImage = Properties.Resources.vaild;
@@ -217,50 +215,33 @@ namespace Automation
                     {
                         continue;
                     }
-                    char[] state = null;
-                    lock (SF.mainfrm.StateDicLock)
-                    {
-                        if (selectCard < SF.mainfrm.StateDic.Count)
-                        {
-                            Dictionary<int, char[]> axisStates = SF.mainfrm.StateDic[selectCard];
-                            if (axisStates != null)
-                            {
-                                axisStates.TryGetValue(selectAxis, out state);
-                            }
-                        }
-                    }
-                    if (state == null)
-                    {
-                        continue;
-                    }
-
                     int rowIndex = axisRowMap.Length > i ? axisRowMap[i] : -1;
                     if (rowIndex < 0 || rowIndex >= dataGridView2.Rows.Count)
                     {
                         continue;
                     }
-                    if (StateDicTemp.TryGetValue(i, out char[] cached) && cached.SequenceEqual(state))
-                    {
-                        continue;
-                    }
-                    if (state.Length < 10)
-                    {
-                        StateDicTemp[i] = (char[])state.Clone();
-                        continue;
-                    }
-
                     DataGridViewRow row = dataGridView2.Rows[rowIndex];
                     row.Cells[0].Value = $"({axisConfig.axis.AxisName})";
-                    row.Cells[1].Value = state[state.Length - 1] == '1' ? validImage : invalidImage;
-                    row.Cells[2].Value = state[state.Length - 2] == '1' ? validImage : invalidImage;
-                    row.Cells[3].Value = state[state.Length - 3] == '1' ? validImage : invalidImage;
-                    row.Cells[4].Value = state[state.Length - 4] == '1' ? validImage : invalidImage;
-                    row.Cells[5].Value = state[state.Length - 5] == '1' ? validImage : invalidImage;
-                    row.Cells[6].Value = state[state.Length - 7] == '1' ? validImage : invalidImage;
-                    row.Cells[7].Value = state[state.Length - 8] == '1' ? validImage : invalidImage;
-                    row.Cells[8].Value = state[state.Length - 9] == '1' ? validImage : invalidImage;
-                    row.Cells[9].Value = state[state.Length - 10] == '1' ? validImage : invalidImage;
-                    StateDicTemp[i] = (char[])state.Clone();
+                    if (SF.DR?.Context?.AxisStatuses == null
+                        || !SF.DR.Context.AxisStatuses.TryGet((ushort)selectCard, (ushort)selectAxis,
+                            out AxisStatusSnapshot snapshot)
+                        || !snapshot.IsIoFresh(AxisStatusCache.UiIoMaxAgeMilliseconds))
+                    {
+                        for (int cellIndex = 1; cellIndex <= 9; cellIndex++)
+                        {
+                            row.Cells[cellIndex].Value = null;
+                        }
+                        continue;
+                    }
+                    row.Cells[1].Value = snapshot.IsSignalOn(1) ? validImage : invalidImage;
+                    row.Cells[2].Value = snapshot.IsSignalOn(2) ? validImage : invalidImage;
+                    row.Cells[3].Value = snapshot.IsSignalOn(3) ? validImage : invalidImage;
+                    row.Cells[4].Value = snapshot.IsSignalOn(4) ? validImage : invalidImage;
+                    row.Cells[5].Value = snapshot.IsSignalOn(5) ? validImage : invalidImage;
+                    row.Cells[6].Value = snapshot.IsSignalOn(7) ? validImage : invalidImage;
+                    row.Cells[7].Value = snapshot.IsSignalOn(8) ? validImage : invalidImage;
+                    row.Cells[8].Value = snapshot.IsSignalOn(9) ? validImage : invalidImage;
+                    row.Cells[9].Value = snapshot.IsSignalOn(10) ? validImage : invalidImage;
                 }
 
                 if (SF.frmControl.temp != null)
@@ -277,9 +258,20 @@ namespace Automation
                             continue;
                         }
                         ushort axisNum = (ushort)axisConfig.axis.AxisNum;
-                        SF.frmControl.PosTextBox[i].Text = SF.motion.GetAxisPos(cardNum, axisNum).ToString();
-                        SF.frmControl.pictureBoxes[i].Image = SF.motion.GetAxisSevon(cardNum, axisNum) ? validImage : invalidImage;
-                        SF.frmControl.VelLabel[i].Text = SF.motion.GetAxisCurSpeed(cardNum, axisNum).ToString();
+                        if (SF.DR?.Context?.AxisStatuses != null
+                            && SF.DR.Context.AxisStatuses.TryGet(cardNum, axisNum, out AxisStatusSnapshot snapshot)
+                            && snapshot.IsDetailFresh(AxisStatusCache.UiDetailMaxAgeMilliseconds))
+                        {
+                            SF.frmControl.PosTextBox[i].Text = snapshot.Position.ToString();
+                            SF.frmControl.pictureBoxes[i].Image = snapshot.ServoOn ? validImage : invalidImage;
+                            SF.frmControl.VelLabel[i].Text = snapshot.Speed.ToString();
+                        }
+                        else
+                        {
+                            SF.frmControl.PosTextBox[i].Text = "--";
+                            SF.frmControl.pictureBoxes[i].Image = null;
+                            SF.frmControl.VelLabel[i].Text = "--";
+                        }
                     }
                 }
             }
@@ -352,16 +344,6 @@ namespace Automation
             stateTimer.Dispose();
         }
 
-        public void SetAxisMotionParam()
-        {
-            if (SF.frmCard.dataStation != null)
-            {
-                for (int x = 0; x < SF.frmCard.dataStation.Count; x++)
-                {
-                    //   SetStationParam(SF.frmCard.dataStation[x]);
-                }
-            }
-        }
         public void SetStationParam(DataStation dataStation, int AxisIndex)
         {
 

@@ -273,7 +273,7 @@ namespace Automation
                     SF.cardStore.Save(SF.ConfigPath, false);
                     SF.frmCard.RefreshCardTree(); 
                     SF.frmIO.RefreshIOMap();
-                    SF.mainfrm.ReflshDgv();
+                    SF.mainfrm.ResetAxisRuntimeState();
                    
                     SF.frmCard.EndNewCard();
                 }
@@ -293,7 +293,7 @@ namespace Automation
                         }
                         SF.cardStore.Save(SF.ConfigPath, false);
                         SF.frmCard.RefreshCardTree();
-                        SF.mainfrm.ReflshDgv();
+                        SF.mainfrm.ResetAxisRuntimeState();
                           
                             SF.isModify = ModifyKind.None;
                         }
@@ -317,6 +317,7 @@ namespace Automation
                     {
                         SF.motion.SetAllAxisEquiv();
                     }
+                    SF.mainfrm.ResetAxisRuntimeState();
                     SF.isModify = ModifyKind.None;
                 }
                 if (SF.isModify == ModifyKind.Station)
@@ -330,7 +331,6 @@ namespace Automation
                     SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
                     SF.frmCard.RefreshStationList();
                     SF.frmCard.RefreshStationTree();
-               //     SF.frmStation.SetAxisMotionParam();
                     SF.isModify = ModifyKind.None;
                 }
                 if (SF.isModify == ModifyKind.IO)

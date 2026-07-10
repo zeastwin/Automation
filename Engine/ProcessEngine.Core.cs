@@ -67,6 +67,8 @@ namespace Automation
         public ProcessEngine(EngineContext context)
         {
             Context = context ?? throw new ArgumentNullException(nameof(context));
+            Context.AxisStatuses = Context.AxisStatuses ?? new AxisStatusCache();
+            Context.AxisMotionParameters = Context.AxisMotionParameters ?? new AxisMotionParameterStore();
             if (Context.Procs != null && Context.Procs.Count > 0)
             {
                 EnsureCapacity(Context.Procs.Count - 1);

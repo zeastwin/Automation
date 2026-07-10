@@ -310,6 +310,7 @@
     <Compile Include="MotionControl\LeiSei3000.cs" />
     <Compile Include="MotionControl\LTDMC.cs" />
     <Compile Include="MotionControl\IMotionRuntime.cs" />
+    <Compile Include="MotionControl\AxisStatusCache.cs" />
     <Compile Include="MotionControl\MotionCtrl.cs" />
     <Compile Include="OperationType.cs" />
     <Compile Include="OperationTypePartial.cs" />

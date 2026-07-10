@@ -237,15 +237,16 @@ namespace Automation
                             MarkAlarm(evt, $"工站：{stationRunPos.Name} {cardNum}号卡{axisNum}号轴配置无效");
                             throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
+                        AxisMotionParameters runtimeParameters = Context.AxisMotionParameters.Get(cardNum, axisNum);
                         double velPercent = stationRunPos.ChangeVel == "改变速度"
                             ? (stationRunPos.Vel == 0 ? Context.ValueStore.GetValueByName(stationRunPos.VelV).GetDValue() : stationRunPos.Vel)
-                            : axisInfo.SpeedRun;
+                            : runtimeParameters.SpeedPercent;
                         double accPercent = stationRunPos.ChangeVel == "改变速度"
                             ? (stationRunPos.Acc == 0 ? Context.ValueStore.GetValueByName(stationRunPos.AccV).GetDValue() : stationRunPos.Acc)
-                            : axisInfo.AccRun;
+                            : runtimeParameters.AccelerationPercent;
                         double decPercent = stationRunPos.ChangeVel == "改变速度"
                             ? (stationRunPos.Dec == 0 ? Context.ValueStore.GetValueByName(stationRunPos.DecV).GetDValue() : stationRunPos.Dec)
-                            : axisInfo.DecRun;
+                            : runtimeParameters.DecelerationPercent;
                         if (velPercent <= 0 || accPercent <= 0 || decPercent <= 0
                             || double.IsNaN(Poses[i]) || double.IsInfinity(Poses[i]))
                         {
@@ -717,7 +718,7 @@ namespace Automation
                     }
                     ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
                     if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo)
-                        || axisInfo.PulseToMM <= 0 || axisInfo.SpeedRun <= 0 || axisInfo.AccRun <= 0 || axisInfo.DecRun <= 0
+                        || axisInfo.PulseToMM <= 0
                         || double.IsNaN(targetPos[i]) || double.IsInfinity(targetPos[i]))
                     {
                         MarkAlarm(evt, $"工站：{trayRunPos.Name} {cardNum}号卡{axisNum}号轴配置无效");
@@ -727,9 +728,10 @@ namespace Automation
                     axisNums.Add(axisNum);
                     axes.Add(axisInfo);
                     stationAxisIndexes.Add(i);
-                    double velocity = axisInfo.SpeedMax * (axisInfo.SpeedRun / 100);
-                    double acceleration = axisInfo.AccMax / (axisInfo.AccRun / 100);
-                    double deceleration = axisInfo.DecMax / (axisInfo.DecRun / 100);
+                    AxisMotionParameters runtimeParameters = Context.AxisMotionParameters.Get(cardNum, axisNum);
+                    double velocity = axisInfo.SpeedMax * (runtimeParameters.SpeedPercent / 100);
+                    double acceleration = axisInfo.AccMax / (runtimeParameters.AccelerationPercent / 100);
+                    double deceleration = axisInfo.DecMax / (runtimeParameters.DecelerationPercent / 100);
                     if (velocity <= 0 || acceleration <= 0 || deceleration <= 0
                         || double.IsNaN(velocity) || double.IsInfinity(velocity)
                         || double.IsNaN(acceleration) || double.IsInfinity(acceleration)
@@ -1252,15 +1254,16 @@ namespace Automation
                             station.SetState(DataStation.Status.NotReady);
                             throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
+                        AxisMotionParameters runtimeParameters = Context.AxisMotionParameters.Get(cardNum, axisNum);
                         double velPercent = stationRunRel.ChangeVel == "改变速度"
                             ? (stationRunRel.Vel == 0 ? Context.ValueStore.GetValueByName(stationRunRel.VelV).GetDValue() : stationRunRel.Vel)
-                            : axisInfo.SpeedRun;
+                            : runtimeParameters.SpeedPercent;
                         double accPercent = stationRunRel.ChangeVel == "改变速度"
                             ? (stationRunRel.Acc == 0 ? Context.ValueStore.GetValueByName(stationRunRel.AccV).GetDValue() : stationRunRel.Acc)
-                            : axisInfo.AccRun;
+                            : runtimeParameters.AccelerationPercent;
                         double decPercent = stationRunRel.ChangeVel == "改变速度"
                             ? (stationRunRel.Dec == 0 ? Context.ValueStore.GetValueByName(stationRunRel.DecV).GetDValue() : stationRunRel.Dec)
-                            : axisInfo.DecRun;
+                            : runtimeParameters.DecelerationPercent;
                         double distance = TargetPos[i] == 0
                             ? Context.ValueStore.GetValueByName(TargetPosV[i]).GetDValue()
                             : TargetPos[i];
@@ -1418,14 +1421,12 @@ namespace Automation
                             }
                             ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
 
-                            if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo))
+                            if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out _))
                             {
                                 MarkAlarm(evt, $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在");
                                 throw CreateAlarmException(evt, evt?.alarmMsg);
                             }
-                            axisInfo.SpeedRun = Vel;
-                            axisInfo.AccRun = Acc;
-                            axisInfo.DecRun = Dec;
+                            Context.AxisMotionParameters.Set(cardNum, axisNum, Vel, Acc, Dec);
                         }
                     }
                 }
@@ -1443,14 +1444,12 @@ namespace Automation
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     int axisNum = axisInfo.axis.AxisNum;
-                    if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisConfig))
+                    if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out _))
                     {
                         MarkAlarm(evt, $"工站：{setStationVel.StationName} {cardNum}号卡{axisNum}号轴配置不存在");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    axisConfig.SpeedRun = Vel;
-                    axisConfig.AccRun = Acc;
-                    axisConfig.DecRun = Dec;
+                    Context.AxisMotionParameters.Set((ushort)cardNum, (ushort)axisNum, Vel, Acc, Dec);
                 }
             return true;
         }
@@ -1911,11 +1910,12 @@ namespace Automation
 
         private bool GetAxisStateBit(ushort cardNum, ushort axis, int bitIndex)
         {
-            if (bitIndex <= 0)
+            if (Context.AxisStatuses == null)
             {
-                return false;
+                throw new InvalidOperationException("轴状态缓存未初始化。");
             }
-            return Context.AxisStateBitGetter != null && Context.AxisStateBitGetter(cardNum, axis, bitIndex);
+            return Context.AxisStatuses.GetRequiredSignal(
+                cardNum, axis, bitIndex, AxisStatusCache.SafetyIoMaxAgeMilliseconds);
         }
     }
 }

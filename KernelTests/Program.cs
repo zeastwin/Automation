@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using static Automation.FrmCard;
+using Automation.MotionControl;
+using System.Threading.Tasks;
 
 namespace Automation.KernelTests
 {
@@ -17,6 +19,7 @@ namespace Automation.KernelTests
             Run("停止超时拒绝重启", TestStopTimeoutRejectsRestart);
             Run("手动轴资源禁止重复占用", TestManualMotionResourceExclusion);
             Run("轴与工站静态配置校验", TestMotionConfigurationValidation);
+            Run("轴状态快照并发与过期保护", TestAxisStatusCache);
             Console.WriteLine(failures == 0 ? "内核回归测试全部通过。" : $"内核回归测试失败:{failures}");
             return failures == 0 ? 0 : 1;
         }
@@ -139,6 +142,41 @@ namespace Automation.KernelTests
             station.dataAxis.axisConfig2.AxisName = "Axis0";
             SF.isModify = ModifyKind.None;
             Assert(!store.TryValidateStations(new[] { station }, out _), "工站重复物理轴未被拒绝");
+        }
+
+        private static void TestAxisStatusCache()
+        {
+            AxisStatusCache cache = new AxisStatusCache();
+            cache.UpdateIo(0, 1, 1u << 2);
+            cache.UpdateDetails(0, 1, true, true, true, 12.5, 3.2, 0);
+            AxisStatusSnapshot snapshot = cache.GetRequired(0, 1);
+            Assert(snapshot.NegativeLimit, "负限位快照解析错误");
+            Assert(snapshot.IsStopped && snapshot.IsHomed && snapshot.ServoOn, "轴详细状态快照错误");
+
+            Parallel.For(0, 1000, index =>
+            {
+                cache.UpdateIo(0, 1, (uint)(index & 1));
+                cache.TryGet(0, 1, out _);
+            });
+            Assert(cache.TryGet(0, 1, out snapshot), "并发更新后轴快照丢失");
+
+            cache.UpdateIo(0, 2, 0);
+            Thread.Sleep(20);
+            bool expiredRejected = false;
+            try
+            {
+                cache.GetRequiredSignal(0, 2, 1, 1);
+            }
+            catch (InvalidOperationException)
+            {
+                expiredRejected = true;
+            }
+            Assert(expiredRejected, "过期轴IO快照未被拒绝");
+
+            AxisMotionParameterStore parameters = new AxisMotionParameterStore();
+            Assert(parameters.Get(0, 1).SpeedPercent == 100, "轴运行参数默认值错误");
+            parameters.Set(0, 1, 50, 60, 70);
+            Assert(parameters.Get(0, 1).AccelerationPercent == 60, "轴运行参数存储错误");
         }
 
         private static ProcessEngine CreateEngine(ValueConfigStore values, CustomFunc functions, Proc proc)

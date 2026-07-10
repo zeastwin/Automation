@@ -278,6 +278,7 @@ namespace Automation
         public IList<SocketInfo> SocketInfos { get; set; }
         public IList<SerialPortInfo> SerialPortInfos { get; set; }
         public CustomFunc CustomFunc { get; set; }
-        public Func<ushort, ushort, int, bool> AxisStateBitGetter { get; set; }
+        public AxisStatusCache AxisStatuses { get; set; }
+        public AxisMotionParameterStore AxisMotionParameters { get; set; }
     }
 }
