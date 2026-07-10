@@ -108,6 +108,7 @@ namespace Automation
 
         private void aiAssistant_Page_Click(object sender, EventArgs e)
         {
+            SF.mainfrm.EnsureAiInfrastructureStarted();
             // 切换 ai_panel 显示/隐藏，不切换主页面（curPage 不变）
             var p = SF.mainfrm.ai_panel;
             if (p.Visible)

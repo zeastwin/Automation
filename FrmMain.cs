@@ -57,6 +57,14 @@ namespace Automation
         private readonly Dictionary<int, List<ProcPopupItem>> procPopups = new Dictionary<int, List<ProcPopupItem>>();
         private readonly AutomationBridgeHost automationBridgeHost;
         private readonly AutomationMcpServerManager automationMcpServerManager = new AutomationMcpServerManager();
+        private bool platformInitializationStarted;
+        private bool platformInitialized;
+        private bool allowFinalClose;
+        private int aiInfrastructureStartState;
+        private int shutdownStarted;
+
+        internal bool HideOnUserClose { get; set; }
+        internal bool IsPlatformInitialized => platformInitialized;
 
         private sealed class ProcPopupItem
         {
@@ -159,7 +167,7 @@ namespace Automation
 
             StartSnapshotTimer();
             Text = "Automation";
-            Shown += (s, e) => Text = "Automation";
+            Shown += FrmMain_Shown;
         }
 
         public AutomationMcpServerManager McpServerManager => automationMcpServerManager;
@@ -168,71 +176,120 @@ namespace Automation
 
         private void FrmMain_Load(object sender, EventArgs e)
         {
-            SF.frmValue.RefreshDic();
-            EnsureSystemStatusVariables();
-            InitializeSystemStatusValues();
-            systemStatusReady = true;
-            UpdateSystemStatusValue();
-            SF.cardStore.Load(SF.ConfigPath);
-            SF.frmIO.RefreshIOMap();
-            SF.frmCard.RefreshStationList();
-            SF.dataStructStore.Load(SF.ConfigPath);
-            SF.frmdataStruct.RefreshDataSturctList();
-            SF.frmIODebug.RefreshIODebugMap();
-            SF.frmComunication.RefreshSocketMap();
-            SF.frmComunication.RefreshSerialPortInfo();
-            SF.frmAlarmConfig.RefreshAlarmInfo();
-            SF.frmIODebug.RefleshIODebug();
-            SF.plcStore.Load(SF.ConfigPath);
-            if (SF.DR?.Context != null)
+            InitializePlatform();
+        }
+
+        private void FrmMain_Shown(object sender, EventArgs e)
+        {
+            Text = "Automation";
+            EnsureAiInfrastructureStarted();
+        }
+
+        internal void InitializePlatform()
+        {
+            if (platformInitialized)
             {
-                SF.DR.Context.Stations = SF.frmCard.dataStation;
-                SF.DR.Context.SocketInfos = SF.frmComunication.socketInfos;
-                SF.DR.Context.SerialPortInfos = SF.frmComunication.serialPortInfos;
-                SF.DR.Context.IoMap = SF.frmIO.DicIO;
-                SF.DR.Context.PlcStore = SF.plcStore;
-            }
-            //初始化运动控制相关
-            SF.motion.InitCardType();
-            bool cardInitOk = SF.motion.InitCard();
-            if (cardInitOk)
-            {
-                SF.motion.DownLoadConfig();
-                SF.motion.SetAllAxisSevonOn();
-                SF.motion.SetAllAxisEquiv();
-                Monitor();
-            }
-            automationBridgeHost.Start();
-            StartMcpServerOnStartup();
-            if (SF.SecurityLocked)
-            {
-                string lockReason = string.IsNullOrWhiteSpace(SF.SecurityLockReason)
-                    ? "系统处于安全锁定模式，禁止自动启动流程。"
-                    : $"系统处于安全锁定模式，禁止自动启动流程。锁定原因：{SF.SecurityLockReason}";
-                SF.StopAllProcs(lockReason);
                 return;
             }
-            if (SF.frmProc?.procsList != null && SF.frmProc.procsList.Count > 0)
+            if (platformInitializationStarted)
             {
-                for (int i = 0; i < SF.frmProc.procsList.Count; i++)
+                throw new InvalidOperationException("平台初始化已开始但尚未成功完成，禁止重复初始化。");
+            }
+            platformInitializationStarted = true;
+            try
+            {
+                SF.frmValue.RefreshDic();
+                EnsureSystemStatusVariables();
+                InitializeSystemStatusValues();
+                systemStatusReady = true;
+                UpdateSystemStatusValue();
+                SF.cardStore.Load(SF.ConfigPath);
+                SF.frmIO.RefreshIOMap();
+                SF.frmCard.RefreshStationList();
+                SF.dataStructStore.Load(SF.ConfigPath);
+                SF.frmdataStruct.RefreshDataSturctList();
+                SF.frmIODebug.RefreshIODebugMap();
+                SF.frmComunication.RefreshSocketMap();
+                SF.frmComunication.RefreshSerialPortInfo();
+                SF.frmAlarmConfig.RefreshAlarmInfo();
+                SF.frmIODebug.RefleshIODebug();
+                SF.plcStore.Load(SF.ConfigPath);
+                if (SF.DR?.Context != null)
                 {
-                    Proc proc = SF.DR?.Context?.Procs != null && i >= 0 && i < SF.DR.Context.Procs.Count
-                        ? SF.DR.Context.Procs[i]
-                        : SF.frmProc.procsList[i];
-                    if (proc?.head?.AutoStart != true)
+                    SF.DR.Context.Stations = SF.frmCard.dataStation;
+                    SF.DR.Context.SocketInfos = SF.frmComunication.socketInfos;
+                    SF.DR.Context.SerialPortInfos = SF.frmComunication.serialPortInfos;
+                    SF.DR.Context.IoMap = SF.frmIO.DicIO;
+                    SF.DR.Context.PlcStore = SF.plcStore;
+                }
+                // 初始化运动控制相关
+                SF.motion.InitCardType();
+                bool cardInitOk = SF.motion.InitCard();
+                if (cardInitOk)
+                {
+                    SF.motion.DownLoadConfig();
+                    SF.motion.SetAllAxisSevonOn();
+                    SF.motion.SetAllAxisEquiv();
+                    Monitor();
+                }
+                platformInitialized = true;
+                if (SF.SecurityLocked)
+                {
+                    string lockReason = string.IsNullOrWhiteSpace(SF.SecurityLockReason)
+                        ? "系统处于安全锁定模式，禁止自动启动流程。"
+                        : $"系统处于安全锁定模式，禁止自动启动流程。锁定原因：{SF.SecurityLockReason}";
+                    SF.StopAllProcs(lockReason);
+                    return;
+                }
+                if (SF.frmProc?.procsList != null && SF.frmProc.procsList.Count > 0)
+                {
+                    for (int i = 0; i < SF.frmProc.procsList.Count; i++)
                     {
-                        continue;
+                        Proc proc = SF.DR?.Context?.Procs != null && i >= 0 && i < SF.DR.Context.Procs.Count
+                            ? SF.DR.Context.Procs[i]
+                            : SF.frmProc.procsList[i];
+                        if (proc?.head?.AutoStart != true)
+                        {
+                            continue;
+                        }
+                        if (proc?.head?.Disable == true)
+                        {
+                            continue;
+                        }
+                        EngineSnapshot snapshot = SF.DR.GetSnapshot(i);
+                        if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+                        {
+                            continue;
+                        }
+                        SF.DR.StartProcAuto(null, i);
                     }
-                    if (proc?.head?.Disable == true)
-                    {
-                        continue;
-                    }
-                    EngineSnapshot snapshot = SF.DR.GetSnapshot(i);
-                    if (snapshot != null && snapshot.State != ProcRunState.Stopped)
-                    {
-                        continue;
-                    }
-                    SF.DR.StartProcAuto(null, i);
+                }
+            }
+            catch (Exception ex)
+            {
+                StopAllProcsForSafety($"平台初始化失败:{ex.Message}");
+                TryStopMotion();
+                throw;
+            }
+        }
+
+        internal void EnsureAiInfrastructureStarted()
+        {
+            if (Interlocked.CompareExchange(ref aiInfrastructureStartState, 1, 0) != 0)
+            {
+                return;
+            }
+            try
+            {
+                automationBridgeHost.Start();
+                StartMcpServerOnStartup();
+            }
+            catch (Exception ex)
+            {
+                dataRun?.Logger?.Log($"AI 基础设施启动失败:{ex.Message}", LogLevel.Error);
+                if (frmInfo != null && !frmInfo.IsDisposed && dataRun?.Logger == null)
+                {
+                    frmInfo.PrintInfo($"AI 基础设施启动失败:{ex.Message}", FrmInfo.Level.Error);
                 }
             }
         }
@@ -1230,6 +1287,16 @@ namespace Automation
 
         private void FrmMain_FormClosing(object sender, FormClosingEventArgs e)
         {
+            if (allowFinalClose)
+            {
+                return;
+            }
+            if (HideOnUserClose && e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Hide();
+                return;
+            }
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 DialogResult result = MessageBox.Show("确认退出程序？", "退出确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
@@ -1239,6 +1306,23 @@ namespace Automation
                     return;
                 }
             }
+            ShutdownPlatform();
+            allowFinalClose = true;
+        }
+
+        internal void AllowFinalClose()
+        {
+            allowFinalClose = true;
+        }
+
+        internal void ShutdownPlatform()
+        {
+            if (Interlocked.Exchange(ref shutdownStarted, 1) != 0)
+            {
+                return;
+            }
+
+            StopAllProcsForSafety("系统关闭，停止所有流程。");
             // 必须先释放 Goose 客户端：Kill Goose 进程后，后台读取线程不再调用
             // HandlePermissionRequest 的同步 Invoke，避免与已阻塞的 UI 线程形成死锁导致程序关闭卡住。
             try
@@ -1264,6 +1348,7 @@ namespace Automation
             {
                 dataRun?.Logger?.Log($"关闭 Bridge Host 失败:{ex.Message}", LogLevel.Error);
             }
+
             axisMonitorCts?.Cancel();
             if (axisMonitorTask != null)
             {
@@ -1277,7 +1362,6 @@ namespace Automation
                 }
             }
 
-            StopAllProcsForSafety("系统关闭，停止所有流程。");
             WaitForAllProcsStopped(2000);
             // 关闭所有残留的报警弹框，避免弹框持有引用导致 UI 线程阻塞。
             try
@@ -1288,6 +1372,36 @@ namespace Automation
             {
                 // 关闭弹框失败不应阻塞程序退出
             }
+
+            try
+            {
+                if (SF.frmProc != null && SF.frmProc.isStopPointDirty)
+                {
+                    if (!Directory.Exists(SF.workPath))
+                    {
+                        Directory.CreateDirectory(SF.workPath);
+                    }
+                    for (int i = 0; i < SF.frmProc.procsList.Count; i++)
+                    {
+                        SaveAsJson(SF.workPath, i.ToString(), SF.frmProc.procsList[i]);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                dataRun?.Logger?.Log($"保存流程配置失败:{ex.Message}", LogLevel.Error);
+            }
+            try
+            {
+                SF.valueStore?.Save(SF.ConfigPath);
+                SF.dataStructStore?.Save(SF.ConfigPath);
+                SF.alarmInfoStore?.Save(SF.ConfigPath);
+            }
+            catch (Exception ex)
+            {
+                dataRun?.Logger?.Log($"保存运行配置失败:{ex.Message}", LogLevel.Error);
+            }
+
             try
             {
                 // comm.Dispose 内部使用 GetAwaiter().GetResult() 同步等待通道关闭，
@@ -1312,6 +1426,10 @@ namespace Automation
             TryStopMotion();
             try
             {
+                if (dataRun != null)
+                {
+                    dataRun.SnapshotChanged -= CacheSnapshot;
+                }
                 dataRun?.Dispose();
             }
             catch (Exception ex)
@@ -1319,21 +1437,6 @@ namespace Automation
                 // 引擎释放失败不应阻塞程序关闭，记录后继续。
                 System.Diagnostics.Debug.WriteLine($"引擎释放失败:{ex.Message}");
             }
-
-            if (SF.frmProc != null && SF.frmProc.isStopPointDirty)
-            {
-                if (!Directory.Exists(SF.workPath))
-                {
-                    Directory.CreateDirectory(SF.workPath);
-                }
-                for (int i = 0; i < SF.frmProc.procsList.Count; i++)
-                {
-                    SaveAsJson(SF.workPath, i.ToString(), SF.frmProc.procsList[i]);
-                }
-            }
-            SF.valueStore.Save(SF.ConfigPath);
-            SF.dataStructStore.Save(SF.ConfigPath);
-            SF.alarmInfoStore.Save(SF.ConfigPath);
             if (snapshotTimer != null)
             {
                 snapshotTimer.Stop();
@@ -1341,9 +1444,9 @@ namespace Automation
                 snapshotTimer.Dispose();
                 snapshotTimer = null;
             }
-            // 所有清理步骤均带超时保护，但可能存在未知的阻塞点导致 Application.Run 不返回。
-            // 兜底强制退出，确保用户点击关闭后程序一定能退出。
-            Environment.Exit(0);
+            axisMonitorCts?.Dispose();
+            axisMonitorCts = null;
+            platformInitialized = false;
         }
     }
 

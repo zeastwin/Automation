@@ -3,12 +3,12 @@
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
     <ProjectGuid>{A51BCDAB-5B3B-493A-8048-D4CD963BA84A}</ProjectGuid>
     <OutputType>WinExe</OutputType>
     <RootNamespace>Automation</RootNamespace>
     <AssemblyName>Automation</AssemblyName>
-    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <LangVersion>latest</LangVersion>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
@@ -18,8 +18,8 @@
     </NuGetPackageImportStamp>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <PlatformTarget>x64</PlatformTarget>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
@@ -29,8 +29,8 @@
     <WarningLevel>1</WarningLevel>
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <PlatformTarget>x64</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
@@ -135,12 +135,16 @@
     <Compile Include="Stores\\TrayPointStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="Runtime\\AppConfigStorage.cs" />
+    <Compile Include="Runtime\\AutomationPlatformHost.cs" />
     <Compile Include="Runtime\\AutomationMcpServerManager.cs" />
     <Compile Include="Runtime\\GooseConfigStorage.cs" />
     <Compile Include="Runtime\\ConfigurationVersionService.cs" />
     <Compile Include="Bridge\\AutomationBridgeHost.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.cs" />
     <Compile Include="GooseAcpClient.cs" />
+    <Compile Include="Peripheral\\FrmPeripheralMain.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="FrmAppConfig.cs">
       <SubType>Form</SubType>
     </Compile>

@@ -178,6 +178,8 @@ namespace Automation
             string projectRoot = ResolveProjectRoot(baseDirectory);
             if (!string.IsNullOrWhiteSpace(projectRoot))
             {
+                AddCandidate(candidates, Path.Combine(projectRoot, "McpServer", "bin", "x64", "Debug", "net8.0-windows", "Automation.McpServer.exe"));
+                AddCandidate(candidates, Path.Combine(projectRoot, "McpServer", "bin", "x64", "Release", "net8.0-windows", "Automation.McpServer.exe"));
                 AddCandidate(candidates, Path.Combine(projectRoot, "McpServer", "bin", "Debug", "net8.0-windows", "Automation.McpServer.exe"));
                 AddCandidate(candidates, Path.Combine(projectRoot, "McpServer", "bin", "Release", "net8.0-windows", "Automation.McpServer.exe"));
             }
