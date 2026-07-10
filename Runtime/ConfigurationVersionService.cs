@@ -26,13 +26,6 @@ namespace Automation
         public string SnapshotType { get; set; }
     }
 
-    public sealed class ConfigurationVersionBranchRecord
-    {
-        public string Name { get; set; }
-        public bool IsCurrent { get; set; }
-        public int SnapshotCount { get; set; }
-    }
-
     public sealed class ConfigurationVersionDiffEntry
     {
         public string Category { get; set; }
@@ -128,107 +121,6 @@ namespace Automation
             }
         }
 
-        public IReadOnlyList<ConfigurationVersionBranchRecord> GetBranches(ConfigurationVersionLayer layer, out string currentBranch, out string error)
-        {
-            lock (syncRoot)
-            {
-                currentBranch = null;
-                error = null;
-                List<ConfigurationVersionBranchRecord> result = new List<ConfigurationVersionBranchRecord>();
-                try
-                {
-                    using (Repository repository = OpenRepository(layer))
-                    {
-                        HashSet<string> deleted = ReadDeletedSnapshotIds(repository);
-                        currentBranch = repository.Head?.FriendlyName;
-                        foreach (Branch branch in repository.Branches.Where(item => !item.IsRemote))
-                        {
-                            result.Add(new ConfigurationVersionBranchRecord
-                            {
-                                Name = branch.FriendlyName,
-                                IsCurrent = branch.IsCurrentRepositoryHead,
-                                SnapshotCount = branch.Commits.Count(commit => IsManualSnapshot(commit.MessageShort) && !deleted.Contains(commit.Sha))
-                            });
-                        }
-                        return result.OrderByDescending(item => item.IsCurrent).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToList();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    error = "读取分支失败：" + ex.Message;
-                    return result;
-                }
-            }
-        }
-
-        public bool CreateBranch(ConfigurationVersionLayer layer, string branchName, string startCommitId, out string error)
-        {
-            lock (syncRoot)
-            {
-                try
-                {
-                    ValidateBranchName(branchName);
-                    using (Repository repository = OpenRepository(layer))
-                    {
-                        if (repository.Branches[branchName] != null)
-                        {
-                            error = "分支已存在：" + branchName;
-                            return false;
-                        }
-                        HashSet<string> deleted = ReadDeletedSnapshotIds(repository);
-                        Commit start = string.IsNullOrWhiteSpace(startCommitId)
-                            ? GetVisibleCommits(repository, deleted).FirstOrDefault()
-                            : repository.Lookup<Commit>(startCommitId);
-                        if (start == null || deleted.Contains(start.Sha) || !IsManualSnapshot(start.MessageShort))
-                        {
-                            error = "请先创建或选择一个有效的手动快照。";
-                            return false;
-                        }
-                        repository.Branches.Add(branchName, start);
-                        error = null;
-                        return true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    error = "创建分支失败：" + ex.Message;
-                    return false;
-                }
-            }
-        }
-
-        public bool SwitchBranch(ConfigurationVersionLayer layer, string branchName, out string error)
-        {
-            lock (syncRoot)
-            {
-                try
-                {
-                    ValidateBranchName(branchName);
-                    using (Repository repository = OpenRepository(layer))
-                    {
-                        Branch branch = repository.Branches[branchName];
-                        if (branch == null || branch.IsRemote)
-                        {
-                            error = "分支不存在：" + branchName;
-                            return false;
-                        }
-                        if (!branch.IsCurrentRepositoryHead)
-                        {
-                            Commands.Checkout(repository, branch, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
-                        }
-                        MirrorCurrentToSnapshot(layer);
-                        error = null;
-                        return true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    error = "切换分支失败：" + ex.Message;
-                    return false;
-                }
-            }
-        }
-
         public bool DeleteSnapshot(ConfigurationVersionLayer layer, string commitId, out string error)
         {
             lock (syncRoot)
@@ -240,7 +132,7 @@ namespace Automation
                         Commit commit = repository.Lookup<Commit>(commitId);
                         if (commit == null || !repository.Head.Commits.Any(item => item.Sha == commit.Sha) || !IsManualSnapshot(commit.MessageShort))
                         {
-                            error = "快照不存在于当前分支。";
+                            error = "快照不存在于版本历史中。";
                             return false;
                         }
                         HashSet<string> deleted = ReadDeletedSnapshotIds(repository);
@@ -475,28 +367,6 @@ namespace Automation
             else
             {
                 File.Move(temp, path);
-            }
-        }
-
-        private static void ValidateBranchName(string branchName)
-        {
-            if (string.IsNullOrWhiteSpace(branchName) || branchName.Length > 64 || !string.Equals(branchName, branchName.Trim(), StringComparison.Ordinal))
-            {
-                throw new ArgumentException("分支名称长度必须为 1-64 个字符，且首尾不能有空格。");
-            }
-            if (branchName.StartsWith(".", StringComparison.Ordinal) || branchName.StartsWith("/", StringComparison.Ordinal)
-                || branchName.EndsWith(".", StringComparison.Ordinal) || branchName.EndsWith("/", StringComparison.Ordinal)
-                || branchName.EndsWith(".lock", StringComparison.OrdinalIgnoreCase)
-                || branchName.Contains("..") || branchName.Contains("//") || branchName.Contains("@{"))
-            {
-                throw new ArgumentException("分支名称格式无效。");
-            }
-            foreach (char value in branchName)
-            {
-                if (!char.IsLetterOrDigit(value) && value != '-' && value != '_' && value != '.' && value != '/')
-                {
-                    throw new ArgumentException("分支名称只能包含文字、数字、-、_、. 和 /。");
-                }
             }
         }
 

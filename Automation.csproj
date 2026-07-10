@@ -147,7 +147,6 @@
     <Compile Include="Runtime\\GooseConfigStorage.cs" />
     <Compile Include="Runtime\\ConfigurationVersionService.cs" />
     <Compile Include="Simulation\\SimulationGatewayClient.cs" />
-    <Compile Include="Simulation\\SimulationTestRunner.cs" />
     <Compile Include="Bridge\\AutomationBridgeHost.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.cs" />
     <Compile Include="GooseAcpClient.cs" />
@@ -421,9 +420,6 @@
     </EmbeddedResource>
     <None Include="app.config" />
     <None Include="IntentTemplates\intent_templates.json" />
-    <None Include="SimulationScenarios\left-loading-normal.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
     <None Include="packages.config" />
     <None Include="Properties\DataSources\FrmProc.datasource" />
     <None Include="Properties\DataSources\FrmState.datasource" />

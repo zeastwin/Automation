@@ -9,7 +9,7 @@ namespace Automation.McpServer
     internal static class ToolCallLogger
     {
         private static readonly object SyncRoot = new object();
-        private static string logRoot = Path.Combine(AppContext.BaseDirectory, "Logs", "McpServer");
+        private static string logRoot = Path.Combine(@"D:\AutomationLogs", "McpServer");
 
         public static void Configure(string rootPath)
         {

@@ -81,12 +81,6 @@ namespace Automation
                     case "restore":
                         RestoreSelected();
                         break;
-                    case "createBranch":
-                        CreateBranch(request["name"]?.Value<string>());
-                        break;
-                    case "switchBranch":
-                        SwitchBranch(request["name"]?.Value<string>());
-                        break;
                     case "deleteSnapshot":
                         DeleteSelectedSnapshot();
                         break;
@@ -107,35 +101,6 @@ namespace Automation
             }
             selectedCommitId = null;
             PushToast("快照已创建。", false);
-            PushState();
-        }
-
-        private void CreateBranch(string name)
-        {
-            if (!SF.versionService.CreateBranch(currentLayer, name, selectedCommitId, out string error))
-            {
-                PushToast(error, true);
-                return;
-            }
-            if (!SF.versionService.SwitchBranch(currentLayer, name, out error))
-            {
-                PushToast(error, true);
-                return;
-            }
-            selectedCommitId = null;
-            PushToast("已创建并切换到分支「" + name + "」。", false);
-            PushState();
-        }
-
-        private void SwitchBranch(string name)
-        {
-            if (!SF.versionService.SwitchBranch(currentLayer, name, out string error))
-            {
-                PushToast(error, true);
-                return;
-            }
-            selectedCommitId = null;
-            PushToast("已切换到分支「" + name + "」。", false);
             PushState();
         }
 
@@ -197,7 +162,6 @@ namespace Automation
                 return;
             }
             IReadOnlyList<ConfigurationVersionRecord> history = SF.versionService.GetHistory(currentLayer, out bool dirty, out string historyError);
-            IReadOnlyList<ConfigurationVersionBranchRecord> branches = SF.versionService.GetBranches(currentLayer, out string currentBranch, out string branchError);
             if (!history.Any(item => item.CommitId == selectedCommitId))
             {
                 selectedCommitId = history.FirstOrDefault()?.CommitId;
@@ -218,9 +182,7 @@ namespace Automation
                 ["mustRestart"] = SF.VersionRestartRequired,
                 ["selectedCommitId"] = selectedCommitId,
                 ["compareMode"] = compareWithPrevious ? "previous" : "current",
-                ["currentBranch"] = currentBranch,
                 ["historyError"] = historyError,
-                ["branchError"] = branchError,
                 ["diffError"] = diffError,
                 ["history"] = JArray.FromObject(history.Select(item => new
                 {
@@ -229,7 +191,6 @@ namespace Automation
                     author = item.Author,
                     time = item.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")
                 })),
-                ["branches"] = JArray.FromObject(branches),
                 ["diff"] = JArray.FromObject(mainDiff),
                 ["variableDiff"] = JArray.FromObject(variableDiff),
                 ["dataStructDiff"] = JArray.FromObject(dataStructDiff),
@@ -279,11 +240,6 @@ namespace Automation
       <button class="layer-tab" id="equipmentTab" onclick="post('layer',{layer:'equipment'})">设备层</button>
     </div>
     <span class="restart" id="restart" hidden>设备配置已还原，请重启程序</span>
-    <div class="branch-area">
-      <span class="branch-label">当前分支</span>
-      <select class="branch-select" id="branchSelect" onchange="switchBranch(this.value)"></select>
-      <button class="icon-button" title="创建分支" onclick="openBranchDialog()">+</button>
-    </div>
   </header>
   <div class="workspace">
     <aside class="sidebar">
@@ -320,20 +276,15 @@ namespace Automation
 </div>
 <div class="modal-layer" id="variableModal"><div class="dialog"><div class="dialog-head"><div class="dialog-title">变量变更明细</div><button class="close" onclick="closeModal('variableModal')">×</button></div><div class="dialog-tools"><input class="search" id="variableSearch" placeholder="按变量名称、索引或字段筛选" oninput="renderVariables()"></div><div class="variable-list" id="variableList"></div></div></div>
 <div class="modal-layer" id="dataStructModal"><div class="dialog"><div class="dialog-head"><div class="dialog-title">数据结构变更明细</div><button class="close" onclick="closeModal('dataStructModal')">×</button></div><div class="dialog-tools"><input class="search" id="dataStructSearch" placeholder="按配置路径、字段或内容筛选" oninput="renderDataStructs()"></div><div class="variable-list" id="dataStructList"></div></div></div>
-<div class="modal-layer" id="branchModal"><div class="dialog small"><div class="dialog-head"><div class="dialog-title">创建分支</div><button class="close" onclick="closeModal('branchModal')">×</button></div><div class="branch-form"><div class="section-hint">新分支从当前选中的快照开始</div><input class="branch-input" id="branchName" maxlength="64" placeholder="例如 feature/new-process"></div><div class="dialog-actions"><button class="secondary" onclick="closeModal('branchModal')">取消</button><button class="primary" onclick="createBranch()">创建并切换</button></div></div></div>
 <div class="toast" id="toast"></div>
 <script>
-var state={history:[],branches:[],diff:[],variableDiff:[],dataStructDiff:[],summary:{}};
+var state={history:[],diff:[],variableDiff:[],dataStructDiff:[],summary:{}};
 function byId(id){return document.getElementById(id)}
 function post(action,data){window.chrome.webview.postMessage(JSON.stringify(Object.assign({action:action},data||{})))}
 function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]})}
-function setState(next){state=next||{};var process=state.layer==='process';var layerName=process?'工艺层':'设备层';byId('processTab').classList.toggle('active',process);byId('equipmentTab').classList.toggle('active',!process);document.querySelectorAll('.process-only').forEach(function(element){element.hidden=!process});byId('compareTitle').textContent=layerName+' · 改动项对比';byId('currentMode').textContent='与当前'+layerName+'配置';byId('restart').hidden=!state.mustRestart;renderBranches();renderHistory();renderSummary();renderChanges();renderVariables();renderDataStructs();byId('dirtyState').className='status-line '+(state.dirty?'dirty':'clean');byId('dirtyState').textContent=state.dirty?layerName+'当前配置有尚未保存的改动':layerName+'当前配置与分支最新快照一致';byId('currentMode').classList.toggle('active',state.compareMode==='current');byId('previousMode').classList.toggle('active',state.compareMode==='previous');byId('compareHint').textContent=state.selectedCommitId?(state.compareMode==='previous'?'所选快照相对上一手动快照的变化':'所选快照与当前'+layerName+'配置之间的变化'):'请先创建或选择'+layerName+'快照';var disabled=!state.selectedCommitId;byId('restoreButton').disabled=disabled;byId('deleteButton').disabled=disabled;if(state.historyError)showToast(state.historyError,true);if(state.branchError)showToast(state.branchError,true);if(state.diffError)showToast(state.diffError,true)}
-function renderBranches(){var select=byId('branchSelect'),items=state.branches||[];var html=items.map(function(b){return '<option value="'+esc(b.Name)+'" '+(b.IsCurrent?'selected':'')+'>'+esc(b.Name)+' · '+b.SnapshotCount+' 个快照</option>'}).join('');if(!html&&state.currentBranch)html='<option selected value="'+esc(state.currentBranch)+'">'+esc(state.currentBranch)+' · 0 个快照</option>';select.innerHTML=html}
-function switchBranch(name){if(name&&name!==state.currentBranch)post('switchBranch',{name:name})}
-function openBranchDialog(){if(!state.selectedCommitId){showToast('请先创建或选择一个手动快照。',true);return}byId('branchName').value='';byId('branchModal').classList.add('open');setTimeout(function(){byId('branchName').focus()},20)}
-function createBranch(){var name=byId('branchName').value.trim();if(!name){showToast('请输入分支名称。',true);return}closeModal('branchModal');post('createBranch',{name:name})}
+function setState(next){state=next||{};var process=state.layer==='process';var layerName=process?'工艺层':'设备层';byId('processTab').classList.toggle('active',process);byId('equipmentTab').classList.toggle('active',!process);document.querySelectorAll('.process-only').forEach(function(element){element.hidden=!process});byId('compareTitle').textContent=layerName+' · 改动项对比';byId('currentMode').textContent='与当前'+layerName+'配置';byId('restart').hidden=!state.mustRestart;renderHistory();renderSummary();renderChanges();renderVariables();renderDataStructs();byId('dirtyState').className='status-line '+(state.dirty?'dirty':'clean');byId('dirtyState').textContent=state.dirty?layerName+'当前配置有尚未保存的改动':layerName+'当前配置与最新快照一致';byId('currentMode').classList.toggle('active',state.compareMode==='current');byId('previousMode').classList.toggle('active',state.compareMode==='previous');byId('compareHint').textContent=state.selectedCommitId?(state.compareMode==='previous'?'所选快照相对上一手动快照的变化':'所选快照与当前'+layerName+'配置之间的变化'):'请先创建或选择'+layerName+'快照';var disabled=!state.selectedCommitId;byId('restoreButton').disabled=disabled;byId('deleteButton').disabled=disabled;if(state.historyError)showToast(state.historyError,true);if(state.diffError)showToast(state.diffError,true)}
 function closeModal(id){byId(id).classList.remove('open')}
-function renderHistory(){var items=state.history||[];byId('historyCount').textContent=items.length+' 个';byId('history').innerHTML=items.length?items.map(function(v){return '<div class="version '+(v.commitId===state.selectedCommitId?'selected':'')+'" onclick="post(\'select\',{commitId:\''+esc(v.commitId)+'\'})"><div class="version-note">'+esc(v.message.replace(/^手动快照[：:]?\s*/,'' )||'未填写说明')+'</div><div class="version-meta"><span>'+esc(v.time)+'</span><span>'+esc(v.commitId.slice(0,8))+'</span></div></div>'}).join(''):'<div class="empty">当前分支还没有手动快照<br>填写说明后创建第一个快照</div>'}
+function renderHistory(){var items=state.history||[];byId('historyCount').textContent=items.length+' 个';byId('history').innerHTML=items.length?items.map(function(v){return '<div class="version '+(v.commitId===state.selectedCommitId?'selected':'')+'" onclick="post(\'select\',{commitId:\''+esc(v.commitId)+'\'})"><div class="version-note">'+esc(v.message.replace(/^手动快照[：:]?\s*/,'' )||'未填写说明')+'</div><div class="version-meta"><span>'+esc(v.time)+'</span><span>'+esc(v.commitId.slice(0,8))+'</span></div></div>'}).join(''):'<div class="empty">当前还没有手动快照<br>填写说明后创建第一个快照</div>'}
 function renderSummary(){var s=state.summary||{},process=state.layer==='process';byId('totalMetric').textContent=s.total||0;var metrics=process?[[s.operations,'指令改动'],[s.steps,'步骤改动'],[s.variables,'变量改动'],[s.dataStructs,'数据结构改动']]:[[s.stations,'工站点位改动'],[s.ios,'IO 改动'],[s.cards,'控制卡改动'],[s.alarms,'报警改动']];['One','Two','Three','Four'].forEach(function(name,index){byId('metric'+name).textContent=metrics[index][0]||0;byId('metric'+name+'Label').textContent=metrics[index][1]});byId('variableCount').textContent=s.variables||0;byId('variableButton').disabled=!(s.variables>0);byId('dataStructCount').textContent=s.dataStructs||0;byId('dataStructButton').disabled=!(s.dataStructs>0)}
 function renderChanges(){var items=state.diff||[];if(!state.selectedCommitId){byId('changes').innerHTML='<div class="empty">创建快照后即可查看改动项对比</div>';return}if(!items.length){byId('changes').innerHTML='<div class="empty">除变量外没有其他改动</div>';return}var groups={};items.forEach(function(item){(groups[item.Category]||(groups[item.Category]=[])).push(item)});byId('changes').innerHTML=Object.keys(groups).map(function(category){var rows=groups[category];return '<section class="group"><div class="group-head">'+esc(category)+'<span class="group-count">'+rows.length+' 项改动</span></div>'+rows.map(renderChangeRow).join('')+'</section>'}).join('')}
 function renderChangeRow(item){return '<div class="change-row"><div><span class="badge '+esc(item.ChangeType)+'">'+esc(item.ChangeType)+'</span></div><div><div class="change-title">'+esc(item.Title)+'</div><div class="change-location">'+esc(item.Location)+'</div></div><div><div class="field-name">变更字段</div><div>'+esc(item.FieldName)+'</div></div><div class="value-pair"><div class="value">'+esc(item.Before)+'</div><div class="arrow">→</div><div class="value">'+esc(item.After)+'</div></div></div>'}
@@ -342,7 +293,7 @@ function renderVariables(){var target=byId('variableList');if(!target)return;var
 function openDataStructs(){if(!(state.dataStructDiff||[]).length)return;byId('dataStructSearch').value='';renderDataStructs();byId('dataStructModal').classList.add('open')}
 function renderDataStructs(){var target=byId('dataStructList');if(!target)return;var query=(byId('dataStructSearch')?byId('dataStructSearch').value:'').trim().toLowerCase();var items=(state.dataStructDiff||[]).filter(function(item){return !query||(item.Title+' '+item.Location+' '+item.FieldName+' '+item.Before+' '+item.After).toLowerCase().indexOf(query)>=0});var head='<div class="variable-row head"><div>变更</div><div>数据结构</div><div>配置位置</div><div>字段</div><div>原值</div><div></div><div>新值</div></div>';target.innerHTML=head+(items.length?items.map(function(item){return '<div class="variable-row"><div><span class="badge '+esc(item.ChangeType)+'">'+esc(item.ChangeType)+'</span></div><div>'+esc(item.Title)+'</div><div>'+esc(item.Location)+'</div><div>'+esc(item.FieldName)+'</div><div class="value">'+esc(item.Before)+'</div><div class="arrow">→</div><div class="value">'+esc(item.After)+'</div></div>'}).join(''):'<div class="empty">没有匹配的数据结构改动</div>')}
 function showToast(message,error){var toast=byId('toast');toast.textContent=message;toast.className='toast '+(error?'error':'');toast.style.display='block';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(function(){toast.style.display='none'},3600)}
-document.addEventListener('keydown',function(event){if(event.key==='Escape'){closeModal('variableModal');closeModal('dataStructModal');closeModal('branchModal')}});post('ready');
+document.addEventListener('keydown',function(event){if(event.key==='Escape'){closeModal('variableModal');closeModal('dataStructModal')}});post('ready');
 </script>
 </body>
 </html>

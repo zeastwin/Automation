@@ -10,7 +10,7 @@ namespace Automation
 {
     public partial class ProcessEngine
     {
-        private static readonly string WarmDisplayLogDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs", "AlarmHistory");
+        private static readonly string WarmDisplayLogDirectory = Path.Combine(@"D:\AutomationLogs", "AlarmHistory");
         private const string WarmDisplayLogHeader = "报警代码,报警内容,报警类别,开始时间,结束时间,报警时间(s),报警位置(x-x-x)";
         private static readonly object warmDisplayLogLock = new object();
 

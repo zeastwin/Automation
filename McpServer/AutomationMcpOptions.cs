@@ -10,7 +10,7 @@ namespace Automation.McpServer
         public string BridgePipeName { get; set; } = "AutomationBridgePipe";
         public int BridgeTimeoutMs { get; set; } = 30000;
         public bool EnableTrayIcon { get; set; } = true;
-        public string LogRoot { get; set; } = Path.Combine("Logs", "McpServer");
+        public string LogRoot { get; set; } = Path.Combine(@"D:\AutomationLogs", "McpServer");
 
         public static AutomationMcpOptions Load(IConfiguration configuration, string baseDirectory)
         {
@@ -52,7 +52,7 @@ namespace Automation.McpServer
 
             if (string.IsNullOrWhiteSpace(LogRoot))
             {
-                LogRoot = Path.Combine("Logs", "McpServer");
+                LogRoot = Path.Combine(@"D:\AutomationLogs", "McpServer");
             }
 
             if (!Path.IsPathRooted(LogRoot))

@@ -196,14 +196,6 @@ namespace Automation
             }
         }
 
-        public void PreparePlatformOnlyMode()
-        {
-            EnsureUiThread();
-            EnsureReadyOrFaulted();
-            platformEditor.HideOnUserClose = false;
-            platformEditor.EnsureAiInfrastructureStarted();
-        }
-
         public void ShowPlatformEditor(IWin32Window owner)
         {
             EnsureUiThread();

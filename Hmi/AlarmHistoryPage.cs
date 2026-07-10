@@ -60,7 +60,7 @@ namespace Automation.Hmi
 
         private static class AlarmHistoryCsvReader
         {
-            internal static string DefaultLogDirectory => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs", "AlarmHistory");
+            internal static string DefaultLogDirectory => Path.Combine(@"D:\AutomationLogs", "AlarmHistory");
 
             internal static IReadOnlyList<AlarmHistoryRecord> Read(string directory, DateTime date)
             {

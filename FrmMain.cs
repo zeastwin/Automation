@@ -189,20 +189,6 @@ namespace Automation
 
         public AutomationMcpServerManager McpServerManager => automationMcpServerManager;
 
-        internal int RunSimulationTest(string scenarioName)
-        {
-            if (AutomationRuntimeOptions.Current.Mode != AutomationRuntimeMode.SimulationTest)
-            {
-                throw new InvalidOperationException("当前不是无人值守仿真测试模式");
-            }
-            SF.frmProc.Refresh();
-            if (SF.ProcConfigFaulted)
-            {
-                throw new InvalidOperationException("流程配置校验失败，禁止运行仿真场景");
-            }
-            return SimulationTestRunner.Run(scenarioName, simulationGateway, dataRun);
-        }
-
         
 
         private void FrmMain_Load(object sender, EventArgs e)
@@ -261,7 +247,7 @@ namespace Automation
                     simulationGateway.ApplyEndpointMappings(SF.DR.Context);
                     Monitor();
                     Text = "Automation - 仿真模式（未连接实机）";
-                    dataRun?.Logger?.Log($"仿真模式已就绪，会话目录:{AutomationRuntimeOptions.Current.SessionRoot}", LogLevel.Normal);
+                    dataRun?.Logger?.Log($"仿真模式已就绪，使用正式配置目录:{SF.ConfigPath}", LogLevel.Normal);
                 }
                 else
                 {
@@ -285,8 +271,7 @@ namespace Automation
                     SF.StopAllProcs(lockReason);
                     return;
                 }
-                if (AutomationRuntimeOptions.Current.Mode != AutomationRuntimeMode.SimulationTest
-                    && SF.frmProc?.procsList != null && SF.frmProc.procsList.Count > 0)
+                if (SF.frmProc?.procsList != null && SF.frmProc.procsList.Count > 0)
                 {
                     for (int i = 0; i < SF.frmProc.procsList.Count; i++)
                     {

@@ -28,9 +28,9 @@ namespace Automation
         private const int SessionTimeoutMs = 30000;
 
         // 本地文件日志：复用 LocalFileLogger，按天滚动 + 5MB 分卷 + 线程安全。
-        // 路径固定为 <exe>/Logs/GooseAcp/yyyy-MM-dd/log_001.txt，便于排查 EW-AI ACP invalid params 等错误。
+        // 路径固定为 D:\AutomationLogs\GooseAcp\yyyy-MM-dd\log_001.txt，便于排查 EW-AI ACP invalid params 等错误。
         private static readonly LocalFileLogger acpFileLogger =
-            new LocalFileLogger(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs", "GooseAcp"));
+            new LocalFileLogger(Path.Combine(@"D:\AutomationLogs", "GooseAcp"));
 
         private readonly GooseConfig config;
         private readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> pendingRequests =
@@ -922,7 +922,7 @@ namespace Automation
             }
         }
 
-        // 落盘到 Logs/GooseAcp/yyyy-MM-dd/log_NNN.txt，JSON 压成一行便于检索。
+        // 落盘到 D:\AutomationLogs\GooseAcp\yyyy-MM-dd\log_NNN.txt，JSON 压成一行便于检索。
         // 失败静默，绝不影响 ACP 主链路。
         private static void LogFile(string message, LogLevel level)
         {

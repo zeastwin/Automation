@@ -9,6 +9,7 @@ namespace Automation
     public sealed class AppConfig
     {
         public int CommMaxMessageQueueSize { get; set; }
+        public AutomationRuntimeMode RuntimeMode { get; set; }
     }
 
     public static class AppConfigStorage
@@ -16,6 +17,7 @@ namespace Automation
         public const string ConfigFolderName = "Config";
         public const string ConfigFileName = "AppConfig.json";
         public const string CommMaxMessageQueueSizeKey = "CommMaxMessageQueueSize";
+        public const string RuntimeModeKey = "RuntimeMode";
         public const int DefaultCommMaxMessageQueueSize = 1000;
         private static readonly object cacheLock = new object();
         private static AppConfig cachedConfig;
@@ -52,10 +54,31 @@ namespace Automation
                     error = $"队列长度配置无效:{value}";
                     return false;
                 }
+                AutomationRuntimeMode runtimeMode;
+                bool addDefaultRuntimeMode = false;
+                if (!obj.TryGetValue(RuntimeModeKey, StringComparison.Ordinal, out token))
+                {
+                    runtimeMode = AutomationRuntimeMode.Hardware;
+                    addDefaultRuntimeMode = true;
+                }
+                else if (token.Type != JTokenType.Integer || (token.Value<int>() != (int)AutomationRuntimeMode.Hardware && token.Value<int>() != (int)AutomationRuntimeMode.Simulation))
+                {
+                    error = $"运行模式配置无效:{token}";
+                    return false;
+                }
+                else
+                {
+                    runtimeMode = (AutomationRuntimeMode)token.Value<int>();
+                }
                 config = new AppConfig
                 {
-                    CommMaxMessageQueueSize = value
+                    CommMaxMessageQueueSize = value,
+                    RuntimeMode = runtimeMode
                 };
+                if (addDefaultRuntimeMode && !TrySave(config, out error))
+                {
+                    return false;
+                }
                 SetCache(config);
                 return true;
             }
@@ -95,9 +118,15 @@ namespace Automation
                 error = $"队列长度配置无效:{config.CommMaxMessageQueueSize}";
                 return false;
             }
+            if (config.RuntimeMode != AutomationRuntimeMode.Hardware && config.RuntimeMode != AutomationRuntimeMode.Simulation)
+            {
+                error = $"运行模式配置无效:{config.RuntimeMode}";
+                return false;
+            }
             JObject obj = new JObject
             {
-                [CommMaxMessageQueueSizeKey] = config.CommMaxMessageQueueSize
+                [CommMaxMessageQueueSizeKey] = config.CommMaxMessageQueueSize,
+                [RuntimeModeKey] = (int)config.RuntimeMode
             };
             string json = obj.ToString(Formatting.Indented);
             string path = ConfigPath;
@@ -129,7 +158,8 @@ namespace Automation
             }
             return new AppConfig
             {
-                CommMaxMessageQueueSize = config.CommMaxMessageQueueSize
+                CommMaxMessageQueueSize = config.CommMaxMessageQueueSize,
+                RuntimeMode = config.RuntimeMode
             };
         }
     }

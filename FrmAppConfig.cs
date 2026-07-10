@@ -7,6 +7,7 @@ namespace Automation
     public class FrmAppConfig : Form
     {
         private readonly TextBox txtQueueSize = new TextBox();
+        private readonly ComboBox cmbRuntimeMode = new ComboBox();
         private readonly Label lblPath = new Label();
         private readonly Button btnSave = new Button();
         private readonly Button btnCancel = new Button();
@@ -26,7 +27,7 @@ namespace Automation
             MaximizeBox = false;
             MinimizeBox = false;
             ShowInTaskbar = false;
-            ClientSize = new Size(520, 200);
+            ClientSize = new Size(520, 235);
 
             Label lblQueue = new Label
             {
@@ -35,6 +36,17 @@ namespace Automation
                 TextAlign = ContentAlignment.MiddleLeft
             };
             txtQueueSize.Width = 240;
+
+            Label lblRuntimeMode = new Label
+            {
+                Text = "运行模式",
+                AutoSize = true,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            cmbRuntimeMode.DropDownStyle = ComboBoxStyle.DropDownList;
+            cmbRuntimeMode.Width = 240;
+            cmbRuntimeMode.Items.Add(new RuntimeModeItem(AutomationRuntimeMode.Hardware, "正常模式"));
+            cmbRuntimeMode.Items.Add(new RuntimeModeItem(AutomationRuntimeMode.Simulation, "仿真模式"));
 
             Label lblPathTitle = new Label
             {
@@ -63,11 +75,12 @@ namespace Automation
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 4,
+                RowCount = 5,
                 Padding = new Padding(12)
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
@@ -75,9 +88,11 @@ namespace Automation
 
             layout.Controls.Add(lblQueue, 0, 0);
             layout.Controls.Add(txtQueueSize, 1, 0);
-            layout.Controls.Add(lblPathTitle, 0, 1);
-            layout.Controls.Add(lblPath, 1, 1);
-            layout.Controls.Add(lblTip, 1, 2);
+            layout.Controls.Add(lblRuntimeMode, 0, 1);
+            layout.Controls.Add(cmbRuntimeMode, 1, 1);
+            layout.Controls.Add(lblPathTitle, 0, 2);
+            layout.Controls.Add(lblPath, 1, 2);
+            layout.Controls.Add(lblTip, 1, 3);
 
             FlowLayoutPanel buttons = new FlowLayoutPanel
             {
@@ -86,7 +101,7 @@ namespace Automation
             };
             buttons.Controls.Add(btnCancel);
             buttons.Controls.Add(btnSave);
-            layout.Controls.Add(buttons, 1, 3);
+            layout.Controls.Add(buttons, 1, 4);
 
             Controls.Add(layout);
         }
@@ -97,9 +112,11 @@ namespace Automation
             if (AppConfigStorage.TryLoad(out AppConfig config, out string error))
             {
                 txtQueueSize.Text = config.CommMaxMessageQueueSize.ToString();
+                SelectRuntimeMode(config.RuntimeMode);
                 return;
             }
             txtQueueSize.Text = string.Empty;
+            cmbRuntimeMode.SelectedIndex = -1;
             MessageBox.Show(error, "配置读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
@@ -126,10 +143,16 @@ namespace Automation
                 MessageBox.Show("队列长度必须大于0。", "参数错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
+            if (!(cmbRuntimeMode.SelectedItem is RuntimeModeItem runtimeModeItem))
+            {
+                MessageBox.Show("请选择运行模式。", "参数错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
 
             AppConfig config = new AppConfig
             {
-                CommMaxMessageQueueSize = value
+                CommMaxMessageQueueSize = value,
+                RuntimeMode = runtimeModeItem.Mode
             };
             if (!AppConfigStorage.TrySave(config, out string error))
             {
@@ -151,6 +174,36 @@ namespace Automation
                 }
             }
             return text.Length > 0;
+        }
+
+        private void SelectRuntimeMode(AutomationRuntimeMode mode)
+        {
+            for (int i = 0; i < cmbRuntimeMode.Items.Count; i++)
+            {
+                if (((RuntimeModeItem)cmbRuntimeMode.Items[i]).Mode == mode)
+                {
+                    cmbRuntimeMode.SelectedIndex = i;
+                    return;
+                }
+            }
+            cmbRuntimeMode.SelectedIndex = -1;
+        }
+
+        private sealed class RuntimeModeItem
+        {
+            public RuntimeModeItem(AutomationRuntimeMode mode, string displayName)
+            {
+                Mode = mode;
+                DisplayName = displayName;
+            }
+
+            public AutomationRuntimeMode Mode { get; }
+            public string DisplayName { get; }
+
+            public override string ToString()
+            {
+                return DisplayName;
+            }
         }
     }
 }
