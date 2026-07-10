@@ -1,14 +1,100 @@
 using System;
+using System.Drawing;
 using System.Windows.Forms;
 
 namespace Automation
 {
     public partial class FrmMenu : Form
     {
+        private const int DefaultMenuButtonWidth = 143;
+        private const int CompactMenuColumns = 5;
+        private readonly Font normalMenuButtonFont;
+        private readonly Font compactMenuButtonFont = new Font("黑体", 12F);
+        private readonly Button version_Page = new Button();
+
         public FrmMenu()
         {
             InitializeComponent();
+            normalMenuButtonFont = process_Page.Font;
+            ConfigureVersionButton();
+            ConfigureAdaptiveMenu();
             ApplyPermissions();
+        }
+
+        private void ConfigureVersionButton()
+        {
+            version_Page.BackColor = Color.DarkSlateGray;
+            version_Page.FlatAppearance.BorderColor = Color.White;
+            version_Page.FlatAppearance.MouseDownBackColor = Color.White;
+            version_Page.FlatAppearance.MouseOverBackColor = Color.PaleTurquoise;
+            version_Page.FlatStyle = FlatStyle.Flat;
+            version_Page.ForeColor = SystemColors.ActiveCaption;
+            version_Page.Name = "version_Page";
+            version_Page.Text = "版本管理";
+            version_Page.UseVisualStyleBackColor = false;
+            version_Page.Click += version_Page_Click;
+            panel1.Controls.Add(version_Page);
+        }
+
+        private void ConfigureAdaptiveMenu()
+        {
+            foreach (Button button in GetMenuButtons())
+            {
+                button.AutoEllipsis = false;
+                button.TextAlign = ContentAlignment.MiddleCenter;
+                button.Dock = DockStyle.None;
+            }
+            panel1.AutoScroll = false;
+            panel1.Resize += (sender, args) => AdjustMenuButtons();
+            AdjustMenuButtons();
+        }
+
+        private Button[] GetMenuButtons()
+        {
+            return new[]
+            {
+                process_Page,
+                station_Page,
+                value_Page,
+                Io_Page,
+                communication_Page,
+                Plc_Page,
+                valueDebug_Page,
+                Card_Page,
+                aiAssistant_Page,
+                version_Page
+            };
+        }
+
+        private void AdjustMenuButtons()
+        {
+            Button[] buttons = GetMenuButtons();
+            if (buttons.Length == 0)
+            {
+                return;
+            }
+
+            int availableWidth = Math.Max(0, panel1.ClientSize.Width);
+            int defaultTotalWidth = DefaultMenuButtonWidth * buttons.Length;
+            int rowCount = availableWidth >= defaultTotalWidth ? 1 : 2;
+            int columnCount = rowCount == 1 ? buttons.Length : CompactMenuColumns;
+            Font buttonFont = rowCount == 1 ? normalMenuButtonFont : compactMenuButtonFont;
+            int targetWidth = availableWidth > 0
+                ? Math.Max(1, availableWidth / columnCount)
+                : DefaultMenuButtonWidth;
+            int targetHeight = Math.Max(1, panel1.ClientSize.Height / rowCount);
+
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                int row = i / columnCount;
+                int column = i % columnCount;
+                int left = column * targetWidth;
+                int width = column == columnCount - 1
+                    ? Math.Max(1, availableWidth - left)
+                    : targetWidth;
+                buttons[i].Font = buttonFont;
+                buttons[i].SetBounds(left, row * targetHeight, width, targetHeight);
+            }
         }
 
         private void value_Page_Click(object sender, EventArgs e)
@@ -41,18 +127,33 @@ namespace Automation
             }
             else
             {
-                // AI 助手占主面板宽度的 40%，最小 420px
-                int w = SF.mainfrm.main_panel.ClientSize.Width * 2 / 5;
+                // AI 助手占主窗体宽度的 40%，右侧全高停靠，顶部菜单和底部状态栏让出右侧区域。
+                int w = SF.mainfrm.ClientSize.Width * 2 / 5;
                 p.Width = Math.Max(420, w);
                 p.Visible = true;
-                // 不调用 BringToFront：ai_panel 的 z-order(index 3) 必须保持在 propertyGrid_panel(index 2) 之后，
-                // 才能在 Dock=Right 布局中先于 propertyGrid 停靠，占据 propertyGrid 右侧的最右位置。
                 SetNoteColumnVisible(false);
                 if (SF.frmAiAssistant != null && !SF.frmAiAssistant.IsDisposed)
                 {
                     SF.frmAiAssistant.RefreshAssistantView();
                 }
             }
+        }
+
+        private void version_Page_Click(object sender, EventArgs e)
+        {
+            bool canProcess = SF.HasPermission(PermissionKeys.VersionProcessManage);
+            bool canEquipment = SF.HasPermission(PermissionKeys.VersionEquipmentManage);
+            if (!canProcess && !canEquipment)
+            {
+                SF.EnsurePermission(PermissionKeys.VersionProcessManage, "进入版本管理");
+                return;
+            }
+            if (SF.frmVersionManager == null || SF.frmVersionManager.IsDisposed)
+            {
+                SF.frmVersionManager = new FrmVersionManager();
+            }
+            SF.frmVersionManager.Show(this);
+            SF.frmVersionManager.BringToFront();
         }
 
         // AI 助手打开时隐藏流程列表的"备注"列，腾出空间给助手窗体
@@ -356,6 +457,7 @@ namespace Automation
             aiAssistant_Page.Visible = true;
             Card_Page.Visible = true;
             Plc_Page.Visible = true;
+            version_Page.Visible = true;
 
             process_Page.Enabled = SF.HasPermission(PermissionKeys.ProcessAccess);
             station_Page.Enabled = SF.HasPermission(PermissionKeys.StationAccess);
@@ -366,6 +468,8 @@ namespace Automation
             aiAssistant_Page.Enabled = SF.HasPermission(PermissionKeys.ProcessAccess);
             Card_Page.Enabled = SF.HasPermission(PermissionKeys.CardConfigAccess);
             Plc_Page.Enabled = SF.HasPermission(PermissionKeys.PlcAccess);
+            version_Page.Enabled = SF.HasPermission(PermissionKeys.VersionProcessManage)
+                || SF.HasPermission(PermissionKeys.VersionEquipmentManage);
         }
 
     }

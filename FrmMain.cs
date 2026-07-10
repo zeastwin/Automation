@@ -82,6 +82,7 @@ namespace Automation
             SF.comm = new CommunicationHub();
             SF.plcStore = new PlcConfigStore();
             SF.mainfrm = this;
+            SF.versionService = new ConfigurationVersionService(SF.ConfigPath);
             EngineContext engineContext = new EngineContext
             {
                 Procs = new List<Proc>(),
@@ -147,15 +148,11 @@ namespace Automation
             loadFillForm(state_panel, SF.frmState);
             loadFillForm(panel_Info, SF.frmInfo);
 
-            // AI 助手面板：停靠在 propertyGrid_panel 右侧（更靠右），默认隐藏。
+            // AI 助手面板挂到主窗体第一层，右侧全高停靠。
+            // 这样 MenuPanel/state_panel/main_panel 都会让出右侧区域，AI 页面不再被顶部菜单和底部状态栏夹住。
             ai_panel = new Panel { Dock = DockStyle.Right, Width = 0, Visible = false, BackColor = Color.White };
-            main_panel.Controls.Add(ai_panel);
-            // 插入到 index 3（treeView 与 propertyGrid 之间）：
-            // 原顺序 [0]DataGrid [1]panel_Info [2]propertyGrid [3]treeView [4]ToolBar
-            // 插入后 [0]DataGrid [1]panel_Info [2]propertyGrid [3]ai_panel [4]treeView [5]ToolBar
-            // Dock 布局(高index先): ToolBar(Top)→treeView(Left)→ai_panel(Right)→propertyGrid(Right)→...
-            // 即 ai_panel 先占最右，propertyGrid 贴其左侧
-            main_panel.Controls.SetChildIndex(ai_panel, 3);
+            Controls.Add(ai_panel);
+            Controls.SetChildIndex(ai_panel, Controls.Count - 1);
 
             frmAiAssistant.TopLevel = false;
             frmAiAssistant.FormBorderStyle = FormBorderStyle.None;
@@ -256,7 +253,7 @@ namespace Automation
             }
             else if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
             {
-                SF.frmInfo.PrintInfo($"MCP Server：Goose 配置读取失败，使用默认 MCP 地址。{loadError}", FrmInfo.Level.Error);
+                SF.frmInfo.PrintInfo($"MCP Server：EW-AI 配置读取失败，使用默认 MCP 地址。{loadError}", FrmInfo.Level.Error);
             }
 
             try
@@ -1035,6 +1032,13 @@ namespace Automation
         public bool SaveAsJson<T>(string FilePath, string Name, T t)
         {
             string strFilePath = Path.Combine(FilePath, Name + ".json");
+            if (!EnsureAiVersionProtection(strFilePath, out string protectionError))
+            {
+                string protectionReason = "AI 配置写入被拒绝：" + protectionError;
+                dataRun?.Logger?.Log(protectionReason, LogLevel.Error);
+                MessageBox.Show(protectionReason, "版本保护", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
             string directory = Path.GetDirectoryName(strFilePath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
@@ -1106,6 +1110,59 @@ namespace Automation
             }
             MessageBox.Show(reason);
             return false;
+        }
+
+        public bool EnsureAiVersionProtection(string filePath, out string error)
+        {
+            error = null;
+            if (string.IsNullOrWhiteSpace(SF.ActiveAiTurnId) || SF.versionService == null)
+            {
+                return true;
+            }
+            ConfigurationVersionLayer? layer = SF.versionService.GetLayerForPath(filePath);
+            if (!layer.HasValue)
+            {
+                return true;
+            }
+            return SF.versionService.EnsureAiProtection(layer.Value, SF.ActiveAiTurnId, SF.userSession?.Account?.UserName, out error);
+        }
+
+        public bool AreAllProcessesStopped()
+        {
+            if (SF.frmProc?.procsList == null || SF.DR == null)
+            {
+                return false;
+            }
+            for (int i = 0; i < SF.frmProc.procsList.Count; i++)
+            {
+                EngineSnapshot snapshot = SF.DR.GetSnapshot(i);
+                if (snapshot == null || snapshot.State != ProcRunState.Stopped)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        public void ReloadProcessVersionedConfiguration()
+        {
+            SF.valueStore.Load(SF.ConfigPath);
+            SF.frmValue.RefreshDic();
+            SF.dataStructStore.Load(SF.ConfigPath);
+            SF.frmdataStruct.RefreshDataSturctList();
+            SF.frmProc.Refresh();
+            if (SF.DR?.Context != null)
+            {
+                SF.DR.Context.ValueStore = SF.valueStore;
+                SF.DR.Context.DataStructStore = SF.dataStructStore;
+            }
+        }
+
+        public void RequireRestartAfterEquipmentRestore()
+        {
+            SF.VersionRestartRequired = true;
+            SF.StopAllProcs("设备配置已还原，必须重启程序后才能继续运行。");
+            SF.RefreshPermissionUi();
         }
 
         private void FrmMain_KeyDown(object sender, KeyEventArgs e)

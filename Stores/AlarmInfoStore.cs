@@ -63,6 +63,10 @@ namespace Automation
                 Directory.CreateDirectory(configPath);
             }
             string filePath = Path.Combine(configPath, "AlarmInfo.json");
+            if (SF.mainfrm != null && !SF.mainfrm.EnsureAiVersionProtection(filePath, out string protectionError))
+            {
+                throw new InvalidOperationException("AI 报警写入被版本保护拒绝：" + protectionError);
+            }
             var settings = new JsonSerializerSettings
             {
                 TypeNameHandling = TypeNameHandling.All

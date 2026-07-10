@@ -24,6 +24,8 @@ namespace Automation
         public const string AppConfigAccess = "AppConfig.Access";
         public const string AccountManage = "Account.Manage";
         public const string OpenConfigFolder = "Tool.OpenConfigFolder";
+        public const string VersionProcessManage = "Version.ProcessManage";
+        public const string VersionEquipmentManage = "Version.EquipmentManage";
     }
 
     public sealed class PermissionDefinition
@@ -65,6 +67,8 @@ namespace Automation
             new PermissionDefinition(PermissionKeys.AlarmConfigAccess, "alarm", "报警配置", "进入报警配置", 0),
             new PermissionDefinition(PermissionKeys.AppConfigAccess, "app", "程序设置", "进入程序设置", 0),
             new PermissionDefinition(PermissionKeys.OpenConfigFolder, "tool", "工具", "打开程序文件夹", 0),
+            new PermissionDefinition(PermissionKeys.VersionProcessManage, "version", "版本管理", "管理工艺层版本", 0),
+            new PermissionDefinition(PermissionKeys.VersionEquipmentManage, "version", "版本管理", "管理设备层版本", 1),
             new PermissionDefinition(PermissionKeys.AccountManage, "account", "账户管理", "账户管理", 0)
         };
 
@@ -81,6 +85,7 @@ namespace Automation
             { "alarm", PermissionKeys.AlarmConfigAccess },
             { "app", PermissionKeys.AppConfigAccess },
             { "tool", PermissionKeys.OpenConfigFolder },
+            { "version", PermissionKeys.VersionProcessManage },
             { "account", PermissionKeys.AccountManage }
         };
 

@@ -43,15 +43,6 @@ namespace Automation
                 throw new InvalidOperationException("MCP 地址为空。");
             }
 
-            if (await ReadHttpAsync(normalizedBaseUri + "/info", 1500).ConfigureAwait(false) != null)
-            {
-                lock (processLock)
-                {
-                    lastMessage = $"复用已监听的 MCP Server：{normalizedBaseUri}";
-                    return lastMessage;
-                }
-            }
-
             if (!IsLoopbackHttpUri(normalizedBaseUri))
             {
                 throw new InvalidOperationException($"MCP 地址不是本机 HTTP 地址，禁止自动启动：{normalizedBaseUri}");
@@ -70,23 +61,37 @@ namespace Automation
                     throw new ObjectDisposedException(nameof(AutomationMcpServerManager), "MCP Server 生命周期管理器已释放。");
                 }
 
-                if (managedProcess == null || managedProcess.HasExited)
+                // 强制清理所有同名进程（包括上次 Automation 异常退出残留的子进程），避免复用已失效的旧实例导致 Bridge 调用失败。
+                int killedCount = KillAllMcpServerProcesses();
+                if (KillProcess(managedProcess))
                 {
-                    ProcessStartInfo startInfo = new ProcessStartInfo
-                    {
-                        FileName = exePath,
-                        WorkingDirectory = Path.GetDirectoryName(exePath) ?? AppDomain.CurrentDomain.BaseDirectory,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    };
-                    managedProcess = Process.Start(startInfo);
-                    if (managedProcess == null)
-                    {
-                        throw new InvalidOperationException("MCP Server 进程启动失败。");
-                    }
-                    managedExecutablePath = exePath;
-                    lastMessage = $"已由 Automation 启动 MCP Server：{exePath}";
+                    killedCount++;
                 }
+                try
+                {
+                    managedProcess?.Dispose();
+                }
+                catch
+                {
+                }
+                managedProcess = null;
+
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    WorkingDirectory = Path.GetDirectoryName(exePath) ?? AppDomain.CurrentDomain.BaseDirectory,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                managedProcess = Process.Start(startInfo);
+                if (managedProcess == null)
+                {
+                    throw new InvalidOperationException("MCP Server 进程启动失败。");
+                }
+                managedExecutablePath = exePath;
+                lastMessage = killedCount > 0
+                    ? $"已清理 {killedCount} 个残留 MCP Server 进程，并启动新实例：{exePath}"
+                    : $"已由 Automation 启动 MCP Server：{exePath}";
             }
 
             for (int i = 0; i < 40; i++)

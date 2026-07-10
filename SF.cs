@@ -57,8 +57,10 @@ namespace Automation
         public static AccountStore accountStore;
         public static UserSession userSession;
         public static FrmAccountManager frmAccountManager;
+        public static FrmVersionManager frmVersionManager;
         public static IUserContextStore userContextStore;
         public static IUserLoginStore userLoginStore;
+        public static ConfigurationVersionService versionService;
 
         private static bool securityLocked;
         private static string securityLockReason = string.Empty;
@@ -81,6 +83,8 @@ namespace Automation
         public static string ConfigPath = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) + "\\Config\\";
 
         public static bool ProcConfigFaulted { get; set; }
+        public static bool VersionRestartRequired { get; set; }
+        public static string ActiveAiTurnId { get; set; }
 
         public static void Delay(int milliSecond)
         {
@@ -163,6 +167,10 @@ namespace Automation
             {
                 frmAccountManager.ApplyPermissions();
             }
+            if (frmVersionManager != null && !frmVersionManager.IsDisposed)
+            {
+                frmVersionManager.Invalidate();
+            }
         }
 
         public static bool EnsurePermission(string permissionKey, string actionName)
@@ -170,6 +178,19 @@ namespace Automation
             if (permissionKey == PermissionKeys.ProcessRun && ProcConfigFaulted)
             {
                 MessageBox.Show($"流程配置加载失败，禁止操作：{actionName}");
+                return false;
+            }
+            if (permissionKey == PermissionKeys.ProcessRun && VersionRestartRequired)
+            {
+                MessageBox.Show($"设备配置已还原，必须重启程序后才能操作：{actionName}");
+                return false;
+            }
+            if (VersionRestartRequired
+                && permissionKey != PermissionKeys.VersionProcessManage
+                && permissionKey != PermissionKeys.VersionEquipmentManage
+                && permissionKey != PermissionKeys.AccountManage)
+            {
+                MessageBox.Show($"设备配置已还原，必须重启程序后才能操作：{actionName}");
                 return false;
             }
             if (SecurityLocked)
@@ -205,7 +226,14 @@ namespace Automation
 
         public static bool HasPermission(string permissionKey)
         {
-            if (permissionKey == PermissionKeys.ProcessRun && ProcConfigFaulted)
+            if (permissionKey == PermissionKeys.ProcessRun && (ProcConfigFaulted || VersionRestartRequired))
+            {
+                return false;
+            }
+            if (VersionRestartRequired
+                && permissionKey != PermissionKeys.VersionProcessManage
+                && permissionKey != PermissionKeys.VersionEquipmentManage
+                && permissionKey != PermissionKeys.AccountManage)
             {
                 return false;
             }

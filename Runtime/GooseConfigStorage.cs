@@ -27,7 +27,7 @@ namespace Automation
     }
 
     /// <summary>
-    /// Goose 自身配置文件（config.yaml）里已注册的 provider 信息。
+    /// EW-AI 自身配置文件（config.yaml）里已注册的 provider 信息。
     /// </summary>
     public sealed class GooseProviderInfo
     {
@@ -67,7 +67,7 @@ namespace Automation
                 GooseConfig defaultConfig = CreateDefaultConfig();
                 if (!TrySave(defaultConfig, out string saveError))
                 {
-                    error = $"默认 Goose 配置生成失败:{saveError}";
+                    error = $"默认 EW-AI 配置生成失败:{saveError}";
                     return false;
                 }
                 config = Clone(defaultConfig);
@@ -101,7 +101,7 @@ namespace Automation
             }
             catch (Exception ex)
             {
-                error = $"读取 Goose 配置失败:{ex.Message}";
+                error = $"读取 EW-AI 配置失败:{ex.Message}";
                 return false;
             }
         }
@@ -113,7 +113,7 @@ namespace Automation
                 if (cachedConfig == null)
                 {
                     config = null;
-                    error = "Goose 配置缓存未初始化";
+                    error = "EW-AI 配置缓存未初始化";
                     return false;
                 }
                 config = Clone(cachedConfig);
@@ -146,7 +146,7 @@ namespace Automation
             string directory = Path.GetDirectoryName(path);
             if (string.IsNullOrEmpty(directory))
             {
-                error = $"Goose 配置路径无效:{path}";
+                error = $"EW-AI 配置路径无效:{path}";
                 return false;
             }
 
@@ -181,22 +181,22 @@ namespace Automation
             error = null;
             if (config == null)
             {
-                error = "Goose 配置为空";
+                error = "EW-AI 配置为空";
                 return false;
             }
             if (string.IsNullOrWhiteSpace(config.GooseExecutablePath))
             {
-                error = "Goose 可执行文件路径不能为空";
+                error = "EW-AI 可执行文件路径不能为空";
                 return false;
             }
             if (config.WorkingDirectory == null)
             {
-                error = "Goose 工作目录不能为 null";
+                error = "EW-AI 工作目录不能为 null";
                 return false;
             }
             if (string.IsNullOrWhiteSpace(config.WorkingDirectory))
             {
-                error = "Goose 工作目录不能为空";
+                error = "EW-AI 工作目录不能为空";
                 return false;
             }
             if (string.IsNullOrWhiteSpace(config.McpUri))
@@ -212,22 +212,22 @@ namespace Automation
             }
             if (config.SessionName == null)
             {
-                error = "Goose 会话名不能为 null";
+                error = "EW-AI 会话名不能为 null";
                 return false;
             }
             if (config.Provider == null)
             {
-                error = "Goose Provider 不能为 null";
+                error = "EW-AI Provider 不能为 null";
                 return false;
             }
             if (config.Model == null)
             {
-                error = "Goose Model 不能为 null";
+                error = "EW-AI Model 不能为 null";
                 return false;
             }
             if (config.MaxTurns <= 0)
             {
-                error = $"Goose MaxTurns 必须大于 0:{config.MaxTurns}";
+                error = $"EW-AI MaxTurns 必须大于 0:{config.MaxTurns}";
                 return false;
             }
             return true;
@@ -237,11 +237,11 @@ namespace Automation
         {
             if (!obj.TryGetValue(key, StringComparison.Ordinal, out JToken token))
             {
-                throw new InvalidOperationException($"Goose 配置缺少字段:{key}");
+                throw new InvalidOperationException($"EW-AI 配置缺少字段:{key}");
             }
             if (token.Type != JTokenType.String)
             {
-                throw new InvalidOperationException($"Goose 配置字段类型无效:{key}");
+                throw new InvalidOperationException($"EW-AI 配置字段类型无效:{key}");
             }
             return token.Value<string>();
         }
@@ -250,11 +250,11 @@ namespace Automation
         {
             if (!obj.TryGetValue(key, StringComparison.Ordinal, out JToken token))
             {
-                throw new InvalidOperationException($"Goose 配置缺少字段:{key}");
+                throw new InvalidOperationException($"EW-AI 配置缺少字段:{key}");
             }
             if (token.Type != JTokenType.Integer)
             {
-                throw new InvalidOperationException($"Goose 配置字段类型无效:{key}");
+                throw new InvalidOperationException($"EW-AI 配置字段类型无效:{key}");
             }
             return token.Value<int>();
         }
@@ -306,8 +306,8 @@ namespace Automation
         }
 
         /// <summary>
-        /// 从 Goose 自身配置文件（%APPDATA%\Block\goose\config\config.yaml）读取已注册的 provider 列表。
-        /// 用于 AI 助手 Provider 下拉框，避免界面硬编码的 provider 名与 Goose 实际注册名不一致
+        /// 从 EW-AI 自身配置文件（%APPDATA%\Block\goose\config\config.yaml）读取已注册的 provider 列表。
+        /// 用于 AI 助手 Provider 下拉框，避免界面硬编码的 provider 名与 EW-AI 实际注册名不一致
         /// （例如 goose configure 创建的 custom_deepseek）。解析失败返回空列表，不影响主流程。
         /// </summary>
         public static List<GooseProviderInfo> TryLoadGooseProviders()

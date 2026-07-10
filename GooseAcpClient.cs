@@ -28,7 +28,7 @@ namespace Automation
         private const int SessionTimeoutMs = 30000;
 
         // 本地文件日志：复用 LocalFileLogger，按天滚动 + 5MB 分卷 + 线程安全。
-        // 路径固定为 <exe>/Logs/GooseAcp/yyyy-MM-dd/log_001.txt，便于排查 Goose ACP invalid params 等错误。
+        // 路径固定为 <exe>/Logs/GooseAcp/yyyy-MM-dd/log_001.txt，便于排查 EW-AI ACP invalid params 等错误。
         private static readonly LocalFileLogger acpFileLogger =
             new LocalFileLogger(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs", "GooseAcp"));
 
@@ -75,7 +75,7 @@ namespace Automation
                 }
             }, InitializeTimeoutMs, cancellationToken).ConfigureAwait(false);
 
-            Report("lifecycle", "Goose ACP 初始化完成。", result);
+            Report("lifecycle", "EW-AI ACP 初始化完成。", result);
         }
 
         public async Task NewSessionAsync(CancellationToken cancellationToken)
@@ -106,7 +106,7 @@ namespace Automation
             }, SessionTimeoutMs, cancellationToken).ConfigureAwait(false);
 
             sessionId = ReadSessionId(result);
-            Report("lifecycle", $"Goose 会话已创建：{sessionId}", result);
+            Report("lifecycle", $"EW-AI 会话已创建：{sessionId}", result);
         }
 
         public async Task EnsureSessionAsync(CancellationToken cancellationToken)
@@ -158,7 +158,7 @@ namespace Automation
                 }
             }, 0, cancellationToken).ConfigureAwait(false);
 
-            Report("lifecycle", $"Goose 本轮结束：{result["stopReason"]?.Value<string>() ?? "unknown"}", result);
+            Report("lifecycle", $"EW-AI 本轮结束：{result["stopReason"]?.Value<string>() ?? "unknown"}", result);
             return result;
         }
 
@@ -225,7 +225,7 @@ namespace Automation
             if (!process.Start())
             {
                 LogFile($"ACP 进程启动失败：exe={config.GooseExecutablePath}", LogLevel.Error);
-                throw new InvalidOperationException("Goose ACP 进程启动失败。");
+                throw new InvalidOperationException("EW-AI ACP 进程启动失败。");
             }
 
             // .NET Framework 的 ProcessStartInfo 不支持 StandardInputEncoding，
@@ -252,15 +252,15 @@ namespace Automation
             }
             startupInfo.Append(" maxTurns=").Append(config.MaxTurns);
             LogFile(startupInfo.ToString(), LogLevel.Normal);
-            Report("lifecycle", $"Goose ACP 进程已启动：{config.GooseExecutablePath} acp", null);
+            Report("lifecycle", $"EW-AI ACP 进程已启动：{config.GooseExecutablePath} acp", null);
         }
 
         private void Process_Exited(object sender, EventArgs e)
         {
-            string message = "Goose ACP 进程已退出。";
+            string message = "EW-AI ACP 进程已退出。";
             try
             {
-                message = $"Goose ACP 进程已退出，退出码 {process?.ExitCode ?? -1}。";
+                message = $"EW-AI ACP 进程已退出，退出码 {process?.ExitCode ?? -1}。";
             }
             catch
             {
@@ -322,7 +322,7 @@ namespace Automation
                 throw new OperationCanceledException(cancellationToken);
             }
             LogFile($"ACP 请求超时 id={id} method={method} timeoutMs={timeoutMs}", LogLevel.Error);
-            throw new TimeoutException($"Goose ACP 请求超时：{method}");
+            throw new TimeoutException($"EW-AI ACP 请求超时：{method}");
         }
 
         private void WriteJsonRpc(JObject message)
@@ -332,7 +332,7 @@ namespace Automation
             {
                 if (stdin == null)
                 {
-                    throw new InvalidOperationException("Goose ACP stdin 未初始化。");
+                    throw new InvalidOperationException("EW-AI ACP stdin 未初始化。");
                 }
                 stdin.WriteLine(text);
                 stdin.Flush();
@@ -351,7 +351,7 @@ namespace Automation
                 catch (Exception ex)
                 {
                     LogFile($"ACP 读取 stdout 失败 err={ex.Message}", LogLevel.Error);
-                    Report("error", $"读取 Goose ACP 输出失败：{ex.Message}", null);
+                    Report("error", $"读取 EW-AI ACP 输出失败：{ex.Message}", null);
                     return;
                 }
 
@@ -405,7 +405,7 @@ namespace Automation
             catch (Exception ex)
             {
                 LogFile($"ACP stdout 非 JSON err={ex.Message} line={line}", LogLevel.Error);
-                Report("error", $"Goose ACP 输出不是合法 JSON：{ex.Message}", null);
+                Report("error", $"EW-AI ACP 输出不是合法 JSON：{ex.Message}", null);
                 return;
             }
 
@@ -437,7 +437,7 @@ namespace Automation
 
             if (message["error"] is JObject error)
             {
-                string errorMessage = error["message"]?.Value<string>() ?? "Goose ACP 返回错误。";
+                string errorMessage = error["message"]?.Value<string>() ?? "EW-AI ACP 返回错误。";
                 // 排查 invalid params 等错误的关键入口：完整记录 error 对象（含 code/data）。
                 LogFile($"ACP<- 错误响应 id={id} message={errorMessage}", error, LogLevel.Error);
                 tcs.TrySetException(new InvalidOperationException(errorMessage));
@@ -454,7 +454,7 @@ namespace Automation
         private void HandleServerRequest(string id, string method, JObject message)
         {
             LogFile($"ACP<- 服务端请求 id={id} method={method}", message["params"], LogLevel.Normal);
-            Report("request", $"Goose 请求 Automation 处理：{method}", message);
+            Report("request", $"EW-AI 请求 Automation 处理：{method}", message);
             JObject result = null;
             if (string.Equals(method, "session/request_permission", StringComparison.Ordinal))
             {
@@ -543,6 +543,17 @@ namespace Automation
                     if (!string.IsNullOrWhiteSpace(chunkText))
                     {
                         Report("assistant_chunk", chunkText, message);
+                    }
+                    return;
+                }
+
+                // agent_thought_chunk 是 ACP 明确区分出的推理文本；与正式 assistant 消息分开转发。
+                if (string.Equals(updateKind, "agent_thought_chunk", StringComparison.Ordinal))
+                {
+                    string thoughtText = ExtractText(parameters);
+                    if (!string.IsNullOrWhiteSpace(thoughtText))
+                    {
+                        Report("assistant_thought", thoughtText, message);
                     }
                     return;
                 }
@@ -750,14 +761,8 @@ namespace Automation
 
         private string BuildPrompt(string prompt)
         {
-            string instructions =
-                "你正在 Automation 程序内辅助读取、编写和诊断流程。"
-                + "所有流程读写必须通过已连接的 automation MCP 工具完成；工具列表是发现能力的唯一权威来源，使用前先查看工具描述。"
-                + $"本轮最多按 {config.MaxTurns} 次工具规划推进，遇到权限或预演确认不足时先向用户说明。"
-                + "分析流程逻辑时必须模拟执行流：从第一条指令开始逐条跟踪，非跳转类指令执行后自动流向 opIndex+1（get_proc_detail 返回的 flow 字段已标注），跳转类指令按条件跳转。重点检查：跳转目标执行完后是否会自然流向下一条指令，导致效果被旁路。"
-                + "排查流程时若涉及本地代码实现（如\"自定义函数\"指令对应 CustomFunc.cs 中的方法、指令执行逻辑对应 Engine 目录下的代码），你拥有原生的文件读写和命令执行工具（developer 扩展），可直接读取项目源码辅助排查；修改代码后需用户手动编译生效。";
             string context = BuildSelectionContext();
-            return instructions + context + "\n\n用户请求：\n" + prompt.Trim();
+            return context + "\n\n用户请求：\n" + prompt.Trim();
         }
 
         /// <summary>
@@ -808,7 +813,7 @@ namespace Automation
             string value = result["sessionId"]?.Value<string>();
             if (string.IsNullOrWhiteSpace(value))
             {
-                throw new InvalidOperationException("Goose ACP 未返回 sessionId。");
+                throw new InvalidOperationException("EW-AI ACP 未返回 sessionId。");
             }
             return value;
         }

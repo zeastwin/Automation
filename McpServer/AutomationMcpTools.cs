@@ -1,5 +1,7 @@
 using ModelContextProtocol.Server;
 using System.ComponentModel;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Automation.McpServer
 {
@@ -7,11 +9,12 @@ namespace Automation.McpServer
     public static class AutomationMcpTools
     {
         [McpServerTool(Name = "list_procs"), Description(
-            "列出 Automation 当前全部流程的基础信息。用于意图定位的第一步；不要假设流程名称唯一。" +
-            "Automation 领域层次：程序 > 流程(Proc) > 步骤(Step) > 指令(Operation)，详见 get_patch_contract 的 domainConcepts。" +
-            "重要语义：用户口语中的\"N号流程\"即 procIndex=N（不是第N个流程，索引从0开始）。例如\"3号流程\"就是 procIndex=3。返回列表中的 procIndex 字段就是用户口中的\"流程号\"。")]
+            "列出所有流程的基础信息（procIndex/procId/name/autoStart/disable/state/stepCount）。"
+            + "意图定位第一步，不要假设流程名唯一。"
+            + "用户口语\"N号流程\"即 procIndex=N（索引从0开始，\"3号流程\"=procIndex=3，不是第3个流程）。"
+            + "可选返回每个步骤的摘要（stepId/name/disable/opCount）。")]
         public static async Task<string> ListProcs(
-            [Description("是否附带步骤级摘要。true 会返回更多定位信息，但响应更长。")] bool includeStepSummary = false)
+            [Description("是否包含每个步骤的摘要信息，默认 false")] bool? includeStepSummary = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(ListProcs),
@@ -20,9 +23,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_proc_overview"), Description(
-            "读取指定流程的摘要视图，返回步骤、指令、摘要信息与稳定标识。适合在细化修改目标前使用。")]
+            "读取流程摘要视图（步骤/指令/摘要/稳定标识）。"
+            + "比 get_proc_detail 轻量，适合快速了解流程结构。")]
         public static async Task<string> GetProcOverview(
-            [Description("流程索引，从 0 开始。")] int procIndex)
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetProcOverview),
@@ -31,11 +35,11 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_proc_detail"), Description(
-            "读取指定流程的完整详情视图，返回 head、steps、ops、fields 与稳定标识。修改前必须先读取。" +
-            "每条指令含 isJump（是否跳转类）和 flow（执行流向）字段，用于分析执行流和旁路问题。" +
-            "若存在越界跳转目标，返回 gotoWarnings 字段列出具体错误。")]
+            "读取流程完整详情（head/steps/ops/fields，含 isJump/flow/gotoWarnings）。"
+            + "修改流程前必须先调用本工具。返回的 flow 字段标注每条指令执行后的流向（opIndex+1 或跳转目标），"
+            + "gotoWarnings 列出越界的跳转目标。")]
         public static async Task<string> GetProcDetail(
-            [Description("流程索引，从 0 开始。")] int procIndex)
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetProcDetail),
@@ -43,37 +47,76 @@ namespace Automation.McpServer
                 action: client => client.GetProcDetailAsync(procIndex)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "list_operation_types"), Description(
-            "列出 Automation 当前支持的全部指令类型。插入新指令前应先调用。")]
-        public static async Task<string> ListOperationTypes()
+        [McpServerTool(Name = "get_op_detail"), Description(
+            "读取单条指令详情（字段值/执行流向 flow/跳转有效性 gotoIssues）。"
+            + "用于细粒度检查某条指令的字段配置和跳转目标。")]
+        public static async Task<string> GetOpDetail(
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
+            [Description("步骤索引")] int stepIndex,
+            [Description("指令索引")] int opIndex)
         {
             return await ExecuteAsync(
-                toolName: nameof(ListOperationTypes),
-                args: new { },
-                action: client => client.ListOperationTypesAsync()).ConfigureAwait(false);
+                toolName: nameof(GetOpDetail),
+                args: new { procIndex, stepIndex, opIndex },
+                action: client => client.GetOpDetailAsync(procIndex, stepIndex, opIndex)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "get_operation_schema"), Description(
-            "读取指令可编辑 Schema。优先按现有指令实例定位；新建指令时可只传 operaType。不要在未读取 Schema 的情况下猜字段名或枚举值。")]
-        public static async Task<string> GetOperationSchema(
-            [Description("流程索引。读取现有指令实例时必填；按指令类型查询时可为空。")] int? procIndex = null,
-            [Description("步骤 ID。读取现有指令实例时必填；按指令类型查询时可为空。")] string? stepId = null,
-            [Description("指令 ID。读取现有指令实例时必填；按指令类型查询时可为空。")] string? opId = null,
-            [Description("指令类型。新建指令前按类型查询时必填，必须使用 list_operation_types 返回的 operaType，例如 IO检测。")] string? operaType = null)
+        [McpServerTool(Name = "get_step_detail"), Description(
+            "读取单步骤完整指令列表（含每条指令 flow）。"
+            + "用于查看某个步骤下所有指令的执行流向。")]
+        public static async Task<string> GetStepDetail(
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
+            [Description("步骤索引")] int stepIndex)
         {
             return await ExecuteAsync(
-                toolName: nameof(GetOperationSchema),
-                args: new { procIndex, stepId, opId, operaType },
-                action: client => client.GetOperationSchemaAsync(procIndex, stepId, opId, operaType)).ConfigureAwait(false);
+                toolName: nameof(GetStepDetail),
+                args: new { procIndex, stepIndex },
+                action: client => client.GetStepDetailAsync(procIndex, stepIndex)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "get_operation_guide"), Description(
-            "读取全部指令类型的调用说明（用途、关键字段、约束、常见误用）。" +
-            "编写或修改指令前必须调用，避免字段功能理解偏差。" +
-            "返回 JSON：key 是指令类型中文名，value 含 purpose/keyFields/constraints/commonMistakes。")]
-        public static Task<string> GetOperationGuide()
+        [McpServerTool(Name = "search_ops"), Description(
+            "按条件搜索指令。procIndex 为空搜全部流程，最多 200 条；keyword 匹配指令名和字段摘要。"
+            + "用于跨流程查找特定类型的指令。")]
+        public static async Task<string> SearchOps(
+            [Description("流程索引，为空则搜索全部流程")] int? procIndex = null,
+            [Description("指令类型过滤，如 IO检测/延时")] string? operaType = null,
+            [Description("关键词，匹配指令名和字段摘要")] string? keyword = null)
         {
-            return Task.FromResult(OperationGuideJson);
+            return await ExecuteAsync(
+                toolName: nameof(SearchOps),
+                args: new { procIndex, operaType, keyword },
+                action: client => client.SearchOpsAsync(procIndex, operaType, keyword)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "get_snapshot"), Description(
+            "读取运行快照（流程状态/当前位置/报警/安全锁定）。"
+            + "procIndex 为空返回全部流程快照。用于了解当前运行状态。")]
+        public static async Task<string> GetSnapshot(
+            [Description("流程索引，为空返回全部流程快照")] int? procIndex = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetSnapshot),
+                args: new { procIndex },
+                action: client => client.GetSnapshotAsync(procIndex)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "op_meta"), Description(
+            "指令元信息统一工具。通过 action 指定具体操作，通过 parameters 传 JSON 参数。" +
+            "\naction 可选值及对应 parameters 字段：" +
+            "\n- list_types: 列出全部指令类型（插入新指令前应先调用）。parameters: 无。" +
+            "\n- schema: 读取指令可编辑 Schema（优先按现有指令实例定位；新建指令时可只传 operaType；不要在未读 Schema 情况下猜字段名/枚举值）。parameters: {procIndex:int?, stepId:string?, opId:string?, operaType:string?}。" +
+            "\n- guide: 读取全部指令类型调用说明（用途/关键字段/约束/常见误用，编写或修改指令前必须调用）。parameters: 无。直接由 MCP 层静态返回，不走 Bridge。" +
+            "\n- reference_catalog: 读取可引用对象目录（变量/IO/工站/通讯/PLC/报警编号等，修改引用字段前应先读取）。parameters: {procIndex:int?}。" +
+            "\n示例：op_meta(action=\"schema\", parameters=\"{\\\"operaType\\\":\\\"IO检测\\\"}\")")]
+        public static async Task<string> OpMeta(
+            [Description("操作类型：list_types/schema/guide/reference_catalog")] string action,
+            [Description("参数 JSON 字符串，不同 action 需要不同参数，详见工具描述")] string? parameters = null)
+        {
+            if (action == "guide") return await Task.FromResult(OperationGuideJson).ConfigureAwait(false);
+            return await ExecuteAsync(
+                toolName: nameof(OpMeta),
+                args: new { action, parameters },
+                action: client => client.OpMetaAsync(action, ParseParameters(parameters))).ConfigureAwait(false);
         }
 
         // 43 种指令类型的调用说明，基于执行代码（ProcessEngine.Operations.*.cs）和字段定义（OperationType.cs）编写。
@@ -93,10 +136,10 @@ namespace Automation.McpServer
   "_流程级操作": {
     "purpose": "对整个流程的增删复制重排，区别于 patch 级操作（preview_patch/apply_patch 只能修改已有流程的步骤和指令，不能新增/删除整个流程）",
     "keyFields": {
-      "create_proc": "新增空流程。工具：create_proc 预演 → apply_create_proc 提交。典型场景：新建流程来唤醒/启动其他流程、创建独立控制流程。新增后可通过 preview_patch 添加步骤和指令",
-      "copy_proc": "复制现有流程为新流程（含全部步骤和指令）。工具：copy_proc 预演 → apply_copy_proc 提交。适合基于现有流程改造",
-      "delete_procs": "批量删除流程。工具：delete_procs 预演 → apply_delete_procs 提交。正在运行的流程无法删除",
-      "reorder_proc": "重排流程位置。工具：reorder_proc 预演 → apply_reorder_proc 提交"
+      "create_proc": "新增空流程。工具：create_proc（不传 previewId 预演）→ create_proc（传 previewId 提交）。典型场景：新建流程来唤醒/启动其他流程、创建独立控制流程。新增后可通过 preview_patch 添加步骤和指令",
+      "copy_proc": "复制现有流程为新流程（含全部步骤和指令）。工具：copy_proc（不传 previewId 预演）→ copy_proc（传 previewId 提交）。适合基于现有流程改造",
+      "delete_procs": "批量删除流程。工具：delete_procs（不传 previewId 预演）→ delete_procs（传 previewId 提交）。正在运行的流程无法删除",
+      "reorder_proc": "重排流程位置。工具：reorder_proc（不传 previewId 预演）→ reorder_proc（传 previewId 提交）"
     },
     "constraints": "四类流程级操作都需要 预演→确认 previewId→提交 三步；正在运行的流程无法删除；流程名不能与现有流程重复",
     "commonMistakes": "最常见错误：需要新增流程时误用 preview_patch——preview_patch 的 actions 只支持 update_proc_head_fields/update_step_fields/update_operation_fields/append_step/insert_step/delete_step/move_step/append_operation/insert_operation/delete_operation/move_operation，不支持新增整个流程。新增流程必须用 create_proc；若需基于现有流程改造，用 copy_proc 复制后再 preview_patch 修改"
@@ -107,13 +150,13 @@ namespace Automation.McpServer
       "Name": "指令显示名称，仅用于编辑识别与日志，不影响执行",
       "OperaType": "指令类型标识（只读），决定引擎执行分支，创建时由构造函数自动设置",
       "AlarmType": "异常处理策略，取值：报警停止/报警忽略/自动处理/弹框确定/弹框确定与否/弹框确定与否与取消",
-      "AlarmInfoID": "报警信息库编号，仅 AlarmType 为弹框类时生效",
+      "AlarmInfoID": "报警信息库编号，仅 AlarmType 为弹框类时生效；字段类型是 string，必须按 JSON 字符串传，例如 \"0\"，不能传数字 0",
       "Goto1/Goto2/Goto3": "报警分支跳转目标，格式为 procIndex-stepIndex-opIndex（见_跳转编码说明）；AlarmType=自动处理仅用 Goto1；弹框确定与否用 Goto1/Goto2；弹框确定与否与取消用全部三个",
       "Disable": "true 时该指令被跳过执行",
       "isStopPoint": "true 时运行到该指令进入断点"
     },
     "constraints": "AlarmType 与 Goto1/2/3 联动：报警停止/报警忽略时不显示任何 Goto；自动处理仅 Goto1；弹框类按按钮数量显示。指令默认按 opIndex 顺序往下执行：执行完当前指令后自动执行下一条（opIndex+1），除非遇到跳转类指令（逻辑判断/IO逻辑跳转/跳转）改变了执行流。不写跳转指令就会默认往下执行。",
-    "commonMistakes": "AlarmType 选了弹框类但未填 AlarmInfoID 或对应 Goto 会导致跳转失败；Goto 格式必须是 procIndex-stepIndex-opIndex 三段式；忽略默认顺序执行会导致旁路 bug——相邻的非跳转类指令会依次执行，分析流程时务必检查跳转目标执行完后是否会被后续指令旁路；删除或插入指令后 opIndex 会位移，必须同步更新所有受影响的跳转目标（goto1/goto2/TrueGoto/FalseGoto/Goto/DefaultGoto），get_proc_detail 返回的 gotoWarnings 字段会列出越界的跳转目标"
+    "commonMistakes": "AlarmType 选了弹框类但未填 AlarmInfoID 或对应 Goto 会导致跳转失败；AlarmInfoID 看起来像编号但仍是 string 字段，写 0 会被 Bridge 拒绝，必须写 \"0\"；Goto 格式必须是 procIndex-stepIndex-opIndex 三段式；忽略默认顺序执行会导致旁路 bug——相邻的非跳转类指令会依次执行，分析流程时务必检查跳转目标执行完后是否会被后续指令旁路；删除或插入指令后 opIndex 会位移，必须同步更新所有受影响的跳转目标（goto1/goto2/TrueGoto/FalseGoto/Goto/DefaultGoto），get_proc_detail 返回的 gotoWarnings 字段会列出越界的跳转目标"
   },
   "_跳转编码说明": {
     "purpose": "所有跳转类字段（Goto1/Goto2/Goto3、goto1/goto2、TrueGoto/FalseGoto、Goto、DefaultGoto、PopupGoto1/2/3）的统一编码格式",
@@ -188,7 +231,7 @@ namespace Automation.McpServer
   },
   "弹框": {
     "purpose": "弹出对话框供用户选择，支持报警灯/蜂鸣器联动和延时自动关闭",
-    "keyFields": {"PopupType": "弹框样式：弹是/弹是与否/弹是与否与取消", "InfoType": "提示信息来源：自定义提示信息/变量类型/报警信息库", "PopupMessage": "固定提示文本", "PopupMessageValue": "提示变量名", "PopupAlarmInfoID": "报警信息编号", "Btn1Text/Btn2Text/Btn3Text": "按钮文本", "PopupGoto1/2/3": "跳转目标(格式 procIndex-stepIndex-opIndex)", "DelayClose/DelayCloseTimeMs": "延时自动关闭", "AlarmLightEnable": "启用报警灯", "BuzzerIo/RedLightIo/YellowLightIo/GreenLightIo": "报警灯IO"},
+    "keyFields": {"PopupType": "弹框样式：弹是/弹是与否/弹是与否与取消", "InfoType": "提示信息来源：自定义提示信息/变量类型/报警信息库", "PopupMessage": "固定提示文本", "PopupMessageValue": "提示变量名", "PopupAlarmInfoID": "报警信息编号；字段类型是 string，必须按 JSON 字符串传，例如 \"0\"", "Btn1Text/Btn2Text/Btn3Text": "按钮文本", "PopupGoto1/2/3": "跳转目标(格式 procIndex-stepIndex-opIndex)", "DelayClose/DelayCloseTimeMs": "延时自动关闭", "AlarmLightEnable": "启用报警灯", "BuzzerIo/RedLightIo/YellowLightIo/GreenLightIo": "报警灯IO"},
     "constraints": "PopupType 决定按钮数量；InfoType 决定提示文本来源；DelayClose=true 时 DelayCloseTimeMs 必须>0；AlarmLightEnable=启用 时蜂鸣器/灯IO才生效；PopupGoto 格式 procIndex-stepIndex-opIndex",
     "commonMistakes": "InfoType=报警信息库时按钮文本从报警信息读取，自定义的 Btn*Text 会被忽略；PopupGoto 格式必须三段式，不可省略 procIndex"
   },
@@ -387,112 +430,11 @@ namespace Automation.McpServer
 }
 """;
 
-        [McpServerTool(Name = "get_reference_catalog"), Description(
-            "读取当前可引用对象目录，例如变量、IO、工站、通讯、PLC、报警编号等。修改引用字段前应先读取。")]
-        public static async Task<string> GetReferenceCatalog(
-            [Description("可选流程索引。某些目录可能按流程裁剪。")] int? procIndex = null)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(GetReferenceCatalog),
-                args: new { procIndex },
-                action: client => client.GetReferenceCatalogAsync(procIndex)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "list_intent_templates"), Description(
-            "列出本地可用的中间意图 JSON 模板。模型在生成写入意图前应先读取模板，而不是依赖提示词中的长示例。")]
-        public static async Task<string> ListIntentTemplates(
-            [Description("可选 Patch 动作名过滤，例如 update_operation_fields。")] string? patchAction = null)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(ListIntentTemplates),
-                args: new { patchAction },
-                action: client => client.ListIntentTemplatesAsync(patchAction)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "get_intent_template"), Description(
-            "读取单个中间意图 JSON 模板。可按 templateId 精确读取，也可按 patchAction 获取对应模板。")]
-        public static async Task<string> GetIntentTemplate(
-            [Description("模板 ID，例如 update_operation_field。")] string? templateId = null,
-            [Description("Patch 动作名，例如 update_operation_fields。")] string? patchAction = null)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(GetIntentTemplate),
-                args: new { templateId, patchAction },
-                action: client => client.GetIntentTemplateAsync(templateId, patchAction)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "build_patch_from_intent"), Description(
-            "把中间意图 JSON 转换成标准 patchJson。适合先用模板约束输出，再由本地统一组装 Patch。")]
-        public static async Task<string> BuildPatchFromIntent(
-            [Description("中间意图 JSON。必须符合 get_intent_template 返回的 intentShape。")] string intentJson)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(BuildPatchFromIntent),
-                args: new { intentJson },
-                action: client => client.BuildPatchFromIntentAsync(intentJson)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "preview_intent"), Description(
-            "使用中间意图 JSON 直接预演，不需要模型自行组装 patchJson。内部会先把意图转换成标准 Patch，再执行 preview。")]
-        public static async Task<string> PreviewIntent(
-            [Description("中间意图 JSON。必须符合 get_intent_template 返回的 intentShape。")] string intentJson)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(PreviewIntent),
-                args: new { intentJson },
-                action: client => client.PreviewIntentAsync(intentJson)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "apply_intent"), Description(
-            "使用中间意图 JSON 直接提交。必须携带 Automation 前台已确认的 previewId，且意图内容必须与预演时完全一致。")]
-        public static async Task<string> ApplyIntent(
-            [Description("中间意图 JSON。必须与预演通过的意图保持一致。")] string intentJson,
-            [Description("Automation 前台确认预演后返回或提示的 previewId。")] string previewId)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(ApplyIntent),
-                args: new { intentJson, previewId },
-                action: client => client.ApplyIntentAsync(intentJson, previewId)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "preview_patch"), Description(
-            "预演结构化 Patch，不会落盘。patchJson 必须是完整 JSON 对象，至少包含 procIndex、baseProcId、actions。提交前必须先调用。")]
-        public static async Task<string> PreviewPatch(
-            [Description("结构化 Patch JSON。示例：{\"procIndex\":0,\"baseProcId\":\"guid\",\"actions\":[...]}")] string patchJson)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(PreviewPatch),
-                args: new { patchJson },
-                action: client => client.PreviewPatchAsync(patchJson)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "apply_patch"), Description(
-            "应用结构化 Patch，触发保存与发布。必须携带 Automation 前台已确认的 previewId，且 patchJson 必须与预演时完全一致。")]
-        public static async Task<string> ApplyPatch(
-            [Description("结构化 Patch JSON。必须与预演通过的 patch 保持一致。")] string patchJson,
-            [Description("Automation 前台确认预演后返回或提示的 previewId。")] string previewId)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(ApplyPatch),
-                args: new { patchJson, previewId },
-                action: client => client.ApplyPatchAsync(patchJson, previewId)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "get_runtime_snapshot"), Description(
-            "读取 Automation 当前运行快照，包括流程状态、当前位置、报警状态、选中项和安全锁定状态。")]
-        public static async Task<string> GetRuntimeSnapshot(
-            [Description("可选流程索引。从 0 开始；为空时返回全部流程快照。")] int? procIndex = null)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(GetRuntimeSnapshot),
-                args: new { procIndex },
-                action: client => client.GetRuntimeSnapshotAsync(procIndex)).ConfigureAwait(false);
-        }
-
         [McpServerTool(Name = "get_info_log_tail"), Description(
-            "读取 Automation 运行信息页最近日志。用于排查报警、Bridge/MCP 调用失败和流程运行异常。")]
+            "读取运行信息页最近日志（排查报警/Bridge调用失败/流程运行异常）。"
+            + "maxCount 范围 1..200，默认 50。")]
         public static async Task<string> GetInfoLogTail(
-            [Description("返回条数，范围 1..200。")] int maxCount = 50)
+            [Description("返回日志条数上限，范围 1..200，默认 50")] int? maxCount = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetInfoLogTail),
@@ -501,9 +443,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "diagnose_proc"), Description(
-            "诊断指定流程的结构与运行风险，包括禁用、空步骤/指令、未知指令类型、跳转错误、报警和断点。")]
+            "诊断流程结构与运行风险（禁用/空步骤指令/未知指令类型/跳转错误/报警/断点）。"
+            + "含运行时状态，适合完整诊断。")]
         public static async Task<string> DiagnoseProc(
-            [Description("流程索引，从 0 开始。")] int procIndex)
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
         {
             return await ExecuteAsync(
                 toolName: nameof(DiagnoseProc),
@@ -511,54 +454,11 @@ namespace Automation.McpServer
                 action: client => client.DiagnoseProcAsync(procIndex)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "get_operation_detail"), Description(
-            "读取单条指令的完整详情：字段值、执行流向(flow)、跳转目标有效性(gotoIssues)。" +
-            "适合聚焦分析某条指令，无需读取整个流程。比 get_proc_detail 颗粒度更细。")]
-        public static async Task<string> GetOperationDetail(
-            [Description("流程索引，从 0 开始。")] int procIndex,
-            [Description("步骤索引。")] int stepIndex,
-            [Description("指令索引。")] int opIndex)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(GetOperationDetail),
-                args: new { procIndex, stepIndex, opIndex },
-                action: client => client.GetOperationDetailAsync(procIndex, stepIndex, opIndex)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "get_step_detail"), Description(
-            "读取单个步骤的完整指令列表，含每条指令的 flow（执行流向）字段。" +
-            "介于 get_proc_overview 和 get_proc_detail 之间的颗粒度，适合只看一个步骤。")]
-        public static async Task<string> GetStepDetail(
-            [Description("流程索引，从 0 开始。")] int procIndex,
-            [Description("步骤索引。")] int stepIndex)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(GetStepDetail),
-                args: new { procIndex, stepIndex },
-                action: client => client.GetStepDetailAsync(procIndex, stepIndex)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "search_operations"), Description(
-            "按条件搜索指令：可按流程范围、指令类型、关键词过滤。" +
-            "用于快速定位问题，例如：查找所有引用了某变量/IO的指令、查找所有跳转类指令、查找某类型指令分布。" +
-            "keyword 匹配指令名和摘要文本（含变量名、IO名等字段值）。" +
-            "procIndex 为空时搜索全部流程，最多返回 200 条。")]
-        public static async Task<string> SearchOperations(
-            [Description("流程索引，从 0 开始。为空时搜索全部流程。")] int? procIndex = null,
-            [Description("指令类型过滤，例如 IO检测、逻辑判断。为空时不限类型。")] string? operaType = null,
-            [Description("关键词，匹配指令名和字段摘要。为空时不限关键词。")] string? keyword = null)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(SearchOperations),
-                args: new { procIndex, operaType, keyword },
-                action: client => client.SearchOperationsAsync(procIndex, operaType, keyword)).ConfigureAwait(false);
-        }
-
         [McpServerTool(Name = "validate_proc"), Description(
-            "轻量级结构验证：聚焦跳转目标有效性、空步骤/指令、禁用项。" +
-            "比 diagnose_proc 更简洁（不含运行时状态），适合修改前快速检查或修改后验证。")]
+            "轻量结构验证（聚焦跳转目标有效性/空步骤指令/禁用项，不含运行时状态）。"
+            + "适合修改前后快速检查。")]
         public static async Task<string> ValidateProc(
-            [Description("流程索引，从 0 开始。")] int procIndex)
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
         {
             return await ExecuteAsync(
                 toolName: nameof(ValidateProc),
@@ -566,148 +466,225 @@ namespace Automation.McpServer
                 action: client => client.ValidateProcAsync(procIndex)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "create_proc"), Description(
-            "新增一个流程并预演。典型场景：新建流程来唤醒/启动其他流程、创建独立的控制流程、为现有逻辑新增前置/后置流程等。" +
-            "新增流程只创建空流程（含一个默认步骤），后续可通过 preview_patch 添加步骤和指令。" +
-            "预演后需等待 Automation 前台确认 previewId，再调用 apply_create_proc 提交。流程名不能与现有流程重复。" +
-            "注意：新增流程必须用本工具，不能用 preview_patch（patch 只能修改已有流程的结构）。")]
-        public static async Task<string> CreateProc(
-            [Description("流程名称。")] string name,
-            [Description("是否自启动。默认 false。")] bool? autoStart = null,
-            [Description("是否禁用。默认 false。")] bool? disable = null)
+        [McpServerTool(Name = "list_intent_templates"), Description(
+            "列出本地可用的中间意图 JSON 模板。"
+            + "生成写入意图前应先读模板，不要依赖提示词长示例。"
+            + "可选按 patchAction 过滤（如 update_operation_fields）。")]
+        public static async Task<string> ListIntentTemplates(
+            [Description("按 patchAction 过滤，如 update_operation_fields")] string? patchAction = null)
         {
-            var payload = new { name, autoStart, disable };
-            string payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
             return await ExecuteAsync(
-                toolName: nameof(CreateProc),
-                args: payload,
-                action: client => client.ManageProcPreviewAsync("create_proc", payloadJson)).ConfigureAwait(false);
+                toolName: nameof(ListIntentTemplates),
+                args: new { patchAction },
+                action: client => client.ListIntentTemplatesAsync(patchAction)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "apply_create_proc"), Description(
-            "创建流程的提交。必须携带 Automation 前台已确认的 previewId。")]
-        public static async Task<string> ApplyCreateProc(
-            [Description("流程名称。")] string name,
-            [Description("是否自启动。")] bool? autoStart = null,
-            [Description("是否禁用。")] bool? disable = null,
-            [Description("Automation 前台确认的 previewId。")] string previewId = "")
+        [McpServerTool(Name = "get_intent_template"), Description(
+            "读取单个意图模板。可按 templateId 精确读取，或按 patchAction 获取。"
+            + "返回的 intentShape 描述该意图的必填字段结构。")]
+        public static async Task<string> GetIntentTemplate(
+            [Description("模板 ID，精确读取单个模板")] string? templateId = null,
+            [Description("按 patchAction 获取模板，如 update_operation_fields")] string? patchAction = null)
         {
-            var payload = new { name, autoStart, disable };
-            string payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
             return await ExecuteAsync(
-                toolName: nameof(ApplyCreateProc),
+                toolName: nameof(GetIntentTemplate),
+                args: new { templateId, patchAction },
+                action: client => client.GetIntentTemplateAsync(templateId, patchAction)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "build_patch_from_intent"), Description(
+            "把中间意图 JSON 转换成标准 patchJson。"
+            + "适合先用模板约束输出，再由本地统一组装 Patch。"
+            + "intentJson 必须符合 get_intent_template 返回的 intentShape。")]
+        public static async Task<string> BuildPatchFromIntent(
+            [Description("中间意图 JSON 字符串，必须符合 get_intent_template 返回的 intentShape")] string intentJson)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(BuildPatchFromIntent),
+                args: new { intentJson },
+                action: client => client.BuildPatchFromIntentAsync(intentJson)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "preview_intent"), Description(
+            "使用中间意图 JSON 直接预演（内部先把意图转标准 Patch 再 preview，不需要模型自行组装 patchJson）。"
+            + "返回 previewId 和 patchHash，提交前需由 Automation 前台确认 previewId。"
+            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_intent 提交即可。")]
+        public static async Task<string> PreviewIntent(
+            [Description("中间意图 JSON 字符串")] string intentJson)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(PreviewIntent),
+                args: new { intentJson },
+                action: client => client.PreviewIntentAsync(intentJson)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "apply_intent"), Description(
+            "使用中间意图 JSON 直接提交。必须携带前台已确认的 previewId，且意图内容必须与预演完全一致。"
+            + "完全权限模式下预演自动确认，直接传入预演返回的 previewId 即可；禁止传字符串 null/undefined。")]
+        public static async Task<string> ApplyIntent(
+            [Description("中间意图 JSON 字符串，必须与预演完全一致")] string intentJson,
+            [Description("预演阶段返回且已确认的 previewId")] string previewId)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ApplyIntent),
+                args: new { intentJson, previewId },
+                action: client => client.ApplyIntentAsync(intentJson, previewId)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "preview_patch"), Description(
+            "预演结构化 Patch，不会落盘。"
+            + "patchJson 必须是完整 JSON 对象，至少含 procIndex/baseProcId/actions。"
+            + "提交前必须先调用本工具。返回 previewId 和 patchHash，需由 Automation 前台确认 previewId。"
+            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_patch 提交即可。")]
+        public static async Task<string> PreviewPatch(
+            [Description("Patch JSON 字符串，至少含 procIndex/baseProcId/actions")] string patchJson)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(PreviewPatch),
+                args: new { patchJson },
+                action: client => client.PreviewPatchAsync(patchJson)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "apply_patch"), Description(
+            "应用结构化 Patch 触发保存发布。"
+            + "必须携带前台已确认的 previewId，patchJson 必须与预演完全一致。"
+            + "完全权限模式下预演自动确认，直接传入预演返回的 previewId 即可；禁止传字符串 null/undefined。")]
+        public static async Task<string> ApplyPatch(
+            [Description("Patch JSON 字符串，必须与预演完全一致")] string patchJson,
+            [Description("预演阶段返回且已确认的 previewId")] string previewId)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ApplyPatch),
+                args: new { patchJson, previewId },
+                action: client => client.ApplyPatchAsync(patchJson, previewId)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "patch_contract"), Description(
+            "返回 Patch 调用约束与示例（domainConcepts/workflow/preferredWritePath/patchActions/patchShape/rules）。"
+            + "首次编写 patch 前应读取本契约，了解 patchJson 结构和操作分类。"
+            + "直接由 MCP 层静态返回，不走 Bridge。")]
+        public static Task<string> PatchContract()
+        {
+            return Task.FromResult(GetPatchContract());
+        }
+
+        [McpServerTool(Name = "create_proc"), Description(
+            "新增空流程。两阶段操作：预演阶段省略 previewId；提交阶段传入预演返回的 previewId。禁止传字符串 null/undefined。"
+            + "新增流程含一个默认步骤，后续用 preview_patch 添加步骤指令。流程名不能重复。"
+            + "典型场景：新建流程来唤醒/启动其他流程、创建独立控制流程。"
+            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
+        public static async Task<string> CreateProc(
+            [Description("流程名称（不能与现有流程重复）")] string name,
+            [Description("是否自启动，默认 false")] bool? autoStart = null,
+            [Description("是否禁用，默认 false")] bool? disable = null,
+            [Description("提交阶段必填：预演阶段返回的 previewId；预演阶段请省略本参数，不要传字符串 null/undefined")] string? previewId = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(CreateProc),
                 args: new { name, autoStart, disable, previewId },
-                action: client => client.ManageProcApplyAsync("create_proc", payloadJson, previewId)).ConfigureAwait(false);
+                action: client => client.CreateProcAsync(name, autoStart, disable, previewId)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "delete_procs"), Description(
-            "批量删除流程。预演后需等待 Automation 前台确认 previewId，再调用 apply 删除。正在运行的流程无法删除。")]
+            "批量删除流程。两阶段操作：预演阶段省略 previewId；提交阶段传入预演返回的 previewId。禁止传字符串 null/undefined。"
+            + "正在运行的流程无法删除，需先 stop_proc 停止。"
+            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
         public static async Task<string> DeleteProcs(
-            [Description("要删除的流程索引数组，例如 [0, 2, 3]。")] int[] procIndexes)
+            [Description("待删除流程索引数组")] int[] procIndexes,
+            [Description("提交阶段必填：预演阶段返回的 previewId；预演阶段请省略本参数，不要传字符串 null/undefined")] string? previewId = null)
         {
-            var payload = new { procIndexes };
-            string payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
             return await ExecuteAsync(
                 toolName: nameof(DeleteProcs),
-                args: payload,
-                action: client => client.ManageProcPreviewAsync("delete_procs", payloadJson)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "apply_delete_procs"), Description(
-            "批量删除流程的提交。必须携带 Automation 前台已确认的 previewId。")]
-        public static async Task<string> ApplyDeleteProcs(
-            [Description("要删除的流程索引数组。")] int[] procIndexes,
-            [Description("Automation 前台确认的 previewId。")] string previewId)
-        {
-            var payload = new { procIndexes };
-            string payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
-            return await ExecuteAsync(
-                toolName: nameof(ApplyDeleteProcs),
                 args: new { procIndexes, previewId },
-                action: client => client.ManageProcApplyAsync("delete_procs", payloadJson, previewId)).ConfigureAwait(false);
+                action: client => client.DeleteProcsAsync(procIndexes, previewId)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "reorder_proc"), Description(
-            "重排流程位置。预演后需等待 Automation 前台确认 previewId，再调用 apply 执行。")]
+            "重排流程位置。两阶段操作：预演阶段省略 previewId；提交阶段传入预演返回的 previewId。禁止传字符串 null/undefined。"
+            + "targetIndex 是移动后的最终索引。正在运行的流程无法重排。"
+            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
         public static async Task<string> ReorderProc(
-            [Description("要移动的流程索引。")] int procIndex,
-            [Description("目标位置索引。")] int targetIndex)
+            [Description("待移动的流程索引")] int procIndex,
+            [Description("移动后的最终索引")] int targetIndex,
+            [Description("提交阶段必填：预演阶段返回的 previewId；预演阶段请省略本参数，不要传字符串 null/undefined")] string? previewId = null)
         {
-            var payload = new { procIndex, targetIndex };
-            string payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
             return await ExecuteAsync(
                 toolName: nameof(ReorderProc),
-                args: payload,
-                action: client => client.ManageProcPreviewAsync("reorder_proc", payloadJson)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "apply_reorder_proc"), Description(
-            "重排流程位置的提交。必须携带 Automation 前台已确认的 previewId。")]
-        public static async Task<string> ApplyReorderProc(
-            [Description("要移动的流程索引。")] int procIndex,
-            [Description("目标位置索引。")] int targetIndex,
-            [Description("Automation 前台确认的 previewId。")] string previewId)
-        {
-            var payload = new { procIndex, targetIndex };
-            string payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
-            return await ExecuteAsync(
-                toolName: nameof(ApplyReorderProc),
                 args: new { procIndex, targetIndex, previewId },
-                action: client => client.ManageProcApplyAsync("reorder_proc", payloadJson, previewId)).ConfigureAwait(false);
+                action: client => client.ReorderProcAsync(procIndex, targetIndex, previewId)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "copy_proc"), Description(
-            "复制现有流程为新流程（含全部步骤和指令）。适合基于现有流程改造出新流程，比 create_proc+逐条添加指令更高效。" +
-            "预演后需等待 Automation 前台确认 previewId，再调用 apply_copy_proc 执行。")]
+            "复制现有流程为新流程（含全部步骤和指令）。两阶段操作：预演阶段省略 previewId；提交阶段传入预演返回的 previewId。禁止传字符串 null/undefined。"
+            + "适合基于现有流程改造。newName 为空时自动追加 _副本。"
+            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
         public static async Task<string> CopyProc(
-            [Description("源流程索引。")] int procIndex,
-            [Description("新流程名称，为空时自动追加 _副本。")] string? newName = null)
+            [Description("源流程索引")] int procIndex,
+            [Description("新流程名称，为空自动追加 _副本")] string? newName = null,
+            [Description("提交阶段必填：预演阶段返回的 previewId；预演阶段请省略本参数，不要传字符串 null/undefined")] string? previewId = null)
         {
-            var payload = new { procIndex, newName };
-            string payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
             return await ExecuteAsync(
                 toolName: nameof(CopyProc),
-                args: payload,
-                action: client => client.ManageProcPreviewAsync("copy_proc", payloadJson)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "apply_copy_proc"), Description(
-            "复制流程的提交。必须携带 Automation 前台已确认的 previewId。")]
-        public static async Task<string> ApplyCopyProc(
-            [Description("源流程索引。")] int procIndex,
-            [Description("新流程名称。")] string? newName = null,
-            [Description("Automation 前台确认的 previewId。")] string previewId = "")
-        {
-            var payload = new { procIndex, newName };
-            string payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
-            return await ExecuteAsync(
-                toolName: nameof(ApplyCopyProc),
                 args: new { procIndex, newName, previewId },
-                action: client => client.ManageProcApplyAsync("copy_proc", payloadJson, previewId)).ConfigureAwait(false);
+                action: client => client.CopyProcAsync(procIndex, newName, previewId)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "control_proc"), Description(
-            "控制流程运行：启动(start)、停止(stop)、暂停(pause)、恢复(resume)。不需要预演确认。")]
-        public static async Task<string> ControlProc(
-            [Description("流程索引，从 0 开始。")] int procIndex,
-            [Description("控制动作：start、stop、pause、resume。")] string action)
+        [McpServerTool(Name = "start_proc"), Description(
+            "启动流程。不需要预演确认，直接发送命令。"
+            + "要求流程处于 Stopped 状态。")]
+        public static async Task<string> StartProc(
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
         {
             return await ExecuteAsync(
-                toolName: nameof(ControlProc),
-                args: new { procIndex, action },
-                action: client => client.ControlProcAsync(procIndex, action)).ConfigureAwait(false);
+                toolName: nameof(StartProc),
+                args: new { procIndex },
+                action: client => client.StartProcAsync(procIndex)).ConfigureAwait(false);
         }
 
-        // ===================== 资源查询与操作扩展工具 =====================
+        [McpServerTool(Name = "stop_proc"), Description(
+            "停止流程。不需要预演确认，直接发送命令。"
+            + "要求流程非 Stopped 状态。")]
+        public static async Task<string> StopProc(
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(StopProc),
+                args: new { procIndex },
+                action: client => client.StopProcAsync(procIndex)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "pause_proc"), Description(
+            "暂停流程。不需要预演确认，直接发送命令。"
+            + "要求流程处于 Running 状态。")]
+        public static async Task<string> PauseProc(
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(PauseProc),
+                args: new { procIndex },
+                action: client => client.PauseProcAsync(procIndex)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "resume_proc"), Description(
+            "恢复暂停的流程。不需要预演确认，直接发送命令。"
+            + "要求流程处于 Paused 状态。")]
+        public static async Task<string> ResumeProc(
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ResumeProc),
+                args: new { procIndex },
+                action: client => client.ResumeProcAsync(procIndex)).ConfigureAwait(false);
+        }
 
         [McpServerTool(Name = "list_variables"), Description(
-            "列出全部已配置的变量（含运行时值、配置值、备注、变更历史）。用于调试流程时查看变量状态。" +
-            "变量类型为 double 或 string。支持按类型过滤和名称模糊匹配，支持分页。")]
+            "列出全部已配置变量（含运行时值/配置值/备注/变更历史）。"
+            + "支持类型过滤和名称模糊匹配、分页。变量类型为 double 或 string。")]
         public static async Task<string> ListVariables(
-            [Description("按类型过滤：double 或 string。为空则返回全部。")] string? type = null,
-            [Description("名称模糊匹配（大小写不敏感）。为空则不过滤。")] string? nameLike = null,
-            [Description("分页偏移，默认 0。")] int? offset = null,
-            [Description("每页数量，默认 1000。")] int? limit = null)
+            [Description("类型过滤：double 或 string")] string? type = null,
+            [Description("名称模糊匹配关键词")] string? nameLike = null,
+            [Description("分页偏移，默认 0")] int? offset = null,
+            [Description("分页上限，默认 1000")] int? limit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(ListVariables),
@@ -716,11 +693,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_variable"), Description(
-            "读取单个变量的完整信息（运行时值、配置值、备注、最近一次变更的旧值/新值/时间/来源）。" +
-            "必须提供 name 或 index 之一。")]
+            "读取单个变量完整信息。必须提供 name 或 index 之一。")]
         public static async Task<string> GetVariable(
-            [Description("变量名称。与 index 二选一。")] string? name = null,
-            [Description("变量索引（0-999）。与 name 二选一。")] int? index = null)
+            [Description("变量名")] string? name = null,
+            [Description("变量索引")] int? index = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetVariable),
@@ -729,12 +705,13 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "search_variables"), Description(
-            "按名称关键词、类型、运行时值内容搜索变量。用于快速定位需要查看的变量。")]
+            "按名称关键词/类型/运行时值内容搜索变量。"
+            + "keyword 匹配变量名。")]
         public static async Task<string> SearchVariables(
-            [Description("名称关键词（大小写不敏感）。")] string keyword,
-            [Description("按类型过滤：double 或 string。")] string? type = null,
-            [Description("运行时值内容模糊匹配（大小写不敏感）。")] string? valueLike = null,
-            [Description("返回上限，默认 100。")] int? limit = null)
+            [Description("名称关键词")] string keyword,
+            [Description("类型过滤：double 或 string")] string? type = null,
+            [Description("运行时值内容模糊匹配")] string? valueLike = null,
+            [Description("返回上限")] int? limit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(SearchVariables),
@@ -743,25 +720,25 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "set_variable"), Description(
-            "修改变量的运行时值（不写入配置文件，重启后恢复为配置值）。" +
-            "double 类型会校验数字格式。修改会触发 ValueChanged 事件，正在运行的流程能感知。" +
-            "必须提供 name 或 index 之一。")]
+            "修改变量运行时值（不写入配置文件，重启后恢复配置值）。"
+            + "double 类型校验数字格式；修改触发 ValueChanged 事件，运行中流程能感知。"
+            + "必须提供 name 或 index 之一。")]
         public static async Task<string> SetVariable(
-            [Description("变量名称。与 index 二选一。")] string? name = null,
-            [Description("变量索引（0-999）。与 name 二选一。")] int? index = null,
-            [Description("新值。double 类型必须是有效数字字符串。")] string value = "")
+            [Description("新值（始终传字符串，double 类型会校验数字格式）")] string value,
+            [Description("变量名")] string? name = null,
+            [Description("变量索引")] int? index = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(SetVariable),
-                args: new { name, index, value },
-                action: client => client.SetVariableAsync(name, index, value)).ConfigureAwait(false);
+                args: new { value, name, index },
+                action: client => client.SetVariableAsync(value, name, index)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "delete_variable"), Description(
-            "清空指定索引的变量槽位（Name/Value/Note 全部重置，保留槽位）。" +
-            "不会移动其他变量索引。需 ProcessEdit 权限。")]
+            "清空指定索引变量槽位（Name/Value/Note 全部重置，保留槽位，不移动其他变量索引）。"
+            + "需 ProcessEdit 权限。")]
         public static async Task<string> DeleteVariable(
-            [Description("变量索引（0-999）。")] int index)
+            [Description("变量索引")] int index)
         {
             return await ExecuteAsync(
                 toolName: nameof(DeleteVariable),
@@ -769,8 +746,154 @@ namespace Automation.McpServer
                 action: client => client.DeleteVariableAsync(index)).ConfigureAwait(false);
         }
 
+        [McpServerTool(Name = "add_variable"), Description(
+            "在变量表中创建新变量。需 ProcessEdit 权限。"
+            + "参数：name（必填，变量名，全局唯一）；type（可选，\"double\"或\"string\"，默认double）；"
+            + "value（可选，初始值，double类型必须是数字，默认\"0\"）；note（可选，备注）；"
+            + "index（可选，指定槽位位置[0,1000)，默认自动找第一个空槽位）。"
+            + "名称重复或槽位被占用时返回错误。创建后自动持久化并刷新界面。"
+            + "批量创建时请多次调用（如生成 IO1~IO10 需调用 10 次）。")]
+        public static async Task<string> AddVariable(
+            [Description("变量名（全局唯一）")] string name,
+            [Description("类型：double 或 string，默认 double")] string? type = "double",
+            [Description("初始值（double 类型必须是数字）")] string? value = null,
+            [Description("备注")] string? note = null,
+            [Description("指定槽位索引，不填则自动分配")] int? index = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(AddVariable),
+                args: new { name, type, value, note, index },
+                action: client => client.AddVariableAsync(name, type ?? "double", value, note, index)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "list_stations"), Description(
+            "列出当前所有工站（工站是机械臂运动控制的逻辑分组，包含轴配置和点位列表）。"
+            + "返回工站索引、名称、速度、点位数量。需 ProcessAccess 权限。")]
+        public static async Task<string> ListStations()
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ListStations),
+                args: new { },
+                action: client => client.ListStationsAsync()).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "get_station"), Description(
+            "获取指定工站的详情，包括轴配置信息和所有有名点位列表。"
+            + "参数：stationIndex（工站索引）。需 ProcessAccess 权限。")]
+        public static async Task<string> GetStation(
+            [Description("工站索引")] int stationIndex)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetStation),
+                args: new { stationIndex },
+                action: client => client.GetStationAsync(stationIndex)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "add_station"), Description(
+            "创建新工站。需 ProcessEdit 权限。参数：name（工站名称，必填）；vel（运行速度，可选，默认1）。"
+            + "创建后自动持久化。工站包含 400 个点位槽位（初始为空）。"
+            + "工站名重复时返回错误。")]
+        public static async Task<string> AddStation(
+            [Description("工站名称（全局唯一）")] string name,
+            [Description("运行速度，可选，默认 1")] double? vel = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(AddStation),
+                args: new { name, vel },
+                action: client => client.AddStationAsync(name, vel)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "delete_station"), Description(
+            "删除指定工站。需 ProcessEdit 权限。参数：stationIndex（工站索引）。"
+            + "删除后后续工站索引会前移。删除后自动持久化并刷新界面。")]
+        public static async Task<string> DeleteStation(
+            [Description("工站索引")] int stationIndex)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(DeleteStation),
+                args: new { stationIndex },
+                action: client => client.DeleteStationAsync(stationIndex)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "update_station"), Description(
+            "修改工站名称或速度。需 ProcessEdit 权限。"
+            + "参数：stationIndex（必填）；name（新名称，可选）；vel（新速度，可选）。"
+            + "至少提供 name 或 vel 之一，工站名重复时返回错误。修改后自动持久化。")]
+        public static async Task<string> UpdateStation(
+            [Description("工站索引")] int stationIndex,
+            [Description("新名称，可选")] string? name = null,
+            [Description("新速度，可选")] double? vel = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(UpdateStation),
+                args: new { stationIndex, name, vel },
+                action: client => client.UpdateStationAsync(stationIndex, name, vel)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "list_points"), Description(
+            "列出工站下所有已命名的点位（示教点）。参数：stationIndex（工站索引）。"
+            + "返回点位索引、名称和坐标 X/Y/Z/U/V/W。需 ProcessAccess 权限。")]
+        public static async Task<string> ListPoints(
+            [Description("工站索引")] int stationIndex)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ListPoints),
+                args: new { stationIndex },
+                action: client => client.ListPointsAsync(stationIndex)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "get_point"), Description(
+            "获取工站下指定点位的详情。参数：stationIndex（工站索引）；index（点位索引[0,400)）。"
+            + "需 ProcessAccess 权限。")]
+        public static async Task<string> GetPoint(
+            [Description("工站索引")] int stationIndex,
+            [Description("点位索引 [0,400)")] int index)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetPoint),
+                args: new { stationIndex, index },
+                action: client => client.GetPointAsync(stationIndex, index)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "set_point"), Description(
+            "修改点位坐标和名称（相当于软件示教）。需 ProcessEdit 权限。"
+            + "参数：stationIndex（必填）；index（点位索引[0,400)，必填）；name（新名称，可选）；"
+            + "x/y/z/u/v/w（坐标值，每个可选，未传的保持不变）。"
+            + "修改名称时会同步更新工站的有名点位字典，工站内点位名唯一。修改后自动持久化。")]
+        public static async Task<string> SetPoint(
+            [Description("工站索引")] int stationIndex,
+            [Description("点位索引 [0,400)")] int index,
+            [Description("新名称，可选")] string? name = null,
+            [Description("X 坐标，可选")] double? x = null,
+            [Description("Y 坐标，可选")] double? y = null,
+            [Description("Z 坐标，可选")] double? z = null,
+            [Description("U 坐标，可选")] double? u = null,
+            [Description("V 坐标，可选")] double? v = null,
+            [Description("W 坐标，可选")] double? w = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(SetPoint),
+                args: new { stationIndex, index, name, x, y, z, u, v, w },
+                action: client => client.SetPointAsync(stationIndex, index, name, x, y, z, u, v, w)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "delete_point"), Description(
+            "清空指定工站下某个点位的数据。需 ProcessEdit 权限。"
+            + "点位表是固定槽位（每工站 400 个），delete 仅清空指定点位的数据（名称置空、坐标 X/Y/Z/U/V/W 归零），"
+            + "index 保持不变。点位本身已为空时返回错误。删除后自动持久化并刷新界面。")]
+        public static async Task<string> DeletePoint(
+            [Description("工站索引")] int stationIndex,
+            [Description("点位索引 [0,400)")] int index)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(DeletePoint),
+                args: new { stationIndex, index },
+                action: client => client.DeletePointAsync(stationIndex, index)).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "list_data_structs"), Description(
-            "列出全部数据结构名称及各自的数据项数量。数据结构用于存储结构化数据（如产品配方、坐标表等）。")]
+            "列出全部数据结构名称及各自数据项数量。"
+            + "数据结构用于存储结构化数据（如产品配方、坐标表等）。")]
         public static async Task<string> ListDataStructs()
         {
             return await ExecuteAsync(
@@ -780,10 +903,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_data_struct"), Description(
-            "读取数据结构详情，含所有 item 的所有字段（名称/类型/值）。" +
-            "字段类型为 Number 或 Text。Number 字段返回 numValue，Text 字段返回 strValue。")]
+            "读取数据结构详情（含所有 item 的所有字段：名称/类型/值）。"
+            + "Number 字段返回 numValue，Text 字段返回 strValue。")]
         public static async Task<string> GetDataStruct(
-            [Description("数据结构名称。")] string name)
+            [Description("数据结构名称")] string name)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetDataStruct),
@@ -792,14 +915,15 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "search_data_structs"), Description(
-            "在指定数据结构内搜索数据项。可按 item 名称、字符串字段值、数值字段范围过滤。")]
+            "在指定数据结构内搜索数据项。"
+            + "可按 item 名称/字符串字段值/数值字段范围过滤。")]
         public static async Task<string> SearchDataStructs(
-            [Description("数据结构名称。")] string name,
-            [Description("item 名称模糊匹配。")] string? itemNameLike = null,
-            [Description("字符串字段值模糊匹配。")] string? strValueLike = null,
-            [Description("数值字段最小值（含）。")] double? numValueMin = null,
-            [Description("数值字段最大值（含）。")] double? numValueMax = null,
-            [Description("返回上限，默认 100。")] int? limit = null)
+            [Description("数据结构名称")] string name,
+            [Description("item 名称模糊匹配")] string? itemNameLike = null,
+            [Description("字符串字段值模糊匹配")] string? strValueLike = null,
+            [Description("数值字段下界（含）")] double? numValueMin = null,
+            [Description("数值字段上界（含）")] double? numValueMax = null,
+            [Description("返回上限")] int? limit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(SearchDataStructs),
@@ -808,13 +932,13 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "set_data_struct_field"), Description(
-            "修改数据结构中某个 item 的某个字段值。需 ProcessEdit 权限。" +
-            "字段类型由系统自动判断（Number/Text），value 始终传字符串。")]
+            "修改数据结构中某个 item 的某个字段值。"
+            + "需 ProcessEdit 权限；字段类型由系统自动判断 Number/Text，value 始终传字符串。")]
         public static async Task<string> SetDataStructField(
-            [Description("数据结构名称。")] string name,
-            [Description("item 索引（从 0 开始）。")] int itemIndex,
-            [Description("字段索引（从 get_data_struct 返回的 fields[].index 获取）。")] int fieldIndex,
-            [Description("新值字符串。Number 类型必须是有效数字。")] string value = "")
+            [Description("数据结构名称")] string name,
+            [Description("数据项索引")] int itemIndex,
+            [Description("字段索引")] int fieldIndex,
+            [Description("新值（始终传字符串）")] string value)
         {
             return await ExecuteAsync(
                 toolName: nameof(SetDataStructField),
@@ -823,12 +947,12 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "list_io"), Description(
-            "列出全部 IO 配置（含名称、卡号、模块、索引、类型、电平、备注）。" +
-            "IO 类型为\"通用输入\"或\"通用输出\"。用于查看 IO 配置和定位指令引用的 IO。")]
+            "列出全部 IO 配置（含名称/卡号/模块/索引/类型/电平/备注）。"
+            + "IO 类型为\"通用输入\"或\"通用输出\"。")]
         public static async Task<string> ListIo(
-            [Description("按 IOType 过滤：通用输入 或 通用输出。为空则返回全部。")] string? type = null,
-            [Description("名称模糊匹配。")] string? nameLike = null,
-            [Description("返回上限，默认 10000。")] int? limit = null)
+            [Description("类型过滤：通用输入 或 通用输出")] string? type = null,
+            [Description("名称模糊匹配关键词")] string? nameLike = null,
+            [Description("返回上限")] int? limit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(ListIo),
@@ -837,9 +961,9 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_io"), Description(
-            "读取单个 IO 的配置信息。")]
+            "读取单个 IO 配置信息。")]
         public static async Task<string> GetIo(
-            [Description("IO 名称。")] string name)
+            [Description("IO 名称")] string name)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetIo),
@@ -848,12 +972,13 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "search_io"), Description(
-            "按名称关键词、类型、卡号搜索 IO。")]
+            "按名称关键词/类型/卡号搜索 IO。"
+            + "keyword 匹配 IO 名称。")]
         public static async Task<string> SearchIo(
-            [Description("名称关键词。")] string keyword,
-            [Description("按 IOType 过滤。")] string? type = null,
-            [Description("按卡号过滤。")] int? cardNum = null,
-            [Description("返回上限，默认 100。")] int? limit = null)
+            [Description("名称关键词")] string keyword,
+            [Description("类型过滤：通用输入 或 通用输出")] string? type = null,
+            [Description("卡号过滤")] int? cardNum = null,
+            [Description("返回上限")] int? limit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(SearchIo),
@@ -862,10 +987,11 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_io_state"), Description(
-            "读取单个 IO 的实时电平状态（true=高电平，false=低电平，null=读取失败）。" +
-            "通用输入通过硬件读取，通用输出读取当前输出状态。需要硬件已就绪。")]
+            "读取单个 IO 实时电平状态。"
+            + "true=高电平，false=低电平，null=读取失败。"
+            + "通用输入通过硬件读取，通用输出读取当前输出状态。需硬件已就绪。")]
         public static async Task<string> GetIoState(
-            [Description("IO 名称。")] string name)
+            [Description("IO 名称")] string name)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetIoState),
@@ -874,11 +1000,14 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "list_alarms"), Description(
-            "列出报警配置清单（含名称、分类、按钮文本、备注）。默认只返回已配置名称的报警。")]
+            "列出报警信息清单。默认只返回已配置名称的报警，可选返回空槽位、按类别/名称过滤。"
+            + "报警表固定 1000 个槽位（index 0..999），set_alarm 填充槽位，delete_alarm 清空槽位。"
+            + "参数：includeEmpty（可选，默认 false，true 时返回全部 1000 个槽位含空槽位）；"
+            + "categoryLike（可选，按类别模糊匹配）；nameLike（可选，按名称模糊匹配）。")]
         public static async Task<string> ListAlarms(
-            [Description("是否包含未配置名称的空槽位，默认 false。")] bool? includeEmpty = null,
-            [Description("按分类模糊匹配。")] string? categoryLike = null,
-            [Description("按名称模糊匹配。")] string? nameLike = null)
+            [Description("是否包含空槽位，默认 false")] bool? includeEmpty = null,
+            [Description("按类别模糊匹配")] string? categoryLike = null,
+            [Description("按名称模糊匹配")] string? nameLike = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(ListAlarms),
@@ -886,55 +1015,73 @@ namespace Automation.McpServer
                 action: client => client.ListAlarmsAsync(includeEmpty, categoryLike, nameLike)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "list_plc_devices"), Description(
-            "列出 PLC 设备清单（含名称、协议、IP、端口、CPU 类型等）。" +
-            "可选返回每个设备的映射表（PlcMapItem：数据类型、读写方向、地址、关联变量名）。")]
-        public static async Task<string> ListPlcDevices(
-            [Description("是否包含每个设备的映射表，默认 false。")] bool? includeMaps = null)
+        [McpServerTool(Name = "get_alarm"), Description(
+            "读取单个报警信息详情。返回 index/name/category/btn1/btn2/btn3/note 字段。"
+            + "用于查看指定槽位的报警配置。")]
+        public static async Task<string> GetAlarm(
+            [Description("报警槽位索引 [0,1000)")] int index)
         {
             return await ExecuteAsync(
-                toolName: nameof(ListPlcDevices),
-                args: new { includeMaps },
-                action: client => client.ListPlcDevicesAsync(includeMaps)).ConfigureAwait(false);
+                toolName: nameof(GetAlarm),
+                args: new { index },
+                action: client => client.GetAlarmAsync(index)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "list_cards"), Description(
-            "列出控制卡及轴配置清单。每张卡含卡类型、轴/输入/输出数量，以及各轴的名称、轴号、脉冲当量、回原参数、运动参数。")]
-        public static async Task<string> ListCards(
-            [Description("是否包含每张卡的轴详情，默认 true。")] bool? includeAxes = null)
+        [McpServerTool(Name = "set_alarm"), Description(
+            "创建或更新报警信息（覆盖写入指定槽位）。需 ProcessEdit 权限。"
+            + "报警表固定 1000 个槽位，index 指定槽位位置；如槽位已有数据则覆盖。"
+            + "业务约束：name 与 note 必须同时填写且非空白（与界面校验一致）。"
+            + "参数：index（必填，槽位 [0,1000)）；name（必填，报警名称）；note（必填，报警信息内容）；"
+            + "category（可选，报警类别）；btn1/btn2/btn3（可选，弹框按钮提示文本，对应确定/否/取消）。"
+            + "创建后自动持久化并刷新界面。批量创建时请多次调用。")]
+        public static async Task<string> SetAlarm(
+            [Description("报警槽位索引 [0,1000)")] int index,
+            [Description("报警名称（必填，与 note 同时填写）")] string name,
+            [Description("报警信息内容（必填，与 name 同时填写）")] string note,
+            [Description("报警类别")] string? category = null,
+            [Description("按钮1提示（对应\"确定\"）")] string? btn1 = null,
+            [Description("按钮2提示（对应\"否\"）")] string? btn2 = null,
+            [Description("按钮3提示（对应\"取消\"）")] string? btn3 = null)
         {
             return await ExecuteAsync(
-                toolName: nameof(ListCards),
-                args: new { includeAxes },
-                action: client => client.ListCardsAsync(includeAxes)).ConfigureAwait(false);
+                toolName: nameof(SetAlarm),
+                args: new { index, name, note, category, btn1, btn2, btn3 },
+                action: client => client.SetAlarmAsync(index, name, note, category, btn1, btn2, btn3)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "list_tray_points"), Description(
-            "查询料盘缓存点位。TrayPointStore 是运行时缓存（非持久化），需提供 stationName 和 trayId。" +
-            "未提供参数时返回提示信息；提供后返回缓存的点位坐标（行/列/X/Y/Z/U/V/W）。")]
-        public static async Task<string> ListTrayPoints(
-            [Description("工站名称。")] string? stationName = null,
-            [Description("料盘 ID。")] int? trayId = null)
+        [McpServerTool(Name = "delete_alarm"), Description(
+            "清空指定槽位的报警信息。需 ProcessEdit 权限。"
+            + "报警表固定 1000 个槽位，delete 仅清空指定槽位的数据（name/note/category/btn1/btn2/btn3 置空），"
+            + "index 保持不变。槽位本身为空时返回错误。删除后自动持久化并刷新界面。")]
+        public static async Task<string> DeleteAlarm(
+            [Description("报警槽位索引 [0,1000)")] int index)
         {
             return await ExecuteAsync(
-                toolName: nameof(ListTrayPoints),
-                args: new { stationName, trayId },
-                action: client => client.ListTrayPointsAsync(stationName, trayId)).ConfigureAwait(false);
+                toolName: nameof(DeleteAlarm),
+                args: new { index },
+                action: client => client.DeleteAlarmAsync(index)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "list_communications"), Description(
-            "列出通讯配置清单，含 TCP 通道和串口通道两部分。每个通道含配置信息及当前运行状态（是否运行/已连接客户端数/串口是否打开）。")]
-        public static async Task<string> ListCommunications(
-            [Description("是否包含实时运行状态，默认 true。")] bool? includeStatus = null)
+        [McpServerTool(Name = "list_resources"), Description(
+            "资源清单查询统一工具。通过 action 指定具体资源类型，通过 parameters 传 JSON 参数。" +
+            "\naction 可选值及对应 parameters 字段：" +
+            "\n- alarms: 列出报警配置清单（含名称/分类/按钮文本/备注；默认只返回已配置名称的报警）。parameters: {includeEmpty:bool?, categoryLike:string?, nameLike:string?}。" +
+            "\n- plc: 列出 PLC 设备清单（含名称/协议/IP/端口/CPU 类型等；可选返回每个设备的映射表）。parameters: {includeMaps:bool?}。" +
+            "\n- cards: 列出控制卡及轴配置清单（每张卡含卡类型/轴输入输出数量，及各轴名称/轴号/脉冲当量/回原参数/运动参数）。parameters: {includeAxes:bool? 默认true}。" +
+            "\n- tray_points: 查询料盘缓存点位（TrayPointStore 是运行时缓存非持久化，需提供 stationName 和 trayId；未提供参数返回提示，提供后返回缓存点位坐标 行/列/X/Y/Z/U/V/W）。parameters: {stationName:string?, trayId:int?}。" +
+            "\n- communications: 列出通讯配置清单（含 TCP 通道和串口通道两部分，每个通道含配置信息及当前运行状态）。parameters: {includeStatus:bool? 默认true}。" +
+            "\n示例：list_resources(action=\"alarms\", parameters=\"{\\\"nameLike\\\":\\\"缺料\\\"}\")")]
+        public static async Task<string> ListResources(
+            [Description("操作类型：alarms/plc/cards/tray_points/communications")] string action,
+            [Description("参数 JSON 字符串，不同 action 需要不同参数，详见工具描述")] string? parameters = null)
         {
             return await ExecuteAsync(
-                toolName: nameof(ListCommunications),
-                args: new { includeStatus },
-                action: client => client.ListCommunicationsAsync(includeStatus)).ConfigureAwait(false);
+                toolName: nameof(ListResources),
+                args: new { action, parameters },
+                action: client => client.ListResourcesAsync(action, ParseParameters(parameters))).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "get_patch_contract"), Description(
-            "返回 Automation MCP 的调用约束与 Patch 示例，用于提示 LLM 先读后改、先预演后提交。")]
+        // Patch 调用约束与示例，由 patch_contract 工具直接静态返回（不走 Bridge）。
         public static string GetPatchContract()
         {
             const string contract = """
@@ -949,9 +1096,9 @@ namespace Automation.McpServer
   },
   "workflow": [
     "⚠️ 操作分三类，切勿混淆：",
-    "A. 流程级操作（新增/删除/复制/重排整个流程）：用 create_proc/delete_procs/reorder_proc/copy_proc 预演 → apply_* 提交。preview_patch 不支持新增流程！",
+    "A. 流程级操作（新增/删除/复制/重排整个流程）：用 create_proc/delete_procs/reorder_proc/copy_proc（不传 previewId 预演 → 传 previewId 提交）。preview_patch 不支持新增流程！",
     "B. Patch 级操作（修改已有流程的步骤/指令）：用 preview_patch/apply_patch，actions 见 patchActions 字段",
-    "C. 运行控制（启动/停止/暂停/恢复）：用 control_proc 直接执行，无需预演",
+    "C. 运行控制（启动/停止/暂停/恢复）：用 start_proc/stop_proc/pause_proc/resume_proc 直接执行，无需预演",
     "",
     "1. list_procs 或 get_proc_overview 定位目标流程",
     "2. get_proc_detail 读取完整结构（含 flow 字段标注执行流向、gotoWarnings 标注越界跳转）",
@@ -963,11 +1110,11 @@ namespace Automation.McpServer
     "结构验证：validate_proc 修改前后快速检查跳转目标有效性和空步骤/指令，diagnose_proc 含运行时状态的完整诊断"
   ],
   "preferredWritePath": [
-    "新增流程：create_proc -> 等待确认 previewId -> apply_create_proc -> (可选) preview_patch 添加步骤/指令",
-    "基于现有流程改造：copy_proc 复制 -> apply_copy_proc 提交 -> preview_patch 修改 -> apply_patch 提交",
+    "新增流程：create_proc（不传 previewId 预演）-> 等待确认 previewId -> create_proc（携带 previewId 提交）-> (可选) preview_patch 添加步骤/指令",
+    "基于现有流程改造：copy_proc 复制（不传 previewId 预演）-> copy_proc（携带 previewId 提交）-> preview_patch 修改 -> apply_patch 提交",
     "优先使用中间意图：get_intent_template -> preview_intent -> 等待确认 previewId -> apply_intent",
     "仅在已经有标准 patchJson 时再直接调用 preview_patch -> 等待确认 previewId -> apply_patch",
-    "流程运行控制：control_proc 直接执行 start/stop/pause/resume，不需要预演确认"
+    "流程运行控制：start_proc/stop_proc/pause_proc/resume_proc 直接执行，不需要预演确认"
   ],
   "patchActions": [
     "update_proc_head_fields",
@@ -1022,6 +1169,7 @@ namespace Automation.McpServer
     "不要直接改原始流程 JSON 文件",
     "不要假设流程名、步骤名、指令名唯一",
     "字段名必须使用 get_proc_detail.fields 或 get_operation_schema.fields.key 返回的精确键名",
+    "字段值必须匹配 get_operation_schema.fields[].jsonType/valueShape；referenceType 字段若 dataType 是 string，编号也必须写成 JSON 字符串，例如 AlarmInfoID 用 \"0\" 而不是 0",
     "不要在未读取 schema 的情况下猜字段名或枚举值",
     "actions[] 中的动作键必须使用 type，禁止使用旧字段 action",
     "update_*_fields 必须使用 fieldChanges，insert/append_operation 需要初始字段时必须使用 fieldValues，禁止使用旧字段 fields",
@@ -1031,15 +1179,35 @@ namespace Automation.McpServer
     "delete/move/insert 会触发 Automation Bridge 自动重写同流程内的跳转地址",
     "move_step/move_operation 的 targetIndex 表示移除源项后的最终索引",
     "apply_patch 前必须先调用 preview_patch 并等待 Automation 前台确认",
-    "流程结构操作（create_proc/delete_procs/reorder_proc/copy_proc）需先预演再 apply，apply 携带已确认的 previewId",
-    "delete_procs/reorder_proc 操作正在运行的流程会失败，需先 control_proc stop 停止",
-    "control_proc 不需要预演确认，直接发送 start/stop/pause/resume 命令",
+    "流程结构操作（create_proc/delete_procs/reorder_proc/copy_proc）需先预演（不传 previewId）再提交（传 previewId），提交时携带已确认的 previewId",
+    "delete_procs/reorder_proc 操作正在运行的流程会失败，需先 stop_proc 停止",
+    "start_proc/stop_proc/pause_proc/resume_proc 不需要预演确认，直接发送命令",
     "reorder_proc 的 targetIndex 是移动后的最终索引，必须在当前流程数量范围内"
   ]
 }
 """;
             ToolCallLogger.Log(nameof(GetPatchContract), new { }, contract);
             return contract;
+        }
+
+        // 把 parameters 字符串解析为 JsonObject，供保留的合并工具（op_meta/list_resources）透传给 Bridge 的 params 字段。
+        private static JsonObject ParseParameters(string? parameters)
+        {
+            if (string.IsNullOrEmpty(parameters)) return new JsonObject();
+            try
+            {
+                JsonNode? node = JsonNode.Parse(parameters);
+                if (node is JsonObject obj)
+                {
+                    return obj;
+                }
+
+                throw new ArgumentException("parameters 必须是 JSON 对象。");
+            }
+            catch (JsonException ex)
+            {
+                throw new ArgumentException("parameters 不是合法 JSON。", ex);
+            }
         }
 
         private static async Task<string> ExecuteAsync(string toolName, object args, Func<AutomationBridgeClient, Task<string>> action)
@@ -1053,9 +1221,9 @@ namespace Automation.McpServer
             catch (Exception ex)
             {
                 string error = $$"""
-{"ok":false,"type":"mcp.error","message":"{{toolName}} 调用异常","details":"{{Escape(ex.Message)}}"}
+{"ok":false,"type":"mcp.error","errorCode":"TOOL_EXCEPTION","message":"{{toolName}} 调用异常","exceptionType":"{{Escape(ex.GetType().Name)}}","details":"{{Escape(ex.Message)}}"}
 """;
-                ToolCallLogger.Log(toolName, args, string.Empty, ex.Message);
+                ToolCallLogger.Log(toolName, args, string.Empty, ex.ToString());
                 return error;
             }
         }

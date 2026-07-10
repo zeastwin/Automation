@@ -2252,40 +2252,40 @@ namespace Automation
             OperaType = "走料盘点";
         }
 
-        [DisplayName("工站名称"), Category("料盘参数设置"), Description("目标工站名称；用于定位料盘所属工站。"), ReadOnly(false), TypeConverter(typeof(StationtItem))]
+        [DisplayName("工站名称"), Category("B.目标工站"), Description("目标工站名称；用于定位料盘所属工站。"), ReadOnly(false), TypeConverter(typeof(StationtItem))]
         public string StationName { get; set; }
 
-        [DisplayName("料盘号"), Category("料盘参数设置"), Description("目标料盘编号。"), ReadOnly(false)]
+        [DisplayName("固定料盘号"), Category("C.料盘号-固定值"), Description("直接填写目标料盘号；如使用变量读取料盘号，此处必须保持 0。"), ReadOnly(false)]
         public int TrayId { get; set; }
 
-        [DisplayName("料盘号索引"), Category("料盘参数设置"), Description("料盘号索引地址；用于按索引读取料盘编号。"), ReadOnly(false)]
+        [DisplayName("料盘号变量索引"), Category("D.料盘号-变量读取"), Description("按变量索引读取目标料盘号；与固定料盘号二选一。"), ReadOnly(false)]
         public string TrayIdValueIndex { get; set; }
 
-        [DisplayName("料盘号索引二级"), Category("料盘参数设置"), Description("料盘号二级索引地址；用于嵌套取值。"), ReadOnly(false)]
+        [DisplayName("料盘号变量索引二级"), Category("D.料盘号-变量读取"), Description("先按变量索引读取另一个变量索引，再读取该变量中的目标料盘号；与固定料盘号二选一。"), ReadOnly(false)]
         public string TrayIdValueIndex2Index { get; set; }
 
-        [DisplayName("料盘号变量名称"), Category("料盘参数设置"), Description("料盘号变量名；运行时读取目标料盘编号。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [DisplayName("料盘号变量名称"), Category("D.料盘号-变量读取"), Description("按变量名称读取目标料盘号；与固定料盘号二选一。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string TrayIdValueName { get; set; }
 
-        [DisplayName("料盘号变量名称二级"), Category("料盘参数设置"), Description("料盘号二级变量名；用于嵌套变量取值。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [DisplayName("料盘号变量名称二级"), Category("D.料盘号-变量读取"), Description("先按变量名称读取另一个变量索引，再读取该变量中的目标料盘号；与固定料盘号二选一。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string TrayIdValueName2Index { get; set; }
 
-        [DisplayName("料盘位置"), Category("料盘参数设置"), Description("目标料盘内位置编号。"), ReadOnly(false)]
+        [DisplayName("固定料盘位置"), Category("E.料盘位置-固定值"), Description("直接填写目标料盘位置，必须大于 0；如使用变量读取料盘位置，此处必须保持 0。"), ReadOnly(false)]
         public int TrayPos { get; set; }
 
-        [DisplayName("料盘位置索引"), Category("料盘参数设置"), Description("料盘位置索引地址；用于按索引读取位置。"), ReadOnly(false)]
+        [DisplayName("料盘位置变量索引"), Category("F.料盘位置-变量读取"), Description("按变量索引读取目标料盘位置；与固定料盘位置二选一。"), ReadOnly(false)]
         public string TrayPosValueIndex { get; set; }
 
-        [DisplayName("料盘位置索引二级"), Category("料盘参数设置"), Description("料盘位置二级索引地址；用于嵌套取值。"), ReadOnly(false)]
+        [DisplayName("料盘位置变量索引二级"), Category("F.料盘位置-变量读取"), Description("先按变量索引读取另一个变量索引，再读取该变量中的目标料盘位置；与固定料盘位置二选一。"), ReadOnly(false)]
         public string TrayPosValueIndex2Index { get; set; }
 
-        [DisplayName("料盘位置变量名称"), Category("料盘参数设置"), Description("料盘位置变量名；运行时读取目标位置。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [DisplayName("料盘位置变量名称"), Category("F.料盘位置-变量读取"), Description("按变量名称读取目标料盘位置；与固定料盘位置二选一。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string TrayPosValueName { get; set; }
 
-        [DisplayName("料盘位置变量名称二级"), Category("料盘参数设置"), Description("料盘位置二级变量名；用于嵌套变量取值。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        [DisplayName("料盘位置变量名称二级"), Category("F.料盘位置-变量读取"), Description("先按变量名称读取另一个变量索引，再读取该变量中的目标料盘位置；与固定料盘位置二选一。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string TrayPosValueName2Index { get; set; }
 
-        [DisplayName("不等待"), Category("料盘参数设置"), Description("启用后下发动作后不等待运动完成即继续执行。"), ReadOnly(false)]
+        [DisplayName("不等待完成"), Category("G.执行选项"), Description("启用后下发动作后不等待运动完成即继续执行。"), ReadOnly(false)]
         public bool isUnWait { get; set; }
     }
 

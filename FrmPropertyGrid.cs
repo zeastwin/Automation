@@ -1191,7 +1191,7 @@ namespace Automation
         {
             get
             {
-                return "参数类型";
+                return "引用方式";
             }
         }
 

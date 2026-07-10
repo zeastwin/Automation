@@ -130,93 +130,131 @@ namespace Automation.Bridge
                 JObject request = ParseRequestBody(body);
                 switch (normalizedPath)
                 {
-                    case "/bridge/procs/list":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.list", ExecuteOnUiThread(() => HandleListProcs(request))));
-                    case "/bridge/procs/overview":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.overview", ExecuteOnUiThread(() => HandleGetProcOverview(request))));
-                    case "/bridge/procs/detail":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.detail", ExecuteOnUiThread(() => HandleGetProcDetail(request))));
-                    case "/bridge/operations/types":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("operation.types", ExecuteOnUiThread(HandleListOperationTypes)));
-                    case "/bridge/operations/schema":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("operation.schema", ExecuteOnUiThread(() => HandleGetOperationSchema(request))));
-                    case "/bridge/references/catalog":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("reference.catalog", ExecuteOnUiThread(() => HandleGetReferenceCatalog(request))));
-                    case "/bridge/intents/catalog":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.catalog", ExecuteOnUiThread(() => HandleListIntentTemplates(request))));
-                    case "/bridge/intents/template":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.template", ExecuteOnUiThread(() => HandleGetIntentTemplate(request))));
-                    case "/bridge/intents/build-patch":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.patch", ExecuteOnUiThread(() => HandleBuildPatchFromIntent(request))));
-                    case "/bridge/intents/preview":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.preview", ExecuteOnUiThread(() => HandlePreviewIntent(request))));
-                    case "/bridge/intents/apply":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("intent.apply", ExecuteOnUiThread(() => HandleApplyIntent(request))));
-                    case "/bridge/previews/confirm":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("preview.confirm", ExecuteOnUiThread(() => HandleConfirmPreview(request))));
-                    case "/bridge/patch/preview":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("patch.preview", ExecuteOnUiThread(() => HandlePreviewPatch(request))));
-                    case "/bridge/patch/apply":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("patch.apply", ExecuteOnUiThread(() => HandleApplyPatch(request))));
-                    case "/bridge/runtime/snapshot":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("runtime.snapshot", ExecuteOnUiThread(() => HandleGetRuntimeSnapshot(request))));
-                    case "/bridge/info-log/tail":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("infoLog.tail", ExecuteOnUiThread(() => HandleGetInfoLogTail(request))));
-                    case "/bridge/procs/manage/preview":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.manage.preview", ExecuteOnUiThread(() => HandleManagePreview(request))));
-                    case "/bridge/procs/manage/apply":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.manage.apply", ExecuteOnUiThread(() => HandleManageApply(request))));
-                    case "/bridge/procs/control":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.control", ExecuteOnUiThread(() => HandleControlProc(request))));
-                    case "/bridge/procs/diagnose":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.diagnose", ExecuteOnUiThread(() => HandleDiagnoseProc(request))));
-                    case "/bridge/operations/detail":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("operation.detail", ExecuteOnUiThread(() => HandleGetOperationDetail(request))));
-                    case "/bridge/steps/detail":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("step.detail", ExecuteOnUiThread(() => HandleGetStepDetail(request))));
-                    case "/bridge/operations/search":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("operation.search", ExecuteOnUiThread(() => HandleSearchOperations(request))));
-                    case "/bridge/procs/validate":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("proc.validate", ExecuteOnUiThread(() => HandleValidateProc(request))));
-                    // === 资源查询与操作扩展端点 ===
-                    case "/bridge/variables/list":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("variable.list", ExecuteOnUiThread(() => HandleListVariables(request))));
-                    case "/bridge/variables/get":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("variable.get", ExecuteOnUiThread(() => HandleGetVariable(request))));
-                    case "/bridge/variables/search":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("variable.search", ExecuteOnUiThread(() => HandleSearchVariables(request))));
-                    case "/bridge/variables/set":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("variable.set", ExecuteOnUiThread(() => HandleSetVariable(request))));
-                    case "/bridge/variables/delete":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("variable.delete", ExecuteOnUiThread(() => HandleDeleteVariable(request))));
-                    case "/bridge/data-structs/list":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("dataStruct.list", ExecuteOnUiThread(() => HandleListDataStructs(request))));
-                    case "/bridge/data-structs/get":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("dataStruct.get", ExecuteOnUiThread(() => HandleGetDataStruct(request))));
-                    case "/bridge/data-structs/search":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("dataStruct.search", ExecuteOnUiThread(() => HandleSearchDataStructs(request))));
-                    case "/bridge/data-structs/set-field":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("dataStruct.setField", ExecuteOnUiThread(() => HandleSetDataStructField(request))));
+                    // ---------- proc_query 拆分端点 ----------
+                    case "/bridge/proc/list":
+                        return WrapResponse("proc.list", ExecuteOnUiThread(() => HandleListProcs(request)));
+                    case "/bridge/proc/overview":
+                        return WrapResponse("proc.overview", ExecuteOnUiThread(() => HandleGetProcOverview(request)));
+                    case "/bridge/proc/detail":
+                        return WrapResponse("proc.detail", ExecuteOnUiThread(() => HandleGetProcDetail(request)));
+                    case "/bridge/proc/op_detail":
+                        return WrapResponse("proc.op_detail", ExecuteOnUiThread(() => HandleGetOperationDetail(request)));
+                    case "/bridge/proc/step_detail":
+                        return WrapResponse("proc.step_detail", ExecuteOnUiThread(() => HandleGetStepDetail(request)));
+                    case "/bridge/proc/search":
+                        return WrapResponse("proc.search", ExecuteOnUiThread(() => HandleSearchOperations(request)));
+                    case "/bridge/proc/snapshot":
+                        return WrapResponse("proc.snapshot", ExecuteOnUiThread(() => HandleGetRuntimeSnapshot(request)));
+                    // ---------- proc_diagnose 拆分端点 ----------
+                    case "/bridge/proc/log_tail":
+                        return WrapResponse("proc.log_tail", ExecuteOnUiThread(() => HandleGetInfoLogTail(request)));
+                    case "/bridge/proc/diagnose":
+                        return WrapResponse("proc.diagnose", ExecuteOnUiThread(() => HandleDiagnoseProc(request)));
+                    case "/bridge/proc/validate":
+                        return WrapResponse("proc.validate", ExecuteOnUiThread(() => HandleValidateProc(request)));
+                    // ---------- intent 拆分端点 ----------
+                    case "/bridge/intent/list_templates":
+                        return WrapResponse("intent.list_templates", ExecuteOnUiThread(() => HandleListIntentTemplates(request)));
+                    case "/bridge/intent/get_template":
+                        return WrapResponse("intent.get_template", ExecuteOnUiThread(() => HandleGetIntentTemplate(request)));
+                    case "/bridge/intent/build_patch":
+                        return WrapResponse("intent.build_patch", ExecuteOnUiThread(() => HandleBuildPatchFromIntent(request)));
+                    // ---------- patch 拆分端点 ----------
+                    case "/bridge/patch/preview_intent":
+                        return WrapResponse("patch.preview_intent", ExecuteOnUiThread(() => HandlePreviewIntent(request)));
+                    case "/bridge/patch/apply_intent":
+                        return WrapResponse("patch.apply_intent", ExecuteOnUiThread(() => HandleApplyIntent(request)));
+                    case "/bridge/patch/preview_patch":
+                        return WrapResponse("patch.preview_patch", ExecuteOnUiThread(() => HandlePreviewPatch(request)));
+                    case "/bridge/patch/apply_patch":
+                        return WrapResponse("patch.apply_patch", ExecuteOnUiThread(() => HandleApplyPatch(request)));
+                    // ---------- proc_manage 拆分端点（previewId 为空预演，非空提交） ----------
+                    case "/bridge/proc/create":
+                        return WrapResponse("proc.create", ExecuteOnUiThread(() => HandleCreateOrApply(request)));
+                    case "/bridge/proc/delete":
+                        return WrapResponse("proc.delete", ExecuteOnUiThread(() => HandleDeleteOrApply(request)));
+                    case "/bridge/proc/reorder":
+                        return WrapResponse("proc.reorder", ExecuteOnUiThread(() => HandleReorderOrApply(request)));
+                    case "/bridge/proc/copy":
+                        return WrapResponse("proc.copy", ExecuteOnUiThread(() => HandleCopyOrApply(request)));
+                    // ---------- control_proc 拆分端点（直接构造 action 调用 HandleControlProc） ----------
+                    case "/bridge/proc/start":
+                        return WrapResponse("proc.start", ExecuteOnUiThread(() => HandleControlProc(BuildControlRequest(request, "start"))));
+                    case "/bridge/proc/stop":
+                        return WrapResponse("proc.stop", ExecuteOnUiThread(() => HandleControlProc(BuildControlRequest(request, "stop"))));
+                    case "/bridge/proc/pause":
+                        return WrapResponse("proc.pause", ExecuteOnUiThread(() => HandleControlProc(BuildControlRequest(request, "pause"))));
+                    case "/bridge/proc/resume":
+                        return WrapResponse("proc.resume", ExecuteOnUiThread(() => HandleControlProc(BuildControlRequest(request, "resume"))));
+                    // ---------- variable 拆分端点 ----------
+                    case "/bridge/variable/list":
+                        return WrapResponse("variable.list", ExecuteOnUiThread(() => HandleListVariables(request)));
+                    case "/bridge/variable/get":
+                        return WrapResponse("variable.get", ExecuteOnUiThread(() => HandleGetVariable(request)));
+                    case "/bridge/variable/search":
+                        return WrapResponse("variable.search", ExecuteOnUiThread(() => HandleSearchVariables(request)));
+                    case "/bridge/variable/set":
+                        return WrapResponse("variable.set", ExecuteOnUiThread(() => HandleSetVariable(request)));
+                    case "/bridge/variable/delete":
+                        return WrapResponse("variable.delete", ExecuteOnUiThread(() => HandleDeleteVariable(request)));
+                    case "/bridge/variable/add":
+                        return WrapResponse("variable.add", ExecuteOnUiThread(() => HandleAddVariable(request)));
+                    // ---------- station 拆分端点 ----------
+                    case "/bridge/station/list":
+                        return WrapResponse("station.list", ExecuteOnUiThread(() => HandleListStations(request)));
+                    case "/bridge/station/get":
+                        return WrapResponse("station.get", ExecuteOnUiThread(() => HandleGetStation(request)));
+                    case "/bridge/station/add":
+                        return WrapResponse("station.add", ExecuteOnUiThread(() => HandleAddStation(request)));
+                    case "/bridge/station/delete":
+                        return WrapResponse("station.delete", ExecuteOnUiThread(() => HandleDeleteStation(request)));
+                    case "/bridge/station/update":
+                        return WrapResponse("station.update", ExecuteOnUiThread(() => HandleUpdateStation(request)));
+                    // ---------- point 拆分端点 ----------
+                    case "/bridge/point/list":
+                        return WrapResponse("point.list", ExecuteOnUiThread(() => HandleListPoints(request)));
+                    case "/bridge/point/get":
+                        return WrapResponse("point.get", ExecuteOnUiThread(() => HandleGetPoint(request)));
+                    case "/bridge/point/set":
+                        return WrapResponse("point.set", ExecuteOnUiThread(() => HandleSetPoint(request)));
+                    case "/bridge/point/delete":
+                        return WrapResponse("point.delete", ExecuteOnUiThread(() => HandleDeletePoint(request)));
+                    // ---------- data_struct 拆分端点 ----------
+                    case "/bridge/data_struct/list":
+                        return WrapResponse("data_struct.list", ExecuteOnUiThread(() => HandleListDataStructs(request)));
+                    case "/bridge/data_struct/get":
+                        return WrapResponse("data_struct.get", ExecuteOnUiThread(() => HandleGetDataStruct(request)));
+                    case "/bridge/data_struct/search":
+                        return WrapResponse("data_struct.search", ExecuteOnUiThread(() => HandleSearchDataStructs(request)));
+                    case "/bridge/data_struct/set_field":
+                        return WrapResponse("data_struct.set_field", ExecuteOnUiThread(() => HandleSetDataStructField(request)));
+                    // ---------- io 拆分端点 ----------
                     case "/bridge/io/list":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("io.list", ExecuteOnUiThread(() => HandleListIo(request))));
+                        return WrapResponse("io.list", ExecuteOnUiThread(() => HandleListIo(request)));
                     case "/bridge/io/get":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("io.get", ExecuteOnUiThread(() => HandleGetIo(request))));
+                        return WrapResponse("io.get", ExecuteOnUiThread(() => HandleGetIo(request)));
                     case "/bridge/io/search":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("io.search", ExecuteOnUiThread(() => HandleSearchIo(request))));
+                        return WrapResponse("io.search", ExecuteOnUiThread(() => HandleSearchIo(request)));
                     case "/bridge/io/state":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("io.state", ExecuteOnUiThread(() => HandleGetIoState(request))));
-                    case "/bridge/alarms/list":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("alarm.list", ExecuteOnUiThread(() => HandleListAlarms(request))));
-                    case "/bridge/plc/devices":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("plc.devices", ExecuteOnUiThread(() => HandleListPlcDevices(request))));
-                    case "/bridge/cards/list":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("card.list", ExecuteOnUiThread(() => HandleListCards(request))));
-                    case "/bridge/tray-points/list":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("trayPoint.list", ExecuteOnUiThread(() => HandleListTrayPoints(request))));
-                    case "/bridge/communications/list":
-                        return AutomationBridgeResponse.Ok(BuildSuccessBody("communication.list", ExecuteOnUiThread(() => HandleListCommunications(request))));
+                        return WrapResponse("io.state", ExecuteOnUiThread(() => HandleGetIoState(request)));
+                    // ---------- alarm 拆分端点 ----------
+                    case "/bridge/alarm/list":
+                        return WrapResponse("alarm.list", ExecuteOnUiThread(() => HandleListAlarms(request)));
+                    case "/bridge/alarm/get":
+                        return WrapResponse("alarm.get", ExecuteOnUiThread(() => HandleGetAlarm(request)));
+                    case "/bridge/alarm/set":
+                        return WrapResponse("alarm.set", ExecuteOnUiThread(() => HandleSetAlarm(request)));
+                    case "/bridge/alarm/delete":
+                        return WrapResponse("alarm.delete", ExecuteOnUiThread(() => HandleDeleteAlarm(request)));
+                    // ---------- 保留的合并端点 ----------
+                    case "/bridge/op/meta":
+                        return WrapResponse("op.meta", ExecuteOnUiThread(() => HandleOpMeta(request)));
+                    case "/bridge/resources":
+                        return WrapResponse("resources", ExecuteOnUiThread(() => HandleListResources(request)));
+                    case "/bridge/previews/confirm":
+                        return WrapResponse("preview.confirm", ExecuteOnUiThread(() => HandleConfirmPreview(request)));
                     default:
-                        throw new BridgeRequestException(404, "ENDPOINT_NOT_FOUND", $"未找到端点：{normalizedPath}");
+                        throw new BridgeRequestException(404, "NOT_FOUND", $"未知的 Bridge 端点：{normalizedPath}");
                 }
             }
             catch (BridgeRequestException ex)
@@ -251,6 +289,35 @@ namespace Automation.Bridge
             }.ToString(Formatting.None);
         }
 
+        // Bridge 错误返回对象：handler 方法用 return 代替 throw 时使用。
+        // 通过 __bridgeError 标记让 WrapResponse 识别并转换为 AutomationBridgeResponse.Error。
+        private static JObject BridgeError(int statusCode, string code, string message, string details = null)
+        {
+            return new JObject
+            {
+                ["__bridgeError"] = true,
+                ["statusCode"] = statusCode,
+                ["code"] = code ?? string.Empty,
+                ["message"] = message ?? string.Empty,
+                ["details"] = string.IsNullOrWhiteSpace(details) ? null : details
+            };
+        }
+
+        // 包装 handler 返回值：如果是 BridgeError 错误对象则返回 AutomationBridgeResponse.Error，否则按成功包装。
+        private static AutomationBridgeResponse WrapResponse(string type, JObject result)
+        {
+            if (result != null && result["__bridgeError"] is JToken flag && flag.Value<bool>())
+            {
+                int statusCode = result["statusCode"]?.Value<int>() ?? 400;
+                string code = result["code"]?.Value<string>() ?? "BRIDGE_ERROR";
+                string message = result["message"]?.Value<string>() ?? string.Empty;
+                string details = result["details"]?.Value<string>();
+                return AutomationBridgeResponse.Error(statusCode, code, message, details);
+            }
+            return AutomationBridgeResponse.Ok(BuildSuccessBody(type, result));
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListProcs(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取流程列表");
@@ -303,6 +370,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetProcOverview(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取流程摘要");
@@ -311,6 +379,7 @@ namespace Automation.Bridge
             return BuildProcOverview(procIndex, proc);
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetProcDetail(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取流程详情");
@@ -319,6 +388,7 @@ namespace Automation.Bridge
             return BuildProcDetail(procIndex, proc);
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListOperationTypes()
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取指令类型");
@@ -344,6 +414,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetOperationSchema(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取指令 Schema");
@@ -361,7 +432,7 @@ namespace Automation.Bridge
             {
                 if (!procIndex.HasValue)
                 {
-                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", "读取现有指令实例时必须提供 procIndex。");
+                    return BridgeError(400, "INVALID_ARGUMENT", "读取现有指令实例时必须提供 procIndex。");
                 }
                 Guid stepId = ParseGuid(stepIdText, "stepId");
                 Guid opId = ParseGuid(opIdText, "opId");
@@ -381,7 +452,7 @@ namespace Automation.Bridge
             {
                 if (string.IsNullOrWhiteSpace(operaType))
                 {
-                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", "读取指令类型 Schema 时必须提供 operaType。");
+                    return BridgeError(400, "INVALID_ARGUMENT", "读取指令类型 Schema 时必须提供 operaType。");
                 }
 
                 operation = CreateOperationTemplate(operaType);
@@ -399,6 +470,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetReferenceCatalog(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取引用目录");
@@ -467,6 +539,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListIntentTemplates(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取中间意图模板");
@@ -497,6 +570,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetIntentTemplate(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取中间意图模板");
@@ -529,6 +603,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleBuildPatchFromIntent(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "构建 Patch");
@@ -541,6 +616,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandlePreviewIntent(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演中间意图");
@@ -558,6 +634,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleApplyIntent(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交中间意图");
@@ -585,6 +662,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleConfirmPreview(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessEdit, "确认预演结果");
@@ -595,7 +673,7 @@ namespace Automation.Bridge
                 CleanupExpiredPreviewsLocked();
                 if (!previewRecords.TryGetValue(previewId, out record))
                 {
-                    throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
+                    return BridgeError(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
                 }
 
                 EnsurePreviewProcVersion(record);
@@ -614,66 +692,8 @@ namespace Automation.Bridge
             };
         }
 
-        // 流程级结构操作预演：创建/删除/重排/复制流程。
-        // 与单流程 Patch 不同，这些操作影响 procsList 结构，需要独立的预演确认流程。
-        private JObject HandleManagePreview(JObject request)
-        {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演流程结构操作");
-            string action = ReadRequiredString(request, "action");
-            JObject preview;
-            switch (action)
-            {
-                case "create_proc":
-                    preview = PreviewCreateProc(request);
-                    break;
-                case "delete_procs":
-                    preview = PreviewDeleteProcs(request);
-                    break;
-                case "reorder_proc":
-                    preview = PreviewReorderProc(request);
-                    break;
-                case "copy_proc":
-                    preview = PreviewCopyProc(request);
-                    break;
-                default:
-                    throw new BridgeRequestException(400, "UNSUPPORTED_ACTION", $"不支持的流程结构操作：{action}");
-            }
-            // 完全权限模式下预演已在 RegisterManagePreview 中自动确认，AI 可直接提交。
-            preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
-            return preview;
-        }
-
-        private JObject HandleManageApply(JObject request)
-        {
-            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交流程结构操作");
-            string previewId = ReadRequiredString(request, "previewId");
-            // 流程结构操作不修改单个 proc 的 patch，而是操作 procsList。
-            // 复用预演确认机制：确认后即可执行。
-            ValidateConfirmedManagePreview(previewId);
-            string action = ReadRequiredString(request, "action");
-            JObject result;
-            switch (action)
-            {
-                case "create_proc":
-                    result = ExecuteCreateProc(request);
-                    break;
-                case "delete_procs":
-                    result = ExecuteDeleteProcs(request);
-                    break;
-                case "reorder_proc":
-                    result = ExecuteReorderProc(request);
-                    break;
-                case "copy_proc":
-                    result = ExecuteCopyProc(request);
-                    break;
-                default:
-                    throw new BridgeRequestException(400, "UNSUPPORTED_ACTION", $"不支持的流程结构操作：{action}");
-            }
-            RemovePreview(previewId);
-            return result;
-        }
-
         // 流程运行控制：启动/停止/暂停/恢复。不需要预演确认。
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleControlProc(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "控制流程运行");
@@ -689,33 +709,33 @@ namespace Automation.Bridge
                 case "start":
                     if (currentState == ProcRunState.Running || currentState == ProcRunState.Paused)
                     {
-                        throw new BridgeRequestException(409, "PROC_ALREADY_RUNNING", $"流程 {procIndex} 已在运行或暂停状态。");
+                        return BridgeError(409, "PROC_ALREADY_RUNNING", $"流程 {procIndex} 已在运行或暂停状态。");
                     }
                     SF.DR.StartProc(proc, procIndex);
                     break;
                 case "stop":
                     if (currentState == ProcRunState.Stopped)
                     {
-                        throw new BridgeRequestException(409, "PROC_NOT_RUNNING", $"流程 {procIndex} 未在运行。");
+                        return BridgeError(409, "PROC_NOT_RUNNING", $"流程 {procIndex} 未在运行。");
                     }
                     SF.DR.Stop(procIndex);
                     break;
                 case "pause":
                     if (currentState != ProcRunState.Running)
                     {
-                        throw new BridgeRequestException(409, "PROC_NOT_RUNNING", $"流程 {procIndex} 不在运行状态，无法暂停。");
+                        return BridgeError(409, "PROC_NOT_RUNNING", $"流程 {procIndex} 不在运行状态，无法暂停。");
                     }
                     SF.DR.Pause(procIndex);
                     break;
                 case "resume":
                     if (currentState != ProcRunState.Paused)
                     {
-                        throw new BridgeRequestException(409, "PROC_NOT_PAUSED", $"流程 {procIndex} 不在暂停状态，无法恢复。");
+                        return BridgeError(409, "PROC_NOT_PAUSED", $"流程 {procIndex} 不在暂停状态，无法恢复。");
                     }
                     SF.DR.Resume(procIndex);
                     break;
                 default:
-                    throw new BridgeRequestException(400, "UNSUPPORTED_ACTION", $"不支持的流程控制操作：{action}。支持：start, stop, pause, resume");
+                    return BridgeError(400, "UNSUPPORTED_ACTION", $"不支持的流程控制操作：{action}。支持：start, stop, pause, resume");
             }
 
             return new JObject
@@ -755,6 +775,7 @@ namespace Automation.Bridge
             return preview;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject PreviewDeleteProcs(JObject request)
         {
             EnsureRuntimeReady();
@@ -801,6 +822,7 @@ namespace Automation.Bridge
             return preview;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject PreviewReorderProc(JObject request)
         {
             EnsureRuntimeReady();
@@ -863,6 +885,7 @@ namespace Automation.Bridge
             return preview;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject ExecuteCreateProc(JObject request)
         {
             string name = ReadRequiredString(request, "name");
@@ -883,7 +906,11 @@ namespace Automation.Bridge
                 throw new BridgeRequestException(400, "PROC_VALIDATE_FAILED", "流程创建校验失败。", string.Join("\r\n", errors.Distinct()));
             }
 
-            owner.SaveAsJson(SF.workPath, procIndex.ToString(CultureInfo.InvariantCulture), proc);
+            if (!owner.SaveAsJson(SF.workPath, procIndex.ToString(CultureInfo.InvariantCulture), proc))
+            {
+                SF.frmProc.procsList.RemoveAt(procIndex);
+                throw new BridgeRequestException(500, "SAVE_FAILED", "流程保存失败。");
+            }
             SF.PublishProc(procIndex);
             SF.frmProc.Refresh();
             NotifyProcChanged(procIndex, ProcChangeKind.Added);
@@ -939,6 +966,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject ExecuteReorderProc(JObject request)
         {
             int procIndex = ReadRequiredInt(request, "procIndex");
@@ -976,6 +1004,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject ExecuteCopyProc(JObject request)
         {
             int procIndex = ReadRequiredInt(request, "procIndex");
@@ -1066,8 +1095,10 @@ namespace Automation.Bridge
             return previewId;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private void ValidateConfirmedManagePreview(string previewId)
         {
+            ValidatePreviewIdFormat(previewId);
             lock (previewLock)
             {
                 CleanupExpiredPreviewsLocked();
@@ -1082,6 +1113,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandlePreviewPatch(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演 Patch");
@@ -1089,6 +1121,7 @@ namespace Automation.Bridge
             return BuildRegisteredPatchPreview(request, result);
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleApplyPatch(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交 Patch");
@@ -1110,6 +1143,7 @@ namespace Automation.Bridge
             return apply;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetRuntimeSnapshot(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取运行快照");
@@ -1144,13 +1178,14 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetInfoLogTail(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取运行日志");
             int maxCount = ReadOptionalInt(request, "maxCount") ?? 50;
             if (maxCount <= 0 || maxCount > 200)
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "maxCount 必须在 1..200 范围内。");
+                return BridgeError(400, "INVALID_ARGUMENT", "maxCount 必须在 1..200 范围内。");
             }
 
             JArray items = new JArray();
@@ -1171,6 +1206,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleDiagnoseProc(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "诊断流程");
@@ -1282,6 +1318,7 @@ namespace Automation.Bridge
 
         // 读取单条指令的完整详情：字段值、Schema、执行流向、跳转目标有效性。
         // 颗粒度介于 get_proc_detail 和 get_operation_schema 之间，适合聚焦分析某条指令。
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetOperationDetail(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取指令详情");
@@ -1292,12 +1329,12 @@ namespace Automation.Bridge
             Proc proc = GetProcByIndex(procIndex);
             if (proc.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
             {
-                throw new BridgeRequestException(400, "STEP_NOT_FOUND", $"步骤索引越界：{stepIndex}");
+                return BridgeError(400, "STEP_NOT_FOUND", $"步骤索引越界：{stepIndex}");
             }
             Step step = proc.steps[stepIndex];
             if (step.Ops == null || opIndex < 0 || opIndex >= step.Ops.Count)
             {
-                throw new BridgeRequestException(400, "OP_NOT_FOUND", $"指令索引越界：{opIndex}");
+                return BridgeError(400, "OP_NOT_FOUND", $"指令索引越界：{opIndex}");
             }
             OperationType op = step.Ops[opIndex];
             bool isJump = IsJumpOperation(op?.OperaType);
@@ -1337,6 +1374,7 @@ namespace Automation.Bridge
         }
 
         // 读取单个步骤的完整指令列表。介于 get_proc_overview 和 get_proc_detail 之间的颗粒度。
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetStepDetail(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "读取步骤详情");
@@ -1346,7 +1384,7 @@ namespace Automation.Bridge
             Proc proc = GetProcByIndex(procIndex);
             if (proc.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
             {
-                throw new BridgeRequestException(400, "STEP_NOT_FOUND", $"步骤索引越界：{stepIndex}");
+                return BridgeError(400, "STEP_NOT_FOUND", $"步骤索引越界：{stepIndex}");
             }
             Step step = proc.steps[stepIndex];
 
@@ -1390,6 +1428,7 @@ namespace Automation.Bridge
 
         // 按条件搜索指令：支持按流程范围、指令类型、关键词（指令名/字段值）过滤。
         // 用于快速定位"哪些指令引用了变量X""哪些是跳转类指令""哪些IO操作用了Y"等问题。
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSearchOperations(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索指令");
@@ -1400,7 +1439,7 @@ namespace Automation.Bridge
             IList<Proc> procs = SF.frmProc?.procsList;
             if (procs == null)
             {
-                throw new BridgeRequestException(500, "PROCS_UNAVAILABLE", "流程列表不可用。");
+                return BridgeError(500, "PROCS_UNAVAILABLE", "流程列表不可用。");
             }
 
             JArray results = new JArray();
@@ -1484,6 +1523,7 @@ namespace Automation.Bridge
 
         // 轻量级结构验证：聚焦跳转目标有效性、空步骤/指令、禁用项。
         // 比 diagnose_proc 更简洁，不包含运行时状态，适合修改前快速检查。
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleValidateProc(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "验证流程结构");
@@ -1551,10 +1591,127 @@ namespace Automation.Bridge
             };
         }
 
+        #region 路由 Handler
+
+        // 保留的合并工具路由（op_meta / list_resources 仍通过 action 分发）。
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleOpMeta(JObject request)
+        {
+            string action = ReadRequiredString(request, "action");
+            JObject p = request["params"] as JObject ?? new JObject();
+            switch (action)
+            {
+                case "list_types": return HandleListOperationTypes();
+                case "schema": return HandleGetOperationSchema(p);
+                case "reference_catalog": return HandleGetReferenceCatalog(p);
+                default: return BridgeError(400, "INVALID_ACTION", $"不支持的 action: {action}，可选：list_types/schema/reference_catalog（guide 由 MCP 层静态返回）");
+            }
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleListResources(JObject request)
+        {
+            string action = ReadRequiredString(request, "action");
+            JObject p = request["params"] as JObject ?? new JObject();
+            switch (action)
+            {
+                case "alarms": return HandleListAlarms(p);
+                case "plc": return HandleListPlcDevices(p);
+                case "cards": return HandleListCards(p);
+                case "tray_points": return HandleListTrayPoints(p);
+                case "communications": return HandleListCommunications(p);
+                default: return BridgeError(400, "INVALID_ACTION", $"不支持的 action: {action}，可选：alarms/plc/cards/tray_points/communications");
+            }
+        }
+
+        // 流程级结构操作的两阶段分发：previewId 为空走预演，非空走提交。
+        // 拆开后的每个 handler 只处理一种操作，不再需要 action switch。
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleCreateOrApply(JObject request)
+        {
+            string previewId = ReadOptionalString(request, "previewId");
+            if (string.IsNullOrEmpty(previewId))
+            {
+                EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演创建流程");
+                JObject preview = PreviewCreateProc(request);
+                preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
+                return preview;
+            }
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交创建流程");
+            ValidateConfirmedManagePreview(previewId);
+            JObject result = ExecuteCreateProc(request);
+            RemovePreview(previewId);
+            return result;
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleDeleteOrApply(JObject request)
+        {
+            string previewId = ReadOptionalString(request, "previewId");
+            if (string.IsNullOrEmpty(previewId))
+            {
+                EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演删除流程");
+                JObject preview = PreviewDeleteProcs(request);
+                preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
+                return preview;
+            }
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交删除流程");
+            ValidateConfirmedManagePreview(previewId);
+            JObject result = ExecuteDeleteProcs(request);
+            RemovePreview(previewId);
+            return result;
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleReorderOrApply(JObject request)
+        {
+            string previewId = ReadOptionalString(request, "previewId");
+            if (string.IsNullOrEmpty(previewId))
+            {
+                EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演重排流程");
+                JObject preview = PreviewReorderProc(request);
+                preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
+                return preview;
+            }
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交重排流程");
+            ValidateConfirmedManagePreview(previewId);
+            JObject result = ExecuteReorderProc(request);
+            RemovePreview(previewId);
+            return result;
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleCopyOrApply(JObject request)
+        {
+            string previewId = ReadOptionalString(request, "previewId");
+            if (string.IsNullOrEmpty(previewId))
+            {
+                EnsureBridgePermission(PermissionKeys.ProcessEdit, "预演复制流程");
+                JObject preview = PreviewCopyProc(request);
+                preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
+                return preview;
+            }
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "提交复制流程");
+            ValidateConfirmedManagePreview(previewId);
+            JObject result = ExecuteCopyProc(request);
+            RemovePreview(previewId);
+            return result;
+        }
+
+        // 构造控制流程运行的请求对象：合并 procIndex 与 action 到同一层级，供 HandleControlProc 读取。
+        private static JObject BuildControlRequest(JObject request, string action)
+        {
+            JObject p = new JObject { ["procIndex"] = request["procIndex"], ["action"] = action };
+            return p;
+        }
+
+        #endregion
+
         #region 资源查询与操作扩展 Handler
 
         // ===================== 变量操作 =====================
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListVariables(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询变量列表");
@@ -1562,7 +1719,7 @@ namespace Automation.Bridge
             ValueConfigStore store = SF.valueStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
             }
             string typeFilter = request["type"]?.Value<string>();
             string nameLike = request["nameLike"]?.Value<string>();
@@ -1619,6 +1776,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetVariable(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询变量");
@@ -1626,12 +1784,13 @@ namespace Automation.Bridge
             ValueConfigStore store = SF.valueStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
             }
             DicValue val = ResolveVariable(request, store);
             return BuildVariableJObject(val);
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSearchVariables(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索变量");
@@ -1639,7 +1798,7 @@ namespace Automation.Bridge
             ValueConfigStore store = SF.valueStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
             }
             string keyword = request["keyword"]?.Value<string>() ?? string.Empty;
             string typeFilter = request["type"]?.Value<string>();
@@ -1682,6 +1841,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSetVariable(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改变量");
@@ -1689,19 +1849,19 @@ namespace Automation.Bridge
             ValueConfigStore store = SF.valueStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
             }
             DicValue val = ResolveVariable(request, store);
             string newValue = request["value"]?.Value<string>();
             if (newValue == null)
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "缺少 value 字段。");
+                return BridgeError(400, "INVALID_ARGUMENT", "缺少 value 字段。");
             }
             if (string.Equals(val.Type, "double", StringComparison.OrdinalIgnoreCase))
             {
                 if (!double.TryParse(newValue, out double dval))
                 {
-                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"变量[{val.Name}] 是 double 类型，value 不是有效数字：{newValue}");
+                    return BridgeError(400, "INVALID_ARGUMENT", $"变量[{val.Name}] 是 double 类型，value 不是有效数字：{newValue}");
                 }
                 store.setValueByIndex(val.Index, dval);
             }
@@ -1719,6 +1879,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleDeleteVariable(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessEdit, "删除变量");
@@ -1726,12 +1887,12 @@ namespace Automation.Bridge
             ValueConfigStore store = SF.valueStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
             }
             int index = ReadRequiredInt(request, "index");
             if (index < 0 || index >= ValueConfigStore.ValueCapacity)
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"index 超出范围 [0, {ValueConfigStore.ValueCapacity})。");
+                return BridgeError(400, "INVALID_ARGUMENT", $"index 超出范围 [0, {ValueConfigStore.ValueCapacity})。");
             }
             store.ClearValueByIndex(index);
             store.TryGetValueByIndex(index, out DicValue cleared);
@@ -1744,6 +1905,519 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleAddVariable(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "创建变量");
+            EnsureRuntimeReady();
+            ValueConfigStore store = SF.valueStore;
+            if (store == null)
+            {
+                return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+            }
+            string name = request["name"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "缺少 name 字段或 name 为空。");
+            }
+            string type = request["type"]?.Value<string>() ?? "double";
+            if (!string.Equals(type, "double", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(type, "string", StringComparison.OrdinalIgnoreCase))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", $"type 只能是 double 或 string，当前：{type}");
+            }
+            string value = request["value"]?.Value<string>();
+            if (value == null)
+            {
+                value = string.Equals(type, "double", StringComparison.OrdinalIgnoreCase) ? "0" : "";
+            }
+            if (string.Equals(type, "double", StringComparison.OrdinalIgnoreCase) && !double.TryParse(value, out _))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", $"type=double 时 value 必须是有效数字，当前：{value}");
+            }
+            string note = request["note"]?.Value<string>() ?? string.Empty;
+            int? requestedIndex = request["index"]?.Value<int>();
+
+            // 名称查重
+            if (store.TryGetValueByName(name, out DicValue existing))
+            {
+                return BridgeError(400, "DUPLICATE_NAME", $"变量名 [{name}] 已存在（index={existing.Index}）。");
+            }
+
+            int targetIndex;
+            if (requestedIndex.HasValue)
+            {
+                targetIndex = requestedIndex.Value;
+                if (targetIndex < 0 || targetIndex >= ValueConfigStore.ValueCapacity)
+                {
+                    return BridgeError(400, "INVALID_ARGUMENT", $"index 超出范围 [0, {ValueConfigStore.ValueCapacity})。");
+                }
+                if (store.TryGetValueByIndex(targetIndex, out DicValue occupied))
+                {
+                    return BridgeError(400, "SLOT_OCCUPIED", $"index={targetIndex} 已被变量 [{occupied.Name}] 占用。");
+                }
+            }
+            else
+            {
+                targetIndex = -1;
+                for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
+                {
+                    if (!store.TryGetValueByIndex(i, out _))
+                    {
+                        targetIndex = i;
+                        break;
+                    }
+                }
+                if (targetIndex < 0)
+                {
+                    return BridgeError(500, "STORE_FULL", $"变量表已满（{ValueConfigStore.ValueCapacity} 个槽位均被占用）。");
+                }
+            }
+
+            EnsureAiVersionProtectionForFile("value.json");
+            if (!store.TrySetValue(targetIndex, name, type, value, note, "EW-AI"))
+            {
+                return BridgeError(500, "SET_FAILED", $"变量 [{name}] 写入 index={targetIndex} 失败。");
+            }
+            store.Save(SF.ConfigPath);
+            SF.frmValue?.FreshFrmValue();
+            store.TryGetValueByIndex(targetIndex, out DicValue created);
+            return new JObject
+            {
+                ["ok"] = true,
+                ["variable"] = BuildVariableJObject(created),
+                ["message"] = $"变量 [{name}] 已创建于 index={targetIndex}。"
+            };
+        }
+
+        // ===================== 工站/点位操作 =====================
+
+        private const int DataStationPointCapacity = 400;
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private static DataStation ResolveStation(int stationIndex)
+        {
+            if (SF.frmCard == null || SF.frmCard.dataStation == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "工站存储未初始化。");
+            }
+            List<DataStation> list = SF.frmCard.dataStation;
+            if (stationIndex < 0 || stationIndex >= list.Count)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"stationIndex 超出范围 [0, {list.Count})。");
+            }
+            DataStation station = list[stationIndex];
+            if (station == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", $"工站 stationIndex={stationIndex} 为空。");
+            }
+            return station;
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private static DataPos ResolvePoint(DataStation station, int index)
+        {
+            if (station.ListDataPos == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "工站点位列表未初始化。");
+            }
+            if (index < 0 || index >= DataStationPointCapacity)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"点位 index 超出范围 [0, {DataStationPointCapacity})。");
+            }
+            // 旧数据可能未填满 400 个槽位，按实际容量防御
+            if (index >= station.ListDataPos.Count)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"点位 index 超出实际槽位范围 [0, {station.ListDataPos.Count})。");
+            }
+            DataPos pos = station.ListDataPos[index];
+            if (pos == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", $"点位 index={index} 为空。");
+            }
+            return pos;
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private static AlarmInfo ResolveAlarm(int index)
+        {
+            AlarmInfoStore store = SF.alarmInfoStore;
+            if (store == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "报警存储未初始化。");
+            }
+            if (index < 0 || index >= AlarmInfoStore.AlarmCapacity)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"index 超出范围 [0, {AlarmInfoStore.AlarmCapacity})。");
+            }
+            if (!store.TryGetByIndex(index, out AlarmInfo alarm) || alarm == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", $"报警 index={index} 为空。");
+            }
+            return alarm;
+        }
+
+        private static JObject BuildPointJObject(DataPos pos)
+        {
+            if (pos == null) return new JObject();
+            return new JObject
+            {
+                ["index"] = pos.Index,
+                ["name"] = pos.Name ?? string.Empty,
+                ["x"] = pos.X,
+                ["y"] = pos.Y,
+                ["z"] = pos.Z,
+                ["u"] = pos.U,
+                ["v"] = pos.V,
+                ["w"] = pos.W
+            };
+        }
+
+        private static void SaveStationAndRefresh()
+        {
+            EnsureAiVersionProtectionForFile("DataStation.json");
+            SF.mainfrm?.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard?.dataStation);
+            SF.frmCard?.RefreshStationList();
+            SF.frmCard?.RefreshStationTree();
+        }
+
+        private static void EnsureAiVersionProtectionForFile(string fileName)
+        {
+            if (SF.mainfrm == null)
+            {
+                throw new BridgeRequestException(500, "VERSION_SERVICE_UNAVAILABLE", "版本服务未初始化，拒绝写入配置。");
+            }
+            string path = System.IO.Path.Combine(SF.ConfigPath, fileName);
+            if (!SF.mainfrm.EnsureAiVersionProtection(path, out string error))
+            {
+                throw new BridgeRequestException(500, "VERSION_PROTECTION_FAILED", "AI 保护点创建失败，拒绝写入配置。", error);
+            }
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleListStations(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询工站列表");
+            EnsureRuntimeReady();
+            if (SF.frmCard?.dataStation == null)
+            {
+                return BridgeError(500, "STORE_UNAVAILABLE", "工站存储未初始化。");
+            }
+            JArray array = new JArray();
+            List<DataStation> list = SF.frmCard.dataStation;
+            for (int i = 0; i < list.Count; i++)
+            {
+                DataStation station = list[i];
+                if (station == null) continue;
+                int namedCount = 0;
+                if (station.dicDataPos != null)
+                {
+                    foreach (KeyValuePair<string, DataPos> kv in station.dicDataPos)
+                    {
+                        if (kv.Value != null && !string.IsNullOrEmpty(kv.Value.Name)) namedCount++;
+                    }
+                }
+                array.Add(new JObject
+                {
+                    ["stationIndex"] = i,
+                    ["name"] = station.Name ?? string.Empty,
+                    ["vel"] = station.Vel,
+                    ["pointCount"] = namedCount
+                });
+            }
+            return new JObject
+            {
+                ["total"] = array.Count,
+                ["items"] = array
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleGetStation(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询工站详情");
+            EnsureRuntimeReady();
+            int stationIndex = ReadRequiredInt(request, "stationIndex");
+            DataStation station = ResolveStation(stationIndex);
+            JArray points = new JArray();
+            if (station.dicDataPos != null)
+            {
+                foreach (KeyValuePair<string, DataPos> kv in station.dicDataPos)
+                {
+                    if (kv.Value == null) continue;
+                    points.Add(BuildPointJObject(kv.Value));
+                }
+            }
+            return new JObject
+            {
+                ["stationIndex"] = stationIndex,
+                ["name"] = station.Name ?? string.Empty,
+                ["vel"] = station.Vel,
+                ["points"] = points
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleAddStation(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "创建工站");
+            EnsureRuntimeReady();
+            if (SF.frmCard?.dataStation == null)
+            {
+                return BridgeError(500, "STORE_UNAVAILABLE", "工站存储未初始化。");
+            }
+            string name = request["name"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "缺少 name 字段或 name 为空。");
+            }
+            double? vel = request["vel"]?.Value<double>();
+            List<DataStation> list = SF.frmCard.dataStation;
+            foreach (DataStation s in list)
+            {
+                if (s != null && string.Equals(s.Name, name, StringComparison.Ordinal))
+                {
+                    return BridgeError(400, "DUPLICATE_NAME", $"工站名 [{name}] 已存在。");
+                }
+            }
+            DataStation station = new DataStation(false)
+            {
+                Name = name
+            };
+            if (vel.HasValue) station.Vel = vel.Value;
+            list.Add(station);
+            SaveStationAndRefresh();
+            int newIndex = list.Count - 1;
+            return new JObject
+            {
+                ["ok"] = true,
+                ["stationIndex"] = newIndex,
+                ["name"] = station.Name,
+                ["message"] = $"工站 [{name}] 已创建于 stationIndex={newIndex}。"
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleDeleteStation(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "删除工站");
+            EnsureRuntimeReady();
+            int stationIndex = ReadRequiredInt(request, "stationIndex");
+            // 先校验范围与存在性
+            ResolveStation(stationIndex);
+            List<DataStation> list = SF.frmCard.dataStation;
+            string name = list[stationIndex]?.Name ?? string.Empty;
+            list.RemoveAt(stationIndex);
+            SaveStationAndRefresh();
+            return new JObject
+            {
+                ["ok"] = true,
+                ["stationIndex"] = stationIndex,
+                ["name"] = name,
+                ["message"] = $"工站 [{name}] (stationIndex={stationIndex}) 已删除，后续工站索引前移。"
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleUpdateStation(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改工站");
+            EnsureRuntimeReady();
+            int stationIndex = ReadRequiredInt(request, "stationIndex");
+            DataStation station = ResolveStation(stationIndex);
+            string name = request["name"]?.Value<string>();
+            double? vel = request["vel"]?.Value<double>();
+            bool changed = false;
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                List<DataStation> list = SF.frmCard.dataStation;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (i == stationIndex) continue;
+                    DataStation s = list[i];
+                    if (s != null && string.Equals(s.Name, name, StringComparison.Ordinal))
+                    {
+                        return BridgeError(400, "DUPLICATE_NAME", $"工站名 [{name}] 已存在。");
+                    }
+                }
+                station.Name = name;
+                changed = true;
+            }
+            if (vel.HasValue)
+            {
+                station.Vel = vel.Value;
+                changed = true;
+            }
+            if (!changed)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "至少提供 name 或 vel 之一。");
+            }
+            SaveStationAndRefresh();
+            return new JObject
+            {
+                ["ok"] = true,
+                ["station"] = new JObject
+                {
+                    ["stationIndex"] = stationIndex,
+                    ["name"] = station.Name ?? string.Empty,
+                    ["vel"] = station.Vel
+                },
+                ["message"] = $"工站 stationIndex={stationIndex} 已更新。"
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleListPoints(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询点位列表");
+            EnsureRuntimeReady();
+            int stationIndex = ReadRequiredInt(request, "stationIndex");
+            DataStation station = ResolveStation(stationIndex);
+            JArray array = new JArray();
+            if (station.dicDataPos != null)
+            {
+                foreach (KeyValuePair<string, DataPos> kv in station.dicDataPos)
+                {
+                    if (kv.Value == null) continue;
+                    array.Add(BuildPointJObject(kv.Value));
+                }
+            }
+            return new JObject
+            {
+                ["stationIndex"] = stationIndex,
+                ["stationName"] = station.Name ?? string.Empty,
+                ["total"] = array.Count,
+                ["items"] = array
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleGetPoint(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询点位详情");
+            EnsureRuntimeReady();
+            int stationIndex = ReadRequiredInt(request, "stationIndex");
+            int index = ReadRequiredInt(request, "index");
+            DataStation station = ResolveStation(stationIndex);
+            DataPos pos = ResolvePoint(station, index);
+            return new JObject
+            {
+                ["stationIndex"] = stationIndex,
+                ["point"] = BuildPointJObject(pos)
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleSetPoint(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改点位");
+            EnsureRuntimeReady();
+            int stationIndex = ReadRequiredInt(request, "stationIndex");
+            int index = ReadRequiredInt(request, "index");
+            DataStation station = ResolveStation(stationIndex);
+            DataPos pos = ResolvePoint(station, index);
+
+            string name = request["name"]?.Value<string>();
+            double? x = request["x"]?.Value<double>();
+            double? y = request["y"]?.Value<double>();
+            double? z = request["z"]?.Value<double>();
+            double? u = request["u"]?.Value<double>();
+            double? v = request["v"]?.Value<double>();
+            double? w = request["w"]?.Value<double>();
+
+            bool changed = false;
+            if (!string.IsNullOrWhiteSpace(name)
+                && !string.Equals(name, pos.Name ?? string.Empty, StringComparison.Ordinal))
+            {
+                // 工站内点位名唯一校验（排除自身）
+                if (station.dicDataPos != null)
+                {
+                    foreach (KeyValuePair<string, DataPos> kv in station.dicDataPos)
+                    {
+                        if (kv.Value != null && kv.Value != pos
+                            && string.Equals(kv.Value.Name, name, StringComparison.Ordinal))
+                        {
+                            return BridgeError(400, "DUPLICATE_NAME", $"点位名 [{name}] 在工站内已存在。");
+                        }
+                    }
+                }
+                // 同步字典：删除旧 key（若旧名非空），再添加新 key
+                string oldName = pos.Name ?? string.Empty;
+                if (station.dicDataPos != null && !string.IsNullOrEmpty(oldName))
+                {
+                    station.dicDataPos.Remove(oldName);
+                }
+                pos.Name = name;
+                if (station.dicDataPos != null)
+                {
+                    station.dicDataPos[name] = pos;
+                }
+                changed = true;
+            }
+            if (x.HasValue) { pos.X = x.Value; changed = true; }
+            if (y.HasValue) { pos.Y = y.Value; changed = true; }
+            if (z.HasValue) { pos.Z = z.Value; changed = true; }
+            if (u.HasValue) { pos.U = u.Value; changed = true; }
+            if (v.HasValue) { pos.V = v.Value; changed = true; }
+            if (w.HasValue) { pos.W = w.Value; changed = true; }
+            if (!changed)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "至少提供一个可修改字段（name/x/y/z/u/v/w）。");
+            }
+            SaveStationAndRefresh();
+            return new JObject
+            {
+                ["ok"] = true,
+                ["point"] = BuildPointJObject(pos),
+                ["message"] = $"工站 stationIndex={stationIndex} 的点位 index={index} 已更新。"
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleDeletePoint(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "删除点位");
+            EnsureRuntimeReady();
+            int stationIndex = ReadRequiredInt(request, "stationIndex");
+            int index = ReadRequiredInt(request, "index");
+            DataStation station = ResolveStation(stationIndex);
+            DataPos pos = ResolvePoint(station, index);
+
+            // 判断点位是否已经为空（名称为空且坐标全零）
+            bool alreadyEmpty = string.IsNullOrEmpty(pos.Name)
+                && pos.X == 0 && pos.Y == 0 && pos.Z == 0
+                && pos.U == 0 && pos.V == 0 && pos.W == 0;
+            if (alreadyEmpty)
+            {
+                return BridgeError(404, "POINT_NOT_FOUND", $"工站 stationIndex={stationIndex} 的点位 index={index} 本身为空，无需删除。");
+            }
+
+            string oldName = pos.Name ?? string.Empty;
+            // 同步字典：移除旧名称
+            if (station.dicDataPos != null && !string.IsNullOrEmpty(oldName))
+            {
+                station.dicDataPos.Remove(oldName);
+            }
+            // 清空点位数据（Index 保持不变，固定槽位）
+            pos.Name = null;
+            pos.X = 0;
+            pos.Y = 0;
+            pos.Z = 0;
+            pos.U = 0;
+            pos.V = 0;
+            pos.W = 0;
+
+            SaveStationAndRefresh();
+            return new JObject
+            {
+                ["ok"] = true,
+                ["stationIndex"] = stationIndex,
+                ["index"] = index,
+                ["message"] = $"工站 stationIndex={stationIndex} 的点位 index={index}「{oldName}」已清空。"
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
         private static DicValue ResolveVariable(JObject request, ValueConfigStore store)
         {
             string name = request["name"]?.Value<string>();
@@ -1795,6 +2469,7 @@ namespace Automation.Bridge
 
         // ===================== 数据结构操作 =====================
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListDataStructs(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询数据结构列表");
@@ -1802,7 +2477,7 @@ namespace Automation.Bridge
             DataStructStore store = SF.dataStructStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
             }
             List<string> names = store.GetStructNames() ?? new List<string>();
             var items = new List<JObject>();
@@ -1827,6 +2502,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetDataStruct(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询数据结构详情");
@@ -1834,16 +2510,17 @@ namespace Automation.Bridge
             DataStructStore store = SF.dataStructStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
             }
             string name = ReadRequiredString(request, "name");
             if (!store.TryGetStructSnapshotByName(name, out DataStruct ds))
             {
-                throw new BridgeRequestException(404, "DATA_STRUCT_NOT_FOUND", $"未找到数据结构：{name}");
+                return BridgeError(404, "DATA_STRUCT_NOT_FOUND", $"未找到数据结构：{name}");
             }
             return BuildDataStructJObject(name, ds);
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSearchDataStructs(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索数据结构");
@@ -1851,7 +2528,7 @@ namespace Automation.Bridge
             DataStructStore store = SF.dataStructStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
             }
             string structName = ReadRequiredString(request, "name");
             string itemNameLike = request["itemNameLike"]?.Value<string>();
@@ -1863,7 +2540,7 @@ namespace Automation.Bridge
 
             if (!store.TryGetStructSnapshotByName(structName, out DataStruct ds))
             {
-                throw new BridgeRequestException(404, "DATA_STRUCT_NOT_FOUND", $"未找到数据结构：{structName}");
+                return BridgeError(404, "DATA_STRUCT_NOT_FOUND", $"未找到数据结构：{structName}");
             }
             var items = new List<JObject>();
             for (int i = 0; i < ds.dataStructItems.Count; i++)
@@ -1921,6 +2598,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSetDataStructField(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改数据结构字段");
@@ -1928,7 +2606,7 @@ namespace Automation.Bridge
             DataStructStore store = SF.dataStructStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "数据结构存储未初始化。");
             }
             string name = ReadRequiredString(request, "name");
             int itemIndex = ReadRequiredInt(request, "itemIndex");
@@ -1936,37 +2614,37 @@ namespace Automation.Bridge
             string value = request["value"]?.Value<string>();
             if (value == null)
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "缺少 value 字段。");
+                return BridgeError(400, "INVALID_ARGUMENT", "缺少 value 字段。");
             }
             if (!store.TryGetStructIndexByName(name, out int structIndex))
             {
-                throw new BridgeRequestException(404, "DATA_STRUCT_NOT_FOUND", $"未找到数据结构：{name}");
+                return BridgeError(404, "DATA_STRUCT_NOT_FOUND", $"未找到数据结构：{name}");
             }
             // 先读取现有字段类型
             if (!store.TryGetStructSnapshotByName(name, out DataStruct ds))
             {
-                throw new BridgeRequestException(500, "DATA_STRUCT_ERROR", $"读取数据结构失败：{name}");
+                return BridgeError(500, "DATA_STRUCT_ERROR", $"读取数据结构失败：{name}");
             }
             if (itemIndex < 0 || itemIndex >= ds.dataStructItems.Count)
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"itemIndex 超出范围 [0, {ds.dataStructItems.Count})。");
+                return BridgeError(400, "INVALID_ARGUMENT", $"itemIndex 超出范围 [0, {ds.dataStructItems.Count})。");
             }
             DataStructItem itemSnap = ds.dataStructItems[itemIndex];
             if (itemSnap == null || itemSnap.FieldTypes == null || !itemSnap.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType fieldType))
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"fieldIndex {fieldIndex} 不存在。");
+                return BridgeError(400, "INVALID_ARGUMENT", $"fieldIndex {fieldIndex} 不存在。");
             }
             string fieldTypeStr = fieldType == DataStructValueType.Number ? "Number" : "Text";
             if (fieldType == DataStructValueType.Number)
             {
                 if (!double.TryParse(value, out _))
                 {
-                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"字段是 Number 类型，value 不是有效数字：{value}");
+                    return BridgeError(400, "INVALID_ARGUMENT", $"字段是 Number 类型，value 不是有效数字：{value}");
                 }
             }
             if (!store.SetFieldValue(structIndex, itemIndex, fieldIndex, fieldType, value, out string error))
             {
-                throw new BridgeRequestException(400, "SET_FIELD_FAILED", $"修改字段失败：{error}");
+                return BridgeError(400, "SET_FIELD_FAILED", $"修改字段失败：{error}");
             }
             // 重新读取以返回最新值
             store.TryGetStructSnapshotByName(name, out DataStruct updated);
@@ -2032,6 +2710,7 @@ namespace Automation.Bridge
 
         // ===================== IO 操作 =====================
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListIo(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 IO 列表");
@@ -2039,7 +2718,7 @@ namespace Automation.Bridge
             var ioMap = SF.frmIO?.DicIO;
             if (ioMap == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
             }
             string typeFilter = request["type"]?.Value<string>();
             string nameLike = request["nameLike"]?.Value<string>();
@@ -2071,6 +2750,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetIo(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 IO");
@@ -2078,16 +2758,17 @@ namespace Automation.Bridge
             var ioMap = SF.frmIO?.DicIO;
             if (ioMap == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
             }
             string name = ReadRequiredString(request, "name");
             if (!ioMap.TryGetValue(name, out IO io) || io == null)
             {
-                throw new BridgeRequestException(404, "IO_NOT_FOUND", $"未找到 IO：{name}");
+                return BridgeError(404, "IO_NOT_FOUND", $"未找到 IO：{name}");
             }
             return BuildIoJObject(io);
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSearchIo(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "搜索 IO");
@@ -2095,7 +2776,7 @@ namespace Automation.Bridge
             var ioMap = SF.frmIO?.DicIO;
             if (ioMap == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
             }
             string keyword = request["keyword"]?.Value<string>() ?? string.Empty;
             string typeFilter = request["type"]?.Value<string>();
@@ -2135,6 +2816,7 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetIoState(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 IO 实时状态");
@@ -2142,12 +2824,12 @@ namespace Automation.Bridge
             var ioMap = SF.frmIO?.DicIO;
             if (ioMap == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
             }
             string name = ReadRequiredString(request, "name");
             if (!ioMap.TryGetValue(name, out IO io) || io == null)
             {
-                throw new BridgeRequestException(404, "IO_NOT_FOUND", $"未找到 IO：{name}");
+                return BridgeError(404, "IO_NOT_FOUND", $"未找到 IO：{name}");
             }
             bool? state = null;
             string error = null;
@@ -2207,6 +2889,7 @@ namespace Automation.Bridge
 
         // ===================== 报警清单 =====================
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListAlarms(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询报警清单");
@@ -2214,7 +2897,7 @@ namespace Automation.Bridge
             AlarmInfoStore store = SF.alarmInfoStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "报警存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "报警存储未初始化。");
             }
             bool includeEmpty = request["includeEmpty"]?.Value<bool>() ?? false;
             string categoryLike = request["categoryLike"]?.Value<string>();
@@ -2277,8 +2960,102 @@ namespace Automation.Bridge
             };
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleGetAlarm(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询报警信息");
+            EnsureRuntimeReady();
+            int index = ReadRequiredInt(request, "index");
+            AlarmInfo alarm = ResolveAlarm(index);
+            return new JObject
+            {
+                ["ok"] = true,
+                ["alarm"] = BuildAlarmJObject(alarm)
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleSetAlarm(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "修改报警信息");
+            EnsureRuntimeReady();
+            int index = ReadRequiredInt(request, "index");
+            string name = ReadRequiredString(request, "name");
+            string note = ReadRequiredString(request, "note");
+            string category = ReadOptionalString(request, "category");
+            string btn1 = ReadOptionalString(request, "btn1");
+            string btn2 = ReadOptionalString(request, "btn2");
+            string btn3 = ReadOptionalString(request, "btn3");
+
+            // 业务约束：name 与 note 必须同时非空白（与 FrmAlarmConfig 校验一致）
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(note))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "name 与 note 必须同时填写且不能为空白。");
+            }
+
+            AlarmInfo alarm = ResolveAlarm(index);
+            EnsureAiVersionProtectionForFile("AlarmInfo.json");
+            alarm.Name = name.Trim();
+            alarm.Note = note.Trim();
+            alarm.Category = category?.Trim() ?? string.Empty;
+            alarm.Btn1 = btn1?.Trim() ?? string.Empty;
+            alarm.Btn2 = btn2?.Trim() ?? string.Empty;
+            alarm.Btn3 = btn3?.Trim() ?? string.Empty;
+
+            SF.alarmInfoStore.Save(SF.ConfigPath);
+            RefreshAlarmConfigView();
+            return new JObject
+            {
+                ["ok"] = true,
+                ["alarm"] = BuildAlarmJObject(alarm),
+                ["message"] = $"报警 [{name}] 已保存于 index={index}。"
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleDeleteAlarm(JObject request)
+        {
+            EnsureBridgePermission(PermissionKeys.ProcessEdit, "删除报警信息");
+            EnsureRuntimeReady();
+            int index = ReadRequiredInt(request, "index");
+            AlarmInfo alarm = ResolveAlarm(index);
+            EnsureAiVersionProtectionForFile("AlarmInfo.json");
+
+            if (string.IsNullOrEmpty(alarm.Name) && string.IsNullOrEmpty(alarm.Note))
+            {
+                return BridgeError(404, "ALARM_NOT_FOUND", $"报警 index={index} 本身为空，无需删除。");
+            }
+
+            string oldName = alarm.Name ?? string.Empty;
+            alarm.Name = null;
+            alarm.Category = null;
+            alarm.Btn1 = null;
+            alarm.Btn2 = null;
+            alarm.Btn3 = null;
+            alarm.Note = null;
+            // Index 保持不变（固定槽位）
+
+            SF.alarmInfoStore.Save(SF.ConfigPath);
+            RefreshAlarmConfigView();
+            return new JObject
+            {
+                ["ok"] = true,
+                ["index"] = index,
+                ["message"] = $"报警 index={index}「{oldName}」已清空。"
+            };
+        }
+
+        // 报警配置窗口可能已打开，触发界面刷新以显示最新数据。
+        // RefreshAlarmInfo 会从已保存的文件重新加载，数据一致；失败时不影响数据保存结果。
+        private static void RefreshAlarmConfigView()
+        {
+            try { SF.frmAlarmConfig?.RefreshAlarmInfo(); }
+            catch { /* 界面刷新失败不影响数据保存 */ }
+        }
+
         // ===================== PLC 设备清单 =====================
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListPlcDevices(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询 PLC 设备清单");
@@ -2286,7 +3063,7 @@ namespace Automation.Bridge
             PlcConfigStore store = SF.plcStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "PLC 存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "PLC 存储未初始化。");
             }
             bool includeMaps = request["includeMaps"]?.Value<bool>() ?? false;
             var devices = store.Devices;
@@ -2338,6 +3115,7 @@ namespace Automation.Bridge
 
         // ===================== 控制卡/轴清单 =====================
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListCards(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询控制卡/轴清单");
@@ -2345,7 +3123,7 @@ namespace Automation.Bridge
             CardConfigStore store = SF.cardStore;
             if (store == null)
             {
-                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "控制卡存储未初始化。");
+                return BridgeError(500, "STORE_UNAVAILABLE", "控制卡存储未初始化。");
             }
             bool includeAxes = request["includeAxes"]?.Value<bool>() ?? true;
             var items = new List<JObject>();
@@ -2396,6 +3174,7 @@ namespace Automation.Bridge
 
         // ===================== 托盘点位清单 =====================
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListTrayPoints(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询托盘点位清单");
@@ -2463,6 +3242,7 @@ namespace Automation.Bridge
 
         // ===================== 通讯清单 =====================
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListCommunications(JObject request)
         {
             EnsureBridgePermission(PermissionKeys.ProcessAccess, "查询通讯清单");
@@ -2528,6 +3308,7 @@ namespace Automation.Bridge
 
         #endregion
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private PatchExecutionResult ExecutePatch(JObject request)
         {
             EnsureRuntimeReady();
@@ -2609,6 +3390,7 @@ namespace Automation.Bridge
             return result;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private void CommitPatch(int procIndex, Proc draft, List<(int stepIndex, int opIndex, ProcChangeKind kind)> affectedOps = null)
         {
             if (draft == null)
@@ -2666,6 +3448,7 @@ namespace Automation.Bridge
                 result);
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private void ApplyOperationUpdate(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
         {
             Step step = FindStepById(draft, ParseGuid(ReadRequiredString(action, "stepId"), "stepId"));
@@ -2728,6 +3511,7 @@ namespace Automation.Bridge
             });
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static void ValidateExpectedOperaType(JObject action, OperationType op)
         {
             string expectedOperaType = ReadOptionalString(action, "expectedOperaType");
@@ -2738,6 +3522,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static void EnsureStepOps(Step step)
         {
             if (step == null)
@@ -2750,6 +3535,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static int FindStepIndexById(Proc proc, Guid stepId)
         {
             if (proc?.steps == null)
@@ -2768,6 +3554,7 @@ namespace Automation.Bridge
             throw new BridgeRequestException(404, "STEP_NOT_FOUND", $"未找到步骤：{stepId:D}");
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static int FindOperationIndexById(Step step, Guid opId)
         {
             if (step?.Ops == null)
@@ -2786,6 +3573,7 @@ namespace Automation.Bridge
             throw new BridgeRequestException(404, "OP_NOT_FOUND", $"未找到指令：{opId:D}");
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static int ReadRequiredInsertIndex(JObject request, string fieldName, int maxInclusive, string label)
         {
             int value = ReadRequiredInt(request, fieldName);
@@ -3218,6 +4006,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private void ApplyDirectPropertyChanges(object target, ISet<string> editableFields, JObject fieldChanges, string targetLabel, int actionIndex, PatchExecutionResult result)
         {
             if (target == null)
@@ -3266,6 +4055,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private void ApplyOperationPropertyChanges(OperationType op, JObject fieldChanges, string targetLabel, int actionIndex, PatchExecutionResult result)
         {
             WithOperationEditContext(op, () =>
@@ -3378,8 +4168,10 @@ namespace Automation.Bridge
             return record;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private void ValidateConfirmedPreview(string previewId, JObject patch)
         {
+            ValidatePreviewIdFormat(previewId);
             JObject normalizedPatch = NormalizePatchForApproval(patch);
             PreviewApprovalRecord record;
             lock (previewLock)
@@ -3411,6 +4203,20 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
+        private static void ValidatePreviewIdFormat(string previewId)
+        {
+            if (string.IsNullOrWhiteSpace(previewId))
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "字段 previewId 不能为空；预演阶段请不要传 previewId，提交阶段必须传预演返回的 previewId。");
+            }
+
+            if (!Guid.TryParseExact(previewId, "N", out _))
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"字段 previewId 不是合法预演编号；预演阶段请不要传 previewId，提交阶段必须传 preview 返回的 32 位 previewId。当前值：{previewId}");
+            }
+        }
+
         private void CleanupExpiredPreviewsLocked()
         {
             DateTime now = DateTime.UtcNow;
@@ -3424,6 +4230,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private void EnsurePreviewProcVersion(PreviewApprovalRecord record)
         {
             // 流程结构操作（创建/删除/重排/复制）不绑定单个 procIndex，跳过版本校验
@@ -3439,6 +4246,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static JObject NormalizePatchForApproval(JObject patch)
         {
             if (patch == null)
@@ -3627,6 +4435,8 @@ namespace Automation.Bridge
                         ["category"] = descriptor.Category,
                         ["description"] = descriptor.Description ?? string.Empty,
                         ["dataType"] = GetTypeLabel(descriptor.PropertyType),
+                        ["jsonType"] = GetJsonTypeLabel(descriptor.PropertyType),
+                        ["valueShape"] = GetFieldValueShape(descriptor),
                         ["readOnly"] = descriptor.IsReadOnly,
                         ["referenceType"] = GetReferenceType(descriptor.Converter?.GetType().Name),
                         ["enumValues"] = BuildStandardValues(descriptor),
@@ -3808,6 +4618,7 @@ namespace Automation.Bridge
             });
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static void EnsureBridgePermission(string permissionKey, string action)
         {
             if (!SF.HasPermission(permissionKey))
@@ -3849,6 +4660,7 @@ namespace Automation.Bridge
             return string.IsNullOrEmpty(value) ? "/" : value;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static JArray LoadIntentTemplateCatalog()
         {
             string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, IntentTemplateCatalogRelativePath);
@@ -3876,6 +4688,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static JObject ReadIntentObject(JObject request)
         {
             JObject intent = ReadOptionalObject(request, "intent");
@@ -3909,6 +4722,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static JObject ConvertIntentToPatch(JObject intent)
         {
             string intentType = ReadRequiredString(intent, "intentType");
@@ -4020,6 +4834,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject ParseRequestBody(string body)
         {
             if (string.IsNullOrWhiteSpace(body))
@@ -4042,6 +4857,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private T ExecuteOnUiThread<T>(Func<T> action)
         {
             if (owner.IsDisposed)
@@ -4057,6 +4873,7 @@ namespace Automation.Bridge
             return action();
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static void EnsureRuntimeReady()
         {
             if (SF.mainfrm == null || SF.frmProc?.procsList == null || SF.frmPropertyGrid == null)
@@ -4065,6 +4882,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static Proc GetProcByIndex(int procIndex)
         {
             EnsureRuntimeReady();
@@ -4082,6 +4900,7 @@ namespace Automation.Bridge
             return proc;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static Step FindStepById(Proc proc, Guid stepId)
         {
             if (proc?.steps == null)
@@ -4098,6 +4917,7 @@ namespace Automation.Bridge
             return step;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static OperationType FindOperationById(Step step, Guid opId)
         {
             if (step?.Ops == null)
@@ -4114,6 +4934,7 @@ namespace Automation.Bridge
             return op;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static OperationType CreateOperationTemplate(string operaType)
         {
             EnsureRuntimeReady();
@@ -4129,6 +4950,7 @@ namespace Automation.Bridge
             return (OperationType)template.Clone();
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static Guid ParseGuid(string text, string fieldName)
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -4138,12 +4960,13 @@ namespace Automation.Bridge
 
             if (!Guid.TryParse(text, out Guid value))
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"字段 {fieldName} 不是合法 Guid。");
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"字段 {fieldName} 不是合法 Guid；必须使用 get_proc_detail 或 list_procs(includeStepSummary=true) 返回的真实 Guid，不能使用占位值、名称或索引。当前值：{text}");
             }
 
             return value;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static string ReadRequiredActionType(JObject action, int actionIndex)
         {
             if (!action.TryGetValue("type", out JToken token) || token == null || token.Type == JTokenType.Null)
@@ -4169,6 +4992,7 @@ namespace Automation.Bridge
             return token.Value<string>();
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static void ThrowUnsupportedPatchAction(string actionType, int actionIndex)
         {
             if (PreviewOnlyChangeTypes.Contains(actionType))
@@ -4185,6 +5009,7 @@ namespace Automation.Bridge
                 $"actions[{actionIndex}].type={actionType} 不受支持。允许的动作只有：{string.Join(", ", SupportedPatchActions)}");
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static JObject ReadRequiredFieldChanges(JObject action, int actionIndex, string actionType)
         {
             JObject fieldChanges = ReadOptionalObject(action, "fieldChanges");
@@ -4208,6 +5033,7 @@ namespace Automation.Bridge
                 $"actions[{actionIndex}] 的 {actionType}.fieldChanges 必须是对象。");
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static JObject ReadOptionalInsertFieldValues(JObject action, int actionIndex, string actionType)
         {
             JObject fieldValues = ReadOptionalObject(action, "fieldValues");
@@ -4228,6 +5054,7 @@ namespace Automation.Bridge
             return null;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static int ReadRequiredInt(JObject request, string fieldName)
         {
             if (!request.TryGetValue(fieldName, out JToken token) || token == null || token.Type != JTokenType.Integer)
@@ -4237,6 +5064,7 @@ namespace Automation.Bridge
             return token.Value<int>();
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static int? ReadOptionalInt(JObject request, string fieldName)
         {
             if (!request.TryGetValue(fieldName, out JToken token) || token == null || token.Type == JTokenType.Null)
@@ -4250,6 +5078,7 @@ namespace Automation.Bridge
             return token.Value<int>();
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static bool? ReadOptionalBoolean(JObject request, string fieldName)
         {
             if (!request.TryGetValue(fieldName, out JToken token) || token == null || token.Type == JTokenType.Null)
@@ -4263,6 +5092,7 @@ namespace Automation.Bridge
             return token.Value<bool>();
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static string ReadRequiredString(JObject request, string fieldName)
         {
             string value = ReadOptionalString(request, fieldName);
@@ -4273,6 +5103,7 @@ namespace Automation.Bridge
             return value;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static string ReadOptionalString(JObject request, string fieldName)
         {
             if (!request.TryGetValue(fieldName, out JToken token) || token == null || token.Type == JTokenType.Null)
@@ -4286,6 +5117,7 @@ namespace Automation.Bridge
             return token.Value<string>();
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static JObject ReadOptionalObject(JObject request, string fieldName)
         {
             if (!request.TryGetValue(fieldName, out JToken token) || token == null || token.Type == JTokenType.Null)
@@ -4299,6 +5131,7 @@ namespace Automation.Bridge
             return obj;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static JObject ReadRequiredObject(JObject request, string fieldName)
         {
             JObject value = ReadOptionalObject(request, fieldName);
@@ -4309,6 +5142,7 @@ namespace Automation.Bridge
             return value;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static JArray ReadRequiredArray(JObject request, string fieldName)
         {
             if (!request.TryGetValue(fieldName, out JToken token) || !(token is JArray array))
@@ -4318,6 +5152,7 @@ namespace Automation.Bridge
             return array;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static void WithOperationReadContext(OperationType op, Action action)
         {
             if (action == null)
@@ -4337,6 +5172,7 @@ namespace Automation.Bridge
             return WithOperationContext(op, false, action);
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static void WithOperationEditContext(OperationType op, Action action)
         {
             if (action == null)
@@ -4356,6 +5192,7 @@ namespace Automation.Bridge
             return WithOperationContext(op, true, action);
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static T WithOperationContext<T>(OperationType op, bool enableEditBehavior, Func<T> action)
         {
             if (op == null)
@@ -4399,6 +5236,7 @@ namespace Automation.Bridge
             TypeDescriptor.Refresh(op);
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static object ConvertTokenToValue(JToken token, PropertyDescriptor descriptor, string targetLabel)
         {
             Type targetType = descriptor.PropertyType;
@@ -4524,6 +5362,7 @@ namespace Automation.Bridge
             }
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private static void ValidateStandardValue(PropertyDescriptor descriptor, object value, string targetLabel, string fieldName)
         {
             if (descriptor?.Converter == null || value == null)
@@ -4645,6 +5484,60 @@ namespace Automation.Bridge
             return underlying.Name;
         }
 
+        private static string GetJsonTypeLabel(Type type)
+        {
+            Type underlying = Nullable.GetUnderlyingType(type) ?? type;
+            if (underlying == typeof(string) || underlying == typeof(Guid) || underlying.IsEnum)
+            {
+                return "string";
+            }
+            if (underlying == typeof(bool))
+            {
+                return "boolean";
+            }
+            if (underlying == typeof(int) || underlying == typeof(long))
+            {
+                return "integer";
+            }
+            if (underlying == typeof(float) || underlying == typeof(double) || underlying == typeof(decimal))
+            {
+                return "number";
+            }
+            return "object";
+        }
+
+        private static string GetFieldValueShape(PropertyDescriptor descriptor)
+        {
+            if (descriptor == null)
+            {
+                return string.Empty;
+            }
+
+            string jsonType = GetJsonTypeLabel(descriptor.PropertyType);
+            string referenceType = GetReferenceType(descriptor.Converter?.GetType().Name);
+            if (jsonType == "string" && !string.IsNullOrEmpty(referenceType))
+            {
+                return "必须传 JSON 字符串；即使候选值看起来是数字编号，也要写成带引号的字符串，例如 \"0\"。";
+            }
+            if (jsonType == "string")
+            {
+                return "必须传 JSON 字符串。";
+            }
+            if (jsonType == "boolean")
+            {
+                return "必须传 JSON 布尔值 true/false。";
+            }
+            if (jsonType == "integer")
+            {
+                return "必须传 JSON 整数。";
+            }
+            if (jsonType == "number")
+            {
+                return "必须传 JSON 数值。";
+            }
+            return "必须传与字段类型匹配的 JSON 值。";
+        }
+
         private static string GetReferenceType(string converterTypeName)
         {
             switch (converterTypeName)
@@ -4721,6 +5614,7 @@ namespace Automation.Bridge
             return values;
         }
 
+        [System.Diagnostics.DebuggerNonUserCode]
         private sealed class BridgeRequestException : Exception
         {
             public BridgeRequestException(int statusCode, string code, string message, string details = null)

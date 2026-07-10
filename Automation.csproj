@@ -43,6 +43,10 @@
     <StartupObject />
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="LibGit2Sharp">
+      <HintPath>packages\LibGit2Sharp\lib\net472\LibGit2Sharp.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="Markdig, Version=1.3.0.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>packages\Markdig.1.3.2\lib\net462\Markdig.dll</HintPath>
       <Private>True</Private>
@@ -138,6 +142,7 @@
     <Compile Include="Runtime\\AppConfigStorage.cs" />
     <Compile Include="Runtime\\AutomationMcpServerManager.cs" />
     <Compile Include="Runtime\\GooseConfigStorage.cs" />
+    <Compile Include="Runtime\\ConfigurationVersionService.cs" />
     <Compile Include="Bridge\\AutomationBridgeHost.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.cs" />
     <Compile Include="GooseAcpClient.cs" />
@@ -145,6 +150,9 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FrmAiAssistant.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmVersionManager.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FrmAlarmConfig.cs">
@@ -416,6 +424,7 @@
     </ItemGroup>
     <Copy Condition="'@(IntentTemplateFiles)' != ''" SourceFiles="@(IntentTemplateFiles)" DestinationFiles="@(IntentTemplateFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
+  <Import Project="packages\LibGit2Sharp.NativeBinaries\build\net46\LibGit2Sharp.NativeBinaries.props" Condition="Exists('packages\LibGit2Sharp.NativeBinaries\build\net46\LibGit2Sharp.NativeBinaries.props')" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="EnsureWebView2TargetsImported" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
