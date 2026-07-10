@@ -243,11 +243,21 @@ namespace Automation
                 }
                 if (AutomationRuntimeOptions.Current.IsSimulation)
                 {
-                    simulationGateway.Connect(SimulationManifestBuilder.Build(SF.DR.Context), 5000);
-                    simulationGateway.ApplyEndpointMappings(SF.DR.Context);
-                    Monitor();
-                    Text = "Automation - 仿真模式（未连接实机）";
-                    dataRun?.Logger?.Log($"仿真模式已就绪，使用正式配置目录:{SF.ConfigPath}", LogLevel.Normal);
+                    try
+                    {
+                        // 模拟器是可选辅助工具；未启动时快速返回，不能拖慢 HMI 与平台编辑器启动。
+                        simulationGateway.Connect(250);
+                        simulationGateway.ApplyEndpointMappings(SF.DR.Context);
+                        Monitor();
+                        Text = "Automation - 仿真模式（未连接实机）";
+                        dataRun?.Logger?.Log($"仿真模式已就绪，使用正式配置目录:{SF.ConfigPath}", LogLevel.Normal);
+                    }
+                    catch (Exception ex)
+                    {
+                        string message = $"模拟器不可用:{ex.Message}";
+                        Text = "Automation - 仿真模式（模拟器未连接）";
+                        dataRun?.Logger?.Log(message, LogLevel.Error);
+                    }
                 }
                 else
                 {
@@ -447,7 +457,6 @@ namespace Automation
             {
                 axisMonitorFaulted = true;
                 StopAllProcsForSafety(message);
-                SF.SetSecurityLock(message);
             };
             if (IsHandleCreated && InvokeRequired)
             {

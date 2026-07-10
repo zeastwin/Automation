@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -37,6 +38,17 @@ namespace Automation
         public string Title { get; set; }
         public string Location { get; set; }
         public string FieldName { get; set; }
+        public string DetailBefore { get; set; }
+        public string DetailAfter { get; set; }
+        public List<ConfigurationVersionFieldDiff> Details { get; set; }
+    }
+
+    public sealed class ConfigurationVersionFieldDiff
+    {
+        public string ChangeType { get; set; }
+        public string FieldName { get; set; }
+        public string Before { get; set; }
+        public string After { get; set; }
     }
 
     /// <summary>
@@ -436,6 +448,69 @@ namespace Automation
             return result;
         }
 
+        private static IReadOnlyList<ConfigurationVersionDiffEntry> ConsolidateBusinessDiffs(IReadOnlyList<ConfigurationVersionDiffEntry> entries)
+        {
+            Dictionary<string, List<ConfigurationVersionDiffEntry>> groups = new Dictionary<string, List<ConfigurationVersionDiffEntry>>(StringComparer.Ordinal);
+            foreach (ConfigurationVersionDiffEntry entry in entries)
+            {
+                if (!IsBusinessObjectChange(entry))
+                {
+                    continue;
+                }
+                string key = entry.Category + "\u001f" + entry.Title + "\u001f" + entry.Location + "\u001f" + entry.Target;
+                if (!groups.TryGetValue(key, out List<ConfigurationVersionDiffEntry> group))
+                {
+                    group = new List<ConfigurationVersionDiffEntry>();
+                    groups.Add(key, group);
+                }
+                group.Add(entry);
+            }
+
+            List<ConfigurationVersionDiffEntry> result = new List<ConfigurationVersionDiffEntry>();
+            foreach (ConfigurationVersionDiffEntry entry in entries)
+            {
+                if (!IsBusinessObjectChange(entry))
+                {
+                    result.Add(entry);
+                    continue;
+                }
+                string key = entry.Category + "\u001f" + entry.Title + "\u001f" + entry.Location + "\u001f" + entry.Target;
+                List<ConfigurationVersionDiffEntry> group = groups[key];
+                if (!ReferenceEquals(entry, group[0]))
+                {
+                    continue;
+                }
+                entry.Details = group.Select(item => new ConfigurationVersionFieldDiff
+                {
+                    ChangeType = item.ChangeType,
+                    FieldName = item.FieldName,
+                    Before = item.Before,
+                    After = item.After
+                }).ToList();
+                entry.ChangeType = GetConsolidatedChangeType(group);
+                entry.FieldName = "共 " + entry.Details.Count + " 项字段变更";
+                entry.Before = "双击查看详情";
+                entry.After = string.Empty;
+                result.Add(entry);
+            }
+            return result;
+        }
+
+        private static bool IsBusinessObjectChange(ConfigurationVersionDiffEntry entry)
+        {
+            return entry != null && (entry.Category == "流程" || entry.Category == "步骤" || entry.Category == "指令" || entry.Category == "变量");
+        }
+
+        private static string GetConsolidatedChangeType(IEnumerable<ConfigurationVersionDiffEntry> entries)
+        {
+            List<string> types = entries.Select(item => item.ChangeType).Distinct(StringComparer.Ordinal).ToList();
+            if (types.Count == 1)
+            {
+                return types[0];
+            }
+            return "修改";
+        }
+
         private Dictionary<string, string> ReadSnapshotFiles(Tree tree)
         {
             Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -522,7 +597,7 @@ namespace Automation
             {
                 BuildEquipmentDiff(beforeFiles, afterFiles, result);
             }
-            return result;
+            return ConsolidateBusinessDiffs(result);
         }
 
         private static void BuildProcessDiff(IDictionary<string, string> beforeFiles, IDictionary<string, string> afterFiles, ICollection<ConfigurationVersionDiffEntry> result)
@@ -586,7 +661,7 @@ namespace Automation
         private static void AddHmiSourceChange(string path, string beforeText, string afterText, ICollection<ConfigurationVersionDiffEntry> result)
         {
             string changeType = beforeText == null ? "新增" : afterText == null ? "删除" : "修改";
-            result.Add(NewBusinessDiff(
+            ConfigurationVersionDiffEntry entry = NewBusinessDiff(
                 "HMI 代码",
                 changeType,
                 "HMI 代码「" + Path.GetFileName(path) + "」",
@@ -594,7 +669,10 @@ namespace Automation
                 "文件内容",
                 GetSourceSummary(beforeText),
                 GetSourceSummary(afterText),
-                path));
+                path);
+            entry.DetailBefore = beforeText;
+            entry.DetailAfter = afterText;
+            result.Add(entry);
         }
 
         private static string GetSourceSummary(string text)
@@ -745,6 +823,20 @@ namespace Automation
                 JToken newToken = after[name];
                 if (JToken.DeepEquals(oldToken, newToken))
                 {
+                    continue;
+                }
+                if ((oldToken is JObject || oldToken is JArray) && (newToken is JObject || newToken is JArray))
+                {
+                    Dictionary<string, string> beforeFields = FlattenBusinessJson(oldToken);
+                    Dictionary<string, string> afterFields = FlattenBusinessJson(newToken);
+                    foreach (string field in beforeFields.Keys.Union(afterFields.Keys, StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal))
+                    {
+                        beforeFields.TryGetValue(field, out string beforeValue);
+                        afterFields.TryGetValue(field, out string afterValue);
+                        if (beforeValue == afterValue) continue;
+                        result.Add(NewBusinessDiff(category, beforeValue == null ? "新增" : afterValue == null ? "删除" : "修改", title, location,
+                            GetObjectFieldDisplayName(before, after, name, field), beforeValue ?? "不存在", afterValue ?? "不存在", null));
+                    }
                     continue;
                 }
                 result.Add(NewBusinessDiff(category, oldToken == null ? "新增" : newToken == null ? "删除" : "修改", title, location,
@@ -925,6 +1017,79 @@ namespace Automation
             }));
         }
 
+        /// <summary>
+        /// 按属性编辑器实际显示的 DisplayName 生成嵌套参数名称，避免把内部 JSON 路径暴露给用户。
+        /// </summary>
+        private static string GetObjectFieldDisplayName(JObject beforeRoot, JObject afterRoot, string rootField, string nestedPath)
+        {
+            JToken root = beforeRoot[rootField] ?? afterRoot[rootField];
+            List<string> labels = new List<string>
+            {
+                GetPropertyDisplayName(beforeRoot, afterRoot, rootField)
+            };
+
+            foreach (string segment in nestedPath.Split('.'))
+            {
+                int position = 0;
+                int bracket = segment.IndexOf('[');
+                string propertyName = bracket >= 0 ? segment.Substring(0, bracket) : segment;
+                if (!string.IsNullOrEmpty(propertyName))
+                {
+                    labels.Add(GetPropertyDisplayName(root, root, propertyName));
+                    root = GetPropertyToken(root, propertyName);
+                    position = propertyName.Length;
+                }
+
+                while (position < segment.Length)
+                {
+                    int open = segment.IndexOf('[', position);
+                    if (open < 0) break;
+                    int close = segment.IndexOf(']', open + 1);
+                    if (close < 0 || !int.TryParse(segment.Substring(open + 1, close - open - 1), out int index))
+                    {
+                        return string.Join(" / ", labels);
+                    }
+                    labels[labels.Count - 1] += "（第 " + (index + 1) + " 项）";
+                    root = GetArrayItem(root, index);
+                    position = close + 1;
+                }
+            }
+            return string.Join(" / ", labels);
+        }
+
+        private static JToken GetPropertyToken(JToken token, string propertyName)
+        {
+            JObject obj = token as JObject;
+            return obj == null ? null : obj[propertyName];
+        }
+
+        private static JToken GetArrayItem(JToken token, int index)
+        {
+            JArray array = token as JArray;
+            if (array == null && token is JObject wrapper)
+            {
+                array = wrapper["$values"] as JArray;
+            }
+            return array != null && index >= 0 && index < array.Count ? array[index] : null;
+        }
+
+        private static string GetPropertyDisplayName(JToken before, JToken after, string propertyName)
+        {
+            Type type = GetBusinessType(before) ?? GetBusinessType(after);
+            PropertyInfo property = type?.GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+            DisplayNameAttribute displayName = property?.GetCustomAttributes(typeof(DisplayNameAttribute), true)
+                .OfType<DisplayNameAttribute>().FirstOrDefault();
+            return displayName == null || string.IsNullOrWhiteSpace(displayName.DisplayName)
+                ? FriendlyFieldName(propertyName)
+                : displayName.DisplayName;
+        }
+
+        private static Type GetBusinessType(JToken token)
+        {
+            string typeName = (token as JObject)?["$type"]?.Value<string>();
+            return string.IsNullOrWhiteSpace(typeName) ? null : Type.GetType(typeName, false);
+        }
+
         private static string FriendlyFieldName(string name)
         {
             switch (name)
@@ -1059,6 +1224,7 @@ namespace Automation
                 }
                 yield return "Hmi" + Path.DirectorySeparatorChar + GetRelativePath(hmiSourceRoot, path);
             }
+
         }
 
         private string GetManagedFilePath(ConfigurationVersionLayer layer, string relativePath)

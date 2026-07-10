@@ -52,60 +52,8 @@ namespace Automation
             pi2.SetValue(dataGridView2, true, null);
             dataGridView2.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
-            EnsureCommunicationColumns();
-
             iSelectedSocketRow = -1;
             iSelectedSerialPortRow = -1;
-        }
-
-        private void EnsureCommunicationColumns()
-        {
-            EnsureTcpColumns();
-            EnsureSerialColumns();
-        }
-
-        private void EnsureTcpColumns()
-        {
-            DataGridViewColumn stateColumn = dataGridView1.Columns[TcpStateColumnName];
-            int insertIndex = stateColumn == null ? dataGridView1.Columns.Count : stateColumn.Index;
-
-            if (dataGridView1.Columns[TcpDelimiterColumnName] == null)
-            {
-                DataGridViewComboBoxColumn delimiterColumn = new DataGridViewComboBoxColumn
-                {
-                    Name = TcpDelimiterColumnName,
-                    HeaderText = "分隔符",
-                    FillWeight = 35F,
-                    DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox
-                };
-                delimiterColumn.Items.Add("无");
-                delimiterColumn.Items.Add("\\n");
-                delimiterColumn.Items.Add("\\r\\n");
-                delimiterColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-                dataGridView1.Columns.Insert(insertIndex, delimiterColumn);
-            }
-        }
-
-        private void EnsureSerialColumns()
-        {
-            DataGridViewColumn stateColumn = dataGridView2.Columns[SerialStateColumnName];
-            int insertIndex = stateColumn == null ? dataGridView2.Columns.Count : stateColumn.Index;
-
-            if (dataGridView2.Columns[SerialDelimiterColumnName] == null)
-            {
-                DataGridViewComboBoxColumn delimiterColumn = new DataGridViewComboBoxColumn
-                {
-                    Name = SerialDelimiterColumnName,
-                    HeaderText = "分隔符",
-                    FillWeight = 35F,
-                    DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox
-                };
-                delimiterColumn.Items.Add("无");
-                delimiterColumn.Items.Add("\\n");
-                delimiterColumn.Items.Add("\\r\\n");
-                delimiterColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-                dataGridView2.Columns.Insert(insertIndex, delimiterColumn);
-            }
         }
 
         private void FrmComunication_Load(object sender, EventArgs e)

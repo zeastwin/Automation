@@ -192,12 +192,28 @@ namespace Automation.Hmi
         {
             if (!closingConfirmed && e.CloseReason == CloseReason.UserClosing)
             {
-                if (MessageBox.Show(this, "确认退出 HMI 程序并停止全部流程？", "退出确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                e.Cancel = true;
+                bool wasTopMost = TopMost;
+                try
                 {
-                    e.Cancel = true;
+                    // 从任务栏关闭时 HMI 不一定处于激活状态；临时置顶确保确认框不会被独立工具窗体遮挡。
+                    TopMost = true;
+                    BringToFront();
+                    Activate();
+                    if (MessageBox.Show(this, "确认退出程序并停止全部流程？", "退出确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+                    {
+                        closingConfirmed = true;
+                        e.Cancel = false;
+                    }
+                }
+                finally
+                {
+                    TopMost = wasTopMost;
+                }
+                if (e.Cancel)
+                {
                     return;
                 }
-                closingConfirmed = true;
             }
 
             refreshTimer.Stop();

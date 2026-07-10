@@ -44,9 +44,8 @@ namespace Automation.Simulation
         public IReadOnlyList<SimulationTcpMapping> TcpMappings { get; private set; } = Array.Empty<SimulationTcpMapping>();
         public IReadOnlyList<SimulationSerialMapping> SerialMappings { get; private set; } = Array.Empty<SimulationSerialMapping>();
 
-        public void Connect(JObject manifest, int timeoutMs)
+        public void Connect(int timeoutMs)
         {
-            if (manifest == null) throw new ArgumentNullException(nameof(manifest));
             if (timeoutMs <= 0) throw new ArgumentOutOfRangeException(nameof(timeoutMs));
             if (stream != null) throw new InvalidOperationException("仿真网关已连接");
             stream = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
@@ -56,7 +55,7 @@ namespace Automation.Simulation
                 cts = new CancellationTokenSource();
                 lastReceiveTicks = Stopwatch.GetTimestamp();
                 readerTask = Task.Run(() => ReaderLoopAsync(cts.Token));
-                GatewayEnvelope response = SendRequest("hello", new JObject { ["manifest"] = manifest }, "hello.ack", timeoutMs);
+                GatewayEnvelope response = SendRequest("hello", new JObject(), "hello.ack", timeoutMs);
                 bool ready = RequireBool(response.Payload, "ready");
                 if (!ready)
                 {

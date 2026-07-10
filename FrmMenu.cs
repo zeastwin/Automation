@@ -145,7 +145,8 @@ namespace Automation
             }
             if (!versionManager.Visible)
             {
-                versionManager.Show(this);
+                // 版本管理是可并行查看的工具窗体，不设 Owner，允许用户切回后方平台窗口操作。
+                versionManager.Show();
             }
             versionManager.BringToFront();
             versionManager.Activate();

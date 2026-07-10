@@ -80,6 +80,7 @@
             this.type = new System.Windows.Forms.DataGridViewComboBoxColumn();
             this.ip = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.port = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.tcpFrameDelimiter = new System.Windows.Forms.DataGridViewComboBoxColumn();
             this.state = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.dataGridViewTextBoxColumn1 = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.dataGridViewTextBoxColumn2 = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -88,6 +89,7 @@
             this.checkBit = new System.Windows.Forms.DataGridViewComboBoxColumn();
             this.bitData = new System.Windows.Forms.DataGridViewComboBoxColumn();
             this.stopBit = new System.Windows.Forms.DataGridViewComboBoxColumn();
+            this.serialFrameDelimiter = new System.Windows.Forms.DataGridViewComboBoxColumn();
             this.dataGridViewTextBoxColumn5 = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.tabControl1.SuspendLayout();
             this.tabPage1.SuspendLayout();
@@ -139,6 +141,7 @@
             this.type,
             this.ip,
             this.port,
+            this.tcpFrameDelimiter,
             this.state});
             this.dataGridView1.ContextMenuStrip = this.contextMenuStrip1;
             this.dataGridView1.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -222,6 +225,7 @@
             this.checkBit,
             this.bitData,
             this.stopBit,
+            this.serialFrameDelimiter,
             this.dataGridViewTextBoxColumn5});
             this.dataGridView2.ContextMenuStrip = this.contextMenuStrip3;
             this.dataGridView2.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -461,6 +465,18 @@
             this.port.MinimumWidth = 6;
             this.port.Name = "port";
             this.port.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            //
+            // tcpFrameDelimiter
+            //
+            this.tcpFrameDelimiter.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
+            this.tcpFrameDelimiter.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.ComboBox;
+            this.tcpFrameDelimiter.FillWeight = 35F;
+            this.tcpFrameDelimiter.HeaderText = "分隔符";
+            this.tcpFrameDelimiter.Items.AddRange(new object[] {
+            "无",
+            "\\n",
+            "\\r\\n"});
+            this.tcpFrameDelimiter.Name = "tcpFrameDelimiter";
             // 
             // state
             // 
@@ -590,6 +606,18 @@
             "Two",
             "OnePointFive"});
             this.stopBit.Name = "stopBit";
+            //
+            // serialFrameDelimiter
+            //
+            this.serialFrameDelimiter.DefaultCellStyle.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
+            this.serialFrameDelimiter.DisplayStyle = System.Windows.Forms.DataGridViewComboBoxDisplayStyle.ComboBox;
+            this.serialFrameDelimiter.FillWeight = 35F;
+            this.serialFrameDelimiter.HeaderText = "分隔符";
+            this.serialFrameDelimiter.Items.AddRange(new object[] {
+            "无",
+            "\\n",
+            "\\r\\n"});
+            this.serialFrameDelimiter.Name = "serialFrameDelimiter";
             // 
             // dataGridViewTextBoxColumn5
             // 
@@ -661,6 +689,7 @@
         private System.Windows.Forms.DataGridViewComboBoxColumn type;
         private System.Windows.Forms.DataGridViewTextBoxColumn ip;
         private System.Windows.Forms.DataGridViewTextBoxColumn port;
+        private System.Windows.Forms.DataGridViewComboBoxColumn tcpFrameDelimiter;
         private System.Windows.Forms.DataGridViewTextBoxColumn state;
         private System.Windows.Forms.DataGridViewTextBoxColumn dataGridViewTextBoxColumn1;
         private System.Windows.Forms.DataGridViewTextBoxColumn dataGridViewTextBoxColumn2;
@@ -669,6 +698,7 @@
         private System.Windows.Forms.DataGridViewComboBoxColumn checkBit;
         private System.Windows.Forms.DataGridViewComboBoxColumn bitData;
         private System.Windows.Forms.DataGridViewComboBoxColumn stopBit;
+        private System.Windows.Forms.DataGridViewComboBoxColumn serialFrameDelimiter;
         private System.Windows.Forms.DataGridViewTextBoxColumn dataGridViewTextBoxColumn5;
     }
 }
