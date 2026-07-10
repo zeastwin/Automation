@@ -10,8 +10,8 @@ namespace Automation
 {
     public partial class ProcessEngine
     {
-        private const string WarmDisplayLogDirectory = @"D:\AutomationLogs\WarmDisplyLog";
-        private const string WarmDisplayLogHeader = "报警代码\t报警内容\t报警类别\t开始时间\t结束时间\t报警时间(s)\t报警位置(x-x-x)";
+        private static readonly string WarmDisplayLogDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs", "AlarmHistory");
+        private const string WarmDisplayLogHeader = "报警代码,报警内容,报警类别,开始时间,结束时间,报警时间(s),报警位置(x-x-x)";
         private static readonly object warmDisplayLogLock = new object();
 
         private void WriteWarmDisplayLog(ProcHandle evt, string alarmCode, string alarmContent, string alarmCategory, DateTime alarmStartTime, DateTime alarmEndTime)
@@ -33,12 +33,12 @@ namespace Automation
                 {
                     return string.Empty;
                 }
-                bool needQuote = value.IndexOfAny(new[] { '"', '\t', '\r', '\n' }) >= 0;
+                bool needQuote = value.IndexOfAny(new[] { '"', ',', '\r', '\n' }) >= 0;
                 string escaped = value.Replace("\"", "\"\"");
                 return needQuote ? $"\"{escaped}\"" : escaped;
             }
 
-            string logLine = string.Join("\t", new[]
+            string logLine = string.Join(",", new[]
             {
                 EscapeField(alarmCode ?? string.Empty),
                 EscapeField(alarmContent ?? string.Empty),
@@ -57,8 +57,7 @@ namespace Automation
                 }
                 if (File.Exists(WarmDisplayLogDirectory) && !Directory.Exists(WarmDisplayLogDirectory))
                 {
-                    string backupName = $"{WarmDisplayLogDirectory}_{DateTime.Now:yyyyMMddHHmmssfff}.bak";
-                    File.Move(WarmDisplayLogDirectory, backupName);
+                    throw new InvalidOperationException("报警提示日志路径被同名文件占用");
                 }
                 Directory.CreateDirectory(WarmDisplayLogDirectory);
                 string filePath = BuildWarmDisplayLogFilePath(alarmStartTime);
@@ -250,7 +249,7 @@ namespace Automation
                     MarkAlarm(evt, $"{label}未配置:{ioName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (Context.Motion == null || !Context.Motion.SetIO(io, value))
+                if (Context.Io == null || !Context.Io.SetIO(io, value))
                 {
                     MarkAlarm(evt, $"{label}输出失败:{ioName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);

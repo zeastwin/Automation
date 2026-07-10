@@ -19,7 +19,6 @@ using static Automation.FrmCard;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Globalization;
-using csLTDMC;
 using static System.Collections.Specialized.BitVector32;
 
 namespace Automation

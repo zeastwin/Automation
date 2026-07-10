@@ -31,7 +31,8 @@ namespace Automation
         public static ProcessEngine DR;
         public static FrmCard frmCard;
         public static FrmIO frmIO;
-        public static MotionCtrl motion;
+        public static IMotionRuntime motion;
+        public static IIoRuntime io;
         public static FrmControl frmControl;
         public static FrmStation frmStation;
         public static FrmDataStruct frmdataStruct;

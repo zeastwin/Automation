@@ -12,7 +12,7 @@ namespace Automation
                 MarkAlarm(evt, "IO操作参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (Context?.Motion == null)
+            if (Context?.Io == null)
             {
                 MarkAlarm(evt, "运动控制未初始化");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -31,7 +31,7 @@ namespace Automation
                     MarkAlarm(evt, $"IO映射不存在:{ioParam.IOName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.Motion.SetIO(io, ioParam.value))
+                if (!Context.Io.SetIO(io, ioParam.value))
                 {
                     MarkAlarm(evt, $"IO输出失败:{ioParam.IOName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -84,11 +84,11 @@ namespace Automation
                         bool ok;
                         if (io.IOType == "通用输入")
                         {
-                            ok = Context.Motion != null && Context.Motion.GetInIO(io, ref value);
+                            ok = Context.Io != null && Context.Io.GetInIO(io, ref value);
                         }
                         else if (io.IOType == "通用输出")
                         {
-                            ok = Context.Motion != null && Context.Motion.GetOutIO(io, ref value);
+                            ok = Context.Io != null && Context.Io.GetOutIO(io, ref value);
                         }
                         else
                         {
@@ -245,11 +245,11 @@ namespace Automation
                     bool ok;
                     if (io.IOType == "通用输入")
                     {
-                        ok = Context.Motion != null && Context.Motion.GetInIO(io, ref value);
+                        ok = Context.Io != null && Context.Io.GetInIO(io, ref value);
                     }
                     else if (io.IOType == "通用输出")
                     {
-                        ok = Context.Motion != null && Context.Motion.GetOutIO(io, ref value);
+                        ok = Context.Io != null && Context.Io.GetOutIO(io, ref value);
                     }
                     else
                     {

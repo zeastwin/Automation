@@ -55,7 +55,7 @@ namespace Automation
         private static readonly object cacheLock = new object();
         private static GooseConfig cachedConfig;
 
-        public static string ConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFolderName, ConfigFileName);
+        public static string ConfigPath => AutomationRuntimeOptions.ActiveConfigFile(ConfigFileName);
 
         public static bool TryLoad(out GooseConfig config, out string error)
         {

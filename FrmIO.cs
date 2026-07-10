@@ -538,11 +538,11 @@ namespace Automation
                     bool ok;
                     if (io.IOType == "通用输入")
                     {
-                        ok = SF.motion.GetInIO(io, ref value);
+                        ok = SF.io.GetInIO(io, ref value);
                     }
                     else if (io.IOType == "通用输出")
                     {
-                        ok = SF.motion.GetOutIO(io, ref value);
+                        ok = SF.io.GetOutIO(io, ref value);
                     }
                     else
                     {

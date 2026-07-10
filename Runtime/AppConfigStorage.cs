@@ -20,7 +20,7 @@ namespace Automation
         private static readonly object cacheLock = new object();
         private static AppConfig cachedConfig;
 
-        public static string ConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFolderName, ConfigFileName);
+        public static string ConfigPath => AutomationRuntimeOptions.ActiveConfigFile(ConfigFileName);
 
         public static bool TryLoad(out AppConfig config, out string error)
         {

@@ -178,6 +178,22 @@ namespace Automation
         public long UpdateTicks { get; }
     }
 
+    public sealed class OperationTraceEntry
+    {
+        public DateTime Timestamp { get; set; }
+        public string Phase { get; set; }
+        public int ProcIndex { get; set; }
+        public Guid ProcId { get; set; }
+        public int StepIndex { get; set; }
+        public int OpIndex { get; set; }
+        public Guid OperationId { get; set; }
+        public string OperationType { get; set; }
+        public string OperationName { get; set; }
+        public bool IsAlarm { get; set; }
+        public string AlarmMessage { get; set; }
+        public long ElapsedMs { get; set; }
+    }
+
     public enum AlarmTypeKind
     {
         Stop = 0,
@@ -247,7 +263,8 @@ namespace Automation
         public DataStructStore DataStructStore { get; set; }
         public TrayPointStore TrayPointStore { get; set; }
         public CardConfigStore CardStore { get; set; }
-        public MotionCtrl Motion { get; set; }
+        public IMotionRuntime Motion { get; set; }
+        public IIoRuntime Io { get; set; }
         public CommunicationHub Comm { get; set; }
         public PlcConfigStore PlcStore { get; set; }
         public AlarmInfoStore AlarmInfoStore { get; set; }

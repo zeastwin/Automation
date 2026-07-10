@@ -8,6 +8,8 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>Automation</RootNamespace>
     <AssemblyName>Automation</AssemblyName>
+    <ProjectTypeGuids>{60dc8134-eba5-43b8-bcc9-bb4bc16c2548};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
+    <ApplicationIcon>Resources\AutomationChick.ico</ApplicationIcon>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <LangVersion>latest</LangVersion>
@@ -37,6 +39,10 @@
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(DesignTimeBuild)' == 'true' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup>
@@ -137,13 +143,43 @@
     <Compile Include="Runtime\\AppConfigStorage.cs" />
     <Compile Include="Runtime\\AutomationPlatformHost.cs" />
     <Compile Include="Runtime\\AutomationMcpServerManager.cs" />
+    <Compile Include="Runtime\\AutomationRuntimeOptions.cs" />
     <Compile Include="Runtime\\GooseConfigStorage.cs" />
     <Compile Include="Runtime\\ConfigurationVersionService.cs" />
+    <Compile Include="Simulation\\SimulationGatewayClient.cs" />
+    <Compile Include="Simulation\\SimulationTestRunner.cs" />
     <Compile Include="Bridge\\AutomationBridgeHost.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.cs" />
     <Compile Include="GooseAcpClient.cs" />
     <Compile Include="Peripheral\\FrmPeripheralMain.cs">
       <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Peripheral\\FrmPeripheralMain.Designer.cs">
+      <DependentUpon>FrmPeripheralMain.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Peripheral\\PeripheralHomePage.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Peripheral\\PeripheralHomePage.Designer.cs">
+      <DependentUpon>PeripheralHomePage.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Peripheral\\PeripheralDebugPage.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Peripheral\\PeripheralDebugPage.Designer.cs">
+      <DependentUpon>PeripheralDebugPage.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Peripheral\\AlarmHistoryPage.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Peripheral\\AlarmHistoryPage.Designer.cs">
+      <DependentUpon>AlarmHistoryPage.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Peripheral\\PeripheralCapacityPage.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Peripheral\\PeripheralCapacityPage.Designer.cs">
+      <DependentUpon>PeripheralCapacityPage.cs</DependentUpon>
     </Compile>
     <Compile Include="FrmAppConfig.cs">
       <SubType>Form</SubType>
@@ -282,6 +318,7 @@
     </Compile>
     <Compile Include="MotionControl\LeiSei3000.cs" />
     <Compile Include="MotionControl\LTDMC.cs" />
+    <Compile Include="MotionControl\IMotionRuntime.cs" />
     <Compile Include="MotionControl\MotionCtrl.cs" />
     <Compile Include="OperationType.cs" />
     <Compile Include="OperationTypePartial.cs" />
@@ -300,6 +337,12 @@
     <Compile Include="Tool\FrmSearch4Value.Designer.cs">
       <DependentUpon>FrmSearch4Value.cs</DependentUpon>
     </Compile>
+    <EmbeddedResource Include="Peripheral\AlarmHistoryPage.resx">
+      <DependentUpon>AlarmHistoryPage.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Peripheral\PeripheralDebugPage.resx">
+      <DependentUpon>PeripheralDebugPage.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="FrmAlarmConfig.resx">
       <DependentUpon>FrmAlarmConfig.cs</DependentUpon>
     </EmbeddedResource>
@@ -378,6 +421,9 @@
     </EmbeddedResource>
     <None Include="app.config" />
     <None Include="IntentTemplates\intent_templates.json" />
+    <None Include="SimulationScenarios\left-loading-normal.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="packages.config" />
     <None Include="Properties\DataSources\FrmProc.datasource" />
     <None Include="Properties\DataSources\FrmState.datasource" />
@@ -398,6 +444,10 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\invalid.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\AutomationChick.ico" />
+    <None Include="Resources\AutomationChick.png" />
   </ItemGroup>
   <Target Name="CopySourceDllFiles" AfterTargets="Build">
     <ItemGroup>

@@ -931,7 +931,7 @@ namespace Automation
                         bool open = false;
                         if (TryResolveIoByName(ioItem.Name, "通用输入", out IO io, false))
                         {
-                            SF.motion.GetInIO(io, ref open);
+                            SF.io.GetInIO(io, ref open);
                             states[i] = open;
                             valid[i] = true;
                         }
@@ -964,7 +964,7 @@ namespace Automation
                         bool open = false;
                         if (TryResolveIoByName(ioItem.Name, "通用输出", out IO io, false))
                         {
-                            SF.motion.GetOutIO(io, ref open);
+                            SF.io.GetOutIO(io, ref open);
                             states[i] = open;
                             valid[i] = true;
                         }
@@ -1004,7 +1004,7 @@ namespace Automation
                         bool open = false;
                         if (TryResolveIoByName(connect.Output.Name, "通用输出", out IO outputIo, false))
                         {
-                            SF.motion.GetOutIO(outputIo, ref open);
+                            SF.io.GetOutIO(outputIo, ref open);
                             outStates[i] = open;
                             outValid[i] = true;
                         }
@@ -1015,7 +1015,7 @@ namespace Automation
                         if (connect.Intput1 != null && !string.IsNullOrWhiteSpace(connect.Intput1.Name)
                             && TryResolveIoByName(connect.Intput1.Name, "通用输入", out IO input1Io, false))
                         {
-                            SF.motion.GetInIO(input1Io, ref open);
+                            SF.io.GetInIO(input1Io, ref open);
                             in1States[i] = open;
                             in1Valid[i] = true;
                         }
@@ -1026,7 +1026,7 @@ namespace Automation
                         if (connect.Intput2 != null && !string.IsNullOrWhiteSpace(connect.Intput2.Name)
                             && TryResolveIoByName(connect.Intput2.Name, "通用输入", out IO input2Io, false))
                         {
-                            SF.motion.GetInIO(input2Io, ref open);
+                            SF.io.GetInIO(input2Io, ref open);
                             in2States[i] = open;
                             in2Valid[i] = true;
                         }
@@ -1895,15 +1895,15 @@ namespace Automation
                         button.BackColor = Color.Red;
                         return;
                     }
-                    SF.motion.GetOutIO(outputIo, ref Open_1);
+                    SF.io.GetOutIO(outputIo, ref Open_1);
                     bool newState = !Open_1;
-                    SF.motion.SetIO(outputIo, newState);
+                    SF.io.SetIO(outputIo, newState);
                     if (ioConnect.Output2 != null
                         && !string.IsNullOrWhiteSpace(ioConnect.Output2.Name)
                         && ioConnect.Output2.Name != ioConnect.Output.Name
                         && TryResolveIoByName(ioConnect.Output2.Name, "通用输出", out IO output2))
                     {
-                        SF.motion.SetIO(output2, !newState);
+                        SF.io.SetIO(output2, !newState);
                     }
                     return;
                 }
@@ -1912,8 +1912,8 @@ namespace Automation
                     button.BackColor = Color.Red;
                     return;
                 }
-                SF.motion.GetOutIO(outputIo2, ref Open_1);
-                SF.motion.SetIO(outputIo2, !Open_1);
+                SF.io.GetOutIO(outputIo2, ref Open_1);
+                SF.io.SetIO(outputIo2, !Open_1);
             }
         }
         private Control CreateRemarkHeader(string text, Point location, int width, int height)

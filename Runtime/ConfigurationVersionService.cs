@@ -47,13 +47,14 @@ namespace Automation
     }
 
     /// <summary>
-    /// 运行时配置的私有 Git 版本服务。仓库仅保存 Config 的镜像，绝不触碰开发源码仓库。
+    /// 运行时配置的私有 Git 版本服务。工艺层同时保存流程配置和外围源码镜像。
     /// </summary>
     public sealed class ConfigurationVersionService
     {
         private const string SnapshotDirectoryName = "Snapshot";
         private const string VersionDirectoryName = ".AutomationVersions";
         private readonly string configPath;
+        private readonly string peripheralSourceRoot;
         private readonly object syncRoot = new object();
         private static readonly object nativeLibraryLock = new object();
         private static bool nativeLibraryConfigured;
@@ -68,6 +69,7 @@ namespace Automation
                 throw new ArgumentException("配置目录不能为空。", nameof(configPath));
             }
             this.configPath = Path.GetFullPath(configPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            peripheralSourceRoot = ResolvePeripheralSourceRoot();
         }
 
         public bool CreateManualSnapshot(ConfigurationVersionLayer layer, string note, string userName, out string error)
@@ -542,7 +544,7 @@ namespace Automation
             Directory.CreateDirectory(snapshotRoot);
             foreach (string relativePath in GetManagedRelativePaths(layer))
             {
-                string source = Path.Combine(configPath, relativePath);
+                string source = GetManagedFilePath(layer, relativePath);
                 if (!File.Exists(source))
                 {
                     continue;
@@ -558,7 +560,7 @@ namespace Automation
             Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (string relativePath in GetManagedRelativePaths(layer))
             {
-                string fullPath = Path.Combine(configPath, relativePath);
+                string fullPath = GetManagedFilePath(layer, relativePath);
                 result[relativePath] = File.ReadAllText(fullPath, Encoding.UTF8);
             }
             return result;
@@ -697,6 +699,42 @@ namespace Automation
             {
                 AddGenericFileChanges(ConfigurationVersionLayer.Process, "DataStruct.json", beforeStructs, afterStructs, result);
             }
+
+            foreach (string path in beforeFiles.Keys.Union(afterFiles.Keys, StringComparer.OrdinalIgnoreCase)
+                .Where(IsPeripheralRelativePath)
+                .OrderBy(item => item, StringComparer.OrdinalIgnoreCase))
+            {
+                beforeFiles.TryGetValue(path, out string beforeText);
+                afterFiles.TryGetValue(path, out string afterText);
+                if (beforeText != afterText)
+                {
+                    AddPeripheralSourceChange(path, beforeText, afterText, result);
+                }
+            }
+        }
+
+        private static void AddPeripheralSourceChange(string path, string beforeText, string afterText, ICollection<ConfigurationVersionDiffEntry> result)
+        {
+            string changeType = beforeText == null ? "新增" : afterText == null ? "删除" : "修改";
+            result.Add(NewBusinessDiff(
+                "外围代码",
+                changeType,
+                "外围代码「" + Path.GetFileName(path) + "」",
+                "外围应用",
+                "文件内容",
+                GetSourceSummary(beforeText),
+                GetSourceSummary(afterText),
+                path));
+        }
+
+        private static string GetSourceSummary(string text)
+        {
+            if (text == null)
+            {
+                return "不存在";
+            }
+            int lineCount = text.Length == 0 ? 0 : text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None).Length;
+            return lineCount + " 行";
         }
 
         private static void CompareSteps(string flowName, JObject beforeFlow, JObject afterFlow, ICollection<ConfigurationVersionDiffEntry> result)
@@ -1070,6 +1108,12 @@ namespace Automation
             {
                 JsonConvert.DeserializeObject<List<DataStruct>>(File.ReadAllText(structPath, Encoding.UTF8), new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, ObjectCreationHandling = ObjectCreationHandling.Replace });
             }
+
+            string peripheralPath = Path.Combine(staging, "Peripheral");
+            if (!Directory.Exists(peripheralPath) || !Directory.GetFiles(peripheralPath, "*.cs", SearchOption.AllDirectories).Any())
+            {
+                throw new InvalidDataException("工艺层版本缺少外围源码，拒绝还原。");
+            }
         }
 
         private void CopyCurrentLayer(ConfigurationVersionLayer layer, string destination)
@@ -1077,7 +1121,7 @@ namespace Automation
             Directory.CreateDirectory(destination);
             foreach (string relativePath in GetManagedRelativePaths(layer))
             {
-                string source = Path.Combine(configPath, relativePath);
+                string source = GetManagedFilePath(layer, relativePath);
                 string target = Path.Combine(destination, relativePath);
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
                 File.Copy(source, target, true);
@@ -1089,16 +1133,20 @@ namespace Automation
             HashSet<string> existing = new HashSet<string>(GetManagedRelativePaths(layer), StringComparer.OrdinalIgnoreCase);
             foreach (string relativePath in existing)
             {
-                string path = Path.Combine(configPath, relativePath);
+                string path = GetManagedFilePath(layer, relativePath);
                 if (File.Exists(path))
                 {
                     File.Delete(path);
                 }
             }
-            foreach (string source in Directory.GetFiles(sourceRoot, "*.json", SearchOption.AllDirectories))
+            foreach (string source in Directory.GetFiles(sourceRoot, "*.*", SearchOption.AllDirectories))
             {
                 string relativePath = GetRelativePath(sourceRoot, source);
-                string target = Path.Combine(configPath, relativePath);
+                if (!IsSnapshotManagedRelativePath(layer, relativePath))
+                {
+                    throw new InvalidOperationException("版本包含未受控文件:" + relativePath);
+                }
+                string target = GetManagedFilePath(layer, relativePath);
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
                 string temp = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
                 File.Copy(source, temp, true);
@@ -1115,18 +1163,99 @@ namespace Automation
 
         private IEnumerable<string> GetManagedRelativePaths(ConfigurationVersionLayer layer)
         {
-            if (!Directory.Exists(configPath))
+            if (Directory.Exists(configPath))
+            {
+                foreach (string path in Directory.GetFiles(configPath, "*.json", SearchOption.AllDirectories))
+                {
+                    string relative = GetRelativePath(configPath, path);
+                    if (IsManagedRelativePath(layer, relative))
+                    {
+                        yield return relative;
+                    }
+                }
+            }
+
+            if (layer != ConfigurationVersionLayer.Process)
             {
                 yield break;
             }
-            foreach (string path in Directory.GetFiles(configPath, "*.json", SearchOption.AllDirectories))
+
+            EnsurePeripheralSourceRoot();
+            foreach (string path in Directory.GetFiles(peripheralSourceRoot, "*.*", SearchOption.AllDirectories))
             {
-                string relative = GetRelativePath(configPath, path);
-                if (IsManagedRelativePath(layer, relative))
+                if (!IsPeripheralSourceFile(path))
                 {
-                    yield return relative;
+                    continue;
                 }
+                yield return "Peripheral" + Path.DirectorySeparatorChar + GetRelativePath(peripheralSourceRoot, path);
             }
+        }
+
+        private string GetManagedFilePath(ConfigurationVersionLayer layer, string relativePath)
+        {
+            if (layer == ConfigurationVersionLayer.Process && IsPeripheralRelativePath(relativePath))
+            {
+                EnsurePeripheralSourceRoot();
+                string suffix = relativePath.Substring("Peripheral".Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string target = Path.GetFullPath(Path.Combine(peripheralSourceRoot, suffix));
+                string root = AppendDirectorySeparator(Path.GetFullPath(peripheralSourceRoot));
+                if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("外围源码路径越界:" + relativePath);
+                }
+                return target;
+            }
+            return Path.Combine(configPath, relativePath);
+        }
+
+        private static bool IsSnapshotManagedRelativePath(ConfigurationVersionLayer layer, string relativePath)
+        {
+            return IsManagedRelativePath(layer, relativePath)
+                || (layer == ConfigurationVersionLayer.Process && IsPeripheralRelativePath(relativePath) && IsPeripheralSourceFile(relativePath));
+        }
+
+        private static bool IsPeripheralRelativePath(string relativePath)
+        {
+            string normalized = relativePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+                .TrimStart(Path.DirectorySeparatorChar);
+            return normalized.StartsWith("Peripheral" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsPeripheralSourceFile(string path)
+        {
+            string extension = Path.GetExtension(path);
+            return string.Equals(extension, ".cs", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(extension, ".resx", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void EnsurePeripheralSourceRoot()
+        {
+            if (string.IsNullOrWhiteSpace(peripheralSourceRoot) || !Directory.Exists(peripheralSourceRoot))
+            {
+                throw new DirectoryNotFoundException("未找到 Peripheral 源码目录，工艺层版本管理不能继续。");
+            }
+        }
+
+        private string ResolvePeripheralSourceRoot()
+        {
+            return FindPeripheralSourceRoot(configPath) ?? FindPeripheralSourceRoot(AppDomain.CurrentDomain.BaseDirectory);
+        }
+
+        private static string FindPeripheralSourceRoot(string startPath)
+        {
+            string current = startPath;
+            for (int i = 0; i < 8 && !string.IsNullOrWhiteSpace(current); i++)
+            {
+                string projectFile = Path.Combine(current, "Automation.csproj");
+                string candidate = Path.Combine(current, "Peripheral");
+                if (File.Exists(projectFile) && Directory.Exists(candidate))
+                {
+                    return Path.GetFullPath(candidate);
+                }
+                DirectoryInfo parent = Directory.GetParent(current);
+                current = parent?.FullName;
+            }
+            return null;
         }
 
         private static bool IsManagedRelativePath(ConfigurationVersionLayer layer, string relativePath)
@@ -1164,6 +1293,7 @@ namespace Automation
             {
                 if (path.StartsWith("Work" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return "流程";
                 if (string.Equals(file, "value.json", StringComparison.OrdinalIgnoreCase)) return "变量";
+                if (IsPeripheralRelativePath(path)) return "外围代码";
                 return "数据结构";
             }
             if (string.Equals(file, "DataStation.json", StringComparison.OrdinalIgnoreCase)) return "工站点位";

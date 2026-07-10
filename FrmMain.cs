@@ -1,6 +1,6 @@
 using Automation.Bridge;
 using Automation.MotionControl;
-using csLTDMC;
+using Automation.Simulation;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -39,7 +39,9 @@ namespace Automation
         public FrmSearch4Value frmSearch4Value = new FrmSearch4Value();
         public FrmInfo frmInfo = new FrmInfo();
         public FrmPlc frmPlc = new FrmPlc();
-        public MotionCtrl motion = new MotionCtrl();
+        public IMotionRuntime motion;
+        public IIoRuntime io;
+        private SimulationGatewayClient simulationGateway;
         private readonly Dictionary<Guid, EngineSnapshot> snapshotCache = new Dictionary<Guid, EngineSnapshot>();
         private readonly HashSet<Guid> snapshotDirty = new HashSet<Guid>();
         private readonly object snapshotLock = new object();
@@ -81,6 +83,19 @@ namespace Automation
         public FrmMain()
         {
             InitializeComponent();
+            if (AutomationRuntimeOptions.Current.IsSimulation)
+            {
+                simulationGateway = new SimulationGatewayClient();
+                simulationGateway.Faulted += HandleSimulationGatewayFault;
+                motion = simulationGateway;
+                io = simulationGateway;
+            }
+            else
+            {
+                var hardwareMotion = new MotionCtrl();
+                motion = hardwareMotion;
+                io = hardwareMotion;
+            }
             SF.cardStore = new CardConfigStore();
             SF.valueStore = new ValueConfigStore();
             SF.dataStructStore = new DataStructStore();
@@ -98,6 +113,7 @@ namespace Automation
                 TrayPointStore = SF.trayPointStore,
                 CardStore = SF.cardStore,
                 Motion = motion,
+                Io = io,
                 Comm = SF.comm,
                 PlcStore = SF.plcStore,
                 AlarmInfoStore = SF.alarmInfoStore,
@@ -131,6 +147,7 @@ namespace Automation
             SF.frmStation = frmStation;
             SF.frmdataStruct = frmdataStruct;
             SF.motion = motion;
+            SF.io = io;
             SF.frmIODebug = frmIODebug;
             SF.frmComunication = frmComunication;
             SF.frmState = frmState;
@@ -172,6 +189,20 @@ namespace Automation
 
         public AutomationMcpServerManager McpServerManager => automationMcpServerManager;
 
+        internal int RunSimulationTest(string scenarioName)
+        {
+            if (AutomationRuntimeOptions.Current.Mode != AutomationRuntimeMode.SimulationTest)
+            {
+                throw new InvalidOperationException("当前不是无人值守仿真测试模式");
+            }
+            SF.frmProc.Refresh();
+            if (SF.ProcConfigFaulted)
+            {
+                throw new InvalidOperationException("流程配置校验失败，禁止运行仿真场景");
+            }
+            return SimulationTestRunner.Run(scenarioName, simulationGateway, dataRun);
+        }
+
         
 
         private void FrmMain_Load(object sender, EventArgs e)
@@ -181,7 +212,9 @@ namespace Automation
 
         private void FrmMain_Shown(object sender, EventArgs e)
         {
-            Text = "Automation";
+            Text = AutomationRuntimeOptions.Current.IsSimulation
+                ? "Automation - 仿真模式（未连接实机）"
+                : "Automation";
             EnsureAiInfrastructureStarted();
         }
 
@@ -222,15 +255,26 @@ namespace Automation
                     SF.DR.Context.IoMap = SF.frmIO.DicIO;
                     SF.DR.Context.PlcStore = SF.plcStore;
                 }
-                // 初始化运动控制相关
-                SF.motion.InitCardType();
-                bool cardInitOk = SF.motion.InitCard();
-                if (cardInitOk)
+                if (AutomationRuntimeOptions.Current.IsSimulation)
                 {
-                    SF.motion.DownLoadConfig();
-                    SF.motion.SetAllAxisSevonOn();
-                    SF.motion.SetAllAxisEquiv();
+                    simulationGateway.Connect(SimulationManifestBuilder.Build(SF.DR.Context), 5000);
+                    simulationGateway.ApplyEndpointMappings(SF.DR.Context);
                     Monitor();
+                    Text = "Automation - 仿真模式（未连接实机）";
+                    dataRun?.Logger?.Log($"仿真模式已就绪，会话目录:{AutomationRuntimeOptions.Current.SessionRoot}", LogLevel.Normal);
+                }
+                else
+                {
+                    // 初始化真实运动控制相关
+                    SF.motion.InitCardType();
+                    bool cardInitOk = SF.motion.InitCard();
+                    if (cardInitOk)
+                    {
+                        SF.motion.DownLoadConfig();
+                        SF.motion.SetAllAxisSevonOn();
+                        SF.motion.SetAllAxisEquiv();
+                        Monitor();
+                    }
                 }
                 platformInitialized = true;
                 if (SF.SecurityLocked)
@@ -241,7 +285,8 @@ namespace Automation
                     SF.StopAllProcs(lockReason);
                     return;
                 }
-                if (SF.frmProc?.procsList != null && SF.frmProc.procsList.Count > 0)
+                if (AutomationRuntimeOptions.Current.Mode != AutomationRuntimeMode.SimulationTest
+                    && SF.frmProc?.procsList != null && SF.frmProc.procsList.Count > 0)
                 {
                     for (int i = 0; i < SF.frmProc.procsList.Count; i++)
                     {
@@ -352,7 +397,7 @@ namespace Automation
                                 int axisCount = SF.cardStore.GetAxisCount(i);
                                 for (int j = 0; j < axisCount; j++)
                                 {
-                                    uint number = csLTDMC.LTDMC.dmc_axis_io_status((ushort)i, (ushort)j);
+                                    uint number = motion.GetAxisIoStatus((ushort)i, (ushort)j);
                                     char[] state = Convert.ToString(number, 2).PadLeft(16, '0').ToCharArray();
                                     lock (StateDicLock)
                                     {
@@ -408,6 +453,23 @@ namespace Automation
             {
                 StateDic.Clear();
             }
+        }
+
+        private void HandleSimulationGatewayFault(string reason)
+        {
+            string message = $"仿真连接故障:{reason}";
+            Action stopAction = () =>
+            {
+                axisMonitorFaulted = true;
+                StopAllProcsForSafety(message);
+                SF.SetSecurityLock(message);
+            };
+            if (IsHandleCreated && InvokeRequired)
+            {
+                BeginInvoke(stopAction);
+                return;
+            }
+            stopAction();
         }
 
         private void StopAllProcsForSafety(string reason)

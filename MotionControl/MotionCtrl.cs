@@ -3,11 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using csLTDMC;
 using static Automation.MotionControl.MotionCtrl;
 
 namespace Automation.MotionControl
 {
-    public class MotionCtrl
+    public class MotionCtrl : IMotionRuntime, IIoRuntime
     {
         public LS ls;
 
@@ -147,6 +148,14 @@ namespace Automation.MotionControl
         public double GetAxisCurSpeed(ushort card, ushort axis)
         {
             return (double)getAxisCurSpeed?.Invoke( card, axis);
+        }
+        public uint GetAxisIoStatus(ushort card, ushort axis)
+        {
+            if (!IsCardInitialized)
+            {
+                throw new InvalidOperationException("运动控制卡未初始化");
+            }
+            return LTDMC.dmc_axis_io_status(card, axis);
         }
         public void InitCardType()
         {

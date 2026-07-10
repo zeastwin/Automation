@@ -2771,11 +2771,11 @@ namespace Automation.Bridge
                 bool ok;
                 if (string.Equals(io.IOType, "通用输出", StringComparison.OrdinalIgnoreCase))
                 {
-                    ok = SF.motion?.GetOutIO(io, ref bval) ?? false;
+                    ok = SF.io?.GetOutIO(io, ref bval) ?? false;
                 }
                 else
                 {
-                    ok = SF.motion?.GetInIO(io, ref bval) ?? false;
+                    ok = SF.io?.GetInIO(io, ref bval) ?? false;
                 }
                 if (ok)
                 {

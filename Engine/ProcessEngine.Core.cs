@@ -45,6 +45,8 @@ namespace Automation
         public Control UiInvoker { get; set; }
         public ILogger Logger { get; set; }
         public event Action<EngineSnapshot> SnapshotChanged;
+        public event Action<OperationTraceEntry> OperationTraced;
+        public event Action<int, Guid> ProcessCompleted;
         public int SnapshotThrottleMilliseconds
         {
             get => snapshotThrottleMilliseconds;
@@ -128,6 +130,18 @@ namespace Automation
                 result.Add(GetSnapshot(i));
             }
             return result;
+        }
+
+        internal void RaiseOperationTrace(OperationTraceEntry entry)
+        {
+            try
+            {
+                OperationTraced?.Invoke(entry);
+            }
+            catch (Exception ex)
+            {
+                Logger?.Log($"操作追踪处理失败:{ex.Message}", LogLevel.Error);
+            }
         }
         public void RefreshProcName(int procIndex)
         {
@@ -724,11 +738,11 @@ namespace Automation
                         bool ok;
                         if (io.IOType == "通用输入")
                         {
-                            ok = Context.Motion != null && Context.Motion.GetInIO(io, ref value);
+                            ok = Context.Io != null && Context.Io.GetInIO(io, ref value);
                         }
                         else if (io.IOType == "通用输出")
                         {
-                            ok = Context.Motion != null && Context.Motion.GetOutIO(io, ref value);
+                            ok = Context.Io != null && Context.Io.GetOutIO(io, ref value);
                         }
                         else
                         {
@@ -986,6 +1000,7 @@ namespace Automation
             evt.State = ProcRunState.Stopped;
             evt.isBreakpoint = false;
             UpdateSnapshot(evt.procNum, evt.procId, evt.procName, evt.State, evt.stepNum, evt.opsNum, evt.isBreakpoint, evt.isAlarm, evt.alarmMsg, true);
+            ProcessCompleted?.Invoke(evt.procNum, evt.procId);
         }
         //运行步骤
         private bool RunStep(ProcHandle evt, ProcessControl control)

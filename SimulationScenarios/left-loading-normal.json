@@ -1,0 +1,9 @@
+{
+  "scenarioVersion": 1,
+  "simulatorScenario": "left-loading-normal",
+  "startProcIds": [
+    "91ec2880-e46c-4482-b494-ce692bb9a10d"
+  ],
+  "maxDurationMs": 180000,
+  "noAlarms": true
+}

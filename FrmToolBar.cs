@@ -393,7 +393,7 @@ namespace Automation
 
         private void button1_Click(object sender, EventArgs e)
         {
-            string path = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) + "\\Config";
+            string path = SF.ConfigPath.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
             System.Diagnostics.Process.Start("explorer.exe", path);
 
         }

@@ -96,12 +96,12 @@ namespace Automation
         {
             get
             {
-                string assemblyDirectory = Path.GetDirectoryName(typeof(AutomationPlatformHost).Assembly.Location);
-                if (string.IsNullOrWhiteSpace(assemblyDirectory))
+                string configRoot = SF.ConfigPath;
+                if (string.IsNullOrWhiteSpace(configRoot))
                 {
-                    throw new InvalidOperationException("无法确定 Automation 程序目录。");
+                    throw new InvalidOperationException("无法确定 Automation 配置目录。");
                 }
-                return Path.GetFullPath(Path.Combine(assemblyDirectory, "Config"));
+                return Path.GetFullPath(configRoot);
             }
         }
         public PlatformRuntimeState State => state;

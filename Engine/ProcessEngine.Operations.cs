@@ -34,6 +34,20 @@ namespace Automation
                 MarkAlarm(evt, message);
                 return false;
             }
+            OperationType typedOperation = operation as OperationType;
+            Stopwatch traceStopwatch = Stopwatch.StartNew();
+            RaiseOperationTrace(new OperationTraceEntry
+            {
+                Timestamp = DateTime.Now,
+                Phase = "Started",
+                ProcIndex = evt?.procNum ?? -1,
+                ProcId = evt?.procId ?? Guid.Empty,
+                StepIndex = evt?.stepNum ?? -1,
+                OpIndex = evt?.opsNum ?? -1,
+                OperationId = typedOperation?.Id ?? Guid.Empty,
+                OperationType = operation.GetType().Name,
+                OperationName = typedOperation?.Name
+            });
             try
             {
                 switch (operation)
@@ -179,6 +193,25 @@ namespace Automation
             {
                 MarkAlarm(evt, ex.Message);
                 return false;
+            }
+            finally
+            {
+                traceStopwatch.Stop();
+                RaiseOperationTrace(new OperationTraceEntry
+                {
+                    Timestamp = DateTime.Now,
+                    Phase = evt?.isAlarm == true ? "Failed" : "Completed",
+                    ProcIndex = evt?.procNum ?? -1,
+                    ProcId = evt?.procId ?? Guid.Empty,
+                    StepIndex = evt?.stepNum ?? -1,
+                    OpIndex = evt?.opsNum ?? -1,
+                    OperationId = typedOperation?.Id ?? Guid.Empty,
+                    OperationType = operation.GetType().Name,
+                    OperationName = typedOperation?.Name,
+                    IsAlarm = evt?.isAlarm == true,
+                    AlarmMessage = evt?.alarmMsg,
+                    ElapsedMs = traceStopwatch.ElapsedMilliseconds
+                });
             }
         }
 
