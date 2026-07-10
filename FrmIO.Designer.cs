@@ -89,7 +89,6 @@
             this.dgvIO.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
             this.dgvIO.Size = new System.Drawing.Size(1067, 562);
             this.dgvIO.TabIndex = 3;
-            this.dgvIO.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.dgvIO_CellFormatting);
             this.dgvIO.CellMouseClick += new System.Windows.Forms.DataGridViewCellMouseEventHandler(this.dgvIO_CellMouseClick);
             this.dgvIO.CellMouseDown += new System.Windows.Forms.DataGridViewCellMouseEventHandler(this.dgvIO_CellMouseDown);
             // 

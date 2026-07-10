@@ -1,19 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Data;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Security.Policy;
-using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using static Automation.FrmCard;
 using static Automation.OperationTypePartial;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace Automation
 {
@@ -27,8 +23,45 @@ namespace Automation
         public List<string> IoOutItems = new List<string>();
         public List<string> IoInItems = new List<string>();
         public List<string> IoItems = new List<string>();
-        private System.Windows.Forms.Timer ioMonitorTimer;
-        private bool ioMonitorEnabled;
+        private const int IoMonitorIntervalMs = 200;
+        private const int IoMonitorStaleTimeoutMs = 2000;
+        private readonly object ioMonitorLifecycleLock = new object();
+        private System.Windows.Forms.Timer ioMonitorUiTimer;
+        private CancellationTokenSource ioMonitorCts;
+        private Task ioMonitorTask;
+        private volatile bool ioMonitorEnabled;
+        private IoMonitorRequest ioMonitorRequest;
+        private IoMonitorSnapshot pendingIoMonitorSnapshot;
+        private int ioMonitorApplyScheduled;
+        private long lastIoMonitorErrorUtcTicks;
+        private long lastIoMonitorSnapshotUtcTicks;
+        private bool ioMonitorStaleShown;
+
+        private sealed class IoMonitorItem
+        {
+            public int RowIndex { get; set; }
+            public IO Source { get; set; }
+            public IO HardwareRequest { get; set; }
+            public bool IsInput { get; set; }
+        }
+
+        private sealed class IoMonitorRequest
+        {
+            public int CardIndex { get; set; }
+            public IoMonitorItem[] Items { get; set; }
+        }
+
+        private struct IoMonitorValue
+        {
+            public bool Success { get; set; }
+            public bool Value { get; set; }
+        }
+
+        private sealed class IoMonitorSnapshot
+        {
+            public IoMonitorRequest Request { get; set; }
+            public IoMonitorValue[] Values { get; set; }
+        }
         public FrmIO()
         {
             InitializeComponent();
@@ -38,6 +71,7 @@ namespace Automation
             dgvIO.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
             dgvIO.RowHeadersVisible = false;
             dgvIO.AutoGenerateColumns = false;
+            dgvIO.RowsDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
             Type dgvType = this.dgvIO.GetType();
             PropertyInfo pi = dgvType.GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -46,34 +80,62 @@ namespace Automation
             dgvIO.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             dgvIO.KeyDown += dgvIO_KeyDown;
             FormClosing += FrmIO_FormClosing;
+            Disposed += FrmIO_Disposed;
         }
 
         public bool IsIOMonitoring => ioMonitorEnabled;
         public void RefleshIODic()
         {
-            DicIO.Clear();
-            IoOutItems.Clear();
-            IoInItems.Clear();
+            var dictionary = new Dictionary<string, IO>(StringComparer.Ordinal);
+            var outputNames = new List<string>();
+            var inputNames = new List<string>();
+            var allNames = new List<string>();
+            if (IOMap == null)
+            {
+                SF.SetSecurityLock("IO配置为空，禁止加载IO字典。");
+                return;
+            }
             foreach (List<IO> list in IOMap)
             {
+                if (list == null)
+                {
+                    SF.SetSecurityLock("IO配置包含空卡列表，禁止加载IO字典。");
+                    return;
+                }
                 foreach (IO item in list)
                 {
-                    if (item.Name != null && item.Name != "")
+                    if (item == null || string.IsNullOrWhiteSpace(item.Name))
                     {
-                        DicIO.Add(item.Name,item);
-                        if(item.IOType == "通用输出")
-                        {
-                            IoOutItems.Add(item.Name);
-                        }
-                        if (item.IOType == "通用输入")
-                        {
-                            IoInItems.Add(item.Name);
-                        }
-                        IoItems.Add(item.Name);
+                        continue;
                     }
+                    if (dictionary.ContainsKey(item.Name))
+                    {
+                        SF.SetSecurityLock($"IO名称重复：{item.Name}");
+                        return;
+                    }
+                    dictionary.Add(item.Name, item);
+                    if (item.IOType == "通用输出")
+                    {
+                        outputNames.Add(item.Name);
+                    }
+                    if (item.IOType == "通用输入")
+                    {
+                        inputNames.Add(item.Name);
+                    }
+                    allNames.Add(item.Name);
                 }
             }
-
+            DicIO.Clear();
+            foreach (KeyValuePair<string, IO> pair in dictionary)
+            {
+                DicIO.Add(pair.Key, pair.Value);
+            }
+            IoOutItems.Clear();
+            IoOutItems.AddRange(outputNames);
+            IoInItems.Clear();
+            IoInItems.AddRange(inputNames);
+            IoItems.Clear();
+            IoItems.AddRange(allNames);
         }
         //从文件更新表
         public void RefreshIOMap()
@@ -88,12 +150,25 @@ namespace Automation
                 IOMap = new List<List<IO>>();
                 SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap);
             }
-            IOMap = SF.mainfrm.ReadJson<List<List<IO>>>(SF.ConfigPath, "IOMap");
+            List<List<IO>> loadedMap = SF.mainfrm.ReadJson<List<List<IO>>>(SF.ConfigPath, "IOMap");
+            if (loadedMap == null)
+            {
+                IOMap = new List<List<IO>>();
+                SF.SetSecurityLock("IO配置文件为空或格式无效。");
+                RefreshIODgv();
+                return;
+            }
+            IOMap = loadedMap;
             RefreshIODgv();
         }
 
         public void RefreshIODgv()
         {
+            Interlocked.Exchange(ref ioMonitorRequest, null);
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
             RefleshIODic();
             if (SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
             {
@@ -105,115 +180,89 @@ namespace Automation
                     List<IO> cacheIOs = IOMap[cardIndex];
 
                     WriteIODgv(inputCount, outputCount, cacheIOs);
-                    if (ioMonitorEnabled)
-                    {
-                        UpdateIOStatusIcons();
-                    }
+                    RefreshIoMonitorRequest();
+                    return;
                 }
+            }
+            if (SF.isModify != ModifyKind.IO)
+            {
+                dgvIO.Rows.Clear();
             }
         }
 
         public void WriteIODgv(int inputCount, int outputCount, List<IO> cacheIOs)
         {
-            if (SF.isModify != ModifyKind.IO)
-                dgvIO.Rows.Clear();
-            if (inputCount >= cacheIOs.Count)
-                return;
-            IO cacheIO;
-            for (int i = 0; i < inputCount; i++)
+            if (cacheIOs == null || inputCount < 0 || outputCount < 0)
             {
-                cacheIO = cacheIOs[i];
-                if (cacheIO != null)
+                return;
+            }
+            int totalCount;
+            try
+            {
+                totalCount = checked(inputCount + outputCount);
+            }
+            catch (OverflowException)
+            {
+                SF.SetSecurityLock("IO数量配置溢出，禁止加载IO界面。");
+                return;
+            }
+            if (totalCount != cacheIOs.Count)
+            {
+                SF.SetSecurityLock($"IO配置数量不一致：需要{totalCount}，实际{cacheIOs.Count}。");
+                return;
+            }
+
+            dgvIO.SuspendLayout();
+            try
+            {
+                if (SF.isModify != ModifyKind.IO)
                 {
-                    if (SF.isModify != ModifyKind.IO)
-                        dgvIO.Rows.Add();
-                    dgvIO.Rows[i].Cells[0].Value = cacheIO.Index;
-                    //dgvIO.Rows[i].Cells[1].Value = cacheIO.Status ? "|运行" : "|就绪"; ;
-                    dgvIO.Rows[i].Cells[1].Value = invalidImage;
-                    dgvIO.Rows[i].Cells[2].Value = cacheIO.Name;
-                    dgvIO.Rows[i].Cells[3].Value = cacheIO.CardNum;
-                    dgvIO.Rows[i].Cells[4].Value = cacheIO.Module;
-                    dgvIO.Rows[i].Cells[5].Value = cacheIO.IOIndex;
-                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
-                    dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
-                    dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Note;
+                    dgvIO.Rows.Clear();
+                    if (totalCount > 0)
+                    {
+                        dgvIO.Rows.Add(totalCount);
+                    }
+                }
+                if (dgvIO.Rows.Count < totalCount)
+                {
+                    SF.SetSecurityLock("IO界面行数与配置数量不一致，禁止继续刷新。");
+                    return;
+                }
+                for (int i = 0; i < totalCount; i++)
+                {
+                    IO cacheIO = cacheIOs[i];
+                    DataGridViewRow row = dgvIO.Rows[i];
+                    if (cacheIO == null)
+                    {
+                        for (int columnIndex = 0; columnIndex < row.Cells.Count; columnIndex++)
+                        {
+                            row.Cells[columnIndex].Value = null;
+                        }
+                        row.Cells[1].ToolTipText = "IO配置为空";
+                        continue;
+                    }
+                    row.Cells[0].Value = cacheIO.Index;
+                    row.Cells[1].Value = cacheIO.Status ? validImage : invalidImage;
+                    row.Cells[1].ToolTipText = string.Empty;
+                    row.Cells[2].Value = cacheIO.Name;
+                    row.Cells[3].Value = cacheIO.CardNum;
+                    row.Cells[4].Value = cacheIO.Module;
+                    row.Cells[5].Value = cacheIO.IOIndex;
+                    row.Cells[6].Value = cacheIO.IOType;
+                    row.Cells[7].Value = cacheIO.UsedType;
+                    row.Cells[8].Value = cacheIO.EffectLevel;
+                    row.Cells[9].Value = cacheIO.Note;
                 }
             }
-            for (int i = inputCount; i < inputCount + outputCount; i++)
+            finally
             {
-                cacheIO = cacheIOs[i];
-                if (cacheIO != null)
-                {
-                    if (SF.isModify != ModifyKind.IO)
-                        dgvIO.Rows.Add();
-                    dgvIO.Rows[i].Cells[0].Value = cacheIO.Index;
-                    dgvIO.Rows[i].Cells[1].Value = invalidImage;
-                    dgvIO.Rows[i].Cells[2].Value = cacheIO.Name;
-                    dgvIO.Rows[i].Cells[3].Value = cacheIO.CardNum;
-                    dgvIO.Rows[i].Cells[4].Value = cacheIO.Module;
-                    dgvIO.Rows[i].Cells[5].Value = cacheIO.IOIndex;
-                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
-                    dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
-                    dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Note;
-                }
+                dgvIO.ResumeLayout();
             }
         }
         //刷新IO界面
         public void FreshFrmIO()
         {
-            if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
-                return;
-            if (!SF.cardStore.TryGetCardHead(cardIndex, out CardHead cardHead))
-                return;
-            if (IOMap.Count <= cardIndex)
-                return;
-            int inputCount = cardHead.InputCount;
-            int outputCount = cardHead.OutputCount;
-
-            List<IO> cacheIOs = IOMap[cardIndex];
-            IO cacheIO;
-            for (int i = 0; i < inputCount; i++)
-            {
-                cacheIO = cacheIOs[i];
-                if (cacheIO != null)
-                {
-                    dgvIO.Rows[i].Cells[0].Value = cacheIO.Index;
-                    dgvIO.Rows[i].Cells[1].Value = invalidImage;
-                    dgvIO.Rows[i].Cells[2].Value = cacheIO.Name;
-                    dgvIO.Rows[i].Cells[3].Value = cacheIO.CardNum;
-                    dgvIO.Rows[i].Cells[4].Value = cacheIO.Module;
-                    dgvIO.Rows[i].Cells[5].Value = cacheIO.IOIndex;
-                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
-                    dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
-                    dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Note;
-
-                }
-            }
-            for (int i = inputCount; i < inputCount + outputCount; i++)
-            {
-                cacheIO = cacheIOs[i];
-                if (cacheIO != null)
-                {
-                    dgvIO.Rows[i].Cells[0].Value = cacheIO.Index;
-                    dgvIO.Rows[i].Cells[1].Value = invalidImage;
-                    dgvIO.Rows[i].Cells[2].Value = cacheIO.Name;
-                    dgvIO.Rows[i].Cells[3].Value = cacheIO.CardNum;
-                    dgvIO.Rows[i].Cells[4].Value = cacheIO.Module;
-                    dgvIO.Rows[i].Cells[5].Value = cacheIO.IOIndex;
-                    dgvIO.Rows[i].Cells[6].Value = cacheIO.IOType;
-                    dgvIO.Rows[i].Cells[7].Value = cacheIO.UsedType;
-                    dgvIO.Rows[i].Cells[8].Value = cacheIO.EffectLevel;
-                    dgvIO.Rows[i].Cells[9].Value = cacheIO.Note;
-                }
-            }
-        }
-
-        private void dgvIO_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
-        {
-            dgvIO[e.ColumnIndex, e.RowIndex].Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            RefreshIODgv();
         }
 
         private void dgvIO_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
@@ -226,11 +275,16 @@ namespace Automation
         {
             if (e.RowIndex >= 0)
             {
+                if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex)
+                    || IOMap == null || cardIndex < 0 || cardIndex >= IOMap.Count
+                    || IOMap[cardIndex] == null || e.RowIndex >= IOMap[cardIndex].Count)
+                {
+                    iSelectedIORow = -1;
+                    return;
+                }
                 dgvIO.ClearSelection();
                 dgvIO.Rows[e.RowIndex].Selected = true;
-
-                if (SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = IOMap[cardIndex][e.RowIndex];
+                SF.frmPropertyGrid.propertyGrid1.SelectedObject = IOMap[cardIndex][e.RowIndex];
             }
 
             iSelectedIORow = e.RowIndex;
@@ -241,6 +295,7 @@ namespace Automation
             if (iSelectedIORow != -1)
             {
                 SF.BeginEdit(ModifyKind.IO);
+                RefreshIoMonitorRequest();
             }
           
         }
@@ -473,110 +528,343 @@ namespace Automation
                 StopIOMonitor();
                 return false;
             }
-            StartIOMonitor();
-            return true;
+            return StartIOMonitor();
         }
 
         public void StopIOMonitor()
         {
             ioMonitorEnabled = false;
-            if (ioMonitorTimer != null)
-            {
-                ioMonitorTimer.Stop();
-            }
+            Interlocked.Exchange(ref ioMonitorRequest, null);
+            Interlocked.Exchange(ref pendingIoMonitorSnapshot, null);
+            ioMonitorUiTimer?.Stop();
         }
 
-        private void StartIOMonitor()
+        private bool StartIOMonitor()
         {
-            if (ioMonitorTimer == null)
-            {
-                ioMonitorTimer = new System.Windows.Forms.Timer();
-                ioMonitorTimer.Interval = 200;
-                ioMonitorTimer.Tick += IoMonitorTimer_Tick;
-            }
             ioMonitorEnabled = true;
-            ioMonitorTimer.Start();
-            UpdateIOStatusIcons();
+            RefreshIoMonitorRequest();
+            IoMonitorRequest request = Volatile.Read(ref ioMonitorRequest);
+            if (request == null || request.Items == null || request.Items.Length == 0)
+            {
+                ioMonitorEnabled = false;
+                MessageBox.Show("当前没有可监控的IO，或IO运行时尚未就绪。", "IO监控",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return false;
+            }
+            lastIoMonitorSnapshotUtcTicks = DateTime.UtcNow.Ticks;
+            ioMonitorStaleShown = false;
+            if (ioMonitorUiTimer == null)
+            {
+                ioMonitorUiTimer = new System.Windows.Forms.Timer { Interval = 500 };
+                ioMonitorUiTimer.Tick += IoMonitorUiTimer_Tick;
+            }
+            ioMonitorUiTimer.Start();
+            EnsureIoMonitorWorkerStarted();
+            return true;
         }
 
-        private void IoMonitorTimer_Tick(object sender, EventArgs e)
+        private void EnsureIoMonitorWorkerStarted()
         {
-            UpdateIOStatusIcons();
+            lock (ioMonitorLifecycleLock)
+            {
+                if (ioMonitorTask != null && !ioMonitorTask.IsCompleted)
+                {
+                    return;
+                }
+                ioMonitorCts?.Dispose();
+                ioMonitorCts = new CancellationTokenSource();
+                CancellationToken token = ioMonitorCts.Token;
+                ioMonitorTask = Task.Run(() => IoMonitorLoopAsync(token), token);
+            }
         }
 
-        private void UpdateIOStatusIcons()
+        private void RefreshIoMonitorRequest()
+        {
+            if (!ioMonitorEnabled || IsDisposed || Disposing || !IsHandleCreated
+                || SF.io == null
+                || !SF.frmCard.TryGetSelectedCardIndex(out int cardIndex)
+                || IOMap == null || cardIndex < 0 || cardIndex >= IOMap.Count
+                || IOMap[cardIndex] == null)
+            {
+                Interlocked.Exchange(ref ioMonitorRequest, null);
+                return;
+            }
+
+            List<IO> cacheIOs = IOMap[cardIndex];
+            int rowCount = Math.Min(dgvIO.Rows.Count, cacheIOs.Count);
+            var items = new List<IoMonitorItem>(rowCount);
+            for (int i = 0; i < rowCount; i++)
+            {
+                IO io = cacheIOs[i];
+                if (io == null)
+                {
+                    continue;
+                }
+                bool isInput = string.Equals(io.IOType, "通用输入", StringComparison.Ordinal);
+                bool isOutput = string.Equals(io.IOType, "通用输出", StringComparison.Ordinal);
+                if (!isInput && !isOutput)
+                {
+                    continue;
+                }
+                items.Add(new IoMonitorItem
+                {
+                    RowIndex = i,
+                    Source = io,
+                    IsInput = isInput,
+                    HardwareRequest = new IO
+                    {
+                        Index = io.Index,
+                        CardNum = io.CardNum,
+                        Module = io.Module,
+                        IOIndex = io.IOIndex,
+                        IOType = io.IOType
+                    }
+                });
+            }
+            Interlocked.Exchange(ref ioMonitorRequest, new IoMonitorRequest
+            {
+                CardIndex = cardIndex,
+                Items = items.ToArray()
+            });
+        }
+
+        private async Task IoMonitorLoopAsync(CancellationToken token)
         {
             try
             {
-                if (IsDisposed || !IsHandleCreated)
+                while (!token.IsCancellationRequested)
                 {
-                    StopIOMonitor();
-                    return;
-                }
-                if (SF.motion == null)
-                {
-                    return;
-                }
-                if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
-                {
-                    return;
-                }
-                if (IOMap == null || cardIndex < 0 || cardIndex >= IOMap.Count || IOMap[cardIndex] == null)
-                {
-                    return;
-                }
-                List<IO> cacheIOs = IOMap[cardIndex];
-                int rowCount = Math.Min(dgvIO.Rows.Count, cacheIOs.Count);
-                for (int i = 0; i < rowCount; i++)
-                {
-                    IO io = cacheIOs[i];
-                    if (io == null)
+                    IoMonitorRequest request = Volatile.Read(ref ioMonitorRequest);
+                    if (!ioMonitorEnabled || request == null || request.Items == null || request.Items.Length == 0)
                     {
+                        await Task.Delay(50, token).ConfigureAwait(false);
                         continue;
                     }
-                    bool value = false;
-                    bool ok;
-                    if (io.IOType == "通用输入")
+
+                    IoMonitorSnapshot snapshot = CollectIoMonitorSnapshot(request, token);
+                    if (ioMonitorEnabled && ReferenceEquals(request, Volatile.Read(ref ioMonitorRequest)))
                     {
-                        ok = SF.io.GetInIO(io, ref value);
+                        PostIoMonitorSnapshot(snapshot);
                     }
-                    else if (io.IOType == "通用输出")
-                    {
-                        ok = SF.io.GetOutIO(io, ref value);
-                    }
-                    else
-                    {
-                        continue;
-                    }
-                    if (!ok)
-                    {
-                        continue;
-                    }
-                    io.Status = value;
-                    System.Drawing.Image nextImage = value ? validImage : invalidImage;
-                    DataGridViewCell cell = dgvIO.Rows[i].Cells[1];
-                    if (!ReferenceEquals(cell.Value, nextImage))
-                    {
-                        cell.Value = nextImage;
-                    }
+                    await Task.Delay(IoMonitorIntervalMs, token).ConfigureAwait(false);
                 }
             }
-            catch (Exception)
+            catch (OperationCanceledException)
             {
-                StopIOMonitor();
             }
+            catch (Exception ex)
+            {
+                ReportIoMonitorError($"IO监控后台任务异常：{ex.Message}");
+            }
+        }
+
+        private IoMonitorSnapshot CollectIoMonitorSnapshot(IoMonitorRequest request, CancellationToken token)
+        {
+            var values = new IoMonitorValue[request.Items.Length];
+            var ioRuntime = SF.io;
+            for (int i = 0; i < request.Items.Length; i++)
+            {
+                if (token.IsCancellationRequested || !ioMonitorEnabled
+                    || !ReferenceEquals(request, Volatile.Read(ref ioMonitorRequest)))
+                {
+                    break;
+                }
+                IoMonitorItem item = request.Items[i];
+                bool value = false;
+                bool success = false;
+                try
+                {
+                    if (ioRuntime != null)
+                    {
+                        success = item.IsInput
+                            ? ioRuntime.GetInIO(item.HardwareRequest, ref value)
+                            : ioRuntime.GetOutIO(item.HardwareRequest, ref value);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ReportIoMonitorError($"IO读取异常：{item.HardwareRequest.CardNum}-{item.HardwareRequest.IOIndex} {ex.Message}");
+                }
+                if (!success)
+                {
+                    ReportIoMonitorError($"IO状态读取失败：{item.HardwareRequest.CardNum}-{item.HardwareRequest.IOIndex}");
+                }
+                values[i] = new IoMonitorValue
+                {
+                    Success = success,
+                    Value = value
+                };
+            }
+            return new IoMonitorSnapshot
+            {
+                Request = request,
+                Values = values
+            };
+        }
+
+        private void PostIoMonitorSnapshot(IoMonitorSnapshot snapshot)
+        {
+            if (IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return;
+            }
+            Interlocked.Exchange(ref pendingIoMonitorSnapshot, snapshot);
+            if (Interlocked.Exchange(ref ioMonitorApplyScheduled, 1) != 0)
+            {
+                return;
+            }
+            try
+            {
+                BeginInvoke((Action)ApplyPendingIoMonitorSnapshot);
+            }
+            catch (InvalidOperationException)
+            {
+                Interlocked.Exchange(ref ioMonitorApplyScheduled, 0);
+            }
+        }
+
+        private void ApplyPendingIoMonitorSnapshot()
+        {
+            IoMonitorSnapshot snapshot = Interlocked.Exchange(ref pendingIoMonitorSnapshot, null);
+            if (snapshot != null)
+            {
+                ApplyIoMonitorSnapshot(snapshot);
+            }
+            Interlocked.Exchange(ref ioMonitorApplyScheduled, 0);
+            if (Volatile.Read(ref pendingIoMonitorSnapshot) != null)
+            {
+                PostIoMonitorSnapshot(Interlocked.Exchange(ref pendingIoMonitorSnapshot, null));
+            }
+        }
+
+        private void ApplyIoMonitorSnapshot(IoMonitorSnapshot snapshot)
+        {
+            if (!ioMonitorEnabled || snapshot == null || snapshot.Request == null
+                || !ReferenceEquals(snapshot.Request, Volatile.Read(ref ioMonitorRequest))
+                || snapshot.Values == null
+                || !SF.frmCard.TryGetSelectedCardIndex(out int selectedCardIndex)
+                || selectedCardIndex != snapshot.Request.CardIndex)
+            {
+                return;
+            }
+
+            IoMonitorItem[] items = snapshot.Request.Items;
+            int count = Math.Min(items.Length, snapshot.Values.Length);
+            lastIoMonitorSnapshotUtcTicks = DateTime.UtcNow.Ticks;
+            ioMonitorStaleShown = false;
+            for (int i = 0; i < count; i++)
+            {
+                IoMonitorItem item = items[i];
+                if (item.RowIndex < 0 || item.RowIndex >= dgvIO.Rows.Count)
+                {
+                    continue;
+                }
+                IoMonitorValue monitorValue = snapshot.Values[i];
+                DataGridViewCell cell = dgvIO.Rows[item.RowIndex].Cells[1];
+                if (!monitorValue.Success)
+                {
+                    if (cell.Value != null)
+                    {
+                        cell.Value = null;
+                    }
+                    if (!string.Equals(cell.ToolTipText, "IO状态读取失败", StringComparison.Ordinal))
+                    {
+                        cell.ToolTipText = "IO状态读取失败";
+                    }
+                    continue;
+                }
+                item.Source.Status = monitorValue.Value;
+                System.Drawing.Image nextImage = monitorValue.Value ? validImage : invalidImage;
+                if (!ReferenceEquals(cell.Value, nextImage))
+                {
+                    cell.Value = nextImage;
+                }
+                if (!string.IsNullOrEmpty(cell.ToolTipText))
+                {
+                    cell.ToolTipText = string.Empty;
+                }
+            }
+        }
+
+        private void IoMonitorUiTimer_Tick(object sender, EventArgs e)
+        {
+            if (!ioMonitorEnabled || ioMonitorStaleShown)
+            {
+                return;
+            }
+            long elapsedTicks = DateTime.UtcNow.Ticks - lastIoMonitorSnapshotUtcTicks;
+            if (elapsedTicks < TimeSpan.FromMilliseconds(IoMonitorStaleTimeoutMs).Ticks)
+            {
+                return;
+            }
+            ioMonitorStaleShown = true;
+            for (int i = 0; i < dgvIO.Rows.Count; i++)
+            {
+                DataGridViewCell cell = dgvIO.Rows[i].Cells[1];
+                cell.Value = null;
+                cell.ToolTipText = "IO监控数据已过期";
+            }
+            ReportIoMonitorError("IO监控超过2秒未收到新快照，界面状态已标记为过期。");
+        }
+
+        private void ReportIoMonitorError(string message)
+        {
+            long nowTicks = DateTime.UtcNow.Ticks;
+            long lastTicks = Interlocked.Read(ref lastIoMonitorErrorUtcTicks);
+            if (nowTicks - lastTicks < TimeSpan.FromSeconds(5).Ticks)
+            {
+                return;
+            }
+            if (Interlocked.CompareExchange(ref lastIoMonitorErrorUtcTicks, nowTicks, lastTicks) == lastTicks)
+            {
+                SF.frmInfo?.PrintInfo(message, FrmInfo.Level.Error);
+            }
+        }
+
+        private void StopIoMonitorWorker()
+        {
+            CancellationTokenSource cts;
+            Task task;
+            lock (ioMonitorLifecycleLock)
+            {
+                cts = ioMonitorCts;
+                task = ioMonitorTask;
+                ioMonitorCts = null;
+                ioMonitorTask = null;
+            }
+            if (cts == null)
+            {
+                return;
+            }
+            cts.Cancel();
+            if (task == null)
+            {
+                cts.Dispose();
+                return;
+            }
+            task.ContinueWith(completedTask =>
+            {
+                _ = completedTask.Exception;
+                cts.Dispose();
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
 
         private void FrmIO_FormClosing(object sender, FormClosingEventArgs e)
         {
-            if (ioMonitorTimer != null)
+            StopIOMonitor();
+            StopIoMonitorWorker();
+        }
+
+        private void FrmIO_Disposed(object sender, EventArgs e)
+        {
+            StopIOMonitor();
+            StopIoMonitorWorker();
+            if (ioMonitorUiTimer != null)
             {
-                ioMonitorTimer.Stop();
-                ioMonitorTimer.Tick -= IoMonitorTimer_Tick;
-                ioMonitorTimer.Dispose();
-                ioMonitorTimer = null;
+                ioMonitorUiTimer.Tick -= IoMonitorUiTimer_Tick;
+                ioMonitorUiTimer.Dispose();
+                ioMonitorUiTimer = null;
             }
-            ioMonitorEnabled = false;
         }
 
         private List<string> ParseClipboardNames(string text)
