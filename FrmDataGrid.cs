@@ -35,6 +35,8 @@ namespace Automation
         private int lastHighlightedStep = -1;
         private ProcRunState lastHighlightedState = ProcRunState.Stopped;
         private bool lastHighlightActive = false;
+        private bool singleStepFollowPending;
+        private int singleStepFollowProcIndex = -1;
         private bool contextMenuByMouse = false;
         private int contextMenuRowIndex = -1;
 
@@ -290,12 +292,12 @@ namespace Automation
 
                 if (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep)
                 {
-                    if (SF.isSingleStepFollowPending)
+                    if (singleStepFollowPending)
                     {
-                        if (selectedProc != SF.singleStepFollowProcIndex)
+                        if (selectedProc != singleStepFollowProcIndex)
                         {
-                            SF.isSingleStepFollowPending = false;
-                            SF.singleStepFollowProcIndex = -1;
+                            singleStepFollowPending = false;
+                            singleStepFollowProcIndex = -1;
                         }
                         else
                         {
@@ -309,8 +311,8 @@ namespace Automation
                                     SelectChildNode(selectedProc, snapshot.StepIndex);
                                 }
                             }
-                            SF.isSingleStepFollowPending = false;
-                            SF.singleStepFollowProcIndex = -1;
+                            singleStepFollowPending = false;
+                            singleStepFollowProcIndex = -1;
                         }
                     }
                 }
@@ -357,6 +359,12 @@ namespace Automation
             {
                 SF.frmInfo.PrintInfo(ex.Message, FrmInfo.Level.Error);
             }
+        }
+
+        public void RequestSingleStepFollow(int procIndex)
+        {
+            singleStepFollowProcIndex = procIndex;
+            singleStepFollowPending = procIndex >= 0;
         }
 
         private void ClearLastHighlight()

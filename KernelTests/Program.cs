@@ -16,6 +16,9 @@ namespace Automation.KernelTests
         {
             Run("未复位禁止启动", TestResetGate);
             Run("报警忽略后继续执行", TestAlarmIgnoreContinues);
+            Run("报警状态与文本保持一致", TestAlarmStateConsistency);
+            Run("单条指令只执行一次", TestSingleOperationStopsExactlyOnce);
+            Run("暂停过渡状态保持一致", TestPauseTransitionConsistency);
             Run("停止超时拒绝重启", TestStopTimeoutRejectsRestart);
             Run("手动轴资源禁止重复占用", TestManualMotionResourceExclusion);
             Run("轴与工站静态配置校验", TestMotionConfigurationValidation);
@@ -55,6 +58,79 @@ namespace Automation.KernelTests
                 WaitUntil(() => Volatile.Read(ref continued) == 1, 2000, "报警忽略后未继续执行下一条指令");
                 WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 2000, "报警恢复测试流程未结束");
                 Assert(engine.GetSnapshot(0)?.IsAlarm == false, "忽略后报警标志未清除");
+            }
+        }
+
+        private static void TestAlarmStateConsistency()
+        {
+            ValueConfigStore values = CreateValueStore(ResetStatus.ResetCompleted);
+            Proc proc = CreateProc(new CallCustomFunc { Name = "throws", AlarmType = "报警停止" });
+            CustomFunc functions = new CustomFunc();
+            functions.RegisterFunction("throws", () => throw new InvalidOperationException("状态一致性报警"));
+            using (ProcessEngine engine = CreateEngine(values, functions, proc))
+            {
+                Assert(engine.StartProc(proc, 0), "报警一致性测试流程启动失败");
+                WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Alarming, 2000, "流程未进入报警状态");
+                EngineSnapshot alarming = engine.GetSnapshot(0);
+                Assert(alarming.IsAlarm, "存在报警文本但报警状态为否");
+                Assert(alarming.AlarmMessage == "状态一致性报警", "报警文本未正确发布");
+                engine.Stop(0);
+                WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 2000, "报警流程停止失败");
+                EngineSnapshot stopped = engine.GetSnapshot(0);
+                Assert(stopped.IsAlarm && stopped.AlarmMessage == "状态一致性报警", "停止后报警结果丢失");
+            }
+        }
+
+        private static void TestSingleOperationStopsExactlyOnce()
+        {
+            int firstCount = 0;
+            int secondCount = 0;
+            ValueConfigStore values = CreateValueStore(ResetStatus.ResetCompleted);
+            Proc proc = CreateProc(
+                new CallCustomFunc { Name = "first" },
+                new CallCustomFunc { Name = "second" });
+            CustomFunc functions = new CustomFunc();
+            functions.RegisterFunction("first", () => Interlocked.Increment(ref firstCount));
+            functions.RegisterFunction("second", () => Interlocked.Increment(ref secondCount));
+            using (ProcessEngine engine = CreateEngine(values, functions, proc))
+            {
+                Assert(engine.RunSingleOpOnce(proc, 0, 0, 0), "单条指令启动失败");
+                WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 2000, "单条指令未停止");
+                Assert(Volatile.Read(ref firstCount) == 1, "目标指令执行次数错误");
+                Assert(Volatile.Read(ref secondCount) == 0, "单条模式错误执行了后续指令");
+            }
+        }
+
+        private static void TestPauseTransitionConsistency()
+        {
+            int secondCount = 0;
+            using (ManualResetEventSlim firstEntered = new ManualResetEventSlim(false))
+            using (ManualResetEventSlim releaseFirst = new ManualResetEventSlim(false))
+            {
+                ValueConfigStore values = CreateValueStore(ResetStatus.ResetCompleted);
+                Proc proc = CreateProc(
+                    new CallCustomFunc { Name = "first" },
+                    new CallCustomFunc { Name = "second" });
+                CustomFunc functions = new CustomFunc();
+                functions.RegisterFunction("first", () =>
+                {
+                    firstEntered.Set();
+                    releaseFirst.Wait(2000);
+                });
+                functions.RegisterFunction("second", () => Interlocked.Increment(ref secondCount));
+                using (ProcessEngine engine = CreateEngine(values, functions, proc))
+                {
+                    Assert(engine.StartProc(proc, 0), "暂停测试流程启动失败");
+                    Assert(firstEntered.Wait(1000), "首条指令未开始执行");
+                    engine.Pause(0);
+                    WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Pausing, 1000, "流程未进入暂停过渡态");
+                    releaseFirst.Set();
+                    WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Paused, 1000, "流程未确认暂停");
+                    Assert(Volatile.Read(ref secondCount) == 0, "暂停期间错误执行了下一条指令");
+                    engine.Resume(0);
+                    WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 2000, "恢复后流程未结束");
+                    Assert(Volatile.Read(ref secondCount) == 1, "恢复后下一条指令未执行");
+                }
             }
         }
 

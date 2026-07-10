@@ -111,8 +111,7 @@ namespace Automation
                     {
                         Stopwatch stopwatch = Stopwatch.StartNew();
                         bool isInPos = false;
-                        while (evt.CancellationToken.IsCancellationRequested == false
-                            && !evt.CancellationToken.IsCancellationRequested
+                        while (!evt.CancellationToken.IsCancellationRequested
                             && station.GetState() == DataStation.Status.Run)
                         {
                             if (stopwatch.ElapsedMilliseconds > 120000)
@@ -346,8 +345,7 @@ namespace Automation
                             throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
 
-                        while (evt.CancellationToken.IsCancellationRequested == false
-                            && !evt.CancellationToken.IsCancellationRequested
+                        while (!evt.CancellationToken.IsCancellationRequested
                             && cardNums.Count != 0
                             && station.GetState() == DataStation.Status.Run)
                         {
@@ -774,8 +772,7 @@ namespace Automation
                 Stopwatch stopwatch = Stopwatch.StartNew();
                 const int timeout = 120000;
                 bool isInPos = false;
-                while (evt.CancellationToken.IsCancellationRequested == false
-                    && !evt.CancellationToken.IsCancellationRequested
+                while (!evt.CancellationToken.IsCancellationRequested
                     && cardNums.Count != 0
                     && station.GetState() == DataStation.Status.Run)
                 {
@@ -1332,8 +1329,7 @@ namespace Automation
                         station.SetState(DataStation.Status.NotReady);
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    while (evt.CancellationToken.IsCancellationRequested == false
-                        && !evt.CancellationToken.IsCancellationRequested
+                    while (!evt.CancellationToken.IsCancellationRequested
                         && station.GetState() == DataStation.Status.Run)
                     {
                         if (stopwatch.ElapsedMilliseconds > time)
@@ -1532,8 +1528,7 @@ namespace Automation
                 MarkAlarm(evt, $"{waitStationStop.Name}超时配置无效");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            while (evt.CancellationToken.IsCancellationRequested == false
-                && !evt.CancellationToken.IsCancellationRequested
+            while (!evt.CancellationToken.IsCancellationRequested
                 && station.GetState() == DataStation.Status.Run)
             {
                 bool isInPos = false;

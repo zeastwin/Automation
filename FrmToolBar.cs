@@ -537,8 +537,7 @@ namespace Automation
                     && snapshot.State == ProcRunState.SingleStep)
                 {
                     SF.DR.Step(procIndex);
-                    SF.isSingleStepFollowPending = true;
-                    SF.singleStepFollowProcIndex = procIndex;
+                    SF.frmDataGrid.RequestSingleStepFollow(procIndex);
                 }
             }
                 

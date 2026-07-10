@@ -68,8 +68,7 @@ namespace Automation
             }
 
             Stopwatch stopwatch = Stopwatch.StartNew();
-            while (evt.State != ProcRunState.Stopped
-                && !evt.CancellationToken.IsCancellationRequested)
+            while (!evt.CancellationToken.IsCancellationRequested)
             {
                 if (stopwatch.ElapsedMilliseconds < timeOut)
                 {

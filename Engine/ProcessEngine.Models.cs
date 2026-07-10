@@ -56,6 +56,12 @@ namespace Automation
     }
     public class ProcHandle
     {
+        private int state = (int)ProcRunState.Stopped;
+        private int breakpointFlag;
+        private int gotoFlag;
+        private int pauseBySignalFlag;
+        private string alarmMessage;
+
         public int procNum;
         public int stepNum;
         public int opsNum;
@@ -63,24 +69,47 @@ namespace Automation
         public string procName;
         public Guid procId;
 
-        //流程状态
-        public ProcRunState State = ProcRunState.Stopped;
-        //断点标志
-        public bool isBreakpoint;
-        //标志是否发生了跳转
-        public bool isGoto;
-        //标志是否发生了报警
-        public bool isAlarm;
-        //自定义报警信息
-        public string alarmMsg;
-        public bool singleOpOnce;
-        public int singleOpStep;
-        public int singleOpOp;
-        public CancellationToken CancellationToken { get; set; }
+        // 工作线程和命令线程共享的唯一逻辑状态；对外读取统一使用 EngineSnapshot。
+        public ProcRunState State
+        {
+            get => (ProcRunState)Volatile.Read(ref state);
+            internal set
+            {
+                if (value < ProcRunState.Stopped || value > ProcRunState.Stopping)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value));
+                }
+                Volatile.Write(ref state, (int)value);
+            }
+        }
+        public bool isBreakpoint
+        {
+            get => Volatile.Read(ref breakpointFlag) == 1;
+            internal set => Volatile.Write(ref breakpointFlag, value ? 1 : 0);
+        }
+        public bool isGoto
+        {
+            get => Volatile.Read(ref gotoFlag) == 1;
+            internal set => Volatile.Write(ref gotoFlag, value ? 1 : 0);
+        }
+        // 报警文本是报警结果的唯一数据源，避免布尔标志与文本互相矛盾。
+        public bool HasAlarm => !string.IsNullOrWhiteSpace(alarmMsg);
+        public string alarmMsg
+        {
+            get => Volatile.Read(ref alarmMessage);
+            internal set => Volatile.Write(ref alarmMessage, value);
+        }
+        public bool IsSingleOperation { get; internal set; }
+        // 取消状态直接来自 ProcessControl，不在句柄中重复保存令牌。
+        public CancellationToken CancellationToken => Control?.CancellationToken ?? System.Threading.CancellationToken.None;
         internal ProcessControl Control { get; set; }
         public ConcurrentBag<Task> RunningTasks { get; } = new ConcurrentBag<Task>();
         internal ConcurrentDictionary<long, byte> OwnedAxes { get; } = new ConcurrentDictionary<long, byte>();
-        public bool PauseBySignal { get; set; }
+        public bool PauseBySignal
+        {
+            get => Volatile.Read(ref pauseBySignalFlag) == 1;
+            internal set => Volatile.Write(ref pauseBySignalFlag, value ? 1 : 0);
+        }
         public Proc Proc { get; set; }
 
     }
@@ -97,7 +126,7 @@ namespace Automation
     public sealed class EngineCommand
     {
         private EngineCommand(EngineCommandType type, int procIndex, Proc proc, int stepIndex, int opIndex,
-            ProcRunState startState, bool singleOpOnce, bool autoStep)
+            ProcRunState startState)
         {
             Type = type;
             ProcIndex = procIndex;
@@ -105,8 +134,6 @@ namespace Automation
             StepIndex = stepIndex;
             OpIndex = opIndex;
             StartState = startState;
-            SingleOpOnce = singleOpOnce;
-            AutoStep = autoStep;
         }
 
         public EngineCommandType Type { get; }
@@ -115,47 +142,46 @@ namespace Automation
         public int StepIndex { get; }
         public int OpIndex { get; }
         public ProcRunState StartState { get; }
-        public bool SingleOpOnce { get; }
-        public bool AutoStep { get; }
         internal long Generation { get; set; }
         internal TaskCompletionSource<bool> Completion { get; } =
             new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public static EngineCommand Start(int procIndex, Proc proc, int stepIndex, int opIndex, ProcRunState startState)
         {
-            return new EngineCommand(EngineCommandType.StartAt, procIndex, proc, stepIndex, opIndex, startState, false, false);
+            return new EngineCommand(EngineCommandType.StartAt, procIndex, proc, stepIndex, opIndex, startState);
         }
 
         public static EngineCommand RunSingleOpOnce(int procIndex, Proc proc, int stepIndex, int opIndex)
         {
             return new EngineCommand(EngineCommandType.RunSingleOpOnce, procIndex, proc, stepIndex, opIndex,
-                ProcRunState.SingleStep, true, true);
+                ProcRunState.SingleStep);
         }
 
         public static EngineCommand Pause(int procIndex)
         {
-            return new EngineCommand(EngineCommandType.Pause, procIndex, null, 0, 0, ProcRunState.Paused, false, false);
+            return new EngineCommand(EngineCommandType.Pause, procIndex, null, 0, 0, ProcRunState.Paused);
         }
 
         public static EngineCommand Resume(int procIndex)
         {
-            return new EngineCommand(EngineCommandType.Resume, procIndex, null, 0, 0, ProcRunState.Running, false, false);
+            return new EngineCommand(EngineCommandType.Resume, procIndex, null, 0, 0, ProcRunState.Running);
         }
 
         public static EngineCommand Step(int procIndex)
         {
-            return new EngineCommand(EngineCommandType.Step, procIndex, null, 0, 0, ProcRunState.SingleStep, false, false);
+            return new EngineCommand(EngineCommandType.Step, procIndex, null, 0, 0, ProcRunState.SingleStep);
         }
 
         public static EngineCommand Stop(int procIndex)
         {
-            return new EngineCommand(EngineCommandType.Stop, procIndex, null, 0, 0, ProcRunState.Stopped, false, false);
+            return new EngineCommand(EngineCommandType.Stop, procIndex, null, 0, 0, ProcRunState.Stopped);
         }
     }
     public sealed class EngineSnapshot
     {
+        // 不可变只读模型，供 UI、HMI、Bridge 和其他线程安全观察流程状态。
         public EngineSnapshot(int procIndex, Guid procId, string procName, ProcRunState state, int stepIndex, int opIndex,
-            bool isBreakpoint, bool isAlarm, string alarmMessage, DateTime updateTime, long updateTicks)
+            bool isBreakpoint, string alarmMessage, DateTime updateTime, long updateTicks)
         {
             ProcIndex = procIndex;
             ProcId = procId;
@@ -164,7 +190,6 @@ namespace Automation
             StepIndex = stepIndex;
             OpIndex = opIndex;
             IsBreakpoint = isBreakpoint;
-            IsAlarm = isAlarm;
             AlarmMessage = alarmMessage;
             UpdateTime = updateTime;
             UpdateTicks = updateTicks;
@@ -177,7 +202,7 @@ namespace Automation
         public int StepIndex { get; }
         public int OpIndex { get; }
         public bool IsBreakpoint { get; }
-        public bool IsAlarm { get; }
+        public bool IsAlarm => !string.IsNullOrWhiteSpace(AlarmMessage);
         public string AlarmMessage { get; }
         public DateTime UpdateTime { get; }
         public long UpdateTicks { get; }

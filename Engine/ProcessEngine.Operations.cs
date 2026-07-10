@@ -200,7 +200,7 @@ namespace Automation
                 RaiseOperationTrace(new OperationTraceEntry
                 {
                     Timestamp = DateTime.Now,
-                    Phase = evt?.isAlarm == true ? "Failed" : "Completed",
+                    Phase = evt?.HasAlarm == true ? "Failed" : "Completed",
                     ProcIndex = evt?.procNum ?? -1,
                     ProcId = evt?.procId ?? Guid.Empty,
                     StepIndex = evt?.stepNum ?? -1,
@@ -208,7 +208,7 @@ namespace Automation
                     OperationId = typedOperation?.Id ?? Guid.Empty,
                     OperationType = operation.GetType().Name,
                     OperationName = typedOperation?.Name,
-                    IsAlarm = evt?.isAlarm == true,
+                    IsAlarm = evt?.HasAlarm == true,
                     AlarmMessage = evt?.alarmMsg,
                     ElapsedMs = traceStopwatch.ElapsedMilliseconds
                 });
