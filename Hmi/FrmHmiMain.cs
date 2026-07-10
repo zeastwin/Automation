@@ -177,9 +177,19 @@ namespace Automation.Hmi
 
         private void PlatformHost_RuntimeStateChanged(object sender, PlatformRuntimeStateChangedEventArgs e)
         {
-            if (IsHandleCreated && InvokeRequired)
+            if (IsDisposed || Disposing || !IsHandleCreated)
             {
-                BeginInvoke((Action)(() => PlatformHost_RuntimeStateChanged(sender, e)));
+                return;
+            }
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke((Action)(() => PlatformHost_RuntimeStateChanged(sender, e)));
+                }
+                catch (InvalidOperationException)
+                {
+                }
                 return;
             }
             debugPage.UpdateRuntimeState(e.State, e.Message);

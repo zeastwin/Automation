@@ -78,12 +78,25 @@ namespace Automation
         public FrmProc()
         {
             InitializeComponent();
+            Disposed += FrmProc_Disposed;
             NewProcNum = -1;
             NewStepNum = -1;
             this.proc_treeView.HideSelection = false;
             typeof(Control).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(proc_treeView, true, null);
             proc_treeView.BeforeSelect += proc_treeView_BeforeSelect;
+        }
+
+        private void FrmProc_Disposed(object sender, EventArgs e)
+        {
+            if (procFlashTimer != null)
+            {
+                procFlashTimer.Stop();
+                procFlashTimer.Tick -= ProcFlashTimer_Tick;
+                procFlashTimer.Dispose();
+                procFlashTimer = null;
+            }
+            procFlashNode = null;
         }
 
         public void NewProcSave()
@@ -238,9 +251,9 @@ namespace Automation
                 return;
             }
 
-            SF.frmProc.Refresh();
+            SF.frmProc.RefreshProcList();
         }
-        public void Refresh()
+        public void RefreshProcList()
         {
             List<Proc> procsListTemp = new List<Proc>();
             List<string> loadErrors = new List<string>();
@@ -345,13 +358,19 @@ namespace Automation
         /// </summary>
         public void FlashProcNode(int procIndex, ProcChangeKind kind)
         {
-            if (IsDisposed || !IsHandleCreated)
+            if (IsDisposed || Disposing || !IsHandleCreated)
             {
                 return;
             }
             if (InvokeRequired)
             {
-                BeginInvoke((Action)(() => FlashProcNode(procIndex, kind)));
+                try
+                {
+                    BeginInvoke((Action)(() => FlashProcNode(procIndex, kind)));
+                }
+                catch (InvalidOperationException)
+                {
+                }
                 return;
             }
 
@@ -412,13 +431,19 @@ namespace Automation
         /// </summary>
         public void RefreshCurrentBinding()
         {
-            if (IsDisposed || !IsHandleCreated)
+            if (IsDisposed || Disposing || !IsHandleCreated)
             {
                 return;
             }
             if (InvokeRequired)
             {
-                BeginInvoke((Action)RefreshCurrentBinding);
+                try
+                {
+                    BeginInvoke((Action)RefreshCurrentBinding);
+                }
+                catch (InvalidOperationException)
+                {
+                }
                 return;
             }
             if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)

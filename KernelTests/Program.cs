@@ -172,6 +172,30 @@ namespace Automation.KernelTests
                 engine.ReleaseManualMotionResource(0, 1);
                 Assert(engine.TryAcquireManualMotionResource(0, 1, out _), "释放后无法重新占用手动轴资源");
                 engine.ReleaseManualMotionResource(0, 1);
+
+                var requests = new[]
+                {
+                    new AxisCommandRequest(0, 1, AxisCommandKind.Motion),
+                    new AxisCommandRequest(0, 2, AxisCommandKind.Motion)
+                };
+                Assert(engine.TryReserveManualMotionResources(requests, out IDisposable lease, out _),
+                    "多轴手动资源原子预留失败");
+                using (lease)
+                {
+                    Assert(engine.TryAcquireManualMotionResource(0, 1, out _), "预留的第一个轴无法消费");
+                    Assert(engine.TryAcquireManualMotionResource(0, 2, out _), "预留的第二个轴无法消费");
+                    Assert(!engine.TryAcquireManualMotionResource(0, 1, out _), "已消费的预留轴被重复占用");
+                }
+                engine.ReleaseManualMotionResource(0, 1);
+                engine.ReleaseManualMotionResource(0, 2);
+
+                Assert(engine.TryAcquireManualMotionResource(0, 1, out _), "冲突测试轴占用失败");
+                Assert(!engine.TryReserveManualMotionResources(requests, out IDisposable conflictLease, out _),
+                    "存在冲突时错误地完成了多轴预留");
+                conflictLease?.Dispose();
+                Assert(engine.TryAcquireManualMotionResource(0, 2, out _), "多轴预留失败后遗留了部分占用");
+                engine.ReleaseManualMotionResource(0, 1);
+                engine.ReleaseManualMotionResource(0, 2);
             }
         }
 

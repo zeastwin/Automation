@@ -62,7 +62,6 @@ namespace Automation
         private CancellationTokenSource promptCts;
         private bool sending;
         private bool fullPermissionMode = false;
-        private bool disposingAll;
         private string lastConfirmedPreviewId;
 
         // Bridge 服务在生成预演记录时读取此属性，若为 true 则直接标记预演为已确认，
@@ -529,7 +528,6 @@ document.addEventListener('DOMContentLoaded',function(){
         {
             if (disposing)
             {
-                disposingAll = true;
                 DisposeGooseClient();
                 promptCts?.Dispose();
                 webViewConversation?.Dispose();
@@ -1436,7 +1434,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
         private JObject HandlePermissionRequest(JObject request)
         {
-            if (IsDisposed)
+            if (IsDisposed || Disposing || !IsHandleCreated)
             {
                 return BuildPermissionCancelled();
             }
@@ -1548,7 +1546,13 @@ document.addEventListener('DOMContentLoaded',function(){
             }
             if (InvokeRequired)
             {
-                BeginInvoke(new Action<GooseAcpEvent>(GooseClient_EventReceived), item);
+                try
+                {
+                    BeginInvoke(new Action<GooseAcpEvent>(GooseClient_EventReceived), item);
+                }
+                catch (InvalidOperationException)
+                {
+                }
                 return;
             }
 

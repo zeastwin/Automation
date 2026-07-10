@@ -14,7 +14,7 @@ namespace Automation
         public FrmState()
         {
             InitializeComponent();
-           
+            Disposed += FrmState_Disposed;
         }
         private void FrmState_Load(object sender, EventArgs e)
         {
@@ -24,9 +24,19 @@ namespace Automation
 
         public void RefreshBasicInfo()
         {
+            if (IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return;
+            }
             if (InvokeRequired)
             {
-                BeginInvoke((Action)RefreshBasicInfo);
+                try
+                {
+                    BeginInvoke((Action)RefreshBasicInfo);
+                }
+                catch (InvalidOperationException)
+                {
+                }
                 return;
             }
 
@@ -52,10 +62,30 @@ namespace Automation
             }
             systemStatusTimer = new System.Windows.Forms.Timer();
             systemStatusTimer.Interval = SystemStatusPollIntervalMs;
-            systemStatusTimer.Tick += (s, e) => RefreshBasicInfo();
-            VisibleChanged += (s, e) => UpdateSystemStatusTimerState();
-            Resize += (s, e) => UpdateSystemStatusTimerState();
+            systemStatusTimer.Tick += SystemStatusTimer_Tick;
+            VisibleChanged += FrmState_VisibleChanged;
+            Resize += FrmState_Resize;
             UpdateSystemStatusTimerState();
+        }
+
+        private void SystemStatusTimer_Tick(object sender, EventArgs e) => RefreshBasicInfo();
+
+        private void FrmState_VisibleChanged(object sender, EventArgs e) => UpdateSystemStatusTimerState();
+
+        private void FrmState_Resize(object sender, EventArgs e) => UpdateSystemStatusTimerState();
+
+        private void FrmState_Disposed(object sender, EventArgs e)
+        {
+            VisibleChanged -= FrmState_VisibleChanged;
+            Resize -= FrmState_Resize;
+            if (systemStatusTimer == null)
+            {
+                return;
+            }
+            systemStatusTimer.Stop();
+            systemStatusTimer.Tick -= SystemStatusTimer_Tick;
+            systemStatusTimer.Dispose();
+            systemStatusTimer = null;
         }
 
         private void UpdateSystemStatusTimerState()

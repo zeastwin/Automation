@@ -960,6 +960,98 @@ namespace Automation
             return ((long)card << 32) | axis;
         }
 
+        [ThreadStatic]
+        private static HashSet<long> currentManualMotionReservation;
+
+        private sealed class ManualMotionReservationLease : IDisposable
+        {
+            private ProcessEngine owner;
+            private HashSet<long> remainingKeys;
+
+            public ManualMotionReservationLease(ProcessEngine owner, HashSet<long> remainingKeys)
+            {
+                this.owner = owner;
+                this.remainingKeys = remainingKeys;
+            }
+
+            public void Dispose()
+            {
+                ProcessEngine currentOwner = owner;
+                HashSet<long> keys = remainingKeys;
+                owner = null;
+                remainingKeys = null;
+                if (currentOwner == null || keys == null)
+                {
+                    return;
+                }
+                lock (currentOwner.motionResourceLock)
+                {
+                    foreach (long key in keys)
+                    {
+                        if (currentOwner.motionResourceOwners.TryGetValue(key, out int resourceOwner)
+                            && resourceOwner == int.MinValue)
+                        {
+                            currentOwner.motionResourceOwners.Remove(key);
+                        }
+                    }
+                }
+                if (ReferenceEquals(currentManualMotionReservation, keys))
+                {
+                    currentManualMotionReservation = null;
+                }
+            }
+        }
+
+        public bool TryReserveManualMotionResources(IReadOnlyCollection<AxisCommandRequest> requests,
+            out IDisposable lease, out string error)
+        {
+            lease = null;
+            error = null;
+            if (requests == null || requests.Count == 0)
+            {
+                error = "手动运动轴列表为空。";
+                return false;
+            }
+            if (currentManualMotionReservation != null)
+            {
+                error = "当前线程已有未完成的手动多轴资源预留。";
+                return false;
+            }
+            var keys = new HashSet<long>();
+            foreach (AxisCommandRequest request in requests)
+            {
+                if (request == null)
+                {
+                    error = "手动运动轴列表包含空项。";
+                    return false;
+                }
+                keys.Add(BuildMotionResourceKey(request.Card, request.Axis));
+            }
+            lock (motionResourceLock)
+            {
+                foreach (long key in keys)
+                {
+                    if (!motionResourceOwners.TryGetValue(key, out int resourceOwner))
+                    {
+                        continue;
+                    }
+                    ushort card = (ushort)(key >> 32);
+                    ushort axis = (ushort)key;
+                    error = resourceOwner == int.MinValue
+                        ? $"轴资源已被手动操作占用:{card}-{axis}"
+                        : $"轴资源被流程{resourceOwner}占用:{card}-{axis}";
+                    return false;
+                }
+                foreach (long key in keys)
+                {
+                    motionResourceOwners[key] = int.MinValue;
+                }
+            }
+            currentManualMotionReservation = keys;
+            lease = new ManualMotionReservationLease(this, keys);
+            return true;
+        }
+
         public bool TryAcquireManualMotionResource(ushort card, ushort axis, out string error)
         {
             error = null;
@@ -970,6 +1062,11 @@ namespace Automation
                 {
                     if (owner == int.MinValue)
                     {
+                        if (currentManualMotionReservation != null
+                            && currentManualMotionReservation.Remove(key))
+                        {
+                            return true;
+                        }
                         error = $"轴资源已被手动操作占用:{card}-{axis}";
                         return false;
                     }

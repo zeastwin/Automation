@@ -34,9 +34,11 @@ namespace Automation
 
         private void FrmSearch_FormClosing(object sender, FormClosingEventArgs e)
         {
-            e.Cancel = true;
-          //  SF.frmDataGrid.ClearAllRowColors();
-            this.Hide();
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Hide();
+            }
         }
        
         private void btnSearch_Click(object sender, EventArgs e)
@@ -74,12 +76,15 @@ namespace Automation
 
         private void dataGridView1_CellMouseDoubleClick(object sender, DataGridViewCellMouseEventArgs e)
         {
-            if (e.RowIndex >= 0)
+            if (e.RowIndex >= 0 && e.RowIndex < dataGridView1.Rows.Count)
             {
                 DataGridViewCell cell = dataGridView1.Rows[e.RowIndex].Cells[0];
-                int cellValue = (int)cell.Value;
-
-                SF.frmValue.dgvValue.FirstDisplayedScrollingRowIndex = cellValue;
+                if (!int.TryParse(Convert.ToString(cell.Value), out int rowIndex)
+                    || rowIndex < 0 || rowIndex >= SF.frmValue.dgvValue.Rows.Count)
+                {
+                    return;
+                }
+                SF.frmValue.dgvValue.FirstDisplayedScrollingRowIndex = rowIndex;
             }
         }
 

@@ -33,6 +33,7 @@ namespace Automation
         public FrmComunication()
         {
             InitializeComponent();
+            Disposed += FrmComunication_Disposed;
 
             dataGridView1.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
             dataGridView1.RowHeadersVisible = false;
@@ -339,11 +340,22 @@ namespace Automation
 
         private void FrmComunication_FormClosing(object sender, FormClosingEventArgs e)
         {
-            e.Cancel = true;
             sendLoopCts?.Cancel();
             sendLoopCts?.Dispose();
             sendLoopCts = null;
-            Hide();
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Hide();
+                return;
+            }
+            ReleaseRuntimeResources();
+        }
+
+        private void FrmComunication_Disposed(object sender, EventArgs e)
+        {
+            ReleaseRuntimeResources();
+            stateTimer.Dispose();
         }
 
         public void RefreshSocketMap()

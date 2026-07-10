@@ -1216,7 +1216,7 @@ namespace Automation
             SF.frmValue.RefreshDic();
             SF.dataStructStore.Load(SF.ConfigPath);
             SF.frmdataStruct.RefreshDataSturctList();
-            SF.frmProc.Refresh();
+            SF.frmProc.RefreshProcList();
             if (SF.DR?.Context != null)
             {
                 SF.DR.Context.ValueStore = SF.valueStore;

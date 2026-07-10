@@ -151,21 +151,29 @@ namespace Automation
 
             protected override void OnFormClosing(FormClosingEventArgs e)
             {
-                e.Cancel = true;
                 owner.StopAllMonitor();
-                Hide();
+                if (e.CloseReason == CloseReason.UserClosing)
+                {
+                    e.Cancel = true;
+                    Hide();
+                }
+                base.OnFormClosing(e);
             }
         }
 
         private readonly HashSet<int> monitorIndexSet = new HashSet<int>();
         private ValueClipboardItem clipboardItem;
         private bool isValueStoreHooked;
+        private ValueConfigStore hookedValueStore;
         private ValueMonitorForm monitorForm;
         private bool isStructViewAttached;
+        private const int MaxMonitorHistoryRows = 2000;
+        private const int MonitorHistoryTrimRows = 200;
 
         public FrmValue()
         {
             InitializeComponent();
+            Disposed += FrmValue_Disposed;
             Font uiFont = new Font("宋体", 12F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
             dgvValue.Font = uiFont;
             dgvValue.ColumnHeadersDefaultCellStyle.Font = new Font("宋体", 12F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134)));
@@ -186,13 +194,38 @@ namespace Automation
 
         private void FrmValue_FormClosing(object sender, FormClosingEventArgs e)
         {
-            e.Cancel = true;
-            this.Hide();
             if (monitorForm != null && !monitorForm.IsDisposed)
             {
                 StopAllMonitor();
-                monitorForm.Hide();
+                if (e.CloseReason == CloseReason.UserClosing)
+                {
+                    monitorForm.Hide();
+                }
+                else
+                {
+                    monitorForm.Dispose();
+                }
             }
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Hide();
+            }
+        }
+
+        private void FrmValue_Disposed(object sender, EventArgs e)
+        {
+            if (isValueStoreHooked && hookedValueStore != null)
+            {
+                hookedValueStore.ValueChanged -= ValueStore_ValueChanged;
+            }
+            isValueStoreHooked = false;
+            hookedValueStore = null;
+            if (monitorForm != null && !monitorForm.IsDisposed)
+            {
+                monitorForm.Dispose();
+            }
+            monitorForm = null;
         }
         //从文件更新变量表
         public void RefreshDic()
@@ -825,7 +858,8 @@ namespace Automation
             {
                 return;
             }
-            SF.valueStore.ValueChanged += ValueStore_ValueChanged;
+            hookedValueStore = SF.valueStore;
+            hookedValueStore.ValueChanged += ValueStore_ValueChanged;
             isValueStoreHooked = true;
         }
 
@@ -841,9 +875,19 @@ namespace Automation
 
         private void ValueStore_ValueChanged(object sender, ValueChangedEventArgs e)
         {
-            if (IsHandleCreated && InvokeRequired)
+            if (IsDisposed || Disposing || !IsHandleCreated)
             {
-                BeginInvoke(new Action<object, ValueChangedEventArgs>(ValueStore_ValueChanged), sender, e);
+                return;
+            }
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke(new Action<object, ValueChangedEventArgs>(ValueStore_ValueChanged), sender, e);
+                }
+                catch (InvalidOperationException)
+                {
+                }
                 return;
             }
             if (e == null)
@@ -859,6 +903,14 @@ namespace Automation
                 return;
             }
             DataGridView grid = monitorForm.Grid;
+            if (grid.Rows.Count >= MaxMonitorHistoryRows)
+            {
+                int removeCount = Math.Min(MonitorHistoryTrimRows, grid.Rows.Count);
+                for (int i = 0; i < removeCount; i++)
+                {
+                    grid.Rows.RemoveAt(0);
+                }
+            }
             int rowIndex = grid.Rows.Add();
             DataGridViewRow row = grid.Rows[rowIndex];
             row.Cells[0].Value = e.Index;

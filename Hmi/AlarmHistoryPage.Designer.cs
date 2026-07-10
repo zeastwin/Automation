@@ -180,12 +180,5 @@ namespace Automation.Hmi
         private System.Windows.Forms.Button btnChoosePath;
         private System.Windows.Forms.Button btnRead;
         private System.Windows.Forms.DataGridView gridAlarmHistory;
-        private System.Windows.Forms.DataGridViewTextBoxColumn columnAlarmCode;
-        private System.Windows.Forms.DataGridViewTextBoxColumn columnAlarmContent;
-        private System.Windows.Forms.DataGridViewTextBoxColumn columnAlarmCategory;
-        private System.Windows.Forms.DataGridViewTextBoxColumn columnStartTime;
-        private System.Windows.Forms.DataGridViewTextBoxColumn columnEndTime;
-        private System.Windows.Forms.DataGridViewTextBoxColumn columnDuration;
-        private System.Windows.Forms.DataGridViewTextBoxColumn columnLocation;
     }
 }

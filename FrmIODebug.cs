@@ -34,6 +34,7 @@ namespace Automation
 
         private readonly object ioRefreshLock = new object();
         private CancellationTokenSource ioRefreshCts;
+        private Task ioRefreshTask;
         private volatile bool ioRefreshEnabled = false;
         private readonly int ioRefreshIntervalMs = 200;
         private volatile int currentTabIndex = 0;
@@ -783,21 +784,37 @@ namespace Automation
                     return;
                 }
                 ioRefreshCts = new CancellationTokenSource();
-                Task.Run(() => IoRefreshLoop(ioRefreshCts.Token));
+                CancellationToken token = ioRefreshCts.Token;
+                ioRefreshTask = Task.Run(() => IoRefreshLoop(token), token);
             }
         }
 
         private void StopIoRefreshLoop()
         {
+            CancellationTokenSource cts;
+            Task task;
             lock (ioRefreshLock)
             {
                 if (ioRefreshCts == null)
                 {
                     return;
                 }
-                ioRefreshCts.Cancel();
+                cts = ioRefreshCts;
+                task = ioRefreshTask;
                 ioRefreshCts = null;
+                ioRefreshTask = null;
             }
+            cts.Cancel();
+            if (task == null)
+            {
+                cts.Dispose();
+                return;
+            }
+            task.ContinueWith(completedTask =>
+            {
+                _ = completedTask.Exception;
+                cts.Dispose();
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
 
         private async Task IoRefreshLoop(CancellationToken token)
@@ -816,6 +833,10 @@ namespace Automation
                     {
                         try
                         {
+                            if (IsDisposed || Disposing || !IsHandleCreated)
+                            {
+                                return;
+                            }
                             BeginInvoke(new Action(() => ApplyIoRefresh(data)));
                         }
                         catch (InvalidOperationException)
@@ -829,6 +850,10 @@ namespace Automation
             catch (OperationCanceledException)
             {
                 return;
+            }
+            catch (Exception ex)
+            {
+                SF.frmInfo?.PrintInfo($"IO监控刷新已停止：{ex.Message}", FrmInfo.Level.Error);
             }
         }
 
@@ -1475,8 +1500,13 @@ namespace Automation
         }
         private void FrmIODebug_FormClosing(object sender, FormClosingEventArgs e)
         {
-            e.Cancel = true;
-            this.Hide();
+            ioRefreshEnabled = false;
+            StopIoRefreshLoop();
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Hide();
+            }
         }
         private void FrmIODebug_Load(object sender, EventArgs e)
         {
@@ -2144,16 +2174,18 @@ namespace Automation
             try
             {
                 IODebugMap IODebugMapTemp = SF.mainfrm.ReadJson<IODebugMap>(SF.ConfigPath, "IODebugMap");
-                if (IODebugMapTemp != null)
-                    IODebugMaps = IODebugMapTemp;
+                if (IODebugMapTemp == null)
+                {
+                    throw new InvalidDataException("输入输出调试配置为空。");
+                }
+                IODebugMaps = IODebugMapTemp;
                 EnsureConnectConfigReady();
             }
             catch (Exception ex)
             {
-                //Console.WriteLine(ex.Message);
                 IODebugMaps = new IODebugMap();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", IODebugMaps);
                 EnsureConnectConfigReady();
+                SF.SetSecurityLock($"输入输出调试配置加载失败：{ex.Message}");
             }
         }
         private void InputConfigItem_Click(object sender, EventArgs e)

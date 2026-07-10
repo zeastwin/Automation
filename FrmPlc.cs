@@ -36,6 +36,7 @@ namespace Automation
 
         private CancellationTokenSource mappingCts;
         private Task mappingTask;
+        private readonly object mappingLifecycleLock = new object();
         private volatile bool mappingRunning;
         private readonly int mappingIntervalMs = 200;
 
@@ -194,8 +195,13 @@ namespace Automation
 
         private void FrmPlc_FormClosing(object sender, FormClosingEventArgs e)
         {
-            e.Cancel = true;
-            Hide();
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Hide();
+                return;
+            }
+            StopMappingInternal();
         }
 
         private void InitDeviceColumns()
@@ -411,9 +417,12 @@ namespace Automation
 
         private void StartMapping()
         {
-            if (mappingRunning)
+            lock (mappingLifecycleLock)
             {
-                return;
+                if (mappingRunning || (mappingTask != null && !mappingTask.IsCompleted))
+                {
+                    return;
+                }
             }
             if (SF.plcStore == null)
             {
@@ -448,21 +457,45 @@ namespace Automation
                     return;
                 }
             }
-            mappingRunning = true;
+            CancellationTokenSource cts = new CancellationTokenSource();
+            Task task;
+            lock (mappingLifecycleLock)
+            {
+                mappingRunning = true;
+                mappingCts = cts;
+                task = Task.Run(() => MappingLoop(devices, maps, cts.Token), cts.Token);
+                mappingTask = task;
+            }
+            task.ContinueWith(completedTask => CompleteMappingTask(completedTask, cts),
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             UpdateMappingStatus();
-            mappingCts = new CancellationTokenSource();
-            CancellationToken token = mappingCts.Token;
-            mappingTask = Task.Run(() => MappingLoop(devices, maps, token), token);
         }
 
         private void StopMappingInternal()
         {
-            if (!mappingRunning)
+            CancellationTokenSource cts;
+            lock (mappingLifecycleLock)
             {
-                return;
+                cts = mappingCts;
+                mappingRunning = false;
             }
-            mappingCts?.Cancel();
-            mappingRunning = false;
+            cts?.Cancel();
+            UpdateMappingStatus();
+        }
+
+        private void CompleteMappingTask(Task completedTask, CancellationTokenSource cts)
+        {
+            _ = completedTask.Exception;
+            lock (mappingLifecycleLock)
+            {
+                if (ReferenceEquals(mappingTask, completedTask))
+                {
+                    mappingTask = null;
+                    mappingCts = null;
+                    mappingRunning = false;
+                }
+            }
+            cts.Dispose();
             UpdateMappingStatus();
         }
 
@@ -611,17 +644,26 @@ namespace Automation
 
         private void StopMappingWithError(string message)
         {
-            mappingRunning = false;
-            mappingCts?.Cancel();
+            CancellationTokenSource cts;
+            lock (mappingLifecycleLock)
+            {
+                mappingRunning = false;
+                cts = mappingCts;
+            }
+            cts?.Cancel();
             UpdateMappingStatus();
             ReportMappingError(message);
         }
 
         private void UpdateMappingStatus()
         {
+            if (IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return;
+            }
             if (InvokeRequired)
             {
-                BeginInvoke(new Action(UpdateMappingStatus));
+                TryBeginInvoke(UpdateMappingStatus);
                 return;
             }
             lblStatus.Text = mappingRunning ? "映射状态：运行中" : "映射状态：停止";
@@ -632,9 +674,13 @@ namespace Automation
 
         private void ReportMappingError(string message)
         {
+            if (IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return;
+            }
             if (InvokeRequired)
             {
-                BeginInvoke(new Action<string>(ReportMappingError), message);
+                TryBeginInvoke(() => ReportMappingError(message));
                 return;
             }
             SF.frmInfo?.PrintInfo(message, FrmInfo.Level.Error);
@@ -643,12 +689,27 @@ namespace Automation
 
         private void ReportNormal(string message)
         {
+            if (IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return;
+            }
             if (InvokeRequired)
             {
-                BeginInvoke(new Action<string>(ReportNormal), message);
+                TryBeginInvoke(() => ReportNormal(message));
                 return;
             }
             SF.frmInfo?.PrintInfo(message, FrmInfo.Level.Normal);
+        }
+
+        private void TryBeginInvoke(Action action)
+        {
+            try
+            {
+                BeginInvoke(action);
+            }
+            catch (InvalidOperationException)
+            {
+            }
         }
 
         private string BuildNextDeviceName()

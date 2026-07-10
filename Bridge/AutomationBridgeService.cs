@@ -905,7 +905,7 @@ namespace Automation.Bridge
                 throw new BridgeRequestException(500, "SAVE_FAILED", "流程保存失败。");
             }
             SF.PublishProc(procIndex);
-            SF.frmProc.Refresh();
+            SF.frmProc.RefreshProcList();
             NotifyProcChanged(procIndex, ProcChangeKind.Added);
 
             return new JObject
@@ -939,7 +939,7 @@ namespace Automation.Bridge
             // 重建工作配置文件
             int minDeleted = sortedIndexes.Min();
             SF.frmProc.RebuildWorkConfig(minDeleted);
-            SF.frmProc.Refresh();
+            SF.frmProc.RefreshProcList();
             // 删除后原 procIndex 节点已不存在，闪烁剩余列表中同索引位置（若有效）作为视觉提示。
             if (minDeleted < SF.frmProc.procsList.Count)
             {
@@ -985,7 +985,7 @@ namespace Automation.Bridge
             // 重建工作配置
             int minIndex = Math.Min(procIndex, targetIndex);
             SF.frmProc.RebuildWorkConfig(minIndex);
-            SF.frmProc.Refresh();
+            SF.frmProc.RefreshProcList();
             NotifyProcChanged(targetIndex, ProcChangeKind.Modified);
 
             return new JObject
@@ -1027,7 +1027,7 @@ namespace Automation.Bridge
             }
 
             SF.frmProc.RebuildWorkConfig(newProcIndex);
-            SF.frmProc.Refresh();
+            SF.frmProc.RefreshProcList();
             NotifyProcChanged(newProcIndex, ProcChangeKind.Added);
 
             return new JObject
@@ -3346,7 +3346,7 @@ namespace Automation.Bridge
                 throw new BridgeRequestException(500, "PUBLISH_FAILED", "流程发布失败。");
             }
 
-            SF.frmProc.Refresh();
+            SF.frmProc.RefreshProcList();
             NotifyProcChanged(procIndex, ProcChangeKind.Modified, affectedOps);
         }
 

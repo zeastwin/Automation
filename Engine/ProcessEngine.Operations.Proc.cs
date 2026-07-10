@@ -28,7 +28,6 @@ namespace Automation
     {
         public bool RunProcOps(ProcHandle evt, ProcOps procOps)
         {
-            bool value = false;
             if (procOps == null || procOps.procParams == null || procOps.procParams.Count == 0)
             {
                 MarkAlarm(evt, "流程操作参数为空");
@@ -101,7 +100,6 @@ namespace Automation
         }
         public bool RunWaitProc(ProcHandle evt, WaitProc waitProc)
         {
-            bool value = false;
             int timeOut;
             if (waitProc == null || waitProc.Params == null || waitProc.Params.Count == 0)
             {

@@ -6,6 +6,7 @@ using System.ComponentModel;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace Automation
@@ -21,6 +22,7 @@ namespace Automation
         private const int StatusColumnsPerGroup = 4;
         private const int StatusMinGroupWidth = 320;
         private const int MaxInfoLogEntries = 200;
+        private const int MaxPendingInfoLogEntries = 2000;
         private const int InfoFlushIntervalMs = 100;
         private const int InfoFlushBatchSize = 256;
         private const int InfoAutoScrollIdleMs = 20000;
@@ -29,6 +31,7 @@ namespace Automation
         private ContextMenuStrip infoMenu;
         private ToolStripMenuItem menuClearInfo;
         private readonly ConcurrentQueue<InfoLogEntry> pendingInfoQueue = new ConcurrentQueue<InfoLogEntry>();
+        private int pendingInfoCount;
         private readonly FixedRingBuffer<InfoLogEntry> infoLogBuffer = new FixedRingBuffer<InfoLogEntry>(MaxInfoLogEntries);
         private System.Windows.Forms.Timer infoFlushTimer;
         private System.Windows.Forms.Timer infoAutoScrollTimer;
@@ -38,6 +41,51 @@ namespace Automation
         public FrmInfo()
         {
             InitializeComponent();
+            Disposed += FrmInfo_Disposed;
+        }
+
+        private void FrmInfo_Disposed(object sender, EventArgs e)
+        {
+            if (statusTimer != null)
+            {
+                statusTimer.Stop();
+                statusTimer.Tick -= StatusTimer_Tick;
+                statusTimer.Dispose();
+                statusTimer = null;
+            }
+            if (infoFlushTimer != null)
+            {
+                infoFlushTimer.Stop();
+                infoFlushTimer.Tick -= InfoFlushTimer_Tick;
+                infoFlushTimer.Dispose();
+                infoFlushTimer = null;
+            }
+            if (infoAutoScrollTimer != null)
+            {
+                infoAutoScrollTimer.Stop();
+                infoAutoScrollTimer.Tick -= InfoAutoScrollTimer_Tick;
+                infoAutoScrollTimer.Dispose();
+                infoAutoScrollTimer = null;
+            }
+
+            lvInfoLog.RetrieveVirtualItem -= lvInfoLog_RetrieveVirtualItem;
+            lvInfoLog.Resize -= lvInfoLog_Resize;
+            lvInfoLog.MouseWheel -= lvInfoLog_MouseWheel;
+            lvInfoLog.MouseDown -= lvInfoLog_MouseDown;
+            lvInfoLog.MouseDoubleClick -= lvInfoLog_MouseDoubleClick;
+            lvInfoLog.KeyDown -= lvInfoLog_KeyDown;
+            tabControl1.SelectedIndexChanged -= tabControl1_SelectedIndexChanged;
+            VisibleChanged -= FrmInfo_VisibleChanged;
+            dgvProcStatus.CellDoubleClick -= dgvProcStatus_CellDoubleClick;
+            dgvProcStatus.SizeChanged -= dgvProcStatus_SizeChanged;
+
+            if (infoMenu != null)
+            {
+                lvInfoLog.ContextMenuStrip = null;
+                infoMenu.Dispose();
+                infoMenu = null;
+                menuClearInfo = null;
+            }
         }
 
         private void FrmInfo_Load(object sender, EventArgs e)
@@ -60,6 +108,7 @@ namespace Automation
         {
             while (pendingInfoQueue.TryDequeue(out _))
             {
+                Interlocked.Decrement(ref pendingInfoCount);
             }
             infoLogBuffer.Clear();
             RefreshInfoListView();
@@ -222,6 +271,7 @@ namespace Automation
             int flushCount = 0;
             while (flushCount < InfoFlushBatchSize && pendingInfoQueue.TryDequeue(out InfoLogEntry entry))
             {
+                Interlocked.Decrement(ref pendingInfoCount);
                 infoLogBuffer.Add(entry);
                 hasNewEntry = true;
                 flushCount++;
@@ -357,6 +407,12 @@ namespace Automation
                 Message = $"：{str}",
                 Level = InfoLevel
             });
+            Interlocked.Increment(ref pendingInfoCount);
+            while (Volatile.Read(ref pendingInfoCount) > MaxPendingInfoLogEntries
+                && pendingInfoQueue.TryDequeue(out _))
+            {
+                Interlocked.Decrement(ref pendingInfoCount);
+            }
         }
 
         public IReadOnlyList<InfoLogSnapshot> GetInfoLogTail(int maxCount)
@@ -377,6 +433,7 @@ namespace Automation
             bool appendedPending = false;
             while (pendingInfoQueue.TryDequeue(out InfoLogEntry entry))
             {
+                Interlocked.Decrement(ref pendingInfoCount);
                 infoLogBuffer.Add(entry);
                 appendedPending = true;
             }

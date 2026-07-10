@@ -38,9 +38,12 @@ namespace Automation
         private void FrmSearch_FormClosing(object sender, FormClosingEventArgs e)
         {
             _searchCts?.Cancel();
-            e.Cancel = true;
             SF.frmDataGrid.ClearAllRowColors();
-            this.Hide();
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Hide();
+            }
         }
        
         private async void btnSearch_Click(object sender, EventArgs e)
@@ -142,17 +145,23 @@ namespace Automation
 
         private void dataGridView1_CellMouseDoubleClick(object sender, DataGridViewCellMouseEventArgs e)
         {
-            if (e.RowIndex >= 0)
+            if (e.RowIndex >= 0 && e.RowIndex < dataGridView1.Rows.Count)
             {
                 DataGridViewCell cell = dataGridView1.Rows[e.RowIndex].Cells[2];
-                string cellValue = cell.Value.ToString();
+                string[] values = Convert.ToString(cell.Value)?.Split('-');
+                if (values == null || values.Length != 3
+                    || !int.TryParse(values[0], out int procIndex)
+                    || !int.TryParse(values[1], out int stepIndex)
+                    || !int.TryParse(values[2], out int opIndex))
+                {
+                    SF.frmInfo?.PrintInfo("搜索结果位置格式无效，无法定位流程。", FrmInfo.Level.Error);
+                    return;
+                }
 
-                string[] values = cellValue.Split('-');
-
-                SF.frmDataGrid.SelectChildNode(int.Parse(values[0]), int.Parse(values[1]));
-                SF.frmDataGrid.ScrollRowToCenter(int.Parse(values[2]));
+                SF.frmDataGrid.SelectChildNode(procIndex, stepIndex);
+                SF.frmDataGrid.ScrollRowToCenter(opIndex);
                 SF.frmDataGrid.ClearAllRowColors();
-                SF.frmDataGrid.SetRowColor(int.Parse(values[2]), Color.LightGreen);
+                SF.frmDataGrid.SetRowColor(opIndex, Color.LightGreen);
             }
         }
 

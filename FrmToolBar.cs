@@ -60,13 +60,13 @@ namespace Automation
                 if (SF.frmProc.NewProcNum != -1)
                 {
                     SF.frmProc.NewProcSave();
-                    SF.frmProc.Refresh();
+                    SF.frmProc.RefreshProcList();
                 }
 
                 if (SF.frmProc.NewStepNum != -1)
                 {
                     SF.frmProc.NewStepSave();
-                    SF.frmProc.Refresh();
+                    SF.frmProc.RefreshProcList();
                 }
 
                 if (SF.isAddOps == true && SF.frmProc.SelectedStepNum != -1)
@@ -207,7 +207,7 @@ namespace Automation
                     }
                     SF.frmDataGrid.SaveSingleProc(SF.frmProc.SelectedProcNum);
                     SF.frmProc.bindingSource.ResetBindings(true);
-                    SF.frmProc.Refresh();
+                    SF.frmProc.RefreshProcList();
                     SF.frmProc.ClearEditBackup();
                 }
                 SF.valueStore.Save(SF.ConfigPath);

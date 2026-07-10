@@ -653,7 +653,8 @@ namespace Automation
 
         private void MovePoint_Click(object sender, EventArgs e)
         {
-            if (SF.frmControl.temp == null)
+            DataStation station = SF.frmControl.temp;
+            if (station?.dataAxis?.axisConfigs == null)
             {
                 return;
             }
@@ -666,39 +667,99 @@ namespace Automation
                 MessageBox.Show("点位名称为空，无法移动。");
                 return;
             }
-            bool hasInvalid = false;
-            for (int i = 0; i < SF.frmControl.temp.dataAxis.axisConfigs.Count; i++)
+            var commands = new List<(ushort card, ushort axis, double target, FrmCard.Axis config)>();
+            for (int i = 0; i < station.dataAxis.axisConfigs.Count; i++)
             {
-                AxisConfig axisConfig = SF.frmControl.temp.dataAxis.axisConfigs[i];
+                AxisConfig axisConfig = station.dataAxis.axisConfigs[i];
                 if (axisConfig.AxisName == "-1" || axisConfig.axis == null)
                 {
-                    hasInvalid = true;
-                    continue;
+                    MessageBox.Show($"第{i + 1}个轴配置无效，未执行任何轴移动。");
+                    return;
                 }
                 if (!ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
                 {
-                    hasInvalid = true;
-                    continue;
+                    MessageBox.Show($"第{i + 1}个轴卡号无效，未执行任何轴移动。");
+                    return;
                 }
                 int axisNumValue = axisConfig.axis.AxisNum;
-                if (axisNumValue < 0)
+                if (axisNumValue < 0 || axisNumValue > ushort.MaxValue)
                 {
-                    hasInvalid = true;
-                    continue;
+                    MessageBox.Show($"第{i + 1}个轴编号无效，未执行任何轴移动。");
+                    return;
+                }
+                if (2 + i >= dataGridView1.Columns.Count)
+                {
+                    MessageBox.Show("点位列与工站轴配置不一致，未执行任何轴移动。");
+                    return;
                 }
                 object cellValue = dataGridView1.Rows[iSelectedRow].Cells[2 + i].Value;
-                if (cellValue == null || !double.TryParse(cellValue.ToString(), out double targetPos))
+                if (cellValue == null || !double.TryParse(cellValue.ToString(), out double targetPos)
+                    || double.IsNaN(targetPos) || double.IsInfinity(targetPos))
                 {
-                    hasInvalid = true;
-                    continue;
+                    MessageBox.Show($"第{i + 1}个轴点位无效，未执行任何轴移动。");
+                    return;
                 }
                 ushort axisNum = (ushort)axisNumValue;
-                SF.frmStation.SetStationParam(SF.frmControl.temp, i);
-                SF.motion.Mov(cardNum, axisNum, targetPos, 1, false);
+                if (!SF.cardStore.TryGetAxis(cardNum, axisNum, out FrmCard.Axis runtimeAxis) || runtimeAxis == null)
+                {
+                    MessageBox.Show($"未找到第{i + 1}个轴的运行配置，未执行任何轴移动。");
+                    return;
+                }
+                commands.Add((cardNum, axisNum, targetPos, runtimeAxis));
             }
-            if (hasInvalid)
+
+            if (commands.Count == 0)
             {
-                MessageBox.Show("存在无效点位或轴配置，部分轴未执行移动。");
+                MessageBox.Show("工站没有可执行的轴，未执行移动。");
+                return;
+            }
+
+            var startedAxes = new List<(ushort card, ushort axis)>();
+            try
+            {
+                List<AxisCommandRequest> requests = commands
+                    .Select(command => new AxisCommandRequest(command.card, command.axis, AxisCommandKind.Motion))
+                    .ToList();
+                if (!SF.DR.TryReserveManualMotionResources(requests, out IDisposable resourceLease, out string resourceError))
+                {
+                    throw new InvalidOperationException(resourceError);
+                }
+                using (resourceLease)
+                using (SF.motion.ValidateAxesForCommand(requests))
+                {
+                    foreach (var command in commands)
+                    {
+                        SF.motion.SetMovParam(command.card, command.axis, 0,
+                            command.config.SpeedMax * station.Vel,
+                            command.config.AccMax, command.config.DecMax, 0, 0, command.config.PulseToMM);
+                    }
+                    foreach (var command in commands)
+                    {
+                        SF.motion.Mov(command.card, command.axis, command.target, 1, false);
+                        startedAxes.Add((command.card, command.axis));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                var stopErrors = new List<string>();
+                foreach (var startedAxis in startedAxes)
+                {
+                    try
+                    {
+                        SF.motion.StopOneAxis(startedAxis.card, startedAxis.axis, 0);
+                    }
+                    catch (Exception stopException)
+                    {
+                        stopErrors.Add($"{startedAxis.card}-{startedAxis.axis}:{stopException.Message}");
+                    }
+                }
+                if (stopErrors.Count > 0)
+                {
+                    SF.SetSecurityLock("工站移动异常后停止轴失败：" + string.Join(";", stopErrors));
+                }
+                MessageBox.Show($"工站移动失败，已停止本次已启动轴：{ex.Message}", "工站移动",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 

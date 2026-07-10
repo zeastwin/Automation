@@ -125,8 +125,11 @@ namespace Automation
 
         private void FrmDataStruct_FormClosing(object sender, FormClosingEventArgs e)
         {
-            e.Cancel = true;
-            Hide();
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Hide();
+            }
         }
 
         private void FrmDataStruct_Load(object sender, EventArgs e)

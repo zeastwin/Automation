@@ -61,7 +61,7 @@
             this.AddSerial = new System.Windows.Forms.ToolStripMenuItem();
             this.RemoveSerial = new System.Windows.Forms.ToolStripMenuItem();
             this.OpenSerial = new System.Windows.Forms.ToolStripMenuItem();
-            this.Close = new System.Windows.Forms.ToolStripMenuItem();
+            this.closeSerialMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.groupBox2 = new System.Windows.Forms.GroupBox();
             this.send = new System.Windows.Forms.Button();
             this.DelayText = new System.Windows.Forms.TextBox();
@@ -248,7 +248,7 @@
             this.AddSerial,
             this.RemoveSerial,
             this.OpenSerial,
-            this.Close});
+            this.closeSerialMenuItem});
             this.contextMenuStrip3.Name = "contextMenuStrip3";
             this.contextMenuStrip3.Size = new System.Drawing.Size(101, 92);
             this.contextMenuStrip3.Opening += new System.ComponentModel.CancelEventHandler(this.contextMenuStrip3_Opening);
@@ -274,12 +274,12 @@
             this.OpenSerial.Text = "打开";
             this.OpenSerial.Click += new System.EventHandler(this.OpenSerial_Click);
             // 
-            // Close
+            // closeSerialMenuItem
             // 
-            this.Close.Name = "Close";
-            this.Close.Size = new System.Drawing.Size(100, 22);
-            this.Close.Text = "关闭";
-            this.Close.Click += new System.EventHandler(this.Close_Click);
+            this.closeSerialMenuItem.Name = "closeSerialMenuItem";
+            this.closeSerialMenuItem.Size = new System.Drawing.Size(100, 22);
+            this.closeSerialMenuItem.Text = "关闭";
+            this.closeSerialMenuItem.Click += new System.EventHandler(this.Close_Click);
             // 
             // groupBox2
             // 
@@ -682,7 +682,7 @@
         private System.Windows.Forms.ToolStripMenuItem AddSerial;
         private System.Windows.Forms.ToolStripMenuItem RemoveSerial;
         private System.Windows.Forms.ToolStripMenuItem OpenSerial;
-        private System.Windows.Forms.ToolStripMenuItem Close;
+        private System.Windows.Forms.ToolStripMenuItem closeSerialMenuItem;
         private System.Windows.Forms.Button send;
         private System.Windows.Forms.DataGridViewTextBoxColumn id;
         private System.Windows.Forms.DataGridViewTextBoxColumn name;

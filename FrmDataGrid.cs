@@ -56,6 +56,7 @@ namespace Automation
         public FrmDataGrid()
         {
             InitializeComponent();
+            Disposed += FrmDataGrid_Disposed;
             dataGridView1.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             dataGridView1.ReadOnly = true;
             dataGridView1.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
@@ -421,13 +422,19 @@ namespace Automation
         /// </summary>
         public void FlashGrid(ProcChangeKind kind)
         {
-            if (IsDisposed || !IsHandleCreated)
+            if (IsDisposed || Disposing || !IsHandleCreated)
             {
                 return;
             }
             if (InvokeRequired)
             {
-                BeginInvoke((Action)(() => FlashGrid(kind)));
+                try
+                {
+                    BeginInvoke((Action)(() => FlashGrid(kind)));
+                }
+                catch (InvalidOperationException)
+                {
+                }
                 return;
             }
 
@@ -497,13 +504,19 @@ namespace Automation
         /// </summary>
         public void FlashRows(List<(int stepIndex, int opIndex, ProcChangeKind kind)> affectedOps)
         {
-            if (IsDisposed || !IsHandleCreated)
+            if (IsDisposed || Disposing || !IsHandleCreated)
             {
                 return;
             }
             if (InvokeRequired)
             {
-                BeginInvoke((Action)(() => FlashRows(affectedOps)));
+                try
+                {
+                    BeginInvoke((Action)(() => FlashRows(affectedOps)));
+                }
+                catch (InvalidOperationException)
+                {
+                }
                 return;
             }
 
@@ -555,7 +568,22 @@ namespace Automation
 
         public void ClearRowColor(int rowIndex)
         {
-            dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = Color.Empty;
+            if (rowIndex >= 0 && rowIndex < dataGridView1.RowCount)
+            {
+                dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = Color.Empty;
+            }
+        }
+
+        private void FrmDataGrid_Disposed(object sender, EventArgs e)
+        {
+            if (gridFlashTimer != null)
+            {
+                gridFlashTimer.Stop();
+                gridFlashTimer.Tick -= GridFlashTimer_Tick;
+                gridFlashTimer.Dispose();
+                gridFlashTimer = null;
+            }
+            flashTargetRows = null;
         }
         private void Add_Click(object sender, EventArgs e)
         {

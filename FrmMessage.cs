@@ -6,8 +6,6 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Forms.VisualStyles;
 
@@ -25,6 +23,7 @@ namespace Automation
         public EventHandler1 btn1E;
         public EventHandler1 btn2E;
         public EventHandler1 btn3E;
+        private EventHandler1 closeFallback;
 
         public bool isChoiced = false;
 
@@ -39,10 +38,17 @@ namespace Automation
             btn3.Visible = false;
             btn2.Text = btnTxt1;
             btn2E = eventHandler1;
+            closeFallback = eventHandler1;
             btn2E += btnCanel;
-            Show();
-            BringToFront();
-            WatiChoice(isWait);
+            if (isWait)
+            {
+                ShowDialog();
+            }
+            else
+            {
+                Show();
+                BringToFront();
+            }
         }
 
 
@@ -56,13 +62,20 @@ namespace Automation
             btn3.Visible = true;
             btn1E = eventHandler1;
             btn3E = eventHandler2;
+            closeFallback = eventHandler2;
             btn1.Text = btnTxt1;
             btn3.Text = btnTxt2;
             btn1E += btnCanel;
             btn3E += btnCanel;
-            Show();
-            BringToFront();
-            WatiChoice(isWait);
+            if (isWait)
+            {
+                ShowDialog();
+            }
+            else
+            {
+                Show();
+                BringToFront();
+            }
         }
         public Message(string headText, string msg, EventHandler1 eventHandler1, EventHandler1 eventHandler2, EventHandler1 eventHandler3, string btnTxt1, string btnTxt2, string btnTxt3, bool isWait)
         {
@@ -75,43 +88,26 @@ namespace Automation
             btn1E = eventHandler1;
             btn2E = eventHandler2;
             btn3E = eventHandler3;
+            closeFallback = eventHandler3;
             btn1.Text = btnTxt1;
             btn2.Text = btnTxt2;
             btn3.Text = btnTxt3;
             btn1E += btnCanel;
             btn2E += btnCanel;
             btn3E += btnCanel;
-            Show();
-            BringToFront();
-           
-            WatiChoice(isWait);
-        }
-        public Message(string headText, string msg, int timeOut)
-        {
-           
-            InitializeComponent();
-            this.Text = headText;
-            SetMsgFrom(msg);
-            panelBtn.Visible = false;
-            Show();
-            BringToFront();
-            SF.Delay(timeOut);
-            btnCanel();
-            
+            if (isWait)
+            {
+                ShowDialog();
+            }
+            else
+            {
+                Show();
+                BringToFront();
+            }
         }
         public Message()
         {
-           
-        }
-        public void WatiChoice(bool isWait)
-        {
-            if (!isWait)
-                return;
-            Select();
-            while (isChoiced == false)
-            {
-                Thread.Sleep(100);
-            }
+            InitializeComponent();
         }
         public void SetMsgFrom(string msg)
         {
@@ -134,10 +130,14 @@ namespace Automation
 
         public void btnCanel()
         {
+            if (isChoiced)
+            {
+                return;
+            }
+            isChoiced = true;
             this.Hide();
             this.Close();
             this.Dispose();
-            isChoiced = true;
         }
         private void btn1_Click(object sender, EventArgs e)
         {
@@ -157,7 +157,12 @@ namespace Automation
 
         private void FrmMessage_FormClosed(object sender, FormClosedEventArgs e)
         {
-
+            if (isChoiced)
+            {
+                return;
+            }
+            isChoiced = true;
+            closeFallback?.Invoke();
         }
     }
 }
