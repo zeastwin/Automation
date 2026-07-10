@@ -13,7 +13,6 @@ namespace Automation.MotionControl
     public class MotionCtrl : IMotionRuntime, IIoRuntime
     {
         public LS ls;
-        private readonly object hardwareAccessLock = new object();
 
         public delegate ushort InitCardHandler();
         public delegate bool SetIOHandler(IO io, bool isOpen);
@@ -208,29 +207,26 @@ namespace Automation.MotionControl
 
         public bool InitCard()
         {
-            lock (hardwareAccessLock)
-            {
-                initCard?.Invoke();
-            }
+            initCard?.Invoke();
             IsCardInitialized = ls != null && ls.IsCardInitialized;
             return IsCardInitialized;
         }
         public bool SetIO(IO io, bool isOpen)
         {
-            lock (hardwareAccessLock) return (bool)setIO?.Invoke(io, isOpen);
+            return (bool)setIO?.Invoke(io, isOpen);
         }
         public bool GetOutIO(IO io, ref bool value)
         {
-            lock (hardwareAccessLock) return (bool)getOutIO?.Invoke(io, ref value);
+            return (bool)getOutIO?.Invoke(io, ref value);
         }
         public bool GetInIO(IO io, ref bool value)
         {
-            lock (hardwareAccessLock) return (bool)getInIO?.Invoke(io, ref value);
+            return (bool)getInIO?.Invoke(io, ref value);
         }
         public void SettHomeParam(ushort card,ushort axis, ushort dir, ushort speed, ushort homeMode)
         {
             EnsureCardInitialized();
-            lock (hardwareAccessLock) settHomeParam?.Invoke(card, axis,  dir,  speed,  homeMode);
+            settHomeParam?.Invoke(card, axis, dir, speed, homeMode);
         }
         public void StartHome(ushort card, ushort axis)
         {
@@ -246,7 +242,7 @@ namespace Automation.MotionControl
             try
             {
                 EnsureCommandValidated(card, axis, AxisCommandKind.Home, false);
-                lock (hardwareAccessLock) startHome?.Invoke(card , axis);
+                startHome?.Invoke(card, axis);
             }
             catch
             {
@@ -257,17 +253,17 @@ namespace Automation.MotionControl
         public void CleanPos(ushort card, ushort axis)
         {
             EnsureCardInitialized();
-            lock (hardwareAccessLock) cleanPos?.Invoke(card, axis);
+            cleanPos?.Invoke(card, axis);
         }
         public double GetAxisPos(ushort card, ushort axis)
         {
             EnsureCardInitialized();
-            lock (hardwareAccessLock) return (double)(getAxisPos?.Invoke(card, axis));
+            return (double)(getAxisPos?.Invoke(card, axis));
         }
         public void SetMovParam(ushort card ,ushort axis, double minVel, double dMaxVel, double acc, double dec, double dStopVel, double dS_para,int equiv)
         {
             EnsureCardInitialized();
-            lock (hardwareAccessLock) setMovParam?.Invoke(card,axis, minVel, dMaxVel, acc, dec, dStopVel,dS_para, equiv);
+            setMovParam?.Invoke(card, axis, minVel, dMaxVel, acc, dec, dStopVel, dS_para, equiv);
         }
         public void Mov(ushort card, ushort axis, double dDist, ushort sPosi_mode, bool wait)
         {
@@ -284,7 +280,7 @@ namespace Automation.MotionControl
             try
             {
                 EnsureCommandValidated(card, axis, AxisCommandKind.Motion, false);
-                lock (hardwareAccessLock) mov?.Invoke(card, axis, dDist, sPosi_mode, false);
+                mov?.Invoke(card, axis, dDist, sPosi_mode, false);
                 if (wait)
                 {
                     while (!GetInPos(card, axis))
@@ -316,8 +312,7 @@ namespace Automation.MotionControl
                 DateTime deadline = DateTime.UtcNow.AddSeconds(120);
                 while (DateTime.UtcNow < deadline)
                 {
-                    bool isStopped;
-                    lock (hardwareAccessLock) isStopped = (bool)getInPos?.Invoke(card, axis);
+                    bool isStopped = (bool)getInPos?.Invoke(card, axis);
                     if (isStopped)
                     {
                         safeToRelease = true;
@@ -331,7 +326,7 @@ namespace Automation.MotionControl
             {
                 try
                 {
-                    lock (hardwareAccessLock) stopOneAxis?.Invoke(card, axis, 0);
+                    stopOneAxis?.Invoke(card, axis, 0);
                     SF.DR?.ReleaseManualMotionResource(card, axis);
                     safeToRelease = false;
                     SF.SetSecurityLock($"手动运动监控异常，轴已停止:{card}-{axis} {ex.Message}");
@@ -363,7 +358,7 @@ namespace Automation.MotionControl
             try
             {
                 EnsureCommandValidated(card, axis, AxisCommandKind.Motion, true);
-                lock (hardwareAccessLock) jog?.Invoke(card, axis, sDir);
+                jog?.Invoke(card, axis, sDir);
             }
             catch
             {
@@ -374,7 +369,7 @@ namespace Automation.MotionControl
         public void StopOneAxis(ushort card, ushort axis, ushort stop_mode)
         {
             EnsureCardInitialized();
-            lock (hardwareAccessLock) stopOneAxis?.Invoke(card, axis,  stop_mode);
+            stopOneAxis?.Invoke(card, axis, stop_mode);
             if (Application.MessageLoop)
             {
                 SF.DR?.ReleaseManualMotionResource(card, axis);
@@ -382,63 +377,57 @@ namespace Automation.MotionControl
         }
         public void StopConnect()
         {
-            lock (hardwareAccessLock) stopConnect?.Invoke();
+            stopConnect?.Invoke();
         }
         public bool HomeStatus(ushort card, ushort axis)
         {
             EnsureCardInitialized();
-            lock (hardwareAccessLock) return (bool)homeStatus?.Invoke(card, axis);
+            return (bool)homeStatus?.Invoke(card, axis);
         }
         public bool GetInPos(ushort card, ushort axis)
         {
             EnsureCardInitialized();
-            lock (hardwareAccessLock) return (bool)getInPos?.Invoke(card, axis);
+            return (bool)getInPos?.Invoke(card, axis);
         }
         public bool GetAxisSevon(ushort card, ushort axis)
         {
-            lock (hardwareAccessLock) return (bool)getAxisSevon?.Invoke(card, axis);
+            return (bool)getAxisSevon?.Invoke(card, axis);
         }
         public void SetAxisSevon(ushort card, ushort axis, bool isSevon)
         {
-            lock (hardwareAccessLock) setAxisSevon?.Invoke(card, axis,isSevon);
+            setAxisSevon?.Invoke(card, axis, isSevon);
         }
         public void DownLoadConfig()
         {
-            lock (hardwareAccessLock) downLoadConfig?.Invoke();
+            downLoadConfig?.Invoke();
         }
         public void SetAllAxisSevonOn()
         {
-            lock (hardwareAccessLock) setAllAxisSevonOn?.Invoke();
+            setAllAxisSevonOn?.Invoke();
         }
         public void SetAllAxisEquiv()
         {
-            lock (hardwareAccessLock) setAllAxisEquiv?.Invoke();
+            setAllAxisEquiv?.Invoke();
         }
         public void CleanAlarm()
         {
-            lock (hardwareAccessLock) cleanAlarm?.Invoke();
+            cleanAlarm?.Invoke();
         }
         public double GetAxisCurSpeed(ushort card, ushort axis)
         {
-            lock (hardwareAccessLock) return (double)getAxisCurSpeed?.Invoke( card, axis);
+            return (double)getAxisCurSpeed?.Invoke(card, axis);
         }
         public uint GetAxisIoStatus(ushort card, ushort axis)
         {
             EnsureCardInitialized();
-            lock (hardwareAccessLock)
-            {
-                return getAxisIoStatus?.Invoke(card, axis)
-                    ?? throw new InvalidOperationException("轴IO状态读取接口未初始化");
-            }
+            return getAxisIoStatus?.Invoke(card, axis)
+                ?? throw new InvalidOperationException("轴IO状态读取接口未初始化");
         }
         public ushort GetAxisAlarmCode(ushort card, ushort axis)
         {
             EnsureCardInitialized();
-            lock (hardwareAccessLock)
-            {
-                return getAxisAlarmCode?.Invoke(card, axis)
-                    ?? throw new InvalidOperationException("轴报警码读取接口未初始化");
-            }
+            return getAxisAlarmCode?.Invoke(card, axis)
+                ?? throw new InvalidOperationException("轴报警码读取接口未初始化");
         }
         public void InitCardType()
         {
