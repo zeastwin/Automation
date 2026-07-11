@@ -4230,19 +4230,18 @@ namespace Automation.Bridge
         {
             GotoRewriteResult summary = ProcessEditingService.RewriteGotoTargets(before, after, procIndex);
 
-            if (summary.RewrittenCount == 0 && summary.FallbackCount == 0 && summary.ClearedCount == 0)
+            if (summary.RewrittenCount == 0 && summary.InvalidatedCount == 0)
             {
                 return;
             }
 
-            result.Messages.Add($"动作{actionIndex}：已重写跳转 {summary.RewrittenCount} 个，回退 {summary.FallbackCount} 个，清空 {summary.ClearedCount} 个。");
+            result.Messages.Add($"动作{actionIndex}：已重写跳转 {summary.RewrittenCount} 个，发现已删除目标 {summary.InvalidatedCount} 个；已删除目标必须明确修复后才能提交。");
             result.Changes.Add(new JObject
             {
                 ["actionIndex"] = actionIndex,
                 ["type"] = "goto_rewrite",
                 ["rewrittenCount"] = summary.RewrittenCount,
-                ["fallbackCount"] = summary.FallbackCount,
-                ["clearedCount"] = summary.ClearedCount
+                ["invalidatedCount"] = summary.InvalidatedCount
             });
         }
 

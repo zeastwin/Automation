@@ -10,6 +10,12 @@ namespace Automation
     {  //存放变量对象
         private const string DefaultValueType = "double";
         private const string DefaultValueText = "0";
+        private static readonly Color HeaderBackColor = Color.FromArgb(238, 243, 248);
+        private static readonly Color HeaderForeColor = Color.FromArgb(48, 63, 78);
+        private static readonly Color GridLineColor = Color.FromArgb(222, 228, 234);
+        private static readonly Color AlternateRowColor = Color.FromArgb(248, 250, 252);
+        private static readonly Color SelectionBackColor = Color.FromArgb(217, 234, 250);
+        private static readonly Color SelectionForeColor = Color.FromArgb(27, 43, 59);
 
         private sealed class CommonValueItem
         {
@@ -144,6 +150,18 @@ namespace Automation
 
                 Controls.Add(dgvMonitor);
                 Controls.Add(topPanel);
+                ApplyMonitorStyle();
+            }
+
+            private void ApplyMonitorStyle()
+            {
+                BackColor = Color.White;
+                topPanel.BackColor = HeaderBackColor;
+                labelTitle.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
+                labelTitle.ForeColor = HeaderForeColor;
+                ApplyButtonStyle(btnAdd, true, false);
+                ApplyButtonStyle(btnRemove, false, true);
+                ApplyGridStyle(dgvMonitor);
             }
 
             public DataGridView Grid => dgvMonitor;
@@ -167,6 +185,8 @@ namespace Automation
         private ValueConfigStore hookedValueStore;
         private ValueMonitorForm monitorForm;
         private bool isStructViewAttached;
+        private bool isValueGridReady;
+        private bool isValueEditValid = true;
         private const int MaxMonitorHistoryRows = 2000;
         private const int MonitorHistoryTrimRows = 200;
 
@@ -190,6 +210,114 @@ namespace Automation
 
             dgvValue.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             dgvValue.RowTemplate.Height = 28;
+            ApplyAlarmConfigStyle();
+        }
+
+        private void ApplyAlarmConfigStyle()
+        {
+            BackColor = Color.White;
+            panel1.BackColor = HeaderBackColor;
+            panelCommon.BackColor = Color.White;
+            panelStructHost.BackColor = Color.White;
+            splitContainerMain.BackColor = GridLineColor;
+            splitContainerMain.BorderStyle = BorderStyle.FixedSingle;
+            labelCommon.BackColor = HeaderBackColor;
+            labelCommon.ForeColor = HeaderForeColor;
+            labelCommon.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
+
+            listCommon.BackColor = Color.White;
+            listCommon.ForeColor = HeaderForeColor;
+            listCommon.BorderStyle = BorderStyle.FixedSingle;
+            listCommon.Font = new Font("Microsoft YaHei UI", 10F);
+            listCommon.DrawMode = DrawMode.OwnerDrawFixed;
+            listCommon.ItemHeight = 30;
+            listCommon.DrawItem += listCommon_DrawItem;
+
+            ApplyGridStyle(dgvValue);
+            ApplyButtonStyle(btnSearch, true, false);
+            ApplyButtonStyle(btnSet, false, false);
+            ApplyButtonStyle(btnPrevious, false, false);
+            ApplyButtonStyle(BtnNext, false, false);
+            ApplyButtonStyle(btnCancel, false, true);
+            ApplyButtonStyle(btnMonitor, false, false);
+            ApplyButtonStyle(btnMonitorAdd, false, false);
+            ApplyButtonStyle(btnMonitorRemove, false, false);
+            ApplyButtonStyle(btnCopy, false, false);
+            ApplyButtonStyle(btnPaste, false, false);
+            ApplyButtonStyle(btnClearData, false, true);
+        }
+
+        private static void ApplyGridStyle(DataGridView grid)
+        {
+            grid.Font = new Font("Microsoft YaHei UI", 10F);
+            grid.BackgroundColor = Color.White;
+            grid.BorderStyle = BorderStyle.FixedSingle;
+            grid.GridColor = GridLineColor;
+            grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+            grid.EnableHeadersVisualStyles = false;
+            grid.ColumnHeadersHeight = 34;
+            grid.ColumnHeadersDefaultCellStyle.BackColor = HeaderBackColor;
+            grid.ColumnHeadersDefaultCellStyle.ForeColor = HeaderForeColor;
+            grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
+            grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            grid.RowTemplate.Height = 30;
+            grid.DefaultCellStyle.BackColor = Color.White;
+            grid.DefaultCellStyle.ForeColor = HeaderForeColor;
+            grid.AlternatingRowsDefaultCellStyle.BackColor = AlternateRowColor;
+            grid.DefaultCellStyle.SelectionBackColor = SelectionBackColor;
+            grid.DefaultCellStyle.SelectionForeColor = SelectionForeColor;
+        }
+
+        private static void ApplyButtonStyle(Button button, bool primary, bool danger)
+        {
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 1;
+            button.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Regular);
+            if (primary)
+            {
+                button.BackColor = Color.FromArgb(34, 111, 183);
+                button.ForeColor = Color.White;
+                button.FlatAppearance.BorderColor = Color.FromArgb(34, 111, 183);
+                button.FlatAppearance.MouseOverBackColor = Color.FromArgb(43, 126, 201);
+                button.FlatAppearance.MouseDownBackColor = Color.FromArgb(22, 83, 139);
+            }
+            else if (danger)
+            {
+                button.BackColor = Color.FromArgb(255, 245, 245);
+                button.ForeColor = Color.FromArgb(170, 48, 48);
+                button.FlatAppearance.BorderColor = Color.FromArgb(226, 176, 176);
+                button.FlatAppearance.MouseOverBackColor = Color.FromArgb(253, 229, 229);
+                button.FlatAppearance.MouseDownBackColor = Color.FromArgb(248, 212, 212);
+            }
+            else
+            {
+                button.BackColor = Color.White;
+                button.ForeColor = HeaderForeColor;
+                button.FlatAppearance.BorderColor = Color.FromArgb(190, 199, 210);
+                button.FlatAppearance.MouseOverBackColor = Color.FromArgb(237, 240, 244);
+                button.FlatAppearance.MouseDownBackColor = Color.FromArgb(225, 230, 236);
+            }
+            button.UseVisualStyleBackColor = false;
+        }
+
+        private void listCommon_DrawItem(object sender, DrawItemEventArgs e)
+        {
+            if (e.Index < 0)
+            {
+                return;
+            }
+            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+            using (var background = new SolidBrush(selected ? SelectionBackColor
+                : e.Index % 2 == 0 ? Color.White : AlternateRowColor))
+            using (var foreground = new SolidBrush(selected ? SelectionForeColor : HeaderForeColor))
+            {
+                e.Graphics.FillRectangle(background, e.Bounds);
+                string text = listCommon.Items[e.Index]?.ToString() ?? string.Empty;
+                Rectangle textBounds = new Rectangle(e.Bounds.X + 10, e.Bounds.Y, e.Bounds.Width - 12, e.Bounds.Height);
+                TextRenderer.DrawText(e.Graphics, text, listCommon.Font, textBounds, foreground.Color,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+            e.DrawFocusRectangle();
         }
 
         private void FrmValue_FormClosing(object sender, FormClosingEventArgs e)
@@ -235,7 +363,7 @@ namespace Automation
 
             RefreshValue();
 
-            SF.isFinBulidFrmValue = true;
+            isValueGridReady = true;
 
         }
   
@@ -267,8 +395,8 @@ namespace Automation
         //刷新变量界面
         public void FreshFrmValue()
         {
-            bool allowRefresh = SF.isFinBulidFrmValue;
-            SF.isFinBulidFrmValue = false;
+            bool allowRefresh = isValueGridReady;
+            isValueGridReady = false;
             try
             {
                 if (dgvValue.Rows.Count != ValueConfigStore.ValueCapacity)
@@ -301,7 +429,7 @@ namespace Automation
             }
             finally
             {
-                SF.isFinBulidFrmValue = allowRefresh;
+                isValueGridReady = allowRefresh;
             }
         }
         /*=============================================================================================*/
@@ -359,7 +487,7 @@ namespace Automation
 
         private void dgvValue_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
-            if (SF.isFinBulidFrmValue)
+            if (isValueGridReady)
             {
                 // 确保值变化发生在单元格中而不是在行标题或列标题
                 if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
@@ -635,35 +763,35 @@ namespace Automation
 
         private void dgvValue_CellEndEdit(object sender, DataGridViewCellEventArgs e)
         {
-            if (SF.isFinBulidFrmValue)
+            if (isValueGridReady)
             {
                 // 确保值变化发生在单元格中而不是在行标题或列标题
                 if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
                 {
                     DataGridView dataGridView = (DataGridView)sender;
-                    SF.isEndEdit = !string.IsNullOrWhiteSpace(dataGridView.Rows[e.RowIndex].Cells[1].Value?.ToString());
+                    isValueEditValid = !string.IsNullOrWhiteSpace(dataGridView.Rows[e.RowIndex].Cells[1].Value?.ToString());
                     if (!TryBuildRowValueForSave(dataGridView, e.RowIndex, out int num, out string key, out string type, out string value, out string note))
                     {
-                        SF.isEndEdit = false;
+                        isValueEditValid = false;
                         return;
                     }
                     if (!SF.valueStore.TrySetValue(num, key, type, value, note, "变量表编辑"))
                     {
-                        SF.isEndEdit = false;
+                        isValueEditValid = false;
                         return;
                     }
                     dataGridView.Rows[e.RowIndex].Cells[1].Value = key;
                     dataGridView.Rows[e.RowIndex].Cells[2].Value = type;
                     dataGridView.Rows[e.RowIndex].Cells[3].Value = value;
                     dataGridView.Rows[e.RowIndex].Cells[4].Value = note;
-                    SF.isEndEdit = true;
+                    isValueEditValid = true;
                 }
             }
         }
 
         private void dgvValue_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left && SF.isEndEdit==true)
+            if (e.Button == MouseButtons.Left && isValueEditValid)
                 FreshFrmValue();
         }
 
@@ -795,14 +923,13 @@ namespace Automation
                 // 获取当前行对应的数据项
                 if (SF.valueStore.IsMarked(e.RowIndex))
                 {
-                    //  SetRowColor(e.RowIndex, dataGridView1.DefaultCellStyle.BackColor);
-                    e.CellStyle.BackColor = Color.Red;
+                    e.CellStyle.BackColor = Color.FromArgb(253, 229, 229);
+                    e.CellStyle.ForeColor = Color.FromArgb(170, 48, 48);
                 }
                 else
                 {
-                    // 如果不是断点，保持默认颜色
-                    // SetRowColor(e.RowIndex, dataGridView1.DefaultCellStyle.BackColor);
-                    e.CellStyle.BackColor = Color.White;
+                    e.CellStyle.BackColor = e.RowIndex % 2 == 0 ? Color.White : AlternateRowColor;
+                    e.CellStyle.ForeColor = HeaderForeColor;
                 }
             }
 

@@ -12,7 +12,7 @@ namespace Automation
     public partial class FrmIODebug : Form
     {
         public IODebugMap IODebugMaps = new IODebugMap();
-        Font font = new Font("微软雅黑", 15, FontStyle.Regular);
+        private readonly Font font = new Font("微软雅黑", 10.5F, FontStyle.Regular, GraphicsUnit.Point, 134);
         public List<Control> buttonsIn = new List<Control>();
         public List<Control> buttonsOut = new List<Control>();
         public List<ConnectButton> btnCon = new List<ConnectButton>();
@@ -107,6 +107,73 @@ namespace Automation
             listView3.ContextMenuStrip = connectMenu;
             this.VisibleChanged += FrmIODebug_VisibleChanged;
             this.Resize += FrmIODebug_Resize;
+            ApplyIoDebugStyle();
+        }
+
+        private void ApplyIoDebugStyle()
+        {
+            BackColor = Color.White;
+            tabControl1.Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134);
+            foreach (TabPage page in tabControl1.TabPages)
+            {
+                page.BackColor = Color.White;
+            }
+            foreach (Control control in EnumerateControls(this))
+            {
+                if (control is ListView listView)
+                {
+                    listView.BackColor = Color.White;
+                    listView.ForeColor = Color.FromArgb(48, 63, 78);
+                    listView.BorderStyle = BorderStyle.FixedSingle;
+                    listView.Font = new Font("微软雅黑", 9.5F, FontStyle.Regular, GraphicsUnit.Point, 134);
+                    listView.FullRowSelect = true;
+                    listView.HideSelection = false;
+                    if (listView.View == View.Details)
+                    {
+                        listView.GridLines = true;
+                    }
+                }
+                else if (control is TabControl tabs)
+                {
+                    tabs.Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134);
+                }
+            }
+            foreach (ContextMenuStrip menu in new[] { listView1.ContextMenuStrip, listView2.ContextMenuStrip, listView3.ContextMenuStrip })
+            {
+                if (menu == null)
+                {
+                    continue;
+                }
+                menu.ShowImageMargin = false;
+                menu.Font = new Font("微软雅黑", 9F, FontStyle.Regular, GraphicsUnit.Point, 134);
+            }
+        }
+
+        private static IEnumerable<Control> EnumerateControls(Control parent)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                yield return child;
+                foreach (Control descendant in EnumerateControls(child))
+                {
+                    yield return descendant;
+                }
+            }
+        }
+
+        private bool TrySaveIoDebugMap()
+        {
+            if (AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", IODebugMaps))
+            {
+                return true;
+            }
+            SF.DR?.Logger?.Log("IO调试配置保存失败", LogLevel.Error);
+            if (IsHandleCreated && !IsDisposed && !Disposing)
+            {
+                MessageBox.Show("IO调试配置保存失败，本次配置未落盘。", "IO调试",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            return false;
         }
         public bool CheckFormIsOpen(Form form)
         {
@@ -358,8 +425,16 @@ namespace Automation
         {
             int pageIndex = currentConnectConfigIndex;
             connectConfigAutoSizeEnabled[pageIndex] = true;
+            if (!IsHandleCreated || IsDisposed || Disposing)
+            {
+                return;
+            }
             BeginInvoke(new Action(() =>
             {
+                if (IsDisposed || Disposing)
+                {
+                    return;
+                }
                 connectConfigAutoSizeEnabled[pageIndex] = true;
                 UpdateConnectConfigColumnWidthsForIndex(pageIndex);
             }));
@@ -628,16 +703,20 @@ namespace Automation
                     {
                         if (InvokeRequired)
                         {
-                            BeginInvoke(new Action(() => MessageBox.Show("输入输出关联配置版本不匹配，已重置，请重新配置。")));
+                            BeginInvoke(new Action(() => MessageBox.Show(
+                                "输入输出关联配置无效，原文件已保留；本次关联调试已使用空配置，请重新配置后再使用。",
+                                "IO调试", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
                         }
                         else
                         {
-                            MessageBox.Show("输入输出关联配置版本不匹配，已重置，请重新配置。");
+                            MessageBox.Show(
+                                "输入输出关联配置无效，原文件已保留；本次关联调试已使用空配置，请重新配置后再使用。",
+                                "IO调试", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         }
                     }
                 }
+                SF.DR?.Logger?.Log("输入输出关联配置字段缺失，已保留原文件，本次关联调试使用空配置", LogLevel.Error);
                 IODebugMaps = new IODebugMap();
-                AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             }
         }
 
@@ -885,33 +964,23 @@ namespace Automation
                     if (tabIndex == 0)
                     {
                         IO[] inputs = IODebugMaps.inputs.ToArray();
-                        bool[] valid = new bool[inputs.Length];
-                        for (int i = 0; i < valid.Length; i++)
-                        {
-                            valid[i] = true;
-                        }
                         return new IoRefreshData
                         {
                             TabIndex = 0,
                             InputCount = inputs.Length,
                             InputStates = new bool[inputs.Length],
-                            InputValid = valid
+                            InputValid = new bool[inputs.Length]
                         };
                     }
                     if (tabIndex == 1)
                     {
                         IO[] outputs = IODebugMaps.outputs.ToArray();
-                        bool[] valid = new bool[outputs.Length];
-                        for (int i = 0; i < valid.Length; i++)
-                        {
-                            valid[i] = true;
-                        }
                         return new IoRefreshData
                         {
                             TabIndex = 1,
                             OutputCount = outputs.Length,
                             OutputStates = new bool[outputs.Length],
-                            OutputValid = valid
+                            OutputValid = new bool[outputs.Length]
                         };
                     }
                     if (tabIndex == 2)
@@ -921,12 +990,6 @@ namespace Automation
                         bool[] outValid = new bool[connects.Length];
                         bool[] in1Valid = new bool[connects.Length];
                         bool[] in2Valid = new bool[connects.Length];
-                        for (int i = 0; i < connects.Length; i++)
-                        {
-                            outValid[i] = true;
-                            in1Valid[i] = true;
-                            in2Valid[i] = true;
-                        }
                         return new IoRefreshData
                         {
                             TabIndex = 2,
@@ -954,9 +1017,9 @@ namespace Automation
                             continue;
                         }
                         bool open = false;
-                        if (TryResolveIoByName(ioItem.Name, "通用输入", out IO io, false))
+                        if (TryResolveIoByName(ioItem.Name, "通用输入", out IO io, false)
+                            && SF.io.GetInIO(io, ref open))
                         {
-                            SF.io.GetInIO(io, ref open);
                             states[i] = open;
                             valid[i] = true;
                         }
@@ -987,9 +1050,9 @@ namespace Automation
                             continue;
                         }
                         bool open = false;
-                        if (TryResolveIoByName(ioItem.Name, "通用输出", out IO io, false))
+                        if (TryResolveIoByName(ioItem.Name, "通用输出", out IO io, false)
+                            && SF.io.GetOutIO(io, ref open))
                         {
-                            SF.io.GetOutIO(io, ref open);
                             states[i] = open;
                             valid[i] = true;
                         }
@@ -1027,9 +1090,9 @@ namespace Automation
                             continue;
                         }
                         bool open = false;
-                        if (TryResolveIoByName(connect.Output.Name, "通用输出", out IO outputIo, false))
+                        if (TryResolveIoByName(connect.Output.Name, "通用输出", out IO outputIo, false)
+                            && SF.io.GetOutIO(outputIo, ref open))
                         {
-                            SF.io.GetOutIO(outputIo, ref open);
                             outStates[i] = open;
                             outValid[i] = true;
                         }
@@ -1038,9 +1101,9 @@ namespace Automation
                             outValid[i] = false;
                         }
                         if (connect.Intput1 != null && !string.IsNullOrWhiteSpace(connect.Intput1.Name)
-                            && TryResolveIoByName(connect.Intput1.Name, "通用输入", out IO input1Io, false))
+                            && TryResolveIoByName(connect.Intput1.Name, "通用输入", out IO input1Io, false)
+                            && SF.io.GetInIO(input1Io, ref open))
                         {
-                            SF.io.GetInIO(input1Io, ref open);
                             in1States[i] = open;
                             in1Valid[i] = true;
                         }
@@ -1049,9 +1112,9 @@ namespace Automation
                             in1Valid[i] = false;
                         }
                         if (connect.Intput2 != null && !string.IsNullOrWhiteSpace(connect.Intput2.Name)
-                            && TryResolveIoByName(connect.Intput2.Name, "通用输入", out IO input2Io, false))
+                            && TryResolveIoByName(connect.Intput2.Name, "通用输入", out IO input2Io, false)
+                            && SF.io.GetInIO(input2Io, ref open))
                         {
-                            SF.io.GetInIO(input2Io, ref open);
                             in2States[i] = open;
                             in2Valid[i] = true;
                         }
@@ -1452,7 +1515,7 @@ namespace Automation
                 return;
             }
             connectList.Add(new IOConnect() { Output = cacheIO.CloneForDebug() });
-            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            TrySaveIoDebugMap();
             RefreshIODebugMapFrm();
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
@@ -1915,9 +1978,25 @@ namespace Automation
 
         private void IOButton_Click(object sender, EventArgs e)
         {
-            if (sender is Button button)
+            if (!(sender is Button button))
             {
-                bool Open_1 = false;
+                return;
+            }
+            if (SF.SecurityLocked)
+            {
+                MessageBox.Show(SF.SecurityLockReason, "系统已安全锁定", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (SF.io == null || SF.motion == null || !SF.motion.IsCardInitialized)
+            {
+                MessageBox.Show("运动控制卡未初始化，禁止操作输出。", "IO调试",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            try
+            {
+                bool currentState = false;
                 if (button.Tag is IOConnect ioConnect)
                 {
                     if (!TryResolveIoByName(ioConnect.Output.Name, "通用输出", out IO outputIo))
@@ -1925,15 +2004,24 @@ namespace Automation
                         button.BackColor = Color.Red;
                         return;
                     }
-                    SF.io.GetOutIO(outputIo, ref Open_1);
-                    bool newState = !Open_1;
-                    SF.io.SetIO(outputIo, newState);
+                    if (!SF.io.GetOutIO(outputIo, ref currentState))
+                    {
+                        throw new InvalidOperationException($"读取输出状态失败:{outputIo.Name}");
+                    }
+                    bool newState = !currentState;
+                    if (!SF.io.SetIO(outputIo, newState))
+                    {
+                        throw new InvalidOperationException($"设置输出失败:{outputIo.Name}");
+                    }
                     if (ioConnect.Output2 != null
                         && !string.IsNullOrWhiteSpace(ioConnect.Output2.Name)
                         && ioConnect.Output2.Name != ioConnect.Output.Name
                         && TryResolveIoByName(ioConnect.Output2.Name, "通用输出", out IO output2))
                     {
-                        SF.io.SetIO(output2, !newState);
+                        if (!SF.io.SetIO(output2, !newState))
+                        {
+                            throw new InvalidOperationException($"联动输出失败:{output2.Name}");
+                        }
                     }
                     return;
                 }
@@ -1942,8 +2030,16 @@ namespace Automation
                     button.BackColor = Color.Red;
                     return;
                 }
-                SF.io.GetOutIO(outputIo2, ref Open_1);
-                SF.io.SetIO(outputIo2, !Open_1);
+                if (!SF.io.GetOutIO(outputIo2, ref currentState)
+                    || !SF.io.SetIO(outputIo2, !currentState))
+                {
+                    throw new InvalidOperationException($"输出操作失败:{outputIo2.Name}");
+                }
+            }
+            catch (Exception ex)
+            {
+                SF.DR?.Logger?.Log($"IO调试输出异常:{ex}", LogLevel.Error);
+                MessageBox.Show(ex.Message, "IO调试失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
         private Control CreateRemarkHeader(string text, Point location, int width, int height)
@@ -2168,7 +2264,7 @@ namespace Automation
             if (!File.Exists(filePath))
             {
                 IODebugMaps = new IODebugMap();
-                AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", IODebugMaps);
+                TrySaveIoDebugMap();
                 return;
             }
             try
@@ -2185,7 +2281,7 @@ namespace Automation
             {
                 IODebugMaps = new IODebugMap();
                 EnsureConnectConfigReady();
-                SF.SetSecurityLock($"输入输出调试配置加载失败：{ex.Message}");
+                SF.DR?.Logger?.Log($"输入输出调试配置加载失败:{ex}", LogLevel.Error);
             }
         }
         private void InputConfigItem_Click(object sender, EventArgs e)
@@ -2314,7 +2410,7 @@ namespace Automation
             {
                 IODebugMaps.outputs = newList;
             }
-            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            TrySaveIoDebugMap();
             RefreshIODebugMapFrm();
         }
         private void OpenConnectConfig()
@@ -2413,7 +2509,7 @@ namespace Automation
                 }
             }
             SetConnectList(currentConnectConfigIndex, newList);
-            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            TrySaveIoDebugMap();
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
         }
@@ -2440,7 +2536,7 @@ namespace Automation
                 }
             }
             targetList.Insert(insertIndex, remark);
-            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            TrySaveIoDebugMap();
             RefreshIODebugMapFrm();
         }
         private void AddRemarkConnectItem()
@@ -2465,7 +2561,7 @@ namespace Automation
                 }
             }
             connectList.Insert(insertIndex, remark);
-            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            TrySaveIoDebugMap();
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
         }
@@ -2651,7 +2747,7 @@ namespace Automation
                 list.Insert(targetIndex, moving);
             }
             listView1.InsertionMark.Index = -1;
-            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            TrySaveIoDebugMap();
             RefreshIODebugMapFrm();
             RefreshIoDisplayAfterReorder(true);
         }
@@ -2720,7 +2816,7 @@ namespace Automation
                 list.Insert(targetIndex, moving);
             }
             listView2.InsertionMark.Index = -1;
-            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            TrySaveIoDebugMap();
             RefreshIODebugMapFrm();
             RefreshIoDisplayAfterReorder(false);
         }
@@ -2859,7 +2955,7 @@ namespace Automation
                     {
                         iOConnect.Intput1 = cacheIO.CloneForDebug();
 
-                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        TrySaveIoDebugMap();
                         RefreshConnectDisplayForCurrentConfig();
                     }
                 }
@@ -2873,7 +2969,7 @@ namespace Automation
                     {
                         iOConnect.Intput1.Name = "";
 
-                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        TrySaveIoDebugMap();
                         RefreshConnectDisplayForCurrentConfig();
                     }
                 }
@@ -2907,7 +3003,7 @@ namespace Automation
                     {
                         iOConnect.Intput2 = cacheIO.CloneForDebug();
 
-                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        TrySaveIoDebugMap();
                         RefreshConnectDisplayForCurrentConfig();
                     }
 
@@ -2923,7 +3019,7 @@ namespace Automation
                     {
                         iOConnect.Intput2.Name = "";
 
-                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        TrySaveIoDebugMap();
                         RefreshConnectDisplayForCurrentConfig();
                     }
 
@@ -2963,7 +3059,7 @@ namespace Automation
                     {
                         iOConnect.Output2 = cacheIO.CloneForDebug();
 
-                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        TrySaveIoDebugMap();
                         RefreshConnectDisplayForCurrentConfig();
                     }
                 }
@@ -2981,7 +3077,7 @@ namespace Automation
                         }
                         iOConnect.Output2.Name = "";
 
-                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        TrySaveIoDebugMap();
                         RefreshConnectDisplayForCurrentConfig();
                     }
                 }
@@ -3121,7 +3217,7 @@ namespace Automation
             {
                 targetItem.BackColor = Color.White;
             }
-            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            TrySaveIoDebugMap();
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
         }

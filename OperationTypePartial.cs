@@ -272,7 +272,8 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(SF.frmProc.procListItemCount);
+                return new StandardValuesCollection(Enumerable.Range(1, SF.frmProc?.procsList?.Count ?? 0)
+                    .Select(index => index.ToString()).ToList());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -288,7 +289,10 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(SF.frmProc.procListItem);
+                List<string> names = SF.frmProc?.procsList?
+                    .Select((proc, index) => string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"流程{index}" : proc.head.Name)
+                    .ToList() ?? new List<string>();
+                return new StandardValuesCollection(names);
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {

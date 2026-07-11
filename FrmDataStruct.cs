@@ -1,7 +1,6 @@
 using Automation.ParamFrm;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Drawing;
 using System.Globalization;
 using System.Linq;
@@ -9,61 +8,6 @@ using System.Windows.Forms;
 
 namespace Automation
 {
-    [Serializable]
-    public class DataStruct : ICloneable
-    {
-        [Browsable(false)]
-        public string Name { get; set; }
-
-        public List<DataStructItem> dataStructItems = new List<DataStructItem>();
-
-        public object Clone()
-        {
-            return ObjectGraphCloner.Clone(this);
-        }
-    }
-
-    [Serializable]
-    public class DataStructItem
-    {
-        public string Name { get; set; }
-
-        public Dictionary<int, string> FieldNames { get; set; } = new Dictionary<int, string>();
-        public Dictionary<int, DataStructValueType> FieldTypes { get; set; } = new Dictionary<int, DataStructValueType>();
-
-        public Dictionary<int, string> str { get; set; } = new Dictionary<int, string>();
-        public Dictionary<int, double> num { get; set; } = new Dictionary<int, double>();
-
-        public DataStructItem Clone()
-        {
-            return ObjectGraphCloner.Clone(this);
-        }
-
-        public int GetMaxIndex()
-        {
-            int maxIndex = -1;
-            if (FieldNames != null && FieldNames.Count > 0)
-            {
-                maxIndex = Math.Max(maxIndex, FieldNames.Keys.Max());
-            }
-            if (FieldTypes != null && FieldTypes.Count > 0)
-            {
-                maxIndex = Math.Max(maxIndex, FieldTypes.Keys.Max());
-            }
-            if (str != null && str.Count > 0)
-            {
-                maxIndex = Math.Max(maxIndex, str.Keys.Max());
-            }
-
-            if (num != null && num.Count > 0)
-            {
-                maxIndex = Math.Max(maxIndex, num.Keys.Max());
-            }
-
-            return maxIndex;
-        }
-    }
-
     public partial class FrmDataStruct : Form
     {
         private const int TextPreviewLength = 30;

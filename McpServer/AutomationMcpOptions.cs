@@ -55,10 +55,8 @@ namespace Automation.McpServer
             {
                 ToolProfile = "Diagnostic";
             }
-            else if (string.Equals(ToolProfile, "Editor", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(ToolProfile, "Focused", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(ToolProfile, "Editor", StringComparison.OrdinalIgnoreCase))
             {
-                // Focused 是早期名称，继续兼容并统一映射为编辑模式。
                 ToolProfile = "Editor";
             }
             else

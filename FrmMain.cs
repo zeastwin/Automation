@@ -1317,24 +1317,6 @@ namespace Automation
 
             try
             {
-                if (SF.frmProc != null && SF.frmProc.isStopPointDirty)
-                {
-                    if (!Directory.Exists(SF.workPath))
-                    {
-                        Directory.CreateDirectory(SF.workPath);
-                    }
-                    for (int i = 0; i < SF.frmProc.procsList.Count; i++)
-                    {
-                        AtomicJsonFileStore.Save(SF.workPath, i.ToString(), SF.frmProc.procsList[i]);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                dataRun?.Logger?.Log($"保存流程配置失败:{ex.Message}", LogLevel.Error);
-            }
-            try
-            {
                 SF.valueStore?.Save(SF.ConfigPath);
                 SF.dataStructStore?.Save(SF.ConfigPath);
                 SF.alarmInfoStore?.Save(SF.ConfigPath);

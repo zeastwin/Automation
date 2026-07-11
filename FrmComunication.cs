@@ -63,6 +63,55 @@ namespace Automation
             iSelectedSocketRow = -1;
             iSelectedSerialPortRow = -1;
             VisibleChanged += FrmComunication_VisibleChanged;
+            checkBox2.CheckedChanged += (s, e) =>
+            {
+                if (!checkBox2.Checked)
+                {
+                    sendLoopCts?.Cancel();
+                }
+            };
+            ApplyCommunicationStyle();
+        }
+
+        private void ApplyCommunicationStyle()
+        {
+            BackColor = Color.White;
+            tabControl1.Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134);
+            foreach (DataGridView grid in new[] { dataGridView1, dataGridView2 })
+            {
+                grid.BackgroundColor = Color.White;
+                grid.BorderStyle = BorderStyle.None;
+                grid.GridColor = Color.FromArgb(222, 228, 234);
+                grid.EnableHeadersVisualStyles = false;
+                grid.ColumnHeadersHeight = 28;
+                grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(238, 243, 248);
+                grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(48, 63, 78);
+                grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(217, 234, 250);
+                grid.DefaultCellStyle.SelectionForeColor = Color.FromArgb(27, 43, 59);
+                grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(248, 250, 252);
+                grid.RowTemplate.Height = 26;
+            }
+            foreach (RichTextBox box in new[] { SendTextBox, ReceiveTextBox })
+            {
+                box.BackColor = Color.White;
+                box.BorderStyle = BorderStyle.FixedSingle;
+                box.Font = new Font("Consolas", 10F, FontStyle.Regular);
+            }
+            StyleCommunicationButton(send, Color.FromArgb(63, 126, 181), Color.White);
+            StyleCommunicationButton(ClearBoard, Color.White, Color.FromArgb(48, 63, 78));
+            foreach (ContextMenuStrip menu in new[] { contextMenuStrip1, contextMenuStrip2, contextMenuStrip3 })
+            {
+                menu.ShowImageMargin = false;
+                menu.Font = new Font("微软雅黑", 9F, FontStyle.Regular, GraphicsUnit.Point, 134);
+            }
+        }
+
+        private static void StyleCommunicationButton(Button button, Color backColor, Color foreColor)
+        {
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderColor = Color.FromArgb(196, 205, 214);
+            button.BackColor = backColor;
+            button.ForeColor = foreColor;
         }
 
         private void FrmComunication_Load(object sender, EventArgs e)
@@ -514,12 +563,13 @@ namespace Automation
             {
                 return;
             }
+            int rowIndex = iSelectedSocketRow;
             if (MessageBox.Show("确认删除选中的TCP配置？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             {
                 return;
             }
 
-            SocketInfo selected = socketInfos[iSelectedSocketRow];
+            SocketInfo selected = socketInfos[rowIndex];
             if (selected != null && TryFindCommunicationReference(selected.Name, true, out string reference))
             {
                 MessageBox.Show($"TCP配置正在被流程引用，禁止删除：{reference}", "TCP配置",
@@ -539,7 +589,13 @@ namespace Automation
                 return;
             }
 
-            socketInfos.RemoveAt(iSelectedSocketRow);
+            if (rowIndex >= socketInfos.Count || !ReferenceEquals(socketInfos[rowIndex], selected))
+            {
+                MessageBox.Show("TCP配置列表已变化，请重新选择后再删除。", "TCP配置",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            socketInfos.RemoveAt(rowIndex);
             if (!TryPersistSocketConfigs())
             {
                 RefreshSocketMap();
@@ -590,8 +646,21 @@ namespace Automation
             }
             if (previous != null && SF.comm?.GetTcpStatus(previous.Name).IsRunning == true)
             {
-                await SF.comm.StopTcpAsync(previous.Name);
-                SF.frmInfo?.PrintInfo($"TCP配置已修改，原连接已停止:{previous.Name}", FrmInfo.Level.Normal);
+                try
+                {
+                    await SF.comm.StopTcpAsync(previous.Name);
+                    SF.frmInfo?.PrintInfo($"TCP配置已修改，原连接已停止:{previous.Name}", FrmInfo.Level.Normal);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "TCP配置修改失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    ApplySocketInfoToRow(e.RowIndex, previous);
+                    return;
+                }
+            }
+            if (e.RowIndex >= socketInfos.Count || !ReferenceEquals(socketInfos[e.RowIndex], previous))
+            {
+                return;
             }
             socketInfos[e.RowIndex] = parsed;
             if (!TryPersistSocketConfigs())
@@ -688,6 +757,36 @@ namespace Automation
             string text = SendTextBox.Text;
             bool convert = checkBox1.Checked;
             bool loopSend = checkBox2.Checked;
+            bool useTcp = tabControl1.SelectedTab == tabPage1;
+            string targetName;
+            if (useTcp)
+            {
+                if (iSelectedSocketRow < 0 || iSelectedSocketRow >= socketInfos.Count)
+                {
+                    MessageBox.Show("未选择TCP配置。", "发送", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                targetName = socketInfos[iSelectedSocketRow]?.Name;
+            }
+            else if (tabControl1.SelectedTab == tabPage2)
+            {
+                if (iSelectedSerialPortRow < 0 || iSelectedSerialPortRow >= serialPortInfos.Count)
+                {
+                    MessageBox.Show("未选择串口配置。", "发送", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                targetName = serialPortInfos[iSelectedSerialPortRow]?.Name;
+            }
+            else
+            {
+                MessageBox.Show("未选择通讯页签。", "发送", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(targetName))
+            {
+                MessageBox.Show("通讯配置名称为空。", "发送", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
 
             int delayMs = 0;
             if (loopSend)
@@ -719,38 +818,21 @@ namespace Automation
                     using (CancellationTokenSource sendTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                     {
                     sendTimeoutCts.CancelAfter(DebugSendTimeoutMs);
-                    TabPage selectedTabPage = tabControl1.SelectedTab;
-                    if (selectedTabPage == tabPage1)
+                    if (useTcp)
                     {
-                        if (iSelectedSocketRow < 0 || iSelectedSocketRow >= socketInfos.Count)
-                        {
-                            throw new InvalidOperationException("未选择TCP配置。");
-                        }
-
-                        SocketInfo socketInfo = socketInfos[iSelectedSocketRow];
                         if (SF.comm == null
-                            || !await SF.comm.SendTcpAsync(socketInfo.Name, text, convert, sendTimeoutCts.Token))
+                            || !await SF.comm.SendTcpAsync(targetName, text, convert, sendTimeoutCts.Token))
                         {
-                            throw new InvalidOperationException($"TCP发送失败:{socketInfo.Name}");
-                        }
-                    }
-                    else if (selectedTabPage == tabPage2)
-                    {
-                        if (iSelectedSerialPortRow < 0 || iSelectedSerialPortRow >= serialPortInfos.Count)
-                        {
-                            throw new InvalidOperationException("未选择串口配置。");
-                        }
-
-                        SerialPortInfo serialPortInfo = serialPortInfos[iSelectedSerialPortRow];
-                        if (SF.comm == null
-                            || !await SF.comm.SendSerialAsync(serialPortInfo.Name, text, convert, sendTimeoutCts.Token))
-                        {
-                            throw new InvalidOperationException($"串口发送失败:{serialPortInfo.Name}");
+                            throw new InvalidOperationException($"TCP发送失败:{targetName}");
                         }
                     }
                     else
                     {
-                        throw new InvalidOperationException("未选择通讯页签。");
+                        if (SF.comm == null
+                            || !await SF.comm.SendSerialAsync(targetName, text, convert, sendTimeoutCts.Token))
+                        {
+                            throw new InvalidOperationException($"串口发送失败:{targetName}");
+                        }
                     }
                     }
 
@@ -929,12 +1011,13 @@ namespace Automation
             {
                 return;
             }
+            int rowIndex = iSelectedSerialPortRow;
             if (MessageBox.Show("确认删除选中的串口配置？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             {
                 return;
             }
 
-            SerialPortInfo selected = serialPortInfos[iSelectedSerialPortRow];
+            SerialPortInfo selected = serialPortInfos[rowIndex];
             if (selected != null && TryFindCommunicationReference(selected.Name, false, out string reference))
             {
                 MessageBox.Show($"串口配置正在被流程引用，禁止删除：{reference}", "串口配置",
@@ -954,7 +1037,13 @@ namespace Automation
                 return;
             }
 
-            serialPortInfos.RemoveAt(iSelectedSerialPortRow);
+            if (rowIndex >= serialPortInfos.Count || !ReferenceEquals(serialPortInfos[rowIndex], selected))
+            {
+                MessageBox.Show("串口配置列表已变化，请重新选择后再删除。", "串口配置",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            serialPortInfos.RemoveAt(rowIndex);
             if (!TryPersistSerialConfigs())
             {
                 RefreshSerialPortInfo();
@@ -1043,8 +1132,21 @@ namespace Automation
             }
             if (previous != null && SF.comm?.GetSerialStatus(previous.Name).IsOpen == true)
             {
-                await SF.comm.StopSerialAsync(previous.Name);
-                SF.frmInfo?.PrintInfo($"串口配置已修改，原连接已停止:{previous.Name}", FrmInfo.Level.Normal);
+                try
+                {
+                    await SF.comm.StopSerialAsync(previous.Name);
+                    SF.frmInfo?.PrintInfo($"串口配置已修改，原连接已停止:{previous.Name}", FrmInfo.Level.Normal);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "串口配置修改失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    ApplySerialInfoToRow(e.RowIndex, previous);
+                    return;
+                }
+            }
+            if (e.RowIndex >= serialPortInfos.Count || !ReferenceEquals(serialPortInfos[e.RowIndex], previous))
+            {
+                return;
             }
             serialPortInfos[e.RowIndex] = parsed;
             if (!TryPersistSerialConfigs())

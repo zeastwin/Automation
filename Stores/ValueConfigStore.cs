@@ -12,11 +12,15 @@ namespace Automation
     public class ValueConfigStore
     {
         public const int ValueCapacity = 1000;
+        private static readonly HashSet<string> ProtectedValueNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "复位状态",
+            "系统状态"
+        };
 
         private readonly object valueLock = new object();
         private readonly DicValue[] values = new DicValue[ValueCapacity];
         private readonly Dictionary<string, int> nameIndex = new Dictionary<string, int>();
-        private readonly object[] valueLocks;
         private volatile Dictionary<string, int> nameIndexSnapshot = new Dictionary<string, int>();
         private readonly object monitorLock = new object();
         private readonly bool[] monitorFlags = new bool[ValueCapacity];
@@ -26,11 +30,6 @@ namespace Automation
 
         public ValueConfigStore()
         {
-            valueLocks = new object[64];
-            for (int i = 0; i < valueLocks.Length; i++)
-            {
-                valueLocks[i] = new object();
-            }
             ResetValues();
         }
 
@@ -73,26 +72,28 @@ namespace Automation
             if (!File.Exists(filePath))
             {
                 ResetValues();
-                Save(configPath);
+                if (!Save(configPath))
+                {
+                    SF.SetSecurityLock("变量配置初始化保存失败");
+                }
                 return false;
             }
 
             try
             {
-                string json = File.ReadAllText(filePath);
-                var settings = new JsonSerializerSettings
+                Dictionary<string, DicValue> temp = AtomicJsonFileStore.Read<Dictionary<string, DicValue>>(configPath, "value");
+                if (temp == null)
                 {
-                    TypeNameHandling = TypeNameHandling.All,
-                    ObjectCreationHandling = ObjectCreationHandling.Replace
-                };
-                Dictionary<string, DicValue> temp = JsonConvert.DeserializeObject<Dictionary<string, DicValue>>(json, settings);
+                    SF.SetSecurityLock("变量配置及其备份均无法读取，已保留原文件并禁止继续运行");
+                    return false;
+                }
                 LoadFromDictionary(temp);
                 return true;
             }
             catch (Exception e)
             {
-                MessageBox.Show(e.Message);
-                ResetValues();
+                SF.DR?.Logger?.Log($"变量配置加载失败:{e}", LogLevel.Error);
+                SF.SetSecurityLock($"变量配置加载失败:{e.Message}");
                 return false;
             }
         }
@@ -103,14 +104,12 @@ namespace Automation
             {
                 Directory.CreateDirectory(configPath);
             }
-            string filePath = Path.Combine(configPath, "value.json");
-            var settings = new JsonSerializerSettings
+            bool saved = AtomicJsonFileStore.Save(configPath, "value", BuildSaveData());
+            if (!saved)
             {
-                TypeNameHandling = TypeNameHandling.All
-            };
-            string output = JsonConvert.SerializeObject(BuildSaveData(), settings);
-            File.WriteAllText(filePath, output);
-            return true;
+                SF.SetSecurityLock("变量配置保存失败，内存与磁盘状态可能不一致");
+            }
+            return saved;
         }
 
         private void ResetValues()
@@ -247,7 +246,7 @@ namespace Automation
                     {
                         continue;
                     }
-                    data[item.Key] = value;
+                    data[item.Key] = ObjectGraphCloner.Clone(value);
                 }
             }
             return data;
@@ -255,7 +254,15 @@ namespace Automation
 
         public bool TrySetValue(int index, string name, string type, string value, string note, string source = null)
         {
-            if (index < 0 || index >= ValueCapacity || string.IsNullOrEmpty(name))
+            name = name?.Trim();
+            if (index < 0 || index >= ValueCapacity || string.IsNullOrEmpty(name)
+                || (!string.Equals(type, "double", StringComparison.Ordinal)
+                    && !string.Equals(type, "string", StringComparison.Ordinal)))
+            {
+                return false;
+            }
+            if (string.Equals(type, "double", StringComparison.Ordinal)
+                && (string.IsNullOrWhiteSpace(value) || !double.TryParse(value, out _)))
             {
                 return false;
             }
@@ -267,6 +274,12 @@ namespace Automation
                 }
 
                 DicValue currentValue = values[index];
+                if (ProtectedValueNames.Contains(currentValue.Name)
+                    && (!string.Equals(currentValue.Name, name, StringComparison.Ordinal)
+                        || !string.Equals(type, "double", StringComparison.Ordinal)))
+                {
+                    return false;
+                }
                 string oldRuntime = currentValue.Value;
                 if (!string.IsNullOrEmpty(currentValue.Name) && currentValue.Name != name)
                 {
@@ -298,6 +311,10 @@ namespace Automation
             {
                 DicValue currentValue = values[index];
                 if (currentValue == null)
+                {
+                    return false;
+                }
+                if (ProtectedValueNames.Contains(currentValue.Name))
                 {
                     return false;
                 }
@@ -432,8 +449,7 @@ namespace Automation
                 error = $"未找到索引变量:{index}";
                 return false;
             }
-            object lockObj = valueLocks[index & (valueLocks.Length - 1)];
-            lock (lockObj)
+            lock (valueLock)
             {
                 string current = value.Value;
                 string updated;
@@ -486,8 +502,7 @@ namespace Automation
                 return false;
             }
             string runtimeValue = newValue.ToString();
-            object lockObj = valueLocks[index & (valueLocks.Length - 1)];
-            lock (lockObj)
+            lock (valueLock)
             {
                 string current = value.Value;
                 if (string.Equals(current, runtimeValue, StringComparison.Ordinal))

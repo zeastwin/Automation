@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Globalization;
 using System.Windows.Forms;
-using Newtonsoft.Json;
 using static Automation.FrmCard;
 
 namespace Automation
@@ -31,13 +30,11 @@ namespace Automation
 
             try
             {
-                string json = File.ReadAllText(filePath);
-                var settings = new JsonSerializerSettings
+                Card temp = AtomicJsonFileStore.Read<Card>(configPath, "card");
+                if (temp == null)
                 {
-                    TypeNameHandling = TypeNameHandling.All,
-                    ObjectCreationHandling = ObjectCreationHandling.Replace
-                };
-                Card temp = JsonConvert.DeserializeObject<Card>(json, settings);
+                    throw new InvalidDataException("控制卡主配置及备份均无法读取。");
+                }
                 cardData = Normalize(temp);
                 if (!TryValidateAllAxes(out List<string> errors))
                 {
@@ -68,14 +65,7 @@ namespace Automation
                     "轴配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
-            string filePath = Path.Combine(configPath, "card.json");
-            var settings = new JsonSerializerSettings
-            {
-                TypeNameHandling = TypeNameHandling.All
-            };
-            string output = JsonConvert.SerializeObject(cardData, settings);
-            File.WriteAllText(filePath, output);
-            return true;
+            return AtomicJsonFileStore.Save(configPath, "card", cardData);
         }
 
         public bool TryValidateAllAxes(out List<string> errors)

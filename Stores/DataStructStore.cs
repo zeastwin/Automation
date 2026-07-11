@@ -2,8 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Windows.Forms;
-using Newtonsoft.Json;
+using System.Globalization;
 
 namespace Automation
 {
@@ -41,34 +40,34 @@ namespace Automation
             if (!File.Exists(filePath))
             {
                 Reset();
-                Save(configPath);
+                if (!Save(configPath))
+                {
+                    SF.SetSecurityLock("数据结构配置初始化保存失败");
+                }
                 return false;
             }
 
             try
             {
-                string json = File.ReadAllText(filePath);
-                var settings = new JsonSerializerSettings
+                List<DataStruct> data = AtomicJsonFileStore.Read<List<DataStruct>>(configPath, "DataStruct");
+                if (data == null)
                 {
-                    TypeNameHandling = TypeNameHandling.All,
-                    ObjectCreationHandling = ObjectCreationHandling.Replace
-                };
-                List<DataStruct> temp = JsonConvert.DeserializeObject<List<DataStruct>>(json, settings);
-                if (!ValidateLoadedData(temp, out string error))
-                {
-                    MessageBox.Show(error);
-                    Reset();
-                    Save(configPath);
+                    SF.SetSecurityLock("数据结构配置及其备份均无法读取，已保留原文件并禁止继续运行");
                     return false;
                 }
-                LoadFromList(temp);
+                if (!ValidateLoadedData(data, out string error))
+                {
+                    SF.DR?.Logger?.Log($"数据结构配置校验失败:{error}", LogLevel.Error);
+                    SF.SetSecurityLock(error);
+                    return false;
+                }
+                LoadFromList(data);
                 return true;
             }
             catch (Exception e)
             {
-                MessageBox.Show(e.Message);
-                Reset();
-                Save(configPath);
+                SF.DR?.Logger?.Log($"数据结构配置加载失败:{e}", LogLevel.Error);
+                SF.SetSecurityLock($"数据结构配置加载失败:{e.Message}");
                 return false;
             }
         }
@@ -79,14 +78,12 @@ namespace Automation
             {
                 Directory.CreateDirectory(configPath);
             }
-            string filePath = Path.Combine(configPath, "DataStruct.json");
-            var settings = new JsonSerializerSettings
+            bool saved = AtomicJsonFileStore.Save(configPath, "DataStruct", BuildSaveData());
+            if (!saved)
             {
-                TypeNameHandling = TypeNameHandling.All
-            };
-            string output = JsonConvert.SerializeObject(BuildSaveData(), settings);
-            File.WriteAllText(filePath, output);
-            return true;
+                SF.SetSecurityLock("数据结构配置保存失败，内存与磁盘状态可能不一致");
+            }
+            return saved;
         }
 
         private void Reset()
@@ -140,6 +137,8 @@ namespace Automation
                 return false;
             }
 
+            var structNames = new HashSet<string>(StringComparer.Ordinal);
+
             for (int i = 0; i < source.Count; i++)
             {
                 DataStruct dataStruct = source[i];
@@ -153,15 +152,31 @@ namespace Automation
                     error = "数据结构名称不能为空，请重新生成";
                     return false;
                 }
+                if (!structNames.Add(dataStruct.Name))
+                {
+                    error = $"数据结构名称重复:{dataStruct.Name}";
+                    return false;
+                }
                 if (dataStruct.dataStructItems == null)
                 {
                     error = "数据结构项列表为空，请重新生成";
                     return false;
                 }
 
+                var itemNames = new HashSet<string>(StringComparer.Ordinal);
                 for (int j = 0; j < dataStruct.dataStructItems.Count; j++)
                 {
                     DataStructItem item = dataStruct.dataStructItems[j];
+                    if (item == null)
+                    {
+                        error = $"数据结构 {dataStruct.Name} 包含空项";
+                        return false;
+                    }
+                    if (string.IsNullOrWhiteSpace(item.Name) || !itemNames.Add(item.Name))
+                    {
+                        error = $"数据结构 {dataStruct.Name} 的数据项名称为空或重复";
+                        return false;
+                    }
                     if (!ValidateItem(item, out string itemError))
                     {
                         error = $"数据结构项无效: {itemError}";
@@ -632,7 +647,7 @@ namespace Automation
 
                 if (fieldType == DataStructValueType.Number)
                 {
-                    if (!double.TryParse(value, out double number))
+                    if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
                     {
                         error = "数值格式错误";
                         return false;
@@ -715,7 +730,7 @@ namespace Automation
                 {
                     if (item.str.TryGetValue(fieldIndex, out string strValue))
                     {
-                        if (double.TryParse(strValue, out double number))
+                        if (double.TryParse(strValue, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
                         {
                             item.num[fieldIndex] = number;
                         }
@@ -764,7 +779,7 @@ namespace Automation
 
                 if (type == DataStructValueType.Number)
                 {
-                    if (!double.TryParse(value, out double number))
+                    if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
                     {
                         error = "数值格式错误";
                         return false;
@@ -876,7 +891,7 @@ namespace Automation
                 {
                     if (valueType.Value == DataStructValueType.Number)
                     {
-                        if (!double.TryParse(value, out double number))
+                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
                         {
                             return false;
                         }
@@ -904,7 +919,7 @@ namespace Automation
                 {
                     if (existType == DataStructValueType.Number)
                     {
-                        if (!double.TryParse(value, out double number))
+                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
                         {
                             return false;
                         }
@@ -923,7 +938,7 @@ namespace Automation
 
                 if (item.num.ContainsKey(valueIndex))
                 {
-                    if (!double.TryParse(value, out double number))
+                    if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
                     {
                         return false;
                     }

@@ -116,9 +116,6 @@ namespace Automation
         public static ModifyKind isModify = ModifyKind.None;
 
         public static bool isAddOps = false;
-        public static bool isFinBulidFrmValue = false;
-        //标志是否完成编辑
-        public static bool isEndEdit = true;
         //指示当前页面
         public static int curPage = 0;
 
@@ -236,26 +233,6 @@ namespace Automation
             return true;
         }
 
-        public static bool CanPublishProcUpdate(int procIndex)
-        {
-            if (frmProc?.procsList == null || DR == null || procIndex < 0 || procIndex >= frmProc.procsList.Count)
-            {
-                return false;
-            }
-            Proc runtime = ObjectGraphCloner.Clone(frmProc.procsList[procIndex]);
-            if (DR.ValidateProcUpdate(procIndex, runtime, out string error))
-            {
-                return true;
-            }
-            MessageBox.Show(error, "热更新暂不可用", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            if (frmInfo != null && !frmInfo.IsDisposed)
-            {
-                frmInfo.PrintInfo($"流程{procIndex}热更新被拒绝：{error}", FrmInfo.Level.Error);
-            }
-            return false;
-        }
-
-
         public static bool CanEditProc(int procIndex)
         {
             if (SecurityLocked)
@@ -293,43 +270,6 @@ namespace Automation
                 }
             }
             return true;
-        }
-
-        public static void CancelProcEditing()
-        {
-            isModify = ModifyKind.None;
-            isAddOps = false;
-            if (frmProc != null)
-            {
-                frmProc.NewProcNum = -1;
-                frmProc.NewStepNum = -1;
-                frmProc.Enabled = true;
-            }
-            if (frmDataGrid != null)
-            {
-                frmDataGrid.OperationTemp = null;
-                frmDataGrid.dataGridView1.Enabled = true;
-            }
-            if (frmPropertyGrid != null)
-            {
-                frmPropertyGrid.propertyGrid1.SelectedObject = null;
-            }
-            EndEdit();
-        }
-
-        public static void BeginEdit(ModifyKind kind)
-        {
-            isModify = kind;
-            if (frmPropertyGrid != null)
-            {
-                frmPropertyGrid.Enabled = true;
-                frmPropertyGrid.OperationType.Enabled = kind == ModifyKind.Operation || isAddOps;
-            }
-            if (frmToolBar != null)
-            {
-                frmToolBar.btnSave.Enabled = true;
-                frmToolBar.btnCancel.Enabled = true;
-            }
         }
 
         public static void BeginEditSession(IEditSession session)

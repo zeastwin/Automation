@@ -40,7 +40,9 @@ namespace Automation
                 throw new InvalidOperationException("配置文件超出配置目录。");
             }
             string stagedPath = Path.Combine(transactionPath, fileName + ".new");
-            File.WriteAllText(stagedPath, JsonConvert.SerializeObject(value, settings ?? new JsonSerializerSettings()));
+            AtomicJsonFileStore.WriteDurable(
+                stagedPath,
+                JsonConvert.SerializeObject(value, settings ?? new JsonSerializerSettings()));
             entries.Add(new Entry
             {
                 TargetPath = targetPath,

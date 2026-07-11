@@ -10,9 +10,7 @@ namespace Automation
     {
         public int RewrittenCount { get; internal set; }
 
-        public int FallbackCount { get; internal set; }
-
-        public int ClearedCount { get; internal set; }
+        public int InvalidatedCount { get; internal set; }
     }
 
     /// <summary>
@@ -37,7 +35,7 @@ namespace Automation
                 }
                 foreach (OperationType operation in step.Ops)
                 {
-                    RewriteGotoTargetsRecursive(operation, before, after, procIndex, newLocations, result);
+                    RewriteGotoTargetsRecursive(operation, before, procIndex, newLocations, result);
                 }
             }
             RenumberOperations(after);
@@ -186,7 +184,6 @@ namespace Automation
         private static void RewriteGotoTargetsRecursive(
             object currentObject,
             Proc before,
-            Proc after,
             int procIndex,
             Dictionary<Guid, OperationLocation> newLocations,
             GotoRewriteResult result)
@@ -206,14 +203,14 @@ namespace Automation
                     && property.GetCustomAttribute<MarkedGotoAttribute>() != null)
                 {
                     RewriteSingleGotoTarget(currentObject, property, property.GetValue(currentObject) as string,
-                        before, after, procIndex, newLocations, result);
+                        before, procIndex, newLocations, result);
                 }
                 object value = property.GetValue(currentObject);
                 if (value is IEnumerable enumerable && !(value is string))
                 {
                     foreach (object item in enumerable)
                     {
-                        RewriteGotoTargetsRecursive(item, before, after, procIndex, newLocations, result);
+                        RewriteGotoTargetsRecursive(item, before, procIndex, newLocations, result);
                     }
                 }
             }
@@ -224,7 +221,6 @@ namespace Automation
             PropertyInfo property,
             string currentValue,
             Proc before,
-            Proc after,
             int procIndex,
             Dictionary<Guid, OperationLocation> newLocations,
             GotoRewriteResult result)
@@ -248,15 +244,9 @@ namespace Automation
                 return;
             }
 
-            OperationLocation fallback = FindClosestOperationLocation(after, gotoStep, gotoOp);
-            if (fallback != null)
-            {
-                property.SetValue(currentObject, $"{procIndex}-{fallback.StepIndex}-{fallback.OpIndex}");
-                result.FallbackCount++;
-                return;
-            }
-            property.SetValue(currentObject, string.Empty);
-            result.ClearedCount++;
+            // 不清空、不选择附近指令。保留原地址并标记为不可提交，强制调用方明确修复跳转。
+            property.SetValue(currentObject, ProcessDefinitionService.DeletedGotoPrefix + currentValue);
+            result.InvalidatedCount++;
         }
 
         private static bool TryResolveTargetOperationId(Proc proc, int stepIndex, int opIndex, out Guid id)
@@ -299,38 +289,6 @@ namespace Automation
                 }
             }
             return result;
-        }
-
-        private static OperationLocation FindClosestOperationLocation(Proc proc, int preferredStep, int preferredOp)
-        {
-            OperationLocation best = null;
-            int bestStepDistance = int.MaxValue;
-            int bestOpDistance = int.MaxValue;
-            if (proc?.steps == null)
-            {
-                return null;
-            }
-            for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
-            {
-                List<OperationType> operations = proc.steps[stepIndex]?.Ops;
-                if (operations == null)
-                {
-                    continue;
-                }
-                for (int opIndex = 0; opIndex < operations.Count; opIndex++)
-                {
-                    int stepDistance = Math.Abs(stepIndex - preferredStep);
-                    int opDistance = Math.Abs(opIndex - preferredOp);
-                    if (best == null || stepDistance < bestStepDistance
-                        || stepDistance == bestStepDistance && opDistance < bestOpDistance)
-                    {
-                        best = new OperationLocation(stepIndex, opIndex);
-                        bestStepDistance = stepDistance;
-                        bestOpDistance = opDistance;
-                    }
-                }
-            }
-            return best;
         }
 
         private sealed class OperationLocation

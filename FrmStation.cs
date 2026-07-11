@@ -244,17 +244,30 @@ namespace Automation
                     row.Cells[9].Value = snapshot.IsSignalOn(10) ? validImage : invalidImage;
                 }
 
-                if (SF.frmControl.temp != null)
+                if (SF.frmControl.temp?.dataAxis?.axisConfigs != null)
                 {
-                    for (int i = 0; i < 6; i++)
+                    int displayCount = Math.Min(SF.frmControl.temp.dataAxis.axisConfigs.Count,
+                        Math.Min(SF.frmControl.PosTextBox.Count,
+                            Math.Min(SF.frmControl.pictureBoxes.Count, SF.frmControl.VelLabel.Count)));
+                    for (int i = 0; i < displayCount; i++)
                     {
                         AxisConfig axisConfig = SF.frmControl.temp.dataAxis.axisConfigs[i];
-                        if (axisConfig.AxisName == "-1" || axisConfig.axis == null)
+                        if (axisConfig == null || axisConfig.AxisName == "-1" || axisConfig.axis == null)
                         {
+                            SF.frmControl.PosTextBox[i].Text = "--";
+                            SF.frmControl.pictureBoxes[i].Image = null;
+                            SF.frmControl.VelLabel[i].Text = "--";
                             continue;
                         }
                         if (!ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
                         {
+                            continue;
+                        }
+                        if (axisConfig.axis.AxisNum < 0 || axisConfig.axis.AxisNum > ushort.MaxValue)
+                        {
+                            SF.frmControl.PosTextBox[i].Text = "--";
+                            SF.frmControl.pictureBoxes[i].Image = null;
+                            SF.frmControl.VelLabel[i].Text = "--";
                             continue;
                         }
                         ushort axisNum = (ushort)axisConfig.axis.AxisNum;
@@ -535,7 +548,15 @@ namespace Automation
                 return;
             }
             RebuildPointDictionary(station);
-            AtomicJsonFileStore.Save(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
+            if (!AtomicJsonFileStore.Save(SF.ConfigPath, "DataStation", SF.frmCard.dataStation))
+            {
+                RestorePointSnapshot();
+                MessageBox.Show("点位配置保存失败，已恢复到编辑前状态。", "保存失败",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                SetPointEditMode(false);
+                ClearPointSnapshot();
+                return;
+            }
             SetPointEditMode(false);
             ClearPointSnapshot();
         }
@@ -625,31 +646,45 @@ namespace Automation
                 return;
             }
 
-            bool hasInvalid = false;
-            for (int i = 0; i < SF.frmControl.temp.dataAxis.axisConfigs.Count; i++)
+            if (SF.motion == null || !SF.motion.IsCardInitialized)
             {
-                AxisConfig axisConfig = SF.frmControl.temp.dataAxis.axisConfigs[i];
-                if (axisConfig.AxisName == "-1" || axisConfig.axis == null)
-                {
-                    hasInvalid = true;
-                    continue;
-                }
-                if (!ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
-                {
-                    hasInvalid = true;
-                    continue;
-                }
-                int axisNum = axisConfig.axis.AxisNum;
-                if (axisNum < 0)
-                {
-                    hasInvalid = true;
-                    continue;
-                }
-                dataGridView1.Rows[iSelectedRow].Cells[2 + i].Value = SF.motion.GetAxisPos(cardNum, (ushort)axisNum).ToString();
+                MessageBox.Show("运动控制卡未初始化，无法取点。", "工站取点",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
             }
-            if (hasInvalid)
+
+            var positions = new List<(int columnIndex, double value)>();
+            try
             {
-                MessageBox.Show("存在无效轴配置，已跳过部分轴取点。");
+                for (int i = 0; i < SF.frmControl.temp.dataAxis.axisConfigs.Count; i++)
+                {
+                    AxisConfig axisConfig = SF.frmControl.temp.dataAxis.axisConfigs[i];
+                    if (axisConfig == null || axisConfig.AxisName == "-1")
+                    {
+                        continue;
+                    }
+                    if (axisConfig.axis == null
+                        || !ushort.TryParse(axisConfig.CardNum, out ushort cardNum)
+                        || axisConfig.axis.AxisNum < 0 || axisConfig.axis.AxisNum > ushort.MaxValue
+                        || 2 + i >= dataGridView1.Columns.Count)
+                    {
+                        MessageBox.Show($"第{i + 1}个轴配置无效，本次未写入任何点位。", "工站取点",
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    positions.Add((2 + i, SF.motion.GetAxisPos(cardNum, (ushort)axisConfig.axis.AxisNum)));
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"读取轴位置失败，本次未写入任何点位：{ex.Message}", "工站取点",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            foreach (var position in positions)
+            {
+                dataGridView1.Rows[iSelectedRow].Cells[position.columnIndex].Value =
+                    position.value.ToString(System.Globalization.CultureInfo.InvariantCulture);
             }
         }
 
@@ -673,7 +708,11 @@ namespace Automation
             for (int i = 0; i < station.dataAxis.axisConfigs.Count; i++)
             {
                 AxisConfig axisConfig = station.dataAxis.axisConfigs[i];
-                if (axisConfig.AxisName == "-1" || axisConfig.axis == null)
+                if (axisConfig == null || axisConfig.AxisName == "-1")
+                {
+                    continue;
+                }
+                if (axisConfig.axis == null)
                 {
                     MessageBox.Show($"第{i + 1}个轴配置无效，未执行任何轴移动。");
                     return;
@@ -695,7 +734,9 @@ namespace Automation
                     return;
                 }
                 object cellValue = dataGridView1.Rows[iSelectedRow].Cells[2 + i].Value;
-                if (cellValue == null || !double.TryParse(cellValue.ToString(), out double targetPos)
+                if (cellValue == null || !double.TryParse(cellValue.ToString(),
+                        System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
+                        out double targetPos)
                     || double.IsNaN(targetPos) || double.IsInfinity(targetPos))
                 {
                     MessageBox.Show($"第{i + 1}个轴点位无效，未执行任何轴移动。");

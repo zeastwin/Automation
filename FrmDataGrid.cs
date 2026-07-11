@@ -953,14 +953,18 @@ namespace Automation
             }
             if (iSelectedRow >= 0 && iSelectedRow < dataGridView1.Rows.Count)
             {
-                // 获取当前行对应的数据项
-                OperationType dataItem = dataGridView1.Rows[iSelectedRow].DataBoundItem as OperationType;
-
-                if (dataItem != null)
+                int procIndex = SF.frmProc.SelectedProcNum;
+                int stepIndex = SF.frmProc.SelectedStepNum;
+                Proc draft = ObjectGraphCloner.Clone(SF.frmProc.procsList[procIndex]);
+                if (stepIndex >= 0 && stepIndex < draft.steps.Count
+                    && iSelectedRow < draft.steps[stepIndex].Ops.Count)
                 {
-                    dataItem.isStopPoint = !dataItem.isStopPoint;
-                    SF.frmProc.isStopPointDirty = true;
-                    dataGridView1.InvalidateRow(iSelectedRow);
+                    OperationType operation = draft.steps[stepIndex].Ops[iSelectedRow];
+                    operation.isStopPoint = !operation.isStopPoint;
+                    if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string error))
+                    {
+                        MessageBox.Show(error, "断点修改失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
             }
         }

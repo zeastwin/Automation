@@ -1441,7 +1441,7 @@ document.addEventListener('DOMContentLoaded',function(){
                                 break;
                             case "goto_rewrite":
                                 type = "跳转重写";
-                                location = $"重写{change["rewrittenCount"]?.Value<int>() ?? 0}/回退{change["fallbackCount"]?.Value<int>() ?? 0}/清空{change["clearedCount"]?.Value<int>() ?? 0}";
+                                location = $"重写{change["rewrittenCount"]?.Value<int>() ?? 0}/失效{change["invalidatedCount"]?.Value<int>() ?? 0}";
                                 break;
                         }
 

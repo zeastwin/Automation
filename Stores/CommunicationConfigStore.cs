@@ -1,4 +1,3 @@
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -184,29 +183,19 @@ namespace Automation
             {
                 return new List<T>();
             }
-            string json = File.ReadAllText(path);
-            var settings = new JsonSerializerSettings
-            {
-                TypeNameHandling = TypeNameHandling.All,
-                ObjectCreationHandling = ObjectCreationHandling.Replace
-            };
-            return JsonConvert.DeserializeObject<List<T>>(json, settings)
-                ?? throw new InvalidDataException($"配置内容为空：{Path.GetFileName(path)}");
+            string directory = Path.GetDirectoryName(path);
+            string name = Path.GetFileNameWithoutExtension(path);
+            return AtomicJsonFileStore.Read<List<T>>(directory, name)
+                ?? throw new InvalidDataException($"主配置及备份均无法读取：{Path.GetFileName(path)}");
         }
 
         private static void WriteAtomic<T>(string path, List<T> value)
         {
-            var settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
-            string json = JsonConvert.SerializeObject(value, settings);
-            string tempPath = path + ".tmp";
-            File.WriteAllText(tempPath, json);
-            if (File.Exists(path))
+            string directory = Path.GetDirectoryName(path);
+            string name = Path.GetFileNameWithoutExtension(path);
+            if (!AtomicJsonFileStore.Save(directory, name, value))
             {
-                File.Replace(tempPath, path, null);
-            }
-            else
-            {
-                File.Move(tempPath, path);
+                throw new IOException($"配置耐久化失败：{Path.GetFileName(path)}");
             }
         }
 

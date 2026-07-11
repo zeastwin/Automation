@@ -35,7 +35,7 @@ namespace Automation.KernelTests
             Run("运行中参数与后续指令安全热更新", TestRunningSafeHotUpdate);
             Run("运行中删除后续指令安全结束", TestRunningFutureOperationDeletion);
             Run("运行中当前结构修改被拒绝", TestRunningStructuralUpdateRejected);
-            Run("暂停状态结构修改立即生效", TestPausedStructuralUpdateAppliesImmediately);
+            Run("暂停状态删除当前指令被拒绝", TestPausedCurrentOperationDeletionRejected);
             Run("编辑会话提交与取消隔离", TestEditSession);
             Run("流程结构变化按指令ID重写跳转", TestGotoRewriteByOperationId);
             Run("JSON原子替换与备份恢复", TestAtomicJsonRecovery);
@@ -619,7 +619,7 @@ namespace Automation.KernelTests
             }
         }
 
-        private static void TestPausedStructuralUpdateAppliesImmediately()
+        private static void TestPausedCurrentOperationDeletionRejected()
         {
             int removedCount = 0;
             int nextCount = 0;
@@ -635,13 +635,14 @@ namespace Automation.KernelTests
                 WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Paused, 2000, "流程未停在断点");
                 Proc updated = ObjectGraphCloner.Clone(proc);
                 updated.steps[0].Ops.RemoveAt(0);
-                Assert(engine.PublishProc(0, updated, out string error), "暂停状态结构更新失败:" + error);
+                Assert(!engine.PublishProc(0, updated, out string error), "暂停状态删除当前指令未被拒绝");
+                Assert(!string.IsNullOrWhiteSpace(error), "暂停状态删除当前指令未返回拒绝原因");
                 EngineSnapshot applied = engine.GetSnapshot(0);
                 Assert(!applied.HasPendingUpdate && applied.PublishedRevision == applied.AppliedRevision,
-                    "暂停结构更新未立即确认版本");
+                    "拒绝暂停结构更新后仍残留待发布版本");
                 engine.Resume(0);
                 WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 3000, "暂停结构测试流程未结束");
-                Assert(removedCount == 0 && nextCount == 1, "恢复后仍执行了暂停前捕获的旧指令");
+                Assert(removedCount == 1 && nextCount == 1, "拒绝更新后没有按原流程继续执行");
             }
         }
 
@@ -724,8 +725,11 @@ namespace Automation.KernelTests
             Proc deleted = ObjectGraphCloner.Clone(before);
             deleted.steps[0].Ops.RemoveAt(2);
             GotoRewriteResult deleteResult = ProcessEditingService.RewriteGotoTargets(before, deleted, 0);
-            Assert(((Goto)deleted.steps[0].Ops[0]).DefaultGoto == "0-0-1", "删除目标后未回退到最近指令");
-            Assert(deleteResult.FallbackCount == 1, "删除目标后的跳转回退计数错误");
+            Assert(deleteResult.InvalidatedCount == 1, "删除目标后的跳转失效计数错误");
+            Assert(((Goto)deleted.steps[0].Ops[0]).DefaultGoto.StartsWith(ProcessDefinitionService.DeletedGotoPrefix),
+                "删除目标后未标记失效跳转");
+            Assert(ProcessDefinitionService.ValidateProcGotoTargets(0, deleted).Count > 0,
+                "删除跳转目标后草稿仍通过校验");
         }
 
         private static void TestAtomicJsonRecovery()

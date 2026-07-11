@@ -9,6 +9,8 @@ namespace Automation
 {
     public static class ProcessDefinitionService
     {
+        internal const string DeletedGotoPrefix = "#DELETED-GOTO#";
+
         public static void NormalizeProc(int procIndex, Proc proc, List<string> errors)
         {
             if (proc.head == null)
@@ -284,7 +286,11 @@ namespace Automation
                     string value = propertyInfo.GetValue(obj) as string;
                     if (!string.IsNullOrWhiteSpace(value))
                     {
-                        if (!TryParseGotoKey(value, out int gotoProc, out int gotoStep, out int gotoOp))
+                        if (value.StartsWith(DeletedGotoPrefix, StringComparison.Ordinal))
+                        {
+                            errors.Add($"{context}跳转目标已被删除，必须明确指定新的目标：{value.Substring(DeletedGotoPrefix.Length)}");
+                        }
+                        else if (!TryParseGotoKey(value, out int gotoProc, out int gotoStep, out int gotoOp))
                         {
                             errors.Add($"{context}跳转地址格式错误：{value}");
                         }

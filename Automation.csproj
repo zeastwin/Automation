@@ -133,6 +133,7 @@
     <Compile Include="Stores\\PlcConfigStore.cs" />
     <Compile Include="PLC\\PlcHub.cs" />
     <Compile Include="PLC\\ModbusTcpClient.cs" />
+    <Compile Include="Stores\\DataStructModels.cs" />
     <Compile Include="Stores\\DataStructStore.cs" />
     <Compile Include="Stores\\ProcessEngineLogger.cs" />
     <Compile Include="Stores\\ProcessEngineStore.cs" />

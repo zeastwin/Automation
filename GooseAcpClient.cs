@@ -1171,10 +1171,16 @@ namespace Automation
                 {
                     return;
                 }
-                string root = string.Equals(record["source"]?.Value<string>(), "acp", StringComparison.Ordinal)
-                    ? acpLogRoot
-                    : executionLogRoot;
-                string dayDirectory = Path.Combine(root, DateTime.Now.ToString("yyyy-MM-dd"));
+                if (!string.Equals(record["source"]?.Value<string>(), "acp", StringComparison.Ordinal))
+                {
+                    Directory.CreateDirectory(executionLogRoot);
+                    string executionPath = Path.Combine(executionLogRoot, DateTime.Now.ToString("yyyy-MM-dd") + ".jsonl");
+                    File.AppendAllText(executionPath, record.ToString(Formatting.None) + Environment.NewLine,
+                        new UTF8Encoding(false));
+                    return;
+                }
+
+                string dayDirectory = Path.Combine(acpLogRoot, DateTime.Now.ToString("yyyy-MM-dd"));
                 Directory.CreateDirectory(dayDirectory);
 
                 StringBuilder builder = new StringBuilder();

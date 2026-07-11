@@ -1,4 +1,3 @@
-using Newtonsoft.Json;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -23,21 +22,8 @@ namespace Automation
     {
         //存放所有流程信息
         public List<Proc> procsList = new List<Proc> ();
-        //存放临时流程信息
-        public ProcHead HeadTemp;
-        //存放临时步骤信息
-        public Step StepTemp;
-
-        public List<string> procListItem = new List<string>();
-        public List<string> procListItemCount = new List<string>();
-
-        public int NewProcNum { get; set; }
-        public int NewStepNum { get; set; }
-
         public int SelectedProcNum { get; set; }
         public int SelectedStepNum { get; set; }
-
-        public bool isStopPointDirty = false;
 
         private static readonly Color DisabledNodeColor = Color.Gainsboro;
         private const string DisabledTag = "[禁用]";
@@ -52,11 +38,6 @@ namespace Automation
         private int procFlashCount;
         private const int ProcFlashMaxCount = 6;
 
-        private ProcHead editProcHeadBackup;
-        private Step editStepBackup;
-        private int editProcIndex = -1;
-        private int editStepIndex = -1;
-        private bool hasEditBackup = false;
         private bool suppressContextMenuOnce = false;
         private Proc clipboardProc;
         private Step clipboardStep;
@@ -66,8 +47,6 @@ namespace Automation
         {
             InitializeComponent();
             Disposed += FrmProc_Disposed;
-            NewProcNum = -1;
-            NewStepNum = -1;
             this.proc_treeView.HideSelection = false;
             typeof(Control).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(proc_treeView, true, null);
@@ -86,95 +65,80 @@ namespace Automation
             procFlashNode = null;
         }
 
-        public void NewProcSave()
+        private bool TrySaveNewProc(ProcHead head, int selectedProcIndex)
         {
-            if (HeadTemp == null)
+            if (head == null)
             {
-                MessageBox.Show("流程头信息为空，无法保存。");
-                return;
+                return false;
             }
             // 打开属性编辑器后流程状态仍可能变化，提交前必须重新检查一次流程列表门禁。
             if (!SF.CanEditProcStructure())
             {
-                return;
+                return false;
             }
-            Proc proc = new Proc();
-            proc.head = HeadTemp;
+            Proc proc = new Proc { head = head };
             int insertIndex;
-            if (SelectedProcNum == -1)
+            if (selectedProcIndex == -1)
             {
                 insertIndex = procsList.Count;
             }
             else
             {
-                if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
+                if (selectedProcIndex < 0 || selectedProcIndex >= procsList.Count)
                 {
-                    MessageBox.Show("当前流程索引无效，无法插入流程。");
-                    return;
+                    return false;
                 }
-                insertIndex = SelectedProcNum + 1;
+                insertIndex = selectedProcIndex + 1;
             }
             List<string> errors = new List<string>();
             ProcessDefinitionService.NormalizeProc(insertIndex, proc, errors);
             if (errors.Count > 0)
             {
                 MessageBox.Show(string.Join("\r\n", errors.Distinct()));
-                return;
+                return false;
             }
             procsList.Insert(insertIndex, proc);
             if (!RebuildWorkConfig(insertIndex))
             {
-                return;
+                return false;
             }
-
-            NewProcNum = -1;
-
+            return true;
         }
        
-        public void NewStepSave()
+        private bool TrySaveNewStep(Step step, int procIndex, int selectedStepIndex)
         {
-            if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
+            if (procIndex < 0 || procIndex >= procsList.Count || step == null)
             {
-                MessageBox.Show("当前流程索引无效，无法新增步骤。");
-                return;
+                return false;
             }
-            if (StepTemp == null)
-            {
-                MessageBox.Show("步骤信息为空，无法保存。");
-                return;
-            }
-            Step stepToInsert = ObjectGraphCloner.Clone(StepTemp);
+            Step stepToInsert = ObjectGraphCloner.Clone(step);
             if (stepToInsert.Id == Guid.Empty)
             {
                 stepToInsert.Id = Guid.NewGuid();
             }
-            int procIndex = SelectedProcNum;
             Proc before = ObjectGraphCloner.Clone(procsList[procIndex]);
             Proc draft = ObjectGraphCloner.Clone(procsList[procIndex]);
             int insertIndex;
-            if (SelectedStepNum == -1)
+            if (selectedStepIndex == -1)
             {
                 insertIndex = draft.steps.Count;
             }
             else
             {
-                if (SelectedStepNum < 0 || SelectedStepNum >= draft.steps.Count)
+                if (selectedStepIndex < 0 || selectedStepIndex >= draft.steps.Count)
                 {
-                    MessageBox.Show("当前步骤索引无效，无法新增步骤。");
-                    return;
+                    return false;
                 }
-                insertIndex = SelectedStepNum + 1;
+                insertIndex = selectedStepIndex + 1;
             }
             draft.steps.Insert(insertIndex, stepToInsert);
             ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
             if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
             {
                 MessageBox.Show(commitError, "新增步骤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
+                return false;
             }
-
-            NewStepNum = -1;
-
+            return true;
         }
         public bool RebuildWorkConfig(int startIndex = 0)
         {
@@ -312,7 +276,6 @@ namespace Automation
                 restoringTreeState = false;
             }
 
-            RebuildProcListItems();
             if (SF.DR?.Context != null)
             {
                 bool allStopped = true;
@@ -438,7 +401,6 @@ namespace Automation
                 proc_treeView.EndUpdate();
             }
 
-            RebuildProcListItems();
             if (SelectedProcNum == procIndex)
             {
                 RefreshCurrentBinding();
@@ -481,17 +443,6 @@ namespace Automation
                 SelectedProcNum = -1;
                 SelectedStepNum = -1;
                 RefreshCurrentBinding();
-            }
-        }
-
-        private void RebuildProcListItems()
-        {
-            procListItem.Clear();
-            procListItemCount.Clear();
-            for (int i = 0; i < procsList.Count; i++)
-            {
-                procListItem.Add(string.IsNullOrWhiteSpace(procsList[i]?.head?.Name) ? $"流程{i}" : procsList[i].head.Name);
-                procListItemCount.Add((i + 1).ToString());
             }
         }
 
@@ -685,154 +636,27 @@ namespace Automation
             }
         }
 
-        private void CaptureEditBackup()
-        {
-            hasEditBackup = false;
-            editProcIndex = SelectedProcNum;
-            editStepIndex = SelectedStepNum;
-
-            if (editProcIndex < 0 || editProcIndex >= procsList.Count)
-            {
-                return;
-            }
-
-            if (editStepIndex == -1)
-            {
-                editProcHeadBackup = ObjectGraphCloner.Clone(procsList[editProcIndex].head);
-                editStepBackup = null;
-            }
-            else if (editStepIndex >= 0 && editStepIndex < procsList[editProcIndex].steps.Count)
-            {
-                editStepBackup = ObjectGraphCloner.Clone(procsList[editProcIndex].steps[editStepIndex]);
-                editProcHeadBackup = null;
-            }
-
-            hasEditBackup = editProcHeadBackup != null || editStepBackup != null;
-        }
-
-        public void RollbackEdit()
-        {
-            if (!hasEditBackup)
-            {
-                return;
-            }
-
-            if (editProcIndex < 0 || editProcIndex >= procsList.Count)
-            {
-                ClearEditBackup();
-                return;
-            }
-
-            if (editStepIndex == -1)
-            {
-                if (editProcHeadBackup != null)
-                {
-                    ProcHead head = procsList[editProcIndex].head;
-                    head.Name = editProcHeadBackup.Name;
-                    head.AutoStart = editProcHeadBackup.AutoStart;
-                    head.PauseIoCount = editProcHeadBackup.PauseIoCount;
-                    if (editProcHeadBackup.PauseIoParams == null)
-                    {
-                        head.PauseIoParams = new CustomList<PauseIoParam>();
-                    }
-                    else
-                    {
-                        head.PauseIoParams = new CustomList<PauseIoParam>();
-                        head.PauseIoParams.AddRange(editProcHeadBackup.PauseIoParams);
-                    }
-                    head.PauseValueCount = editProcHeadBackup.PauseValueCount;
-                    if (editProcHeadBackup.PauseValueParams == null)
-                    {
-                        head.PauseValueParams = new CustomList<PauseValueParam>();
-                    }
-                    else
-                    {
-                        head.PauseValueParams = new CustomList<PauseValueParam>();
-                        head.PauseValueParams.AddRange(editProcHeadBackup.PauseValueParams);
-                    }
-                    if (editProcIndex < proc_treeView.Nodes.Count)
-                    {
-                        if (SF.DR != null)
-                        {
-                            SF.DR.RefreshProcName(editProcIndex);
-                        }
-                        else
-                        {
-                            proc_treeView.Nodes[editProcIndex].Text = BuildProcNodeText(editProcIndex);
-                        }
-                    }
-                }
-            }
-            else if (editStepIndex >= 0 && editStepIndex < procsList[editProcIndex].steps.Count)
-            {
-                Step step = procsList[editProcIndex].steps[editStepIndex];
-                if (editStepBackup != null)
-                {
-                    step.Name = editStepBackup.Name;
-                    step.Ops.Clear();
-                    step.Ops.AddRange(editStepBackup.Ops);
-                }
-                if (editProcIndex < proc_treeView.Nodes.Count && editStepIndex < proc_treeView.Nodes[editProcIndex].Nodes.Count)
-                {
-                    proc_treeView.Nodes[editProcIndex].Nodes[editStepIndex].Text = BuildStepNodeText(editProcIndex, editStepIndex);
-                }
-            }
-
-            bindingSource.ResetBindings(true);
-            ClearEditBackup();
-        }
-
-        public void ClearEditBackup()
-        {
-            hasEditBackup = false;
-            editProcHeadBackup = null;
-            editStepBackup = null;
-            editProcIndex = -1;
-            editStepIndex = -1;
-        }
-
         private void AddProc_Click(object sender, EventArgs e)
         {   
             if (!SF.CanEditProcStructure())
             {
                 return;
             }
-            if (proc_treeView.SelectedNode == null)
-            {
-                NewProcNum = procsList.Count;
-            }
-            else
-            {
-                NewProcNum = SelectedProcNum;
-            }
-            HeadTemp = new ProcHead();
+            int selectedProcIndex = SelectedProcNum;
+            var draftHead = new ProcHead();
 
             proc_treeView.Enabled = false;
-            SF.BeginEditSession(new EditSession<ProcHead>("新增流程", HeadTemp,
+            SF.BeginEditSession(new EditSession<ProcHead>("新增流程", draftHead,
                 draft => string.IsNullOrWhiteSpace(draft.Name) ? "流程名称为空。" : null,
                 draft =>
                 {
-                    int originalCount = procsList.Count;
-                    HeadTemp = draft;
-                    NewProcSave();
-                    if (NewProcNum != -1)
+                    if (!TrySaveNewProc(draft, selectedProcIndex))
                     {
-                        procsList.RemoveAll(proc => proc?.head == draft);
-                        while (procsList.Count > originalCount)
-                        {
-                            procsList.RemoveAt(procsList.Count - 1);
-                        }
                         throw new InvalidOperationException("新增流程保存失败。");
                     }
                     proc_treeView.Enabled = true;
-                    RefreshProcList();
                 },
-                () =>
-                {
-                    NewProcNum = -1;
-                    HeadTemp = null;
-                    proc_treeView.Enabled = true;
-                }));
+                () => proc_treeView.Enabled = true));
         }
 
         private void AddStep_Click(object sender, EventArgs e)
@@ -845,13 +669,11 @@ namespace Automation
                 {
                     return;
                 }
-                NewStepNum = 1;
-
-                StepTemp = new Step();
-
                 int procIndex = SelectedProcNum;
+                int selectedStepIndex = SelectedStepNum;
+                var draftStep = new Step();
                 proc_treeView.Enabled = false;
-                SF.BeginEditSession(new EditSession<Step>("新增步骤", StepTemp,
+                SF.BeginEditSession(new EditSession<Step>("新增步骤", draftStep,
                     draft => string.IsNullOrWhiteSpace(draft.Name) ? "步骤名称为空。" : null,
                     draft =>
                     {
@@ -859,29 +681,13 @@ namespace Automation
                         {
                             throw new InvalidOperationException("流程选择已变化，拒绝保存步骤。");
                         }
-                        var settings = new JsonSerializerSettings
+                        if (!TrySaveNewStep(draft, procIndex, selectedStepIndex))
                         {
-                            TypeNameHandling = TypeNameHandling.All,
-                            ObjectCreationHandling = ObjectCreationHandling.Replace
-                        };
-                        Proc originalProc = JsonConvert.DeserializeObject<Proc>(
-                            JsonConvert.SerializeObject(procsList[procIndex], settings), settings);
-                        StepTemp = draft;
-                        NewStepSave();
-                        if (NewStepNum != -1)
-                        {
-                            procsList[procIndex] = originalProc;
                             throw new InvalidOperationException("新增步骤保存失败。");
                         }
                         proc_treeView.Enabled = true;
-                        RefreshProcList();
                     },
-                    () =>
-                    {
-                        NewStepNum = -1;
-                        StepTemp = null;
-                        proc_treeView.Enabled = true;
-                    }));
+                    () => proc_treeView.Enabled = true));
             }
             else
             {
@@ -1181,15 +987,10 @@ namespace Automation
             int procIndex = SelectedProcNum;
             int stepIndex = SelectedStepNum;
             object selected = SF.frmPropertyGrid.propertyGrid1.SelectedObject;
-            var settings = new JsonSerializerSettings
-            {
-                TypeNameHandling = TypeNameHandling.All,
-                ObjectCreationHandling = ObjectCreationHandling.Replace
-            };
             proc_treeView.Enabled = false;
             if (selected is ProcHead sourceHead)
             {
-                ProcHead draft = JsonConvert.DeserializeObject<ProcHead>(JsonConvert.SerializeObject(sourceHead, settings), settings);
+                ProcHead draft = ObjectGraphCloner.Clone(sourceHead);
                 SF.BeginEditSession(new EditSession<ProcHead>("修改流程", draft,
                     item => string.IsNullOrWhiteSpace(item.Name) ? "流程名称为空。" : null,
                     item =>
@@ -1205,7 +1006,7 @@ namespace Automation
             }
             else if (selected is Step sourceStep && stepIndex >= 0)
             {
-                Step draft = JsonConvert.DeserializeObject<Step>(JsonConvert.SerializeObject(sourceStep, settings), settings);
+                Step draft = ObjectGraphCloner.Clone(sourceStep);
                 SF.BeginEditSession(new EditSession<Step>("修改步骤", draft,
                     item => string.IsNullOrWhiteSpace(item.Name) ? "步骤名称为空。" : null,
                     item =>

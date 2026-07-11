@@ -173,24 +173,6 @@ namespace Automation
                 Logger?.Log($"操作追踪处理失败:{ex.Message}", LogLevel.Error);
             }
         }
-        public void RefreshProcName(int procIndex)
-        {
-            EngineSnapshot snapshot = GetSnapshot(procIndex);
-            if (snapshot == null)
-            {
-                return;
-            }
-            string procName = null;
-            Guid procId = Guid.Empty;
-            if (Context?.Procs != null && procIndex >= 0 && procIndex < Context.Procs.Count)
-            {
-                Proc proc = Context.Procs[procIndex];
-                procName = proc?.head?.Name;
-                procId = proc?.head?.Id ?? Guid.Empty;
-            }
-            UpdateSnapshot(procIndex, procId, procName, snapshot.State, snapshot.StepIndex, snapshot.OpIndex,
-                snapshot.IsBreakpoint, snapshot.AlarmMessage, true);
-        }
         public bool PublishProc(int procIndex, Proc proc, out string error)
         {
             error = null;
@@ -758,7 +740,7 @@ namespace Automation
             int newOpIndex;
             string error;
             bool mapped = update.Safety == ProcUpdateSafety.FutureOperationStructure
-                ? TryMapPausedProcPosition(oldProc, newProc, evt.stepNum, evt.opsNum,
+                ? TryMapProcPositionOrDeletedTailBoundary(oldProc, newProc, evt.stepNum, evt.opsNum,
                     out newStepIndex, out newOpIndex, out error)
                 : TryMapProcPosition(oldProc, newProc, evt.stepNum, evt.opsNum,
                     out newStepIndex, out newOpIndex, out error);
@@ -1205,7 +1187,8 @@ namespace Automation
             return true;
         }
 
-        internal bool TryMapPausedProcPosition(Proc oldProc, Proc newProc, int oldStepIndex, int oldOpIndex,
+        private bool TryMapProcPositionOrDeletedTailBoundary(
+            Proc oldProc, Proc newProc, int oldStepIndex, int oldOpIndex,
             out int newStepIndex, out int newOpIndex, out string error)
         {
             if (TryMapProcPosition(oldProc, newProc, oldStepIndex, oldOpIndex,
@@ -1213,23 +1196,47 @@ namespace Automation
             {
                 return true;
             }
-            if (newProc?.steps == null || newProc.steps.Count == 0)
+
+            newStepIndex = -1;
+            newOpIndex = -1;
+            if (oldProc?.steps == null || newProc?.steps == null
+                || oldStepIndex < 0 || oldStepIndex >= oldProc.steps.Count)
             {
-                error = "更新后流程没有可执行步骤";
+                error = "热更新边界位置无效，禁止推测新的执行位置";
                 return false;
             }
+            Step oldStep = oldProc.steps[oldStepIndex];
+            if (oldStep == null || oldStep.Id == Guid.Empty || oldStep.Ops == null)
+            {
+                error = "热更新前步骤缺少稳定标识或指令列表";
+                return false;
+            }
+            newStepIndex = newProc.steps.FindIndex(step => step != null && step.Id == oldStep.Id);
+            if (newStepIndex < 0 || newProc.steps[newStepIndex].Ops == null)
+            {
+                error = "当前步骤已删除或重建，禁止推测新的执行位置";
+                return false;
+            }
+            List<OperationType> newOperations = newProc.steps[newStepIndex].Ops;
 
-            newStepIndex = Math.Max(0, Math.Min(oldStepIndex, newProc.steps.Count - 1));
-            Step step = newProc.steps[newStepIndex];
-            if (step?.Ops == null || step.Ops.Count == 0)
+            // 唯一允许的无目标边界：已完成指令之后的整段尾部被明确删除。
+            // 此时 oldOpIndex 正好等于新列表 Count，程序计数器只落在步骤末尾，不选择任何替代指令。
+            if (oldOpIndex < 0 || oldOpIndex > oldStep.Ops.Count || newOperations.Count != oldOpIndex)
             {
-                newOpIndex = -1;
+                error = "当前待执行指令已删除或重建，禁止推测新的执行位置";
+                return false;
             }
-            else
+            for (int i = 0; i < oldOpIndex; i++)
             {
-                // 等于 Count 表示后续指令已全部删除，本步骤在安全边界正常结束，禁止回退重跑上一条指令。
-                newOpIndex = Math.Max(0, Math.Min(oldOpIndex, step.Ops.Count));
+                Guid oldId = oldStep.Ops[i]?.Id ?? Guid.Empty;
+                Guid newId = newOperations[i]?.Id ?? Guid.Empty;
+                if (oldId == Guid.Empty || oldId != newId)
+                {
+                    error = "热更新边界之前的指令发生变化，禁止推测新的执行位置";
+                    return false;
+                }
             }
+            newOpIndex = oldOpIndex;
             error = null;
             return true;
         }
@@ -1242,7 +1249,7 @@ namespace Automation
                 error = "暂停流程运行句柄或更新版本为空";
                 return false;
             }
-            if (!TryMapPausedProcPosition(handle.Proc, update.Proc, handle.stepNum, handle.opsNum,
+            if (!TryMapProcPosition(handle.Proc, update.Proc, handle.stepNum, handle.opsNum,
                 out int newStepIndex, out int newOpIndex, out error))
             {
                 return false;

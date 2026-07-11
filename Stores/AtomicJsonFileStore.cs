@@ -18,15 +18,16 @@ namespace Automation
             ObjectCreationHandling = ObjectCreationHandling.Replace
         };
 
-        public static T Read<T>(string directory, string name)
+        public static T Read<T>(string directory, string name, JsonSerializerSettings settings = null)
         {
             string targetPath = BuildPath(directory, name);
             string backupPath = targetPath + ".bak";
-            if (TryRead(targetPath, out T value, out Exception primaryError))
+            JsonSerializerSettings serializerSettings = settings ?? Settings;
+            if (TryRead(targetPath, serializerSettings, out T value, out Exception primaryError))
             {
                 return value;
             }
-            if (TryRead(backupPath, out value, out Exception backupError))
+            if (TryRead(backupPath, serializerSettings, out value, out Exception backupError))
             {
                 LogError($"主配置损坏，已从备份读取：{targetPath}；{primaryError?.Message}");
                 return value;
@@ -38,7 +39,7 @@ namespace Automation
             return default(T);
         }
 
-        public static bool Save<T>(string directory, string name, T value)
+        public static bool Save<T>(string directory, string name, T value, JsonSerializerSettings settings = null)
         {
             string targetPath = BuildPath(directory, name);
             string backupPath = targetPath + ".bak";
@@ -47,7 +48,7 @@ namespace Automation
             {
                 Directory.CreateDirectory(parent);
             }
-            string output = JsonConvert.SerializeObject(value, Settings);
+            string output = JsonConvert.SerializeObject(value, settings ?? Settings);
             Exception lastError = null;
             for (int attempt = 0; attempt < 3; attempt++)
             {
@@ -108,7 +109,7 @@ namespace Automation
             }
         }
 
-        private static bool TryRead<T>(string path, out T value, out Exception error)
+        private static bool TryRead<T>(string path, JsonSerializerSettings settings, out T value, out Exception error)
         {
             value = default(T);
             error = null;
@@ -121,7 +122,7 @@ namespace Automation
                 using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
                 using (var reader = new StreamReader(stream, Encoding.UTF8, true))
                 {
-                    value = JsonConvert.DeserializeObject<T>(reader.ReadToEnd(), Settings);
+                    value = JsonConvert.DeserializeObject<T>(reader.ReadToEnd(), settings);
                     return !ReferenceEquals(value, null);
                 }
             }

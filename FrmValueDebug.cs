@@ -35,15 +35,20 @@ namespace Automation
         private readonly Dictionary<int, string> debugNotes = new Dictionary<int, string>();
         private bool isSyncing;
         private bool isConfigLoaded;
-        private const string DebugConfigFileName = "value_debug.json";
+        private const string DebugConfigName = "value_debug";
+        private static readonly JsonSerializerSettings DebugJsonSettings = new JsonSerializerSettings
+        {
+            TypeNameHandling = TypeNameHandling.None,
+            ObjectCreationHandling = ObjectCreationHandling.Replace
+        };
 
         public FrmValueDebug()
         {
             InitializeComponent();
-            Font uiFont = new Font("黑体", 12F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
+            Font uiFont = new Font("微软雅黑", 10.5F, FontStyle.Regular, GraphicsUnit.Point, 134);
 
             dgvCheck.Font = uiFont;
-            dgvCheck.ColumnHeadersDefaultCellStyle.Font = new Font("黑体", 12F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134)));
+            dgvCheck.ColumnHeadersDefaultCellStyle.Font = new Font("微软雅黑", 10F, FontStyle.Bold, GraphicsUnit.Point, 134);
             dgvCheck.RowHeadersVisible = false;
             dgvCheck.AutoGenerateColumns = false;
             dgvCheck.AllowUserToAddRows = false;
@@ -56,7 +61,7 @@ namespace Automation
             ApplyColumnTheme(groupCheck, panelCheckBottom, dgvCheck, Color.FromArgb(244, 248, 252), Color.FromArgb(233, 241, 247));
 
             dgvEdit.Font = uiFont;
-            dgvEdit.ColumnHeadersDefaultCellStyle.Font = new Font("黑体", 12F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134)));
+            dgvEdit.ColumnHeadersDefaultCellStyle.Font = new Font("微软雅黑", 10F, FontStyle.Bold, GraphicsUnit.Point, 134);
             dgvEdit.RowHeadersVisible = false;
             dgvEdit.AutoGenerateColumns = false;
             dgvEdit.AllowUserToAddRows = false;
@@ -85,6 +90,23 @@ namespace Automation
             lblCheckIndex.Font = uiFont;
             lblEditIndex.Font = uiFont;
             lblEditValue.Font = uiFont;
+            ApplyButtonStyle(btnCheckAdd, true);
+            ApplyButtonStyle(btnEditAdd, true);
+            ApplyButtonStyle(btnEditApply, true);
+            ApplyButtonStyle(btnCheckRemove, false);
+            ApplyButtonStyle(btnEditRemove, false);
+            ApplyButtonStyle(btnCheckRefresh, false);
+            ApplyButtonStyle(btnEditRefresh, false);
+        }
+
+        private static void ApplyButtonStyle(Button button, bool primary)
+        {
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderColor = primary
+                ? Color.FromArgb(63, 126, 181)
+                : Color.FromArgb(196, 205, 214);
+            button.BackColor = primary ? Color.FromArgb(63, 126, 181) : Color.White;
+            button.ForeColor = primary ? Color.White : Color.FromArgb(48, 63, 78);
         }
 
         private void ApplyColumnTheme(GroupBox groupBox, Panel bottomPanel, DataGridView grid, Color baseColor, Color headerColor)
@@ -527,7 +549,7 @@ namespace Automation
                 LogError("变量调试配置路径无效");
                 return;
             }
-            if (!File.Exists(path))
+            if (!File.Exists(path) && !File.Exists(path + ".bak"))
             {
                 SaveDebugConfig();
                 isConfigLoaded = true;
@@ -535,8 +557,8 @@ namespace Automation
             }
             try
             {
-                string json = File.ReadAllText(path);
-                ValueDebugConfig config = JsonConvert.DeserializeObject<ValueDebugConfig>(json);
+                ValueDebugConfig config = AtomicJsonFileStore.Read<ValueDebugConfig>(
+                    SF.ConfigPath, DebugConfigName, DebugJsonSettings);
                 if (!TryValidateConfig(config, out string error))
                 {
                     checkIndexSet.Clear();
@@ -687,8 +709,10 @@ namespace Automation
                     EditIndexes = editList,
                     Notes = noteSnapshot
                 };
-                string json = JsonConvert.SerializeObject(config, Formatting.Indented);
-                File.WriteAllText(path, json);
+                if (!AtomicJsonFileStore.Save(SF.ConfigPath, DebugConfigName, config, DebugJsonSettings))
+                {
+                    LogError("变量调试配置保存失败");
+                }
             }
             catch (Exception ex)
             {
@@ -702,7 +726,7 @@ namespace Automation
             {
                 return null;
             }
-            return Path.Combine(SF.ConfigPath, DebugConfigFileName);
+            return Path.Combine(SF.ConfigPath, DebugConfigName + ".json");
         }
 
         private static List<ValueOption> BuildValueOptions()

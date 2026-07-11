@@ -65,6 +65,9 @@ namespace Automation
             editKey = EditKey.None;
             this.treeView1.HideSelection = false;
             this.treeView2.HideSelection = false;
+            ApplyCardStyle();
+            contextMenuStrip1.Opening += contextMenuStrip1_Opening;
+            contextMenuStrip2.Opening += contextMenuStrip2_Opening;
 
         }
         public bool IsNewCard => editKey.IsNewCard;
@@ -73,16 +76,43 @@ namespace Automation
 
         private static T CloneForEdit<T>(T source)
         {
-            if (source == null)
+            return ObjectGraphCloner.Clone(source);
+        }
+
+        private void ApplyCardStyle()
+        {
+            BackColor = Color.White;
+            groupBox1.ForeColor = Color.FromArgb(48, 63, 78);
+            groupBox2.ForeColor = Color.FromArgb(48, 63, 78);
+            foreach (System.Windows.Forms.TreeView tree in new[] { treeView1, treeView2 })
             {
-                return default(T);
+                tree.BackColor = Color.White;
+                tree.ForeColor = Color.FromArgb(48, 63, 78);
+                tree.BorderStyle = BorderStyle.None;
+                tree.Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134);
+                tree.ItemHeight = 27;
+                tree.ShowNodeToolTips = true;
             }
-            var settings = new JsonSerializerSettings
+            foreach (ContextMenuStrip menu in new[] { contextMenuStrip1, contextMenuStrip2 })
             {
-                TypeNameHandling = TypeNameHandling.All,
-                ObjectCreationHandling = ObjectCreationHandling.Replace
-            };
-            return JsonConvert.DeserializeObject<T>(JsonConvert.SerializeObject(source, settings), settings);
+                menu.Font = new Font("微软雅黑", 9F, FontStyle.Regular, GraphicsUnit.Point, 134);
+                menu.ShowImageMargin = false;
+            }
+        }
+
+        private void contextMenuStrip1_Opening(object sender, CancelEventArgs e)
+        {
+            AddCard.Enabled = editKey.Kind == EditKind.CardRoot;
+            Modify.Enabled = editKey.Kind == EditKind.Card || editKey.Kind == EditKind.Axis;
+            Remove.Enabled = editKey.Kind == EditKind.Card;
+        }
+
+        private void contextMenuStrip2_Opening(object sender, CancelEventArgs e)
+        {
+            bool stationSelected = editKey.StationIndex.HasValue;
+            AddStation.Enabled = true;
+            ModifyStation.Enabled = stationSelected;
+            RemoveStation.Enabled = stationSelected;
         }
 
         private void FinishDraftEdit()
@@ -522,7 +552,7 @@ namespace Automation
         }
         private void Remove_Click(object sender, EventArgs e)
         {
-            if (TryGetSelectedCardIndex(out int cardIndex))
+            if (editKey.Kind == EditKind.Card && TryGetSelectedCardIndex(out int cardIndex))
             {
                 if (MessageBox.Show("确认删除选中的控制卡？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
                 {
