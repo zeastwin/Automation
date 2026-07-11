@@ -36,6 +36,8 @@ namespace Automation.KernelTests
             Run("运行中删除后续指令安全结束", TestRunningFutureOperationDeletion);
             Run("运行中当前结构修改被拒绝", TestRunningStructuralUpdateRejected);
             Run("暂停状态结构修改立即生效", TestPausedStructuralUpdateAppliesImmediately);
+            Run("编辑会话提交与取消隔离", TestEditSession);
+            Run("多文件配置批量提交", TestConfigurationBatchWriter);
             Console.WriteLine(failures == 0 ? "内核回归测试全部通过。" : $"内核回归测试失败:{failures}");
             return failures == 0 ? 0 : 1;
         }
@@ -364,9 +366,8 @@ namespace Automation.KernelTests
                 AxisName = "Axis0",
                 AxisNum = 0,
                 PulseToMM = 1000,
-                HomeType = "从负限位回零",
+                HomeDirection = "负向",
                 HomeSpeed = "10",
-                LimitSpeed = "20",
                 SpeedMax = 100,
                 AccMax = 0.2,
                 DecMax = 0.2
@@ -420,16 +421,7 @@ namespace Automation.KernelTests
 
             cache.UpdateIo(0, 2, 0);
             Thread.Sleep(20);
-            bool expiredRejected = false;
-            try
-            {
-                cache.GetRequiredSignal(0, 2, 1, 1);
-            }
-            catch (InvalidOperationException)
-            {
-                expiredRejected = true;
-            }
-            Assert(expiredRejected, "过期轴IO快照未被拒绝");
+            Assert(!cache.GetRequired(0, 2).IsIoFresh(1), "过期轴IO快照未被识别");
 
             AxisMotionParameterStore parameters = new AxisMotionParameterStore();
             Assert(parameters.Get(0, 1).SpeedPercent == 100, "轴运行参数默认值错误");
@@ -664,6 +656,46 @@ namespace Automation.KernelTests
                 offset += read;
             }
             return buffer;
+        }
+
+        private static void TestEditSession()
+        {
+            string committed = null;
+            bool cancelled = false;
+            var invalid = new EditSession<ProcHead>("测试编辑", new ProcHead(),
+                draft => string.IsNullOrWhiteSpace(draft.Name) ? "名称为空" : null,
+                draft => committed = draft.Name,
+                () => cancelled = true);
+            Assert(!invalid.TryCommit(out _), "无效草稿被错误提交");
+            invalid.Cancel();
+            Assert(cancelled && committed == null, "取消编辑修改了正式对象");
+
+            var valid = new EditSession<ProcHead>("测试编辑", new ProcHead { Name = "P1" },
+                draft => null, draft => committed = draft.Name);
+            Assert(valid.TryCommit(out _) && committed == "P1", "有效草稿提交失败");
+        }
+
+        private static void TestConfigurationBatchWriter()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "AutomationBatch_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(path);
+            try
+            {
+                File.WriteAllText(Path.Combine(path, "a.json"), "old-a");
+                File.WriteAllText(Path.Combine(path, "b.json"), "old-b");
+                using (var writer = new ConfigurationBatchWriter(path))
+                {
+                    writer.AddJson("a.json", new { value = "new-a" });
+                    writer.AddJson("b.json", new { value = "new-b" });
+                    writer.Commit();
+                }
+                Assert(File.ReadAllText(Path.Combine(path, "a.json")).Contains("new-a"), "第一个配置文件未提交");
+                Assert(File.ReadAllText(Path.Combine(path, "b.json")).Contains("new-b"), "第二个配置文件未提交");
+            }
+            finally
+            {
+                Directory.Delete(path, true);
+            }
         }
 
         private static ProcessEngine CreateEngine(ValueConfigStore values, CustomFunc functions, Proc proc)

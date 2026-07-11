@@ -34,7 +34,7 @@ namespace Automation.MotionControl
         public delegate void DownLoadConfigHandler();
         public delegate void SetAllAxisSevonOnHandler();
         public delegate void SetAllAxisEquivHandler();
-        public delegate void CleanAlarmHandler();
+        public delegate void ResetAxisAlarmHandler(ushort card, ushort axis);
         public delegate double GetAxisCurSpeedHandler(ushort card, ushort axis);
         public delegate ushort GetAxisAlarmCodeHandler(ushort card, ushort axis);
         public delegate uint GetAxisIoStatusHandler(ushort card, ushort axis);
@@ -59,7 +59,7 @@ namespace Automation.MotionControl
         public event DownLoadConfigHandler downLoadConfig;
         public event SetAllAxisSevonOnHandler setAllAxisSevonOn;
         public event SetAllAxisEquivHandler setAllAxisEquiv;
-        public event CleanAlarmHandler cleanAlarm;
+        public event ResetAxisAlarmHandler resetAxisAlarm;
         public event GetAxisCurSpeedHandler getAxisCurSpeed;
         public event GetAxisAlarmCodeHandler getAxisAlarmCode;
         public event GetAxisIoStatusHandler getAxisIoStatus;
@@ -67,6 +67,22 @@ namespace Automation.MotionControl
 
         [ThreadStatic]
         private static HashSet<long> validatedCommands;
+
+        [ThreadStatic]
+        private static PendingManualMotionProfile pendingManualMotionProfile;
+
+        private sealed class PendingManualMotionProfile
+        {
+            public ushort Card;
+            public ushort Axis;
+            public double MinVel;
+            public double MaxVel;
+            public double Acc;
+            public double Dec;
+            public double StopVel;
+            public double SPara;
+            public int Equiv;
+        }
 
         private sealed class CommandValidationLease : IDisposable
         {
@@ -265,6 +281,39 @@ namespace Automation.MotionControl
             EnsureCardInitialized();
             setMovParam?.Invoke(card, axis, minVel, dMaxVel, acc, dec, dStopVel, dS_para, equiv);
         }
+        public void StageManualMotionParameters(ushort card, ushort axis, double minVel, double maxVel,
+            double acc, double dec, double stopVel, double sPara, int equiv)
+        {
+            if (maxVel <= 0 || acc <= 0 || dec <= 0 || equiv <= 0
+                || double.IsNaN(maxVel) || double.IsInfinity(maxVel))
+            {
+                throw new ArgumentOutOfRangeException(nameof(maxVel), "手动调试运动参数无效。");
+            }
+            pendingManualMotionProfile = new PendingManualMotionProfile
+            {
+                Card = card,
+                Axis = axis,
+                MinVel = minVel,
+                MaxVel = maxVel,
+                Acc = acc,
+                Dec = dec,
+                StopVel = stopVel,
+                SPara = sPara,
+                Equiv = equiv
+            };
+        }
+
+        private void ApplyPendingManualMotionParameters(ushort card, ushort axis)
+        {
+            PendingManualMotionProfile profile = pendingManualMotionProfile;
+            if (profile == null || profile.Card != card || profile.Axis != axis)
+            {
+                throw new InvalidOperationException($"手动调试运动参数尚未设置:{card}-{axis}");
+            }
+            pendingManualMotionProfile = null;
+            setMovParam?.Invoke(card, axis, profile.MinVel, profile.MaxVel, profile.Acc, profile.Dec,
+                profile.StopVel, profile.SPara, profile.Equiv);
+        }
         public void Mov(ushort card, ushort axis, double dDist, ushort sPosi_mode, bool wait)
         {
             EnsureCardInitialized();
@@ -280,6 +329,10 @@ namespace Automation.MotionControl
             try
             {
                 EnsureCommandValidated(card, axis, AxisCommandKind.Motion, false);
+                if (manualOperation)
+                {
+                    ApplyPendingManualMotionParameters(card, axis);
+                }
                 mov?.Invoke(card, axis, dDist, sPosi_mode, false);
                 if (wait)
                 {
@@ -358,6 +411,10 @@ namespace Automation.MotionControl
             try
             {
                 EnsureCommandValidated(card, axis, AxisCommandKind.Motion, true);
+                if (Application.MessageLoop)
+                {
+                    ApplyPendingManualMotionParameters(card, axis);
+                }
                 jog?.Invoke(card, axis, sDir);
             }
             catch
@@ -409,9 +466,10 @@ namespace Automation.MotionControl
         {
             setAllAxisEquiv?.Invoke();
         }
-        public void CleanAlarm()
+        public void ResetAxisAlarm(ushort card, ushort axis)
         {
-            cleanAlarm?.Invoke();
+            EnsureCardInitialized();
+            resetAxisAlarm?.Invoke(card, axis);
         }
         public double GetAxisCurSpeed(ushort card, ushort axis)
         {
@@ -453,7 +511,7 @@ namespace Automation.MotionControl
             downLoadConfig = ls.DownLoadConfig;
             setAllAxisSevonOn = ls.SetAllAxisSevonOn;
             setAllAxisEquiv = ls.SetAllAxisEquiv;
-            cleanAlarm = ls.CleanAlarm;
+            resetAxisAlarm = ls.ResetAxisAlarm;
             getAxisCurSpeed = ls.GetAxisCurSpeed;
             getAxisAlarmCode = ls.GetAxisAlarmCode;
             getAxisIoStatus = ls.GetAxisIoStatus;

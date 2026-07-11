@@ -369,7 +369,9 @@ namespace Automation
 
             if (SF.cardStore.TryGetAxis(cardNum, axisNum, out FrmCard.Axis axis))
             {
-                SF.motion.SetMovParam((ushort)cardNum, (ushort)axisNum, 0, axis.SpeedMax * dataStation.Vel, axis.AccMax, axis.DecMax, 0, 0, axis.PulseToMM);
+                SF.motion.StageManualMotionParameters((ushort)cardNum, (ushort)axisNum, 0,
+                    axis.SpeedMax * (dataStation.ManualSpeedPercent / 100), axis.AccMax, axis.DecMax,
+                    0, 0, axis.PulseToMM);
             }
 
         }
@@ -730,7 +732,7 @@ namespace Automation
                     foreach (var command in commands)
                     {
                         SF.motion.SetMovParam(command.card, command.axis, 0,
-                            command.config.SpeedMax * station.Vel,
+                            command.config.SpeedMax * (station.ManualSpeedPercent / 100),
                             command.config.AccMax, command.config.DecMax, 0, 0, command.config.PulseToMM);
                     }
                     foreach (var command in commands)

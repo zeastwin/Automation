@@ -410,22 +410,12 @@ namespace Automation
 
             }
         }
-        //清楚报警
-        public void CleanAlarm()
+        public void ResetAxisAlarm(ushort card, ushort axis)
         {
-            for (int i = 0; i < SF.cardStore.GetControlCardCount(); i++)
-            {
-
-                for (int j = 0; j < SF.cardStore.GetAxisCount(i); j++)
-                {
-                    LTDMC.nmc_clear_axis_errcode((ushort)i, (ushort)j);
-                    LTDMC.dmc_clear_stop_reason((ushort)i, (ushort)j);
-                    LTDMC.dmc_write_erc_pin((ushort)i, (ushort)j, 1);
-                    LTDMC.dmc_write_erc_pin((ushort)i, (ushort)j, 0);
-
-                }
-
-            }
+            EnsureSuccess(LTDMC.nmc_clear_axis_errcode(card, axis), "清除轴错误码", card, axis);
+            EnsureSuccess(LTDMC.dmc_clear_stop_reason(card, axis), "清除轴停止原因", card, axis);
+            EnsureSuccess(LTDMC.dmc_write_erc_pin(card, axis, 1), "置位驱动器复位信号", card, axis);
+            EnsureSuccess(LTDMC.dmc_write_erc_pin(card, axis, 0), "复位驱动器复位信号", card, axis);
         }
 
         //读取当前速度

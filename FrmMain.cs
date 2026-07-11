@@ -368,7 +368,7 @@ namespace Automation
                 {
                     try
                     {
-                        if (SF.isModify != ModifyKind.ControlCard && SF.frmCard != null && !SF.frmCard.IsNewCard)
+                        if (!(SF.ActiveEditSession?.Draft is FrmCard.CardHead) && SF.frmCard != null)
                         {
                             if (SF.cardStore == null)
                             {

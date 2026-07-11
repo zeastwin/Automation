@@ -19,6 +19,56 @@ namespace Automation
         IO = 5
     }
 
+    public interface IEditSession
+    {
+        string Name { get; }
+        object Draft { get; }
+        void ReplaceDraft(object draft);
+        bool TryCommit(out string error);
+        void Cancel();
+    }
+
+    public sealed class EditSession<T> : IEditSession where T : class
+    {
+        private readonly Func<T, string> validate;
+        private readonly Action<T> commit;
+        private readonly Action cancel;
+
+        public EditSession(string name, T draft, Func<T, string> validate, Action<T> commit, Action cancel = null)
+        {
+            Name = string.IsNullOrWhiteSpace(name) ? throw new ArgumentException("编辑会话名称为空。", nameof(name)) : name;
+            DraftValue = draft ?? throw new ArgumentNullException(nameof(draft));
+            this.validate = validate;
+            this.commit = commit ?? throw new ArgumentNullException(nameof(commit));
+            this.cancel = cancel;
+        }
+
+        public string Name { get; }
+        public T DraftValue { get; private set; }
+        public object Draft => DraftValue;
+
+        public void ReplaceDraft(object draft)
+        {
+            DraftValue = draft as T ?? throw new InvalidOperationException("编辑草稿类型不匹配。");
+        }
+
+        public bool TryCommit(out string error)
+        {
+            error = validate?.Invoke(DraftValue);
+            if (!string.IsNullOrEmpty(error))
+            {
+                return false;
+            }
+            commit(DraftValue);
+            return true;
+        }
+
+        public void Cancel()
+        {
+            cancel?.Invoke();
+        }
+    }
+
     public static class SF
     {
         public static FrmMenu frmMenu;
@@ -58,6 +108,7 @@ namespace Automation
         public static PlcConfigStore plcStore;
         public static FrmVersionManager frmVersionManager;
         public static ConfigurationVersionService versionService;
+        public static IEditSession ActiveEditSession { get; private set; }
 
         private static bool securityLocked;
         private static string securityLockReason = string.Empty;
@@ -275,6 +326,73 @@ namespace Automation
             {
                 frmToolBar.btnSave.Enabled = true;
                 frmToolBar.btnCancel.Enabled = true;
+            }
+        }
+
+        public static void BeginEditSession(IEditSession session)
+        {
+            if (session == null)
+            {
+                throw new ArgumentNullException(nameof(session));
+            }
+            if (ActiveEditSession != null)
+            {
+                throw new InvalidOperationException($"已有编辑会话尚未结束:{ActiveEditSession.Name}");
+            }
+            ActiveEditSession = session;
+            if (frmPropertyGrid != null)
+            {
+                frmPropertyGrid.Enabled = true;
+                frmPropertyGrid.propertyGrid1.SelectedObject = session.Draft;
+                frmPropertyGrid.OperationType.Enabled = session.Draft is OperationType;
+            }
+            if (frmToolBar != null)
+            {
+                frmToolBar.btnSave.Enabled = true;
+                frmToolBar.btnCancel.Enabled = true;
+            }
+        }
+
+        public static bool TryCommitEditSession(out string error)
+        {
+            error = null;
+            IEditSession session = ActiveEditSession;
+            if (session == null)
+            {
+                error = "当前没有活动编辑会话。";
+                return false;
+            }
+            if (!session.TryCommit(out error))
+            {
+                return false;
+            }
+            ActiveEditSession = null;
+            EndEdit();
+            return true;
+        }
+
+        public static void CancelEditSession()
+        {
+            IEditSession session = ActiveEditSession;
+            ActiveEditSession = null;
+            session?.Cancel();
+            if (frmPropertyGrid != null)
+            {
+                frmPropertyGrid.propertyGrid1.SelectedObject = null;
+            }
+            EndEdit();
+        }
+
+        public static void ReplaceActiveEditDraft(object draft)
+        {
+            if (ActiveEditSession == null)
+            {
+                throw new InvalidOperationException("当前没有活动编辑会话。");
+            }
+            ActiveEditSession.ReplaceDraft(draft);
+            if (frmPropertyGrid != null)
+            {
+                frmPropertyGrid.propertyGrid1.SelectedObject = draft;
             }
         }
 

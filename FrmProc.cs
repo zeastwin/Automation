@@ -129,7 +129,11 @@ namespace Automation
                 {
                     return;
                 }
-                SF.mainfrm.SaveAsJson(SF.workPath, procIndex.ToString(), proc);
+                if (!SF.mainfrm.SaveAsJson(SF.workPath, procIndex.ToString(), proc))
+                {
+                    procsList.RemoveAt(procIndex);
+                    return;
+                }
                 SF.PublishProc(procIndex);
             }
             else
@@ -194,7 +198,11 @@ namespace Automation
             {
                 return;
             }
-            SF.mainfrm.SaveAsJson(SF.workPath,SelectedProcNum.ToString(), procsList[SelectedProcNum]);
+            if (!SF.mainfrm.SaveAsJson(SF.workPath, SelectedProcNum.ToString(), procsList[SelectedProcNum]))
+            {
+                procsList[SelectedProcNum].steps.Remove(StepTemp);
+                return;
+            }
             SF.PublishProc(SelectedProcNum);
 
             NewStepNum = -1;
@@ -945,8 +953,32 @@ namespace Automation
             }
             HeadTemp = new ProcHead();
 
-            SF.frmPropertyGrid.propertyGrid1.SelectedObject = HeadTemp;
-            SF.BeginEdit(ModifyKind.None);
+            proc_treeView.Enabled = false;
+            SF.BeginEditSession(new EditSession<ProcHead>("新增流程", HeadTemp,
+                draft => string.IsNullOrWhiteSpace(draft.Name) ? "流程名称为空。" : null,
+                draft =>
+                {
+                    int originalCount = procsList.Count;
+                    HeadTemp = draft;
+                    NewProcSave();
+                    if (NewProcNum != -1)
+                    {
+                        procsList.RemoveAll(proc => proc?.head == draft);
+                        while (procsList.Count > originalCount)
+                        {
+                            procsList.RemoveAt(procsList.Count - 1);
+                        }
+                        throw new InvalidOperationException("新增流程保存失败。");
+                    }
+                    proc_treeView.Enabled = true;
+                    RefreshProcList();
+                },
+                () =>
+                {
+                    NewProcNum = -1;
+                    HeadTemp = null;
+                    proc_treeView.Enabled = true;
+                }));
         }
 
         private void AddStep_Click(object sender, EventArgs e)
@@ -963,8 +995,39 @@ namespace Automation
 
                 StepTemp = new Step();
 
-                SF.frmPropertyGrid.propertyGrid1.SelectedObject = StepTemp;
-                SF.BeginEdit(ModifyKind.None);
+                int procIndex = SelectedProcNum;
+                proc_treeView.Enabled = false;
+                SF.BeginEditSession(new EditSession<Step>("新增步骤", StepTemp,
+                    draft => string.IsNullOrWhiteSpace(draft.Name) ? "步骤名称为空。" : null,
+                    draft =>
+                    {
+                        if (SelectedProcNum != procIndex)
+                        {
+                            throw new InvalidOperationException("流程选择已变化，拒绝保存步骤。");
+                        }
+                        var settings = new JsonSerializerSettings
+                        {
+                            TypeNameHandling = TypeNameHandling.All,
+                            ObjectCreationHandling = ObjectCreationHandling.Replace
+                        };
+                        Proc originalProc = JsonConvert.DeserializeObject<Proc>(
+                            JsonConvert.SerializeObject(procsList[procIndex], settings), settings);
+                        StepTemp = draft;
+                        NewStepSave();
+                        if (NewStepNum != -1)
+                        {
+                            procsList[procIndex] = originalProc;
+                            throw new InvalidOperationException("新增步骤保存失败。");
+                        }
+                        proc_treeView.Enabled = true;
+                        RefreshProcList();
+                    },
+                    () =>
+                    {
+                        NewStepNum = -1;
+                        StepTemp = null;
+                        proc_treeView.Enabled = true;
+                    }));
             }
             else
             {
@@ -1256,8 +1319,58 @@ namespace Automation
             {
                 return;
             }
-            CaptureEditBackup();
-            SF.BeginEdit(ModifyKind.Proc);
+            int procIndex = SelectedProcNum;
+            int stepIndex = SelectedStepNum;
+            object selected = SF.frmPropertyGrid.propertyGrid1.SelectedObject;
+            var settings = new JsonSerializerSettings
+            {
+                TypeNameHandling = TypeNameHandling.All,
+                ObjectCreationHandling = ObjectCreationHandling.Replace
+            };
+            proc_treeView.Enabled = false;
+            if (selected is ProcHead sourceHead)
+            {
+                ProcHead draft = JsonConvert.DeserializeObject<ProcHead>(JsonConvert.SerializeObject(sourceHead, settings), settings);
+                SF.BeginEditSession(new EditSession<ProcHead>("修改流程", draft,
+                    item => string.IsNullOrWhiteSpace(item.Name) ? "流程名称为空。" : null,
+                    item =>
+                    {
+                        ProcHead original = procsList[procIndex].head;
+                        procsList[procIndex].head = item;
+                        if (!SF.frmDataGrid.SaveSingleProc(procIndex))
+                        {
+                            procsList[procIndex].head = original;
+                            throw new InvalidOperationException("流程保存失败，正式内存已恢复。");
+                        }
+                        bindingSource.ResetBindings(true);
+                        proc_treeView.Enabled = true;
+                        RefreshProcList();
+                    }, () => proc_treeView.Enabled = true));
+            }
+            else if (selected is Step sourceStep && stepIndex >= 0)
+            {
+                Step draft = JsonConvert.DeserializeObject<Step>(JsonConvert.SerializeObject(sourceStep, settings), settings);
+                SF.BeginEditSession(new EditSession<Step>("修改步骤", draft,
+                    item => string.IsNullOrWhiteSpace(item.Name) ? "步骤名称为空。" : null,
+                    item =>
+                    {
+                        Step original = procsList[procIndex].steps[stepIndex];
+                        procsList[procIndex].steps[stepIndex] = item;
+                        if (!SF.frmDataGrid.SaveSingleProc(procIndex))
+                        {
+                            procsList[procIndex].steps[stepIndex] = original;
+                            throw new InvalidOperationException("步骤保存失败，正式内存已恢复。");
+                        }
+                        bindingSource.ResetBindings(true);
+                        proc_treeView.Enabled = true;
+                        RefreshProcList();
+                    }, () => proc_treeView.Enabled = true));
+            }
+            else
+            {
+                proc_treeView.Enabled = true;
+                MessageBox.Show("当前流程编辑对象无效。");
+            }
         }
 
         private void FrmProc_Load(object sender, EventArgs e)

@@ -966,7 +966,7 @@ namespace Automation
                 PrintInfo("当前位置无效，无法跳转。", Level.Error);
                 return;
             }
-            if (SF.isAddOps || SF.isModify != ModifyKind.None)
+            if (SF.ActiveEditSession != null)
             {
                 PrintInfo("当前处于编辑状态，禁止跳转。", Level.Error);
                 return;

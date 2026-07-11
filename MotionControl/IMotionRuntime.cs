@@ -40,6 +40,7 @@ namespace Automation.MotionControl
         void CleanPos(ushort card, ushort axis);
         double GetAxisPos(ushort card, ushort axis);
         void SetMovParam(ushort card, ushort axis, double minVel, double maxVel, double acc, double dec, double stopVel, double sPara, int equiv);
+        void StageManualMotionParameters(ushort card, ushort axis, double minVel, double maxVel, double acc, double dec, double stopVel, double sPara, int equiv);
         void Mov(ushort card, ushort axis, double distance, ushort positionMode, bool wait);
         void Jog(ushort card, ushort axis, ushort direction);
         void StopOneAxis(ushort card, ushort axis, ushort stopMode);
@@ -51,7 +52,7 @@ namespace Automation.MotionControl
         void DownLoadConfig();
         void SetAllAxisSevonOn();
         void SetAllAxisEquiv();
-        void CleanAlarm();
+        void ResetAxisAlarm(ushort card, ushort axis);
         double GetAxisCurSpeed(ushort card, ushort axis);
         uint GetAxisIoStatus(ushort card, ushort axis);
         ushort GetAxisAlarmCode(ushort card, ushort axis);

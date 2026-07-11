@@ -292,9 +292,40 @@ namespace Automation
 
         private void Modify_Click(object sender, EventArgs e)
         {
-            if (iSelectedIORow != -1)
+            if (iSelectedIORow != -1
+                && SF.frmCard.TryGetSelectedCardIndex(out int cardIndex)
+                && IOMap != null && cardIndex >= 0 && cardIndex < IOMap.Count
+                && IOMap[cardIndex] != null && iSelectedIORow < IOMap[cardIndex].Count)
             {
-                SF.BeginEdit(ModifyKind.IO);
+                int rowIndex = iSelectedIORow;
+                IO draft = IOMap[cardIndex][rowIndex].CloneForDebug();
+                dgvIO.Enabled = false;
+                SF.BeginEditSession(new EditSession<IO>("修改IO", draft,
+                    item =>
+                    {
+                        string name = item.Name?.Trim();
+                        if (string.IsNullOrEmpty(name))
+                        {
+                            return null;
+                        }
+                        bool duplicate = IOMap.SelectMany(list => list ?? Enumerable.Empty<IO>())
+                            .Any(other => other != null && !ReferenceEquals(other, IOMap[cardIndex][rowIndex])
+                                && string.Equals(other.Name?.Trim(), name, StringComparison.Ordinal));
+                        return duplicate ? $"IO名称重复:{name}" : null;
+                    },
+                    item =>
+                    {
+                        IO original = IOMap[cardIndex][rowIndex];
+                        IOMap[cardIndex][rowIndex] = item;
+                        if (!SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap))
+                        {
+                            IOMap[cardIndex][rowIndex] = original;
+                            throw new InvalidOperationException("IO配置保存失败。");
+                        }
+                        dgvIO.Enabled = true;
+                        RefreshIODgv();
+                    },
+                    () => dgvIO.Enabled = true));
                 RefreshIoMonitorRequest();
             }
           

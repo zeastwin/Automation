@@ -85,7 +85,6 @@ namespace Automation.MotionControl
 
     public sealed class AxisStatusCache
     {
-        public const int SafetyIoMaxAgeMilliseconds = 100;
         public const int UiIoMaxAgeMilliseconds = 200;
         public const int UiDetailMaxAgeMilliseconds = 300;
 
@@ -137,16 +136,6 @@ namespace Automation.MotionControl
                 throw new InvalidOperationException($"轴状态缓存不存在:{card}-{axis}");
             }
             return snapshot;
-        }
-
-        public bool GetRequiredSignal(ushort card, ushort axis, int signalNumber, int maxAgeMilliseconds)
-        {
-            AxisStatusSnapshot snapshot = GetRequired(card, axis);
-            if (!snapshot.IsIoFresh(maxAgeMilliseconds))
-            {
-                throw new InvalidOperationException($"轴IO状态缓存已过期:{card}-{axis}");
-            }
-            return snapshot.IsSignalOn(signalNumber);
         }
 
         public void Clear()

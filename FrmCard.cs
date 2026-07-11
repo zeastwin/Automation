@@ -73,6 +73,31 @@ namespace Automation
         public bool IsNewStation => editKey.IsNewStation;
         public bool IsCardRootSelected => editKey.Kind == EditKind.CardRoot;
 
+        private static T CloneForEdit<T>(T source)
+        {
+            if (source == null)
+            {
+                return default(T);
+            }
+            var settings = new JsonSerializerSettings
+            {
+                TypeNameHandling = TypeNameHandling.All,
+                ObjectCreationHandling = ObjectCreationHandling.Replace
+            };
+            return JsonConvert.DeserializeObject<T>(JsonConvert.SerializeObject(source, settings), settings);
+        }
+
+        private void FinishDraftEdit()
+        {
+            treeView1.Enabled = true;
+            treeView2.Enabled = true;
+            editKey.IsNewCard = false;
+            editKey.IsNewStation = false;
+            controlCardTemp = null;
+            axisTemp = null;
+            dataStationTemp = null;
+        }
+
         public bool TryGetSelectedCardIndex(out int cardIndex)
         {
             if (editKey.CardIndex.HasValue)
@@ -194,18 +219,14 @@ namespace Automation
             //public int AxisType { get; set; }
             [DisplayName("单位毫米脉冲"), Category("A基本参数"), Description(""), ReadOnly(false)]
             public int PulseToMM { get; set; }
-            [DisplayName("回原模式"), Category("A基本参数"), Description(""), ReadOnly(false), TypeConverter(typeof(HomeTypeItem))]
-            public string HomeType { get; set; }
+            [DisplayName("回原搜索方向"), Category("A基本参数"), Description("控制卡搜索原点的方向；回原模式固定为一次回零加回找。"), ReadOnly(false), TypeConverter(typeof(HomeDirectionItem))]
+            public string HomeDirection { get; set; }
             //[DisplayName("编码器类型"), Category("A基本参数"), Description(""), ReadOnly(false)]
             //public int EncoderType { get; set; }
             //[DisplayName("报警索引"), Category("A基本参数"), Description(""), ReadOnly(false)]
             //public int WarnIndex { get; set; }
             //[DisplayName("从站ID"), Category("A基本参数"), Description(""), ReadOnly(false)]
             //public int SlaveStation { get; set; }
-            //[DisplayName("驱动器回原模式"), Category("A基本参数"), Description(""), ReadOnly(false)]
-            //public string DriverHomeType { get; set; }
-
-
             //[DisplayName("回原前偏移量"), Category("B回原参数"), Description(""), ReadOnly(false)]
             //public int OffsetBeforeHome { get; set; }
             //[DisplayName("回原搜索距离"), Category("B回原参数"), Description(""), ReadOnly(false)]
@@ -214,11 +235,6 @@ namespace Automation
             //public int OffsetAfterHome { get; set; }
             [DisplayName("回原速度"), Category("B回原参数"), Description(""), ReadOnly(false)]
             public string HomeSpeed { get; set; }
-            [DisplayName("找限位速度"), Category("B回原参数"), Description(""), ReadOnly(false)]
-            public string LimitSpeed { get; set; }
-
-            
-
             [DisplayName("速度说明"), Category("C运动参数"), Description(""), ReadOnly(false)]
             public int SpeedInfo { get; set; }
 
@@ -251,9 +267,69 @@ namespace Automation
             if (IsCardRootSelected)
             {
                 controlCardTemp = new ControlCard();
-                SF.frmPropertyGrid.propertyGrid1.SelectedObject = controlCardTemp.cardHead;
-                editKey.IsNewCard = true;
-                SF.BeginEdit(ModifyKind.None);
+                treeView1.Enabled = false;
+                treeView2.Enabled = false;
+                SF.BeginEditSession(new EditSession<CardHead>("新增控制卡", controlCardTemp.cardHead,
+                    draft => draft.AxisCount < 0 || draft.InputCount < 0 || draft.OutputCount < 0
+                        ? "控制卡轴数和IO数量不能为负数。" : null,
+                    draft =>
+                    {
+                        for (int i = 0; i < draft.AxisCount; i++)
+                        {
+                            controlCardTemp.axis.Add(new Axis { AxisName = $"Axis{i}", AxisNum = i });
+                        }
+                        int newCardIndex = SF.cardStore.AddControlCard(controlCardTemp);
+                        var ioItems = new List<IO>();
+                        for (int i = 0; i < draft.InputCount; i++)
+                        {
+                            ioItems.Add(new IO
+                            {
+                                Index = i,
+                                CardNum = newCardIndex,
+                                Module = 0,
+                                IOIndex = i.ToString(),
+                                IOType = "通用输入",
+                                UsedType = "通用",
+                                EffectLevel = "正常"
+                            });
+                        }
+                        for (int i = 0; i < draft.OutputCount; i++)
+                        {
+                            ioItems.Add(new IO
+                            {
+                                Index = draft.InputCount + i,
+                                CardNum = newCardIndex,
+                                Module = 0,
+                                IOIndex = i.ToString(),
+                                IOType = "通用输出",
+                                UsedType = "通用",
+                                EffectLevel = "正常"
+                            });
+                        }
+                        SF.frmIO.IOMap.Add(ioItems);
+                        try
+                        {
+                            var settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+                            using (var batch = new ConfigurationBatchWriter(SF.ConfigPath))
+                            {
+                                batch.AddJson("card.json", SF.cardStore.CardData, settings);
+                                batch.AddJson("IOMap.json", SF.frmIO.IOMap, settings);
+                                batch.Commit();
+                            }
+                        }
+                        catch
+                        {
+                            SF.cardStore.RemoveControlCardAt(newCardIndex);
+                            SF.frmIO.IOMap.RemoveAt(newCardIndex);
+                            SF.SetSecurityLock("控制卡与IO配置事务提交失败，禁止继续运行，需检查配置文件。");
+                            throw;
+                        }
+                        FinishDraftEdit();
+                        RefreshCardTree();
+                        SF.frmIO.RefreshIODgv();
+                        SF.mainfrm.ResetAxisRuntimeState();
+                        SF.mainfrm.RequireRestartAfterEquipmentRestore();
+                    }, FinishDraftEdit));
             }
         }
         private int GetNodeLevel(TreeNode node)
@@ -328,13 +404,70 @@ namespace Automation
 
         private void Modify_Click(object sender, EventArgs e)
         {
-            if (TryGetSelectedAxisIndex(out _, out _))
+            if (TryGetSelectedAxisIndex(out int cardIndex, out int axisIndex)
+                && SF.cardStore.TryGetAxis(cardIndex, axisIndex, out Axis sourceAxis))
             {
-                SF.BeginEdit(ModifyKind.Axis);
+                axisTemp = CloneForEdit(sourceAxis);
+                treeView1.Enabled = false;
+                treeView2.Enabled = false;
+                SF.BeginEditSession(new EditSession<Axis>("修改轴", axisTemp,
+                    draft => SF.cardStore.TryValidateAxis(cardIndex, axisIndex, draft, out string error) ? null : error,
+                    draft =>
+                    {
+                        SF.cardStore.ReplaceAxis(cardIndex, axisIndex, draft);
+                        if (!SF.cardStore.Save(SF.ConfigPath, false))
+                        {
+                            SF.cardStore.ReplaceAxis(cardIndex, axisIndex, sourceAxis);
+                            throw new InvalidOperationException("轴配置保存失败。");
+                        }
+                        if (SF.cardStore.TryValidateAllAxes(out _))
+                        {
+                            try
+                            {
+                                SF.motion.SetAllAxisEquiv();
+                            }
+                            catch
+                            {
+                                SF.mainfrm.RequireRestartAfterEquipmentRestore();
+                                throw;
+                            }
+                        }
+                        FinishDraftEdit();
+                        RefreshCardTree();
+                        SF.mainfrm.ResetAxisRuntimeState();
+                    }, FinishDraftEdit));
             }
-            else if (TryGetSelectedCardIndex(out _))
+            else if (TryGetSelectedCardIndex(out cardIndex)
+                && SF.cardStore.TryGetControlCard(cardIndex, out ControlCard sourceCard))
             {
-                SF.BeginEdit(ModifyKind.ControlCard);
+                controlCardTemp = CloneForEdit(sourceCard);
+                treeView1.Enabled = false;
+                treeView2.Enabled = false;
+                SF.BeginEditSession(new EditSession<CardHead>("修改控制卡", controlCardTemp.cardHead,
+                    draft => draft.AxisCount < 0 || draft.InputCount < 0 || draft.OutputCount < 0
+                        ? "控制卡轴数和IO数量不能为负数。" : null,
+                    draft =>
+                    {
+                        while (controlCardTemp.axis.Count > draft.AxisCount)
+                        {
+                            controlCardTemp.axis.RemoveAt(controlCardTemp.axis.Count - 1);
+                        }
+                        while (controlCardTemp.axis.Count < draft.AxisCount)
+                        {
+                            int axisIndex = controlCardTemp.axis.Count;
+                            controlCardTemp.axis.Add(new Axis { AxisName = $"Axis{axisIndex}", AxisNum = axisIndex });
+                        }
+                        SF.cardStore.ReplaceControlCard(cardIndex, controlCardTemp);
+                        if (!SF.cardStore.Save(SF.ConfigPath, false))
+                        {
+                            SF.cardStore.ReplaceControlCard(cardIndex, sourceCard);
+                            throw new InvalidOperationException("控制卡配置保存失败。");
+                        }
+                        SF.mainfrm.RequireRestartAfterEquipmentRestore();
+                        FinishDraftEdit();
+                        RefreshCardTree();
+                        SF.mainfrm.ResetAxisRuntimeState();
+                    }, FinishDraftEdit));
             }
         }
         public void RefreshStationList()
@@ -376,6 +509,7 @@ namespace Automation
 
         public void RefreshStationTree()
         {
+            treeView2.Nodes.Clear();
             if (dataStation == null)
             {
                 return;
@@ -396,6 +530,8 @@ namespace Automation
                 {
                     return;
                 }
+                Card cardBackup = CloneForEdit(SF.cardStore.CardData);
+                List<List<IO>> ioBackup = CloneForEdit(SF.frmIO.IOMap);
                 if (!SF.cardStore.RemoveControlCardAt(cardIndex))
                 {
                     return;
@@ -408,9 +544,24 @@ namespace Automation
                             SF.frmIO.IOMap[i][j].CardNum = i;
                         }
                     }
-                SF.cardStore.Save(SF.ConfigPath);
+                try
+                {
+                    var settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+                    using (var batch = new ConfigurationBatchWriter(SF.ConfigPath))
+                    {
+                        batch.AddJson("card.json", SF.cardStore.CardData, settings);
+                        batch.AddJson("IOMap.json", SF.frmIO.IOMap, settings);
+                        batch.Commit();
+                    }
+                }
+                catch
+                {
+                    SF.cardStore.SetCard(cardBackup);
+                    SF.frmIO.IOMap = ioBackup;
+                    SF.SetSecurityLock("删除控制卡配置事务失败，正式内存已恢复，需检查配置文件。");
+                    throw;
+                }
                 SF.frmCard.RefreshCardTree();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", SF.frmIO.IOMap);
 
                 SF.frmIO.dgvIO.Rows.Clear();
 
@@ -421,36 +572,69 @@ namespace Automation
         private void AddStation_Click(object sender, EventArgs e)
         {
             dataStationTemp = new DataStation(false);
-            if (dataStation == null)
-            {
-                dataStation = new List<DataStation>();
-            }
-            dataStation.Add(dataStationTemp);
-            SF.frmPropertyGrid.propertyGrid1.SelectedObject = dataStationTemp;
+            treeView1.Enabled = false;
+            treeView2.Enabled = false;
+            SF.BeginEditSession(new EditSession<DataStation>("新增工站", dataStationTemp,
+                draft =>
+                {
+                    var candidate = new List<DataStation>(dataStation ?? new List<DataStation>()) { draft };
+                    return SF.cardStore.TryValidateStations(candidate, out List<string> errors)
+                        ? null : string.Join("\r\n", errors);
+                },
+                draft =>
+                {
+                    if (dataStation == null)
+                    {
+                        dataStation = new List<DataStation>();
+                    }
+                    dataStation.Add(draft);
+                    if (!SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", dataStation))
+                    {
+                        dataStation.Remove(draft);
+                        throw new InvalidOperationException("工站配置保存失败。");
+                    }
+                    if (SF.DR?.Context != null)
+                    {
+                        SF.DR.Context.Stations = dataStation;
+                    }
+                    FinishDraftEdit();
+                    RefreshStationTree();
+                }, FinishDraftEdit));
             SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-            editKey.IsNewStation = true;
-            SF.BeginEdit(ModifyKind.None);
         }
 
         private void ModifyStation_Click(object sender, EventArgs e)
         {
             if (TryGetSelectedStationIndex(out int stationIndex))
             {
-                SF.BeginEdit(ModifyKind.Station);
-
-                dataStation[stationIndex].dataAxis.axisConfigs[0] = dataStation[stationIndex].dataAxis.axisConfig1;
-                dataStation[stationIndex].dataAxis.axisConfigs[1] = dataStation[stationIndex].dataAxis.axisConfig2;
-                dataStation[stationIndex].dataAxis.axisConfigs[2] = dataStation[stationIndex].dataAxis.axisConfig3;
-                dataStation[stationIndex].dataAxis.axisConfigs[3] = dataStation[stationIndex].dataAxis.axisConfig4;
-                dataStation[stationIndex].dataAxis.axisConfigs[4] = dataStation[stationIndex].dataAxis.axisConfig5;
-                dataStation[stationIndex].dataAxis.axisConfigs[5] = dataStation[stationIndex].dataAxis.axisConfig6;
-
-                dataStation[stationIndex].homeSeq.axisSeq[0] = dataStation[stationIndex].homeSeq.AxisName1;
-                dataStation[stationIndex].homeSeq.axisSeq[1] = dataStation[stationIndex].homeSeq.AxisName2;
-                dataStation[stationIndex].homeSeq.axisSeq[2] = dataStation[stationIndex].homeSeq.AxisName3;
-                dataStation[stationIndex].homeSeq.axisSeq[3] = dataStation[stationIndex].homeSeq.AxisName4;
-                dataStation[stationIndex].homeSeq.axisSeq[4] = dataStation[stationIndex].homeSeq.AxisName5;
-                dataStation[stationIndex].homeSeq.axisSeq[5] = dataStation[stationIndex].homeSeq.AxisName6;
+                dataStationTemp = CloneForEdit(dataStation[stationIndex]);
+                treeView1.Enabled = false;
+                treeView2.Enabled = false;
+                SF.BeginEditSession(new EditSession<DataStation>("修改工站", dataStationTemp,
+                    draft =>
+                    {
+                        var candidate = new List<DataStation>(dataStation);
+                        candidate[stationIndex] = draft;
+                        return SF.cardStore.TryValidateStations(candidate, out List<string> errors)
+                            ? null : string.Join("\r\n", errors);
+                    },
+                    draft =>
+                    {
+                        DataStation original = dataStation[stationIndex];
+                        dataStation[stationIndex] = draft;
+                        if (!SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", dataStation))
+                        {
+                            dataStation[stationIndex] = original;
+                            throw new InvalidOperationException("工站配置保存失败。");
+                        }
+                        if (SF.DR?.Context != null)
+                        {
+                            SF.DR.Context.Stations = dataStation;
+                        }
+                        FinishDraftEdit();
+                        RefreshStationTree();
+                    }, FinishDraftEdit));
+                SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
             }
            
            
@@ -464,8 +648,13 @@ namespace Automation
                 {
                     return;
                 }
+                DataStation removed = dataStation[stationIndex];
                 dataStation.RemoveAt(stationIndex);
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", dataStation);
+                if (!SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", dataStation))
+                {
+                    dataStation.Insert(stationIndex, removed);
+                    throw new InvalidOperationException("删除工站保存失败，正式内存已恢复。");
+                }
 
                 SF.frmCard.RefreshStationList();
                 SF.frmCard.RefreshStationTree();
@@ -534,7 +723,7 @@ namespace Automation
             return true;
         }
     }
-    public class HomeTypeItem : StringConverter
+    public class HomeDirectionItem : StringConverter
     {
         public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
         {
@@ -543,7 +732,7 @@ namespace Automation
 
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
         {
-            return new StandardValuesCollection(new List<string>() { "从正限位回零", "从负限位回零", "从当前位回零" });
+            return new StandardValuesCollection(new List<string>() { "正向", "负向" });
         }
         public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
         {
@@ -572,29 +761,21 @@ namespace Automation
         [Browsable(false)]
         public List<DataPos> ListDataPos;
 
+        private double manualSpeedPercent = 10;
         [Browsable(false)]
-        public double Vel { get; set; } = 1;
-
-        private int state = (int)Status.Ready;
-
-        public Status GetState()
+        public double ManualSpeedPercent
         {
-            return (Status)System.Threading.Volatile.Read(ref state);
-        }
-        public void SetState(Status state)
-        {
-            if (state != Status.NotReady && state != Status.Ready && state != Status.Run)
+            get => manualSpeedPercent;
+            set
             {
-                throw new ArgumentOutOfRangeException(nameof(state));
+                if (value < 1 || value > 100 || double.IsNaN(value) || double.IsInfinity(value))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value), "手动调试速度百分比必须在1到100之间。");
+                }
+                manualSpeedPercent = value;
             }
-            System.Threading.Volatile.Write(ref this.state, (int)state);
         }
-        public enum Status
-        {
-            NotReady = -1,
-            Ready,
-            Run,
-        }
+
         public DataStation(bool isnull)
         {
             dataAxis = new DataAxis(Name);
@@ -785,7 +966,7 @@ namespace Automation
             {
                 axisName = value;
                 if (value != "-1"
-                    && (SF.isModify == ModifyKind.Station || SF.frmCard?.IsNewStation == true)
+                    && SF.ActiveEditSession?.Draft is DataStation
                     && SF.cardStore != null
                     && int.TryParse(CardNum, out int cardNum))
                 {

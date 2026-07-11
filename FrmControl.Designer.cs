@@ -620,7 +620,7 @@
             this.label6.Name = "label6";
             this.label6.Size = new System.Drawing.Size(51, 21);
             this.label6.TabIndex = 114;
-            this.label6.Text = "100%";
+            this.label6.Text = "10%";
             this.label6.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
             // 
             // btnStop
@@ -663,7 +663,7 @@
             this.label25.Name = "label25";
             this.label25.Size = new System.Drawing.Size(90, 21);
             this.label25.TabIndex = 109;
-            this.label25.Text = "整体速度：";
+            this.label25.Text = "手动调试速度：";
             // 
             // comboBox1
             // 
@@ -688,7 +688,7 @@
             this.trackBar1.TabIndex = 110;
             this.trackBar1.TickFrequency = 0;
             this.trackBar1.TickStyle = System.Windows.Forms.TickStyle.None;
-            this.trackBar1.Value = 100;
+            this.trackBar1.Value = 10;
             this.trackBar1.MouseUp += new System.Windows.Forms.MouseEventHandler(this.trackBar1_MouseUp);
             // 
             // label24

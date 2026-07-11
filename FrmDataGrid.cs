@@ -609,7 +609,7 @@ namespace Automation
             OperationTemp.RefleshPropertyAlarm();
             SF.frmPropertyGrid.propertyGrid1.SelectedObject = OperationTemp;
             SF.isAddOps = true;
-            SF.BeginEdit(ModifyKind.None);
+            BeginOperationEditSession(true);
             SF.frmDataGrid.dataGridView1.Enabled = false;
         }
 
@@ -670,14 +670,14 @@ namespace Automation
 
         }
 
-        public void SaveSingleProc(int ProcIndex)
+        public bool SaveSingleProc(int ProcIndex)
         {
             try
             {
                 if (!TryValidateProcGotoTargets(ProcIndex, out string error))
                 {
                     MessageBox.Show(error);
-                    return;
+                    return false;
                 }
                 if (SF.frmProc != null)
                 {
@@ -686,19 +686,24 @@ namespace Automation
                     if (errors.Count > 0)
                     {
                         MessageBox.Show(string.Join("\r\n", errors.Distinct()));
-                        return;
+                        return false;
                     }
                 }
                 if (!SF.CanPublishProcUpdate(ProcIndex))
                 {
-                    return;
+                    return false;
                 }
-                SF.mainfrm.SaveAsJson(SF.workPath, ProcIndex.ToString(), SF.frmProc.procsList[ProcIndex]);
+                if (!SF.mainfrm.SaveAsJson(SF.workPath, ProcIndex.ToString(), SF.frmProc.procsList[ProcIndex]))
+                {
+                    return false;
+                }
                 SF.PublishProc(ProcIndex);
+                return true;
             }
             catch (Exception ex)
             {
                 MessageBox.Show(ex.Message);
+                return false;
             }
         }
 
@@ -819,7 +824,7 @@ namespace Automation
                 MessageBox.Show("请选择需要编辑的指令。");
                 return;
             }
-            SF.BeginEdit(ModifyKind.Operation);
+            BeginOperationEditSession(false);
             SF.frmDataGrid.dataGridView1.Enabled = false;
             SF.frmProc.Enabled = false;
         }
@@ -1351,10 +1356,83 @@ namespace Automation
                     MessageBox.Show("请先选择流程步骤。");
                     return;
                 }
-                SF.BeginEdit(ModifyKind.Operation);
+                BeginOperationEditSession(false);
                 SF.frmDataGrid.dataGridView1.Enabled = false;
                 SF.frmProc.Enabled = false;
             }
+        }
+
+        private void BeginOperationEditSession(bool isAdd)
+        {
+            int procIndex = SF.frmProc.SelectedProcNum;
+            int stepIndex = SF.frmProc.SelectedStepNum;
+            int selectedRow = iSelectedRow;
+            SF.isAddOps = isAdd;
+            SF.isModify = isAdd ? ModifyKind.None : ModifyKind.Operation;
+            SF.BeginEditSession(new EditSession<OperationType>(isAdd ? "新增指令" : "修改指令", OperationTemp,
+                draft =>
+                {
+                    if (draft == null)
+                    {
+                        return "指令草稿为空。";
+                    }
+                    return SF.frmToolBar.TryValidateGotoTargets(draft, procIndex, out string error) ? null : error;
+                },
+                draft =>
+                {
+                    Step step = SF.frmProc.procsList[procIndex].steps[stepIndex];
+                    int targetIndex;
+                    OperationType replacedOperation = null;
+                    if (isAdd)
+                    {
+                        draft.Id = Guid.NewGuid();
+                        targetIndex = selectedRow < 0 ? step.Ops.Count : selectedRow + 1;
+                        step.Ops.Insert(targetIndex, draft);
+                        for (int i = targetIndex; i < step.Ops.Count; i++)
+                        {
+                            step.Ops[i].Num = i;
+                        }
+                    }
+                    else
+                    {
+                        if (selectedRow < 0 || selectedRow >= step.Ops.Count)
+                        {
+                            throw new InvalidOperationException("指令索引已失效。");
+                        }
+                        OperationType original = step.Ops[selectedRow];
+                        draft.Id = original?.Id != Guid.Empty ? original.Id : Guid.NewGuid();
+                        replacedOperation = original;
+                        step.Ops[selectedRow] = draft;
+                        targetIndex = selectedRow;
+                    }
+                    if (!SaveSingleProc(procIndex))
+                    {
+                        if (isAdd)
+                        {
+                            step.Ops.RemoveAt(targetIndex);
+                        }
+                        else
+                        {
+                            step.Ops[targetIndex] = replacedOperation;
+                        }
+                        throw new InvalidOperationException("流程指令保存失败，正式内存已恢复。");
+                    }
+                    SF.frmProc.bindingSource.ResetBindings(true);
+                    OperationTemp = (OperationType)step.Ops[targetIndex].Clone();
+                    iSelectedRow = targetIndex;
+                    dataGridView1.Enabled = true;
+                    SF.frmProc.Enabled = true;
+                    SF.isAddOps = false;
+                    SF.isModify = ModifyKind.None;
+                },
+                () =>
+                {
+                    OperationTemp = null;
+                    dataGridView1.Enabled = true;
+                    SF.frmProc.Enabled = true;
+                    SF.isAddOps = false;
+                    SF.isModify = ModifyKind.None;
+                }));
         }
 
         private void Enable_Click(object sender, EventArgs e)

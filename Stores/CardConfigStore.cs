@@ -140,16 +140,14 @@ namespace Automation
                 error = prefix + "脉冲当量、最大速度或加减速参数必须大于0。";
                 return false;
             }
-            if (!TryParsePositive(axis.HomeSpeed, out _) || !TryParsePositive(axis.LimitSpeed, out _))
+            if (!TryParsePositive(axis.HomeSpeed, out _))
             {
-                error = prefix + "回原速度或找限位速度无效。";
+                error = prefix + "回原速度无效。";
                 return false;
             }
-            if (axis.HomeType != "从正限位回零"
-                && axis.HomeType != "从负限位回零"
-                && axis.HomeType != "从当前位回零")
+            if (axis.HomeDirection != "正向" && axis.HomeDirection != "负向")
             {
-                error = $"{prefix}回原模式无效:{axis.HomeType}";
+                error = $"{prefix}回原搜索方向无效:{axis.HomeDirection}";
                 return false;
             }
             return true;
@@ -362,6 +360,33 @@ namespace Automation
             }
             axis = controlCard.axis[axisIndex];
             return axis != null;
+        }
+
+        public void ReplaceControlCard(int cardIndex, ControlCard controlCard)
+        {
+            if (controlCard == null)
+            {
+                throw new ArgumentNullException(nameof(controlCard));
+            }
+            if (cardData?.controlCards == null || cardIndex < 0 || cardIndex >= cardData.controlCards.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(cardIndex));
+            }
+            cardData.controlCards[cardIndex] = controlCard;
+        }
+
+        public void ReplaceAxis(int cardIndex, int axisIndex, Axis axis)
+        {
+            if (axis == null)
+            {
+                throw new ArgumentNullException(nameof(axis));
+            }
+            if (!TryGetControlCard(cardIndex, out ControlCard controlCard)
+                || controlCard.axis == null || axisIndex < 0 || axisIndex >= controlCard.axis.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(axisIndex));
+            }
+            controlCard.axis[axisIndex] = axis;
         }
 
         public bool TryGetAxisByName(int cardIndex, string axisName, out Axis axis)

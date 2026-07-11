@@ -2782,7 +2782,7 @@ namespace Automation.Bridge
                 {
                     ["stationIndex"] = i,
                     ["name"] = station.Name ?? string.Empty,
-                    ["vel"] = station.Vel,
+                    ["manualSpeedPercent"] = station.ManualSpeedPercent,
                     ["pointCount"] = namedCount
                 });
             }
@@ -2812,7 +2812,7 @@ namespace Automation.Bridge
             {
                 ["stationIndex"] = stationIndex,
                 ["name"] = station.Name ?? string.Empty,
-                ["vel"] = station.Vel,
+                ["manualSpeedPercent"] = station.ManualSpeedPercent,
                 ["points"] = points
             };
         }
@@ -2830,7 +2830,7 @@ namespace Automation.Bridge
             {
                 return BridgeError(400, "INVALID_ARGUMENT", "缺少 name 字段或 name 为空。");
             }
-            double? vel = request["vel"]?.Value<double>();
+            double? manualSpeedPercent = request["manualSpeedPercent"]?.Value<double>();
             List<DataStation> list = SF.frmCard.dataStation;
             foreach (DataStation s in list)
             {
@@ -2843,7 +2843,7 @@ namespace Automation.Bridge
             {
                 Name = name
             };
-            if (vel.HasValue) station.Vel = vel.Value;
+            if (manualSpeedPercent.HasValue) station.ManualSpeedPercent = manualSpeedPercent.Value;
             list.Add(station);
             SaveStationAndRefresh();
             int newIndex = list.Count - 1;
@@ -2883,7 +2883,7 @@ namespace Automation.Bridge
             int stationIndex = ReadRequiredInt(request, "stationIndex");
             DataStation station = ResolveStation(stationIndex);
             string name = request["name"]?.Value<string>();
-            double? vel = request["vel"]?.Value<double>();
+            double? manualSpeedPercent = request["manualSpeedPercent"]?.Value<double>();
             bool changed = false;
             if (!string.IsNullOrWhiteSpace(name))
             {
@@ -2900,14 +2900,14 @@ namespace Automation.Bridge
                 station.Name = name;
                 changed = true;
             }
-            if (vel.HasValue)
+            if (manualSpeedPercent.HasValue)
             {
-                station.Vel = vel.Value;
+                station.ManualSpeedPercent = manualSpeedPercent.Value;
                 changed = true;
             }
             if (!changed)
             {
-                return BridgeError(400, "INVALID_ARGUMENT", "至少提供 name 或 vel 之一。");
+                return BridgeError(400, "INVALID_ARGUMENT", "至少提供 name 或 manualSpeedPercent 之一。");
             }
             SaveStationAndRefresh();
             return new JObject
@@ -2917,7 +2917,7 @@ namespace Automation.Bridge
                 {
                     ["stationIndex"] = stationIndex,
                     ["name"] = station.Name ?? string.Empty,
-                    ["vel"] = station.Vel
+                    ["manualSpeedPercent"] = station.ManualSpeedPercent
                 },
                 ["message"] = $"工站 stationIndex={stationIndex} 已更新。"
             };
@@ -3796,9 +3796,9 @@ namespace Automation.Bridge
                             ["axisName"] = axis.AxisName ?? string.Empty,
                             ["axisNum"] = axis.AxisNum,
                             ["pulseToMM"] = axis.PulseToMM,
-                            ["homeType"] = axis.HomeType ?? string.Empty,
+                            ["homeDirection"] = axis.HomeDirection ?? string.Empty,
+                            ["homeMode"] = "一次回零加回找",
                             ["homeSpeed"] = axis.HomeSpeed ?? string.Empty,
-                            ["limitSpeed"] = axis.LimitSpeed ?? string.Empty,
                             ["speedInfo"] = axis.SpeedInfo,
                             ["speedMax"] = axis.SpeedMax,
                             ["accMax"] = axis.AccMax,

@@ -41,6 +41,49 @@ namespace Automation
       
         private void btnSave_Click(object sender, EventArgs e)
         {
+            if (SF.ActiveEditSession == null)
+            {
+                MessageBox.Show("当前没有可保存的编辑会话。");
+                return;
+            }
+            try
+            {
+                if (!SF.TryCommitEditSession(out string error))
+                {
+                    MessageBox.Show(error, "配置校验失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                SF.frmDataGrid.dataGridView1.Enabled = true;
+                SF.frmProc.Enabled = true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "配置保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void btnSaveLegacy_Click(object sender, EventArgs e)
+        {
+            if (SF.ActiveEditSession == null)
+            {
+                MessageBox.Show("当前没有可保存的编辑会话。");
+                return;
+            }
+            if (SF.ActiveEditSession != null)
+            {
+                try
+                {
+                    if (!SF.TryCommitEditSession(out string error))
+                    {
+                        MessageBox.Show(error, "配置校验失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "配置保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                return;
+            }
             if(SF.curPage == 0)
             {
                 if (SF.frmProc.NewProcNum != -1 && !SF.CanEditProcStructure())
@@ -397,6 +440,28 @@ namespace Automation
  
         private void btnCancel_Click(object sender, EventArgs e)
         {
+            if (SF.ActiveEditSession == null)
+            {
+                return;
+            }
+            SF.CancelEditSession();
+            SF.frmDataGrid.dataGridView1.Enabled = true;
+            SF.frmProc.Enabled = true;
+        }
+
+        private void btnCancelLegacy_Click(object sender, EventArgs e)
+        {
+            if (SF.ActiveEditSession == null)
+            {
+                return;
+            }
+            if (SF.ActiveEditSession != null)
+            {
+                SF.CancelEditSession();
+                SF.frmDataGrid.dataGridView1.Enabled = true;
+                SF.frmProc.Enabled = true;
+                return;
+            }
             if (SF.isModify == ModifyKind.Proc)
             {
                 SF.frmProc.RollbackEdit();
@@ -572,7 +637,7 @@ namespace Automation
             }
         }
 
-        private bool TryValidateGotoTargets(OperationType operation, int procNum, out string error)
+        internal bool TryValidateGotoTargets(OperationType operation, int procNum, out string error)
         {
             error = null;
             if (operation == null)

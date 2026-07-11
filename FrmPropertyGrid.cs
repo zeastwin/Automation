@@ -113,6 +113,10 @@ namespace Automation
                 SF.frmDataGrid.OperationTemp.Num = SF.frmDataGrid.iSelectedRow;
                 propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
                 SF.frmDataGrid.OperationTemp.evtRP();
+                if (SF.ActiveEditSession != null)
+                {
+                    SF.ReplaceActiveEditDraft(SF.frmDataGrid.OperationTemp);
+                }
                 propertyGrid1.ExpandAllGridItems();
             }
             if (OperationType.SelectedIndex != -1 && SF.isAddOps == true)
@@ -122,6 +126,10 @@ namespace Automation
                 SF.frmDataGrid.OperationTemp.Num = num;
                 propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
                 SF.frmDataGrid.OperationTemp.evtRP();
+                if (SF.ActiveEditSession != null)
+                {
+                    SF.ReplaceActiveEditDraft(SF.frmDataGrid.OperationTemp);
+                }
                 propertyGrid1.ExpandAllGridItems();
             }
          

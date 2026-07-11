@@ -2416,7 +2416,7 @@ namespace Automation
         }
         private double vel = 0; 
         [Browsable(false)]
-        [DisplayName("速度"), Category("速度设置"), Description("目标运行速度。"), ReadOnly(false)]
+        [DisplayName("生产速度能力(%)"), Category("速度设置"), Description("自动生产运动速度百分比，必须在1到100之间。"), ReadOnly(false)]
         public double Vel
         {
             get { return vel; }
@@ -2434,7 +2434,7 @@ namespace Automation
 
         private double acc = 0;
         [Browsable(false)]
-        [DisplayName("加速度"), Category("速度设置"), Description("目标加速度。"), ReadOnly(false)]
+        [DisplayName("生产加速能力(%)"), Category("速度设置"), Description("自动生产加速能力百分比；数值越小，加速时间越长。"), ReadOnly(false)]
         public double Acc
         {
             get { return acc; }
@@ -2452,7 +2452,7 @@ namespace Automation
 
         private double dec = 0;
         [Browsable(false)]
-        [DisplayName("减速度"), Category("速度设置"), Description("目标减速度。"), ReadOnly(false)]
+        [DisplayName("生产减速能力(%)"), Category("速度设置"), Description("自动生产减速能力百分比；数值越小，减速时间越长。"), ReadOnly(false)]
         public double Dec
         {
             get { return dec; }
@@ -2910,7 +2910,7 @@ namespace Automation
         }
         private double vel = 0;
         [Browsable(false)]
-        [DisplayName("速度"), Category("速度设置"), Description("目标运行速度。"), ReadOnly(false)]
+        [DisplayName("生产速度能力(%)"), Category("速度设置"), Description("自动生产运动速度百分比，必须在1到100之间。"), ReadOnly(false)]
         public double Vel
         {
             get { return vel; }
@@ -2927,7 +2927,7 @@ namespace Automation
         public string VelV { get; set; }
         private double acc = 0;
         [Browsable(false)]
-        [DisplayName("加速度"), Category("速度设置"), Description("目标加速度。"), ReadOnly(false)]
+        [DisplayName("生产加速能力(%)"), Category("速度设置"), Description("自动生产加速能力百分比；数值越小，加速时间越长。"), ReadOnly(false)]
         public double Acc
         {
             get { return acc; }
@@ -2944,7 +2944,7 @@ namespace Automation
         public string AccV { get; set; }
         private double dec = 0;
         [Browsable(false)]
-        [DisplayName("减速度"), Category("速度设置"), Description("目标减速度。"), ReadOnly(false)]
+        [DisplayName("生产减速能力(%)"), Category("速度设置"), Description("自动生产减速能力百分比；数值越小，减速时间越长。"), ReadOnly(false)]
         public double Dec
         {
             get { return dec; }
@@ -3052,7 +3052,7 @@ namespace Automation
 
         private double vel = 0;
         [Browsable(true)]
-        [DisplayName("速度"), Category("速度设置"), Description("目标运行速度。"), ReadOnly(false)]
+        [DisplayName("生产速度能力(%)"), Category("速度设置"), Description("持续作用于目标物理轴的自动生产速度百分比，必须在1到100之间。"), ReadOnly(false)]
         public double Vel
         {
             get { return vel; }
@@ -3069,7 +3069,7 @@ namespace Automation
         public string VelV { get; set; }
         private double acc = 0;
         [Browsable(true)]
-        [DisplayName("加速度"), Category("速度设置"), Description("目标加速度。"), ReadOnly(false)]
+        [DisplayName("生产加速能力(%)"), Category("速度设置"), Description("持续作用于目标物理轴；数值越小，加速时间越长。"), ReadOnly(false)]
         public double Acc
         {
             get { return acc; }
@@ -3086,7 +3086,7 @@ namespace Automation
         public string AccV { get; set; }
         private double dec = 0;
         [Browsable(true)]
-        [DisplayName("减速度"), Category("速度设置"), Description("目标减速度。"), ReadOnly(false)]
+        [DisplayName("生产减速能力(%)"), Category("速度设置"), Description("持续作用于目标物理轴；数值越小，减速时间越长。"), ReadOnly(false)]
         public double Dec
         {
             get { return dec; }

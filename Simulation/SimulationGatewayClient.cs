@@ -201,6 +201,12 @@ namespace Automation.Simulation
             }));
         }
 
+        public void StageManualMotionParameters(ushort card, ushort axis, double minVel, double maxVel,
+            double acc, double dec, double stopVel, double sPara, int equiv)
+        {
+            SetMovParam(card, axis, minVel, maxVel, acc, dec, stopVel, sPara, equiv);
+        }
+
         public void Mov(ushort card, ushort axis, double distance, ushort positionMode, bool wait)
         {
             EnsureAxisCommandValidated(card, axis, AxisCommandKind.Motion, false);
@@ -245,9 +251,9 @@ namespace Automation.Simulation
             foreach (GatewayAxisState state in axisStates.Values) SetAxisSevon((ushort)state.Card, (ushort)state.Axis, true);
         }
 
-        public void CleanAlarm()
+        public void ResetAxisAlarm(ushort card, ushort axis)
         {
-            EnsureCommandSucceeded(SendCommand("motion.clearAlarm", new JObject()));
+            EnsureCommandSucceeded(SendCommand("motion.clearAlarm", AxisPayload(card, axis)));
         }
 
         public double GetAxisCurSpeed(ushort card, ushort axis)
