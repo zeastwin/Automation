@@ -27,8 +27,10 @@ namespace Automation
     {
         private const int InitializeTimeoutMs = 30000;
         private const int SessionTimeoutMs = 30000;
+        private const long MaxLogFileBytes = 5L * 1024L * 1024L;
 
         private static readonly string executionLogRoot = Path.Combine(@"D:\AutomationLogs", "AIExecution");
+        private static readonly string acpLogRoot = Path.Combine(@"D:\AutomationLogs", "GooseAcp");
         private static readonly Mutex executionLogMutex = new Mutex(false, "AutomationAIExecutionAuditLog");
 
         private readonly GooseConfig config;
@@ -95,6 +97,21 @@ namespace Automation
                 }
                 sessionWorkingDirectory = rootDirectory;
             }
+            JObject sessionMeta = new JObject
+            {
+                ["sessionName"] = config.SessionName ?? string.Empty,
+                ["maxTurns"] = config.MaxTurns
+            };
+            if (!string.IsNullOrWhiteSpace(config.Provider))
+            {
+                sessionMeta["provider"] = string.Equals(config.Provider.Trim(), "deepseek", StringComparison.OrdinalIgnoreCase)
+                    ? "custom_deepseek"
+                    : config.Provider.Trim();
+            }
+            if (!string.IsNullOrWhiteSpace(config.Model))
+            {
+                sessionMeta["model"] = config.Model.Trim();
+            }
             JObject result = await SendRequestAsync("session/new", new JObject
             {
                 ["cwd"] = sessionWorkingDirectory,
@@ -110,13 +127,7 @@ namespace Automation
                         ["headers"] = new JArray()
                     }
                 },
-                ["_meta"] = new JObject
-                {
-                    ["sessionName"] = config.SessionName ?? string.Empty,
-                    ["provider"] = config.Provider ?? string.Empty,
-                    ["model"] = config.Model ?? string.Empty,
-                    ["maxTurns"] = config.MaxTurns
-                }
+                ["_meta"] = sessionMeta
             }, SessionTimeoutMs, cancellationToken).ConfigureAwait(false);
 
             sessionId = ReadSessionId(result);
@@ -328,9 +339,15 @@ namespace Automation
             startInfo.EnvironmentVariables["PATH"] = machineGitCommandPath + Path.PathSeparator
                 + (startInfo.EnvironmentVariables["PATH"] ?? Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
 
-            if (!string.IsNullOrWhiteSpace(config.Provider))
+            string configuredProvider = config.Provider?.Trim();
+            bool useDeepSeekProvider = string.Equals(configuredProvider, "deepseek", StringComparison.OrdinalIgnoreCase);
+            if (useDeepSeekProvider)
             {
-                startInfo.EnvironmentVariables["GOOSE_PROVIDER"] = config.Provider.Trim();
+                GooseConfigStorage.EnsureDeepSeekGooseConfiguration(config.Model);
+            }
+            if (!string.IsNullOrWhiteSpace(configuredProvider))
+            {
+                startInfo.EnvironmentVariables["GOOSE_PROVIDER"] = useDeepSeekProvider ? "custom_deepseek" : configuredProvider;
             }
             if (!string.IsNullOrWhiteSpace(config.Model))
             {
@@ -439,10 +456,7 @@ namespace Automation
                 pendingRequests.TryRemove(id, out _);
                 throw;
             }
-            if (!string.Equals(method, "session/prompt", StringComparison.Ordinal))
-            {
-                LogFile($"ACP-> 请求 id={id} method={method}", parameters, LogLevel.Normal);
-            }
+            LogFile($"ACP-> 请求 id={id} method={method}", parameters, LogLevel.Normal);
             Report("request", $"{method} 请求已发送。", request);
 
             Task delayTask = timeoutMs > 0
@@ -577,10 +591,15 @@ namespace Automation
             if (message["error"] is JObject error)
             {
                 string errorMessage = error["message"]?.Value<string>() ?? "EW-AI ACP 返回错误。";
+                string errorData = error["data"]?.Type == JTokenType.String
+                    ? error["data"].Value<string>()
+                    : error["data"]?.ToString(Formatting.None);
+                string detailedMessage = string.IsNullOrWhiteSpace(errorData)
+                    ? errorMessage
+                    : errorMessage + "：" + errorData;
                 // 排查 invalid params 等错误的关键入口：完整记录 error 对象（含 code/data）。
-                LogFile($"ACP<- 错误响应 id={id} message={errorMessage}", error, LogLevel.Error);
-                tcs.TrySetException(new InvalidOperationException(errorMessage));
-                Report("error", errorMessage, message);
+                LogFile($"ACP<- 错误响应 id={id} message={detailedMessage}", error, LogLevel.Error);
+                tcs.TrySetException(new InvalidOperationException(detailedMessage));
                 return;
             }
 
@@ -1147,14 +1166,51 @@ namespace Automation
             bool lockTaken = false;
             try
             {
-                Directory.CreateDirectory(executionLogRoot);
                 lockTaken = executionLogMutex.WaitOne(TimeSpan.FromSeconds(2));
                 if (!lockTaken)
                 {
                     return;
                 }
-                string path = Path.Combine(executionLogRoot, DateTime.Now.ToString("yyyy-MM-dd") + ".jsonl");
-                File.AppendAllText(path, record.ToString(Formatting.None) + Environment.NewLine, new UTF8Encoding(false));
+                string root = string.Equals(record["source"]?.Value<string>(), "acp", StringComparison.Ordinal)
+                    ? acpLogRoot
+                    : executionLogRoot;
+                string dayDirectory = Path.Combine(root, DateTime.Now.ToString("yyyy-MM-dd"));
+                Directory.CreateDirectory(dayDirectory);
+
+                StringBuilder builder = new StringBuilder();
+                builder.AppendLine(new string('=', 80));
+                builder.Append("时间：").AppendLine(record["time"]?.Value<string>() ?? DateTime.Now.ToString("O"));
+                builder.Append("来源：").AppendLine(record["source"]?.Value<string>() ?? string.Empty);
+                builder.Append("类型：").AppendLine(record["kind"]?.Value<string>() ?? string.Empty);
+                AppendLogField(builder, "审计会话", record["auditSessionId"]);
+                AppendLogField(builder, "Goose 会话", record["gooseSessionId"]);
+                AppendLogField(builder, "Prompt ID", record["promptId"]);
+                builder.AppendLine("内容：");
+                builder.AppendLine(record["text"]?.Value<string>() ?? string.Empty);
+                if (record["raw"] != null)
+                {
+                    builder.AppendLine("原始数据：");
+                    builder.AppendLine(record["raw"].ToString(Formatting.Indented));
+                }
+                builder.AppendLine();
+
+                string content = builder.ToString();
+                int index = 1;
+                string path;
+                while (true)
+                {
+                    path = Path.Combine(dayDirectory, $"log_{index:000}.txt");
+                    if (!File.Exists(path)
+                        || new FileInfo(path).Length + Encoding.UTF8.GetByteCount(content) <= MaxLogFileBytes)
+                    {
+                        break;
+                    }
+                    index++;
+                }
+                using (StreamWriter writer = new StreamWriter(path, true, new UTF8Encoding(true)))
+                {
+                    writer.Write(content);
+                }
             }
             catch (AbandonedMutexException)
             {
@@ -1175,6 +1231,15 @@ namespace Automation
                     {
                     }
                 }
+            }
+        }
+
+        private static void AppendLogField(StringBuilder builder, string label, JToken value)
+        {
+            string text = value?.Value<string>();
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                builder.Append(label).Append('：').AppendLine(text);
             }
         }
 

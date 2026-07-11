@@ -55,6 +55,8 @@ namespace Automation
         public const string ToolProfileKey = "ToolProfile";
         public const string DefaultToolProfile = "Diagnostic";
         public const int DefaultMaxTurns = 100;
+        public const string DefaultProvider = "deepseek";
+        public const string DefaultModel = "deepseek-v4-pro";
 
         private static readonly object cacheLock = new object();
         private static GooseConfig cachedConfig;
@@ -107,15 +109,30 @@ namespace Automation
                     return false;
                 }
 
+                bool configMigrated = false;
+                // DeepSeek 已发布 V4-Pro/V4-Flash，并将在 2026-07-24 停用旧模型标识。
+                // 项目原先默认使用旧标识，统一迁移到面向复杂代理任务的 V4-Pro。
+                if (string.Equals(config.Provider, "deepseek", StringComparison.OrdinalIgnoreCase)
+                    && (string.Equals(config.Model, "deepseek-chat", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(config.Model, "deepseek-reasoner", StringComparison.OrdinalIgnoreCase)))
+                {
+                    config.Model = DefaultModel;
+                    configMigrated = true;
+                }
+
                 // 旧版本默认值为 30；该值不足以完成包含多次 MCP 预演、确认和审计的流程编辑任务。
                 // 仅迁移旧默认值，保留用户主动设置的其他上限。
                 if (config.MaxTurns == 30)
                 {
                     config.MaxTurns = DefaultMaxTurns;
+                    configMigrated = true;
+                }
+                if (configMigrated)
+                {
                     if (!TrySave(config, out string saveError))
                     {
                         config = null;
-                        error = $"迁移 EW-AI MaxTurns 配置失败:{saveError}";
+                        error = $"迁移 EW-AI 配置失败:{saveError}";
                         return false;
                     }
                 }
@@ -211,8 +228,8 @@ namespace Automation
                 WorkingDirectory = baseDirectory,
                 McpUri = "http://127.0.0.1:8081",
                 SessionName = "automation",
-                Provider = "deepseek",
-                Model = "deepseek-chat",
+                Provider = DefaultProvider,
+                Model = DefaultModel,
                 MaxTurns = DefaultMaxTurns,
                 FullPermissionMode = false,
                 ToolProfile = DefaultToolProfile
@@ -222,6 +239,68 @@ namespace Automation
         public static bool TryValidate(GooseConfig config, out string error)
         {
             return Validate(config, out error);
+        }
+
+        public static void EnsureDeepSeekGooseConfiguration(string model)
+        {
+            string normalizedModel = (model ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(normalizedModel))
+            {
+                throw new InvalidOperationException("生成 Goose DeepSeek 配置时模型不能为空。");
+            }
+
+            string configDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Block", "goose", "config");
+            Directory.CreateDirectory(configDirectory);
+
+            string configPath = Path.Combine(configDirectory, "config.yaml");
+            WriteNewFileIfMissing(
+                configPath,
+                "GOOSE_PROVIDER: custom_deepseek" + Environment.NewLine
+                + "GOOSE_MODEL: " + normalizedModel + Environment.NewLine);
+
+            string providerDirectory = Path.Combine(configDirectory, "custom_providers");
+            Directory.CreateDirectory(providerDirectory);
+            JObject provider = new JObject
+            {
+                ["name"] = "custom_deepseek",
+                ["engine"] = "openai",
+                ["display_name"] = "DeepSeek",
+                ["description"] = "Automation 自动配置的 DeepSeek 官方 API Provider",
+                ["api_key_env"] = "DEEPSEEK_API_KEY",
+                ["base_url"] = "https://api.deepseek.com/chat/completions",
+                ["models"] = new JArray
+                {
+                    new JObject { ["name"] = "deepseek-v4-pro", ["context_limit"] = 1000000 },
+                    new JObject { ["name"] = "deepseek-v4-flash", ["context_limit"] = 1000000 }
+                },
+                ["supports_streaming"] = true,
+                ["requires_auth"] = true
+            };
+            WriteNewFileIfMissing(
+                Path.Combine(providerDirectory, "custom_deepseek.json"),
+                provider.ToString(Formatting.Indented) + Environment.NewLine);
+        }
+
+        private static void WriteNewFileIfMissing(string path, string content)
+        {
+            if (File.Exists(path))
+            {
+                return;
+            }
+            try
+            {
+                using (FileStream stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
+                using (StreamWriter writer = new StreamWriter(stream, new UTF8Encoding(false)))
+                {
+                    writer.Write(content);
+                }
+            }
+            catch (IOException) when (File.Exists(path))
+            {
+                // 另一进程已完成同一份首次配置，直接使用其结果。
+            }
         }
 
         private static bool Validate(GooseConfig config, out string error)

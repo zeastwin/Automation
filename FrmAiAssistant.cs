@@ -445,7 +445,7 @@ function fillConfig(){
     byId('cfgSession').value=c.sessionName||'';
     byId('cfgTurns').value=c.maxTurns||20;
     setOptions(byId('cfgProvider'),appState.providerOptions||[],c.provider||'deepseek');
-    setOptions(byId('cfgModel'),appState.modelOptions||[],c.model||'deepseek-chat');
+    setOptions(byId('cfgModel'),appState.modelOptions||[],c.model||'deepseek-v4-pro');
     byId('cfgApiKey').value='';
     byId('cfgApiKey').placeholder=c.hasApiKey?'本机已保存，留空则保持不变':'输入 API Key（仅保存在本机）';
 }
@@ -653,7 +653,7 @@ document.addEventListener('DOMContentLoaded',function(){
             cboProvider.SelectedIndex = 0;
             cboProvider.SelectedIndexChanged += CboProvider_SelectedIndexChanged;
 
-            RefreshModelOptions("deepseek", "deepseek-chat");
+            RefreshModelOptions(GooseConfigStorage.DefaultProvider, GooseConfigStorage.DefaultModel);
         }
 
         private void CboProvider_SelectedIndexChanged(object sender, EventArgs e)
@@ -715,7 +715,7 @@ document.addEventListener('DOMContentLoaded',function(){
             switch ((provider ?? string.Empty).Trim().ToLowerInvariant())
             {
                 case "deepseek":
-                    return new[] { "deepseek-chat", "deepseek-reasoner" };
+                    return new[] { "deepseek-v4-pro", "deepseek-v4-flash" };
                 case "openai":
                     return new[] { "gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini" };
                 case "anthropic":
@@ -757,8 +757,8 @@ document.addEventListener('DOMContentLoaded',function(){
             txtWorkingDirectory.Text = AppDomain.CurrentDomain.BaseDirectory;
             txtMcpUri.Text = config.McpUri;
             txtSessionName.Text = config.SessionName;
-            cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? "deepseek" : config.Provider;
-            RefreshModelOptions(cboProvider.Text, string.IsNullOrWhiteSpace(config.Model) ? "deepseek-chat" : config.Model);
+            cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? GooseConfigStorage.DefaultProvider : config.Provider;
+            RefreshModelOptions(cboProvider.Text, string.IsNullOrWhiteSpace(config.Model) ? GooseConfigStorage.DefaultModel : config.Model);
             nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, config.MaxTurns));
             toolProfile = config.ToolProfile;
             fullPermissionMode = config.FullPermissionMode;
@@ -910,8 +910,8 @@ document.addEventListener('DOMContentLoaded',function(){
 
         private JObject BuildWebAppState()
         {
-            string providerText = string.IsNullOrWhiteSpace(cboProvider.Text) ? "deepseek" : cboProvider.Text;
-            string modelText = string.IsNullOrWhiteSpace(cboModel.Text) ? "deepseek-chat" : cboModel.Text;
+            string providerText = string.IsNullOrWhiteSpace(cboProvider.Text) ? GooseConfigStorage.DefaultProvider : cboProvider.Text;
+            string modelText = string.IsNullOrWhiteSpace(cboModel.Text) ? GooseConfigStorage.DefaultModel : cboModel.Text;
             string normalizedProvider = NormalizeGooseOverride(providerText);
             return new JObject
             {
@@ -978,11 +978,11 @@ document.addEventListener('DOMContentLoaded',function(){
             txtMcpUri.Text = config["mcpUri"]?.Value<string>() ?? string.Empty;
             txtSessionName.Text = config["sessionName"]?.Value<string>() ?? string.Empty;
 
-            string provider = config["provider"]?.Value<string>() ?? "deepseek";
-            string model = config["model"]?.Value<string>() ?? "deepseek-chat";
-            cboProvider.Text = string.IsNullOrWhiteSpace(provider) ? "deepseek" : provider;
+            string provider = config["provider"]?.Value<string>() ?? GooseConfigStorage.DefaultProvider;
+            string model = config["model"]?.Value<string>() ?? GooseConfigStorage.DefaultModel;
+            cboProvider.Text = string.IsNullOrWhiteSpace(provider) ? GooseConfigStorage.DefaultProvider : provider;
             RefreshModelOptions(NormalizeGooseOverride(cboProvider.Text), model);
-            cboModel.Text = string.IsNullOrWhiteSpace(model) ? "deepseek-chat" : model;
+            cboModel.Text = string.IsNullOrWhiteSpace(model) ? GooseConfigStorage.DefaultModel : model;
 
             int maxTurns = config["maxTurns"]?.Value<int?>() ?? GooseConfigStorage.DefaultMaxTurns;
             nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, maxTurns));
