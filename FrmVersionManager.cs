@@ -5,6 +5,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
@@ -15,7 +16,16 @@ namespace Automation
     /// </summary>
     public sealed class FrmVersionManager : Form
     {
-        private readonly WebView2 webView = new WebView2();
+        private readonly WebView2 webView = new WebView2
+        {
+            // WebView2 用户数据目录放到 LocalAppData，避免在程序目录下生成缓存文件夹。
+            CreationProperties = new CoreWebView2CreationProperties
+            {
+                UserDataFolder = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Automation", "WebView2")
+            }
+        };
         private ConfigurationVersionLayer currentLayer = ConfigurationVersionLayer.Process;
         private string selectedCommitId;
         private bool compareWithPrevious;

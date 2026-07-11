@@ -369,6 +369,8 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
 .field{display:flex;flex-direction:column;gap:6px;}
 .field label{font-size:12px;color:#526071;}
+.field-hint{margin-left:6px;font-size:11px;color:#9aa4b2;}
+.field input[readonly]{background:#f1f4f8;color:#6b7685;cursor:default;}
 .field input,.field select{height:36px;border:1px solid #d8e0ea;border-radius:9px;background:#fff;color:#172033;padding:0 10px;font:13px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;outline:none;}
 .field input:focus,.field select:focus{border-color:#75a7da;box-shadow:0 0 0 3px rgba(117,167,218,.18);}
 .field-wide{grid-column:1 / -1;}
@@ -558,7 +560,7 @@ document.addEventListener('DOMContentLoaded',function(){
     <div class=""modal-body scrollable"">
       <div class=""settings-grid"">
         <div class=""field field-wide""><label>EW-AI 路径</label><input id=""cfgGoose"" autocomplete=""off""></div>
-        <div class=""field""><label>工作目录</label><input id=""cfgWorkdir"" autocomplete=""off""></div>
+        <div class=""field""><label>工作目录<span class=""field-hint"">自动跟随程序目录</span></label><input id=""cfgWorkdir"" readonly autocomplete=""off""></div>
         <div class=""field""><label>MCP 地址</label><input id=""cfgMcp"" autocomplete=""off""></div>
         <div class=""field""><label>会话名</label><input id=""cfgSession"" autocomplete=""off""></div>
         <div class=""field""><label>最大轮次</label><input id=""cfgTurns"" type=""number"" min=""1"" max=""200""></div>
@@ -624,7 +626,15 @@ document.addEventListener('DOMContentLoaded',function(){
             webViewConversation = new WebView2
             {
                 Dock = DockStyle.Fill,
-                Margin = new Padding(0)
+                Margin = new Padding(0),
+                // WebView2 用户数据目录（缓存/Cookie/IndexedDB 等）放到 LocalAppData，
+                // 避免在程序目录下生成 Automation.exe.WebView2 文件夹污染部署目录。
+                CreationProperties = new CoreWebView2CreationProperties
+                {
+                    UserDataFolder = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "Automation", "WebView2")
+                }
             };
         }
 
@@ -763,7 +773,7 @@ document.addEventListener('DOMContentLoaded',function(){
                 txtGooseExecutable.Text = resolvedGoosePath;
                 config.GooseExecutablePath = resolvedGoosePath;
             }
-            txtWorkingDirectory.Text = config.WorkingDirectory;
+            txtWorkingDirectory.Text = AppDomain.CurrentDomain.BaseDirectory;
             txtMcpUri.Text = config.McpUri;
             txtSessionName.Text = config.SessionName;
             cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? "使用 EW-AI 配置" : config.Provider;
@@ -1158,7 +1168,7 @@ document.addEventListener('DOMContentLoaded',function(){
             config = new GooseConfig
             {
                 GooseExecutablePath = txtGooseExecutable.Text.Trim(),
-                WorkingDirectory = txtWorkingDirectory.Text.Trim(),
+                WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
                 McpUri = txtMcpUri.Text.Trim(),
                 SessionName = txtSessionName.Text.Trim(),
                 Provider = NormalizeGooseOverride(cboProvider.Text),
@@ -2546,14 +2556,14 @@ document.addEventListener('DOMContentLoaded',function(){
             StringBuilder builder = new StringBuilder();
             string gooseExecutable = ResolveGooseExecutablePath(config.GooseExecutablePath);
             builder.AppendLine($"EW-AI 可执行文件：{gooseExecutable}");
-            builder.AppendLine(RunProcessCapture(gooseExecutable, "--version", config.WorkingDirectory, 10000));
-            builder.AppendLine(RunProcessCapture(gooseExecutable, "info -v", config.WorkingDirectory, 15000));
+            builder.AppendLine(RunProcessCapture(gooseExecutable, "--version", AppDomain.CurrentDomain.BaseDirectory, 10000));
+            builder.AppendLine(RunProcessCapture(gooseExecutable, "info -v", AppDomain.CurrentDomain.BaseDirectory, 15000));
             try
             {
                 GooseConfig resolvedConfig = new GooseConfig
                 {
                     GooseExecutablePath = gooseExecutable,
-                    WorkingDirectory = config.WorkingDirectory,
+                    WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
                     McpUri = config.McpUri,
                     SessionName = config.SessionName,
                     Provider = config.Provider,

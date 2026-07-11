@@ -927,11 +927,13 @@ namespace Automation
             return value;
         }
 
+        // Goose 进程工作目录始终跟随当前程序所在目录（AppDomain.CurrentDomain.BaseDirectory），
+        // 不使用 GooseConfig.json 里持久化的 WorkingDirectory 值。
+        // 原因：程序部署位置不固定，持久化的旧路径会导致 Goose 从错误目录启动，
+        // 向上遍历时可能发现其他项目的 AGENTS.md，造成 AI 上下文污染。
         private string ResolveWorkingDirectory()
         {
-            string workingDirectory = string.IsNullOrWhiteSpace(config.WorkingDirectory)
-                ? AppDomain.CurrentDomain.BaseDirectory
-                : config.WorkingDirectory.Trim();
+            string workingDirectory = AppDomain.CurrentDomain.BaseDirectory;
             if (!Directory.Exists(workingDirectory))
             {
                 Directory.CreateDirectory(workingDirectory);
