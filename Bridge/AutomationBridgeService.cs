@@ -831,6 +831,7 @@ namespace Automation.Bridge
             string name = ReadRequiredString(request, "name");
             bool autoStart = ReadOptionalBoolean(request, "autoStart") ?? false;
             bool disable = ReadOptionalBoolean(request, "disable") ?? false;
+            EnsureAllProcsStoppedForAiStructureCommit("创建流程");
 
             // 预演：创建 proc 对象但不加入 procsList
             Proc proc = new Proc();
@@ -939,7 +940,7 @@ namespace Automation.Bridge
             string newName = ReadOptionalString(request, "newName");
             Proc source = GetProcByIndex(procIndex);
 
-            Proc copy = FrmPropertyGrid.DeepCopy(source);
+            Proc copy = ObjectGraphCloner.Clone(source);
             copy.head = new ProcHead
             {
                 Name = string.IsNullOrWhiteSpace(newName) ? (source.head?.Name + "_副本") : newName,
@@ -978,20 +979,17 @@ namespace Automation.Bridge
             SF.frmProc.procsList.Add(proc);
 
             List<string> errors = new List<string>();
-            SF.frmProc.NormalizeProc(procIndex, proc, errors);
+            ProcessDefinitionService.NormalizeProc(procIndex, proc, errors);
             if (errors.Count > 0)
             {
                 SF.frmProc.procsList.RemoveAt(procIndex);
                 throw new BridgeRequestException(400, "PROC_VALIDATE_FAILED", "流程创建校验失败。", string.Join("\r\n", errors.Distinct()));
             }
 
-            if (!owner.SaveAsJson(SF.workPath, procIndex.ToString(CultureInfo.InvariantCulture), proc))
+            if (!SF.frmProc.RebuildWorkConfig(procIndex))
             {
-                SF.frmProc.procsList.RemoveAt(procIndex);
-                throw new BridgeRequestException(500, "SAVE_FAILED", "流程保存失败。");
+                throw new BridgeRequestException(500, "SAVE_FAILED", "流程创建失败，原流程配置已恢复。");
             }
-            SF.PublishProc(procIndex);
-            SF.frmProc.RefreshProcList();
             NotifyProcChanged(procIndex, ProcChangeKind.Added);
 
             return new JObject
@@ -1025,8 +1023,10 @@ namespace Automation.Bridge
 
             // 重建工作配置文件
             int minDeleted = sortedIndexes.Min();
-            SF.frmProc.RebuildWorkConfig(minDeleted);
-            SF.frmProc.RefreshProcList();
+            if (!SF.frmProc.RebuildWorkConfig(minDeleted))
+            {
+                throw new BridgeRequestException(500, "SAVE_FAILED", "删除流程失败，原流程配置已恢复。");
+            }
             // 删除后原 procIndex 节点已不存在，闪烁剩余列表中同索引位置（若有效）作为视觉提示。
             if (minDeleted < SF.frmProc.procsList.Count)
             {
@@ -1072,8 +1072,10 @@ namespace Automation.Bridge
 
             // 重建工作配置
             int minIndex = Math.Min(procIndex, targetIndex);
-            SF.frmProc.RebuildWorkConfig(minIndex);
-            SF.frmProc.RefreshProcList();
+            if (!SF.frmProc.RebuildWorkConfig(minIndex))
+            {
+                throw new BridgeRequestException(500, "SAVE_FAILED", "流程重排序失败，原流程配置已恢复。");
+            }
             NotifyProcChanged(targetIndex, ProcChangeKind.Modified);
 
             return new JObject
@@ -1109,7 +1111,7 @@ namespace Automation.Bridge
             string newName = ReadOptionalString(request, "newName");
             Proc source = GetProcByIndex(procIndex);
 
-            Proc copy = FrmPropertyGrid.DeepCopy(source);
+            Proc copy = ObjectGraphCloner.Clone(source);
             copy.head = new ProcHead
             {
                 Name = string.IsNullOrWhiteSpace(newName) ? (source.head?.Name + "_副本") : newName,
@@ -1124,15 +1126,17 @@ namespace Automation.Bridge
             SF.frmProc.procsList.Add(copy);
 
             List<string> errors = new List<string>();
-            SF.frmProc.NormalizeProc(newProcIndex, copy, errors);
+            ProcessDefinitionService.NormalizeProc(newProcIndex, copy, errors);
             if (errors.Count > 0)
             {
                 SF.frmProc.procsList.RemoveAt(newProcIndex);
                 throw new BridgeRequestException(400, "PROC_VALIDATE_FAILED", "流程复制校验失败。", string.Join("\r\n", errors.Distinct()));
             }
 
-            SF.frmProc.RebuildWorkConfig(newProcIndex);
-            SF.frmProc.RefreshProcList();
+            if (!SF.frmProc.RebuildWorkConfig(newProcIndex))
+            {
+                throw new BridgeRequestException(500, "SAVE_FAILED", "复制流程失败，原流程配置已恢复。");
+            }
             NotifyProcChanged(newProcIndex, ProcChangeKind.Added);
 
             return new JObject
@@ -1371,7 +1375,7 @@ namespace Automation.Bridge
                 }
             }
 
-            foreach (string error in FrmProc.ValidateProcGotoTargets(procIndex, proc))
+            foreach (string error in ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc))
             {
                 AddFinding(findings, "error", "goto.invalid", error);
             }
@@ -1774,7 +1778,7 @@ namespace Automation.Bridge
                     continue;
                 }
                 var ids = new HashSet<Guid>();
-                foreach (string error in FrmProc.ValidateProcGotoTargets(pi, proc))
+                foreach (string error in ProcessDefinitionService.ValidateProcGotoTargets(pi, proc))
                 {
                     AddAuditFinding(findings, findingLimit, ref totalFindingCount, pi, proc, -1, -1,
                         "error", "goto.invalid", error);
@@ -1939,7 +1943,7 @@ namespace Automation.Bridge
                     }
                 }
             }
-            foreach (string error in FrmProc.ValidateProcGotoTargets(procIndex, proc))
+            foreach (string error in ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc))
             {
                 AddFlowFinding(findings, "error", "goto.invalid", procIndex, -1, -1, error);
             }
@@ -2035,7 +2039,7 @@ namespace Automation.Bridge
             JArray gotoIssues = new JArray();
             if (isJump)
             {
-                foreach (string error in FrmProc.ValidateProcGotoTargets(procIndex, proc))
+                foreach (string error in ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc))
                 {
                     if (error.Contains($"{stepIndex}-{opIndex}") || error.Contains($"步骤 {stepIndex} 指令 {opIndex}"))
                     {
@@ -2225,7 +2229,7 @@ namespace Automation.Bridge
             JArray warnings = new JArray();
 
             // 1. 跳转目标有效性
-            foreach (string error in FrmProc.ValidateProcGotoTargets(procIndex, proc))
+            foreach (string error in ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc))
             {
                 errors.Add(new JObject { ["message"] = error });
             }
@@ -2751,7 +2755,7 @@ namespace Automation.Bridge
 
         private static void SaveStationAndRefresh()
         {
-            SF.mainfrm?.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard?.dataStation);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "DataStation", SF.frmCard?.dataStation);
             SF.frmCard?.RefreshStationList();
             SF.frmCard?.RefreshStationTree();
         }
@@ -3968,7 +3972,7 @@ namespace Automation.Bridge
                 throw new BridgeRequestException(409, "PROC_VERSION_MISMATCH", "流程版本不一致，请重新读取流程详情后再提交。");
             }
 
-            Proc draft = FrmPropertyGrid.DeepCopy(current);
+            Proc draft = ObjectGraphCloner.Clone(current);
             var result = new PatchExecutionResult
             {
                 ProcIndex = procIndex,
@@ -4025,7 +4029,7 @@ namespace Automation.Bridge
             }
 
             List<string> errors = new List<string>();
-            SF.frmProc.NormalizeProc(procIndex, draft, errors);
+            ProcessDefinitionService.NormalizeProc(procIndex, draft, errors);
             if (errors.Count > 0)
             {
                 throw new BridgeRequestException(400, "PATCH_VALIDATE_FAILED", "Patch 预演失败。", string.Join("\r\n", errors.Distinct()));
@@ -4054,18 +4058,10 @@ namespace Automation.Bridge
                     $"retryableNow=false; currentState={snapshot.State}; sideEffects=none; actionRequired=wait_for_operator_stop; forbiddenAction=stop_proc");
             }
 
-            if (!owner.SaveAsJson(SF.workPath, procIndex.ToString(CultureInfo.InvariantCulture), draft))
+            if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
             {
-                throw new BridgeRequestException(500, "SAVE_FAILED", "流程保存失败。");
+                throw new BridgeRequestException(500, "COMMIT_FAILED", "流程提交失败。", commitError);
             }
-
-            SF.frmProc.procsList[procIndex] = draft;
-            if (!SF.PublishProc(procIndex))
-            {
-                throw new BridgeRequestException(500, "PUBLISH_FAILED", "流程发布失败。");
-            }
-
-            SF.frmProc.RefreshProcList();
             NotifyProcChanged(procIndex, ProcChangeKind.Modified, affectedOps);
         }
 
@@ -4141,7 +4137,7 @@ namespace Automation.Bridge
             Guid stepId = ParseGuid(ReadRequiredString(action, "stepId"), "stepId");
             int stepIndex = FindStepIndexById(draft, stepId);
             Step step = draft.steps[stepIndex];
-            Proc before = FrmPropertyGrid.DeepCopy(draft);
+            Proc before = ObjectGraphCloner.Clone(draft);
 
             draft.steps.RemoveAt(stepIndex);
             RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
@@ -4232,27 +4228,7 @@ namespace Automation.Bridge
 
         private void RewriteGotoTargetsAfterStructureChange(Proc before, Proc after, int procIndex, int actionIndex, PatchExecutionResult result)
         {
-            Dictionary<Guid, GotoLocation> newLocations = BuildOperationLocationMap(after);
-            GotoRewriteSummary summary = new GotoRewriteSummary();
-            if (after?.steps != null)
-            {
-                foreach (Step step in after.steps)
-                {
-                    if (step?.Ops == null)
-                    {
-                        continue;
-                    }
-
-                    foreach (OperationType op in step.Ops)
-                    {
-                        if (op == null)
-                        {
-                            continue;
-                        }
-                        RewriteGotoTargetsRecursive(op, before, after, procIndex, newLocations, summary);
-                    }
-                }
-            }
+            GotoRewriteResult summary = ProcessEditingService.RewriteGotoTargets(before, after, procIndex);
 
             if (summary.RewrittenCount == 0 && summary.FallbackCount == 0 && summary.ClearedCount == 0)
             {
@@ -4270,204 +4246,12 @@ namespace Automation.Bridge
             });
         }
 
-        private void RewriteGotoTargetsRecursive(
-            object currentObject,
-            Proc beforeProc,
-            Proc afterProc,
-            int procIndex,
-            Dictionary<Guid, GotoLocation> newLocations,
-            GotoRewriteSummary summary)
-        {
-            if (currentObject == null)
-            {
-                return;
-            }
-
-            foreach (var propertyInfo in currentObject.GetType().GetProperties())
-            {
-                if (propertyInfo.GetIndexParameters().Length > 0)
-                {
-                    continue;
-                }
-
-                if (propertyInfo.PropertyType == typeof(string)
-                    && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
-                {
-                    string currentValue = propertyInfo.GetValue(currentObject) as string;
-                    RewriteSingleGotoTarget(currentObject, propertyInfo, currentValue, beforeProc, afterProc, procIndex, newLocations, summary);
-                }
-
-                var propertyValue = propertyInfo.GetValue(currentObject);
-                if (propertyValue is System.Collections.IEnumerable enumerable && !(propertyValue is string))
-                {
-                    foreach (var item in enumerable)
-                    {
-                        if (item == null)
-                        {
-                            continue;
-                        }
-                        RewriteGotoTargetsRecursive(item, beforeProc, afterProc, procIndex, newLocations, summary);
-                    }
-                }
-            }
-        }
-
-        private void RewriteSingleGotoTarget(
-            object currentObject,
-            System.Reflection.PropertyInfo propertyInfo,
-            string currentValue,
-            Proc beforeProc,
-            Proc afterProc,
-            int procIndex,
-            Dictionary<Guid, GotoLocation> newLocations,
-            GotoRewriteSummary summary)
-        {
-            if (string.IsNullOrWhiteSpace(currentValue))
-            {
-                return;
-            }
-            if (!FrmProc.TryParseGotoKey(currentValue, out int gotoProc, out int gotoStep, out int gotoOp) || gotoProc != procIndex)
-            {
-                return;
-            }
-
-            if (TryResolveTargetOperationId(beforeProc, gotoStep, gotoOp, out Guid targetOpId)
-                && newLocations.TryGetValue(targetOpId, out GotoLocation currentTarget))
-            {
-                string newValue = BuildGotoKey(procIndex, currentTarget.StepIndex, currentTarget.OpIndex);
-                if (!string.Equals(newValue, currentValue, StringComparison.Ordinal))
-                {
-                    propertyInfo.SetValue(currentObject, newValue);
-                    summary.RewrittenCount++;
-                }
-                return;
-            }
-
-            GotoLocation fallback = FindClosestOperationLocation(afterProc, gotoStep, gotoOp);
-            if (fallback != null)
-            {
-                string fallbackValue = BuildGotoKey(procIndex, fallback.StepIndex, fallback.OpIndex);
-                propertyInfo.SetValue(currentObject, fallbackValue);
-                summary.FallbackCount++;
-                return;
-            }
-
-            propertyInfo.SetValue(currentObject, string.Empty);
-            summary.ClearedCount++;
-        }
-
-        private static bool TryResolveTargetOperationId(Proc proc, int stepIndex, int opIndex, out Guid opId)
-        {
-            opId = Guid.Empty;
-            if (proc?.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
-            {
-                return false;
-            }
-
-            Step step = proc.steps[stepIndex];
-            if (step?.Ops == null || opIndex < 0 || opIndex >= step.Ops.Count)
-            {
-                return false;
-            }
-
-            OperationType op = step.Ops[opIndex];
-            if (op == null || op.Id == Guid.Empty)
-            {
-                return false;
-            }
-
-            opId = op.Id;
-            return true;
-        }
-
-        private static Dictionary<Guid, GotoLocation> BuildOperationLocationMap(Proc proc)
-        {
-            Dictionary<Guid, GotoLocation> map = new Dictionary<Guid, GotoLocation>();
-            if (proc?.steps == null)
-            {
-                return map;
-            }
-
-            for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
-            {
-                Step step = proc.steps[stepIndex];
-                if (step?.Ops == null)
-                {
-                    continue;
-                }
-
-                for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
-                {
-                    OperationType op = step.Ops[opIndex];
-                    if (op == null || op.Id == Guid.Empty)
-                    {
-                        continue;
-                    }
-
-                    map[op.Id] = new GotoLocation
-                    {
-                        StepIndex = stepIndex,
-                        OpIndex = opIndex
-                    };
-                }
-            }
-
-            return map;
-        }
-
-        private static GotoLocation FindClosestOperationLocation(Proc proc, int preferredStepIndex, int preferredOpIndex)
-        {
-            if (proc?.steps == null)
-            {
-                return null;
-            }
-
-            GotoLocation best = null;
-            int bestStepDistance = int.MaxValue;
-            int bestOpDistance = int.MaxValue;
-
-            for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
-            {
-                Step step = proc.steps[stepIndex];
-                if (step?.Ops == null)
-                {
-                    continue;
-                }
-
-                for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
-                {
-                    int stepDistance = Math.Abs(stepIndex - preferredStepIndex);
-                    int opDistance = Math.Abs(opIndex - preferredOpIndex);
-
-                    if (best == null
-                        || stepDistance < bestStepDistance
-                        || (stepDistance == bestStepDistance && opDistance < bestOpDistance))
-                    {
-                        best = new GotoLocation
-                        {
-                            StepIndex = stepIndex,
-                            OpIndex = opIndex
-                        };
-                        bestStepDistance = stepDistance;
-                        bestOpDistance = opDistance;
-                    }
-                }
-            }
-
-            return best;
-        }
-
-        private static string BuildGotoKey(int procIndex, int stepIndex, int opIndex)
-        {
-            return $"{procIndex}-{stepIndex}-{opIndex}";
-        }
-
         private void ApplyMoveStep(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)
         {
             Guid stepId = ParseGuid(ReadRequiredString(action, "stepId"), "stepId");
             int sourceIndex = FindStepIndexById(draft, stepId);
             Step step = draft.steps[sourceIndex];
-            Proc before = FrmPropertyGrid.DeepCopy(draft);
+            Proc before = ObjectGraphCloner.Clone(draft);
 
             draft.steps.RemoveAt(sourceIndex);
             int targetIndex = ReadRequiredInsertIndex(action, "targetIndex", draft.steps.Count, "步骤目标位置");
@@ -4493,7 +4277,7 @@ namespace Automation.Bridge
                 draft.steps = new List<Step>();
             }
 
-            Proc before = FrmPropertyGrid.DeepCopy(draft);
+            Proc before = ObjectGraphCloner.Clone(draft);
             var step = new Step
             {
                 Id = Guid.NewGuid(),
@@ -4552,7 +4336,7 @@ namespace Automation.Bridge
             int opIndex = FindOperationIndexById(step, opId);
             OperationType op = step.Ops[opIndex];
             ValidateExpectedOperaType(action, op);
-            Proc before = FrmPropertyGrid.DeepCopy(draft);
+            Proc before = ObjectGraphCloner.Clone(draft);
 
             step.Ops.RemoveAt(opIndex);
             RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
@@ -4584,7 +4368,7 @@ namespace Automation.Bridge
             int sourceOpIndex = FindOperationIndexById(sourceStep, opId);
             OperationType op = sourceStep.Ops[sourceOpIndex];
             ValidateExpectedOperaType(action, op);
-            Proc before = FrmPropertyGrid.DeepCopy(draft);
+            Proc before = ObjectGraphCloner.Clone(draft);
 
             sourceStep.Ops.RemoveAt(sourceOpIndex);
             int targetStepIndex = FindStepIndexById(draft, targetStepId);
@@ -4627,7 +4411,7 @@ namespace Automation.Bridge
             }
 
             EnsureStepOps(step);
-            Proc before = FrmPropertyGrid.DeepCopy(draft);
+            Proc before = ObjectGraphCloner.Clone(draft);
 
             step.Ops.Insert(insertIndex, op);
             RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
@@ -5047,7 +4831,7 @@ namespace Automation.Bridge
             // 跳转目标有效性检查：删除/插入指令后 opIndex 会变化，旧跳转目标可能越界。
             // 将无效跳转目标列为 warnings，让 AI 在读取流程详情时直接发现，不必额外调用 diagnose_proc。
             JArray gotoWarnings = new JArray();
-            foreach (string error in FrmProc.ValidateProcGotoTargets(procIndex, proc))
+            foreach (string error in ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc))
             {
                 gotoWarnings.Add(new JObject { ["message"] = error });
             }
@@ -6331,22 +6115,6 @@ namespace Automation.Bridge
             // 记录每个被改动指令的 (stepIndex, opIndex, kind)，供 FrmDataGrid 行级闪烁使用。
             // 为空时降级为整体闪烁。
             public List<(int stepIndex, int opIndex, ProcChangeKind kind)> AffectedOps { get; set; } = new List<(int, int, ProcChangeKind)>();
-        }
-
-        private sealed class GotoLocation
-        {
-            public int StepIndex { get; set; }
-
-            public int OpIndex { get; set; }
-        }
-
-        private sealed class GotoRewriteSummary
-        {
-            public int RewrittenCount { get; set; }
-
-            public int FallbackCount { get; set; }
-
-            public int ClearedCount { get; set; }
         }
 
         private sealed class PreviewApprovalRecord

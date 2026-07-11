@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
@@ -148,9 +148,9 @@ namespace Automation
             if (!File.Exists(SF.ConfigPath + "IOMap.json"))
             {
                 IOMap = new List<List<IO>>();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap);
+                AtomicJsonFileStore.Save(SF.ConfigPath, "IOMap", IOMap);
             }
-            List<List<IO>> loadedMap = SF.mainfrm.ReadJson<List<List<IO>>>(SF.ConfigPath, "IOMap");
+            List<List<IO>> loadedMap = AtomicJsonFileStore.Read<List<List<IO>>>(SF.ConfigPath, "IOMap");
             if (loadedMap == null)
             {
                 IOMap = new List<List<IO>>();
@@ -317,7 +317,7 @@ namespace Automation
                     {
                         IO original = IOMap[cardIndex][rowIndex];
                         IOMap[cardIndex][rowIndex] = item;
-                        if (!SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap))
+                        if (!AtomicJsonFileStore.Save(SF.ConfigPath, "IOMap", IOMap))
                         {
                             IOMap[cardIndex][rowIndex] = original;
                             throw new InvalidOperationException("IO配置保存失败。");
@@ -445,7 +445,7 @@ namespace Automation
                 }
             }
 
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "IOMap", IOMap);
             RefreshIODgv();
         }
 
@@ -503,7 +503,7 @@ namespace Automation
                 io.IsRemark = false;
             }
 
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "IOMap", IOMap);
             RefreshIODgv();
         }
 
@@ -548,7 +548,7 @@ namespace Automation
                 return;
             }
 
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IOMap", IOMap);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "IOMap", IOMap);
             RefreshIODgv();
         }
 

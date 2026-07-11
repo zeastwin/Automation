@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.CodeDom.Compiler;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -535,7 +535,7 @@ namespace Automation
                 return;
             }
             RebuildPointDictionary(station);
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
             SetPointEditMode(false);
             ClearPointSnapshot();
         }

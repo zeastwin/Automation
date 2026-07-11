@@ -46,7 +46,6 @@ namespace Automation
         private readonly Dictionary<Guid, EngineSnapshot> snapshotCache = new Dictionary<Guid, EngineSnapshot>();
         private readonly HashSet<Guid> snapshotDirty = new HashSet<Guid>();
         private readonly object snapshotLock = new object();
-        private readonly object saveFileLock = new object();
         private const string ResetStatusValueName = "复位状态";
         private const string SystemStatusValueName = "系统状态";
         private System.Windows.Forms.Timer snapshotTimer;
@@ -1096,112 +1095,6 @@ namespace Automation
             }
         }
 
-        public T ReadJson<T>(string FilePath, string Name)
-        {
-            string strFilePath = Path.Combine(FilePath, Name + ".json");
-            if (!File.Exists(strFilePath))
-            {
-                return default(T);
-            }
-
-            try
-            {
-                using (FileStream stream = new FileStream(strFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-                using (StreamReader r = new StreamReader(stream))
-                {
-                    string json = r.ReadToEnd();
-                    var settings = new JsonSerializerSettings
-                    {
-                        TypeNameHandling = TypeNameHandling.All,
-                        // 反序列化时替换集合实例，避免构造函数中的默认项被重复追加。
-                        ObjectCreationHandling = ObjectCreationHandling.Replace
-                    };
-                    return JsonConvert.DeserializeObject<T>(json, settings);
-                }
-            }
-            catch (Exception e)
-            {
-                MessageBox.Show(e.Message);
-                return default(T);
-            }
-        }
-
-        public bool SaveAsJson<T>(string FilePath, string Name, T t)
-        {
-            string strFilePath = Path.Combine(FilePath, Name + ".json");
-            string directory = Path.GetDirectoryName(strFilePath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            var settings = new JsonSerializerSettings
-            {
-                TypeNameHandling = TypeNameHandling.All
-            };
-            string output = JsonConvert.SerializeObject(t, settings);
-            Exception lastError = null;
-
-            for (int attempt = 0; attempt < 3; attempt++)
-            {
-                string tempPath = strFilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                try
-                {
-                    lock (saveFileLock)
-                    {
-                        File.WriteAllText(tempPath, output);
-                        if (File.Exists(strFilePath))
-                        {
-                            FileAttributes attributes = File.GetAttributes(strFilePath);
-                            if ((attributes & FileAttributes.ReadOnly) != 0)
-                            {
-                                File.SetAttributes(strFilePath, attributes & ~FileAttributes.ReadOnly);
-                            }
-                            File.Replace(tempPath, strFilePath, null, true);
-                        }
-                        else
-                        {
-                            File.Move(tempPath, strFilePath);
-                        }
-                    }
-                    return true;
-                }
-                catch (IOException ex)
-                {
-                    lastError = ex;
-                }
-                catch (UnauthorizedAccessException ex)
-                {
-                    lastError = ex;
-                    break;
-                }
-                finally
-                {
-                    if (File.Exists(tempPath))
-                    {
-                        try
-                        {
-                            File.Delete(tempPath);
-                        }
-                        catch
-                        {
-                        }
-                    }
-                }
-
-                Thread.Sleep(60 * (attempt + 1));
-            }
-
-            string reason = $"保存配置失败：{strFilePath}\r\n{lastError?.Message}";
-            dataRun?.Logger?.Log(reason, LogLevel.Error);
-            if (frmInfo != null && !frmInfo.IsDisposed)
-            {
-                frmInfo.PrintInfo(reason, FrmInfo.Level.Error);
-            }
-            MessageBox.Show(reason);
-            return false;
-        }
-
         public bool AreAllProcessesStopped()
         {
             if (SF.frmProc?.procsList == null || SF.DR == null)
@@ -1432,7 +1325,7 @@ namespace Automation
                     }
                     for (int i = 0; i < SF.frmProc.procsList.Count; i++)
                     {
-                        SaveAsJson(SF.workPath, i.ToString(), SF.frmProc.procsList[i]);
+                        AtomicJsonFileStore.Save(SF.workPath, i.ToString(), SF.frmProc.procsList[i]);
                     }
                 }
             }

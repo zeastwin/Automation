@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -829,7 +829,7 @@ namespace Automation
             label6.Text = trackBar1.Value.ToString() + "%";
             temp.ManualSpeedPercent = trackBar1.Value;
            // SF.frmStation.SetStationParam(temp);
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
         }
 
         private void txtMovPos1_KeyPress(object sender, KeyPressEventArgs e)

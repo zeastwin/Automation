@@ -107,7 +107,11 @@
     <Compile Include="Communication\\CommunicationHub.cs" />
     <Compile Include="Communication\\CommunicationModels.cs" />
     <Compile Include="Engine\ValueRef.cs" />
+    <Compile Include="Engine\ProcessEditingService.cs" />
+    <Compile Include="Engine\ProcessDefinitionService.cs" />
+    <Compile Include="Engine\ProcessModels.cs" />
     <Compile Include="Stores\\AlarmInfoStore.cs" />
+    <Compile Include="Stores\\AtomicJsonFileStore.cs" />
     <Compile Include="Stores\\CardConfigStore.cs" />
     <Compile Include="Stores\\ConfigurationBatchWriter.cs" />
     <Compile Include="Stores\\CommunicationConfigStore.cs" />
@@ -132,10 +136,13 @@
     <Compile Include="Stores\\DataStructStore.cs" />
     <Compile Include="Stores\\ProcessEngineLogger.cs" />
     <Compile Include="Stores\\ProcessEngineStore.cs" />
+    <Compile Include="Stores\\ProcessConfigStore.cs" />
     <Compile Include="Stores\\TrayPointStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="Runtime\\AppConfigStorage.cs" />
     <Compile Include="Runtime\\RuntimeExceptionLogger.cs" />
+    <Compile Include="Runtime\\ObjectGraphCloner.cs" />
+    <Compile Include="Runtime\\OperationClipboardService.cs" />
     <Compile Include="Runtime\\AutomationPlatformHost.cs" />
     <Compile Include="Runtime\\AutomationMcpServerManager.cs" />
     <Compile Include="Runtime\\AutomationRuntimeOptions.cs" />

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -637,7 +637,7 @@ namespace Automation
                     }
                 }
                 IODebugMaps = new IODebugMap();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             }
         }
 
@@ -1452,7 +1452,7 @@ namespace Automation
                 return;
             }
             connectList.Add(new IOConnect() { Output = cacheIO.CloneForDebug() });
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
@@ -2168,12 +2168,12 @@ namespace Automation
             if (!File.Exists(filePath))
             {
                 IODebugMaps = new IODebugMap();
-                SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", IODebugMaps);
+                AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", IODebugMaps);
                 return;
             }
             try
             {
-                IODebugMap IODebugMapTemp = SF.mainfrm.ReadJson<IODebugMap>(SF.ConfigPath, "IODebugMap");
+                IODebugMap IODebugMapTemp = AtomicJsonFileStore.Read<IODebugMap>(SF.ConfigPath, "IODebugMap");
                 if (IODebugMapTemp == null)
                 {
                     throw new InvalidDataException("输入输出调试配置为空。");
@@ -2314,7 +2314,7 @@ namespace Automation
             {
                 IODebugMaps.outputs = newList;
             }
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
         }
         private void OpenConnectConfig()
@@ -2413,7 +2413,7 @@ namespace Automation
                 }
             }
             SetConnectList(currentConnectConfigIndex, newList);
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
         }
@@ -2440,7 +2440,7 @@ namespace Automation
                 }
             }
             targetList.Insert(insertIndex, remark);
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
         }
         private void AddRemarkConnectItem()
@@ -2465,7 +2465,7 @@ namespace Automation
                 }
             }
             connectList.Insert(insertIndex, remark);
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
         }
@@ -2651,7 +2651,7 @@ namespace Automation
                 list.Insert(targetIndex, moving);
             }
             listView1.InsertionMark.Index = -1;
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
             RefreshIoDisplayAfterReorder(true);
         }
@@ -2720,7 +2720,7 @@ namespace Automation
                 list.Insert(targetIndex, moving);
             }
             listView2.InsertionMark.Index = -1;
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefreshIODebugMapFrm();
             RefreshIoDisplayAfterReorder(false);
         }
@@ -2859,7 +2859,7 @@ namespace Automation
                     {
                         iOConnect.Intput1 = cacheIO.CloneForDebug();
 
-                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
                         RefreshConnectDisplayForCurrentConfig();
                     }
                 }
@@ -2873,7 +2873,7 @@ namespace Automation
                     {
                         iOConnect.Intput1.Name = "";
 
-                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
                         RefreshConnectDisplayForCurrentConfig();
                     }
                 }
@@ -2907,7 +2907,7 @@ namespace Automation
                     {
                         iOConnect.Intput2 = cacheIO.CloneForDebug();
 
-                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
                         RefreshConnectDisplayForCurrentConfig();
                     }
 
@@ -2923,7 +2923,7 @@ namespace Automation
                     {
                         iOConnect.Intput2.Name = "";
 
-                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
                         RefreshConnectDisplayForCurrentConfig();
                     }
 
@@ -2963,7 +2963,7 @@ namespace Automation
                     {
                         iOConnect.Output2 = cacheIO.CloneForDebug();
 
-                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
                         RefreshConnectDisplayForCurrentConfig();
                     }
                 }
@@ -2981,7 +2981,7 @@ namespace Automation
                         }
                         iOConnect.Output2.Name = "";
 
-                        SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+                        AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
                         RefreshConnectDisplayForCurrentConfig();
                     }
                 }
@@ -3121,7 +3121,7 @@ namespace Automation
             {
                 targetItem.BackColor = Color.White;
             }
-            SF.mainfrm.SaveAsJson(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
+            AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", SF.frmIODebug.IODebugMaps);
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
         }

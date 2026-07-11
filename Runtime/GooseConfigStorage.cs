@@ -211,8 +211,8 @@ namespace Automation
                 WorkingDirectory = baseDirectory,
                 McpUri = "http://127.0.0.1:8081",
                 SessionName = "automation",
-                Provider = string.Empty,
-                Model = string.Empty,
+                Provider = "deepseek",
+                Model = "deepseek-chat",
                 MaxTurns = DefaultMaxTurns,
                 FullPermissionMode = false,
                 ToolProfile = DefaultToolProfile

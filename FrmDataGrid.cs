@@ -4,11 +4,8 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
-using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -539,6 +536,25 @@ namespace Automation
                 return; // 当前步骤没有被修改的指令，不闪烁
             }
 
+            // 新增指令位于当前可视区域之外时自动跟随一次，便于观察 AI 的插入过程；
+            // 修改和删除不改变用户滚动位置。
+            int addedRowIndex = targetRows
+                .Where(item => item.color == Color.LightGreen)
+                .Select(item => item.rowIndex)
+                .DefaultIfEmpty(-1)
+                .First();
+            if (addedRowIndex >= 0 && addedRowIndex < dataGridView1.Rows.Count
+                && !dataGridView1.Rows[addedRowIndex].Displayed)
+            {
+                try
+                {
+                    dataGridView1.FirstDisplayedScrollingRowIndex = addedRowIndex;
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+
             // 停止之前未完成的闪烁
             if (gridFlashTimer != null)
             {
@@ -670,44 +686,7 @@ namespace Automation
 
         }
 
-        public bool SaveSingleProc(int ProcIndex)
-        {
-            try
-            {
-                if (!TryValidateProcGotoTargets(ProcIndex, out string error))
-                {
-                    MessageBox.Show(error);
-                    return false;
-                }
-                if (SF.frmProc != null)
-                {
-                    List<string> errors = new List<string>();
-                    SF.frmProc.NormalizeProc(ProcIndex, SF.frmProc.procsList[ProcIndex], errors);
-                    if (errors.Count > 0)
-                    {
-                        MessageBox.Show(string.Join("\r\n", errors.Distinct()));
-                        return false;
-                    }
-                }
-                if (!SF.CanPublishProcUpdate(ProcIndex))
-                {
-                    return false;
-                }
-                if (!SF.mainfrm.SaveAsJson(SF.workPath, ProcIndex.ToString(), SF.frmProc.procsList[ProcIndex]))
-                {
-                    return false;
-                }
-                SF.PublishProc(ProcIndex);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-                return false;
-            }
-        }
-
-        private async void Delete_Click(object sender, EventArgs e)
+        private void Delete_Click(object sender, EventArgs e)
         {
             if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
             {
@@ -759,40 +738,34 @@ namespace Automation
             {
                 warnMsg = $"警告：即将删除{selectedRowIndexes4Del.Count}条指令\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n此操作不可恢复，确认删除？";
             }
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Message confirmForm = new Message(
-                "删除指令确认",
+            DialogResult confirmResult = MessageBox.Show(
+                this,
                 warnMsg,
-                () => tcs.TrySetResult(true),
-                () => tcs.TrySetResult(false),
-                "删除",
-                "取消",
-                false);
-            confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
-            confirmForm.txtMsg.ForeColor = Color.Red;
-            bool confirmed = await tcs.Task;
-            if (!confirmed)
+                "删除指令确认",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+            if (confirmResult != DialogResult.Yes)
             {
                 return;
             }
 
+            Proc before = ObjectGraphCloner.Clone(proc);
+            Proc draft = ObjectGraphCloner.Clone(proc);
             for (int i = selectedRowIndexes4Del.Count - 1; i >= 0; i--)
             {
                 int index = selectedRowIndexes4Del[i];
-                if (index >= 0 && index < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count)
+                if (index >= 0 && index < draft.steps[stepIndex].Ops.Count)
                 {
-                    SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.RemoveAt(index);
+                    draft.steps[stepIndex].Ops.RemoveAt(index);
                 }
             }
-            SF.frmProc.RefleshGoto();
-            for (int i = 0; i < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count; i++)
+            ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
+            if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
             {
-                SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[i].Num = i;
+                MessageBox.Show(commitError, "删除指令失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
             }
-
-            SaveSingleProc(SF.frmProc.SelectedProcNum);
-            SF.frmProc.bindingSource.ResetBindings(true);
-
         }
 
         private void Modify_Click(object sender, EventArgs e)
@@ -1015,73 +988,70 @@ namespace Automation
         }
         public void Paste()
         {
-            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            if (!TryPasteOperations(ListOperationType4Copy, out int insertIndex, out int insertedCount, out string error))
             {
+                if (!string.IsNullOrWhiteSpace(error))
+                {
+                    MessageBox.Show(error, "粘贴指令失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
                 return;
             }
-            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            HighlightInsertedRows(insertIndex, insertedCount);
+        }
+
+        private bool TryPasteOperations(IEnumerable<OperationType> source, out int insertIndex, out int insertedCount, out string error)
+        {
+            insertIndex = -1;
+            insertedCount = 0;
+            error = null;
+            int procIndex = SF.frmProc.SelectedProcNum;
+            int stepIndex = SF.frmProc.SelectedStepNum;
+            if (procIndex < 0 || stepIndex < 0)
             {
-                return;
+                error = "请先选择流程步骤。";
+                return false;
             }
-            if (SF.frmProc.SelectedProcNum >= SF.frmProc.procsList.Count
-                || SF.frmProc.SelectedStepNum >= SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count)
+            if (!SF.CanEditProc(procIndex))
             {
-                MessageBox.Show("流程或步骤索引无效，无法粘贴指令。");
-                return;
+                return false;
             }
-            bool isEmptyRow = false;
-            List<OperationType> deepCopy;
-            using (MemoryStream stream = new MemoryStream())
+            if (procIndex >= SF.frmProc.procsList.Count
+                || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count)
             {
-                IFormatter formatter = new BinaryFormatter();
-                formatter.Serialize(stream, ListOperationType4Copy);
-                stream.Seek(0, SeekOrigin.Begin);
-                deepCopy = (List<OperationType>)formatter.Deserialize(stream);
+                error = "流程或步骤索引无效，无法粘贴指令。";
+                return false;
             }
-            if (deepCopy == null)
+            List<OperationType> copiedOperations = OperationClipboardService.PrepareForPaste(source, procIndex);
+            if (copiedOperations == null || copiedOperations.Count == 0)
             {
-                return;
+                return false;
             }
-            ResetOperationIds(deepCopy);
-            AdaptGotoProcIndex(deepCopy, SF.frmProc.SelectedProcNum);
-            int insertIndex = iSelectedRow + 1;
-            int opCount = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count;
+            insertIndex = iSelectedRow + 1;
+            Proc current = SF.frmProc.procsList[procIndex];
+            int opCount = current.steps[stepIndex].Ops.Count;
             if (insertIndex < 0 || insertIndex > opCount)
             {
-                MessageBox.Show("当前指令索引无效，无法粘贴。");
-                return;
+                error = "当前指令索引无效，无法粘贴。";
+                return false;
             }
-            if (SF.frmDataGrid.dataGridView1.Rows.Count != 0)
+            Proc before = ObjectGraphCloner.Clone(current);
+            Proc draft = ObjectGraphCloner.Clone(current);
+            draft.steps[stepIndex].Ops.InsertRange(insertIndex, copiedOperations);
+            ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
+            if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out error))
             {
-                SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.InsertRange(insertIndex, deepCopy);
-
+                return false;
             }
-            else
+            insertedCount = copiedOperations.Count;
+            return true;
+        }
+
+        private void HighlightInsertedRows(int insertIndex, int insertedCount)
+        {
+            for (int i = insertIndex; i < insertIndex + insertedCount && i < dataGridView1.Rows.Count; i++)
             {
-                SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.AddRange(deepCopy);
-                isEmptyRow = true;
+                dataGridView1.Rows[i].DefaultCellStyle.BackColor = Color.LightGreen;
             }
-            SF.frmProc.RefleshGoto();
-            for (int i = 0; i < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count; i++)
-            {
-                SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[i].Num = i;
-            }
-
-            SaveSingleProc(SF.frmProc.SelectedProcNum);
-            SF.frmProc.bindingSource.ResetBindings(true);
-
-
-
-            if (!isEmptyRow)
-            {
-                int rowCountAfterPaste = iSelectedRow + 1 + deepCopy.Count;
-                int rowCountBeforePaste = iSelectedRow + 1;
-                for (int i = rowCountBeforePaste; i < rowCountAfterPaste; i++)
-                {
-                    dataGridView1.Rows[i].DefaultCellStyle.BackColor = Color.LightGreen;
-                }
-            }
-
         }
         private void copy_Click(object sender, EventArgs e)
         {
@@ -1089,199 +1059,6 @@ namespace Automation
             {
                 Copy();
             }
-        }
-        private void AdaptGotoProcIndex(IEnumerable<OperationType> operations, int procIndex)
-        {
-            if (operations == null)
-            {
-                return;
-            }
-            foreach (var operation in operations)
-            {
-                AdaptGotoProcIndex(operation, procIndex);
-            }
-        }
-
-        private void ResetOperationIds(IEnumerable<OperationType> operations)
-        {
-            if (operations == null)
-            {
-                return;
-            }
-            foreach (var operation in operations)
-            {
-                if (operation == null)
-                {
-                    continue;
-                }
-                operation.Id = Guid.NewGuid();
-            }
-        }
-
-        private bool TryValidateProcGotoTargets(int procIndex, out string error)
-        {
-            error = null;
-            if (SF.frmProc?.procsList == null)
-            {
-                error = "流程数据未就绪，无法保存。";
-                return false;
-            }
-            if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
-            {
-                error = "流程索引无效，无法保存。";
-                return false;
-            }
-            Proc proc = SF.frmProc.procsList[procIndex];
-            if (proc?.steps == null)
-            {
-                error = "流程步骤为空，无法保存。";
-                return false;
-            }
-            for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
-            {
-                Step step = proc.steps[stepIndex];
-                if (step?.Ops == null)
-                {
-                    error = $"流程{procIndex}步骤{stepIndex}指令为空，无法保存。";
-                    return false;
-                }
-                for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
-                {
-                    OperationType op = step.Ops[opIndex];
-                    if (op == null)
-                    {
-                        error = $"流程{procIndex}步骤{stepIndex}指令{opIndex}为空，无法保存。";
-                        return false;
-                    }
-                    string context = $"流程{procIndex}步骤{stepIndex}指令{opIndex}";
-                    if (!ValidateGotoTargets(op, procIndex, proc, context, ref error))
-                    {
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }
-
-        private bool ValidateGotoTargets(object obj, int procIndex, Proc proc, string context, ref string error)
-        {
-            foreach (var propertyInfo in obj.GetType().GetProperties())
-            {
-                if (propertyInfo.GetIndexParameters().Length > 0)
-                {
-                    continue;
-                }
-                if (propertyInfo.PropertyType == typeof(string) && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
-                {
-                    string value = propertyInfo.GetValue(obj) as string;
-                    if (!string.IsNullOrWhiteSpace(value))
-                    {
-                        if (!TryParseGotoKey(value, out int gotoProc, out int gotoStep, out int gotoOp))
-                        {
-                            error = $"{context}跳转地址格式错误：{value}";
-                            return false;
-                        }
-                        if (gotoProc != procIndex)
-                        {
-                            error = $"{context}跳转地址不允许跨流程：{value}";
-                            return false;
-                        }
-                        if (!TryValidateGotoRange(proc, procIndex, gotoStep, gotoOp, out string rangeError))
-                        {
-                            error = $"{context} {rangeError}";
-                            return false;
-                        }
-                    }
-                }
-                var propertyValue = propertyInfo.GetValue(obj);
-                if (propertyValue is IEnumerable enumerable && !(propertyValue is string))
-                {
-                    foreach (var item in enumerable)
-                    {
-                        if (item == null)
-                        {
-                            continue;
-                        }
-                        if (!ValidateGotoTargets(item, procIndex, proc, context, ref error))
-                        {
-                            return false;
-                        }
-                    }
-                }
-            }
-            return true;
-        }
-
-        private bool TryValidateGotoRange(Proc proc, int procIndex, int stepIndex, int opIndex, out string error)
-        {
-            error = null;
-            if (proc?.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
-            {
-                error = $"跳转地址步骤越界：{procIndex}-{stepIndex}-{opIndex}";
-                return false;
-            }
-            Step step = proc.steps[stepIndex];
-            if (step?.Ops == null || opIndex < 0 || opIndex >= step.Ops.Count)
-            {
-                error = $"跳转地址指令越界：{procIndex}-{stepIndex}-{opIndex}";
-                return false;
-            }
-            return true;
-        }
-
-        private void AdaptGotoProcIndex(object obj, int procIndex)
-        {
-            if (obj == null)
-            {
-                return;
-            }
-            foreach (var propertyInfo in obj.GetType().GetProperties())
-            {
-                if (propertyInfo.GetIndexParameters().Length > 0)
-                {
-                    continue;
-                }
-                if (propertyInfo.PropertyType == typeof(string) && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
-                {
-                    string value = propertyInfo.GetValue(obj) as string;
-                    if (!string.IsNullOrWhiteSpace(value)
-                        && TryParseGotoKey(value, out _, out int stepIndex, out int opIndex))
-                    {
-                        propertyInfo.SetValue(obj, $"{procIndex}-{stepIndex}-{opIndex}");
-                    }
-                }
-                var propertyValue = propertyInfo.GetValue(obj);
-                if (propertyValue is IEnumerable enumerable && !(propertyValue is string))
-                {
-                    foreach (var item in enumerable)
-                    {
-                        if (item == null)
-                        {
-                            continue;
-                        }
-                        AdaptGotoProcIndex(item, procIndex);
-                    }
-                }
-            }
-        }
-
-        private bool TryParseGotoKey(string value, out int procIndex, out int stepIndex, out int opIndex)
-        {
-            procIndex = -1;
-            stepIndex = -1;
-            opIndex = -1;
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return false;
-            }
-            string[] parts = value.Split('-');
-            if (parts.Length != 3)
-            {
-                return false;
-            }
-            return int.TryParse(parts[0], out procIndex)
-                && int.TryParse(parts[1], out stepIndex)
-                && int.TryParse(parts[2], out opIndex);
         }
         private void paste_Click(object sender, EventArgs e)
         {
@@ -1307,7 +1084,15 @@ namespace Automation
 
         private void dataGridView1_DragDrop(object sender, DragEventArgs e)
         {
-            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            int procIndex = SF.frmProc.SelectedProcNum;
+            int stepIndex = SF.frmProc.SelectedStepNum;
+            if (!SF.CanEditProc(procIndex))
+            {
+                dragIndex = -1;
+                return;
+            }
+            if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count
+                || stepIndex < 0 || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count)
             {
                 dragIndex = -1;
                 return;
@@ -1316,22 +1101,21 @@ namespace Automation
             {
                 Point p = dataGridView1.PointToClient(new Point(e.X, e.Y));
                 int targetIndex = dataGridView1.HitTest(p.X, p.Y).RowIndex;
+                Proc current = SF.frmProc.procsList[procIndex];
 
-                if (targetIndex >= 0 && targetIndex < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count)
+                if (targetIndex >= 0 && targetIndex < current.steps[stepIndex].Ops.Count
+                    && dragIndex < current.steps[stepIndex].Ops.Count && targetIndex != dragIndex)
                 {
-                    OperationType draggedItem = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[dragIndex];
-                    SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.RemoveAt(dragIndex);
-                    SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Insert(targetIndex, draggedItem);
-
-                    SF.frmProc.RefleshGoto();
-                    for (int i = 0; i < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count; i++)
+                    Proc before = ObjectGraphCloner.Clone(current);
+                    Proc draft = ObjectGraphCloner.Clone(current);
+                    OperationType draggedItem = draft.steps[stepIndex].Ops[dragIndex];
+                    draft.steps[stepIndex].Ops.RemoveAt(dragIndex);
+                    draft.steps[stepIndex].Ops.Insert(targetIndex, draggedItem);
+                    ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
+                    if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
                     {
-                        SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[i].Num = i;
+                        MessageBox.Show(commitError, "移动指令失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
-
-                    SaveSingleProc(SF.frmProc.SelectedProcNum);
-                    SF.frmProc.bindingSource.ResetBindings(true);
-
                 }
             }
 
@@ -1376,22 +1160,29 @@ namespace Automation
                     {
                         return "指令草稿为空。";
                     }
-                    return SF.frmToolBar.TryValidateGotoTargets(draft, procIndex, out string error) ? null : error;
+                    Proc proc = procIndex >= 0 && procIndex < SF.frmProc.procsList.Count
+                        ? SF.frmProc.procsList[procIndex]
+                        : null;
+                    return ProcessDefinitionService.TryValidateOperationGoto(draft, procIndex, proc, out string error)
+                        ? null
+                        : error;
                 },
                 draft =>
                 {
-                    Step step = SF.frmProc.procsList[procIndex].steps[stepIndex];
+                    if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count
+                        || stepIndex < 0 || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count)
+                    {
+                        throw new InvalidOperationException("流程或步骤索引已失效。");
+                    }
+                    Proc before = ObjectGraphCloner.Clone(SF.frmProc.procsList[procIndex]);
+                    Proc procDraft = ObjectGraphCloner.Clone(SF.frmProc.procsList[procIndex]);
+                    Step step = procDraft.steps[stepIndex];
                     int targetIndex;
-                    OperationType replacedOperation = null;
                     if (isAdd)
                     {
                         draft.Id = Guid.NewGuid();
                         targetIndex = selectedRow < 0 ? step.Ops.Count : selectedRow + 1;
                         step.Ops.Insert(targetIndex, draft);
-                        for (int i = targetIndex; i < step.Ops.Count; i++)
-                        {
-                            step.Ops[i].Num = i;
-                        }
                     }
                     else
                     {
@@ -1401,24 +1192,15 @@ namespace Automation
                         }
                         OperationType original = step.Ops[selectedRow];
                         draft.Id = original?.Id != Guid.Empty ? original.Id : Guid.NewGuid();
-                        replacedOperation = original;
                         step.Ops[selectedRow] = draft;
                         targetIndex = selectedRow;
                     }
-                    if (!SaveSingleProc(procIndex))
+                    ProcessEditingService.RewriteGotoTargets(before, procDraft, procIndex);
+                    if (!ProcessEditingService.TryCommitProcDraft(procIndex, procDraft, out string commitError))
                     {
-                        if (isAdd)
-                        {
-                            step.Ops.RemoveAt(targetIndex);
-                        }
-                        else
-                        {
-                            step.Ops[targetIndex] = replacedOperation;
-                        }
-                        throw new InvalidOperationException("流程指令保存失败，正式内存已恢复。");
+                        throw new InvalidOperationException(commitError);
                     }
-                    SF.frmProc.bindingSource.ResetBindings(true);
-                    OperationTemp = (OperationType)step.Ops[targetIndex].Clone();
+                    OperationTemp = (OperationType)SF.frmProc.procsList[procIndex].steps[stepIndex].Ops[targetIndex].Clone();
                     iSelectedRow = targetIndex;
                     dataGridView1.Enabled = true;
                     SF.frmProc.Enabled = true;
@@ -1437,18 +1219,26 @@ namespace Automation
 
         private void Enable_Click(object sender, EventArgs e)
         {
-            if (iSelectedRow >= 0)
+            int procIndex = SF.frmProc.SelectedProcNum;
+            int stepIndex = SF.frmProc.SelectedStepNum;
+            if (iSelectedRow >= 0 && procIndex >= 0 && stepIndex >= 0)
             {
-                if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+                if (!SF.CanEditProc(procIndex)
+                    || procIndex >= SF.frmProc.procsList.Count
+                    || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count
+                    || iSelectedRow >= SF.frmProc.procsList[procIndex].steps[stepIndex].Ops.Count)
                 {
                     return;
                 }
-                OperationType dataItem = dataGridView1.Rows[iSelectedRow].DataBoundItem as OperationType;
-
-                if (dataItem != null)
+                Proc draft = ObjectGraphCloner.Clone(SF.frmProc.procsList[procIndex]);
+                OperationType operation = draft.steps[stepIndex].Ops[iSelectedRow];
+                if (operation != null)
                 {
-                    dataItem.Disable = !dataItem.Disable;
-                    dataGridView1.InvalidateRow(iSelectedRow);
+                    operation.Disable = !operation.Disable;
+                    if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
+                    {
+                        MessageBox.Show(commitError, "更新指令状态失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
             }
         }
@@ -1471,13 +1261,8 @@ namespace Automation
                     ListOperationType4Copy.Add(dataItem);
                 }
 
-                using (MemoryStream stream = new MemoryStream())
-                {
-                    IFormatter formatter = new BinaryFormatter();
-                    formatter.Serialize(stream, ListOperationType4Copy);
-                    byte[] serializedData = stream.ToArray();
-                    Clipboard.SetData("MyCustomDataFormat", serializedData);
-                }
+                string json = OperationClipboardService.Serialize(ListOperationType4Copy);
+                Clipboard.SetData(OperationClipboardService.Format, json);
             }
         }
 
@@ -1500,63 +1285,31 @@ namespace Automation
                     MessageBox.Show("流程或步骤索引无效，无法粘贴指令。");
                     return;
                 }
-                bool isEmptyRow = false;
                 List<OperationType> deepCopy = null;
-                if (Clipboard.ContainsData("MyCustomDataFormat"))
+                if (Clipboard.ContainsData(OperationClipboardService.Format))
                 {
-                    byte[] receivedData = (byte[])Clipboard.GetData("MyCustomDataFormat");
-                    using (MemoryStream stream = new MemoryStream(receivedData))
-                    {
-                        IFormatter formatter = new BinaryFormatter();
-                        deepCopy = (List<OperationType>)formatter.Deserialize(stream);
-                    }
+                    string json = Clipboard.GetData(OperationClipboardService.Format) as string;
+                    deepCopy = OperationClipboardService.Deserialize(json);
                 }
                 if (deepCopy == null)
                 {
                     return;
                 }
-                ResetOperationIds(deepCopy);
-                AdaptGotoProcIndex(deepCopy, SF.frmProc.SelectedProcNum);
-                int insertIndex = iSelectedRow + 1;
-                int opCount = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count;
-                if (insertIndex < 0 || insertIndex > opCount)
+                if (!TryPasteOperations(deepCopy, out int insertIndex, out int insertedCount, out string error))
                 {
-                    MessageBox.Show("当前指令索引无效，无法粘贴。");
+                    if (!string.IsNullOrWhiteSpace(error))
+                    {
+                        MessageBox.Show(error, "粘贴指令失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                     return;
                 }
-                if (SF.frmDataGrid.dataGridView1.Rows.Count != 0)
-                {
-                    SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.InsertRange(insertIndex, deepCopy);
-
-                }
-                else
-                {
-                    SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.AddRange(deepCopy);
-                    isEmptyRow = true;
-                }
-                SF.frmProc.RefleshGoto();
-                for (int i = 0; i < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count; i++)
-                {
-                    SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[i].Num = i;
-                }
-                SaveSingleProc(SF.frmProc.SelectedProcNum);
-                SF.frmProc.bindingSource.ResetBindings(true);
-
-
-                if (!isEmptyRow)
-                {
-                    int rowCountAfterPaste = iSelectedRow + 1 + deepCopy.Count;
-                    int rowCountBeforePaste = iSelectedRow + 1;
-                    for (int i = rowCountBeforePaste; i < rowCountAfterPaste; i++)
-                    {
-                        dataGridView1.Rows[i].DefaultCellStyle.BackColor = Color.LightGreen;
-                    }
-                }
+                HighlightInsertedRows(insertIndex, insertedCount);
             }
             catch (Exception ex)
             {
                 MessageBox.Show(ex.Message);
             }
         }
+
     }
 }

@@ -4,11 +4,8 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
-using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.Serialization.Formatters.Binary;
-using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -89,21 +86,6 @@ namespace Automation
         }
 
         public OperationType temp;
-        public static T DeepCopy<T>(T t)
-        {
-            if (ReferenceEquals(t, null))
-            {
-                return default;
-            }
-            using (MemoryStream memoryStream = new MemoryStream())
-            {
-                IFormatter formatter = new BinaryFormatter();
-                formatter.Serialize(memoryStream, t);
-                memoryStream.Seek(0, SeekOrigin.Begin);
-                return (T)formatter.Deserialize(memoryStream);
-            }
-
-        }
         private void OperationType_SelectedIndexChanged(object sender, EventArgs e)
         {
             if (OperationType.SelectedIndex != -1 && SF.isModify == ModifyKind.Operation)

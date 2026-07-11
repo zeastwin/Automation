@@ -4,10 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Globalization;
-using System.IO;
 using System.Linq;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Formatters.Binary;
 using System.Windows.Forms;
 
 namespace Automation
@@ -22,13 +19,7 @@ namespace Automation
 
         public object Clone()
         {
-            using (MemoryStream memoryStream = new MemoryStream())
-            {
-                IFormatter formatter = new BinaryFormatter();
-                formatter.Serialize(memoryStream, this);
-                memoryStream.Seek(0, SeekOrigin.Begin);
-                return formatter.Deserialize(memoryStream);
-            }
+            return ObjectGraphCloner.Clone(this);
         }
     }
 
@@ -45,13 +36,7 @@ namespace Automation
 
         public DataStructItem Clone()
         {
-            using (MemoryStream memoryStream = new MemoryStream())
-            {
-                IFormatter formatter = new BinaryFormatter();
-                formatter.Serialize(memoryStream, this);
-                memoryStream.Seek(0, SeekOrigin.Begin);
-                return (DataStructItem)formatter.Deserialize(memoryStream);
-            }
+            return ObjectGraphCloner.Clone(this);
         }
 
         public int GetMaxIndex()

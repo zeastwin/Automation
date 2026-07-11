@@ -203,7 +203,7 @@ namespace Automation
             }
             Proc draft = frmProc.procsList[procIndex];
             List<string> errors = new List<string>();
-            frmProc.NormalizeProc(procIndex, draft, errors);
+            ProcessDefinitionService.NormalizeProc(procIndex, draft, errors);
             if (errors.Count > 0)
             {
                 string message = "流程发布失败：\r\n" + string.Join("\r\n", errors.Distinct());
@@ -214,7 +214,7 @@ namespace Automation
                 }
                 return false;
             }
-            Proc runtime = FrmPropertyGrid.DeepCopy(draft);
+            Proc runtime = ObjectGraphCloner.Clone(draft);
             if (!DR.PublishProc(procIndex, runtime, out string error))
             {
                 string message = string.IsNullOrWhiteSpace(error) ? "流程发布失败" : $"流程发布失败：{error}";
@@ -242,7 +242,7 @@ namespace Automation
             {
                 return false;
             }
-            Proc runtime = FrmPropertyGrid.DeepCopy(frmProc.procsList[procIndex]);
+            Proc runtime = ObjectGraphCloner.Clone(frmProc.procsList[procIndex]);
             if (DR.ValidateProcUpdate(procIndex, runtime, out string error))
             {
                 return true;
@@ -258,19 +258,22 @@ namespace Automation
 
         public static bool CanEditProc(int procIndex)
         {
-            if (procIndex < 0)
+            if (SecurityLocked)
             {
-                return true;
+                MessageBox.Show(SecurityLockReason, "系统已安全锁定", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
+            if (frmProc?.procsList == null || procIndex < 0 || procIndex >= frmProc.procsList.Count)
+            {
+                return false;
             }
             if (DR == null)
             {
-                return true;
+                MessageBox.Show("流程引擎未初始化，禁止编辑流程。", "流程编辑不可用", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
             }
-            EngineSnapshot snapshot = DR.GetSnapshot(procIndex);
-            if (snapshot == null)
-            {
-                return true;
-            }
+            // 运行中是否允许本次修改由 ProcessEngine.ValidateProcUpdate 根据草稿内容判定；
+            // 此处仅检查编辑入口的基础状态，禁止用一个粗粒度状态门禁破坏安全热更新。
             return true;
         }
 

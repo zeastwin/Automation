@@ -37,6 +37,9 @@ namespace Automation.KernelTests
             Run("运行中当前结构修改被拒绝", TestRunningStructuralUpdateRejected);
             Run("暂停状态结构修改立即生效", TestPausedStructuralUpdateAppliesImmediately);
             Run("编辑会话提交与取消隔离", TestEditSession);
+            Run("流程结构变化按指令ID重写跳转", TestGotoRewriteByOperationId);
+            Run("JSON原子替换与备份恢复", TestAtomicJsonRecovery);
+            Run("流程目录事务中断恢复", TestProcessDirectoryRecovery);
             Run("多文件配置批量提交", TestConfigurationBatchWriter);
             Console.WriteLine(failures == 0 ? "内核回归测试全部通过。" : $"内核回归测试失败:{failures}");
             return failures == 0 ? 0 : 1;
@@ -548,7 +551,7 @@ namespace Automation.KernelTests
                 {
                     Assert(engine.StartProc(proc, 0), "热更新测试流程启动失败");
                     Assert(firstEntered.Wait(1000), "热更新测试未进入首条阻塞指令");
-                    Proc updated = FrmPropertyGrid.DeepCopy(proc);
+                    Proc updated = ObjectGraphCloner.Clone(proc);
                     ((CallCustomFunc)updated.steps[0].Ops[1]).Name = "new";
                     updated.steps[0].Ops.Add(new CallCustomFunc { Id = Guid.NewGuid(), Name = "appended" });
                     Assert(engine.PublishProc(0, updated, out string error), "运行中安全热更新发布失败:" + error);
@@ -578,7 +581,7 @@ namespace Automation.KernelTests
                 {
                     Assert(engine.StartProc(proc, 0), "结构拒绝测试流程启动失败");
                     Assert(entered.Wait(1000), "结构拒绝测试未进入当前指令");
-                    Proc updated = FrmPropertyGrid.DeepCopy(proc);
+                    Proc updated = ObjectGraphCloner.Clone(proc);
                     updated.steps[0].Ops.RemoveAt(0);
                     Assert(!engine.PublishProc(0, updated, out string error), "运行中删除当前指令未被拒绝");
                     Assert(!string.IsNullOrWhiteSpace(error), "结构拒绝未返回原因");
@@ -602,7 +605,7 @@ namespace Automation.KernelTests
                 {
                     Assert(engine.StartProc(proc, 0), "删除后续指令测试流程启动失败");
                     Assert(entered.Wait(1000), "删除后续指令测试未进入首条阻塞指令");
-                    Proc updated = FrmPropertyGrid.DeepCopy(proc);
+                    Proc updated = ObjectGraphCloner.Clone(proc);
                     updated.steps[0].Ops.RemoveAt(1);
                     Assert(engine.PublishProc(0, updated, out string error), "删除后续指令发布失败:" + error);
                     gate.Set();
@@ -630,7 +633,7 @@ namespace Automation.KernelTests
             {
                 Assert(engine.StartProc(proc, 0), "暂停结构测试流程启动失败");
                 WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Paused, 2000, "流程未停在断点");
-                Proc updated = FrmPropertyGrid.DeepCopy(proc);
+                Proc updated = ObjectGraphCloner.Clone(proc);
                 updated.steps[0].Ops.RemoveAt(0);
                 Assert(engine.PublishProc(0, updated, out string error), "暂停状态结构更新失败:" + error);
                 EngineSnapshot applied = engine.GetSnapshot(0);
@@ -695,6 +698,73 @@ namespace Automation.KernelTests
             finally
             {
                 Directory.Delete(path, true);
+            }
+        }
+
+        private static void TestGotoRewriteByOperationId()
+        {
+            var jump = new Goto { Id = Guid.NewGuid(), DefaultGoto = "0-0-2" };
+            var middle = new Delay { Id = Guid.NewGuid(), Name = "中间指令" };
+            var target = new Delay { Id = Guid.NewGuid(), Name = "目标指令" };
+            Proc before = CreateProc(jump, middle, target);
+
+            Proc inserted = ObjectGraphCloner.Clone(before);
+            inserted.steps[0].Ops.Insert(1, new Delay { Id = Guid.NewGuid(), Name = "新增指令" });
+            GotoRewriteResult insertResult = ProcessEditingService.RewriteGotoTargets(before, inserted, 0);
+            Assert(((Goto)inserted.steps[0].Ops[0]).DefaultGoto == "0-0-3", "插入后跳转未跟随目标指令ID");
+            Assert(insertResult.RewrittenCount == 1, "插入后的跳转重写计数错误");
+
+            Proc moved = ObjectGraphCloner.Clone(before);
+            OperationType movedTarget = moved.steps[0].Ops[2];
+            moved.steps[0].Ops.RemoveAt(2);
+            moved.steps[0].Ops.Insert(0, movedTarget);
+            ProcessEditingService.RewriteGotoTargets(before, moved, 0);
+            Assert(((Goto)moved.steps[0].Ops[1]).DefaultGoto == "0-0-0", "移动后跳转未跟随目标指令ID");
+
+            Proc deleted = ObjectGraphCloner.Clone(before);
+            deleted.steps[0].Ops.RemoveAt(2);
+            GotoRewriteResult deleteResult = ProcessEditingService.RewriteGotoTargets(before, deleted, 0);
+            Assert(((Goto)deleted.steps[0].Ops[0]).DefaultGoto == "0-0-1", "删除目标后未回退到最近指令");
+            Assert(deleteResult.FallbackCount == 1, "删除目标后的跳转回退计数错误");
+        }
+
+        private static void TestAtomicJsonRecovery()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "AutomationAtomicJson-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(path);
+            try
+            {
+                Assert(AtomicJsonFileStore.Save(path, "config", new Dictionary<string, int> { ["version"] = 1 }),
+                    "首次JSON保存失败");
+                Assert(AtomicJsonFileStore.Save(path, "config", new Dictionary<string, int> { ["version"] = 2 }),
+                    "第二次JSON保存失败");
+                File.WriteAllText(Path.Combine(path, "config.json"), "{损坏");
+                Dictionary<string, int> recovered = AtomicJsonFileStore.Read<Dictionary<string, int>>(path, "config");
+                Assert(recovered != null && recovered["version"] == 1, "主文件损坏后未读取上一版备份");
+            }
+            finally
+            {
+                Directory.Delete(path, true);
+            }
+        }
+
+        private static void TestProcessDirectoryRecovery()
+        {
+            string configPath = Path.Combine(Path.GetTempPath(), "AutomationWorkRecovery-" + Guid.NewGuid().ToString("N"));
+            string workPath = Path.Combine(configPath, "Work");
+            string backupPath = Path.Combine(configPath, "Work_bak");
+            Directory.CreateDirectory(backupPath);
+            try
+            {
+                File.WriteAllText(Path.Combine(backupPath, "0.json"), "backup");
+                Assert(ProcessConfigStore.RecoverIfNeeded(workPath, out string message), "流程目录恢复返回失败");
+                Assert(Directory.Exists(workPath), "Work_bak未恢复为Work");
+                Assert(File.Exists(Path.Combine(workPath, "0.json")), "恢复后的流程文件不存在");
+                Assert(!string.IsNullOrWhiteSpace(message), "目录恢复未返回诊断消息");
+            }
+            finally
+            {
+                Directory.Delete(configPath, true);
             }
         }
 

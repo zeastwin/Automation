@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -8,8 +8,6 @@ using System.Dynamic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Formatters.Binary;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
@@ -483,13 +481,13 @@ namespace Automation
             if (!File.Exists(filePath))
             {
                 dataStation = new List<DataStation>();
-                if (!SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", dataStation))
+                if (!AtomicJsonFileStore.Save(SF.ConfigPath, "DataStation", dataStation))
                 {
                     throw new InvalidOperationException($"工站配置模板生成失败:{filePath}");
                 }
             }
 
-            List<DataStation> dataStationsTemp = SF.mainfrm.ReadJson<List<DataStation>>(SF.ConfigPath, "DataStation");
+            List<DataStation> dataStationsTemp = AtomicJsonFileStore.Read<List<DataStation>>(SF.ConfigPath, "DataStation");
             if (dataStationsTemp != null)
             {
                 dataStation = dataStationsTemp;
@@ -588,7 +586,7 @@ namespace Automation
                         dataStation = new List<DataStation>();
                     }
                     dataStation.Add(draft);
-                    if (!SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", dataStation))
+                    if (!AtomicJsonFileStore.Save(SF.ConfigPath, "DataStation", dataStation))
                     {
                         dataStation.Remove(draft);
                         throw new InvalidOperationException("工站配置保存失败。");
@@ -622,7 +620,7 @@ namespace Automation
                     {
                         DataStation original = dataStation[stationIndex];
                         dataStation[stationIndex] = draft;
-                        if (!SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", dataStation))
+                        if (!AtomicJsonFileStore.Save(SF.ConfigPath, "DataStation", dataStation))
                         {
                             dataStation[stationIndex] = original;
                             throw new InvalidOperationException("工站配置保存失败。");
@@ -650,7 +648,7 @@ namespace Automation
                 }
                 DataStation removed = dataStation[stationIndex];
                 dataStation.RemoveAt(stationIndex);
-                if (!SF.mainfrm.SaveAsJson(SF.ConfigPath, "DataStation", dataStation))
+                if (!AtomicJsonFileStore.Save(SF.ConfigPath, "DataStation", dataStation))
                 {
                     dataStation.Insert(stationIndex, removed);
                     throw new InvalidOperationException("删除工站保存失败，正式内存已恢复。");
@@ -832,13 +830,7 @@ namespace Automation
 
         public object Clone()
         {
-            using (MemoryStream memoryStream = new MemoryStream())
-            {
-                IFormatter formatter = new BinaryFormatter();
-                formatter.Serialize(memoryStream, this);
-                memoryStream.Seek(0, SeekOrigin.Begin);
-                return formatter.Deserialize(memoryStream);
-            }
+            return ObjectGraphCloner.Clone(this);
         }
         public DataPos(int index)
         {

@@ -444,8 +444,8 @@ function fillConfig(){
     byId('cfgMcp').value=c.mcpUri||'';
     byId('cfgSession').value=c.sessionName||'';
     byId('cfgTurns').value=c.maxTurns||20;
-    setOptions(byId('cfgProvider'),appState.providerOptions||[],c.provider||'使用 EW-AI 配置');
-    setOptions(byId('cfgModel'),appState.modelOptions||[],c.model||'使用 EW-AI 配置');
+    setOptions(byId('cfgProvider'),appState.providerOptions||[],c.provider||'deepseek');
+    setOptions(byId('cfgModel'),appState.modelOptions||[],c.model||'deepseek-chat');
     byId('cfgApiKey').value='';
     byId('cfgApiKey').placeholder=c.hasApiKey?'本机已保存，留空则保持不变':'输入 API Key（仅保存在本机）';
 }
@@ -556,10 +556,10 @@ document.addEventListener('DOMContentLoaded',function(){
 </div>
 <div class=""modal-backdrop"" id=""configOverlay"">
   <section class=""config-modal"">
-    <div class=""modal-head""><div><div class=""modal-title"">AI 助手配置</div><div class=""modal-desc"">配置 EW-AI 启动、MCP 地址、Provider 和会话行为。</div></div><button class=""icon-button"" id=""closeConfig"" title=""关闭""><svg viewBox=""0 0 24 24""><path d=""M18 6 6 18""/><path d=""M6 6l12 12""/></svg></button></div>
+    <div class=""modal-head""><div><div class=""modal-title"">AI 助手配置</div><div class=""modal-desc"">选择常用 AI 服务、模型并配置本机 API Key。</div></div><button class=""icon-button"" id=""closeConfig"" title=""关闭""><svg viewBox=""0 0 24 24""><path d=""M18 6 6 18""/><path d=""M6 6l12 12""/></svg></button></div>
     <div class=""modal-body scrollable"">
       <div class=""settings-grid"">
-        <div class=""field field-wide""><label>EW-AI 路径</label><input id=""cfgGoose"" autocomplete=""off""></div>
+        <div class=""field field-wide""><label>AI 运行组件路径</label><input id=""cfgGoose"" autocomplete=""off""></div>
         <div class=""field""><label>工作目录<span class=""field-hint"">自动跟随程序目录</span></label><input id=""cfgWorkdir"" readonly autocomplete=""off""></div>
         <div class=""field""><label>MCP 地址</label><input id=""cfgMcp"" autocomplete=""off""></div>
         <div class=""field""><label>会话名</label><input id=""cfgSession"" autocomplete=""off""></div>
@@ -569,7 +569,7 @@ document.addEventListener('DOMContentLoaded',function(){
         <div class=""field field-wide""><label>API Key（使用 Windows 当前用户加密，仅保存在本机）</label><input id=""cfgApiKey"" type=""password"" autocomplete=""new-password""></div>
       </div>
     </div>
-    <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""reloadConfig"">重载</button><button class=""text-button"" id=""checkConfig"">检查 EW-AI</button><button class=""text-button"" id=""clearApiKey"">清除本机密钥</button><button class=""text-button"" id=""restorePrompt"">恢复上一版 Prompt</button></div><div class=""foot-right""><button class=""text-button"" id=""cancelConfig"">取消</button><button class=""primary-button"" id=""saveConfig"">保存配置</button></div></div>
+    <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""reloadConfig"">重载</button><button class=""text-button"" id=""checkConfig"">检查 AI 组件</button><button class=""text-button"" id=""clearApiKey"">清除本机密钥</button><button class=""text-button"" id=""restorePrompt"">恢复上一版 Prompt</button></div><div class=""foot-right""><button class=""text-button"" id=""cancelConfig"">取消</button><button class=""primary-button"" id=""saveConfig"">保存配置</button></div></div>
   </section>
 </div>
 <div class=""toast"" id=""toast""></div>
@@ -640,43 +640,20 @@ document.addEventListener('DOMContentLoaded',function(){
 
         private void InitializeProviderModelDropdowns()
         {
-            // 优先从 Goose config.yaml 读取已注册的 provider（如 custom_deepseek），
-            // 避免 GooseAcpClient 传入的 GOOSE_PROVIDER 与 Goose 实际注册名不一致。
             gooseProviders = GooseConfigStorage.TryLoadGooseProviders();
 
             cboProvider.BeginUpdate();
             cboProvider.Items.Clear();
-            cboProvider.Items.Add("使用 EW-AI 配置");
-            foreach (GooseProviderInfo info in gooseProviders)
-            {
-                if (!string.IsNullOrWhiteSpace(info.Name))
-                {
-                    cboProvider.Items.Add(info.Name);
-                }
-            }
-            // 追加 Goose 内置 provider 名作为补充选项（config.yaml 未注册时仍可选用）。
-            string[] standardProviders = { "openai", "anthropic", "google", "ollama", "openrouter", "azure_openai" };
+            string[] standardProviders = { "deepseek", "openai", "anthropic", "google", "openrouter", "ollama", "azure_openai" };
             foreach (string std in standardProviders)
             {
-                bool exists = false;
-                foreach (GooseProviderInfo info in gooseProviders)
-                {
-                    if (string.Equals(info.Name, std, StringComparison.OrdinalIgnoreCase))
-                    {
-                        exists = true;
-                        break;
-                    }
-                }
-                if (!exists)
-                {
-                    cboProvider.Items.Add(std);
-                }
+                cboProvider.Items.Add(std);
             }
             cboProvider.EndUpdate();
             cboProvider.SelectedIndex = 0;
             cboProvider.SelectedIndexChanged += CboProvider_SelectedIndexChanged;
 
-            RefreshModelOptions(string.Empty, string.Empty);
+            RefreshModelOptions("deepseek", "deepseek-chat");
         }
 
         private void CboProvider_SelectedIndexChanged(object sender, EventArgs e)
@@ -687,7 +664,7 @@ document.addEventListener('DOMContentLoaded',function(){
         private void RefreshModelOptions(string provider, string currentModel)
         {
             string normalizedCurrentModel = NormalizeGooseOverride(currentModel);
-            var models = new List<string> { "使用 EW-AI 配置" };
+            var models = new List<string>();
 
             // 优先：若选中的 provider 在 Goose config 里有配 model，显示该 model。
             if (!string.IsNullOrWhiteSpace(provider))
@@ -726,7 +703,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
             if (string.IsNullOrWhiteSpace(normalizedCurrentModel))
             {
-                cboModel.SelectedIndex = 0;
+                cboModel.SelectedIndex = cboModel.Items.Count > 0 ? 0 : -1;
                 return;
             }
 
@@ -738,24 +715,28 @@ document.addEventListener('DOMContentLoaded',function(){
             switch ((provider ?? string.Empty).Trim().ToLowerInvariant())
             {
                 case "deepseek":
-                    return new[] { "使用 EW-AI 配置", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner" };
+                    return new[] { "deepseek-chat", "deepseek-reasoner" };
                 case "openai":
-                    return new[] { "使用 EW-AI 配置", "gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini" };
+                    return new[] { "gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini" };
                 case "anthropic":
-                    return new[] { "使用 EW-AI 配置", "claude-sonnet-4-5", "claude-opus-4-1", "claude-3-7-sonnet-latest" };
+                    return new[] { "claude-sonnet-4-5", "claude-opus-4-1", "claude-3-7-sonnet-latest" };
                 case "google":
-                    return new[] { "使用 EW-AI 配置", "gemini-2.5-pro", "gemini-2.5-flash" };
+                    return new[] { "gemini-2.5-pro", "gemini-2.5-flash" };
+                case "openrouter":
+                    return new[] { "openai/gpt-5-mini", "anthropic/claude-sonnet-4-5", "deepseek/deepseek-chat" };
                 case "ollama":
-                    return new[] { "使用 EW-AI 配置", "llama3.1", "qwen2.5-coder", "deepseek-r1" };
+                    return new[] { "qwen2.5-coder", "deepseek-r1", "llama3.1" };
+                case "azure_openai":
+                    return new[] { "gpt-5", "gpt-4.1", "gpt-4.1-mini" };
                 default:
-                    return new[] { "使用 EW-AI 配置" };
+                    return new string[0];
             }
         }
 
         private static string NormalizeGooseOverride(string value)
         {
             string trimmed = (value ?? string.Empty).Trim();
-            return string.Equals(trimmed, "使用 EW-AI 配置", StringComparison.OrdinalIgnoreCase) ? string.Empty : trimmed;
+            return trimmed;
         }
 
         private void LoadConfig()
@@ -776,8 +757,8 @@ document.addEventListener('DOMContentLoaded',function(){
             txtWorkingDirectory.Text = AppDomain.CurrentDomain.BaseDirectory;
             txtMcpUri.Text = config.McpUri;
             txtSessionName.Text = config.SessionName;
-            cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? "使用 EW-AI 配置" : config.Provider;
-            RefreshModelOptions(config.Provider, config.Model);
+            cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? "deepseek" : config.Provider;
+            RefreshModelOptions(cboProvider.Text, string.IsNullOrWhiteSpace(config.Model) ? "deepseek-chat" : config.Model);
             nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, config.MaxTurns));
             toolProfile = config.ToolProfile;
             fullPermissionMode = config.FullPermissionMode;
@@ -866,7 +847,7 @@ document.addEventListener('DOMContentLoaded',function(){
                     break;
                 case "providerChanged":
                     ApplyWebConfig(message["config"] as JObject);
-                    cboProvider.Text = message["provider"]?.Value<string>() ?? "使用 EW-AI 配置";
+                    cboProvider.Text = message["provider"]?.Value<string>() ?? "deepseek";
                     RefreshModelOptions(NormalizeGooseOverride(cboProvider.Text), string.Empty);
                     PushWebAppState();
                     break;
@@ -929,8 +910,8 @@ document.addEventListener('DOMContentLoaded',function(){
 
         private JObject BuildWebAppState()
         {
-            string providerText = string.IsNullOrWhiteSpace(cboProvider.Text) ? "使用 EW-AI 配置" : cboProvider.Text;
-            string modelText = string.IsNullOrWhiteSpace(cboModel.Text) ? "使用 EW-AI 配置" : cboModel.Text;
+            string providerText = string.IsNullOrWhiteSpace(cboProvider.Text) ? "deepseek" : cboProvider.Text;
+            string modelText = string.IsNullOrWhiteSpace(cboModel.Text) ? "deepseek-chat" : cboModel.Text;
             string normalizedProvider = NormalizeGooseOverride(providerText);
             return new JObject
             {
@@ -997,11 +978,11 @@ document.addEventListener('DOMContentLoaded',function(){
             txtMcpUri.Text = config["mcpUri"]?.Value<string>() ?? string.Empty;
             txtSessionName.Text = config["sessionName"]?.Value<string>() ?? string.Empty;
 
-            string provider = config["provider"]?.Value<string>() ?? "使用 EW-AI 配置";
-            string model = config["model"]?.Value<string>() ?? "使用 EW-AI 配置";
-            cboProvider.Text = string.IsNullOrWhiteSpace(provider) ? "使用 EW-AI 配置" : provider;
+            string provider = config["provider"]?.Value<string>() ?? "deepseek";
+            string model = config["model"]?.Value<string>() ?? "deepseek-chat";
+            cboProvider.Text = string.IsNullOrWhiteSpace(provider) ? "deepseek" : provider;
             RefreshModelOptions(NormalizeGooseOverride(cboProvider.Text), model);
-            cboModel.Text = string.IsNullOrWhiteSpace(model) ? "使用 EW-AI 配置" : model;
+            cboModel.Text = string.IsNullOrWhiteSpace(model) ? "deepseek-chat" : model;
 
             int maxTurns = config["maxTurns"]?.Value<int?>() ?? GooseConfigStorage.DefaultMaxTurns;
             nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, maxTurns));
@@ -1147,7 +1128,7 @@ document.addEventListener('DOMContentLoaded',function(){
                 return;
             }
 
-            ShowWebToast("正在检查 EW-AI...");
+            ShowWebToast("正在检查 AI 运行组件...");
             string result = await Task.Run(() => CheckGooseCore(config)).ConfigureAwait(true);
             AppendConversation("系统", result, Color.FromArgb(56, 66, 88));
             ShowWebToast("检查完成，结果已写入对话。");

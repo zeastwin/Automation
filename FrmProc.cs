@@ -9,7 +9,6 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -20,19 +19,6 @@ using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
 
 namespace Automation
 {
-    /// <summary>
-    /// 流程变动类型，用于驱动 FrmProc 节点和 FrmDataGrid 行的闪烁动效颜色。
-    /// </summary>
-    public enum ProcChangeKind
-    {
-        /// <summary>修改（字段更新、指令移动）</summary>
-        Modified,
-        /// <summary>新增（插入流程、复制流程、插入指令）</summary>
-        Added,
-        /// <summary>删除（删除流程、删除指令）</summary>
-        Deleted
-    }
-
     public partial class FrmProc : Form
     {
         //存放所有流程信息
@@ -74,6 +60,7 @@ namespace Automation
         private bool suppressContextMenuOnce = false;
         private Proc clipboardProc;
         private Step clipboardStep;
+        private bool restoringTreeState;
 
         public FrmProc()
         {
@@ -113,28 +100,10 @@ namespace Automation
             }
             Proc proc = new Proc();
             proc.head = HeadTemp;
-
+            int insertIndex;
             if (SelectedProcNum == -1)
             {
-                procsList.Add(proc);
-                int procIndex = procsList.Count - 1;
-                List<string> errors = new List<string>();
-                NormalizeProc(procIndex, proc, errors);
-                if (errors.Count > 0)
-                {
-                    MessageBox.Show(string.Join("\r\n", errors.Distinct()));
-                    return;
-                }
-                if (!SF.CanPublishProcUpdate(procIndex))
-                {
-                    return;
-                }
-                if (!SF.mainfrm.SaveAsJson(SF.workPath, procIndex.ToString(), proc))
-                {
-                    procsList.RemoveAt(procIndex);
-                    return;
-                }
-                SF.PublishProc(procIndex);
+                insertIndex = procsList.Count;
             }
             else
             {
@@ -143,9 +112,19 @@ namespace Automation
                     MessageBox.Show("当前流程索引无效，无法插入流程。");
                     return;
                 }
-                int insertIndex = SelectedProcNum + 1;
-                procsList.Insert(insertIndex, proc);
-                RebuildWorkConfig(insertIndex);
+                insertIndex = SelectedProcNum + 1;
+            }
+            List<string> errors = new List<string>();
+            ProcessDefinitionService.NormalizeProc(insertIndex, proc, errors);
+            if (errors.Count > 0)
+            {
+                MessageBox.Show(string.Join("\r\n", errors.Distinct()));
+                return;
+            }
+            procsList.Insert(insertIndex, proc);
+            if (!RebuildWorkConfig(insertIndex))
+            {
+                return;
             }
 
             NewProcNum = -1;
@@ -164,121 +143,90 @@ namespace Automation
                 MessageBox.Show("步骤信息为空，无法保存。");
                 return;
             }
-            if (StepTemp.Id == Guid.Empty)
+            Step stepToInsert = ObjectGraphCloner.Clone(StepTemp);
+            if (stepToInsert.Id == Guid.Empty)
             {
-                StepTemp.Id = Guid.NewGuid();
+                stepToInsert.Id = Guid.NewGuid();
             }
+            int procIndex = SelectedProcNum;
+            Proc before = ObjectGraphCloner.Clone(procsList[procIndex]);
+            Proc draft = ObjectGraphCloner.Clone(procsList[procIndex]);
+            int insertIndex;
             if (SelectedStepNum == -1)
             {
-                procsList[SelectedProcNum].steps.Add(StepTemp);
+                insertIndex = draft.steps.Count;
             }
             else
             {
-                if (SelectedStepNum < 0 || SelectedStepNum >= procsList[SelectedProcNum].steps.Count)
+                if (SelectedStepNum < 0 || SelectedStepNum >= draft.steps.Count)
                 {
                     MessageBox.Show("当前步骤索引无效，无法新增步骤。");
                     return;
                 }
-                procsList[SelectedProcNum].steps.Insert(SelectedStepNum + 1, StepTemp);
+                insertIndex = SelectedStepNum + 1;
             }
-
-            int insertIndex = SelectedStepNum == -1
-                ? procsList[SelectedProcNum].steps.Count - 1
-                : SelectedStepNum + 1;
-            ShiftGotoStepIndexForInsert(SelectedProcNum, insertIndex);
-
-            List<string> errors = new List<string>();
-            NormalizeProc(SelectedProcNum, procsList[SelectedProcNum], errors);
-            if (errors.Count > 0)
+            draft.steps.Insert(insertIndex, stepToInsert);
+            ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
+            if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
             {
-                MessageBox.Show(string.Join("\r\n", errors.Distinct()));
+                MessageBox.Show(commitError, "新增步骤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            if (!SF.CanPublishProcUpdate(SelectedProcNum))
-            {
-                return;
-            }
-            if (!SF.mainfrm.SaveAsJson(SF.workPath, SelectedProcNum.ToString(), procsList[SelectedProcNum]))
-            {
-                procsList[SelectedProcNum].steps.Remove(StepTemp);
-                return;
-            }
-            SF.PublishProc(SelectedProcNum);
 
             NewStepNum = -1;
 
         }
-        public void RebuildWorkConfig(int startIndex = 0)
+        public bool RebuildWorkConfig(int startIndex = 0)
         {
-            string workDir = SF.workPath.TrimEnd('\\');
-            string configDir = Path.GetDirectoryName(workDir);
-            if (string.IsNullOrEmpty(configDir))
+            bool success = ProcessConfigStore.Rebuild(SF.workPath, procsList, startIndex,
+                out string error, out bool rollbackFailed);
+            if (!success)
             {
-                MessageBox.Show("流程目录无效");
-                return;
-            }
-
-            if (!Directory.Exists(workDir))
-            {
-                Directory.CreateDirectory(workDir);
-            }
-
-            string tempDir = Path.Combine(configDir, "Work_tmp");
-            string backupDir = Path.Combine(configDir, "Work_bak");
-
-            if (Directory.Exists(tempDir))
-            {
-                Directory.Delete(tempDir, true);
-            }
-            Directory.CreateDirectory(tempDir);
-
-            AdaptGotoProcIndexForAllProcs(startIndex);
-
-            string tempPath = tempDir + "\\";
-            for (int i = 0; i < procsList.Count; i++)
-            {
-                SF.mainfrm.SaveAsJson(tempPath, i.ToString(), procsList[i]);
-            }
-
-            try
-            {
-                if (Directory.Exists(backupDir))
+                RefreshProcList();
+                if (rollbackFailed)
                 {
-                    Directory.Delete(backupDir, true);
+                    SF.SetSecurityLock(error);
                 }
-                if (Directory.Exists(workDir))
-                {
-                    Directory.Move(workDir, backupDir);
-                }
-                Directory.Move(tempDir, workDir);
-                if (Directory.Exists(backupDir))
-                {
-                    Directory.Delete(backupDir, true);
-                }
+                MessageBox.Show(error, "流程配置提交失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
             }
-            catch (Exception ex)
-            {
-                if (!Directory.Exists(workDir) && Directory.Exists(backupDir))
-                {
-                    try
-                    {
-                        Directory.Move(backupDir, workDir);
-                    }
-                    catch
-                    {
-                    }
-                }
-                MessageBox.Show(ex.Message);
-                return;
-            }
-
-            SF.frmProc.RefreshProcList();
+            RefreshProcList();
+            return true;
         }
         public void RefreshProcList()
         {
+            TreeNode currentSelectedNode = proc_treeView.SelectedNode;
+            Guid selectedProcId = currentSelectedNode?.Parent == null
+                ? ReadNodeId(currentSelectedNode)
+                : ReadNodeId(currentSelectedNode.Parent);
+            Guid selectedStepId = currentSelectedNode?.Parent == null
+                ? Guid.Empty
+                : ReadNodeId(currentSelectedNode);
+            if (selectedProcId == Guid.Empty)
+            {
+                selectedProcId = GetProcId(SelectedProcNum);
+                selectedStepId = GetStepId(SelectedProcNum, SelectedStepNum);
+            }
+            Guid topProcId = proc_treeView.TopNode?.Parent == null
+                ? ReadNodeId(proc_treeView.TopNode)
+                : ReadNodeId(proc_treeView.TopNode.Parent);
+            var expandedProcIds = new HashSet<Guid>();
+            foreach (TreeNode node in proc_treeView.Nodes)
+            {
+                Guid id = ReadNodeId(node);
+                if (node.IsExpanded && id != Guid.Empty)
+                {
+                    expandedProcIds.Add(id);
+                }
+            }
+
             List<Proc> procsListTemp = new List<Proc>();
             List<string> loadErrors = new List<string>();
 
+            restoringTreeState = true;
+            proc_treeView.BeginUpdate();
+            try
+            {
             proc_treeView.Nodes.Clear();
             lock (procNodeMapLock)
             {
@@ -289,20 +237,29 @@ namespace Automation
 
             string path = SF.workPath.TrimEnd('\\');
 
+            if (!ProcessConfigStore.RecoverIfNeeded(path, out string recoveryMessage))
+            {
+                loadErrors.Add(recoveryMessage);
+            }
+            else if (!string.IsNullOrWhiteSpace(recoveryMessage) && SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            {
+                SF.frmInfo.PrintInfo(recoveryMessage, FrmInfo.Level.Error);
+            }
+
             if (!Directory.Exists(path))
             {
                 Directory.CreateDirectory(path);
             }
 
-            Dictionary<int, string> indexMap = BuildProcFileIndexMap(path, out int maxIndex);
-            loadErrors.AddRange(ValidateProcFileContinuity(indexMap, maxIndex));
+            Dictionary<int, string> indexMap = ProcessDefinitionService.BuildProcFileIndexMap(path, out int maxIndex);
+            loadErrors.AddRange(ProcessDefinitionService.ValidateProcFileContinuity(indexMap, maxIndex));
 
             for (int i = 0; i <= maxIndex; i++)
             {
                 Proc proc = null;
                 if (indexMap.ContainsKey(i))
                 {
-                    proc = SF.mainfrm.ReadJson<Proc>(SF.workPath, i.ToString());
+                    proc = AtomicJsonFileStore.Read<Proc>(SF.workPath, i.ToString());
                 }
                 if (proc == null)
                 {
@@ -310,7 +267,7 @@ namespace Automation
                     proc = new Proc();
                 }
 
-                NormalizeProc(i, proc, loadErrors);
+                ProcessDefinitionService.NormalizeProc(i, proc, loadErrors);
                 procsListTemp.Add(proc);
 
                 TreeNode treeNode = new TreeNode(BuildProcNodeText(i, proc));
@@ -336,6 +293,7 @@ namespace Automation
                     {
                         Step step = proc.steps[j];
                         TreeNode chnode = new TreeNode(BuildStepNodeText(i, j, proc, step));
+                        chnode.Tag = step?.Id ?? Guid.Empty;
                         if (proc?.head?.Disable == true || proc.steps[j]?.Disable == true)
                         {
                             chnode.ForeColor = DisabledNodeColor;
@@ -346,14 +304,15 @@ namespace Automation
             }
             procsList = procsListTemp;
 
-            procListItem.Clear();
-            procListItemCount.Clear();
-            foreach (var item in SF.frmProc.procsList)
-            {
-                string procName = string.IsNullOrWhiteSpace(item?.head?.Name) ? $"流程{procListItemCount.Count}" : item.head.Name;
-                procListItem.Add(procName);
-                procListItemCount.Add((procListItemCount.Count + 1).ToString());
+            RestoreTreeState(selectedProcId, selectedStepId, topProcId, expandedProcIds);
             }
+            finally
+            {
+                proc_treeView.EndUpdate();
+                restoringTreeState = false;
+            }
+
+            RebuildProcListItems();
             if (SF.DR?.Context != null)
             {
                 bool allStopped = true;
@@ -372,7 +331,7 @@ namespace Automation
                     List<Proc> runtimeProcs = new List<Proc>(procsList.Count);
                     for (int i = 0; i < procsList.Count; i++)
                     {
-                        runtimeProcs.Add(FrmPropertyGrid.DeepCopy(procsList[i]));
+                        runtimeProcs.Add(ObjectGraphCloner.Clone(procsList[i]));
                     }
                     SF.DR.Context.Procs = runtimeProcs;
                     SF.DR.ClearPendingProcUpdates();
@@ -385,6 +344,175 @@ namespace Automation
                 SF.StopAllProcs(reason);
                 MessageBox.Show(reason, "流程配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>
+        /// 流程内容修改后的局部界面刷新。不会重新读取全部流程文件，也不会清空流程树。
+        /// </summary>
+        public void RefreshProcView(int procIndex)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)(() => RefreshProcView(procIndex)));
+                return;
+            }
+            if (procIndex < 0 || procIndex >= procsList.Count || proc_treeView.IsDisposed)
+            {
+                return;
+            }
+
+            Proc proc = procsList[procIndex];
+            TreeNode procNode = procIndex < proc_treeView.Nodes.Count ? proc_treeView.Nodes[procIndex] : null;
+            if (procNode == null)
+            {
+                RefreshProcList();
+                return;
+            }
+
+            bool wasExpanded = procNode.IsExpanded;
+            Guid selectedStepId = GetStepId(SelectedProcNum, SelectedStepNum);
+            proc_treeView.BeginUpdate();
+            try
+            {
+                procNode.Text = BuildProcNodeText(procIndex, proc);
+                procNode.Tag = proc?.head?.Id ?? Guid.Empty;
+                procNode.ForeColor = proc?.head?.Disable == true ? DisabledNodeColor : proc_treeView.ForeColor;
+
+                int stepCount = proc?.steps?.Count ?? 0;
+                bool structureChanged = procNode.Nodes.Count != stepCount;
+                if (!structureChanged)
+                {
+                    for (int i = 0; i < stepCount; i++)
+                    {
+                        if (ReadNodeId(procNode.Nodes[i]) != (proc.steps[i]?.Id ?? Guid.Empty))
+                        {
+                            structureChanged = true;
+                            break;
+                        }
+                    }
+                }
+                if (structureChanged)
+                {
+                    procNode.Nodes.Clear();
+                    for (int i = 0; i < stepCount; i++)
+                    {
+                        Step step = proc.steps[i];
+                        var stepNode = new TreeNode(BuildStepNodeText(procIndex, i, proc, step))
+                        {
+                            Tag = step?.Id ?? Guid.Empty,
+                            ForeColor = proc?.head?.Disable == true || step?.Disable == true
+                                ? DisabledNodeColor
+                                : proc_treeView.ForeColor
+                        };
+                        procNode.Nodes.Add(stepNode);
+                    }
+                }
+                else
+                {
+                    for (int i = 0; i < stepCount; i++)
+                    {
+                        Step step = proc.steps[i];
+                        procNode.Nodes[i].Text = BuildStepNodeText(procIndex, i, proc, step);
+                        procNode.Nodes[i].ForeColor = proc?.head?.Disable == true || step?.Disable == true
+                            ? DisabledNodeColor
+                            : proc_treeView.ForeColor;
+                    }
+                }
+                if (wasExpanded)
+                {
+                    procNode.Expand();
+                }
+                if (SelectedProcNum == procIndex && selectedStepId != Guid.Empty)
+                {
+                    TreeNode selectedStepNode = procNode.Nodes.Cast<TreeNode>()
+                        .FirstOrDefault(node => ReadNodeId(node) == selectedStepId);
+                    if (selectedStepNode != null)
+                    {
+                        proc_treeView.SelectedNode = selectedStepNode;
+                        SelectedStepNum = selectedStepNode.Index;
+                    }
+                }
+            }
+            finally
+            {
+                proc_treeView.EndUpdate();
+            }
+
+            RebuildProcListItems();
+            if (SelectedProcNum == procIndex)
+            {
+                RefreshCurrentBinding();
+            }
+        }
+
+        private void RestoreTreeState(Guid selectedProcId, Guid selectedStepId, Guid topProcId, HashSet<Guid> expandedProcIds)
+        {
+            TreeNode selectedNode = null;
+            TreeNode topNode = null;
+            foreach (TreeNode procNode in proc_treeView.Nodes)
+            {
+                Guid procId = ReadNodeId(procNode);
+                if (expandedProcIds.Contains(procId))
+                {
+                    procNode.Expand();
+                }
+                if (procId == topProcId)
+                {
+                    topNode = procNode;
+                }
+                if (procId != selectedProcId)
+                {
+                    continue;
+                }
+                selectedNode = procNode;
+                if (selectedStepId != Guid.Empty)
+                {
+                    selectedNode = procNode.Nodes.Cast<TreeNode>()
+                        .FirstOrDefault(node => ReadNodeId(node) == selectedStepId) ?? procNode;
+                }
+            }
+            proc_treeView.SelectedNode = selectedNode;
+            if (topNode != null)
+            {
+                proc_treeView.TopNode = topNode;
+            }
+            if (selectedNode == null)
+            {
+                SelectedProcNum = -1;
+                SelectedStepNum = -1;
+                RefreshCurrentBinding();
+            }
+        }
+
+        private void RebuildProcListItems()
+        {
+            procListItem.Clear();
+            procListItemCount.Clear();
+            for (int i = 0; i < procsList.Count; i++)
+            {
+                procListItem.Add(string.IsNullOrWhiteSpace(procsList[i]?.head?.Name) ? $"流程{i}" : procsList[i].head.Name);
+                procListItemCount.Add((i + 1).ToString());
+            }
+        }
+
+        private Guid GetProcId(int procIndex)
+        {
+            return procIndex >= 0 && procIndex < procsList.Count
+                ? procsList[procIndex]?.head?.Id ?? Guid.Empty
+                : Guid.Empty;
+        }
+
+        private Guid GetStepId(int procIndex, int stepIndex)
+        {
+            return procIndex >= 0 && procIndex < procsList.Count
+                && stepIndex >= 0 && stepIndex < (procsList[procIndex]?.steps?.Count ?? 0)
+                ? procsList[procIndex].steps[stepIndex]?.Id ?? Guid.Empty
+                : Guid.Empty;
+        }
+
+        private static Guid ReadNodeId(TreeNode node)
+        {
+            return node?.Tag is Guid id ? id : Guid.Empty;
         }
 
         /// <summary>
@@ -432,7 +560,11 @@ namespace Automation
                            : kind == ProcChangeKind.Deleted ? Color.LightPink
                            : Color.Khaki;
             procFlashCount = 0;
-            procFlashNode.EnsureVisible();
+            // 后台流程变化不抢占用户当前树滚动位置；当前流程或新增流程才滚动到提示节点。
+            if (SelectedProcNum == procIndex || kind == ProcChangeKind.Added)
+            {
+                procFlashNode.EnsureVisible();
+            }
 
             procFlashTimer = new System.Windows.Forms.Timer();
             procFlashTimer.Interval = 300;
@@ -481,354 +613,76 @@ namespace Automation
                 }
                 return;
             }
+            DataGridView grid = SF.frmDataGrid?.dataGridView1;
+            Guid selectedOpId = grid?.CurrentRow?.DataBoundItem is OperationType selectedOp
+                ? selectedOp.Id
+                : Guid.Empty;
+            int firstDisplayedRow = -1;
+            if (grid != null && grid.Rows.Count > 0)
+            {
+                try
+                {
+                    firstDisplayedRow = grid.FirstDisplayedScrollingRowIndex;
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+            if (grid != null && !grid.IsDisposed)
+            {
+                grid.DataSource = null;
+            }
             if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
             {
                 bindingSource.DataSource = null;
+                if (grid != null)
+                {
+                    grid.DataSource = null;
+                }
                 return;
             }
             if (SelectedStepNum >= 0 && SelectedStepNum < procsList[SelectedProcNum].steps.Count)
             {
                 bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
+                if (SF.frmPropertyGrid != null && !SF.frmPropertyGrid.IsDisposed)
+                {
+                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = procsList[SelectedProcNum].steps[SelectedStepNum];
+                }
             }
             else
             {
                 bindingSource.DataSource = null;
-            }
-            bindingSource.ResetBindings(true);
-            if (SF.frmDataGrid != null && !SF.frmDataGrid.IsDisposed)
-            {
-                SF.frmDataGrid.dataGridView1.DataSource = bindingSource;
-            }
-        }
-
-        internal void NormalizeProc(int procIndex, Proc proc, List<string> errors)
-        {
-            if (proc.head == null)
-            {
-                proc.head = new ProcHead();
-                errors.Add($"流程{procIndex}头信息缺失");
-            }
-            if (proc.head.Id == Guid.Empty)
-            {
-                proc.head.Id = Guid.NewGuid();
-            }
-            if (string.IsNullOrWhiteSpace(proc.head.Name))
-            {
-                proc.head.Name = $"流程{procIndex}";
-            }
-            if (proc.head.PauseIoParams == null)
-            {
-                proc.head.PauseIoParams = new CustomList<PauseIoParam>();
-            }
-            if (proc.head.PauseValueParams == null)
-            {
-                proc.head.PauseValueParams = new CustomList<PauseValueParam>();
-            }
-            if (proc.steps == null)
-            {
-                proc.steps = new List<Step>();
-                errors.Add($"流程{procIndex}步骤列表缺失");
-            }
-            for (int i = 0; i < proc.steps.Count; i++)
-            {
-                if (proc.steps[i] == null)
+                if (SF.frmPropertyGrid != null && !SF.frmPropertyGrid.IsDisposed)
                 {
-                    proc.steps[i] = new Step();
-                    errors.Add($"流程{procIndex}步骤{i}为空");
+                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = procsList[SelectedProcNum].head;
                 }
-                Step step = proc.steps[i];
-                if (step.Id == Guid.Empty)
+            }
+            bindingSource.ResetBindings(false);
+            if (grid != null && !grid.IsDisposed)
+            {
+                grid.DataSource = bindingSource;
+                if (selectedOpId != Guid.Empty)
                 {
-                    step.Id = Guid.NewGuid();
-                }
-                if (string.IsNullOrWhiteSpace(step.Name))
-                {
-                    step.Name = $"步骤{i}";
-                }
-                if (step.Ops == null)
-                {
-                    step.Ops = new List<OperationType>();
-                    errors.Add($"流程{procIndex}步骤{i}指令列表缺失");
-                }
-                for (int j = 0; j < step.Ops.Count; j++)
-                {
-                    if (step.Ops[j] == null)
+                    DataGridViewRow selectedRow = grid.Rows.Cast<DataGridViewRow>()
+                        .FirstOrDefault(row => row.DataBoundItem is OperationType op && op.Id == selectedOpId);
+                    if (selectedRow != null && selectedRow.Cells.Count > 0)
                     {
-                        step.Ops[j] = new OperationType
-                        {
-                            Name = "空指令",
-                            OperaType = "无效指令",
-                            Disable = true
-                        };
-                        errors.Add($"流程{procIndex}步骤{i}指令{j}为空");
-                    }
-                    if (step.Ops[j].Id == Guid.Empty)
-                    {
-                        step.Ops[j].Id = Guid.NewGuid();
-                    }
-                    step.Ops[j].Num = j;
-                }
-            }
-            for (int i = 0; i < proc.steps.Count; i++)
-            {
-                Step step = proc.steps[i];
-                for (int j = 0; j < step.Ops.Count; j++)
-                {
-                    ValidateGotoTargets(step.Ops[j], procIndex, proc, errors, $"流程{procIndex}步骤{i}指令{j}");
-                    ValidateCommunicationOperation(step.Ops[j], errors, $"流程{procIndex}步骤{i}指令{j}");
-                }
-            }
-        }
-
-        private static void ValidateCommunicationOperation(OperationType operation, List<string> errors, string location)
-        {
-            if (operation == null || operation.Disable)
-            {
-                return;
-            }
-
-            bool HasValue(string name) => !string.IsNullOrWhiteSpace(name)
-                && SF.valueStore != null && SF.valueStore.TryGetValueByName(name, out _);
-            bool HasTcp(string name) => SF.communicationStore != null
-                && SF.communicationStore.TryGetSocket(name, out _);
-            bool HasSerial(string name) => SF.communicationStore != null
-                && SF.communicationStore.TryGetSerial(name, out _);
-
-            if (operation is TcpOps tcpOps)
-            {
-                if (tcpOps.Params == null || tcpOps.Params.Count == 0)
-                {
-                    errors.Add($"{location} TCP操作参数为空");
-                    return;
-                }
-                foreach (TcpOpsParam item in tcpOps.Params)
-                {
-                    if (item == null || !HasTcp(item.Name)
-                        || (item.Ops != "启动" && item.Ops != "断开"))
-                    {
-                        errors.Add($"{location} TCP操作配置无效");
+                        grid.CurrentCell = selectedRow.Cells[0];
+                        SF.frmDataGrid.iSelectedRow = selectedRow.Index;
                     }
                 }
-                return;
-            }
-            if (operation is WaitTcp waitTcp)
-            {
-                if (waitTcp.Params == null || waitTcp.Params.Count == 0
-                    || waitTcp.Params.Any(item => item == null || !HasTcp(item.Name) || item.TimeOut <= 0))
+                if (firstDisplayedRow >= 0 && firstDisplayedRow < grid.Rows.Count)
                 {
-                    errors.Add($"{location} 等待TCP配置无效");
-                }
-                return;
-            }
-            if (operation is SendTcpMsg sendTcp)
-            {
-                if (!HasTcp(sendTcp.ID) || !HasValue(sendTcp.Msg) || sendTcp.TimeOut <= 0)
-                {
-                    errors.Add($"{location} TCP发送配置无效");
-                }
-                return;
-            }
-            if (operation is ReceoveTcpMsg receiveTcp)
-            {
-                if (!HasTcp(receiveTcp.ID) || !HasValue(receiveTcp.MsgSaveValue) || receiveTcp.TImeOut <= 0)
-                {
-                    errors.Add($"{location} TCP接收配置无效");
-                }
-                return;
-            }
-            if (operation is SerialPortOps serialOps)
-            {
-                if (serialOps.Params == null || serialOps.Params.Count == 0
-                    || serialOps.Params.Any(item => item == null || !HasSerial(item.Name)
-                        || (item.Ops != "启动" && item.Ops != "断开")))
-                {
-                    errors.Add($"{location} 串口操作配置无效");
-                }
-                return;
-            }
-            if (operation is WaitSerialPort waitSerial)
-            {
-                if (waitSerial.Params == null || waitSerial.Params.Count == 0
-                    || waitSerial.Params.Any(item => item == null || !HasSerial(item.Name) || item.TimeOut <= 0))
-                {
-                    errors.Add($"{location} 等待串口配置无效");
-                }
-                return;
-            }
-            if (operation is SendSerialPortMsg sendSerial)
-            {
-                if (!HasSerial(sendSerial.ID) || !HasValue(sendSerial.Msg) || sendSerial.TimeOut <= 0)
-                {
-                    errors.Add($"{location} 串口发送配置无效");
-                }
-                return;
-            }
-            if (operation is ReceoveSerialPortMsg receiveSerial)
-            {
-                if (!HasSerial(receiveSerial.ID) || !HasValue(receiveSerial.MsgSaveValue) || receiveSerial.TImeOut <= 0)
-                {
-                    errors.Add($"{location} 串口接收配置无效");
-                }
-                return;
-            }
-            if (operation is SendReceoveCommMsg request)
-            {
-                bool validChannel = request.CommType == "TCP"
-                    ? HasTcp(request.ID)
-                    : request.CommType == "串口" && HasSerial(request.ID);
-                if (!validChannel || !HasValue(request.SendMsg) || request.TimeOut <= 0
-                    || (!string.IsNullOrWhiteSpace(request.ReceiveSaveValue) && !HasValue(request.ReceiveSaveValue)))
-                {
-                    errors.Add($"{location} 通讯请求响应配置无效");
-                }
-            }
-        }
-
-        internal static Dictionary<int, string> BuildProcFileIndexMap(string path, out int maxIndex)
-        {
-            Dictionary<int, string> indexMap = new Dictionary<int, string>();
-            maxIndex = -1;
-            foreach (string file in Directory.EnumerateFiles(path, "*.json"))
-            {
-                string name = Path.GetFileNameWithoutExtension(file);
-                if (!int.TryParse(name, out int index))
-                {
-                    continue;
-                }
-                indexMap[index] = file;
-                if (index > maxIndex)
-                {
-                    maxIndex = index;
-                }
-            }
-            return indexMap;
-        }
-
-        internal static List<string> ValidateProcFileContinuity(Dictionary<int, string> indexMap, int maxIndex)
-        {
-            List<string> errors = new List<string>();
-            if (indexMap == null || indexMap.Count == 0)
-            {
-                return errors;
-            }
-            if (!indexMap.ContainsKey(0))
-            {
-                errors.Add("流程文件索引必须从0开始。");
-            }
-            for (int i = 0; i <= maxIndex; i++)
-            {
-                if (!indexMap.ContainsKey(i))
-                {
-                    errors.Add($"流程文件缺失：{i}.json");
-                }
-            }
-            return errors;
-        }
-
-        internal static List<string> ValidateProcGotoTargets(int procIndex, Proc proc)
-        {
-            List<string> errors = new List<string>();
-            if (proc?.steps == null)
-            {
-                return errors;
-            }
-            for (int i = 0; i < proc.steps.Count; i++)
-            {
-                Step step = proc.steps[i];
-                if (step?.Ops == null)
-                {
-                    continue;
-                }
-                for (int j = 0; j < step.Ops.Count; j++)
-                {
-                    OperationType op = step.Ops[j];
-                    if (op == null)
+                    try
                     {
-                        continue;
+                        grid.FirstDisplayedScrollingRowIndex = firstDisplayedRow;
                     }
-                    ValidateGotoTargets(op, procIndex, proc, errors, $"流程{procIndex}步骤{i}指令{j}");
-                }
-            }
-            return errors;
-        }
-
-        private static void ValidateGotoTargets(object obj, int procIndex, Proc proc, List<string> errors, string context)
-        {
-            foreach (var propertyInfo in obj.GetType().GetProperties())
-            {
-                if (propertyInfo.GetIndexParameters().Length > 0)
-                {
-                    continue;
-                }
-                if (propertyInfo.PropertyType == typeof(string) && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
-                {
-                    string value = propertyInfo.GetValue(obj) as string;
-                    if (!string.IsNullOrWhiteSpace(value))
+                    catch (InvalidOperationException)
                     {
-                        if (!TryParseGotoKey(value, out int gotoProc, out int gotoStep, out int gotoOp))
-                        {
-                            errors.Add($"{context}跳转地址格式错误：{value}");
-                        }
-                        else if (gotoProc != procIndex)
-                        {
-                            errors.Add($"{context}跳转地址跨流程：{value}");
-                        }
-                        else if (!TryValidateGotoRange(proc, procIndex, gotoStep, gotoOp, out string rangeError))
-                        {
-                            errors.Add($"{context} {rangeError}");
-                        }
                     }
                 }
-
-                var propertyValue = propertyInfo.GetValue(obj);
-                if (propertyValue is System.Collections.IEnumerable enumerable && !(propertyValue is string))
-                {
-                    foreach (var item in enumerable)
-                    {
-                        if (item == null)
-                        {
-                            continue;
-                        }
-                        ValidateGotoTargets(item, procIndex, proc, errors, context);
-                    }
-                }
+                grid.Invalidate();
             }
-        }
-
-        private static bool TryValidateGotoRange(Proc proc, int procIndex, int stepIndex, int opIndex, out string error)
-        {
-            error = null;
-            if (proc?.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
-            {
-                error = $"跳转地址步骤越界：{procIndex}-{stepIndex}-{opIndex}";
-                return false;
-            }
-            Step step = proc.steps[stepIndex];
-            if (step?.Ops == null || opIndex < 0 || opIndex >= step.Ops.Count)
-            {
-                error = $"跳转地址指令越界：{procIndex}-{stepIndex}-{opIndex}";
-                return false;
-            }
-            return true;
-        }
-
-        internal static bool TryParseGotoKey(string value, out int procIndex, out int stepIndex, out int opIndex)
-        {
-            procIndex = -1;
-            stepIndex = -1;
-            opIndex = -1;
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return false;
-            }
-            string[] parts = value.Split('-');
-            if (parts.Length != 3)
-            {
-                return false;
-            }
-            return int.TryParse(parts[0], out procIndex)
-                && int.TryParse(parts[1], out stepIndex)
-                && int.TryParse(parts[2], out opIndex);
         }
 
         private void CaptureEditBackup()
@@ -844,12 +698,12 @@ namespace Automation
 
             if (editStepIndex == -1)
             {
-                editProcHeadBackup = FrmPropertyGrid.DeepCopy(procsList[editProcIndex].head);
+                editProcHeadBackup = ObjectGraphCloner.Clone(procsList[editProcIndex].head);
                 editStepBackup = null;
             }
             else if (editStepIndex >= 0 && editStepIndex < procsList[editProcIndex].steps.Count)
             {
-                editStepBackup = FrmPropertyGrid.DeepCopy(procsList[editProcIndex].steps[editStepIndex]);
+                editStepBackup = ObjectGraphCloner.Clone(procsList[editProcIndex].steps[editStepIndex]);
                 editProcHeadBackup = null;
             }
 
@@ -1078,7 +932,10 @@ namespace Automation
                     return;
                 }
                 procsList.RemoveAt(procIndex);
-                RebuildWorkConfig(procIndex);
+                if (!RebuildWorkConfig(procIndex))
+                {
+                    return;
+                }
             }
             else
             {
@@ -1123,10 +980,14 @@ namespace Automation
                 {
                     return;
                 }
-                procsList[procIndex].steps.RemoveAt(stepIndex);
-                ShiftGotoStepIndexForRemove(procIndex, stepIndex);
-                SF.frmDataGrid.SaveSingleProc(procIndex);
-                Refresh();
+                Proc before = ObjectGraphCloner.Clone(procsList[procIndex]);
+                Proc draft = ObjectGraphCloner.Clone(procsList[procIndex]);
+                draft.steps.RemoveAt(stepIndex);
+                ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
+                if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
+                {
+                    MessageBox.Show(commitError, "删除步骤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
      
@@ -1232,6 +1093,10 @@ namespace Automation
 
         private void proc_treeView_BeforeSelect(object sender, TreeViewCancelEventArgs e)
         {
+            if (restoringTreeState)
+            {
+                return;
+            }
             if (SF.isAddOps || SF.isModify == ModifyKind.Operation)
             {
                 if (proc_treeView.SelectedNode != e.Node)
@@ -1329,16 +1194,13 @@ namespace Automation
                     item => string.IsNullOrWhiteSpace(item.Name) ? "流程名称为空。" : null,
                     item =>
                     {
-                        ProcHead original = procsList[procIndex].head;
-                        procsList[procIndex].head = item;
-                        if (!SF.frmDataGrid.SaveSingleProc(procIndex))
+                        Proc procDraft = ObjectGraphCloner.Clone(procsList[procIndex]);
+                        procDraft.head = item;
+                        if (!ProcessEditingService.TryCommitProcDraft(procIndex, procDraft, out string commitError))
                         {
-                            procsList[procIndex].head = original;
-                            throw new InvalidOperationException("流程保存失败，正式内存已恢复。");
+                            throw new InvalidOperationException(commitError);
                         }
-                        bindingSource.ResetBindings(true);
                         proc_treeView.Enabled = true;
-                        RefreshProcList();
                     }, () => proc_treeView.Enabled = true));
             }
             else if (selected is Step sourceStep && stepIndex >= 0)
@@ -1348,16 +1210,13 @@ namespace Automation
                     item => string.IsNullOrWhiteSpace(item.Name) ? "步骤名称为空。" : null,
                     item =>
                     {
-                        Step original = procsList[procIndex].steps[stepIndex];
-                        procsList[procIndex].steps[stepIndex] = item;
-                        if (!SF.frmDataGrid.SaveSingleProc(procIndex))
+                        Proc procDraft = ObjectGraphCloner.Clone(procsList[procIndex]);
+                        procDraft.steps[stepIndex] = item;
+                        if (!ProcessEditingService.TryCommitProcDraft(procIndex, procDraft, out string commitError))
                         {
-                            procsList[procIndex].steps[stepIndex] = original;
-                            throw new InvalidOperationException("步骤保存失败，正式内存已恢复。");
+                            throw new InvalidOperationException(commitError);
                         }
-                        bindingSource.ResetBindings(true);
                         proc_treeView.Enabled = true;
-                        RefreshProcList();
                     }, () => proc_treeView.Enabled = true));
             }
             else
@@ -1474,7 +1333,7 @@ namespace Automation
                     MessageBox.Show("流程索引无效，无法复制。");
                     return;
                 }
-                clipboardProc = FrmPropertyGrid.DeepCopy(procsList[procIndex]);
+                clipboardProc = ObjectGraphCloner.Clone(procsList[procIndex]);
                 clipboardStep = null;
             }
             else
@@ -1491,7 +1350,7 @@ namespace Automation
                     MessageBox.Show("步骤索引无效，无法复制。");
                     return;
                 }
-                clipboardStep = FrmPropertyGrid.DeepCopy(procsList[procIndex].steps[stepIndex]);
+                clipboardStep = ObjectGraphCloner.Clone(procsList[procIndex].steps[stepIndex]);
                 clipboardProc = null;
             }
             UpdateCopyPasteMenu();
@@ -1518,7 +1377,7 @@ namespace Automation
             {
                 return;
             }
-            Proc newProc = FrmPropertyGrid.DeepCopy(clipboardProc);
+            Proc newProc = ObjectGraphCloner.Clone(clipboardProc);
             ResetProcIdentity(newProc);
             UpdateCopiedProcName(newProc);
             int insertIndex = SelectedProcNum >= 0 ? SelectedProcNum + 1 : procsList.Count;
@@ -1526,16 +1385,19 @@ namespace Automation
             {
                 insertIndex = procsList.Count;
             }
-            AdaptGotoProcIndex(newProc, insertIndex);
+            ProcessEditingService.AdaptGotoProcIndex(newProc, insertIndex);
             List<string> errors = new List<string>();
-            NormalizeProc(insertIndex, newProc, errors);
+            ProcessDefinitionService.NormalizeProc(insertIndex, newProc, errors);
             if (errors.Count > 0)
             {
                 MessageBox.Show(string.Join("\r\n", errors.Distinct()));
                 return;
             }
             procsList.Insert(insertIndex, newProc);
-            RebuildWorkConfig(insertIndex);
+            if (!RebuildWorkConfig(insertIndex))
+            {
+                return;
+            }
             SelectProcNode(insertIndex, -1);
         }
 
@@ -1550,7 +1412,7 @@ namespace Automation
             {
                 return;
             }
-            Step newStep = FrmPropertyGrid.DeepCopy(clipboardStep);
+            Step newStep = ObjectGraphCloner.Clone(clipboardStep);
             ResetStepIdentity(newStep);
             int procIndex = SelectedProcNum;
             int insertIndex = SelectedStepNum >= 0 ? SelectedStepNum + 1 : procsList[procIndex].steps.Count;
@@ -1558,22 +1420,15 @@ namespace Automation
             {
                 insertIndex = procsList[procIndex].steps.Count;
             }
-            procsList[procIndex].steps.Insert(insertIndex, newStep);
-            ShiftGotoStepIndexForInsert(procIndex, insertIndex);
-            List<string> errors = new List<string>();
-            NormalizeProc(procIndex, procsList[procIndex], errors);
-            if (errors.Count > 0)
+            Proc before = ObjectGraphCloner.Clone(procsList[procIndex]);
+            Proc draft = ObjectGraphCloner.Clone(procsList[procIndex]);
+            draft.steps.Insert(insertIndex, newStep);
+            ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
+            if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
             {
-                MessageBox.Show(string.Join("\r\n", errors.Distinct()));
+                MessageBox.Show(commitError, "粘贴步骤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            if (!SF.CanPublishProcUpdate(procIndex))
-            {
-                return;
-            }
-            SF.mainfrm.SaveAsJson(SF.workPath, procIndex.ToString(), procsList[procIndex]);
-            SF.PublishProc(procIndex);
-            Refresh();
             SelectProcNode(procIndex, insertIndex);
         }
 
@@ -1674,182 +1529,6 @@ namespace Automation
             }
         }
 
-        private void AdaptGotoProcIndex(Proc proc, int procIndex)
-        {
-            if (proc?.steps == null)
-            {
-                return;
-            }
-            foreach (Step step in proc.steps)
-            {
-                if (step?.Ops == null)
-                {
-                    continue;
-                }
-                foreach (OperationType op in step.Ops)
-                {
-                    AdaptGotoProcIndex(op, procIndex);
-                }
-            }
-        }
-
-        private void AdaptGotoProcIndexForAllProcs(int startIndex)
-        {
-            if (procsList == null)
-            {
-                return;
-            }
-            if (procsList.Count == 0)
-            {
-                return;
-            }
-            if (startIndex < 0)
-            {
-                startIndex = 0;
-            }
-            if (startIndex >= procsList.Count)
-            {
-                return;
-            }
-            for (int i = startIndex; i < procsList.Count; i++)
-            {
-                AdaptGotoProcIndex(procsList[i], i);
-            }
-        }
-
-        private void AdaptGotoProcIndex(object obj, int procIndex)
-        {
-            if (obj == null)
-            {
-                return;
-            }
-            foreach (var propertyInfo in obj.GetType().GetProperties())
-            {
-                if (propertyInfo.GetIndexParameters().Length > 0)
-                {
-                    continue;
-                }
-                if (propertyInfo.PropertyType == typeof(string)
-                    && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
-                {
-                    string value = propertyInfo.GetValue(obj) as string;
-                    if (!string.IsNullOrWhiteSpace(value)
-                        && TryParseGotoKey(value, out _, out int stepIndex, out int opIndex))
-                    {
-                        propertyInfo.SetValue(obj, $"{procIndex}-{stepIndex}-{opIndex}");
-                    }
-                }
-                var propertyValue = propertyInfo.GetValue(obj);
-                if (propertyValue is IEnumerable enumerable && !(propertyValue is string))
-                {
-                    foreach (var item in enumerable)
-                    {
-                        AdaptGotoProcIndex(item, procIndex);
-                    }
-                }
-            }
-        }
-
-        private void ShiftGotoStepIndexForInsert(int procIndex, int insertIndex)
-        {
-            if (procIndex < 0 || procIndex >= procsList.Count)
-            {
-                return;
-            }
-            Proc proc = procsList[procIndex];
-            AdjustGotoStepIndex(proc, procIndex, stepIndex =>
-            {
-                if (stepIndex >= insertIndex)
-                {
-                    return stepIndex + 1;
-                }
-                return stepIndex;
-            });
-        }
-
-        private void ShiftGotoStepIndexForRemove(int procIndex, int removedIndex)
-        {
-            if (procIndex < 0 || procIndex >= procsList.Count)
-            {
-                return;
-            }
-            Proc proc = procsList[procIndex];
-            if (proc?.steps == null || proc.steps.Count == 0)
-            {
-                return;
-            }
-            int maxIndex = proc.steps.Count - 1;
-            AdjustGotoStepIndex(proc, procIndex, stepIndex =>
-            {
-                if (stepIndex > removedIndex)
-                {
-                    return stepIndex - 1;
-                }
-                if (stepIndex == removedIndex)
-                {
-                    return Math.Min(removedIndex, maxIndex);
-                }
-                return stepIndex;
-            });
-        }
-
-        private void AdjustGotoStepIndex(Proc proc, int procIndex, Func<int, int> adjuster)
-        {
-            if (proc?.steps == null)
-            {
-                return;
-            }
-            foreach (Step step in proc.steps)
-            {
-                if (step?.Ops == null)
-                {
-                    continue;
-                }
-                foreach (OperationType op in step.Ops)
-                {
-                    AdjustGotoStepIndex(op, procIndex, adjuster);
-                }
-            }
-        }
-
-        private void AdjustGotoStepIndex(object obj, int procIndex, Func<int, int> adjuster)
-        {
-            if (obj == null)
-            {
-                return;
-            }
-            foreach (var propertyInfo in obj.GetType().GetProperties())
-            {
-                if (propertyInfo.GetIndexParameters().Length > 0)
-                {
-                    continue;
-                }
-                if (propertyInfo.PropertyType == typeof(string)
-                    && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
-                {
-                    string value = propertyInfo.GetValue(obj) as string;
-                    if (!string.IsNullOrWhiteSpace(value)
-                        && TryParseGotoKey(value, out int gotoProc, out int gotoStep, out int gotoOp)
-                        && gotoProc == procIndex)
-                    {
-                        int newStep = adjuster(gotoStep);
-                        if (newStep != gotoStep)
-                        {
-                            propertyInfo.SetValue(obj, $"{procIndex}-{newStep}-{gotoOp}");
-                        }
-                    }
-                }
-                var propertyValue = propertyInfo.GetValue(obj);
-                if (propertyValue is IEnumerable enumerable && !(propertyValue is string))
-                {
-                    foreach (var item in enumerable)
-                    {
-                        AdjustGotoStepIndex(item, procIndex, adjuster);
-                    }
-                }
-            }
-        }
-
         private void SelectProcNode(int procIndex, int stepIndex)
         {
             if (proc_treeView == null || proc_treeView.Nodes.Count == 0)
@@ -1893,36 +1572,36 @@ namespace Automation
                 MessageBox.Show("流程运行中禁止禁用或启用。");
                 return;
             }
-            Proc proc = procsList[procIndex];
-            if (proc == null)
+            Proc draft = ObjectGraphCloner.Clone(procsList[procIndex]);
+            if (draft == null)
             {
                 return;
             }
             if (isStep)
             {
-                if (stepIndex < 0 || stepIndex >= proc.steps.Count)
+                if (stepIndex < 0 || stepIndex >= draft.steps.Count)
                 {
                     return;
                 }
-                Step step = proc.steps[stepIndex];
+                Step step = draft.steps[stepIndex];
                 if (step == null)
                 {
                     return;
                 }
                 step.Disable = !step.Disable;
-                UpdateStepNodeStyle(procIndex, stepIndex);
             }
             else
             {
-                if (proc.head == null)
+                if (draft.head == null)
                 {
-                    proc.head = new ProcHead();
+                    draft.head = new ProcHead();
                 }
-                proc.head.Disable = !proc.head.Disable;
-                UpdateProcNodeStyle(procIndex);
-                UpdateStepNodeStylesForProc(procIndex);
+                draft.head.Disable = !draft.head.Disable;
             }
-            SF.frmDataGrid.SaveSingleProc(procIndex);
+            if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
+            {
+                MessageBox.Show(commitError, "更新禁用状态失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void UpdateProcNodeStyle(int procIndex)
@@ -2134,234 +1813,6 @@ namespace Automation
             return new Tuple<int, int, int>(-1, -1, -1);
         }
 
-        public void RefleshGoto()
-        {
-            if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
-            {
-                return;
-            }
-            if (SelectedStepNum < 0 || SelectedStepNum >= procsList[SelectedProcNum].steps.Count)
-            {
-                return;
-            }
-            for (int i = 0; i < procsList[SelectedProcNum].steps.Count; i++)
-            {
-                for (int j = 0; j < procsList[SelectedProcNum].steps[i].Ops.Count; j++)
-                {
-                    var obj = procsList[SelectedProcNum].steps[i].Ops[j];
-
-                    foreach (var propertyInfo in obj.GetType().GetProperties())
-                    {
-                        var markedAttribute = propertyInfo.GetCustomAttribute<MarkedGotoAttribute>();
-
-                        if (markedAttribute != null)
-                        {
-                            string currentValue = (string)propertyInfo.GetValue(obj);
-
-                            if (!string.IsNullOrEmpty(currentValue)) 
-                            {
-                                if (TryParseGotoKey(currentValue, out int gotoProc, out int gotoStep, out int gotoOp))
-                                {
-                                    if (SelectedProcNum == gotoProc && SelectedStepNum == gotoStep)
-                                    {
-                                        OperationType temp = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.FirstOrDefault(sc => sc.Num == gotoOp);
-                                        if (temp != null)
-                                        {
-                                            int tp = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.IndexOf(temp);
-                                            propertyInfo.SetValue(obj, $"{SelectedProcNum}-{SelectedStepNum}-{tp}");
-                                        }
-                                    }
-                                }
-                               
-                            }
-                        }
-                        // 获取属性的值
-                        var propertyValue = propertyInfo.GetValue(obj);
-                        // 如果属性的值是 List<T> 类型，进一步迭代获取列表元素的属性信息
-                        if (propertyValue is System.Collections.IEnumerable enumerable && !(propertyValue is string))
-                        {
-                            foreach (var listItem in enumerable)
-                            {
-                                foreach (var listItemPropertyInfo in listItem.GetType().GetProperties())
-                                {
-                                    var listItemMarkedAttribute = listItemPropertyInfo.GetCustomAttribute <MarkedGotoAttribute>();
-
-                                    if (listItemMarkedAttribute != null)
-                                    {
-
-                                        // 获取标记了 MarkedGotoAttribute 的属性值
-                                        var markedPropertyValue = listItemPropertyInfo.GetValue(listItem);
-
-                                        if (markedPropertyValue != null
-                                            && TryParseGotoKey(markedPropertyValue.ToString(), out int gotoProc, out int gotoStep, out int gotoOp))
-                                        {
-                                            if (SelectedProcNum == gotoProc && SelectedStepNum == gotoStep)
-                                            {
-                                                OperationType temp = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.FirstOrDefault(sc => sc.Num == gotoOp);
-                                                if (temp != null)
-                                                {
-                                                    int tp = procsList[SelectedProcNum].steps[SelectedStepNum].Ops.IndexOf(temp);
-                                                    listItemPropertyInfo.SetValue(listItem, $"{SelectedProcNum}-{SelectedStepNum}-{tp}");
-                                                }
-
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                        }
-                    }
-
-                }
-            }
-        }
     }
 
-    //存放单个流程信息
-    [Serializable]
-    public class Proc
-    {
-        public ProcHead head;
-        public List<Step> steps = new List<Step>();
-    }
-    [Serializable]
-    public class ProcHead
-    {
-        public ProcHead()
-        {
-            ParamListConverter<PauseIoParam>.Name = "暂停IO";
-            ParamListConverter<PauseValueParam>.Name = "暂停变量";
-            PauseIoParams = new CustomList<PauseIoParam>();
-            PauseValueParams = new CustomList<PauseValueParam>();
-            Id = Guid.NewGuid();
-        }
-
-        [Browsable(false)]
-        public Guid Id { get; set; }
-
-        [DisplayName("流程名称"), Category("流程信息"), Description(""), ReadOnly(false)]
-        public string Name { get; set; }
-
-        [DisplayName("自启动"), Category("流程信息"), Description("启动程序时自动运行"), ReadOnly(false)]
-        public bool AutoStart { get; set; }
-
-        [DisplayName("禁用"), Category("流程信息"), Description(""), ReadOnly(false)]
-        public bool Disable { get; set; }
-
-        private string pauseIoCount;
-        [DisplayName("暂停IO数"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(PauseCountItem))]
-        public string PauseIoCount
-        {
-            get { return pauseIoCount; }
-            set
-            {
-                pauseIoCount = value;
-                if (SF.frmPropertyGrid?.propertyGrid1?.SelectedObject != this)
-                {
-                    return;
-                }
-                if (!int.TryParse(pauseIoCount, out int count) || count <= 0)
-                {
-                    PauseIoParams?.Clear();
-                }
-                else
-                {
-                    if (PauseIoParams == null)
-                    {
-                        PauseIoParams = new CustomList<PauseIoParam>();
-                    }
-                    PauseIoParams.Clear();
-                    for (int i = 0; i < count; i++)
-                    {
-                        PauseIoParams.Add(new PauseIoParam());
-                    }
-                }
-                SF.frmPropertyGrid.propertyGrid1.SelectedObject = this;
-                SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-            }
-        }
-
-        [DisplayName("暂停IO"), Category("暂停信号"), Description(""), ReadOnly(false)]
-        [TypeConverter(typeof(ParamListConverter<PauseIoParam>))]
-        public CustomList<PauseIoParam> PauseIoParams { get; set; }
-
-        private string pauseValueCount;
-        [DisplayName("暂停变量数"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(PauseCountItem))]
-        public string PauseValueCount
-        {
-            get { return pauseValueCount; }
-            set
-            {
-                pauseValueCount = value;
-                if (SF.frmPropertyGrid?.propertyGrid1?.SelectedObject != this)
-                {
-                    return;
-                }
-                if (!int.TryParse(pauseValueCount, out int count) || count <= 0)
-                {
-                    PauseValueParams?.Clear();
-                }
-                else
-                {
-                    if (PauseValueParams == null)
-                    {
-                        PauseValueParams = new CustomList<PauseValueParam>();
-                    }
-                    PauseValueParams.Clear();
-                    for (int i = 0; i < count; i++)
-                    {
-                        PauseValueParams.Add(new PauseValueParam());
-                    }
-                }
-                SF.frmPropertyGrid.propertyGrid1.SelectedObject = this;
-                SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-            }
-        }
-
-        [DisplayName("暂停变量"), Category("暂停信号"), Description(""), ReadOnly(false)]
-        [TypeConverter(typeof(ParamListConverter<PauseValueParam>))]
-        public CustomList<PauseValueParam> PauseValueParams { get; set; }
-
-    }
-
-    [TypeConverter(typeof(SerializableExpandableObjectConverter))]
-    [Serializable]
-    public class PauseIoParam
-    {
-        [DisplayName("名称"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(IoInItem))]
-        public string IOName { get; set; }
-
-        public override string ToString()
-        {
-            return "";
-        }
-    }
-
-    [TypeConverter(typeof(SerializableExpandableObjectConverter))]
-    [Serializable]
-    public class PauseValueParam
-    {
-        [DisplayName("变量名称"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string ValueName { get; set; }
-
-        public override string ToString()
-        {
-            return "";
-        }
-    }
-    [Serializable]
-    public class Step
-    {
-        [Browsable(false)]
-        public Guid Id { get; set; }
-
-        [DisplayName("步骤名称"), Category("步骤信息"), Description(""), ReadOnly(false)]
-        public string Name { get; set; }
-
-        [DisplayName("禁用"), Category("步骤信息"), Description(""), ReadOnly(false)]
-        public bool Disable { get; set; }
-
-        public List<OperationType> Ops = new List<OperationType>();
-    }
 }
