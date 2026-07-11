@@ -24,6 +24,8 @@ namespace Automation
         public int MaxTurns { get; set; }
 
         public bool FullPermissionMode { get; set; }
+
+        public string ToolProfile { get; set; }
     }
 
     /// <summary>
@@ -50,10 +52,13 @@ namespace Automation
         public const string ModelKey = "Model";
         public const string MaxTurnsKey = "MaxTurns";
         public const string FullPermissionModeKey = "FullPermissionMode";
+        public const string ToolProfileKey = "ToolProfile";
+        public const string DefaultToolProfile = "Diagnostic";
         public const int DefaultMaxTurns = 30;
 
         private static readonly object cacheLock = new object();
         private static GooseConfig cachedConfig;
+        private static string startupSafetyError;
 
         public static string ConfigPath => AutomationRuntimeOptions.ActiveConfigFile(ConfigFileName);
 
@@ -61,6 +66,11 @@ namespace Automation
         {
             config = null;
             error = null;
+            if (!string.IsNullOrWhiteSpace(startupSafetyError))
+            {
+                error = startupSafetyError;
+                return false;
+            }
             string path = ConfigPath;
             if (!File.Exists(path))
             {
@@ -87,7 +97,8 @@ namespace Automation
                     Provider = ReadRequiredString(obj, ProviderKey),
                     Model = ReadRequiredString(obj, ModelKey),
                     MaxTurns = ReadRequiredInt(obj, MaxTurnsKey),
-                    FullPermissionMode = ReadOptionalBool(obj, FullPermissionModeKey, false)
+                    FullPermissionMode = ReadOptionalBool(obj, FullPermissionModeKey, false),
+                    ToolProfile = ReadToolProfile(obj)
                 };
 
                 if (!Validate(config, out error))
@@ -139,7 +150,8 @@ namespace Automation
                 [ProviderKey] = config.Provider,
                 [ModelKey] = config.Model,
                 [MaxTurnsKey] = config.MaxTurns,
-                [FullPermissionModeKey] = config.FullPermissionMode
+                [FullPermissionModeKey] = config.FullPermissionMode,
+                [ToolProfileKey] = config.ToolProfile
             };
 
             string path = ConfigPath;
@@ -153,6 +165,26 @@ namespace Automation
             Directory.CreateDirectory(directory);
             File.WriteAllText(path, obj.ToString(Formatting.Indented), Encoding.UTF8);
             SetCache(config);
+            startupSafetyError = null;
+            return true;
+        }
+
+        public static bool TryApplyStartupSafetyDefaults(out string error)
+        {
+            if (!TryLoad(out GooseConfig config, out error))
+            {
+                startupSafetyError = error ?? "EW-AI 启动安全配置读取失败";
+                return false;
+            }
+
+            config.ToolProfile = DefaultToolProfile;
+            config.FullPermissionMode = false;
+            if (!TrySave(config, out error))
+            {
+                startupSafetyError = "EW-AI 启动安全默认值保存失败:" + error;
+                return false;
+            }
+            startupSafetyError = null;
             return true;
         }
 
@@ -167,7 +199,9 @@ namespace Automation
                 SessionName = "automation",
                 Provider = string.Empty,
                 Model = string.Empty,
-                MaxTurns = DefaultMaxTurns
+                MaxTurns = DefaultMaxTurns,
+                FullPermissionMode = false,
+                ToolProfile = DefaultToolProfile
             };
         }
 
@@ -230,7 +264,32 @@ namespace Automation
                 error = $"EW-AI MaxTurns 必须大于 0:{config.MaxTurns}";
                 return false;
             }
+            if (!string.Equals(config.ToolProfile, "Diagnostic", StringComparison.Ordinal)
+                && !string.Equals(config.ToolProfile, "Editor", StringComparison.Ordinal))
+            {
+                error = $"AI工具模式不支持:{config.ToolProfile}，可选Diagnostic/Editor";
+                return false;
+            }
             return true;
+        }
+
+        private static string ReadToolProfile(JObject obj)
+        {
+            if (!obj.TryGetValue(ToolProfileKey, StringComparison.Ordinal, out JToken token))
+            {
+                return DefaultToolProfile;
+            }
+            if (token.Type != JTokenType.String)
+            {
+                throw new InvalidOperationException($"EW-AI配置字段类型无效:{ToolProfileKey}");
+            }
+            string value = token.Value<string>();
+            if (!string.Equals(value, "Diagnostic", StringComparison.Ordinal)
+                && !string.Equals(value, "Editor", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"AI工具模式不支持:{value}，可选Diagnostic/Editor");
+            }
+            return value;
         }
 
         private static string ReadRequiredString(JObject obj, string key)
@@ -301,7 +360,8 @@ namespace Automation
                 Provider = config.Provider,
                 Model = config.Model,
                 MaxTurns = config.MaxTurns,
-                FullPermissionMode = config.FullPermissionMode
+                FullPermissionMode = config.FullPermissionMode,
+                ToolProfile = config.ToolProfile
             };
         }
 

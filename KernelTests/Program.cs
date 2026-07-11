@@ -32,6 +32,10 @@ namespace Automation.KernelTests
             Run("TCP请求响应事务与生命周期", TestTcpRequestResponse);
             Run("PLC连续地址批量读取合并", TestPlcBatchRead);
             Run("报警配置严格校验与原子保存", TestAlarmInfoStore);
+            Run("运行中参数与后续指令安全热更新", TestRunningSafeHotUpdate);
+            Run("运行中删除后续指令安全结束", TestRunningFutureOperationDeletion);
+            Run("运行中当前结构修改被拒绝", TestRunningStructuralUpdateRejected);
+            Run("暂停状态结构修改立即生效", TestPausedStructuralUpdateAppliesImmediately);
             Console.WriteLine(failures == 0 ? "内核回归测试全部通过。" : $"内核回归测试失败:{failures}");
             return failures == 0 ? 0 : 1;
         }
@@ -534,6 +538,118 @@ namespace Automation.KernelTests
             }
         }
 
+        private static void TestRunningSafeHotUpdate()
+        {
+            using (var firstGate = new ManualResetEventSlim(false))
+            using (var firstEntered = new ManualResetEventSlim(false))
+            {
+                int oldCount = 0;
+                int newCount = 0;
+                int appendedCount = 0;
+                var functions = new CustomFunc();
+                functions.RegisterFunction("block", () => { firstEntered.Set(); firstGate.Wait(3000); });
+                functions.RegisterFunction("old", () => Interlocked.Increment(ref oldCount));
+                functions.RegisterFunction("new", () => Interlocked.Increment(ref newCount));
+                functions.RegisterFunction("appended", () => Interlocked.Increment(ref appendedCount));
+                Proc proc = CreateProc(new CallCustomFunc { Name = "block" }, new CallCustomFunc { Name = "old" });
+                using (ProcessEngine engine = CreateEngine(CreateValueStore(ResetStatus.ResetCompleted), functions, proc))
+                {
+                    Assert(engine.StartProc(proc, 0), "热更新测试流程启动失败");
+                    Assert(firstEntered.Wait(1000), "热更新测试未进入首条阻塞指令");
+                    Proc updated = FrmPropertyGrid.DeepCopy(proc);
+                    ((CallCustomFunc)updated.steps[0].Ops[1]).Name = "new";
+                    updated.steps[0].Ops.Add(new CallCustomFunc { Id = Guid.NewGuid(), Name = "appended" });
+                    Assert(engine.PublishProc(0, updated, out string error), "运行中安全热更新发布失败:" + error);
+                    EngineSnapshot pending = engine.GetSnapshot(0);
+                    Assert(pending.HasPendingUpdate && pending.PublishedRevision > pending.AppliedRevision,
+                        "发布后未报告待应用版本");
+                    firstGate.Set();
+                    WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 3000, "热更新流程未结束");
+                    Assert(oldCount == 0 && newCount == 1 && appendedCount == 1, "安全边界未执行新版本后续指令");
+                    EngineSnapshot applied = engine.GetSnapshot(0);
+                    Assert(!applied.HasPendingUpdate && applied.PublishedRevision == applied.AppliedRevision,
+                        "运行版本应用后未返回版本确认");
+                }
+            }
+        }
+
+        private static void TestRunningStructuralUpdateRejected()
+        {
+            using (var gate = new ManualResetEventSlim(false))
+            using (var entered = new ManualResetEventSlim(false))
+            {
+                var functions = new CustomFunc();
+                functions.RegisterFunction("block", () => { entered.Set(); gate.Wait(3000); });
+                functions.RegisterFunction("next", () => { });
+                Proc proc = CreateProc(new CallCustomFunc { Name = "block" }, new CallCustomFunc { Name = "next" });
+                using (ProcessEngine engine = CreateEngine(CreateValueStore(ResetStatus.ResetCompleted), functions, proc))
+                {
+                    Assert(engine.StartProc(proc, 0), "结构拒绝测试流程启动失败");
+                    Assert(entered.Wait(1000), "结构拒绝测试未进入当前指令");
+                    Proc updated = FrmPropertyGrid.DeepCopy(proc);
+                    updated.steps[0].Ops.RemoveAt(0);
+                    Assert(!engine.PublishProc(0, updated, out string error), "运行中删除当前指令未被拒绝");
+                    Assert(!string.IsNullOrWhiteSpace(error), "结构拒绝未返回原因");
+                    gate.Set();
+                    WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 3000, "结构拒绝测试流程未结束");
+                }
+            }
+        }
+
+        private static void TestRunningFutureOperationDeletion()
+        {
+            using (var gate = new ManualResetEventSlim(false))
+            using (var entered = new ManualResetEventSlim(false))
+            {
+                int deletedCount = 0;
+                var functions = new CustomFunc();
+                functions.RegisterFunction("block", () => { entered.Set(); gate.Wait(3000); });
+                functions.RegisterFunction("deleted", () => Interlocked.Increment(ref deletedCount));
+                Proc proc = CreateProc(new CallCustomFunc { Name = "block" }, new CallCustomFunc { Name = "deleted" });
+                using (ProcessEngine engine = CreateEngine(CreateValueStore(ResetStatus.ResetCompleted), functions, proc))
+                {
+                    Assert(engine.StartProc(proc, 0), "删除后续指令测试流程启动失败");
+                    Assert(entered.Wait(1000), "删除后续指令测试未进入首条阻塞指令");
+                    Proc updated = FrmPropertyGrid.DeepCopy(proc);
+                    updated.steps[0].Ops.RemoveAt(1);
+                    Assert(engine.PublishProc(0, updated, out string error), "删除后续指令发布失败:" + error);
+                    gate.Set();
+                    WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 3000, "删除后续指令后流程未结束");
+                    Assert(deletedCount == 0, "已删除的后续指令仍被执行");
+                    EngineSnapshot applied = engine.GetSnapshot(0);
+                    Assert(applied.State == ProcRunState.Stopped && !applied.HasPendingUpdate
+                        && applied.PublishedRevision == applied.AppliedRevision,
+                        "删除后续指令后未正确确认运行版本");
+                }
+            }
+        }
+
+        private static void TestPausedStructuralUpdateAppliesImmediately()
+        {
+            int removedCount = 0;
+            int nextCount = 0;
+            var functions = new CustomFunc();
+            functions.RegisterFunction("removed", () => Interlocked.Increment(ref removedCount));
+            functions.RegisterFunction("next", () => Interlocked.Increment(ref nextCount));
+            Proc proc = CreateProc(
+                new CallCustomFunc { Name = "removed", isStopPoint = true },
+                new CallCustomFunc { Name = "next" });
+            using (ProcessEngine engine = CreateEngine(CreateValueStore(ResetStatus.ResetCompleted), functions, proc))
+            {
+                Assert(engine.StartProc(proc, 0), "暂停结构测试流程启动失败");
+                WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Paused, 2000, "流程未停在断点");
+                Proc updated = FrmPropertyGrid.DeepCopy(proc);
+                updated.steps[0].Ops.RemoveAt(0);
+                Assert(engine.PublishProc(0, updated, out string error), "暂停状态结构更新失败:" + error);
+                EngineSnapshot applied = engine.GetSnapshot(0);
+                Assert(!applied.HasPendingUpdate && applied.PublishedRevision == applied.AppliedRevision,
+                    "暂停结构更新未立即确认版本");
+                engine.Resume(0);
+                WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 3000, "暂停结构测试流程未结束");
+                Assert(removedCount == 0 && nextCount == 1, "恢复后仍执行了暂停前捕获的旧指令");
+            }
+        }
+
         private static byte[] ReadExact(NetworkStream stream, int count)
         {
             byte[] buffer = new byte[count];
@@ -572,6 +688,13 @@ namespace Automation.KernelTests
 
         private static Proc CreateProc(params OperationType[] operations)
         {
+            foreach (OperationType operation in operations)
+            {
+                if (operation != null && operation.Id == Guid.Empty)
+                {
+                    operation.Id = Guid.NewGuid();
+                }
+            }
             return new Proc
             {
                 head = new ProcHead { Name = "内核测试流程" },

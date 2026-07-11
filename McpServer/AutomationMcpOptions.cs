@@ -10,6 +10,7 @@ namespace Automation.McpServer
         public string BridgePipeName { get; set; } = "AutomationBridgePipe";
         public int BridgeTimeoutMs { get; set; } = 30000;
         public bool EnableTrayIcon { get; set; } = true;
+        public string ToolProfile { get; set; } = "Diagnostic";
         public string LogRoot { get; set; } = Path.Combine(@"D:\AutomationLogs", "McpServer");
 
         public static AutomationMcpOptions Load(IConfiguration configuration, string baseDirectory)
@@ -48,6 +49,21 @@ namespace Automation.McpServer
             if (BridgeTimeoutMs <= 0)
             {
                 BridgeTimeoutMs = 30000;
+            }
+
+            if (string.Equals(ToolProfile, "Diagnostic", StringComparison.OrdinalIgnoreCase))
+            {
+                ToolProfile = "Diagnostic";
+            }
+            else if (string.Equals(ToolProfile, "Editor", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(ToolProfile, "Focused", StringComparison.OrdinalIgnoreCase))
+            {
+                // Focused 是早期名称，继续兼容并统一映射为编辑模式。
+                ToolProfile = "Editor";
+            }
+            else
+            {
+                throw new InvalidDataException($"AutomationMcp.ToolProfile不支持:{ToolProfile}，可选Diagnostic/Editor。");
             }
 
             if (string.IsNullOrWhiteSpace(LogRoot))
@@ -91,7 +107,7 @@ namespace Automation.McpServer
 
         private void SyncListenHostAndPort(string listenUrl)
         {
-            if (!Uri.TryCreate(listenUrl, UriKind.Absolute, out Uri uri))
+            if (!Uri.TryCreate(listenUrl, UriKind.Absolute, out Uri? uri) || uri == null)
             {
                 return;
             }

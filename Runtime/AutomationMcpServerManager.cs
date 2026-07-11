@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 
 namespace Automation
 {
@@ -35,9 +36,14 @@ namespace Automation
             }
         }
 
-        public async Task<string> EnsureStartedAsync(string baseUri)
+        public async Task<string> EnsureStartedAsync(string baseUri, string toolProfile)
         {
             string normalizedBaseUri = NormalizeBaseUri(baseUri);
+            if (!string.Equals(toolProfile, "Diagnostic", StringComparison.Ordinal)
+                && !string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"MCP工具模式不支持:{toolProfile}");
+            }
             if (string.IsNullOrWhiteSpace(normalizedBaseUri))
             {
                 throw new InvalidOperationException("MCP 地址为空。");
@@ -83,6 +89,7 @@ namespace Automation
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
+                startInfo.Arguments = "--AutomationMcp:ToolProfile=" + toolProfile;
                 managedProcess = Process.Start(startInfo);
                 if (managedProcess == null)
                 {
@@ -101,7 +108,7 @@ namespace Automation
                 {
                     lock (processLock)
                     {
-                        lastMessage = $"MCP Server 已就绪：{normalizedBaseUri}";
+                        lastMessage = $"MCP Server 已就绪：{normalizedBaseUri}，工具模式:{toolProfile}";
                         return lastMessage;
                     }
                 }
@@ -122,6 +129,33 @@ namespace Automation
         public static string NormalizeBaseUri(string baseUri)
         {
             return (baseUri ?? string.Empty).Trim().TrimEnd('/');
+        }
+
+        public static async Task<string> SetToolProfileAsync(string baseUri, string toolProfile)
+        {
+            string normalizedBaseUri = NormalizeBaseUri(baseUri);
+            if (!string.Equals(toolProfile, "Diagnostic", StringComparison.Ordinal)
+                && !string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"MCP工具模式不支持:{toolProfile}");
+            }
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(normalizedBaseUri + "/tool-profile");
+            request.Method = "POST";
+            request.ContentType = "application/json; charset=utf-8";
+            request.Timeout = 5000;
+            request.ReadWriteTimeout = 5000;
+            byte[] body = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new { profile = toolProfile }));
+            request.ContentLength = body.Length;
+            using (Stream stream = await request.GetRequestStreamAsync().ConfigureAwait(false))
+            {
+                await stream.WriteAsync(body, 0, body.Length).ConfigureAwait(false);
+            }
+            using (WebResponse response = await request.GetResponseAsync().ConfigureAwait(false))
+            using (Stream stream = response.GetResponseStream())
+            using (var reader = new StreamReader(stream ?? Stream.Null, Encoding.UTF8))
+            {
+                return await reader.ReadToEndAsync().ConfigureAwait(false);
+            }
         }
 
         public static async Task<string> ReadHttpAsync(string url, int timeoutMs)

@@ -20,13 +20,28 @@ namespace Automation.McpServer
             ToolCallLogger.Configure(options.LogRoot);
             AutomationMcpRuntime.Initialize(options);
 
+            var toolRegistry = new DynamicMcpToolRegistry(options.ToolProfile);
+            builder.Services.AddSingleton(toolRegistry);
             builder.Services
-                .AddMcpServer()
+                .AddMcpServer(serverOptions =>
+                {
+                    serverOptions.Capabilities = new ModelContextProtocol.Protocol.ServerCapabilities
+                    {
+                        Tools = new ModelContextProtocol.Protocol.ToolsCapability { ListChanged = false }
+                    };
+                    serverOptions.Handlers.ListToolsHandler = (request, cancellationToken) =>
+                        ValueTask.FromResult(new ModelContextProtocol.Protocol.ListToolsResult
+                        {
+                            Tools = toolRegistry.GetTools().Select(tool => tool.ProtocolTool).ToList()
+                        });
+                    serverOptions.Handlers.CallToolHandler = (request, cancellationToken) =>
+                        toolRegistry.GetEnabledTool(request.Params?.Name ?? string.Empty)
+                            .InvokeAsync(request, cancellationToken);
+                })
                 .WithHttpTransport(options =>
                 {
                     options.Stateless = true;
-                })
-                .WithToolsFromAssembly();
+                });
 
             var app = builder.Build();
             app.MapMcp();
@@ -39,8 +54,27 @@ namespace Automation.McpServer
                 bridgePipeName = options.BridgePipeName,
                 bridgePipePath = @"\\.\pipe\" + options.BridgePipeName,
                 transport = "streamable-http",
-                stateless = true
+                stateless = true,
+                toolProfile = toolRegistry.Profile,
+                toolCount = toolRegistry.GetTools().Count
             }));
+            app.MapPost("/tool-profile", (ToolProfileRequest request) =>
+            {
+                try
+                {
+                    toolRegistry.SetProfile(request.Profile);
+                    return Results.Json(new
+                    {
+                        ok = true,
+                        toolProfile = toolRegistry.Profile,
+                        toolCount = toolRegistry.GetTools().Count
+                    });
+                }
+                catch (Exception ex)
+                {
+                    return Results.BadRequest(new { ok = false, message = ex.Message });
+                }
+            });
             app.MapGet("/healthz", () => Results.Json(new
             {
                 ok = true,
@@ -123,6 +157,11 @@ namespace Automation.McpServer
                 // 忽略重启失败，当前实例会继续退出。
             }
         }
+    }
+
+    internal sealed class ToolProfileRequest
+    {
+        public string Profile { get; set; } = string.Empty;
     }
 
     internal sealed class McpTrayContext : ApplicationContext

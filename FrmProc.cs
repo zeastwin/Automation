@@ -106,6 +106,11 @@ namespace Automation
                 MessageBox.Show("流程头信息为空，无法保存。");
                 return;
             }
+            // 打开属性编辑器后流程状态仍可能变化，提交前必须重新检查一次流程列表门禁。
+            if (!SF.CanEditProcStructure())
+            {
+                return;
+            }
             Proc proc = new Proc();
             proc.head = HeadTemp;
 
@@ -118,6 +123,10 @@ namespace Automation
                 if (errors.Count > 0)
                 {
                     MessageBox.Show(string.Join("\r\n", errors.Distinct()));
+                    return;
+                }
+                if (!SF.CanPublishProcUpdate(procIndex))
+                {
                     return;
                 }
                 SF.mainfrm.SaveAsJson(SF.workPath, procIndex.ToString(), proc);
@@ -179,6 +188,10 @@ namespace Automation
             if (errors.Count > 0)
             {
                 MessageBox.Show(string.Join("\r\n", errors.Distinct()));
+                return;
+            }
+            if (!SF.CanPublishProcUpdate(SelectedProcNum))
+            {
                 return;
             }
             SF.mainfrm.SaveAsJson(SF.workPath,SelectedProcNum.ToString(), procsList[SelectedProcNum]);
@@ -335,13 +348,27 @@ namespace Automation
             }
             if (SF.DR?.Context != null)
             {
-                List<Proc> runtimeProcs = new List<Proc>(procsList.Count);
-                for (int i = 0; i < procsList.Count; i++)
+                bool allStopped = true;
+                int runtimeCount = SF.DR.Context.Procs?.Count ?? 0;
+                for (int i = 0; i < runtimeCount; i++)
                 {
-                    runtimeProcs.Add(FrmPropertyGrid.DeepCopy(procsList[i]));
+                    EngineSnapshot snapshot = SF.DR.GetSnapshot(i);
+                    if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+                    {
+                        allStopped = false;
+                        break;
+                    }
                 }
-                SF.DR.Context.Procs = runtimeProcs;
-                SF.DR.ClearPendingProcUpdates();
+                if (allStopped)
+                {
+                    List<Proc> runtimeProcs = new List<Proc>(procsList.Count);
+                    for (int i = 0; i < procsList.Count; i++)
+                    {
+                        runtimeProcs.Add(FrmPropertyGrid.DeepCopy(procsList[i]));
+                    }
+                    SF.DR.Context.Procs = runtimeProcs;
+                    SF.DR.ClearPendingProcUpdates();
+                }
             }
             if (loadErrors.Count > 0)
             {
@@ -1431,6 +1458,10 @@ namespace Automation
             if (errors.Count > 0)
             {
                 MessageBox.Show(string.Join("\r\n", errors.Distinct()));
+                return;
+            }
+            if (!SF.CanPublishProcUpdate(procIndex))
+            {
                 return;
             }
             SF.mainfrm.SaveAsJson(SF.workPath, procIndex.ToString(), procsList[procIndex]);

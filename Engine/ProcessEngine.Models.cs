@@ -61,6 +61,7 @@ namespace Automation
         private int gotoFlag;
         private int pauseBySignalFlag;
         private string alarmMessage;
+        private long appliedRevision;
 
         public int procNum;
         public int stepNum;
@@ -111,6 +112,11 @@ namespace Automation
             internal set => Volatile.Write(ref pauseBySignalFlag, value ? 1 : 0);
         }
         public Proc Proc { get; set; }
+        public long AppliedRevision
+        {
+            get => Interlocked.Read(ref appliedRevision);
+            internal set => Interlocked.Exchange(ref appliedRevision, value);
+        }
 
     }
     public enum EngineCommandType
@@ -181,7 +187,8 @@ namespace Automation
     {
         // 不可变只读模型，供 UI、HMI、Bridge 和其他线程安全观察流程状态。
         public EngineSnapshot(int procIndex, Guid procId, string procName, ProcRunState state, int stepIndex, int opIndex,
-            bool isBreakpoint, string alarmMessage, DateTime updateTime, long updateTicks)
+            bool isBreakpoint, string alarmMessage, DateTime updateTime, long updateTicks,
+            long publishedRevision = 0, long appliedRevision = 0)
         {
             ProcIndex = procIndex;
             ProcId = procId;
@@ -193,6 +200,8 @@ namespace Automation
             AlarmMessage = alarmMessage;
             UpdateTime = updateTime;
             UpdateTicks = updateTicks;
+            PublishedRevision = publishedRevision;
+            AppliedRevision = appliedRevision;
         }
 
         public int ProcIndex { get; }
@@ -206,6 +215,9 @@ namespace Automation
         public string AlarmMessage { get; }
         public DateTime UpdateTime { get; }
         public long UpdateTicks { get; }
+        public long PublishedRevision { get; }
+        public long AppliedRevision { get; }
+        public bool HasPendingUpdate => PublishedRevision > AppliedRevision;
     }
 
     public sealed class OperationTraceEntry

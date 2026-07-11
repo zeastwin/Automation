@@ -326,9 +326,11 @@ namespace Automation
         private async void StartMcpServerOnStartup()
         {
             string baseUri = GooseConfigStorage.CreateDefaultConfig().McpUri;
+            string toolProfile = GooseConfigStorage.CreateDefaultConfig().ToolProfile;
             if (GooseConfigStorage.TryLoad(out GooseConfig config, out string loadError))
             {
                 baseUri = config.McpUri;
+                toolProfile = config.ToolProfile;
             }
             else if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
             {
@@ -337,7 +339,7 @@ namespace Automation
 
             try
             {
-                string result = await automationMcpServerManager.EnsureStartedAsync(baseUri).ConfigureAwait(true);
+                string result = await automationMcpServerManager.EnsureStartedAsync(baseUri, toolProfile).ConfigureAwait(true);
                 if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
                 {
                     SF.frmInfo.PrintInfo("MCP Server：" + result, FrmInfo.Level.Normal);

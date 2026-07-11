@@ -689,6 +689,10 @@ namespace Automation
                         return;
                     }
                 }
+                if (!SF.CanPublishProcUpdate(ProcIndex))
+                {
+                    return;
+                }
                 SF.mainfrm.SaveAsJson(SF.workPath, ProcIndex.ToString(), SF.frmProc.procsList[ProcIndex]);
                 SF.PublishProc(ProcIndex);
             }

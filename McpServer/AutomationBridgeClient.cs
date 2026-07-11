@@ -37,6 +37,17 @@ namespace Automation.McpServer
             return PostAsync("/bridge/proc/list", payload);
         }
 
+        public Task<string> SearchProcCatalogAsync(string? keyword, int? offset, int? limit,
+            bool? includeStepSummary)
+        {
+            JsonObject payload = new JsonObject();
+            if (!string.IsNullOrEmpty(keyword)) payload["keyword"] = keyword;
+            if (offset.HasValue) payload["offset"] = offset.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
+            if (includeStepSummary.HasValue) payload["includeStepSummary"] = includeStepSummary.Value;
+            return PostAsync("/bridge/proc/list", payload);
+        }
+
         public Task<string> GetProcOverviewAsync(int procIndex)
         {
             JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
@@ -377,6 +388,80 @@ namespace Automation.McpServer
             if (offset.HasValue) payload["offset"] = offset.Value;
             if (limit.HasValue) payload["limit"] = limit.Value;
             return PostAsync("/bridge/alarm/list", payload);
+        }
+
+        public Task<string> FindReferencesAsync(string referenceType, string value, string? fieldName,
+            int? procOffset, int? procLimit, int? resultLimit)
+        {
+            JsonObject payload = new JsonObject
+            {
+                ["referenceType"] = referenceType,
+                ["value"] = value
+            };
+            if (!string.IsNullOrEmpty(fieldName)) payload["fieldName"] = fieldName;
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (resultLimit.HasValue) payload["resultLimit"] = resultLimit.Value;
+            return PostAsync("/bridge/diagnostics/references", payload);
+        }
+
+        public Task<string> TraceResourceAsync(string name, string? resourceKind, int? procOffset,
+            int? procLimit, int? resultLimit)
+        {
+            JsonObject payload = new JsonObject { ["name"] = name };
+            if (!string.IsNullOrEmpty(resourceKind)) payload["resourceKind"] = resourceKind;
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (resultLimit.HasValue) payload["resultLimit"] = resultLimit.Value;
+            return PostAsync("/bridge/diagnostics/trace_resource", payload);
+        }
+
+        public Task<string> SearchOperationFieldsAsync(string query, string? matchMode, string? fieldName,
+            string? operaType, int? procOffset, int? procLimit, int? resultLimit)
+        {
+            JsonObject payload = new JsonObject { ["query"] = query };
+            if (!string.IsNullOrEmpty(matchMode)) payload["matchMode"] = matchMode;
+            if (!string.IsNullOrEmpty(fieldName)) payload["fieldName"] = fieldName;
+            if (!string.IsNullOrEmpty(operaType)) payload["operaType"] = operaType;
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (resultLimit.HasValue) payload["resultLimit"] = resultLimit.Value;
+            return PostAsync("/bridge/diagnostics/search_fields", payload);
+        }
+
+        public Task<string> GetOperationContextAsync(int procIndex, int stepIndex, int opIndex, int? radius)
+        {
+            JsonObject payload = new JsonObject
+            {
+                ["procIndex"] = procIndex,
+                ["stepIndex"] = stepIndex,
+                ["opIndex"] = opIndex
+            };
+            if (radius.HasValue) payload["radius"] = radius.Value;
+            return PostAsync("/bridge/diagnostics/context", payload);
+        }
+
+        public Task<string> AuditProcBatchAsync(int? procOffset, int? procLimit, int? findingLimit)
+        {
+            JsonObject payload = new JsonObject();
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (findingLimit.HasValue) payload["findingLimit"] = findingLimit.Value;
+            return PostAsync("/bridge/diagnostics/audit", payload);
+        }
+
+        public Task<string> AnalyzeFlowAsync(int procIndex)
+        {
+            return PostAsync("/bridge/diagnostics/flow", new JsonObject { ["procIndex"] = procIndex });
+        }
+
+        public Task<string> DiagnoseIssueAsync(int procIndex, string? symptom, int? stepIndex, int? opIndex)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            if (!string.IsNullOrEmpty(symptom)) payload["symptom"] = symptom;
+            if (stepIndex.HasValue) payload["stepIndex"] = stepIndex.Value;
+            if (opIndex.HasValue) payload["opIndex"] = opIndex.Value;
+            return PostAsync("/bridge/diagnostics/issue", payload);
         }
 
         public Task<string> ListAlarmsAsync(bool? includeEmpty, string? categoryLike, string? nameLike)

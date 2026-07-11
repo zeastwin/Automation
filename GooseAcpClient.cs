@@ -162,6 +162,79 @@ namespace Automation
             return result;
         }
 
+        /// <summary>
+        /// 在当前 Goose 会话内重新挂载 Automation MCP，使 Goose 重新读取工具清单。
+        /// 返回 false 表示当前尚未创建会话，后续新会话会直接使用最新 MCP 配置。
+        /// </summary>
+        public async Task<bool> ReloadAutomationExtensionAsync(string mcpUri, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(mcpUri))
+            {
+                throw new InvalidOperationException("MCP地址不能为空。");
+            }
+
+            string activeSessionId = sessionId;
+            if (string.IsNullOrWhiteSpace(activeSessionId))
+            {
+                return false;
+            }
+            if (process == null || process.HasExited)
+            {
+                throw new InvalidOperationException("Goose进程已退出，无法在原会话内刷新工具。");
+            }
+
+            Exception removeError = null;
+            try
+            {
+                await SendRequestAsync("_goose/unstable/session/extensions/remove", new JObject
+                {
+                    ["sessionId"] = activeSessionId,
+                    ["name"] = "automation"
+                }, SessionTimeoutMs, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // 即使扩展此前不存在也继续尝试挂载；若 Goose 不支持会话扩展接口，add 同样会失败并统一报错。
+                removeError = ex;
+            }
+
+            try
+            {
+                await SendRequestAsync("_goose/unstable/session/extensions/add", new JObject
+                {
+                    ["sessionId"] = activeSessionId,
+                    ["extension"] = new JObject
+                    {
+                        ["type"] = "mcp",
+                        ["server"] = new JObject
+                        {
+                            ["name"] = "automation",
+                            ["type"] = "http",
+                            ["url"] = mcpUri.Trim(),
+                            ["headers"] = new JArray()
+                        }
+                    }
+                }, SessionTimeoutMs, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception addError)
+            {
+                string detail = removeError == null
+                    ? addError.Message
+                    : $"卸载失败：{removeError.Message}；挂载失败：{addError.Message}";
+                throw new InvalidOperationException(
+                    "当前 Goose 版本不支持会话内工具热切换，或 Automation MCP 挂载失败。原对话未被重置。" + detail,
+                    addError);
+            }
+
+            if (!string.Equals(sessionId, activeSessionId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("工具刷新期间 Goose 会话发生变化，已拒绝继续使用不确定状态。");
+            }
+
+            Report("lifecycle", $"Automation MCP 已在当前会话内重新挂载：{activeSessionId}", null);
+            return true;
+        }
+
         public void Cancel()
         {
             if (string.IsNullOrWhiteSpace(sessionId) || stdin == null)

@@ -55,6 +55,8 @@ namespace Automation
         private List<GooseProviderInfo> gooseProviders = new List<GooseProviderInfo>();
         private readonly ComboBox cboModel = new ComboBox();
         private readonly NumericUpDown nudMaxTurns = new NumericUpDown();
+        private string toolProfile = GooseConfigStorage.DefaultToolProfile;
+        private GooseConfig appliedConfig;
         private readonly HashSet<string> promptedPreviewIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly object clientLock = new object();
 
@@ -156,6 +158,13 @@ body{
 .brand-title{font-weight:650;color:#172033;line-height:1.1;}
 .brand-subtitle{font-size:12px;color:#7b8798;margin-top:1px;}
 .top-actions{display:flex;align-items:center;gap:8px;}
+.tool-mode{display:flex;align-items:center;padding:2px;border:1px solid #dbe3ed;border-radius:9px;background:#f5f7fa;}
+.toolbar-option,.permission-toggle{height:28px;border:0;border-radius:7px;padding:0 10px;background:transparent;color:#526071;font:12px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;cursor:pointer;white-space:nowrap;}
+.toolbar-option:hover,.permission-toggle:hover{background:#e9f0f7;color:#1f5f99;}
+.toolbar-option.active{background:#fff;color:#195e9d;box-shadow:0 1px 4px rgba(30,64,100,.16);font-weight:650;}
+.permission-toggle{border:1px solid #dbe3ed;background:#fff;}
+.permission-toggle.active{border-color:#df9b46;background:#fff4e6;color:#9a4f00;font-weight:650;box-shadow:0 0 0 2px rgba(223,155,70,.12);}
+.toolbar-option:disabled,.permission-toggle:disabled{opacity:.46;cursor:default;}
 .icon-button{width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:#526071;display:flex;align-items:center;justify-content:center;cursor:pointer;}
 .icon-button svg{width:17px;height:17px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;}
 .icon-button:hover{background:#eef3f9;color:#1f5f99;}
@@ -345,15 +354,6 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .field input,.field select{height:36px;border:1px solid #d8e0ea;border-radius:9px;background:#fff;color:#172033;padding:0 10px;font:13px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;outline:none;}
 .field input:focus,.field select:focus{border-color:#75a7da;box-shadow:0 0 0 3px rgba(117,167,218,.18);}
 .field-wide{grid-column:1 / -1;}
-.switch-row{margin-top:14px;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid #e1e7ef;border-radius:12px;background:#fff;}
-.switch-copy{font-size:13px;color:#26374d;}
-.switch-copy span{display:block;font-size:12px;color:#7b8798;margin-top:2px;}
-.switch{position:relative;width:42px;height:24px;}
-.switch input{opacity:0;width:0;height:0;}
-.slider{position:absolute;inset:0;background:#d5dce7;border-radius:999px;cursor:pointer;transition:.16s;}
-.slider:before{content:"""";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:.16s;}
-.switch input:checked + .slider{background:#246fb5;}
-.switch input:checked + .slider:before{transform:translateX(18px);}
 .modal-foot{display:flex;justify-content:space-between;gap:10px;padding:14px 20px;border-top:1px solid #edf1f6;background:#fff;}
 .foot-left,.foot-right{display:flex;gap:10px;}
 .text-button,.primary-button{height:36px;border-radius:9px;padding:0 14px;font:13px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;cursor:pointer;}
@@ -367,6 +367,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 </style>
 <script>
 var appState={sending:false,canAccess:false,canEditConfig:false,config:{},providerOptions:[],modelOptions:[]};
+var quickSettingPending=false;
 function post(type,payload){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage(Object.assign({type:type},payload||{}));}}
 function byId(id){return document.getElementById(id);}
 function toggleThinkingBox(id){
@@ -411,7 +412,8 @@ function collectConfig(){
         provider:byId('cfgProvider').value,
         model:byId('cfgModel').value,
         maxTurns:parseInt(byId('cfgTurns').value||'1',10),
-        fullPermissionMode:byId('cfgFull').checked
+        toolProfile:(appState.config||{}).toolProfile||'Diagnostic',
+        fullPermissionMode:!!(appState.config||{}).fullPermissionMode
     };
 }
 function fillConfig(){
@@ -421,12 +423,30 @@ function fillConfig(){
     byId('cfgMcp').value=c.mcpUri||'';
     byId('cfgSession').value=c.sessionName||'';
     byId('cfgTurns').value=c.maxTurns||20;
-    byId('cfgFull').checked=!!c.fullPermissionMode;
     setOptions(byId('cfgProvider'),appState.providerOptions||[],c.provider||'使用 EW-AI 配置');
     setOptions(byId('cfgModel'),appState.modelOptions||[],c.model||'使用 EW-AI 配置');
 }
+function refreshToolbar(){
+    var c=appState.config||{};
+    var profile=c.toolProfile||'Diagnostic';
+    byId('toolDiagnostic').classList.toggle('active',profile==='Diagnostic');
+    byId('toolEditor').classList.toggle('active',profile==='Editor');
+    byId('fullPermissionButton').classList.toggle('active',!!c.fullPermissionMode);
+    byId('fullPermissionButton').setAttribute('aria-pressed',c.fullPermissionMode?'true':'false');
+    var lock=!appState.canEditConfig||appState.sending||quickSettingPending;
+    ['toolDiagnostic','toolEditor','fullPermissionButton'].forEach(function(id){byId(id).disabled=lock;});
+}
+function setToolProfile(profile){
+    if(quickSettingPending||appState.sending||(appState.config||{}).toolProfile===profile){return;}
+    quickSettingPending=true;appState.config.toolProfile=profile;refreshToolbar();post('setToolProfile',{profile:profile});
+}
+function toggleFullPermission(){
+    if(quickSettingPending||appState.sending){return;}
+    quickSettingPending=true;appState.config.fullPermissionMode=!appState.config.fullPermissionMode;refreshToolbar();post('setFullPermission',{enabled:!!appState.config.fullPermissionMode});
+}
 function automationSetState(state){
     appState=state||appState;
+    quickSettingPending=false;
     var status=byId('statusText');
     if(status){status.textContent=appState.sending?'生成中':'就绪';}
     byId('promptInput').disabled=!appState.canAccess||appState.sending;
@@ -434,8 +454,9 @@ function automationSetState(state){
     byId('resetButton').disabled=!appState.canAccess||appState.sending;
     byId('configButton').disabled=false;
     fillConfig();
+    refreshToolbar();
     var lock=!appState.canEditConfig||appState.sending;
-    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgProvider','cfgModel','cfgTurns','cfgFull','saveConfig'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
+    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgProvider','cfgModel','cfgTurns','saveConfig'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
     byId('reloadConfig').disabled=appState.sending;
     byId('checkConfig').disabled=appState.sending||!appState.canAccess;
 }
@@ -470,6 +491,9 @@ function autoGrowPrompt(){
 }
 document.addEventListener('DOMContentLoaded',function(){
     byId('configButton').addEventListener('click',openConfig);
+    byId('toolDiagnostic').addEventListener('click',function(){setToolProfile('Diagnostic');});
+    byId('toolEditor').addEventListener('click',function(){setToolProfile('Editor');});
+    byId('fullPermissionButton').addEventListener('click',toggleFullPermission);
     byId('resetButton').addEventListener('click',function(){post('reset');});
     byId('sendButton').addEventListener('click',sendPrompt);
     byId('promptInput').addEventListener('input',autoGrowPrompt);
@@ -490,6 +514,8 @@ document.addEventListener('DOMContentLoaded',function(){
   <header class=""topbar"">
     <div class=""brand""><div class=""brand-mark"">AI</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div>
     <div class=""top-actions"">
+      <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""包含诊断能力并允许预演和修改"">编辑</button></div>
+      <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演，请谨慎使用"">完全权限</button>
       <button class=""icon-button"" id=""resetButton"" title=""重置会话"" aria-label=""重置会话""><svg viewBox=""0 0 24 24""><path d=""M3 12a9 9 0 1 0 3-6.7""/><path d=""M3 4v6h6""/></svg></button>
       <button class=""icon-button"" id=""configButton"" title=""配置"" aria-label=""配置""><svg viewBox=""0 0 24 24""><path d=""M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z""/><path d=""M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z""/></svg></button>
     </div>
@@ -510,7 +536,6 @@ document.addEventListener('DOMContentLoaded',function(){
         <div class=""field""><label>Provider</label><select id=""cfgProvider""></select></div>
         <div class=""field""><label>模型</label><select id=""cfgModel""></select></div>
       </div>
-      <div class=""switch-row""><div class=""switch-copy"">完全权限模式<span>预演自动确认，仅在明确需要无人值守时开启。</span></div><label class=""switch""><input id=""cfgFull"" type=""checkbox""><span class=""slider""></span></label></div>
     </div>
     <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""reloadConfig"">重载</button><button class=""text-button"" id=""checkConfig"">检查 EW-AI</button></div><div class=""foot-right""><button class=""text-button"" id=""cancelConfig"">取消</button><button class=""primary-button"" id=""saveConfig"">保存配置</button></div></div>
   </section>
@@ -706,6 +731,7 @@ document.addEventListener('DOMContentLoaded',function(){
             if (!string.IsNullOrWhiteSpace(resolvedGoosePath))
             {
                 txtGooseExecutable.Text = resolvedGoosePath;
+                config.GooseExecutablePath = resolvedGoosePath;
             }
             txtWorkingDirectory.Text = config.WorkingDirectory;
             txtMcpUri.Text = config.McpUri;
@@ -713,7 +739,11 @@ document.addEventListener('DOMContentLoaded',function(){
             cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? "使用 EW-AI 配置" : config.Provider;
             RefreshModelOptions(config.Provider, config.Model);
             nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, config.MaxTurns));
+            toolProfile = config.ToolProfile;
             fullPermissionMode = config.FullPermissionMode;
+            // 保存界面当前实际采用的配置。配置文件首次缺失或损坏时缓存可能为空，
+            // 模式/权限切换必须与这份快照比较，不能因此误判为需要重建 Goose 会话。
+            appliedConfig = CloneGooseConfig(config);
             PushWebAppState();
         }
 
@@ -748,6 +778,32 @@ document.addEventListener('DOMContentLoaded',function(){
                     break;
                 case "reset":
                     BtnResetSession_Click(sender, EventArgs.Empty);
+                    break;
+                case "setToolProfile":
+                    if (sending)
+                    {
+                        PushWebAppState();
+                        break;
+                    }
+                    string requestedProfile = message["profile"]?.Value<string>();
+                    if (!string.Equals(requestedProfile, "Diagnostic", StringComparison.Ordinal)
+                        && !string.Equals(requestedProfile, "Editor", StringComparison.Ordinal))
+                    {
+                        ShowWebToast("工具模式无效。");
+                        PushWebAppState();
+                        break;
+                    }
+                    toolProfile = requestedProfile;
+                    SaveWebConfig(requestedProfile == "Diagnostic" ? "已切换到诊断模式。" : "已切换到编辑模式。", false);
+                    break;
+                case "setFullPermission":
+                    if (sending)
+                    {
+                        PushWebAppState();
+                        break;
+                    }
+                    fullPermissionMode = message["enabled"]?.Value<bool?>() ?? false;
+                    SaveWebConfig(fullPermissionMode ? "完全权限已开启，请谨慎操作。" : "完全权限已关闭。", false);
                     break;
                 case "providerChanged":
                     ApplyWebConfig(message["config"] as JObject);
@@ -789,6 +845,7 @@ document.addEventListener('DOMContentLoaded',function(){
                     ["provider"] = providerText,
                     ["model"] = modelText,
                     ["maxTurns"] = (int)nudMaxTurns.Value,
+                    ["toolProfile"] = toolProfile,
                     ["fullPermissionMode"] = fullPermissionMode
                 },
                 ["providerOptions"] = BuildComboOptions(cboProvider, providerText),
@@ -845,27 +902,30 @@ document.addEventListener('DOMContentLoaded',function(){
 
             int maxTurns = config["maxTurns"]?.Value<int?>() ?? GooseConfigStorage.DefaultMaxTurns;
             nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, maxTurns));
+            toolProfile = config["toolProfile"]?.Value<string>() ?? GooseConfigStorage.DefaultToolProfile;
             fullPermissionMode = config["fullPermissionMode"]?.Value<bool?>() ?? false;
         }
 
-        private void SaveWebConfig()
+        private async void SaveWebConfig(string successMessage = null, bool closeConfigAfterSave = true)
         {
+            GooseConfig oldConfig = CloneGooseConfig(appliedConfig);
+            if (oldConfig == null)
+            {
+                GooseConfigStorage.TryGetCached(out oldConfig, out _);
+            }
             if (!TryBuildConfig(out GooseConfig config, out string error))
             {
+                if (oldConfig != null)
+                {
+                    toolProfile = oldConfig.ToolProfile;
+                    fullPermissionMode = oldConfig.FullPermissionMode;
+                }
                 ShowWebToast("配置无效：" + error);
                 PushWebAppState();
                 return;
             }
 
-            GooseConfigStorage.TryGetCached(out GooseConfig oldConfig, out _);
-            if (!GooseConfigStorage.TrySave(config, out error))
-            {
-                ShowWebToast("保存失败：" + error);
-                PushWebAppState();
-                return;
-            }
-
-            bool needRestart = oldConfig == null
+            bool requiresGooseProcessRestart = oldConfig == null
                 || !string.Equals(oldConfig.GooseExecutablePath, config.GooseExecutablePath, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.WorkingDirectory, config.WorkingDirectory, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.McpUri, config.McpUri, StringComparison.Ordinal)
@@ -873,14 +933,105 @@ document.addEventListener('DOMContentLoaded',function(){
                 || !string.Equals(oldConfig.Provider, config.Provider, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.Model, config.Model, StringComparison.Ordinal)
                 || oldConfig.MaxTurns != config.MaxTurns;
-            if (needRestart)
+            bool uriChanged = oldConfig == null
+                || !string.Equals(oldConfig.McpUri, config.McpUri, StringComparison.Ordinal);
+            bool profileChanged = oldConfig == null
+                || !string.Equals(oldConfig.ToolProfile, config.ToolProfile, StringComparison.Ordinal);
+            GooseAcpClient activeClient;
+            bool sessionToolsReloaded = false;
+            lock (clientLock)
+            {
+                activeClient = gooseClient;
+            }
+            if (uriChanged || profileChanged)
+            {
+                try
+                {
+                    if (SF.mainfrm?.McpServerManager == null)
+                    {
+                        throw new InvalidOperationException("MCP Server管理器未初始化");
+                    }
+                    if (uriChanged)
+                    {
+                        await SF.mainfrm.McpServerManager.EnsureStartedAsync(config.McpUri, config.ToolProfile)
+                            .ConfigureAwait(true);
+                    }
+                    else
+                    {
+                        await AutomationMcpServerManager.SetToolProfileAsync(config.McpUri, config.ToolProfile)
+                            .ConfigureAwait(true);
+                    }
+
+                    // 仅切换工具模式时保留当前 Goose 会话，通过 ACP 会话扩展接口强制重新读取 tools/list。
+                    if (profileChanged && !uriChanged && !requiresGooseProcessRestart && activeClient != null)
+                    {
+                        sessionToolsReloaded = await activeClient.ReloadAutomationExtensionAsync(config.McpUri, CancellationToken.None)
+                            .ConfigureAwait(true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (oldConfig != null)
+                    {
+                        try
+                        {
+                            await AutomationMcpServerManager.SetToolProfileAsync(oldConfig.McpUri, oldConfig.ToolProfile)
+                                .ConfigureAwait(true);
+                            if (!uriChanged && activeClient != null)
+                            {
+                                await activeClient.ReloadAutomationExtensionAsync(oldConfig.McpUri, CancellationToken.None)
+                                    .ConfigureAwait(true);
+                            }
+                        }
+                        catch
+                        {
+                            // 保留原始切换异常；当前会话仍保留，用户可修复 Goose 版本或 MCP 状态后重试。
+                        }
+                        toolProfile = oldConfig.ToolProfile;
+                        fullPermissionMode = oldConfig.FullPermissionMode;
+                    }
+                    ShowWebToast("MCP模式切换失败:" + ex.Message);
+                    PushWebAppState();
+                    return;
+                }
+            }
+            if (!GooseConfigStorage.TrySave(config, out error))
+            {
+                if (oldConfig != null && profileChanged && !uriChanged)
+                {
+                    try
+                    {
+                        await AutomationMcpServerManager.SetToolProfileAsync(oldConfig.McpUri, oldConfig.ToolProfile)
+                            .ConfigureAwait(true);
+                        if (activeClient != null)
+                        {
+                            await activeClient.ReloadAutomationExtensionAsync(oldConfig.McpUri, CancellationToken.None)
+                                .ConfigureAwait(true);
+                        }
+                    }
+                    catch
+                    {
+                    }
+                    toolProfile = oldConfig.ToolProfile;
+                    fullPermissionMode = oldConfig.FullPermissionMode;
+                }
+                ShowWebToast("保存失败：" + error);
+                PushWebAppState();
+                return;
+            }
+            if (requiresGooseProcessRestart)
             {
                 DisposeGooseClient();
             }
             LoadConfig();
             PushWebAppState();
-            EnqueueScript("closeConfig();");
-            ShowWebToast("配置保存成功。");
+            if (closeConfigAfterSave)
+            {
+                EnqueueScript("closeConfig();");
+            }
+            ShowWebToast(sessionToolsReloaded
+                ? "工具模式切换成功，当前对话已保留。"
+                : successMessage ?? "配置保存成功。");
         }
 
         private async Task CheckWebConfigAsync()
@@ -919,6 +1070,7 @@ document.addEventListener('DOMContentLoaded',function(){
                 Provider = NormalizeGooseOverride(cboProvider.Text),
                 Model = NormalizeGooseOverride(cboModel.Text),
                 MaxTurns = (int)nudMaxTurns.Value,
+                ToolProfile = toolProfile,
                 FullPermissionMode = fullPermissionMode
             };
 
@@ -929,6 +1081,26 @@ document.addEventListener('DOMContentLoaded',function(){
             }
 
             return GooseConfigStorage.TryValidate(config, out error);
+        }
+
+        private static GooseConfig CloneGooseConfig(GooseConfig config)
+        {
+            if (config == null)
+            {
+                return null;
+            }
+            return new GooseConfig
+            {
+                GooseExecutablePath = config.GooseExecutablePath,
+                WorkingDirectory = config.WorkingDirectory,
+                McpUri = config.McpUri,
+                SessionName = config.SessionName,
+                Provider = config.Provider,
+                Model = config.Model,
+                MaxTurns = config.MaxTurns,
+                ToolProfile = config.ToolProfile,
+                FullPermissionMode = config.FullPermissionMode
+            };
         }
 
         private async void BtnSend_Click(object sender, EventArgs e)
@@ -2283,7 +2455,9 @@ document.addEventListener('DOMContentLoaded',function(){
                     SessionName = config.SessionName,
                     Provider = config.Provider,
                     Model = config.Model,
-                    MaxTurns = config.MaxTurns
+                    MaxTurns = config.MaxTurns,
+                    ToolProfile = config.ToolProfile,
+                    FullPermissionMode = config.FullPermissionMode
                 };
                 using (GooseAcpClient client = new GooseAcpClient(resolvedConfig))
                 using (CancellationTokenSource cts = new CancellationTokenSource(30000))

@@ -174,7 +174,34 @@ namespace Automation
                 }
                 return false;
             }
+            EngineSnapshot snapshot = DR.GetSnapshot(procIndex);
+            if (snapshot != null && frmInfo != null && !frmInfo.IsDisposed)
+            {
+                string status = snapshot.HasPendingUpdate
+                    ? $"已发布版本{snapshot.PublishedRevision}，等待安全指令边界应用；当前运行版本{snapshot.AppliedRevision}"
+                    : $"版本{snapshot.AppliedRevision}已生效";
+                frmInfo.PrintInfo($"流程{procIndex}热更新：{status}", FrmInfo.Level.Normal);
+            }
             return true;
+        }
+
+        public static bool CanPublishProcUpdate(int procIndex)
+        {
+            if (frmProc?.procsList == null || DR == null || procIndex < 0 || procIndex >= frmProc.procsList.Count)
+            {
+                return false;
+            }
+            Proc runtime = FrmPropertyGrid.DeepCopy(frmProc.procsList[procIndex]);
+            if (DR.ValidateProcUpdate(procIndex, runtime, out string error))
+            {
+                return true;
+            }
+            MessageBox.Show(error, "热更新暂不可用", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (frmInfo != null && !frmInfo.IsDisposed)
+            {
+                frmInfo.PrintInfo($"流程{procIndex}热更新被拒绝：{error}", FrmInfo.Level.Error);
+            }
+            return false;
         }
 
 
@@ -205,9 +232,9 @@ namespace Automation
             for (int i = 0; i < frmProc.procsList.Count; i++)
             {
                 EngineSnapshot snapshot = DR?.GetSnapshot(i);
-                if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
+                if (snapshot != null && snapshot.State != ProcRunState.Stopped)
                 {
-                    MessageBox.Show("存在运行中的流程，禁止新增或删除流程，请先暂停或单步。");
+                    MessageBox.Show("流程列表的新增、删除、复制或重排会改变procIndex，仅允许在全部流程Stopped后操作。流程内部的参数和步骤/指令编辑不受此门禁影响。");
                     return false;
                 }
             }
