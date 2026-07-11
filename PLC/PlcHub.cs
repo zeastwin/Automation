@@ -13,6 +13,45 @@ namespace Automation
     {
         private readonly ConcurrentDictionary<string, PlcSession> sessions = new ConcurrentDictionary<string, PlcSession>(StringComparer.OrdinalIgnoreCase);
 
+        public static bool TryValidateAccess(PlcDevice device, PlcMapItem map, out string error)
+        {
+            error = null;
+            if (device == null || !PlcConfigStore.ValidateDevices(new List<PlcDevice> { device }, out error))
+            {
+                return false;
+            }
+            if (map == null
+                || !TryParseDataType(map.DataType, out PlcDataType dataType, out error)
+                || !TryParseDirection(map.Direction, out PlcDirection direction, out error)
+                || !TryValidateQuantity(dataType, map.Quantity, out error)
+                || !TryParseAddress(device.Protocol, map.PlcAddress, dataType, map.Quantity,
+                    out PlcAddress address, out error))
+            {
+                return false;
+            }
+            if (!TryValidateProtocolAccessSize(device.Protocol, address, dataType, map.Quantity,
+                direction != PlcDirection.Read, out error))
+            {
+                return false;
+            }
+            if (direction != PlcDirection.Read)
+            {
+                if (address is S7Address s7Address && s7Address.Area == DataType.Input)
+                {
+                    error = "S7输入区禁止写入";
+                    return false;
+                }
+                if (address is ModbusAddress modbusAddress
+                    && (modbusAddress.Area == ModbusArea.DiscreteInput
+                        || modbusAddress.Area == ModbusArea.InputRegister))
+                {
+                    error = "Modbus输入区禁止写入";
+                    return false;
+                }
+            }
+            return true;
+        }
+
         public bool TryConnect(PlcDevice device, out string error)
         {
             error = null;
@@ -94,7 +133,7 @@ namespace Automation
         {
             value = null;
             error = null;
-            if (!TryEnsureConnected(device, out error))
+            if (device == null || !PlcConfigStore.ValidateDevices(new List<PlcDevice> { device }, out error))
             {
                 return false;
             }
@@ -119,6 +158,14 @@ namespace Automation
             {
                 return false;
             }
+            if (!TryValidateProtocolAccessSize(device.Protocol, address, dataType, map.Quantity, false, out error))
+            {
+                return false;
+            }
+            if (!TryEnsureConnected(device, out error))
+            {
+                return false;
+            }
 
             PlcSession session = sessions[device.Name];
             lock (session.SyncRoot)
@@ -137,10 +184,108 @@ namespace Automation
             }
         }
 
+        public bool IsConnected(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name) || !sessions.TryGetValue(name, out PlcSession session))
+            {
+                return false;
+            }
+            lock (session.SyncRoot)
+            {
+                return session.IsConnected;
+            }
+        }
+
+        public bool TryReadBatch(PlcDevice device, IReadOnlyList<PlcMapItem> maps,
+            out IReadOnlyList<PlcBatchReadResult> results, out string error)
+        {
+            results = Array.Empty<PlcBatchReadResult>();
+            error = null;
+            if (maps == null || maps.Count == 0)
+            {
+                error = "PLC批量读取列表为空";
+                return false;
+            }
+            if (device == null || !PlcConfigStore.ValidateDevices(new List<PlcDevice> { device }, out error))
+            {
+                return false;
+            }
+            var parsedItems = new List<ParsedReadItem>(maps.Count);
+            for (int i = 0; i < maps.Count; i++)
+            {
+                PlcMapItem map = maps[i];
+                if (map == null)
+                {
+                    error = $"PLC批量读取项为空:行{i + 1}";
+                    return false;
+                }
+                if (!TryParseDataType(map.DataType, out PlcDataType dataType, out error)
+                    || !TryParseDirection(map.Direction, out PlcDirection direction, out error)
+                    || !TryValidateQuantity(dataType, map.Quantity, out error)
+                    || !TryParseAddress(device.Protocol, map.PlcAddress, dataType, map.Quantity,
+                        out PlcAddress address, out error))
+                {
+                    error = $"PLC批量读取参数无效:行{i + 1} {error}";
+                    return false;
+                }
+                if (!TryValidateProtocolAccessSize(device.Protocol, address, dataType, map.Quantity,
+                    false, out error))
+                {
+                    error = $"PLC批量读取参数无效:行{i + 1} {error}";
+                    return false;
+                }
+                if (direction == PlcDirection.Write)
+                {
+                    error = $"PLC批量读取包含纯写映射:行{i + 1}";
+                    return false;
+                }
+                parsedItems.Add(new ParsedReadItem
+                {
+                    Index = i,
+                    Map = map,
+                    Address = address,
+                    DataType = dataType,
+                    Quantity = map.Quantity
+                });
+            }
+
+            if (!TryEnsureConnected(device, out error))
+            {
+                return false;
+            }
+
+            PlcSession session = sessions[device.Name];
+            lock (session.SyncRoot)
+            {
+                try
+                {
+                    object[] values = session.ReadBatch(parsedItems);
+                    var output = new PlcBatchReadResult[maps.Count];
+                    for (int i = 0; i < parsedItems.Count; i++)
+                    {
+                        ParsedReadItem item = parsedItems[i];
+                        output[item.Index] = new PlcBatchReadResult
+                        {
+                            Map = item.Map,
+                            Value = values[item.Index]
+                        };
+                    }
+                    results = output;
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    session.Disconnect();
+                    error = ex.Message;
+                    return false;
+                }
+            }
+        }
+
         public bool TryWriteValue(PlcDevice device, PlcMapItem map, object inputValue, out string error)
         {
             error = null;
-            if (!TryEnsureConnected(device, out error))
+            if (device == null || !PlcConfigStore.ValidateDevices(new List<PlcDevice> { device }, out error))
             {
                 return false;
             }
@@ -162,6 +307,14 @@ namespace Automation
                 return false;
             }
             if (!TryParseAddress(device.Protocol, map.PlcAddress, dataType, map.Quantity, out PlcAddress address, out error))
+            {
+                return false;
+            }
+            if (!TryValidateProtocolAccessSize(device.Protocol, address, dataType, map.Quantity, true, out error))
+            {
+                return false;
+            }
+            if (!TryEnsureConnected(device, out error))
             {
                 return false;
             }
@@ -187,7 +340,7 @@ namespace Automation
         {
             value = null;
             error = null;
-            if (!TryEnsureConnected(device, out error))
+            if (device == null || !PlcConfigStore.ValidateDevices(new List<PlcDevice> { device }, out error))
             {
                 return false;
             }
@@ -200,6 +353,14 @@ namespace Automation
                 return false;
             }
             if (!TryParseAddress(device.Protocol, addressText, dataType, quantity, out PlcAddress address, out error))
+            {
+                return false;
+            }
+            if (!TryValidateProtocolAccessSize(device.Protocol, address, dataType, quantity, false, out error))
+            {
+                return false;
+            }
+            if (!TryEnsureConnected(device, out error))
             {
                 return false;
             }
@@ -224,7 +385,7 @@ namespace Automation
         public bool TryWriteValue(PlcDevice device, string dataTypeText, string addressText, int quantity, object inputValue, out string error)
         {
             error = null;
-            if (!TryEnsureConnected(device, out error))
+            if (device == null || !PlcConfigStore.ValidateDevices(new List<PlcDevice> { device }, out error))
             {
                 return false;
             }
@@ -237,6 +398,14 @@ namespace Automation
                 return false;
             }
             if (!TryParseAddress(device.Protocol, addressText, dataType, quantity, out PlcAddress address, out error))
+            {
+                return false;
+            }
+            if (!TryValidateProtocolAccessSize(device.Protocol, address, dataType, quantity, true, out error))
+            {
+                return false;
+            }
+            if (!TryEnsureConnected(device, out error))
             {
                 return false;
             }
@@ -336,6 +505,15 @@ namespace Automation
             public ushort Address { get; set; }
         }
 
+        private sealed class ParsedReadItem
+        {
+            public int Index { get; set; }
+            public PlcMapItem Map { get; set; }
+            public PlcAddress Address { get; set; }
+            public PlcDataType DataType { get; set; }
+            public int Quantity { get; set; }
+        }
+
         private enum ModbusArea
         {
             Coil,
@@ -374,6 +552,18 @@ namespace Automation
 
             public void UpdateDevice(PlcDevice newDevice)
             {
+                if (device != null && newDevice != null
+                    && (!string.Equals(device.Protocol, newDevice.Protocol, StringComparison.OrdinalIgnoreCase)
+                        || !string.Equals(device.Ip, newDevice.Ip, StringComparison.OrdinalIgnoreCase)
+                        || device.Port != newDevice.Port
+                        || !string.Equals(device.CpuType, newDevice.CpuType, StringComparison.OrdinalIgnoreCase)
+                        || device.Rack != newDevice.Rack
+                        || device.Slot != newDevice.Slot
+                        || device.UnitId != newDevice.UnitId
+                        || device.TimeoutMs != newDevice.TimeoutMs))
+                {
+                    Disconnect();
+                }
                 device = newDevice;
             }
 
@@ -432,6 +622,158 @@ namespace Automation
                     return ReadModbusValue(modbusAddress, dataType, quantity);
                 }
                 throw new InvalidOperationException("PLC地址类型不支持");
+            }
+
+            public object[] ReadBatch(IReadOnlyList<ParsedReadItem> items)
+            {
+                if (items == null || items.Count == 0)
+                {
+                    return Array.Empty<object>();
+                }
+                object[] values = new object[items.Count];
+                if (string.Equals(device.Protocol, "S7", StringComparison.OrdinalIgnoreCase))
+                {
+                    ReadS7Batch(items, values);
+                }
+                else
+                {
+                    ReadModbusBatch(items, values);
+                }
+                return values;
+            }
+
+            private void ReadS7Batch(IReadOnlyList<ParsedReadItem> items, object[] values)
+            {
+                if (s7Client == null || !s7Client.IsConnected)
+                {
+                    throw new InvalidOperationException("S7未连接");
+                }
+                foreach (IGrouping<string, ParsedReadItem> group in items.GroupBy(item =>
+                {
+                    S7Address address = (S7Address)item.Address;
+                    return ((int)address.Area).ToString(CultureInfo.InvariantCulture) + ":" +
+                        address.DbNumber.ToString(CultureInfo.InvariantCulture);
+                }))
+                {
+                    List<ParsedReadItem> ordered = group
+                        .OrderBy(item => ((S7Address)item.Address).StartByte)
+                        .ToList();
+                    int offset = 0;
+                    while (offset < ordered.Count)
+                    {
+                        S7Address firstAddress = (S7Address)ordered[offset].Address;
+                        int blockStart = firstAddress.StartByte;
+                        int blockEnd = blockStart + GetS7ReadLength(ordered[offset]);
+                        int endIndex = offset + 1;
+                        while (endIndex < ordered.Count)
+                        {
+                            S7Address nextAddress = (S7Address)ordered[endIndex].Address;
+                            int nextEnd = nextAddress.StartByte + GetS7ReadLength(ordered[endIndex]);
+                            if (nextAddress.StartByte - blockEnd > 16 || nextEnd - blockStart > 200)
+                            {
+                                break;
+                            }
+                            blockEnd = Math.Max(blockEnd, nextEnd);
+                            endIndex++;
+                        }
+                        byte[] buffer = s7Client.ReadBytes(firstAddress.Area, firstAddress.DbNumber,
+                            blockStart, blockEnd - blockStart);
+                        for (int i = offset; i < endIndex; i++)
+                        {
+                            ParsedReadItem item = ordered[i];
+                            S7Address address = (S7Address)item.Address;
+                            int localOffset = address.StartByte - blockStart;
+                            if (item.DataType == PlcDataType.Boolean)
+                            {
+                                values[item.Index] = (buffer[localOffset] & (1 << address.BitIndex)) != 0 ? 1d : 0d;
+                                continue;
+                            }
+                            int length = GetByteCount(item.DataType, item.Quantity);
+                            byte[] slice = new byte[length];
+                            Buffer.BlockCopy(buffer, localOffset, slice, 0, length);
+                            values[item.Index] = ConvertBytesToValue(slice, item.DataType, item.Quantity, true);
+                        }
+                        offset = endIndex;
+                    }
+                }
+            }
+
+            private void ReadModbusBatch(IReadOnlyList<ParsedReadItem> items, object[] values)
+            {
+                if (modbusClient == null || !modbusClient.IsConnected)
+                {
+                    throw new InvalidOperationException("Modbus未连接");
+                }
+                byte unitId = (byte)device.UnitId;
+                foreach (IGrouping<ModbusArea, ParsedReadItem> group in items.GroupBy(item =>
+                    ((ModbusAddress)item.Address).Area))
+                {
+                    List<ParsedReadItem> ordered = group
+                        .OrderBy(item => ((ModbusAddress)item.Address).Address)
+                        .ToList();
+                    bool bitArea = group.Key == ModbusArea.Coil || group.Key == ModbusArea.DiscreteInput;
+                    int maxBlockLength = bitArea ? 2000 : 125;
+                    int maxGap = bitArea ? 32 : 8;
+                    int offset = 0;
+                    while (offset < ordered.Count)
+                    {
+                        ModbusAddress firstAddress = (ModbusAddress)ordered[offset].Address;
+                        int blockStart = firstAddress.Address;
+                        int blockEnd = blockStart + GetModbusReadLength(ordered[offset]);
+                        int endIndex = offset + 1;
+                        while (endIndex < ordered.Count)
+                        {
+                            ModbusAddress nextAddress = (ModbusAddress)ordered[endIndex].Address;
+                            int nextEnd = nextAddress.Address + GetModbusReadLength(ordered[endIndex]);
+                            if (nextAddress.Address - blockEnd > maxGap || nextEnd - blockStart > maxBlockLength)
+                            {
+                                break;
+                            }
+                            blockEnd = Math.Max(blockEnd, nextEnd);
+                            endIndex++;
+                        }
+                        int blockLength = blockEnd - blockStart;
+                        if (bitArea)
+                        {
+                            byte[] bits = group.Key == ModbusArea.Coil
+                                ? modbusClient.ReadCoils(unitId, (ushort)blockStart, (ushort)blockLength)
+                                : modbusClient.ReadDiscreteInputs(unitId, (ushort)blockStart, (ushort)blockLength);
+                            for (int i = offset; i < endIndex; i++)
+                            {
+                                ParsedReadItem item = ordered[i];
+                                int localOffset = ((ModbusAddress)item.Address).Address - blockStart;
+                                values[item.Index] = bits[localOffset] != 0 ? 1d : 0d;
+                            }
+                        }
+                        else
+                        {
+                            ushort[] registers = group.Key == ModbusArea.HoldingRegister
+                                ? modbusClient.ReadHoldingRegisters(unitId, (ushort)blockStart, (ushort)blockLength)
+                                : modbusClient.ReadInputRegisters(unitId, (ushort)blockStart, (ushort)blockLength);
+                            for (int i = offset; i < endIndex; i++)
+                            {
+                                ParsedReadItem item = ordered[i];
+                                int localOffset = ((ModbusAddress)item.Address).Address - blockStart;
+                                int registerCount = GetRegisterCount(item.DataType, item.Quantity);
+                                ushort[] slice = new ushort[registerCount];
+                                Array.Copy(registers, localOffset, slice, 0, registerCount);
+                                values[item.Index] = ConvertBytesToValue(RegistersToBytes(slice),
+                                    item.DataType, item.Quantity, true);
+                            }
+                        }
+                        offset = endIndex;
+                    }
+                }
+            }
+
+            private static int GetS7ReadLength(ParsedReadItem item)
+            {
+                return item.DataType == PlcDataType.Boolean ? 1 : GetByteCount(item.DataType, item.Quantity);
+            }
+
+            private static int GetModbusReadLength(ParsedReadItem item)
+            {
+                return item.DataType == PlcDataType.Boolean ? item.Quantity : GetRegisterCount(item.DataType, item.Quantity);
             }
 
             public void WriteValue(PlcAddress address, PlcDataType dataType, int quantity, object inputValue)
@@ -703,6 +1045,35 @@ namespace Automation
             {
                 error = "布尔类型仅支持数量=1";
                 return false;
+            }
+            return true;
+        }
+
+        private static bool TryValidateProtocolAccessSize(string protocol, PlcAddress address,
+            PlcDataType dataType, int quantity, bool isWrite, out string error)
+        {
+            error = null;
+            if (string.Equals(protocol, "S7", StringComparison.OrdinalIgnoreCase))
+            {
+                int byteCount = dataType == PlcDataType.Boolean ? 1 : GetByteCount(dataType, quantity);
+                if (byteCount > 200)
+                {
+                    error = $"S7单次访问长度{byteCount}字节超过安全上限200字节";
+                    return false;
+                }
+                return true;
+            }
+            if (address is ModbusAddress modbusAddress)
+            {
+                bool bitArea = modbusAddress.Area == ModbusArea.Coil
+                    || modbusAddress.Area == ModbusArea.DiscreteInput;
+                int accessCount = bitArea ? quantity : GetRegisterCount(dataType, quantity);
+                int maximum = bitArea ? (isWrite ? 1968 : 2000) : (isWrite ? 123 : 125);
+                if (accessCount > maximum)
+                {
+                    error = $"Modbus单次{(bitArea ? "位" : "寄存器")}访问数量{accessCount}超过上限{maximum}";
+                    return false;
+                }
             }
             return true;
         }

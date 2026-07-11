@@ -30,6 +30,7 @@ namespace Automation.KernelTests
             Run("通讯帧拆包与有界缓存", TestCommunicationReceiveDispatcher);
             Run("通讯配置独立存储与严格校验", TestCommunicationConfigStore);
             Run("TCP请求响应事务与生命周期", TestTcpRequestResponse);
+            Run("PLC连续地址批量读取合并", TestPlcBatchRead);
             Console.WriteLine(failures == 0 ? "内核回归测试全部通过。" : $"内核回归测试失败:{failures}");
             return failures == 0 ? 0 : 1;
         }
@@ -429,6 +430,89 @@ namespace Automation.KernelTests
             Assert(parameters.Get(0, 1).SpeedPercent == 100, "轴运行参数默认值错误");
             parameters.Set(0, 1, 50, 60, 70);
             Assert(parameters.Get(0, 1).AccelerationPercent == 60, "轴运行参数存储错误");
+        }
+
+        private static void TestPlcBatchRead()
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            int requestCount = 0;
+            int requestedRegisters = 0;
+            Task serverTask = Task.Run(() =>
+            {
+                using (TcpClient client = listener.AcceptTcpClient())
+                using (NetworkStream stream = client.GetStream())
+                {
+                    byte[] header = ReadExact(stream, 7);
+                    int remaining = (header[4] << 8 | header[5]) - 1;
+                    byte[] pdu = ReadExact(stream, remaining);
+                    Interlocked.Increment(ref requestCount);
+                    if (pdu.Length < 5 || pdu[0] != 3)
+                    {
+                        throw new InvalidOperationException("PLC批量测试收到非保持寄存器读取请求");
+                    }
+                    requestedRegisters = pdu[3] << 8 | pdu[4];
+                    int byteCount = requestedRegisters * 2;
+                    byte[] response = new byte[9 + byteCount];
+                    response[0] = header[0];
+                    response[1] = header[1];
+                    response[4] = (byte)((3 + byteCount) >> 8);
+                    response[5] = (byte)(3 + byteCount);
+                    response[6] = header[6];
+                    response[7] = 3;
+                    response[8] = (byte)byteCount;
+                    stream.Write(response, 0, response.Length);
+                }
+            });
+
+            try
+            {
+                var device = new PlcDevice
+                {
+                    Name = "BatchPlc",
+                    Protocol = "ModbusTcp",
+                    Ip = "127.0.0.1",
+                    Port = port,
+                    UnitId = 1,
+                    TimeoutMs = 2000
+                };
+                var maps = new List<PlcMapItem>
+                {
+                    new PlcMapItem { PlcName = device.Name, Direction = "读PLC", DataType = "Float", PlcAddress = "HR:0", Quantity = 1, ValueName = "V1" },
+                    new PlcMapItem { PlcName = device.Name, Direction = "读PLC", DataType = "Float", PlcAddress = "HR:2", Quantity = 1, ValueName = "V2" },
+                    new PlcMapItem { PlcName = device.Name, Direction = "读PLC", DataType = "UShort", PlcAddress = "HR:10", Quantity = 1, ValueName = "V3" }
+                };
+                using (var hub = new PlcHub())
+                {
+                    Assert(hub.TryReadBatch(device, maps, out IReadOnlyList<PlcBatchReadResult> results, out string error),
+                        "PLC批量读取失败:" + error);
+                    Assert(results.Count == 3, "PLC批量读取结果数量错误");
+                }
+                Assert(serverTask.Wait(3000), "PLC批量读取测试服务未结束");
+                Assert(requestCount == 1, "连续地址未合并为单个Modbus请求");
+                Assert(requestedRegisters == 11, "Modbus合并读取区间错误");
+            }
+            finally
+            {
+                listener.Stop();
+            }
+        }
+
+        private static byte[] ReadExact(NetworkStream stream, int count)
+        {
+            byte[] buffer = new byte[count];
+            int offset = 0;
+            while (offset < count)
+            {
+                int read = stream.Read(buffer, offset, count - offset);
+                if (read <= 0)
+                {
+                    throw new EndOfStreamException("测试连接提前关闭");
+                }
+                offset += read;
+            }
+            return buffer;
         }
 
         private static ProcessEngine CreateEngine(ValueConfigStore values, CustomFunc functions, Proc proc)

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Windows.Forms;
 using Newtonsoft.Json;
 
 namespace Automation
@@ -70,15 +69,14 @@ namespace Automation
                 string json = File.ReadAllText(filePath);
                 var settings = new JsonSerializerSettings
                 {
-                    TypeNameHandling = TypeNameHandling.All,
+                    TypeNameHandling = TypeNameHandling.None,
                     ObjectCreationHandling = ObjectCreationHandling.Replace
                 };
                 List<PlcDevice> temp = JsonConvert.DeserializeObject<List<PlcDevice>>(json, settings) ?? new List<PlcDevice>();
                 if (!ValidateDevices(temp, out string error))
                 {
-                    MessageBox.Show(error);
                     ReplaceDevices(new List<PlcDevice>());
-                    SaveDevices(configPath);
+                    SF.SetSecurityLock($"PLC设备配置校验失败:{error}");
                     return false;
                 }
                 ReplaceDevices(temp);
@@ -86,9 +84,8 @@ namespace Automation
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message);
                 ReplaceDevices(new List<PlcDevice>());
-                SaveDevices(configPath);
+                SF.SetSecurityLock($"PLC设备配置加载失败:{ex.Message}");
                 return false;
             }
         }
@@ -108,15 +105,14 @@ namespace Automation
                 string json = File.ReadAllText(filePath);
                 var settings = new JsonSerializerSettings
                 {
-                    TypeNameHandling = TypeNameHandling.All,
+                    TypeNameHandling = TypeNameHandling.None,
                     ObjectCreationHandling = ObjectCreationHandling.Replace
                 };
                 List<PlcMapItem> temp = JsonConvert.DeserializeObject<List<PlcMapItem>>(json, settings) ?? new List<PlcMapItem>();
                 if (!ValidateMaps(temp, out string error))
                 {
-                    MessageBox.Show(error);
                     ReplaceMaps(new List<PlcMapItem>());
-                    SaveMaps(configPath);
+                    SF.SetSecurityLock($"PLC映射配置校验失败:{error}");
                     return false;
                 }
                 ReplaceMaps(temp);
@@ -124,9 +120,8 @@ namespace Automation
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message);
                 ReplaceMaps(new List<PlcMapItem>());
-                SaveMaps(configPath);
+                SF.SetSecurityLock($"PLC映射配置加载失败:{ex.Message}");
                 return false;
             }
         }
@@ -140,7 +135,7 @@ namespace Automation
             string filePath = Path.Combine(configPath, "PlcDevice.json");
             var settings = new JsonSerializerSettings
             {
-                TypeNameHandling = TypeNameHandling.All
+                TypeNameHandling = TypeNameHandling.None
             };
             List<PlcDevice> snapshot;
             lock (dataLock)
@@ -148,7 +143,7 @@ namespace Automation
                 snapshot = devices.Select(device => CloneDevice(device)).ToList();
             }
             string output = JsonConvert.SerializeObject(snapshot, settings);
-            File.WriteAllText(filePath, output);
+            WriteAllTextAtomic(filePath, output);
             return true;
         }
 
@@ -161,7 +156,7 @@ namespace Automation
             string filePath = Path.Combine(configPath, "PlcMap.json");
             var settings = new JsonSerializerSettings
             {
-                TypeNameHandling = TypeNameHandling.All
+                TypeNameHandling = TypeNameHandling.None
             };
             List<PlcMapItem> snapshot;
             lock (dataLock)
@@ -169,12 +164,39 @@ namespace Automation
                 snapshot = maps.Select(map => CloneMap(map)).ToList();
             }
             string output = JsonConvert.SerializeObject(snapshot, settings);
-            File.WriteAllText(filePath, output);
+            WriteAllTextAtomic(filePath, output);
             return true;
+        }
+
+        private static void WriteAllTextAtomic(string filePath, string content)
+        {
+            string directory = Path.GetDirectoryName(filePath);
+            string tempPath = Path.Combine(directory,
+                Path.GetFileName(filePath) + ".tmp." + Guid.NewGuid().ToString("N"));
+            try
+            {
+                File.WriteAllText(tempPath, content);
+                if (File.Exists(filePath))
+                {
+                    File.Replace(tempPath, filePath, null);
+                }
+                else
+                {
+                    File.Move(tempPath, filePath);
+                }
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
         }
 
         public void ReplaceDevices(List<PlcDevice> newDevices)
         {
+            hub.DisconnectAll();
             lock (dataLock)
             {
                 devices.Clear();
@@ -246,9 +268,20 @@ namespace Automation
             hub.DisconnectAll();
         }
 
+        public bool IsConnected(string name)
+        {
+            return hub.IsConnected(name);
+        }
+
         public bool TryReadValue(PlcDevice device, PlcMapItem map, out object value, out string error)
         {
             return hub.TryReadValue(device, map, out value, out error);
+        }
+
+        public bool TryReadBatch(PlcDevice device, IReadOnlyList<PlcMapItem> maps,
+            out IReadOnlyList<PlcBatchReadResult> results, out string error)
+        {
+            return hub.TryReadBatch(device, maps, out results, out error);
         }
 
         public bool TryWriteValue(PlcDevice device, PlcMapItem map, object inputValue, out string error)

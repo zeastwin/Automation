@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Automation
 {
@@ -55,5 +56,11 @@ namespace Automation
             Quantity = 1;
             WriteConst = string.Empty;
         }
+    }
+
+    public sealed class PlcBatchReadResult
+    {
+        public PlcMapItem Map { get; set; }
+        public object Value { get; set; }
     }
 }
