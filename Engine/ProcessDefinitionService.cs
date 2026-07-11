@@ -13,6 +13,11 @@ namespace Automation
 
         public static void NormalizeProc(int procIndex, Proc proc, List<string> errors)
         {
+            if (proc == null)
+            {
+                errors.Add($"流程{procIndex}为空");
+                return;
+            }
             if (proc.head == null)
             {
                 proc.head = new ProcHead();
@@ -20,11 +25,11 @@ namespace Automation
             }
             if (proc.head.Id == Guid.Empty)
             {
-                proc.head.Id = Guid.NewGuid();
+                errors.Add($"流程{procIndex}缺少稳定ID");
             }
             if (string.IsNullOrWhiteSpace(proc.head.Name))
             {
-                proc.head.Name = $"流程{procIndex}";
+                errors.Add($"流程{procIndex}名称为空");
             }
             if (proc.head.PauseIoParams == null)
             {
@@ -39,6 +44,8 @@ namespace Automation
                 proc.steps = new List<Step>();
                 errors.Add($"流程{procIndex}步骤列表缺失");
             }
+            var stepIds = new HashSet<Guid>();
+            var operationIds = new HashSet<Guid>();
             for (int i = 0; i < proc.steps.Count; i++)
             {
                 if (proc.steps[i] == null)
@@ -49,11 +56,15 @@ namespace Automation
                 Step step = proc.steps[i];
                 if (step.Id == Guid.Empty)
                 {
-                    step.Id = Guid.NewGuid();
+                    errors.Add($"流程{procIndex}步骤{i}缺少稳定ID");
+                }
+                else if (!stepIds.Add(step.Id))
+                {
+                    errors.Add($"流程{procIndex}步骤{i}的ID重复：{step.Id:D}");
                 }
                 if (string.IsNullOrWhiteSpace(step.Name))
                 {
-                    step.Name = $"步骤{i}";
+                    errors.Add($"流程{procIndex}步骤{i}名称为空");
                 }
                 if (step.Ops == null)
                 {
@@ -74,7 +85,11 @@ namespace Automation
                     }
                     if (step.Ops[j].Id == Guid.Empty)
                     {
-                        step.Ops[j].Id = Guid.NewGuid();
+                        errors.Add($"流程{procIndex}步骤{i}指令{j}缺少稳定ID");
+                    }
+                    else if (!operationIds.Add(step.Ops[j].Id))
+                    {
+                        errors.Add($"流程{procIndex}步骤{i}指令{j}的ID重复：{step.Ops[j].Id:D}");
                     }
                     step.Ops[j].Num = j;
                 }

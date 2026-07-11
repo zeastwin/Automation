@@ -1130,18 +1130,18 @@ namespace Automation
             {
                 foreach (string file in Directory.GetFiles(work, "*.json", SearchOption.TopDirectoryOnly))
                 {
-                    JsonConvert.DeserializeObject<Proc>(File.ReadAllText(file, Encoding.UTF8), new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, ObjectCreationHandling = ObjectCreationHandling.Replace });
+                    JsonConvert.DeserializeObject<Proc>(File.ReadAllText(file, Encoding.UTF8), new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, SerializationBinder = AutomationConfigSerializationBinder.Instance, ObjectCreationHandling = ObjectCreationHandling.Replace });
                 }
             }
             string valuePath = Path.Combine(staging, "value.json");
             if (File.Exists(valuePath))
             {
-                JsonConvert.DeserializeObject<Dictionary<string, DicValue>>(File.ReadAllText(valuePath, Encoding.UTF8), new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, ObjectCreationHandling = ObjectCreationHandling.Replace });
+                JsonConvert.DeserializeObject<Dictionary<string, DicValue>>(File.ReadAllText(valuePath, Encoding.UTF8), new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, SerializationBinder = AutomationConfigSerializationBinder.Instance, ObjectCreationHandling = ObjectCreationHandling.Replace });
             }
             string structPath = Path.Combine(staging, "DataStruct.json");
             if (File.Exists(structPath))
             {
-                JsonConvert.DeserializeObject<List<DataStruct>>(File.ReadAllText(structPath, Encoding.UTF8), new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, ObjectCreationHandling = ObjectCreationHandling.Replace });
+                JsonConvert.DeserializeObject<List<DataStruct>>(File.ReadAllText(structPath, Encoding.UTF8), new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, SerializationBinder = AutomationConfigSerializationBinder.Instance, ObjectCreationHandling = ObjectCreationHandling.Replace });
             }
 
             string hmiPath = Path.Combine(staging, "Hmi");

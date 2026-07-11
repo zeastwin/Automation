@@ -220,6 +220,11 @@ namespace Automation
             platformInitializationStarted = true;
             try
             {
+                if (!ConfigurationBatchWriter.RecoverPendingTransactions(SF.ConfigPath, out string transactionError))
+                {
+                    SF.SetSecurityLock(transactionError);
+                    throw new InvalidDataException(transactionError);
+                }
                 SF.frmValue.RefreshDic();
                 EnsureSystemStatusVariables();
                 InitializeSystemStatusValues();

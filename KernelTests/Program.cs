@@ -41,6 +41,7 @@ namespace Automation.KernelTests
             Run("JSON原子替换与备份恢复", TestAtomicJsonRecovery);
             Run("流程目录事务中断恢复", TestProcessDirectoryRecovery);
             Run("多文件配置批量提交", TestConfigurationBatchWriter);
+            Run("数据结构索引与字段类型严格校验", TestDataStructStrictIndexes);
             Console.WriteLine(failures == 0 ? "内核回归测试全部通过。" : $"内核回归测试失败:{failures}");
             return failures == 0 ? 0 : 1;
         }
@@ -695,11 +696,42 @@ namespace Automation.KernelTests
                 }
                 Assert(File.ReadAllText(Path.Combine(path, "a.json")).Contains("new-a"), "第一个配置文件未提交");
                 Assert(File.ReadAllText(Path.Combine(path, "b.json")).Contains("new-b"), "第二个配置文件未提交");
+
+                string transaction = Path.Combine(path, ".transaction-test-recovery");
+                Directory.CreateDirectory(transaction);
+                File.WriteAllText(Path.Combine(path, "a.json"), "interrupted-new-a");
+                File.WriteAllText(Path.Combine(transaction, "a.json.bak"), "stable-old-a");
+                File.WriteAllText(Path.Combine(path, "c.json"), "interrupted-new-c");
+                File.WriteAllText(Path.Combine(transaction, "manifest.json"),
+                    "{\"Entries\":[{\"FileName\":\"a.json\",\"TargetExisted\":true},{\"FileName\":\"c.json\",\"TargetExisted\":false}]}");
+                Assert(ConfigurationBatchWriter.RecoverPendingTransactions(path, out string recoveryError),
+                    "未完成配置事务恢复失败:" + recoveryError);
+                Assert(File.ReadAllText(Path.Combine(path, "a.json")) == "stable-old-a",
+                    "未完成事务没有恢复旧配置");
+                Assert(!File.Exists(Path.Combine(path, "c.json")), "未完成事务没有移除新增配置");
+                Assert(!Directory.Exists(transaction), "恢复后事务目录未清理");
             }
             finally
             {
                 Directory.Delete(path, true);
             }
+        }
+
+        private static void TestDataStructStrictIndexes()
+        {
+            var store = new DataStructStore();
+            Assert(store.AddStruct("S", out string addError), "创建数据结构失败:" + addError);
+            Assert(!store.CreateItem(0, "越界项", 1, out _, out _), "越界插入被自动追加");
+            Assert(store.CreateItem(0, "I0", 0, out int itemIndex, out string itemError),
+                "创建数据项失败:" + itemError);
+            Assert(store.AddField(0, itemIndex, "F0", DataStructValueType.Number, "1.5", 0,
+                out _, out string fieldError), "创建字段失败:" + fieldError);
+            Assert(!store.TrySetItemValueByIndex(0, itemIndex, 1, "文本"), "不存在的字段被自动创建");
+            Assert(!store.TrySetItemValueByIndex(0, itemIndex, 0, "文本", DataStructValueType.Text),
+                "字段类型不匹配时仍被写入");
+            Assert(!store.TryInsertItem(0, 3, new DataStructItem { Name = "越界项" }),
+                "运行时越界插入被自动追加");
+            Assert(!store.TryCopyItemAll(0, itemIndex, 0, 3), "复制目标越界被自动追加");
         }
 
         private static void TestGotoRewriteByOperationId()
@@ -745,6 +777,11 @@ namespace Automation.KernelTests
                 File.WriteAllText(Path.Combine(path, "config.json"), "{损坏");
                 Dictionary<string, int> recovered = AtomicJsonFileStore.Read<Dictionary<string, int>>(path, "config");
                 Assert(recovered != null && recovered["version"] == 1, "主文件损坏后未读取上一版备份");
+
+                File.WriteAllText(Path.Combine(path, "unsafe.json"),
+                    "{\"$type\":\"System.IO.FileInfo, mscorlib\",\"OriginalPath\":\"x\"}");
+                object unsafeValue = AtomicJsonFileStore.Read<object>(path, "unsafe");
+                Assert(unsafeValue == null, "配置反序列化接受了白名单外类型");
             }
             finally
             {

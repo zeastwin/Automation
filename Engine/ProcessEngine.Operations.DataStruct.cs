@@ -288,19 +288,7 @@ namespace Automation
                 MarkAlarm(evt, "数据结构删除索引无效");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            bool success;
-            if (itemIndex >= 255)
-            {
-                success = Context.DataStructStore.TryRemoveLastItem(structIndex);
-            }
-            else if (itemIndex <= -1)
-            {
-                success = Context.DataStructStore.TryRemoveFirstItem(structIndex);
-            }
-            else
-            {
-                success = Context.DataStructStore.TryRemoveItemAt(structIndex, itemIndex);
-            }
+            bool success = Context.DataStructStore.TryRemoveItemAt(structIndex, itemIndex);
             if (!success)
             {
                 MarkAlarm(evt, $"删除数据结构失败:结构{structIndex},项{itemIndex}");

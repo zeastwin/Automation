@@ -1401,6 +1401,12 @@ namespace Automation
             DataStation station;
             if (setStationVel.StationIndex != -1)
             {
+                if (Context.Stations == null || setStationVel.StationIndex < 0
+                    || setStationVel.StationIndex >= Context.Stations.Count)
+                {
+                    MarkAlarm(evt, $"工站索引无效:{setStationVel.StationIndex}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
                 station = Context.Stations[setStationVel.StationIndex];
             }
             else
@@ -1518,6 +1524,12 @@ namespace Automation
             DataStation station;
             if (waitStationStop.StationIndex != -1)
             {
+                if (Context.Stations == null || waitStationStop.StationIndex < 0
+                    || waitStationStop.StationIndex >= Context.Stations.Count)
+                {
+                    MarkAlarm(evt, $"工站索引无效:{waitStationStop.StationIndex}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
                 station = Context.Stations[waitStationStop.StationIndex];
             }
             else

@@ -218,6 +218,7 @@ namespace Automation
             Dictionary<int, string> indexMap = ProcessDefinitionService.BuildProcFileIndexMap(path, out int maxIndex);
             loadErrors.AddRange(ProcessDefinitionService.ValidateProcFileContinuity(indexMap, maxIndex));
 
+            var procIds = new HashSet<Guid>();
             for (int i = 0; i <= maxIndex; i++)
             {
                 Proc proc = null;
@@ -232,6 +233,10 @@ namespace Automation
                 }
 
                 ProcessDefinitionService.NormalizeProc(i, proc, loadErrors);
+                if (proc?.head?.Id != Guid.Empty && !procIds.Add(proc.head.Id))
+                {
+                    loadErrors.Add($"流程{i}的ID重复：{proc.head.Id:D}");
+                }
                 procsListTemp.Add(proc);
 
                 TreeNode treeNode = new TreeNode(BuildProcNodeText(i, proc));

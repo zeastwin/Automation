@@ -1939,11 +1939,7 @@ namespace Automation
                     }
                     catch (OperationCanceledException)
                     {
-                        if (evt.CancellationToken.IsCancellationRequested)
-                        {
-                            return AlarmDecision.Stop;
-                        }
-                        return AlarmDecision.Ignore;
+                        return AlarmDecision.Stop;
                     }
                 }
                 else

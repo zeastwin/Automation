@@ -515,7 +515,8 @@ namespace Automation
                 };
                 if (insertIndex < 0 || insertIndex > dataStruct.dataStructItems.Count)
                 {
-                    insertIndex = dataStruct.dataStructItems.Count;
+                    error = $"插入索引超出范围：{insertIndex}，允许范围0..{dataStruct.dataStructItems.Count}";
+                    return false;
                 }
                 dataStruct.dataStructItems.Insert(insertIndex, item);
                 itemIndex = insertIndex;
@@ -840,7 +841,10 @@ namespace Automation
                 {
                     return false;
                 }
-                InsertOrReplaceItem(dataStruct, itemIndex, dataStructItem);
+                if (!TryInsertOrReplaceItem(dataStruct, itemIndex, dataStructItem))
+                {
+                    return false;
+                }
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -861,7 +865,10 @@ namespace Automation
                 {
                     return false;
                 }
-                InsertOrReplaceItem(dataStruct, itemIndex, dataStructItem);
+                if (!TryInsertOrReplaceItem(dataStruct, itemIndex, dataStructItem))
+                {
+                    return false;
+                }
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -886,91 +893,25 @@ namespace Automation
                     return false;
                 }
                 NormalizeItem(item);
-
-                if (valueType.HasValue)
+                if (!item.FieldTypes.TryGetValue(valueIndex, out DataStructValueType existType)
+                    || !item.FieldNames.ContainsKey(valueIndex)
+                    || valueType.HasValue && valueType.Value != existType)
                 {
-                    if (valueType.Value == DataStructValueType.Number)
-                    {
-                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
-                        {
-                            return false;
-                        }
-                        item.num[valueIndex] = number;
-                        item.str.Remove(valueIndex);
-                    }
-                    else
-                    {
-                        item.str[valueIndex] = value;
-                        item.num.Remove(valueIndex);
-                    }
-
-                    item.FieldTypes[valueIndex] = valueType.Value;
-                    if (!item.FieldNames.ContainsKey(valueIndex) || string.IsNullOrWhiteSpace(item.FieldNames[valueIndex]))
-                    {
-                        item.FieldNames[valueIndex] = $"字段{valueIndex}";
-                    }
-
-                    MarkChangedNoLock();
-                    MarkStructChangedNoLock(structIndex);
-                    return true;
+                    return false;
                 }
-
-                if (item.FieldTypes.TryGetValue(valueIndex, out DataStructValueType existType))
-                {
-                    if (existType == DataStructValueType.Number)
-                    {
-                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
-                        {
-                            return false;
-                        }
-                        item.num[valueIndex] = number;
-                        item.str.Remove(valueIndex);
-                    }
-                    else
-                    {
-                        item.str[valueIndex] = value;
-                        item.num.Remove(valueIndex);
-                    }
-                    MarkChangedNoLock();
-                    MarkStructChangedNoLock(structIndex);
-                    return true;
-                }
-
-                if (item.num.ContainsKey(valueIndex))
+                if (existType == DataStructValueType.Number)
                 {
                     if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
                     {
                         return false;
                     }
                     item.num[valueIndex] = number;
-                    item.FieldTypes[valueIndex] = DataStructValueType.Number;
-                    if (!item.FieldNames.ContainsKey(valueIndex) || string.IsNullOrWhiteSpace(item.FieldNames[valueIndex]))
-                    {
-                        item.FieldNames[valueIndex] = $"字段{valueIndex}";
-                    }
-                    MarkChangedNoLock();
-                    MarkStructChangedNoLock(structIndex);
-                    return true;
+                    item.str.Remove(valueIndex);
                 }
-
-                if (item.str.ContainsKey(valueIndex))
+                else
                 {
                     item.str[valueIndex] = value;
-                    item.FieldTypes[valueIndex] = DataStructValueType.Text;
-                    if (!item.FieldNames.ContainsKey(valueIndex) || string.IsNullOrWhiteSpace(item.FieldNames[valueIndex]))
-                    {
-                        item.FieldNames[valueIndex] = $"字段{valueIndex}";
-                    }
-                    MarkChangedNoLock();
-                    MarkStructChangedNoLock(structIndex);
-                    return true;
-                }
-
-                item.str[valueIndex] = value;
-                item.FieldTypes[valueIndex] = DataStructValueType.Text;
-                if (!item.FieldNames.ContainsKey(valueIndex) || string.IsNullOrWhiteSpace(item.FieldNames[valueIndex]))
-                {
-                    item.FieldNames[valueIndex] = $"字段{valueIndex}";
+                    item.num.Remove(valueIndex);
                 }
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
@@ -1005,16 +946,6 @@ namespace Automation
                     }
                     return false;
                 }
-                if (item.num.TryGetValue(valueIndex, out double fallbackNumber))
-                {
-                    value = fallbackNumber;
-                    return true;
-                }
-                if (item.str.TryGetValue(valueIndex, out string fallbackStr))
-                {
-                    value = fallbackStr;
-                    return true;
-                }
                 return false;
             }
         }
@@ -1047,18 +978,6 @@ namespace Automation
                         return true;
                     }
                     return false;
-                }
-                if (item.num.TryGetValue(valueIndex, out double fallbackNumber))
-                {
-                    value = fallbackNumber;
-                    valueType = DataStructValueType.Number;
-                    return true;
-                }
-                if (item.str.TryGetValue(valueIndex, out string fallbackStr))
-                {
-                    value = fallbackStr;
-                    valueType = DataStructValueType.Text;
-                    return true;
                 }
                 return false;
             }
@@ -1114,7 +1033,7 @@ namespace Automation
                 NormalizeStruct(dataStruct);
                 if (itemIndex < 0 || itemIndex > dataStruct.dataStructItems.Count)
                 {
-                    itemIndex = dataStruct.dataStructItems.Count;
+                    return false;
                 }
                 dataStruct.dataStructItems.Insert(itemIndex, item);
                 MarkChangedNoLock();
@@ -1138,7 +1057,10 @@ namespace Automation
                 DataStructItem copy = sourceItem.Clone();
                 DataStruct targetStruct = dataStructs[targetStructIndex];
                 NormalizeStruct(targetStruct);
-                InsertOrReplaceItem(targetStruct, targetItemIndex, copy);
+                if (!TryInsertOrReplaceItem(targetStruct, targetItemIndex, copy))
+                {
+                    return false;
+                }
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(targetStructIndex);
                 return true;
@@ -1376,20 +1298,22 @@ namespace Automation
             }
         }
 
-        private static void InsertOrReplaceItem(DataStruct dataStruct, int itemIndex, DataStructItem dataStructItem)
+        private static bool TryInsertOrReplaceItem(DataStruct dataStruct, int itemIndex, DataStructItem dataStructItem)
         {
-            if (dataStruct.dataStructItems.Count <= itemIndex)
+            if (dataStruct?.dataStructItems == null || dataStructItem == null
+                || itemIndex < 0 || itemIndex > dataStruct.dataStructItems.Count)
+            {
+                return false;
+            }
+            if (itemIndex == dataStruct.dataStructItems.Count)
             {
                 dataStruct.dataStructItems.Add(dataStructItem);
-            }
-            else if (itemIndex >= 0)
-            {
-                dataStruct.dataStructItems[itemIndex] = dataStructItem;
             }
             else
             {
-                dataStruct.dataStructItems.Add(dataStructItem);
+                dataStruct.dataStructItems[itemIndex] = dataStructItem;
             }
+            return true;
         }
 
         private static bool TryBuildItem(string itemName, List<string> strings, List<double> doubles, string param, out DataStructItem dataStructItem)

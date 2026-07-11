@@ -15,6 +15,7 @@ namespace Automation
         private static readonly JsonSerializerSettings Settings = new JsonSerializerSettings
         {
             TypeNameHandling = TypeNameHandling.All,
+            SerializationBinder = AutomationConfigSerializationBinder.Instance,
             ObjectCreationHandling = ObjectCreationHandling.Replace
         };
 

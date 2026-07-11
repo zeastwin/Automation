@@ -412,7 +412,9 @@ namespace Automation
                     return;
                 }
                 int structIndex = tag.StructIndex;
-                int insertIndex = tag.NodeType == DataStructNodeType.Item ? tag.ItemIndex + 1 : -1;
+                int insertIndex = tag.NodeType == DataStructNodeType.Item
+                    ? tag.ItemIndex + 1
+                    : SF.dataStructStore.GetItemCount(structIndex);
                 string itemName = BuildUniqueItemName(structIndex, clipboard.ItemData.Name);
                 if (!SF.dataStructStore.CreateItem(structIndex, itemName, insertIndex, out int itemIndex, out string error))
                 {
@@ -556,7 +558,8 @@ namespace Automation
                     return;
                 }
                 string name = (dialog.InputText ?? string.Empty).Trim();
-                if (!SF.dataStructStore.CreateItem(tag.StructIndex, name, -1, out int itemIndex, out string error))
+                int insertIndex = SF.dataStructStore.GetItemCount(tag.StructIndex);
+                if (!SF.dataStructStore.CreateItem(tag.StructIndex, name, insertIndex, out int itemIndex, out string error))
                 {
                     MessageBox.Show(error);
                     return;

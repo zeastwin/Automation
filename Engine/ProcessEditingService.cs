@@ -64,6 +64,12 @@ namespace Automation
             Proc original = ObjectGraphCloner.Clone(SF.frmProc.procsList[procIndex]);
             List<string> errors = new List<string>();
             ProcessDefinitionService.NormalizeProc(procIndex, draft, errors);
+            if (draft.head != null && draft.head.Id != Guid.Empty
+                && SF.frmProc.procsList.Where((proc, index) => index != procIndex)
+                    .Any(proc => proc?.head?.Id == draft.head.Id))
+            {
+                errors.Add($"流程{procIndex}的ID与其他流程重复：{draft.head.Id:D}");
+            }
             errors.AddRange(ProcessDefinitionService.ValidateProcGotoTargets(procIndex, draft));
             if (errors.Count > 0)
             {
@@ -174,8 +180,11 @@ namespace Automation
             {
                 return;
             }
-            int first = Math.Max(0, startIndex);
-            for (int i = first; i < processes.Count; i++)
+            if (startIndex < 0 || startIndex > processes.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(startIndex), "流程重排起始索引超出范围");
+            }
+            for (int i = startIndex; i < processes.Count; i++)
             {
                 AdaptGotoProcIndex(processes[i], i);
             }
