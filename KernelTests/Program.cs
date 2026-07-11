@@ -31,6 +31,7 @@ namespace Automation.KernelTests
             Run("通讯配置独立存储与严格校验", TestCommunicationConfigStore);
             Run("TCP请求响应事务与生命周期", TestTcpRequestResponse);
             Run("PLC连续地址批量读取合并", TestPlcBatchRead);
+            Run("报警配置严格校验与原子保存", TestAlarmInfoStore);
             Console.WriteLine(failures == 0 ? "内核回归测试全部通过。" : $"内核回归测试失败:{failures}");
             return failures == 0 ? 0 : 1;
         }
@@ -430,6 +431,40 @@ namespace Automation.KernelTests
             Assert(parameters.Get(0, 1).SpeedPercent == 100, "轴运行参数默认值错误");
             parameters.Set(0, 1, 50, 60, 70);
             Assert(parameters.Get(0, 1).AccelerationPercent == 60, "轴运行参数存储错误");
+        }
+
+        private static void TestAlarmInfoStore()
+        {
+            string tempPath = Path.Combine(Path.GetTempPath(), "AutomationAlarmStore_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempPath);
+            try
+            {
+                var store = new AlarmInfoStore();
+                store.UpdateAlarm(8, "气压不足", "设备", "确认", null, null, "请检查主气路压力");
+                store.Save(tempPath);
+                string json = File.ReadAllText(Path.Combine(tempPath, "AlarmInfo.json"));
+                Assert(json.IndexOf("$type", StringComparison.OrdinalIgnoreCase) < 0, "报警配置不应包含类型元数据");
+
+                var loaded = new AlarmInfoStore();
+                Assert(loaded.Load(tempPath), "报警配置重新加载失败");
+                Assert(loaded.TryGetByIndex(8, out AlarmInfo alarm) && alarm.Name == "气压不足",
+                    "报警配置保存后内容不一致");
+
+                bool rejected = false;
+                try
+                {
+                    loaded.UpdateAlarm(9, "名称存在", null, null, null, null, null);
+                }
+                catch (InvalidDataException)
+                {
+                    rejected = true;
+                }
+                Assert(rejected, "名称与报警信息不完整时未拒绝保存");
+            }
+            finally
+            {
+                Directory.Delete(tempPath, true);
+            }
         }
 
         private static void TestPlcBatchRead()

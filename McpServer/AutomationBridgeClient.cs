@@ -367,13 +367,21 @@ namespace Automation.McpServer
 
         // ---------- alarm 拆分（4 个） ----------
 
-        public Task<string> ListAlarmsAsync(bool? includeEmpty, string? categoryLike, string? nameLike)
+        public Task<string> ListAlarmsAsync(bool? includeEmpty, string? categoryLike, string? nameLike,
+            int? offset, int? limit)
         {
             JsonObject payload = new JsonObject();
             if (includeEmpty.HasValue) payload["includeEmpty"] = includeEmpty.Value;
             if (!string.IsNullOrEmpty(categoryLike)) payload["categoryLike"] = categoryLike;
             if (!string.IsNullOrEmpty(nameLike)) payload["nameLike"] = nameLike;
+            if (offset.HasValue) payload["offset"] = offset.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
             return PostAsync("/bridge/alarm/list", payload);
+        }
+
+        public Task<string> ListAlarmsAsync(bool? includeEmpty, string? categoryLike, string? nameLike)
+        {
+            return ListAlarmsAsync(includeEmpty, categoryLike, nameLike, null, null);
         }
 
         public Task<string> GetAlarmAsync(int index)
@@ -382,7 +390,8 @@ namespace Automation.McpServer
             return PostAsync("/bridge/alarm/get", payload);
         }
 
-        public Task<string> SetAlarmAsync(int index, string name, string note, string? category, string? btn1, string? btn2, string? btn3)
+        public Task<string> SetAlarmAsync(int index, string name, string note, string? category, string? btn1,
+            string? btn2, string? btn3, bool? allowOverwrite)
         {
             JsonObject payload = new JsonObject
             {
@@ -394,7 +403,14 @@ namespace Automation.McpServer
             if (btn1 != null) payload["btn1"] = btn1;
             if (btn2 != null) payload["btn2"] = btn2;
             if (btn3 != null) payload["btn3"] = btn3;
+            if (allowOverwrite.HasValue) payload["allowOverwrite"] = allowOverwrite.Value;
             return PostAsync("/bridge/alarm/set", payload);
+        }
+
+        public Task<string> SetAlarmAsync(int index, string name, string note, string? category,
+            string? btn1, string? btn2, string? btn3)
+        {
+            return SetAlarmAsync(index, name, note, category, btn1, btn2, btn3, null);
         }
 
         public Task<string> DeleteAlarmAsync(int index)

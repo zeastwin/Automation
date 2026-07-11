@@ -1015,6 +1015,21 @@ namespace Automation.McpServer
                 action: client => client.ListAlarmsAsync(includeEmpty, categoryLike, nameLike)).ConfigureAwait(false);
         }
 
+        [McpServerTool(Name = "search_alarms"), Description(
+            "分页搜索报警配置，适合大量报警数据。默认只返回已配置项，每次最多100条，返回total/offset/limit/hasMore/items。禁止为查找单项而读取全部1000槽位。")]
+        public static async Task<string> SearchAlarms(
+            [Description("是否包含空槽位，默认false")] bool? includeEmpty = null,
+            [Description("报警分类模糊匹配")] string? categoryLike = null,
+            [Description("报警名称模糊匹配")] string? nameLike = null,
+            [Description("分页起点，默认0")] int? offset = null,
+            [Description("每页数量1..100，默认50")] int? limit = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(SearchAlarms),
+                args: new { includeEmpty, categoryLike, nameLike, offset, limit },
+                action: client => client.ListAlarmsAsync(includeEmpty, categoryLike, nameLike, offset, limit)).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "get_alarm"), Description(
             "读取单个报警信息详情。返回 index/name/category/btn1/btn2/btn3/note 字段。"
             + "用于查看指定槽位的报警配置。")]
