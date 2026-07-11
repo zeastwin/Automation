@@ -19,6 +19,8 @@ namespace Automation.Bridge
         private const int MaxOverviewOperationCount = 300;
         private const int MaxDetailOperationCount = 80;
         private const int MaxStepDetailOperationCount = 100;
+        private static readonly LocalFileLogger bridgeErrorLogger = new LocalFileLogger(
+            Path.Combine(@"D:\AutomationLogs", "Bridge"));
 
         private static readonly HashSet<string> SupportedPatchActions = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -279,11 +281,37 @@ namespace Automation.Bridge
             }
             catch (BridgeRequestException ex)
             {
+                LogBridgeException(method, normalizedPath, body, ex);
                 return AutomationBridgeResponse.Error(ex.StatusCode, ex.Code, ex.Message, ex.Details);
             }
             catch (Exception ex)
             {
+                LogBridgeException(method, normalizedPath, body, ex);
                 return AutomationBridgeResponse.Error(500, "UNHANDLED_EXCEPTION", "Automation Bridge 处理失败。", ex.Message);
+            }
+        }
+
+        private static void LogBridgeException(string method, string path, string body, Exception exception)
+        {
+            try
+            {
+                const int maxBodyLength = 16384;
+                string requestBody = body ?? string.Empty;
+                if (requestBody.Length > maxBodyLength)
+                {
+                    requestBody = requestBody.Substring(0, maxBodyLength) + "...<已截断>";
+                }
+                bridgeErrorLogger.Log(
+                    "Bridge 请求异常\r\n"
+                    + "method=" + (method ?? string.Empty) + "\r\n"
+                    + "path=" + (path ?? string.Empty) + "\r\n"
+                    + "body=" + requestBody + "\r\n"
+                    + "exception=" + (exception?.ToString() ?? string.Empty),
+                    LogLevel.Error);
+            }
+            catch
+            {
+                // 异常日志失败不影响 Bridge 的标准错误响应。
             }
         }
 
@@ -411,7 +439,10 @@ namespace Automation.Bridge
         private JObject HandleGetProcOverview(JObject request)
         {
             int procIndex = ReadRequiredInt(request, "procIndex");
-            Proc proc = GetProcByIndex(procIndex);
+            if (!TryGetProcByIndexForRead(procIndex, out Proc proc, out JObject error))
+            {
+                return error;
+            }
             int operationCount = CountOperations(proc);
             if (operationCount > MaxOverviewOperationCount)
             {
@@ -425,7 +456,10 @@ namespace Automation.Bridge
         private JObject HandleGetProcDetail(JObject request)
         {
             int procIndex = ReadRequiredInt(request, "procIndex");
-            Proc proc = GetProcByIndex(procIndex);
+            if (!TryGetProcByIndexForRead(procIndex, out Proc proc, out JObject error))
+            {
+                return error;
+            }
             int operationCount = CountOperations(proc);
             if (operationCount > MaxDetailOperationCount)
             {
@@ -815,6 +849,8 @@ namespace Automation.Bridge
 
             string previewId = RegisterManagePreview(preview);
             preview["previewId"] = previewId;
+            preview["committed"] = false;
+            preview["nextAction"] = "这是预演，尚未创建流程。确认后必须使用同一 previewId 再次调用 create_proc 提交；提交成功后再调用 list_procs，并且只能使用 list_procs 返回的 procIndex。";
             return preview;
         }
 
@@ -5521,6 +5557,33 @@ namespace Automation.Bridge
             }
 
             return proc;
+        }
+
+        private static bool TryGetProcByIndexForRead(int procIndex, out Proc proc, out JObject error)
+        {
+            proc = null;
+            error = null;
+            if (SF.mainfrm == null || SF.frmProc?.procsList == null || SF.frmPropertyGrid == null)
+            {
+                error = BridgeError(503, "BRIDGE_NOT_READY", "Automation 运行时尚未完成初始化。");
+                return false;
+            }
+            if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+            {
+                error = BridgeError(
+                    404,
+                    "PROC_NOT_FOUND",
+                    $"流程索引无效：{procIndex}。当前流程数：{SF.frmProc.procsList.Count}。请先调用 list_procs，并且只能使用返回项中的 procIndex；创建流程预演返回的 targetIndex 不是已提交流程。",
+                    "sideEffects=none; actionRequired=list_procs; doNotAssumePreviewTargetIndex=true");
+                return false;
+            }
+            proc = SF.frmProc.procsList[procIndex];
+            if (proc == null)
+            {
+                error = BridgeError(404, "PROC_NOT_FOUND", $"流程索引无效：{procIndex}。");
+                return false;
+            }
+            return true;
         }
 
         [System.Diagnostics.DebuggerNonUserCode]

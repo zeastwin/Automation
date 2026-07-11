@@ -60,8 +60,8 @@ namespace Automation
                 Plc_Page,
                 valueDebug_Page,
                 Card_Page,
-                aiAssistant_Page,
-                version_Page
+                version_Page,
+                aiAssistant_Page
             };
         }
 

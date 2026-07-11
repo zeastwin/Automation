@@ -94,6 +94,7 @@
       <Private>True</Private>
       <Private>True</Private>
     </Reference>
+    <Reference Include="System.Security" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
@@ -138,6 +139,8 @@
     <Compile Include="Runtime\\AutomationMcpServerManager.cs" />
     <Compile Include="Runtime\\AutomationRuntimeOptions.cs" />
     <Compile Include="Runtime\\GooseConfigStorage.cs" />
+    <Compile Include="Runtime\\GooseRuntimeProvisioner.cs" />
+    <Compile Include="Runtime\\AiProviderSecretStorage.cs" />
     <Compile Include="Runtime\\ConfigurationVersionService.cs" />
     <Compile Include="Simulation\\SimulationGatewayClient.cs" />
     <Compile Include="Bridge\\AutomationBridgeHost.cs" />
@@ -412,6 +415,9 @@
     <EmbeddedResource Include="Tool\FrmSearch4Value.resx">
       <DependentUpon>FrmSearch4Value.cs</DependentUpon>
     </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\system.md">
+      <LogicalName>Automation.Assets.Goose.system.md</LogicalName>
+    </EmbeddedResource>
     <None Include="app.config" />
     <None Include="IntentTemplates\intent_templates.json" />
     <None Include="packages.config" />
@@ -451,6 +457,26 @@
     </ItemGroup>
     <Copy Condition="'@(IntentTemplateFiles)' != ''" SourceFiles="@(IntentTemplateFiles)" DestinationFiles="@(IntentTemplateFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
+  <Target Name="RemoveUnsupportedNativeGitLibraries" AfterTargets="Build">
+    <ItemGroup>
+      <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\linux-arm" />
+      <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\linux-arm64" />
+      <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\linux-musl-arm" />
+      <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\linux-musl-arm64" />
+      <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\linux-musl-x64" />
+      <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\linux-ppc64le" />
+      <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\linux-x64" />
+      <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\osx-arm64" />
+      <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\osx-x64" />
+      <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\win32\arm64" />
+      <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\win32\x86" />
+    </ItemGroup>
+    <RemoveDir Directories="@(UnsupportedNativeGitDirectory)" />
+  </Target>
+  <!-- 旧仿真工具遗留目录不属于正式运行包，生成后强制清理，避免携带配置快照和账户文件。 -->
+  <Target Name="RemoveLegacySimulationArtifacts" AfterTargets="Build">
+    <RemoveDir Directories="$(TargetDir)SimulationRuns;$(TargetDir)SimulationScenarios" />
+  </Target>
   <Import Project="packages\LibGit2Sharp.NativeBinaries\build\net46\LibGit2Sharp.NativeBinaries.props" Condition="Exists('packages\LibGit2Sharp.NativeBinaries\build\net46\LibGit2Sharp.NativeBinaries.props')" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="EnsureWebView2TargetsImported" BeforeTargets="PrepareForBuild">
@@ -458,6 +484,10 @@
       <ErrorText>缺少 Microsoft.Web.WebView2 的 targets 文件，请通过 nuget restore 还原 NuGet 包后重试。</ErrorText>
     </PropertyGroup>
     <Error Condition="!Exists('packages\Microsoft.Web.WebView2.1.0.4078.44\build\Microsoft.Web.WebView2.targets')" Text="$(ErrorText)" />
+  </Target>
+  <Target Name="EnsureApplicationIconExists" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)\Resources\AutomationChick.ico')"
+           Text="应用程序图标缺失：Resources\AutomationChick.ico。请确认已完整拉取 Git 仓库。" />
   </Target>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>

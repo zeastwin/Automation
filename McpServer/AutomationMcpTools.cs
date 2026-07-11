@@ -841,6 +841,7 @@ namespace Automation.McpServer
         [McpServerTool(Name = "create_proc"), Description(
             "新增空流程。两阶段操作：预演阶段省略 previewId；提交阶段传入预演返回的 previewId。禁止传字符串 null/undefined。"
             + "新增流程含一个默认步骤，后续用 preview_patch 添加步骤指令。流程名不能重复。"
+            + "预演返回的 targetIndex 只是预计位置，流程尚不存在；提交成功后必须调用 list_procs 获取真实 procIndex，禁止据此直接读取流程详情。"
             + "典型场景：新建流程来唤醒/启动其他流程、创建独立控制流程。"
             + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
         public static async Task<string> CreateProc(

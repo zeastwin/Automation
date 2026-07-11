@@ -29,6 +29,11 @@ namespace Automation
                 // MCP 和 AI 页面只能回退到诊断模式、完全权限关闭。
                 MessageBox.Show(aiSafetyError, "AI安全默认值应用失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
+            if (!GooseRuntimeProvisioner.TryEnsureSystemPrompt(out string promptMessage))
+            {
+                MessageBox.Show(promptMessage, "EW-AI System Prompt 部署失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 

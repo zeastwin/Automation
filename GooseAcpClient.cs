@@ -81,9 +81,20 @@ namespace Automation
         public async Task NewSessionAsync(CancellationToken cancellationToken)
         {
             EnsureProcessStarted();
+            string sessionWorkingDirectory = ResolveWorkingDirectory();
+            if (config.FullPermissionMode)
+            {
+                string userProfileDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string rootDirectory = Path.GetPathRoot(userProfileDirectory);
+                if (string.IsNullOrWhiteSpace(rootDirectory) || !Directory.Exists(rootDirectory))
+                {
+                    throw new InvalidOperationException("完全权限模式无法确定当前用户目录所在的文件系统根目录：" + userProfileDirectory);
+                }
+                sessionWorkingDirectory = rootDirectory;
+            }
             JObject result = await SendRequestAsync("session/new", new JObject
             {
-                ["cwd"] = ResolveSessionCwd(),
+                ["cwd"] = sessionWorkingDirectory,
                 ["mcpServers"] = new JArray
                 {
                     new JObject
@@ -269,7 +280,9 @@ namespace Automation
             var startInfo = new ProcessStartInfo
             {
                 FileName = config.GooseExecutablePath,
-                Arguments = "acp",
+                // ACP 默认不加载 builtin 扩展；显式启用 Goose 原生 Developer，
+                // 提供文件读取、代码修改和终端执行能力。
+                Arguments = "acp --with-builtin developer",
                 WorkingDirectory = ResolveWorkingDirectory(),
                 UseShellExecute = false,
                 RedirectStandardInput = true,
@@ -280,6 +293,14 @@ namespace Automation
                 StandardErrorEncoding = Encoding.UTF8
             };
 
+            const string machineGitCommandPath = @"D:\AutomationTools\Git\cmd";
+            if (!File.Exists(Path.Combine(machineGitCommandPath, "git.exe")))
+            {
+                throw new InvalidOperationException("未找到固定的 Git 运行环境：D:\\AutomationTools\\Git\\cmd\\git.exe");
+            }
+            startInfo.EnvironmentVariables["PATH"] = machineGitCommandPath + Path.PathSeparator
+                + (startInfo.EnvironmentVariables["PATH"] ?? Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
+
             if (!string.IsNullOrWhiteSpace(config.Provider))
             {
                 startInfo.EnvironmentVariables["GOOSE_PROVIDER"] = config.Provider.Trim();
@@ -287,6 +308,21 @@ namespace Automation
             if (!string.IsNullOrWhiteSpace(config.Model))
             {
                 startInfo.EnvironmentVariables["GOOSE_MODEL"] = config.Model.Trim();
+            }
+            if (!string.IsNullOrWhiteSpace(config.Provider))
+            {
+                if (!AiProviderSecretStorage.TryGetEnvironmentVariableName(config.Provider, out string secretVariable))
+                {
+                    throw new InvalidOperationException("当前 Provider 未配置严格的 API Key 环境变量映射：" + config.Provider);
+                }
+                if (!string.IsNullOrWhiteSpace(secretVariable))
+                {
+                    if (!AiProviderSecretStorage.TryGetSecret(config.Provider, out string secret, out string secretError))
+                    {
+                        throw new InvalidOperationException(secretError);
+                    }
+                    startInfo.EnvironmentVariables[secretVariable] = secret;
+                }
             }
 
             process = new Process
@@ -325,7 +361,7 @@ namespace Automation
             }
             startupInfo.Append(" maxTurns=").Append(config.MaxTurns);
             LogFile(startupInfo.ToString(), LogLevel.Normal);
-            Report("lifecycle", $"EW-AI ACP 进程已启动：{config.GooseExecutablePath} acp", null);
+            Report("lifecycle", $"EW-AI ACP 进程已启动：{config.GooseExecutablePath} acp --with-builtin developer", null);
         }
 
         private void Process_Exited(object sender, EventArgs e)
@@ -901,21 +937,6 @@ namespace Automation
                 Directory.CreateDirectory(workingDirectory);
             }
             return workingDirectory;
-        }
-
-        // Goose 会从 session cwd 向上遍历查找 AGENTS.md 作为项目指令。
-        // 本项目的 AGENTS.md 是给开发平台用的，不应被 AI 助手读取。
-        // 使用 LocalAppData 下的专用目录作为 session cwd，其父目录链不含 AGENTS.md。
-        private string ResolveSessionCwd()
-        {
-            string dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Automation", "AiWorkspace");
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-            return dir;
         }
 
         private static string ExtractText(JToken token)

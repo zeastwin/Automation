@@ -113,7 +113,17 @@ namespace Automation
             }
             try
             {
-                await webViewConversation.EnsureCoreWebView2Async();
+                string webViewUserDataFolder = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Automation", "WebView2");
+                Directory.CreateDirectory(webViewUserDataFolder);
+                Microsoft.Web.WebView2.Core.CoreWebView2Environment webViewEnvironment =
+                    await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(
+                        null,
+                        webViewUserDataFolder);
+                await webViewConversation.EnsureCoreWebView2Async(webViewEnvironment);
+                webViewConversation.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+                webViewConversation.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = true;
                 if (!webViewEventsAttached)
                 {
                     webViewConversation.CoreWebView2.WebMessageReceived += WebViewConversation_WebMessageReceived;
@@ -173,27 +183,35 @@ body{
 #messages{
     max-width:1120px;
     margin:0 auto;
-    padding:10px 14px 10px;
+    padding:6px 10px;
 }
 .msg{
     display:flex;
     flex-direction:column;
-    gap:3px;
-    margin:0 0 10px;
+    gap:2px;
+    margin:0 0 6px;
 }
 .msg.user{align-items:flex-end;}
 .msg.assistant,.msg.error{align-items:flex-start;}
 .msg .role{
-    font-size:12px;
+    font-size:11px;
     color:#7b8798;
     line-height:1.2;
     padding:0 4px;
 }
+.msg-head{width:100%;display:flex;align-items:center;gap:8px;padding:0 4px;}
+.msg.user .msg-head{justify-content:flex-end;}
+.msg-head .role{padding:0;}
+.copy-message{border:0;background:transparent;color:#8a96a7;font:11px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;cursor:pointer;padding:1px 5px;border-radius:5px;opacity:.35;}
+.msg:hover .copy-message,.copy-message:focus{opacity:1;}
+.copy-message:hover{color:#1f5f99;background:#e8f1fa;}
 .msg.user .role{text-align:right;}
 .msg .content{
     max-width:92%;
     word-break:break-word;
     overflow-wrap:anywhere;
+    -webkit-user-select:text;
+    user-select:text;
 }
 .msg.user .content{
     max-width:72%;
@@ -201,14 +219,14 @@ body{
     background:#dceeff;
     border:1px solid #bad9f6;
     border-radius:14px 14px 4px 14px;
-    padding:8px 11px;
+    padding:5px 8px;
 }
 .msg.assistant .content{
     color:#182434;
     background:#ffffff;
     border:1px solid #dfe6ef;
     border-radius:8px;
-    padding:8px 10px;
+    padding:5px 8px;
     box-shadow:0 2px 8px rgba(31,45,61,.05);
 }
 .msg.error .content{
@@ -216,13 +234,13 @@ body{
     background:#fff5f5;
     border:1px solid #f0caca;
     border-radius:8px;
-    padding:8px 10px;
+    padding:5px 8px;
 }
 .content>*:first-child{margin-top:0;}
 .content>*:last-child{margin-bottom:0;}
-p{margin:4px 0;}
-ul,ol{margin:4px 0 4px 0;padding-left:19px;}
-li{margin:2px 0;}
+p{margin:2px 0;}
+ul,ol{margin:2px 0;padding-left:19px;}
+li{margin:1px 0;}
 blockquote{
     margin:6px 0;
     padding:6px 10px;
@@ -411,6 +429,7 @@ function collectConfig(){
         sessionName:byId('cfgSession').value,
         provider:byId('cfgProvider').value,
         model:byId('cfgModel').value,
+        apiKey:byId('cfgApiKey').value,
         maxTurns:parseInt(byId('cfgTurns').value||'1',10),
         toolProfile:(appState.config||{}).toolProfile||'Diagnostic',
         fullPermissionMode:!!(appState.config||{}).fullPermissionMode
@@ -425,6 +444,8 @@ function fillConfig(){
     byId('cfgTurns').value=c.maxTurns||20;
     setOptions(byId('cfgProvider'),appState.providerOptions||[],c.provider||'使用 EW-AI 配置');
     setOptions(byId('cfgModel'),appState.modelOptions||[],c.model||'使用 EW-AI 配置');
+    byId('cfgApiKey').value='';
+    byId('cfgApiKey').placeholder=c.hasApiKey?'本机已保存，留空则保持不变':'输入 API Key（仅保存在本机）';
 }
 function refreshToolbar(){
     var c=appState.config||{};
@@ -456,7 +477,7 @@ function automationSetState(state){
     fillConfig();
     refreshToolbar();
     var lock=!appState.canEditConfig||appState.sending;
-    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgProvider','cfgModel','cfgTurns','saveConfig'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
+    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgProvider','cfgModel','cfgApiKey','cfgTurns','saveConfig','clearApiKey','restorePrompt'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
     byId('reloadConfig').disabled=appState.sending;
     byId('checkConfig').disabled=appState.sending||!appState.canAccess;
 }
@@ -474,6 +495,12 @@ function refreshSendButton(){
 function openConfig(){fillConfig();byId('configOverlay').classList.add('open');}
 function closeConfig(){byId('configOverlay').classList.remove('open');}
 function showToast(text){var t=byId('toast');t.textContent=text;t.classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(function(){t.classList.remove('show');},3200);}
+function copyMessage(button){
+    var msg=button.closest('.msg');
+    var content=msg&&msg.querySelector('.content');
+    if(!content){return;}
+    post('copyText',{text:content.innerText||content.textContent||''});
+}
 function sendPrompt(){
     if(appState.sending){post('stop');return;}
     var input=byId('promptInput');
@@ -503,6 +530,8 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('saveConfig').addEventListener('click',function(){post('saveConfig',{config:collectConfig()});});
     byId('reloadConfig').addEventListener('click',function(){post('reloadConfig');});
     byId('checkConfig').addEventListener('click',function(){post('checkConfig',{config:collectConfig()});});
+    byId('clearApiKey').addEventListener('click',function(){post('clearApiKey',{provider:byId('cfgProvider').value});});
+    byId('restorePrompt').addEventListener('click',function(){post('restorePrompt');});
     byId('cfgProvider').addEventListener('change',function(){post('providerChanged',{provider:this.value,config:collectConfig()});});
     byId('configOverlay').addEventListener('click',function(e){if(e.target===this){closeConfig();}});
     post('ready');
@@ -515,7 +544,7 @@ document.addEventListener('DOMContentLoaded',function(){
     <div class=""brand""><div class=""brand-mark"">AI</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div>
     <div class=""top-actions"">
       <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""包含诊断能力并允许预演和修改"">编辑</button></div>
-      <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演，请谨慎使用"">完全权限</button>
+      <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演，并允许访问当前用户目录所在磁盘"">完全权限</button>
       <button class=""icon-button"" id=""resetButton"" title=""重置会话"" aria-label=""重置会话""><svg viewBox=""0 0 24 24""><path d=""M3 12a9 9 0 1 0 3-6.7""/><path d=""M3 4v6h6""/></svg></button>
       <button class=""icon-button"" id=""configButton"" title=""配置"" aria-label=""配置""><svg viewBox=""0 0 24 24""><path d=""M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z""/><path d=""M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z""/></svg></button>
     </div>
@@ -535,9 +564,10 @@ document.addEventListener('DOMContentLoaded',function(){
         <div class=""field""><label>最大轮次</label><input id=""cfgTurns"" type=""number"" min=""1"" max=""200""></div>
         <div class=""field""><label>Provider</label><select id=""cfgProvider""></select></div>
         <div class=""field""><label>模型</label><select id=""cfgModel""></select></div>
+        <div class=""field field-wide""><label>API Key（使用 Windows 当前用户加密，仅保存在本机）</label><input id=""cfgApiKey"" type=""password"" autocomplete=""new-password""></div>
       </div>
     </div>
-    <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""reloadConfig"">重载</button><button class=""text-button"" id=""checkConfig"">检查 EW-AI</button></div><div class=""foot-right""><button class=""text-button"" id=""cancelConfig"">取消</button><button class=""primary-button"" id=""saveConfig"">保存配置</button></div></div>
+    <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""reloadConfig"">重载</button><button class=""text-button"" id=""checkConfig"">检查 EW-AI</button><button class=""text-button"" id=""clearApiKey"">清除本机密钥</button><button class=""text-button"" id=""restorePrompt"">恢复上一版 Prompt</button></div><div class=""foot-right""><button class=""text-button"" id=""cancelConfig"">取消</button><button class=""primary-button"" id=""saveConfig"">保存配置</button></div></div>
   </section>
 </div>
 <div class=""toast"" id=""toast""></div>
@@ -779,6 +809,25 @@ document.addEventListener('DOMContentLoaded',function(){
                 case "reset":
                     BtnResetSession_Click(sender, EventArgs.Empty);
                     break;
+                case "copyText":
+                    string copyText = message["text"]?.Value<string>() ?? string.Empty;
+                    try
+                    {
+                        if (string.IsNullOrEmpty(copyText))
+                        {
+                            ShowWebToast("没有可复制的文字。");
+                        }
+                        else
+                        {
+                            Clipboard.SetText(copyText);
+                            ShowWebToast("已复制到剪贴板。");
+                        }
+                    }
+                    catch (Exception copyError)
+                    {
+                        ShowWebToast("复制失败：" + copyError.Message);
+                    }
+                    break;
                 case "setToolProfile":
                     if (sending)
                     {
@@ -818,7 +867,48 @@ document.addEventListener('DOMContentLoaded',function(){
                     break;
                 case "saveConfig":
                     ApplyWebConfig(message["config"] as JObject);
+                    string apiKey = message["config"]?["apiKey"]?.Value<string>();
+                    string secretProvider = NormalizeGooseOverride(cboProvider.Text);
+                    if (!string.IsNullOrWhiteSpace(apiKey)
+                        && !AiProviderSecretStorage.TrySaveSecret(secretProvider, apiKey, out string secretSaveError))
+                    {
+                        ShowWebToast(secretSaveError);
+                        PushWebAppState();
+                        break;
+                    }
                     SaveWebConfig();
+                    break;
+                case "clearApiKey":
+                    string clearProvider = NormalizeGooseOverride(message["provider"]?.Value<string>());
+                    if (string.IsNullOrWhiteSpace(clearProvider))
+                    {
+                        ShowWebToast("请先选择具体 Provider。");
+                    }
+                    else if (!AiProviderSecretStorage.TryDeleteSecret(clearProvider, out string clearError))
+                    {
+                        ShowWebToast(clearError);
+                    }
+                    else
+                    {
+                        DisposeGooseClient();
+                        ShowWebToast("已清除当前 Provider 的本机 API Key。");
+                    }
+                    PushWebAppState();
+                    break;
+                case "restorePrompt":
+                    if (MessageBox.Show(
+                        "将恢复最近一次 System Prompt 备份，并重置当前 EW-AI 会话。是否继续？",
+                        "恢复 System Prompt",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Warning) != DialogResult.Yes)
+                    {
+                        break;
+                    }
+                    if (GooseRuntimeProvisioner.TryRestoreLatestBackup(out string restoreMessage))
+                    {
+                        DisposeGooseClient();
+                    }
+                    ShowWebToast(restoreMessage);
                     break;
                 case "checkConfig":
                     ApplyWebConfig(message["config"] as JObject);
@@ -831,6 +921,7 @@ document.addEventListener('DOMContentLoaded',function(){
         {
             string providerText = string.IsNullOrWhiteSpace(cboProvider.Text) ? "使用 EW-AI 配置" : cboProvider.Text;
             string modelText = string.IsNullOrWhiteSpace(cboModel.Text) ? "使用 EW-AI 配置" : cboModel.Text;
+            string normalizedProvider = NormalizeGooseOverride(providerText);
             return new JObject
             {
                 ["sending"] = sending,
@@ -844,6 +935,8 @@ document.addEventListener('DOMContentLoaded',function(){
                     ["sessionName"] = txtSessionName.Text,
                     ["provider"] = providerText,
                     ["model"] = modelText,
+                    ["hasApiKey"] = !string.IsNullOrWhiteSpace(normalizedProvider)
+                        && AiProviderSecretStorage.HasSecret(normalizedProvider),
                     ["maxTurns"] = (int)nudMaxTurns.Value,
                     ["toolProfile"] = toolProfile,
                     ["fullPermissionMode"] = fullPermissionMode
@@ -932,7 +1025,8 @@ document.addEventListener('DOMContentLoaded',function(){
                 || !string.Equals(oldConfig.SessionName, config.SessionName, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.Provider, config.Provider, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.Model, config.Model, StringComparison.Ordinal)
-                || oldConfig.MaxTurns != config.MaxTurns;
+                || oldConfig.MaxTurns != config.MaxTurns
+                || oldConfig.FullPermissionMode != config.FullPermissionMode;
             bool uriChanged = oldConfig == null
                 || !string.Equals(oldConfig.McpUri, config.McpUri, StringComparison.Ordinal);
             bool profileChanged = oldConfig == null
@@ -1078,6 +1172,13 @@ document.addEventListener('DOMContentLoaded',function(){
             {
                 config.GooseExecutablePath = resolvedGoosePath;
                 txtGooseExecutable.Text = resolvedGoosePath;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.Provider)
+                && !AiProviderSecretStorage.TryGetEnvironmentVariableName(config.Provider, out _))
+            {
+                error = "当前 Provider 未配置严格的 API Key 环境变量映射：" + config.Provider;
+                return false;
             }
 
             return GooseConfigStorage.TryValidate(config, out error);
@@ -1856,7 +1957,8 @@ document.addEventListener('DOMContentLoaded',function(){
                 streamingAssistant = true;
                 lastStreamRender = DateTime.Now;
                 string time = DateTime.Now.ToString("HH:mm:ss");
-                string html = "<div class=\"msg assistant\"><span class=\"role\">EW-AI " + HtmlEncode(time) + "</span>"
+                string html = "<div class=\"msg assistant\"><div class=\"msg-head\"><span class=\"role\">EW-AI " + HtmlEncode(time) + "</span>"
+                    + "<button class=\"copy-message\" type=\"button\" onclick=\"copyMessage(this)\" title=\"复制本条文字\">复制</button></div>"
                     + "<div class=\"content\"><div class=\"streaming-segment\" id=\"" + streamingDivId + "\">"
                     + StreamingTextToHtml(streamingMarkdown.ToString()) + "</div></div></div>";
                 EnqueueAppendHtml(html);
@@ -1977,7 +2079,8 @@ document.addEventListener('DOMContentLoaded',function(){
                 cls = "msg assistant";
                 contentHtml = HtmlEncode(text);
             }
-            string html = "<div class=\"" + cls + "\"><span class=\"role\">" + HtmlEncode(role) + " " + HtmlEncode(time) + "</span>"
+            string html = "<div class=\"" + cls + "\"><div class=\"msg-head\"><span class=\"role\">" + HtmlEncode(role) + " " + HtmlEncode(time) + "</span>"
+                + "<button class=\"copy-message\" type=\"button\" onclick=\"copyMessage(this)\" title=\"复制本条文字\">复制</button></div>"
                 + "<div class=\"content\">" + contentHtml + "</div></div>";
             EnqueueAppendHtml(html);
         }
@@ -2484,44 +2587,13 @@ document.addEventListener('DOMContentLoaded',function(){
         private static bool TryResolveGooseExecutablePath(string configuredPath, out string resolvedPath)
         {
             resolvedPath = null;
-            List<string> candidates = new List<string>();
-            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-            if (!string.IsNullOrWhiteSpace(configuredPath))
+            const string machineGoosePath = @"D:\AutomationTools\Goose\goose.exe";
+            if (File.Exists(machineGoosePath))
             {
-                AddCandidate(candidates, configuredPath.Trim());
-                if (!Path.IsPathRooted(configuredPath))
-                {
-                    AddCandidate(candidates, Path.Combine(baseDirectory, configuredPath.Trim()));
-                }
-            }
-            AddCandidate(candidates, Path.Combine(baseDirectory, "Tools", "Goose", "goose.exe"));
-            AddCandidate(candidates, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", "goose.exe"));
-
-            foreach (string candidate in candidates)
-            {
-                if (File.Exists(candidate))
-                {
-                    resolvedPath = candidate;
-                    return true;
-                }
+                resolvedPath = machineGoosePath;
+                return true;
             }
             return false;
-        }
-
-        private static void AddCandidate(List<string> candidates, string path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return;
-            }
-            foreach (string candidate in candidates)
-            {
-                if (string.Equals(candidate, path, StringComparison.OrdinalIgnoreCase))
-                {
-                    return;
-                }
-            }
-            candidates.Add(path);
         }
 
         private static string RunProcessCapture(string fileName, string arguments, string workingDirectory, int timeoutMs)

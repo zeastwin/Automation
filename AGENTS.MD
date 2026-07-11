@@ -68,5 +68,7 @@
 - MCP Server 调用日志：`<exe>/Logs/McpServer/`。
 
 ## 日志
+- 所有运行日志统一放在 `D:\AutomationLogs\`，禁止写入程序执行目录。
 - 流程引擎日志：`D:\AutomationLogs\ProcessLog\`（`LocalFileLogger`，按天 + 5MB 分卷）。
+- Bridge 异常日志：`D:\AutomationLogs\Bridge\`，记录请求路径、请求体摘要和完整异常堆栈。
 - 运行信息页：`FrmInfo`，`lvInfoLog` 虚拟模式，环形缓冲 200 条。
