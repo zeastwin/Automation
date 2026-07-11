@@ -23,4 +23,18 @@
     </Content>
   </ItemGroup>
 
+  <!-- McpServer 独立生成成功后，同步到 Automation 的可搬运运行目录。 -->
+  <Target Name="CopyMcpServerToAutomationOutput" AfterTargets="Build">
+    <PropertyGroup>
+      <AutomationMcpOutputDir>$(MSBuildProjectDirectory)\..\bin\$(Configuration)\McpServer\</AutomationMcpOutputDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <McpServerRuntimeFile Include="$(TargetDir)**\*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(McpServerRuntimeFile)"
+      DestinationFiles="@(McpServerRuntimeFile->'$(AutomationMcpOutputDir)%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
