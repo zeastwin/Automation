@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,19 +28,21 @@ namespace Automation
         private const int InitializeTimeoutMs = 30000;
         private const int SessionTimeoutMs = 30000;
 
-        // 本地文件日志：复用 LocalFileLogger，按天滚动 + 5MB 分卷 + 线程安全。
-        // 路径固定为 D:\AutomationLogs\GooseAcp\yyyy-MM-dd\log_001.txt，便于排查 EW-AI ACP invalid params 等错误。
-        private static readonly LocalFileLogger acpFileLogger =
-            new LocalFileLogger(Path.Combine(@"D:\AutomationLogs", "GooseAcp"));
+        private static readonly string executionLogRoot = Path.Combine(@"D:\AutomationLogs", "AIExecution");
+        private static readonly Mutex executionLogMutex = new Mutex(false, "AutomationAIExecutionAuditLog");
 
         private readonly GooseConfig config;
         private readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> pendingRequests =
             new ConcurrentDictionary<string, TaskCompletionSource<JObject>>(StringComparer.Ordinal);
         private readonly object writeLock = new object();
+        private readonly object executionLock = new object();
+        private readonly string auditSessionId = Guid.NewGuid().ToString("N");
+        private readonly StringBuilder assistantResponse = new StringBuilder();
         private int nextRequestId;
         private Process process;
         private StreamWriter stdin;
         private string sessionId;
+        private string currentPromptId;
         private bool disposed;
 
         public GooseAcpClient(GooseConfig config)
@@ -156,21 +159,45 @@ namespace Automation
 
             await EnsureSessionAsync(cancellationToken).ConfigureAwait(false);
             string finalPrompt = BuildPrompt(prompt);
-            JObject result = await SendRequestAsync("session/prompt", new JObject
+            lock (executionLock)
             {
-                ["sessionId"] = sessionId,
-                ["prompt"] = new JArray
+                currentPromptId = Guid.NewGuid().ToString("N");
+                assistantResponse.Clear();
+            }
+            LogExecution("user_prompt", prompt, null);
+            try
+            {
+                JObject result = await SendRequestAsync("session/prompt", new JObject
                 {
-                    new JObject
+                    ["sessionId"] = sessionId,
+                    ["prompt"] = new JArray
                     {
-                        ["type"] = "text",
-                        ["text"] = finalPrompt
+                        new JObject
+                        {
+                            ["type"] = "text",
+                            ["text"] = finalPrompt
+                        }
                     }
-                }
-            }, 0, cancellationToken).ConfigureAwait(false);
+                }, 0, cancellationToken).ConfigureAwait(false);
 
-            Report("lifecycle", $"EW-AI 本轮结束：{result["stopReason"]?.Value<string>() ?? "unknown"}", result);
-            return result;
+                LogExecution("prompt_completed", result["stopReason"]?.Value<string>() ?? "unknown", result);
+                Report("lifecycle", $"EW-AI 本轮结束：{result["stopReason"]?.Value<string>() ?? "unknown"}", result);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogExecution("prompt_failed", ex.Message, null);
+                throw;
+            }
+            finally
+            {
+                string response;
+                lock (executionLock)
+                {
+                    response = assistantResponse.ToString();
+                }
+                LogExecution("assistant_response", response, null);
+            }
         }
 
         /// <summary>
@@ -412,7 +439,10 @@ namespace Automation
                 pendingRequests.TryRemove(id, out _);
                 throw;
             }
-            LogFile($"ACP-> 请求 id={id} method={method}", parameters, LogLevel.Normal);
+            if (!string.Equals(method, "session/prompt", StringComparison.Ordinal))
+            {
+                LogFile($"ACP-> 请求 id={id} method={method}", parameters, LogLevel.Normal);
+            }
             Report("request", $"{method} 请求已发送。", request);
 
             Task delayTask = timeoutMs > 0
@@ -651,6 +681,10 @@ namespace Automation
                     string chunkText = ExtractText(parameters);
                     if (!string.IsNullOrWhiteSpace(chunkText))
                     {
+                        lock (executionLock)
+                        {
+                            assistantResponse.Append(chunkText);
+                        }
                         Report("assistant_chunk", chunkText, message);
                     }
                     return;
@@ -672,7 +706,6 @@ namespace Automation
                 {
                     string title = FindFirstString(parameters, "title", "name") ?? "调用工具";
                     string displayName = ResolveToolDisplayName(parameters, title);
-                    LogFile("ACP<- 通知 session/update kind=tool_call", parameters, LogLevel.Normal);
                     Report("tool_call", displayName, message);
                     return;
                 }
@@ -687,9 +720,8 @@ namespace Automation
                         LogFile("ACP<- 通知 session/update kind=tool_call_update (progress)", parameters, LogLevel.Normal);
                         return;
                     }
-                    // 完成响应：提取摘要给 UI，完整 JSON 进日志。
+                    // 完成响应只提取摘要给 UI；完整参数和结果由 MCP 统一审计，避免重复落盘。
                     string summary = ExtractToolResultSummary(parameters);
-                    LogFile("ACP<- 通知 session/update kind=tool_call_update (result)", parameters, LogLevel.Normal);
                     Report("tool_result", summary, message);
                     return;
                 }
@@ -1018,29 +1050,131 @@ namespace Automation
             }
         }
 
-        // 落盘到 D:\AutomationLogs\GooseAcp\yyyy-MM-dd\log_NNN.txt，JSON 压成一行便于检索。
-        // 失败静默，绝不影响 ACP 主链路。
         private static void LogFile(string message, LogLevel level)
         {
-            try
+            WriteExecutionRecord(new JObject
             {
-                acpFileLogger.Log(message ?? string.Empty, level);
-            }
-            catch
-            {
-            }
+                ["time"] = DateTime.Now.ToString("O"),
+                ["source"] = "acp",
+                ["kind"] = level == LogLevel.Error ? "diagnostic_error" : "diagnostic",
+                ["text"] = message ?? string.Empty
+            });
         }
 
         private static void LogFile(string message, JToken json, LogLevel level)
         {
             try
             {
-                string jsonText = json == null ? string.Empty : json.ToString(Formatting.None);
-                string line = string.IsNullOrEmpty(jsonText) ? (message ?? string.Empty) : (message + " " + jsonText);
-                acpFileLogger.Log(line, level);
+                JToken safeRaw = json?.DeepClone();
+                RedactSensitiveValues(safeRaw);
+                var record = new JObject
+                {
+                    ["time"] = DateTime.Now.ToString("O"),
+                    ["source"] = "acp",
+                    ["kind"] = level == LogLevel.Error ? "diagnostic_error" : "diagnostic",
+                    ["text"] = message ?? string.Empty
+                };
+                if (safeRaw != null)
+                {
+                    record["raw"] = safeRaw;
+                }
+                WriteExecutionRecord(record);
             }
             catch
             {
+            }
+        }
+
+        private void LogExecution(string kind, string text, JToken raw)
+        {
+            try
+            {
+                string promptId;
+                lock (executionLock)
+                {
+                    promptId = currentPromptId ?? string.Empty;
+                }
+                var record = new JObject
+                {
+                    ["time"] = DateTime.Now.ToString("O"),
+                    ["auditSessionId"] = auditSessionId,
+                    ["gooseSessionId"] = sessionId ?? string.Empty,
+                    ["promptId"] = promptId,
+                    ["kind"] = kind ?? string.Empty,
+                    ["text"] = text ?? string.Empty
+                };
+                if (raw != null)
+                {
+                    JToken safeRaw = raw.DeepClone();
+                    RedactSensitiveValues(safeRaw);
+                    record["raw"] = safeRaw;
+                }
+                record["source"] = "assistant";
+                WriteExecutionRecord(record);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void RedactSensitiveValues(JToken token)
+        {
+            if (!(token is JContainer container))
+            {
+                return;
+            }
+            foreach (JToken child in container.Children().ToList())
+            {
+                if (child is JProperty property)
+                {
+                    string name = property.Name ?? string.Empty;
+                    if (name.IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0
+                        || name.IndexOf("secret", StringComparison.OrdinalIgnoreCase) >= 0
+                        || name.IndexOf("apiKey", StringComparison.OrdinalIgnoreCase) >= 0
+                        || name.IndexOf("authorization", StringComparison.OrdinalIgnoreCase) >= 0
+                        || string.Equals(name, "headers", StringComparison.OrdinalIgnoreCase))
+                    {
+                        property.Value = "***";
+                        continue;
+                    }
+                }
+                RedactSensitiveValues(child);
+            }
+        }
+
+        private static void WriteExecutionRecord(JObject record)
+        {
+            bool lockTaken = false;
+            try
+            {
+                Directory.CreateDirectory(executionLogRoot);
+                lockTaken = executionLogMutex.WaitOne(TimeSpan.FromSeconds(2));
+                if (!lockTaken)
+                {
+                    return;
+                }
+                string path = Path.Combine(executionLogRoot, DateTime.Now.ToString("yyyy-MM-dd") + ".jsonl");
+                File.AppendAllText(path, record.ToString(Formatting.None) + Environment.NewLine, new UTF8Encoding(false));
+            }
+            catch (AbandonedMutexException)
+            {
+                lockTaken = true;
+            }
+            catch
+            {
+            }
+            finally
+            {
+                if (lockTaken)
+                {
+                    try
+                    {
+                        executionLogMutex.ReleaseMutex();
+                    }
+                    catch
+                    {
+                    }
+                }
             }
         }
 

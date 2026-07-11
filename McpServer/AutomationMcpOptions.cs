@@ -11,7 +11,7 @@ namespace Automation.McpServer
         public int BridgeTimeoutMs { get; set; } = 30000;
         public bool EnableTrayIcon { get; set; } = true;
         public string ToolProfile { get; set; } = "Diagnostic";
-        public string LogRoot { get; set; } = Path.Combine(@"D:\AutomationLogs", "McpServer");
+        public string LogRoot { get; set; } = Path.Combine(@"D:\AutomationLogs", "AIExecution");
 
         public static AutomationMcpOptions Load(IConfiguration configuration, string baseDirectory)
         {
@@ -68,7 +68,7 @@ namespace Automation.McpServer
 
             if (string.IsNullOrWhiteSpace(LogRoot))
             {
-                LogRoot = Path.Combine(@"D:\AutomationLogs", "McpServer");
+                LogRoot = Path.Combine(@"D:\AutomationLogs", "AIExecution");
             }
 
             if (!Path.IsPathRooted(LogRoot))

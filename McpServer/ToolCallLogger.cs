@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 
 namespace Automation.McpServer
@@ -9,7 +8,8 @@ namespace Automation.McpServer
     internal static class ToolCallLogger
     {
         private static readonly object SyncRoot = new object();
-        private static string logRoot = Path.Combine(@"D:\AutomationLogs", "McpServer");
+        private static readonly Mutex ExecutionLogMutex = new Mutex(false, "AutomationAIExecutionAuditLog");
+        private static string logRoot = Path.Combine(@"D:\AutomationLogs", "AIExecution");
 
         public static void Configure(string rootPath)
         {
@@ -35,43 +35,42 @@ namespace Automation.McpServer
                 }
 
                 Directory.CreateDirectory(dir);
-                string path = Path.Combine(dir, DateTime.Now.ToString("yyyy-MM-dd") + ".log");
-                var builder = new StringBuilder();
-                builder.AppendLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {toolName}");
-                if (args != null)
+                string path = Path.Combine(dir, DateTime.Now.ToString("yyyy-MM-dd") + ".jsonl");
+                string record = JsonSerializer.Serialize(new
                 {
-                    builder.AppendLine("args: " + SafeSerialize(args));
+                    time = DateTime.Now.ToString("O"),
+                    source = "mcp",
+                    kind = string.IsNullOrWhiteSpace(error) ? "tool_completed" : "tool_failed",
+                    callId = Guid.NewGuid().ToString("N"),
+                    toolName = toolName ?? string.Empty,
+                    args,
+                    result = string.IsNullOrWhiteSpace(error) ? result ?? string.Empty : string.Empty,
+                    error = error ?? string.Empty
+                });
+                bool lockTaken = false;
+                try
+                {
+                    lockTaken = ExecutionLogMutex.WaitOne(TimeSpan.FromSeconds(2));
+                    if (lockTaken)
+                    {
+                        File.AppendAllText(path, record + Environment.NewLine, new System.Text.UTF8Encoding(false));
+                    }
                 }
-                if (!string.IsNullOrWhiteSpace(error))
+                catch (AbandonedMutexException)
                 {
-                    builder.AppendLine("error: " + error);
+                    lockTaken = true;
                 }
-                else
+                finally
                 {
-                    builder.AppendLine("result: " + result);
-                }
-                builder.AppendLine(new string('-', 72));
-
-                lock (SyncRoot)
-                {
-                    File.AppendAllText(path, builder.ToString(), new UTF8Encoding(false));
+                    if (lockTaken)
+                    {
+                        ExecutionLogMutex.ReleaseMutex();
+                    }
                 }
             }
             catch
             {
                 // 日志失败不影响主流程。
-            }
-        }
-
-        private static string SafeSerialize(object value)
-        {
-            try
-            {
-                return JsonSerializer.Serialize(value);
-            }
-            catch
-            {
-                return value?.ToString() ?? string.Empty;
             }
         }
     }

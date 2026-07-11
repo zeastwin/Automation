@@ -54,7 +54,7 @@ namespace Automation
         public const string FullPermissionModeKey = "FullPermissionMode";
         public const string ToolProfileKey = "ToolProfile";
         public const string DefaultToolProfile = "Diagnostic";
-        public const int DefaultMaxTurns = 30;
+        public const int DefaultMaxTurns = 100;
 
         private static readonly object cacheLock = new object();
         private static GooseConfig cachedConfig;
@@ -105,6 +105,19 @@ namespace Automation
                 {
                     config = null;
                     return false;
+                }
+
+                // 旧版本默认值为 30；该值不足以完成包含多次 MCP 预演、确认和审计的流程编辑任务。
+                // 仅迁移旧默认值，保留用户主动设置的其他上限。
+                if (config.MaxTurns == 30)
+                {
+                    config.MaxTurns = DefaultMaxTurns;
+                    if (!TrySave(config, out string saveError))
+                    {
+                        config = null;
+                        error = $"迁移 EW-AI MaxTurns 配置失败:{saveError}";
+                        return false;
+                    }
                 }
 
                 SetCache(config);

@@ -1036,7 +1036,7 @@ namespace Automation
 
         }
 
-        private async void Remove_Click(object sender, EventArgs e)
+        private void Remove_Click(object sender, EventArgs e)
         {
             TreeNode selectnode = proc_treeView.SelectedNode;
             if (selectnode == null)
@@ -1062,19 +1062,14 @@ namespace Automation
                     procName = $"索引{procIndex}";
                 }
                 string warnMsg = $"警告：即将删除流程【{procName}】\r\n此操作不可恢复，确认删除？";
-                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                Message confirmForm = new Message(
-                    "删除流程确认",
+                DialogResult result = MessageBox.Show(
+                    this,
                     warnMsg,
-                    () => tcs.TrySetResult(true),
-                    () => tcs.TrySetResult(false),
-                    "删除",
-                    "取消",
-                    false);
-                confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
-                confirmForm.txtMsg.ForeColor = Color.Red;
-                bool confirmed = await tcs.Task;
-                if (!confirmed)
+                    "删除流程确认",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2);
+                if (result != DialogResult.Yes)
                 {
                     return;
                 }
@@ -1112,26 +1107,25 @@ namespace Automation
                     stepName = $"索引{stepIndex}";
                 }
                 string warnMsg = $"警告：即将删除步骤【{stepName}】\r\n所属流程：【{procName}】\r\n此操作不可恢复，确认删除？";
-                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                Message confirmForm = new Message(
-                    "删除步骤确认",
+                DialogResult result = MessageBox.Show(
+                    this,
                     warnMsg,
-                    () => tcs.TrySetResult(true),
-                    () => tcs.TrySetResult(false),
-                    "删除",
-                    "取消",
-                    false);
-                confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
-                confirmForm.txtMsg.ForeColor = Color.Red;
-                bool confirmed = await tcs.Task;
-                if (!confirmed)
+                    "删除步骤确认",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2);
+                if (result != DialogResult.Yes)
                 {
                     return;
                 }
-                int removedIndex = SelectedStepNum;
-                procsList[SelectedProcNum].steps.RemoveAt(removedIndex);
-                ShiftGotoStepIndexForRemove(SelectedProcNum, removedIndex);
-                SF.frmDataGrid.SaveSingleProc(SelectedProcNum);
+                if (procIndex < 0 || procIndex >= procsList.Count
+                    || stepIndex < 0 || stepIndex >= procsList[procIndex].steps.Count)
+                {
+                    return;
+                }
+                procsList[procIndex].steps.RemoveAt(stepIndex);
+                ShiftGotoStepIndexForRemove(procIndex, stepIndex);
+                SF.frmDataGrid.SaveSingleProc(procIndex);
                 Refresh();
             }
         }
