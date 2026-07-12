@@ -19,11 +19,7 @@ namespace Automation.Hmi
         public FrmHmiMain()
         {
             InitializeComponent();
-            Icon executableIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
-            if (executableIcon != null)
-            {
-                Icon = executableIcon;
-            }
+            UiBranding.Apply(this);
             headerPanel.Resize += HeaderPanel_Resize;
             homePage = new HmiHomePage();
             debugPage = new HmiDebugPage();

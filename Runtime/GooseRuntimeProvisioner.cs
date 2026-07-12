@@ -8,7 +8,7 @@ namespace Automation
 {
     public static class GooseRuntimeProvisioner
     {
-        public const int SystemPromptVersion = 8;
+        public const int SystemPromptVersion = 9;
         private const string PromptResourceName = "Automation.Assets.Goose.system.md";
         private const string VersionFileName = ".automation-system-prompt-version";
 

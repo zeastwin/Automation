@@ -82,6 +82,7 @@ namespace Automation
 
         public FrmMain()
         {
+            UiBranding.Apply(this);
             InitializeComponent();
             if (AutomationRuntimeOptions.Current.IsSimulation)
             {

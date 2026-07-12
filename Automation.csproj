@@ -150,6 +150,7 @@
     <Compile Include="Runtime\\AutomationRuntimeOptions.cs" />
     <Compile Include="Runtime\\GooseConfigStorage.cs" />
     <Compile Include="Runtime\\GooseRuntimeProvisioner.cs" />
+    <Compile Include="Runtime\\UiBranding.cs" />
     <Compile Include="Runtime\\AiProviderSecretStorage.cs" />
     <Compile Include="Runtime\\ConfigurationVersionService.cs" />
     <Compile Include="Simulation\\SimulationGatewayClient.cs" />
@@ -453,7 +454,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\AutomationChick.ico" />
-    <None Include="Resources\AutomationChick.png" />
+    <Content Include="Resources\AutomationChick.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <Target Name="CopySourceDllFiles" AfterTargets="Build">
     <ItemGroup>

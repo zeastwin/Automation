@@ -36,6 +36,7 @@ namespace Automation
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            UiBranding.Initialize();
 
             using (AutomationPlatformHost platformHost = new AutomationPlatformHost())
             {

@@ -76,6 +76,7 @@ namespace Automation
 
         public FrmAiAssistant()
         {
+            UiBranding.Apply(this);
             InitializeLayout();
             Load += FrmAiAssistant_Load;
             FormClosing += FrmAiAssistant_FormClosing;
@@ -148,7 +149,33 @@ namespace Automation
         }
 
         // AI 助手整页 HTML：顶部工具、对话、输入框、配置弹层全部由 WebView2 承载。
-        private const string BaseConversationHtml = @"<!DOCTYPE html>
+        private static readonly string ChickAvatarDataUri = LoadChickAvatarDataUri();
+        private static readonly string BaseConversationHtml = BuildBaseConversationHtml();
+
+        // 将随程序发布的小鸡图标转成 data URI，供 NavigateToString 创建的页面使用。
+        private static string BuildBaseConversationHtml()
+        {
+            return BaseConversationHtmlTemplate.Replace("__CHICK_AVATAR__", ChickAvatarDataUri);
+        }
+
+        private static string LoadChickAvatarDataUri()
+        {
+            try
+            {
+                string avatarPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "AutomationChick.png");
+                if (File.Exists(avatarPath))
+                {
+                    return "data:image/png;base64," + Convert.ToBase64String(File.ReadAllBytes(avatarPath));
+                }
+            }
+            catch
+            {
+                // 图标加载失败时仍使用文字头像，不能影响 AI 页面启动。
+            }
+            return "";
+        }
+
+        private const string BaseConversationHtmlTemplate = @"<!DOCTYPE html>
 <html>
 <head>
 <meta charset=""utf-8"">
@@ -168,7 +195,7 @@ body{
 .app-shell{height:100%;display:flex;flex-direction:column;background:#f5f7fb;}
 .topbar{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;background:rgba(255,255,255,.92);border-bottom:1px solid #e5ebf3;}
 .brand{display:flex;align-items:center;gap:10px;min-width:0;}
-.brand-mark{width:28px;height:28px;border-radius:8px;background:#172033;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;letter-spacing:.2px;}
+.brand-mark{width:30px;height:30px;border-radius:8px;object-fit:contain;background:transparent;display:block;}
 .brand-title{font-weight:650;color:#172033;line-height:1.1;}
 .brand-subtitle{font-size:12px;color:#7b8798;margin-top:1px;}
 .top-actions{display:flex;align-items:center;gap:8px;}
@@ -191,45 +218,48 @@ body{
 }
 .msg{
     display:flex;
-    align-items:flex-start;
-    gap:6px;
+    flex-direction:column;
+    gap:1px;
     margin:0 0 4px;
 }
-.msg.user{flex-direction:row-reverse;justify-content:flex-start;}
-.msg .role{
-    font-size:10px;
-    color:#7b8798;
-    line-height:1.35;
-}
-.msg-head{width:94px;flex:0 0 94px;display:flex;align-items:center;justify-content:flex-end;gap:2px;padding-top:6px;}
-.msg.user .msg-head{justify-content:flex-start;}
-.msg-head .role{padding:0;}
+.msg.user{align-items:flex-end;}
+.msg.assistant,.msg.error{align-items:flex-start;}
+.msg-head{display:flex;align-items:center;gap:5px;padding:0 2px;min-height:22px;}
+.msg.user .msg-head{justify-content:flex-end;}
+.msg-time{font-size:10px;color:#7b8798;line-height:1.2;}
+.avatar{width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 22px;color:#fff;font-size:9px;font-weight:700;letter-spacing:.2px;}
+.avatar-image{display:block;object-fit:contain;background:transparent;}
+.assistant-avatar{background:#172033;}
+.user-avatar{background:#246fb5;}
+.system-avatar{background:#9a4f00;}
 .copy-message{width:20px;height:20px;border:0;background:transparent;color:#8a96a7;cursor:pointer;padding:3px;border-radius:5px;opacity:.35;display:inline-flex;align-items:center;justify-content:center;}
 .copy-message svg{width:14px;height:14px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round;pointer-events:none;}
 .msg:hover .copy-message,.copy-message:focus{opacity:1;}
 .copy-message:hover{color:#1f5f99;background:#e8f1fa;}
-.msg.user .role{text-align:right;}
 .msg .content{
-    max-width:calc(100% - 100px);
+    max-width:calc(92% - 14px);
+    margin-left:14px;
     word-break:break-word;
     overflow-wrap:anywhere;
     -webkit-user-select:text;
     user-select:text;
 }
 .msg.user .content{
-    max-width:78%;
+    max-width:calc(72% - 14px);
+    margin-left:0;
+    margin-right:14px;
     color:#102033;
     background:#dceeff;
     border:1px solid #bad9f6;
     border-radius:14px 14px 4px 14px;
-    padding:5px 8px;
+    padding:2px 6px;
 }
 .msg.assistant .content{
     color:#182434;
     background:#ffffff;
     border:1px solid #dfe6ef;
     border-radius:8px;
-    padding:5px 8px;
+    padding:2px 6px;
     box-shadow:0 2px 8px rgba(31,45,61,.05);
 }
 .msg.error .content{
@@ -237,13 +267,14 @@ body{
     background:#fff5f5;
     border:1px solid #f0caca;
     border-radius:8px;
-    padding:5px 8px;
+    padding:2px 6px;
 }
 .content>*:first-child{margin-top:0;}
 .content>*:last-child{margin-bottom:0;}
 p{margin:1px 0;}
 ul,ol{margin:1px 0;padding-left:19px;}
 li{margin:1px 0;}
+.merged-part + .merged-part{margin-top:2px;}
 blockquote{
     margin:6px 0;
     padding:6px 10px;
@@ -546,7 +577,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <body>
 <div class=""app-shell"">
   <header class=""topbar"">
-    <div class=""brand""><div class=""brand-mark"">AI</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div>
+    <div class=""brand""><img class=""brand-mark"" src=""__CHICK_AVATAR__"" alt=""AI""/><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div>
     <div class=""top-actions"">
       <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""包含诊断能力并允许预演和修改"">编辑</button></div>
       <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演；代码访问范围仍限制为 Hmi 目录"">完全权限</button>
@@ -2009,7 +2040,7 @@ document.addEventListener('DOMContentLoaded',function(){
                 streamingAssistant = true;
                 lastStreamRender = DateTime.Now;
                 string time = DateTime.Now.ToString("HH:mm:ss");
-                string html = "<div class=\"msg assistant\"><div class=\"msg-head\"><span class=\"role\">EW-AI " + HtmlEncode(time) + "</span>"
+                string html = "<div class=\"msg assistant\"><div class=\"msg-head\"><img class=\"avatar avatar-image\" src=\"" + ChickAvatarDataUri + "\" alt=\"AI\" title=\"EW-AI " + HtmlEncode(time) + "\"><span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
                     + CopyButtonHtml + "</div>"
                     + "<div class=\"content\"><div class=\"streaming-segment\" id=\"" + streamingDivId + "\">"
                     + StreamingTextToHtml(streamingMarkdown.ToString()) + "</div></div></div>";
@@ -2115,27 +2146,32 @@ document.addEventListener('DOMContentLoaded',function(){
             string time = DateTime.Now.ToString("HH:mm:ss");
             string cls;
             string contentHtml;
+            string avatarHtml;
             if (role == "用户")
             {
                 cls = "msg user";
                 contentHtml = HtmlEncode(text);
+                avatarHtml = "<span class=\"avatar user-avatar\" title=\"用户 " + HtmlEncode(time) + "\">我</span>";
             }
             else if (role == "EW-AI")
             {
                 cls = "msg assistant";
                 contentHtml = MarkdownToHtml(text);
+                avatarHtml = "<img class=\"avatar avatar-image\" src=\"" + ChickAvatarDataUri + "\" alt=\"AI\" title=\"EW-AI " + HtmlEncode(time) + "\">";
             }
             else if (role == "错误" || color.ToArgb() == Color.DarkRed.ToArgb())
             {
                 cls = "msg error";
                 contentHtml = HtmlEncode(text);
+                avatarHtml = "<span class=\"avatar system-avatar\" title=\"系统 " + HtmlEncode(time) + "\">!</span>";
             }
             else
             {
                 cls = "msg assistant";
                 contentHtml = HtmlEncode(text);
+                avatarHtml = "<span class=\"avatar system-avatar\" title=\"" + HtmlEncode(role) + " " + HtmlEncode(time) + "\">!</span>";
             }
-            string html = "<div class=\"" + cls + "\"><div class=\"msg-head\"><span class=\"role\">" + HtmlEncode(role) + " " + HtmlEncode(time) + "</span>"
+            string html = "<div class=\"" + cls + "\"><div class=\"msg-head\">" + avatarHtml + "<span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
                 + CopyButtonHtml + "</div>"
                 + "<div class=\"content\">" + contentHtml + "</div></div>";
             EnqueueAppendHtml(html);
@@ -2159,7 +2195,14 @@ document.addEventListener('DOMContentLoaded',function(){
         private void EnqueueAppendHtml(string html)
         {
             string htmlJson = JsonConvert.SerializeObject(html);
-            string js = "document.getElementById('messages').insertAdjacentHTML('beforeend'," + htmlJson + ");if(window.scrollMessagesToBottom){scrollMessagesToBottom();}";
+            string js = "var box=document.getElementById('messages');"
+                + "if(box){var tpl=document.createElement('template');tpl.innerHTML=" + htmlJson + ";"
+                + "var incoming=tpl.content.firstElementChild;var last=box.lastElementChild;"
+                + "if(incoming&&last&&incoming.classList.contains('assistant')&&last.classList.contains('assistant')){"
+                + "var source=incoming.querySelector('.content');var target=last.querySelector('.content');"
+                + "if(source&&target){var part=document.createElement('div');part.className='merged-part';part.innerHTML=source.innerHTML;target.appendChild(part);}"
+                + "}else if(incoming){box.appendChild(incoming);}}"
+                + "if(window.scrollMessagesToBottom){scrollMessagesToBottom();}";
             EnqueueScript(js);
         }
 
