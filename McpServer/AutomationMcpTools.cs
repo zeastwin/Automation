@@ -232,7 +232,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "list_operation_types"), Description(
-            "列出平台实际注册的指令类型和名称。新增指令前调用；结果仅含轻量类型目录。")]
+            "列出平台实际注册的指令类型和名称。仅在用户或源数据未给出精确指令类型、需要发现可用类型时调用；已知operaType时直接调用get_operation_schema。")]
         public static async Task<string> ListOperationTypes()
         {
             return await ExecuteAsync(
@@ -242,7 +242,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_operation_schema"), Description(
-            "结构化读取单个指令类型或现有指令实例的字段Schema。无需构造parameters JSON字符串。新建时传operaType；编辑实例时传procIndex、stepId、opId。")]
+            "结构化读取单个指令类型或现有指令实例的字段Schema。无需先读取完整指令类型目录。新建时传已知operaType；编辑实例时传procIndex、stepId、opId。")]
         public static async Task<string> GetOperationSchema(
             [Description("新建指令时传精确指令类型")] string? operaType = null,
             [Description("读取现有实例时传流程索引")] int? procIndex = null,
@@ -271,7 +271,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_operation_guide"), Description(
-            "按单个指令类型读取用途、约束和常见误用。禁止一次返回全部指令手册，适合大项目按需读取。")]
+            "按精确operaType读取单个指令类型的用途、约束和常见误用。")]
         public static Task<string> GetOperationGuide(
             [Description("精确指令类型，例如IO检测、逻辑判断、工站运行")] string operaType)
         {
@@ -283,10 +283,10 @@ namespace Automation.McpServer
         [McpServerTool(Name = "op_meta"), Description(
             "指令元信息统一工具。通过 action 指定具体操作，通过 parameters 传 JSON 参数。" +
             "\naction 可选值及对应 parameters 字段：" +
-            "\n- list_types: 列出全部指令类型（插入新指令前应先调用）。parameters: 无。" +
+            "\n- list_types: 仅在指令类型未知时列出全部指令类型。parameters: 无。" +
             "\n- schema: 读取指令可编辑 Schema（优先按现有指令实例定位；新建指令时可只传 operaType；不要在未读 Schema 情况下猜字段名/枚举值）。parameters: {procIndex:int?, stepId:string?, opId:string?, operaType:string?}。" +
-            "\n- guide: 读取全部指令类型调用说明（用途/关键字段/约束/常见误用，编写或修改指令前必须调用）。parameters: 无。直接由 MCP 层静态返回，不走 Bridge。" +
-            "\n- reference_catalog: 读取可引用对象目录（变量/IO/工站/通讯/PLC/报警编号等，修改引用字段前应先读取）。parameters: {procIndex:int?}。" +
+            "\n- guide: 按精确operaType读取单个指令类型的用途、关键字段、约束和常见误用。parameters: {operaType:string}。" +
+            "\n- reference_catalog: 仅在当前Schema包含资源引用字段且候选值未知时，读取变量/IO/工站/通讯/PLC/报警编号等目录。parameters: {procIndex:int?}。" +
             "\n示例：op_meta(action=\"schema\", parameters=\"{\\\"operaType\\\":\\\"IO检测\\\"}\")")]
         public static async Task<string> OpMeta(
             [Description("操作类型：list_types/schema/guide/reference_catalog")] string action,
@@ -305,7 +305,7 @@ namespace Automation.McpServer
         }
 
         // 43 种指令类型的调用说明，基于执行代码（ProcessEngine.Operations.*.cs）和字段定义（OperationType.cs）编写。
-        // AI 创建/修改指令前应读取本指南，避免字段功能理解偏差。
+        // AI 仅在当前指令语义或约束不明确时按类型读取本指南，避免把全部模块送入上下文。
         private const string OperationGuideJson = """
 {
   "_流程编号语义": {
@@ -1376,7 +1376,7 @@ namespace Automation.McpServer
     "程序": "指整个 Automation 应用，包含所有流程、变量表、IO配置、通讯配置等。不是单个流程。AI 无法直接修改程序本身，只能通过修改流程、控制流程运行来操作。",
     "流程(Proc)": "Automation 中独立的执行单元，每个流程有自己的名称、自启动/禁用属性。一个程序可包含多个流程。流程由步骤组成。procIndex 是流程在列表中的位置索引（从0开始），procId 是流程的唯一 Guid 标识。",
     "步骤(Step)": "流程内的逻辑分组，包含名称和禁用属性。一个流程可有多个步骤。步骤由指令组成。stepId 是步骤的唯一 Guid 标识。步骤用于组织相关指令、标记流程执行阶段。",
-    "指令(Operation)": "最小执行单元，具体的自动化动作（如 IO检测、等待、GOTO跳转、赋值等）。每个指令有 operaType（类型）和对应的字段参数。opId 是指令的唯一标识。新增指令前必须用 list_operation_types 查可用类型，用 get_operation_schema 查字段定义。",
+    "指令(Operation)": "最小执行单元，具体的自动化动作（如 IO检测、等待、GOTO跳转、赋值等）。每个指令有 operaType（类型）和对应的字段参数。opId 是指令的唯一标识。已知operaType时直接用get_operation_schema读取该类型字段；类型未知时才用list_operation_types发现可用类型。",
     "层次关系": "程序 > 流程(Proc) > 步骤(Step) > 指令(Operation)",
     "运行时状态": "流程运行状态：Stopped(停止)、Paused(暂停)、Running(运行)、Alarming(报警)。只有 Stopped 状态的流程才能修改结构。"
   },
@@ -1388,7 +1388,7 @@ namespace Automation.McpServer
     "",
     "1. list_procs 或 get_proc_overview 定位目标流程",
     "2. get_proc_detail 读取完整结构（含 flow 字段标注执行流向、gotoWarnings 标注越界跳转）",
-    "3. get_operation_guide 读取指令调用说明（用途/字段/约束/常见误用），get_operation_schema / get_reference_catalog 获取字段约束与候选值",
+    "3. 已知operaType时直接用get_operation_schema读取该类型字段；仅在语义或约束不明确时读取该类型get_operation_guide，仅在Schema包含资源引用且候选值未知时读取get_reference_catalog",
     "4. list_intent_templates / get_intent_template 读取中间意图模板（若未找到模板，改用 preview_patch 直接构建）",
     "5. preview_intent 预演，或 build_patch_from_intent 后再 preview_patch",
     "6. Automation 前台确认 previewId 后，apply_intent 或 apply_patch 携带同一个 previewId 提交",

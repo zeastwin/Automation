@@ -230,7 +230,7 @@ namespace Automation
                 appliedProcRevisions[procIndex] = revision;
                 Guid procId = proc.head?.Id ?? Guid.Empty;
                 UpdateSnapshot(procIndex, procId, proc.head?.Name, ProcRunState.Stopped, -1, -1, false, null, true);
-                Logger?.Log($"流程{procIndex}配置版本{revision}已发布并立即生效(Stopped)。", LogLevel.Normal);
+                Logger?.Log($"流程{procIndex}配置版本{revision}已发布并生效（当前为Stopped，未执行热更新）。", LogLevel.Normal);
                 return true;
             }
             if (state == ProcRunState.Paused)

@@ -226,12 +226,11 @@
       "whenToUse": "需要在某个步骤最后新增一条指令。",
       "requiredReads": [
         "get_proc_detail",
-        "list_operation_types",
         "get_operation_schema",
         "必要时 get_reference_catalog"
       ],
       "rules": [
-        "operaType 必须来自 list_operation_types。",
+        "源数据或用户已给出精确operaType时直接读取该类型get_operation_schema；类型未知时才调用list_operation_types。",
         "fieldValues 是可选 JSON 对象，键名必须来自 get_operation_schema.fields.key。",
         "不要把旧字段 fields 当作 fieldValues。"
       ],
@@ -265,13 +264,12 @@
       "whenToUse": "需要在步骤中间插入一条新指令。",
       "requiredReads": [
         "get_proc_detail",
-        "list_operation_types",
         "get_operation_schema",
         "必要时 get_reference_catalog"
       ],
       "rules": [
         "insertIndex 表示插入后的最终索引。",
-        "operaType 必须来自 list_operation_types。",
+        "源数据或用户已给出精确operaType时直接读取该类型get_operation_schema；类型未知时才调用list_operation_types。",
         "fieldValues 是可选 JSON 对象，键名必须来自 get_operation_schema.fields.key。"
       ],
       "intentShape": {

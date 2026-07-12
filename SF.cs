@@ -225,10 +225,19 @@ namespace Automation
             EngineSnapshot snapshot = DR.GetSnapshot(procIndex);
             if (snapshot != null && frmInfo != null && !frmInfo.IsDisposed)
             {
-                string status = snapshot.HasPendingUpdate
-                    ? $"已发布版本{snapshot.PublishedRevision}，等待安全指令边界应用；当前运行版本{snapshot.AppliedRevision}"
-                    : $"版本{snapshot.AppliedRevision}已生效";
-                frmInfo.PrintInfo($"流程{procIndex}热更新：{status}", FrmInfo.Level.Normal);
+                if (snapshot.State == ProcRunState.Stopped)
+                {
+                    frmInfo.PrintInfo(
+                        $"流程{procIndex}配置版本{snapshot.AppliedRevision}已发布并生效（当前为Stopped，未执行热更新）",
+                        FrmInfo.Level.Normal);
+                }
+                else
+                {
+                    string status = snapshot.HasPendingUpdate
+                        ? $"已发布版本{snapshot.PublishedRevision}，等待安全指令边界应用；当前运行版本{snapshot.AppliedRevision}"
+                        : $"版本{snapshot.AppliedRevision}已生效";
+                    frmInfo.PrintInfo($"流程{procIndex}热更新：{status}", FrmInfo.Level.Normal);
+                }
             }
             return true;
         }
