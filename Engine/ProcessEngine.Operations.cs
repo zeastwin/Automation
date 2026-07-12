@@ -50,6 +50,13 @@ namespace Automation
             });
             try
             {
+                if ((operation is HomeRun || operation is StationRunPos
+                        || operation is TrayRunPos || operation is StationRunRel)
+                    && !TryValidateMotionResetGate(out string motionGateError))
+                {
+                    MarkAlarm(evt, motionGateError);
+                    return false;
+                }
                 switch (operation)
                 {
                     case CallCustomFunc customFunc:

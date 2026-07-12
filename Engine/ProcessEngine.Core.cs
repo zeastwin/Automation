@@ -230,7 +230,6 @@ namespace Automation
                 appliedProcRevisions[procIndex] = revision;
                 Guid procId = proc.head?.Id ?? Guid.Empty;
                 UpdateSnapshot(procIndex, procId, proc.head?.Name, ProcRunState.Stopped, -1, -1, false, null, true);
-                Logger?.Log($"流程{procIndex}配置版本{revision}已发布并生效（当前为Stopped，未执行热更新）。", LogLevel.Normal);
                 return true;
             }
             if (state == ProcRunState.Paused)
@@ -1446,21 +1445,27 @@ namespace Automation
                 error = "流程配置异常，所有流程已停止且禁止启动。请处理流程配置报警。";
                 return false;
             }
+            return true;
+        }
+
+        private bool TryValidateMotionResetGate(out string error)
+        {
+            error = null;
             if (Context?.ValueStore == null)
             {
-                error = "变量库未初始化，禁止启动流程。";
+                error = "变量库未初始化，禁止轴和工站运动。";
                 return false;
             }
             if (!Context.ValueStore.TryGetValueByName("复位状态", out DicValue resetValue) || resetValue == null)
             {
-                error = "缺少系统变量：复位状态。";
+                error = "缺少系统变量：复位状态，禁止轴和工站运动。";
                 return false;
             }
             if (!string.Equals(resetValue.Type, "double", StringComparison.OrdinalIgnoreCase)
                 || !double.TryParse(resetValue.Value, out double resetRaw)
                 || resetRaw != (double)ResetStatus.ResetCompleted)
             {
-                error = "系统尚未复位完成，禁止启动流程。";
+                error = "系统尚未复位完成，禁止轴和工站运动。";
                 return false;
             }
             return true;

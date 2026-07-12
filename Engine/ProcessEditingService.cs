@@ -22,6 +22,7 @@ namespace Automation
         {
             var result = new GotoRewriteResult();
             Dictionary<Guid, OperationLocation> newLocations = BuildOperationLocationMap(after);
+            Dictionary<Guid, OperationType> originalOperations = BuildOperationMap(before);
             if (after?.steps == null)
             {
                 return result;
@@ -35,7 +36,13 @@ namespace Automation
                 }
                 foreach (OperationType operation in step.Ops)
                 {
-                    RewriteGotoTargetsRecursive(operation, before, procIndex, newLocations, result);
+                    if (operation == null || operation.Id == Guid.Empty
+                        || !originalOperations.TryGetValue(operation.Id, out OperationType originalOperation))
+                    {
+                        // 新增指令的跳转地址以最终草稿为准，不得按旧流程索引重写。
+                        continue;
+                    }
+                    RewriteGotoTargetsRecursive(operation, originalOperation, before, procIndex, newLocations, result);
                 }
             }
             RenumberOperations(after);
@@ -192,6 +199,7 @@ namespace Automation
 
         private static void RewriteGotoTargetsRecursive(
             object currentObject,
+            object originalObject,
             Proc before,
             int procIndex,
             Dictionary<Guid, OperationLocation> newLocations,
@@ -211,15 +219,29 @@ namespace Automation
                     && property.CanWrite
                     && property.GetCustomAttribute<MarkedGotoAttribute>() != null)
                 {
-                    RewriteSingleGotoTarget(currentObject, property, property.GetValue(currentObject) as string,
+                    string currentValue = property.GetValue(currentObject) as string;
+                    string originalValue = originalObject == null || originalObject.GetType() != currentObject.GetType()
+                        ? null
+                        : property.GetValue(originalObject) as string;
+                    RewriteSingleGotoTarget(currentObject, property, currentValue, originalValue,
                         before, procIndex, newLocations, result);
                 }
                 object value = property.GetValue(currentObject);
                 if (value is IEnumerable enumerable && !(value is string))
                 {
+                    List<object> originalItems = new List<object>();
+                    if (originalObject != null && originalObject.GetType() == currentObject.GetType()
+                        && property.GetValue(originalObject) is IEnumerable originalEnumerable
+                        && !(originalEnumerable is string))
+                    {
+                        originalItems.AddRange(originalEnumerable.Cast<object>());
+                    }
+                    int itemIndex = 0;
                     foreach (object item in enumerable)
                     {
-                        RewriteGotoTargetsRecursive(item, before, procIndex, newLocations, result);
+                        object originalItem = itemIndex < originalItems.Count ? originalItems[itemIndex] : null;
+                        RewriteGotoTargetsRecursive(item, originalItem, before, procIndex, newLocations, result);
+                        itemIndex++;
                     }
                 }
             }
@@ -229,13 +251,15 @@ namespace Automation
             object currentObject,
             PropertyInfo property,
             string currentValue,
+            string originalValue,
             Proc before,
             int procIndex,
             Dictionary<Guid, OperationLocation> newLocations,
             GotoRewriteResult result)
         {
             if (string.IsNullOrWhiteSpace(currentValue)
-                || !ProcessDefinitionService.TryParseGotoKey(currentValue, out int gotoProc, out int gotoStep, out int gotoOp)
+                || !string.Equals(currentValue, originalValue, StringComparison.Ordinal)
+                || !ProcessDefinitionService.TryParseGotoKey(originalValue, out int gotoProc, out int gotoStep, out int gotoOp)
                 || gotoProc != procIndex)
             {
                 return;
@@ -256,6 +280,30 @@ namespace Automation
             // 不清空、不选择附近指令。保留原地址并标记为不可提交，强制调用方明确修复跳转。
             property.SetValue(currentObject, ProcessDefinitionService.DeletedGotoPrefix + currentValue);
             result.InvalidatedCount++;
+        }
+
+        private static Dictionary<Guid, OperationType> BuildOperationMap(Proc proc)
+        {
+            var result = new Dictionary<Guid, OperationType>();
+            if (proc?.steps == null)
+            {
+                return result;
+            }
+            foreach (Step step in proc.steps)
+            {
+                if (step?.Ops == null)
+                {
+                    continue;
+                }
+                foreach (OperationType operation in step.Ops)
+                {
+                    if (operation != null && operation.Id != Guid.Empty)
+                    {
+                        result[operation.Id] = operation;
+                    }
+                }
+            }
+            return result;
         }
 
         private static bool TryResolveTargetOperationId(Proc proc, int stepIndex, int opIndex, out Guid id)

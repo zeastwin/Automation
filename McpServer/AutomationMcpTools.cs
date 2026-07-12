@@ -802,6 +802,8 @@ namespace Automation.McpServer
         [McpServerTool(Name = "preview_patch"), Description(
             "预演结构化 Patch，不会落盘。"
             + "patchJson 必须是完整 JSON 对象，至少含 procIndex/baseProcId/actions。"
+            + "update_proc_head_fields/update_step_fields/update_operation_fields 使用fieldChanges；append/insert_operation使用fieldValues。"
+            + "同一流程内需要互相跳转的多条新指令应放在同一个actions数组中，Bridge会在全部动作完成后统一校验前向跳转。"
             + "提交前必须先调用本工具。返回 previewId 和 patchHash，需由 Automation 前台确认 previewId。"
             + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_patch 提交即可。")]
         public static async Task<string> PreviewPatch(

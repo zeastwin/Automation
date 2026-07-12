@@ -18,7 +18,7 @@ namespace Automation.KernelTests
 
         private static int Main()
         {
-            Run("未复位禁止启动", TestResetGate);
+            Run("未复位允许流程但禁止运动", TestResetGate);
             Run("报警忽略后继续执行", TestAlarmIgnoreContinues);
             Run("报警状态与文本保持一致", TestAlarmStateConsistency);
             Run("单条指令只执行一次", TestSingleOperationStopsExactlyOnce);
@@ -48,16 +48,32 @@ namespace Automation.KernelTests
 
         private static void TestResetGate()
         {
+            int invocationCount = 0;
             ValueConfigStore values = CreateValueStore(ResetStatus.NotReset);
             Proc proc = CreateProc(new CallCustomFunc { Name = "noop" });
             CustomFunc functions = new CustomFunc();
-            functions.RegisterFunction("noop", () => { });
+            functions.RegisterFunction("noop", () => Interlocked.Increment(ref invocationCount));
             using (ProcessEngine engine = CreateEngine(values, functions, proc))
             {
-                Assert(!engine.StartProc(proc, 0), "未复位时流程启动未被拒绝");
-                Assert(values.setValueByName("复位状态", (double)ResetStatus.ResetCompleted), "设置复位状态失败");
-                Assert(engine.StartProc(proc, 0), "复位完成后流程启动失败");
+                Assert(engine.StartProc(proc, 0), "未复位时普通流程未能启动");
                 WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 2000, "流程未正常结束");
+                Assert(Volatile.Read(ref invocationCount) == 1, "未复位时普通流程未执行");
+            }
+
+            Proc motionProc = CreateProc(new StationRunPos
+            {
+                Name = "未复位运动",
+                StationName = "测试工站",
+                AlarmType = "报警停止"
+            });
+            using (ProcessEngine engine = CreateEngine(values, new CustomFunc(), motionProc))
+            {
+                Assert(engine.StartProc(motionProc, 0), "未复位时包含运动指令的流程未能启动");
+                WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Alarming, 2000,
+                    "未复位运动指令未触发报警");
+                Assert(engine.GetSnapshot(0)?.AlarmMessage == "系统尚未复位完成，禁止轴和工站运动。",
+                    "未复位运动门禁报警不明确");
+                engine.Stop(0);
             }
         }
 
@@ -762,6 +778,25 @@ namespace Automation.KernelTests
                 "删除目标后未标记失效跳转");
             Assert(ProcessDefinitionService.ValidateProcGotoTargets(0, deleted).Count > 0,
                 "删除跳转目标后草稿仍通过校验");
+
+            Proc forwardReferenceBefore = CreateProc(new Delay { Id = Guid.NewGuid(), Name = "已有指令" });
+            Proc forwardReferenceAfter = ObjectGraphCloner.Clone(forwardReferenceBefore);
+            var newJump = new Goto { Id = Guid.NewGuid(), Name = "新增跳转", DefaultGoto = "0-0-2" };
+            forwardReferenceAfter.steps[0].Ops.Add(newJump);
+            forwardReferenceAfter.steps[0].Ops.Add(new Delay { Id = Guid.NewGuid(), Name = "新增目标" });
+            GotoRewriteResult forwardResult = ProcessEditingService.RewriteGotoTargets(
+                forwardReferenceBefore, forwardReferenceAfter, 0);
+            Assert(newJump.DefaultGoto == "0-0-2", "新增指令的前向跳转被当作旧索引重写");
+            Assert(forwardResult.InvalidatedCount == 0, "新增指令的有效前向跳转被标记为已删除");
+            Assert(ProcessDefinitionService.ValidateProcGotoTargets(0, forwardReferenceAfter).Count == 0,
+                "同一草稿内新增目标的前向跳转未通过校验");
+
+            Proc explicitUpdate = ObjectGraphCloner.Clone(before);
+            explicitUpdate.steps[0].Ops.Add(new Delay { Id = Guid.NewGuid(), Name = "显式新目标" });
+            ((Goto)explicitUpdate.steps[0].Ops[0]).DefaultGoto = "0-0-3";
+            ProcessEditingService.RewriteGotoTargets(before, explicitUpdate, 0);
+            Assert(((Goto)explicitUpdate.steps[0].Ops[0]).DefaultGoto == "0-0-3",
+                "本次显式修改的跳转被旧索引重写覆盖");
         }
 
         private static void TestAtomicJsonRecovery()

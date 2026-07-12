@@ -147,17 +147,33 @@ namespace Automation
             }
             if (operation is SendTcpMsg sendTcp)
             {
-                if (!HasTcp(sendTcp.ID) || !HasValue(sendTcp.Msg) || sendTcp.TimeOut <= 0)
+                if (!HasTcp(sendTcp.ID))
                 {
-                    errors.Add($"{location} TCP发送配置无效");
+                    errors.Add($"{location} TCP对象不存在：{sendTcp.ID ?? string.Empty}");
+                }
+                if (!HasValue(sendTcp.Msg))
+                {
+                    errors.Add($"{location} TCP发送变量不存在：{sendTcp.Msg ?? string.Empty}");
+                }
+                if (sendTcp.TimeOut <= 0)
+                {
+                    errors.Add($"{location} TCP发送超时必须大于0：{sendTcp.TimeOut}");
                 }
                 return;
             }
             if (operation is ReceoveTcpMsg receiveTcp)
             {
-                if (!HasTcp(receiveTcp.ID) || !HasValue(receiveTcp.MsgSaveValue) || receiveTcp.TImeOut <= 0)
+                if (!HasTcp(receiveTcp.ID))
                 {
-                    errors.Add($"{location} TCP接收配置无效");
+                    errors.Add($"{location} TCP对象不存在：{receiveTcp.ID ?? string.Empty}");
+                }
+                if (!HasValue(receiveTcp.MsgSaveValue))
+                {
+                    errors.Add($"{location} TCP接收保存变量不存在：{receiveTcp.MsgSaveValue ?? string.Empty}");
+                }
+                if (receiveTcp.TImeOut <= 0)
+                {
+                    errors.Add($"{location} TCP接收超时必须大于0：{receiveTcp.TImeOut}");
                 }
                 return;
             }

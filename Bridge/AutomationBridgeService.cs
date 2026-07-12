@@ -301,13 +301,25 @@ namespace Automation.Bridge
                 {
                     requestBody = requestBody.Substring(0, maxBodyLength) + "...<已截断>";
                 }
-                bridgeErrorLogger.Log(
-                    "Bridge 请求异常\r\n"
-                    + "method=" + (method ?? string.Empty) + "\r\n"
-                    + "path=" + (path ?? string.Empty) + "\r\n"
-                    + "body=" + requestBody + "\r\n"
-                    + "exception=" + (exception?.ToString() ?? string.Empty),
-                    LogLevel.Error);
+                var builder = new StringBuilder();
+                builder.AppendLine("Bridge 请求异常");
+                builder.Append("method=").AppendLine(method ?? string.Empty);
+                builder.Append("path=").AppendLine(path ?? string.Empty);
+                builder.Append("body=").AppendLine(requestBody);
+                if (exception is BridgeRequestException bridgeException)
+                {
+                    builder.Append("statusCode=").AppendLine(bridgeException.StatusCode.ToString(CultureInfo.InvariantCulture));
+                    builder.Append("errorCode=").AppendLine(bridgeException.Code ?? string.Empty);
+                    builder.Append("details=").AppendLine(bridgeException.Details ?? string.Empty);
+                }
+                else
+                {
+                    builder.AppendLine("statusCode=500");
+                    builder.AppendLine("errorCode=UNHANDLED_EXCEPTION");
+                    builder.Append("details=").AppendLine(exception?.Message ?? string.Empty);
+                }
+                builder.Append("exception=").Append(exception?.ToString() ?? string.Empty);
+                bridgeErrorLogger.Log(builder.ToString(), LogLevel.Error);
             }
             catch
             {
@@ -4028,6 +4040,7 @@ namespace Automation.Bridge
                 }
             }
 
+            RewriteGotoTargetsAfterStructureChange(current, draft, result.ProcIndex, result);
             List<string> errors = new List<string>();
             ProcessDefinitionService.NormalizeProc(procIndex, draft, errors);
             if (errors.Count > 0)
@@ -4137,10 +4150,8 @@ namespace Automation.Bridge
             Guid stepId = ParseGuid(ReadRequiredString(action, "stepId"), "stepId");
             int stepIndex = FindStepIndexById(draft, stepId);
             Step step = draft.steps[stepIndex];
-            Proc before = ObjectGraphCloner.Clone(draft);
 
             draft.steps.RemoveAt(stepIndex);
-            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
 
             result.Messages.Add($"动作{actionIndex}：已删除步骤[{step?.Name ?? string.Empty}]。");
             result.Changes.Add(new JObject
@@ -4226,7 +4237,7 @@ namespace Automation.Bridge
             return value;
         }
 
-        private void RewriteGotoTargetsAfterStructureChange(Proc before, Proc after, int procIndex, int actionIndex, PatchExecutionResult result)
+        private void RewriteGotoTargetsAfterStructureChange(Proc before, Proc after, int procIndex, PatchExecutionResult result)
         {
             GotoRewriteResult summary = ProcessEditingService.RewriteGotoTargets(before, after, procIndex);
 
@@ -4235,10 +4246,10 @@ namespace Automation.Bridge
                 return;
             }
 
-            result.Messages.Add($"动作{actionIndex}：已重写跳转 {summary.RewrittenCount} 个，发现已删除目标 {summary.InvalidatedCount} 个；已删除目标必须明确修复后才能提交。");
+            result.Messages.Add($"Patch：已重写跳转 {summary.RewrittenCount} 个，发现已删除目标 {summary.InvalidatedCount} 个；已删除目标必须明确修复后才能提交。");
             result.Changes.Add(new JObject
             {
-                ["actionIndex"] = actionIndex,
+                ["actionIndex"] = -1,
                 ["type"] = "goto_rewrite",
                 ["rewrittenCount"] = summary.RewrittenCount,
                 ["invalidatedCount"] = summary.InvalidatedCount
@@ -4250,12 +4261,10 @@ namespace Automation.Bridge
             Guid stepId = ParseGuid(ReadRequiredString(action, "stepId"), "stepId");
             int sourceIndex = FindStepIndexById(draft, stepId);
             Step step = draft.steps[sourceIndex];
-            Proc before = ObjectGraphCloner.Clone(draft);
 
             draft.steps.RemoveAt(sourceIndex);
             int targetIndex = ReadRequiredInsertIndex(action, "targetIndex", draft.steps.Count, "步骤目标位置");
             draft.steps.Insert(targetIndex, step);
-            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
 
             result.Messages.Add($"动作{actionIndex}：已移动步骤[{step?.Name ?? string.Empty}] 到索引 {targetIndex}。");
             result.Changes.Add(new JObject
@@ -4276,7 +4285,6 @@ namespace Automation.Bridge
                 draft.steps = new List<Step>();
             }
 
-            Proc before = ObjectGraphCloner.Clone(draft);
             var step = new Step
             {
                 Id = Guid.NewGuid(),
@@ -4286,7 +4294,6 @@ namespace Automation.Bridge
             };
 
             draft.steps.Insert(insertIndex, step);
-            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
 
             result.Messages.Add($"动作{actionIndex}：已在索引 {insertIndex} 插入步骤 {step.Name}。");
             result.Changes.Add(new JObject
@@ -4335,10 +4342,8 @@ namespace Automation.Bridge
             int opIndex = FindOperationIndexById(step, opId);
             OperationType op = step.Ops[opIndex];
             ValidateExpectedOperaType(action, op);
-            Proc before = ObjectGraphCloner.Clone(draft);
 
             step.Ops.RemoveAt(opIndex);
-            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
 
             result.Messages.Add($"动作{actionIndex}：已删除步骤[{step?.Name ?? string.Empty}] 中的指令 {op?.Name ?? string.Empty}({op?.OperaType ?? string.Empty})。");
             result.Changes.Add(new JObject
@@ -4367,7 +4372,6 @@ namespace Automation.Bridge
             int sourceOpIndex = FindOperationIndexById(sourceStep, opId);
             OperationType op = sourceStep.Ops[sourceOpIndex];
             ValidateExpectedOperaType(action, op);
-            Proc before = ObjectGraphCloner.Clone(draft);
 
             sourceStep.Ops.RemoveAt(sourceOpIndex);
             int targetStepIndex = FindStepIndexById(draft, targetStepId);
@@ -4375,7 +4379,6 @@ namespace Automation.Bridge
             EnsureStepOps(targetStep);
             int targetIndex = ReadRequiredInsertIndex(action, "targetIndex", targetStep.Ops.Count, "指令目标位置");
             targetStep.Ops.Insert(targetIndex, op);
-            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
 
             result.Messages.Add($"动作{actionIndex}：已移动指令 {op?.Name ?? string.Empty}({op?.OperaType ?? string.Empty}) 到步骤[{targetStep?.Name ?? string.Empty}] 索引 {targetIndex}。");
             result.Changes.Add(new JObject
@@ -4410,10 +4413,8 @@ namespace Automation.Bridge
             }
 
             EnsureStepOps(step);
-            Proc before = ObjectGraphCloner.Clone(draft);
 
             step.Ops.Insert(insertIndex, op);
-            RewriteGotoTargetsAfterStructureChange(before, draft, result.ProcIndex, actionIndex, result);
 
             result.Messages.Add($"动作{actionIndex}：已在步骤[{step.Name}] 索引 {insertIndex} 插入指令 {op.Name}({op.OperaType})。");
             result.Changes.Add(new JObject

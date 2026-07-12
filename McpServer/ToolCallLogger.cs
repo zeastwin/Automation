@@ -221,7 +221,7 @@ namespace Automation.McpServer
                         || name.IndexOf("authorization", StringComparison.OrdinalIgnoreCase) >= 0
                         || string.Equals(name, "headers", StringComparison.OrdinalIgnoreCase))
                     {
-                        jsonObject[property.Key] = "***";
+                        jsonObject[name] = "***";
                     }
                     else if (property.Value != null)
                     {
