@@ -36,6 +36,10 @@ namespace Automation
         private int streamingThoughtSegmentIndex;
         // 串行化 WebView2 脚本执行，保证 HTML 追加/替换顺序与事件顺序一致。
         private Task pendingScriptTask = Task.CompletedTask;
+        private const string CopyButtonHtml =
+            "<button class=\"copy-message\" type=\"button\" onclick=\"copyMessage(this)\" title=\"复制本条文字\" aria-label=\"复制本条文字\">"
+            + "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\"/>"
+            + "<path d=\"M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3\"/></svg></button>";
         // Markdig 管道（表格、任务列表等高级扩展），用于 Goose 回复 Markdown→HTML。
         private static readonly MarkdownPipeline markdownPipeline =
             new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
@@ -183,38 +187,37 @@ body{
 #messages{
     max-width:1120px;
     margin:0 auto;
-    padding:6px 10px;
+    padding:5px 10px;
 }
 .msg{
     display:flex;
-    flex-direction:column;
-    gap:2px;
-    margin:0 0 6px;
+    align-items:flex-start;
+    gap:6px;
+    margin:0 0 4px;
 }
-.msg.user{align-items:flex-end;}
-.msg.assistant,.msg.error{align-items:flex-start;}
+.msg.user{flex-direction:row-reverse;justify-content:flex-start;}
 .msg .role{
-    font-size:11px;
+    font-size:10px;
     color:#7b8798;
-    line-height:1.2;
-    padding:0 4px;
+    line-height:1.35;
 }
-.msg-head{width:100%;display:flex;align-items:center;gap:8px;padding:0 4px;}
-.msg.user .msg-head{justify-content:flex-end;}
+.msg-head{width:94px;flex:0 0 94px;display:flex;align-items:center;justify-content:flex-end;gap:2px;padding-top:6px;}
+.msg.user .msg-head{justify-content:flex-start;}
 .msg-head .role{padding:0;}
-.copy-message{border:0;background:transparent;color:#8a96a7;font:11px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;cursor:pointer;padding:1px 5px;border-radius:5px;opacity:.35;}
+.copy-message{width:20px;height:20px;border:0;background:transparent;color:#8a96a7;cursor:pointer;padding:3px;border-radius:5px;opacity:.35;display:inline-flex;align-items:center;justify-content:center;}
+.copy-message svg{width:14px;height:14px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round;pointer-events:none;}
 .msg:hover .copy-message,.copy-message:focus{opacity:1;}
 .copy-message:hover{color:#1f5f99;background:#e8f1fa;}
 .msg.user .role{text-align:right;}
 .msg .content{
-    max-width:92%;
+    max-width:calc(100% - 100px);
     word-break:break-word;
     overflow-wrap:anywhere;
     -webkit-user-select:text;
     user-select:text;
 }
 .msg.user .content{
-    max-width:72%;
+    max-width:78%;
     color:#102033;
     background:#dceeff;
     border:1px solid #bad9f6;
@@ -238,8 +241,8 @@ body{
 }
 .content>*:first-child{margin-top:0;}
 .content>*:last-child{margin-bottom:0;}
-p{margin:2px 0;}
-ul,ol{margin:2px 0;padding-left:19px;}
+p{margin:1px 0;}
+ul,ol{margin:1px 0;padding-left:19px;}
 li{margin:1px 0;}
 blockquote{
     margin:6px 0;
@@ -546,7 +549,7 @@ document.addEventListener('DOMContentLoaded',function(){
     <div class=""brand""><div class=""brand-mark"">AI</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div>
     <div class=""top-actions"">
       <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""包含诊断能力并允许预演和修改"">编辑</button></div>
-      <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演，并允许访问当前用户目录所在磁盘"">完全权限</button>
+      <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演；代码访问范围仍限制为 Hmi 目录"">完全权限</button>
       <button class=""icon-button"" id=""resetButton"" title=""重置会话"" aria-label=""重置会话""><svg viewBox=""0 0 24 24""><path d=""M3 12a9 9 0 1 0 3-6.7""/><path d=""M3 4v6h6""/></svg></button>
       <button class=""icon-button"" id=""configButton"" title=""配置"" aria-label=""配置""><svg viewBox=""0 0 24 24""><path d=""M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z""/><path d=""M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z""/></svg></button>
     </div>
@@ -1711,6 +1714,17 @@ document.addEventListener('DOMContentLoaded',function(){
                 ?? request["toolCall"]?["name"]?.Value<string>()
                 ?? "EW-AI 权限请求";
 
+            string toolName = request["toolCall"]?["name"]?.Value<string>() ?? "";
+            JObject arguments = request["toolCall"]?["arguments"] as JObject;
+            if (IsDeveloperWriteOutsideHmi(toolName, arguments, out string rejectedPath))
+            {
+                AppendConversation(
+                    "系统",
+                    "⛔ 已拒绝修改 Hmi 目录之外的文件：" + rejectedPath,
+                    Color.DarkRed);
+                return BuildPermissionCancelled();
+            }
+
             if (fullPermissionMode)
             {
                 // 完全权限模式：把工具调用信息显示到聊天区，让用户看到批准了什么
@@ -1728,8 +1742,6 @@ document.addEventListener('DOMContentLoaded',function(){
                 return new JObject { ["outcome"] = new JObject { ["outcome"] = "selected", ["optionId"] = fullOptionId } };
             }
 
-            string toolName = request["toolCall"]?["name"]?.Value<string>() ?? "";
-            JObject arguments = request["toolCall"]?["arguments"] as JObject;
             DialogResult dialogResult = ShowPermissionApprovalDialog(toolName, title, arguments);
             if (dialogResult != DialogResult.Yes)
             {
@@ -1760,6 +1772,55 @@ document.addEventListener('DOMContentLoaded',function(){
                     ["optionId"] = optionId
                 }
             };
+        }
+
+        private static bool IsDeveloperWriteOutsideHmi(
+            string toolName,
+            JObject arguments,
+            out string rejectedPath)
+        {
+            rejectedPath = null;
+            if (!string.Equals(toolName, "write", StringComparison.Ordinal)
+                && !string.Equals(toolName, "edit", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            string path = arguments?["path"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                rejectedPath = "(路径为空)";
+                return true;
+            }
+
+            string hmiDirectory = ResolveHmiSourceDirectory();
+            string fullPath = Path.GetFullPath(
+                Path.IsPathRooted(path) ? path : Path.Combine(hmiDirectory, path));
+            string boundary = hmiDirectory.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(boundary, StringComparison.OrdinalIgnoreCase))
+            {
+                rejectedPath = fullPath;
+                return true;
+            }
+            return false;
+        }
+
+        private static string ResolveHmiSourceDirectory()
+        {
+            DirectoryInfo directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+            while (directory != null)
+            {
+                string projectFile = Path.Combine(directory.FullName, "Automation.csproj");
+                string hmiDirectory = Path.Combine(directory.FullName, "Hmi");
+                if (File.Exists(projectFile) && Directory.Exists(hmiDirectory))
+                {
+                    return Path.GetFullPath(hmiDirectory);
+                }
+                directory = directory.Parent;
+            }
+            return Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Hmi"));
         }
 
         // 在权限请求的 options 数组中查找 "allow" 类选项。
@@ -1949,7 +2010,7 @@ document.addEventListener('DOMContentLoaded',function(){
                 lastStreamRender = DateTime.Now;
                 string time = DateTime.Now.ToString("HH:mm:ss");
                 string html = "<div class=\"msg assistant\"><div class=\"msg-head\"><span class=\"role\">EW-AI " + HtmlEncode(time) + "</span>"
-                    + "<button class=\"copy-message\" type=\"button\" onclick=\"copyMessage(this)\" title=\"复制本条文字\">复制</button></div>"
+                    + CopyButtonHtml + "</div>"
                     + "<div class=\"content\"><div class=\"streaming-segment\" id=\"" + streamingDivId + "\">"
                     + StreamingTextToHtml(streamingMarkdown.ToString()) + "</div></div></div>";
                 EnqueueAppendHtml(html);
@@ -1957,7 +2018,10 @@ document.addEventListener('DOMContentLoaded',function(){
             else
             {
                 streamingMarkdown.Append(text);
-                if ((DateTime.Now - lastStreamRender).TotalMilliseconds >= 50)
+                // 上一帧尚未完成时跳过中间帧，最终帧仍由 FinishStreaming 提交，
+                // 避免长回答反复全量渲染 Markdown 造成 WebView2 脚本队列积压。
+                if ((DateTime.Now - lastStreamRender).TotalMilliseconds >= 100
+                    && pendingScriptTask.IsCompleted)
                 {
                     lastStreamRender = DateTime.Now;
                     UpdateStreamingPreview();
@@ -2003,7 +2067,8 @@ document.addEventListener('DOMContentLoaded',function(){
             }
 
             streamingThoughtMarkdown.Append(text);
-            if ((DateTime.Now - lastThoughtRender).TotalMilliseconds >= 50)
+            if ((DateTime.Now - lastThoughtRender).TotalMilliseconds >= 100
+                && pendingScriptTask.IsCompleted)
             {
                 lastThoughtRender = DateTime.Now;
                 UpdateThoughtPreview();
@@ -2071,7 +2136,7 @@ document.addEventListener('DOMContentLoaded',function(){
                 contentHtml = HtmlEncode(text);
             }
             string html = "<div class=\"" + cls + "\"><div class=\"msg-head\"><span class=\"role\">" + HtmlEncode(role) + " " + HtmlEncode(time) + "</span>"
-                + "<button class=\"copy-message\" type=\"button\" onclick=\"copyMessage(this)\" title=\"复制本条文字\">复制</button></div>"
+                + CopyButtonHtml + "</div>"
                 + "<div class=\"content\">" + contentHtml + "</div></div>";
             EnqueueAppendHtml(html);
         }

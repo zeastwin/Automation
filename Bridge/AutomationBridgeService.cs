@@ -5839,6 +5839,15 @@ namespace Automation.Bridge
                 return;
             }
 
+            // 自定义函数源码与流程配置允许在平台运行期间一起准备。新函数只有在用户手动编译并
+            // 启动新版本后才会进入运行时列表；ProcessEngine 启动闸门会阻止旧版本执行该流程。
+            if (descriptor.ComponentType == typeof(CallCustomFunc)
+                && string.Equals(fieldName, nameof(CallCustomFunc.Name), StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(value.ToString()))
+            {
+                return;
+            }
+
             try
             {
                 if (!descriptor.Converter.GetStandardValuesSupported(null))

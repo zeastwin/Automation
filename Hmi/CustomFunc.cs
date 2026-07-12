@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
@@ -18,6 +18,7 @@ namespace Automation
                 { "FunctionA", SS },
                 { "FunctionB", SS2 }, 
                 { "Functsdfdsfsdf", SS2 }, 
+                { "CalcSumTiming", SumFrom1To100000AndTiming },
             };
             foreach (KeyValuePair<string, FunctionDelegate> item in functionMap)
             {
@@ -76,6 +77,36 @@ namespace Automation
             double time = stopwatch.ElapsedMilliseconds;
             SF.frmInfo.PrintInfo("毫秒：" + time, FrmInfo.Level.Normal);
           //  Console.WriteLine("毫秒：" + Stopwatch.ElapsedMilliseconds);
+        }
+
+        /// <summary>
+        /// 从 1 累加到 100000，记录耗时（毫秒）写入变量"耗时毫秒"，累加结果写入变量"累加和"，
+        /// 并在信息日志中输出累加结果和耗时。
+        /// </summary>
+        public void SumFrom1To100000AndTiming()
+        {
+            Stopwatch sw = Stopwatch.StartNew();
+            long sum = 0;
+            for (int i = 1; i <= 100000; i++)
+            {
+                sum += i;
+            }
+            sw.Stop();
+            double elapsedMs = sw.Elapsed.TotalMilliseconds;
+
+            // 将累加结果写入变量"累加和"（索引3）
+            if (SF.valueStore != null)
+            {
+                SF.valueStore.setValueByName("累加和", sum, "CustomFunc.SumFrom1To100000AndTiming");
+                SF.valueStore.setValueByName("耗时毫秒", elapsedMs, "CustomFunc.SumFrom1To100000AndTiming");
+            }
+
+            if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            {
+                SF.frmInfo.PrintInfo(
+                    $"累加完成：1+2+...+100000 = {sum}，耗时 {elapsedMs:F2} 毫秒",
+                    FrmInfo.Level.Normal);
+            }
         }
     }
 }

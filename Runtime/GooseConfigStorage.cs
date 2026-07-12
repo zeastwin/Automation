@@ -241,65 +241,24 @@ namespace Automation
             return Validate(config, out error);
         }
 
-        public static void EnsureDeepSeekGooseConfiguration(string model)
+        public static void RemoveManagedDeepSeekGooseConfiguration()
         {
-            string normalizedModel = (model ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(normalizedModel))
-            {
-                throw new InvalidOperationException("生成 Goose DeepSeek 配置时模型不能为空。");
-            }
-
-            string configDirectory = Path.Combine(
+            string path = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Block", "goose", "config");
-            Directory.CreateDirectory(configDirectory);
-
-            string configPath = Path.Combine(configDirectory, "config.yaml");
-            WriteNewFileIfMissing(
-                configPath,
-                "GOOSE_PROVIDER: custom_deepseek" + Environment.NewLine
-                + "GOOSE_MODEL: " + normalizedModel + Environment.NewLine);
-
-            string providerDirectory = Path.Combine(configDirectory, "custom_providers");
-            Directory.CreateDirectory(providerDirectory);
-            JObject provider = new JObject
-            {
-                ["name"] = "custom_deepseek",
-                ["engine"] = "openai",
-                ["display_name"] = "DeepSeek",
-                ["description"] = "Automation 自动配置的 DeepSeek 官方 API Provider",
-                ["api_key_env"] = "DEEPSEEK_API_KEY",
-                ["base_url"] = "https://api.deepseek.com/chat/completions",
-                ["models"] = new JArray
-                {
-                    new JObject { ["name"] = "deepseek-v4-pro", ["context_limit"] = 1000000 },
-                    new JObject { ["name"] = "deepseek-v4-flash", ["context_limit"] = 1000000 }
-                },
-                ["supports_streaming"] = true,
-                ["requires_auth"] = true
-            };
-            WriteNewFileIfMissing(
-                Path.Combine(providerDirectory, "custom_deepseek.json"),
-                provider.ToString(Formatting.Indented) + Environment.NewLine);
-        }
-
-        private static void WriteNewFileIfMissing(string path, string content)
-        {
-            if (File.Exists(path))
+                "Block", "goose", "config", "custom_providers", "custom_deepseek.json");
+            if (!File.Exists(path))
             {
                 return;
             }
-            try
+
+            JObject provider = JObject.Parse(File.ReadAllText(path, Encoding.UTF8));
+            if (string.Equals(provider["name"]?.Value<string>(), "custom_deepseek", StringComparison.Ordinal)
+                && string.Equals(
+                    provider["description"]?.Value<string>(),
+                    "Automation 自动配置的 DeepSeek 官方 API Provider",
+                    StringComparison.Ordinal))
             {
-                using (FileStream stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
-                using (StreamWriter writer = new StreamWriter(stream, new UTF8Encoding(false)))
-                {
-                    writer.Write(content);
-                }
-            }
-            catch (IOException) when (File.Exists(path))
-            {
-                // 另一进程已完成同一份首次配置，直接使用其结果。
+                File.Delete(path);
             }
         }
 

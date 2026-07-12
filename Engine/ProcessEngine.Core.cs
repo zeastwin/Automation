@@ -994,6 +994,11 @@ namespace Automation
                 Logger?.Log("启动流程失败：流程为空。", LogLevel.Error);
                 return false;
             }
+            if (!TryValidateCustomFunctions(proc, out string customFunctionError))
+            {
+                Logger?.Log($"启动流程失败:{customFunctionError}", LogLevel.Error);
+                return false;
+            }
             if (proc.head?.Disable == true)
             {
                 string name = string.IsNullOrWhiteSpace(proc.head?.Name) ? $"索引{procIndex}" : proc.head.Name;
@@ -1043,6 +1048,11 @@ namespace Automation
             if (proc == null)
             {
                 Logger?.Log("单步执行指令失败：流程为空。", LogLevel.Error);
+                return false;
+            }
+            if (!TryValidateCustomFunctions(proc, out string customFunctionError))
+            {
+                Logger?.Log($"单次执行指令失败:{customFunctionError}", LogLevel.Error);
                 return false;
             }
             if (proc.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count
@@ -1452,6 +1462,39 @@ namespace Automation
             {
                 error = "系统尚未复位完成，禁止启动流程。";
                 return false;
+            }
+            return true;
+        }
+
+        private bool TryValidateCustomFunctions(Proc proc, out string error)
+        {
+            error = null;
+            if (proc?.steps == null)
+            {
+                return true;
+            }
+
+            HashSet<string> registeredFunctions = new HashSet<string>(
+                Context?.CustomFunc?.funcName ?? new List<string>(),
+                StringComparer.Ordinal);
+            foreach (Step step in proc.steps)
+            {
+                if (step?.Ops == null)
+                {
+                    continue;
+                }
+                foreach (OperationType operation in step.Ops)
+                {
+                    if (operation is CallCustomFunc customFunction
+                        && (string.IsNullOrWhiteSpace(customFunction.Name)
+                            || !registeredFunctions.Contains(customFunction.Name)))
+                    {
+                        error = string.IsNullOrWhiteSpace(customFunction.Name)
+                            ? "流程包含未指定名称的自定义函数，禁止启动。"
+                            : $"自定义函数尚未在当前编译版本注册:{customFunction.Name}。请手动编译并启动新版本后再运行流程。";
+                        return false;
+                    }
+                }
             }
             return true;
         }

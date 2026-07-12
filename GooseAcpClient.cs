@@ -39,6 +39,8 @@ namespace Automation
         private readonly object writeLock = new object();
         private readonly object executionLock = new object();
         private readonly string auditSessionId = Guid.NewGuid().ToString("N");
+        // 每个 ACP 进程使用独立会话名，避免 Goose 恢复旧会话历史污染新的用户请求。
+        private readonly string runtimeSessionName = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N").Substring(0, 6);
         private readonly StringBuilder assistantResponse = new StringBuilder();
         private int nextRequestId;
         private Process process;
@@ -87,19 +89,9 @@ namespace Automation
         {
             EnsureProcessStarted();
             string sessionWorkingDirectory = ResolveWorkingDirectory();
-            if (config.FullPermissionMode)
-            {
-                string userProfileDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string rootDirectory = Path.GetPathRoot(userProfileDirectory);
-                if (string.IsNullOrWhiteSpace(rootDirectory) || !Directory.Exists(rootDirectory))
-                {
-                    throw new InvalidOperationException("完全权限模式无法确定当前用户目录所在的文件系统根目录：" + userProfileDirectory);
-                }
-                sessionWorkingDirectory = rootDirectory;
-            }
             JObject sessionMeta = new JObject
             {
-                ["sessionName"] = config.SessionName ?? string.Empty,
+                ["sessionName"] = runtimeSessionName,
                 ["maxTurns"] = config.MaxTurns
             };
             if (!string.IsNullOrWhiteSpace(config.Provider))
@@ -338,12 +330,25 @@ namespace Automation
             }
             startInfo.EnvironmentVariables["PATH"] = machineGitCommandPath + Path.PathSeparator
                 + (startInfo.EnvironmentVariables["PATH"] ?? Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
+            // 根目录 AGENTS.MD 是平台开发规范，不属于自动化项目开发上下文；
+            // Goose 仅加载当前 Hmi 工作区的 .goosehints。
+            startInfo.EnvironmentVariables["CONTEXT_FILE_NAMES"] = "[\".goosehints\"]";
+            // 保留 Goose 用户级 AGENTS.md（%USERPROFILE%\.agents\AGENTS.md），
+            // 但不让它通过项目 Git 根目录上下文重新带入平台开发用 AGENTS.MD。
+            string gooseUserAgentsPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".agents", "AGENTS.md");
+            if (File.Exists(gooseUserAgentsPath)
+                && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GOOSE_MOIM_MESSAGE_FILE")))
+            {
+                startInfo.EnvironmentVariables["GOOSE_MOIM_MESSAGE_FILE"] = gooseUserAgentsPath;
+            }
 
             string configuredProvider = config.Provider?.Trim();
             bool useDeepSeekProvider = string.Equals(configuredProvider, "deepseek", StringComparison.OrdinalIgnoreCase);
             if (useDeepSeekProvider)
             {
-                GooseConfigStorage.EnsureDeepSeekGooseConfiguration(config.Model);
+                GooseConfigStorage.RemoveManagedDeepSeekGooseConfiguration();
             }
             if (!string.IsNullOrWhiteSpace(configuredProvider))
             {
@@ -394,7 +399,7 @@ namespace Automation
             startupInfo.Append("ACP 进程启动 exe=").Append(config.GooseExecutablePath);
             startupInfo.Append(" cwd=").Append(ResolveWorkingDirectory());
             startupInfo.Append(" mcpUri=").Append(config.McpUri);
-            startupInfo.Append(" sessionName=").Append(config.SessionName);
+            startupInfo.Append(" sessionName=").Append(runtimeSessionName);
             if (!string.IsNullOrWhiteSpace(config.Provider))
             {
                 startupInfo.Append(" provider=").Append(config.Provider);
@@ -978,18 +983,29 @@ namespace Automation
             return value;
         }
 
-        // Goose 进程工作目录始终跟随当前程序所在目录（AppDomain.CurrentDomain.BaseDirectory），
-        // 不使用 GooseConfig.json 里持久化的 WorkingDirectory 值。
-        // 原因：程序部署位置不固定，持久化的旧路径会导致 Goose 从错误目录启动，
-        // 向上遍历时可能发现其他项目的 AGENTS.md，造成 AI 上下文污染。
+        // Developer 工具只面向自动化项目的 Hmi 源码。优先定位包含 Automation.csproj
+        // 的源码根目录；发布包若要开放代码修改，必须在程序目录携带 Hmi 目录。
         private string ResolveWorkingDirectory()
         {
-            string workingDirectory = AppDomain.CurrentDomain.BaseDirectory;
-            if (!Directory.Exists(workingDirectory))
+            DirectoryInfo directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+            while (directory != null)
             {
-                Directory.CreateDirectory(workingDirectory);
+                string projectFile = Path.Combine(directory.FullName, "Automation.csproj");
+                string sourceDirectory = Path.Combine(directory.FullName, "Hmi");
+                if (File.Exists(projectFile) && Directory.Exists(sourceDirectory))
+                {
+                    return sourceDirectory;
+                }
+                directory = directory.Parent;
             }
-            return workingDirectory;
+
+            string deployedHmiDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Hmi");
+            if (!Directory.Exists(deployedHmiDirectory))
+            {
+                throw new DirectoryNotFoundException(
+                    "未找到 EW-AI 可编辑的 Hmi 源码目录。开发环境需保留 Automation.csproj/Hmi，发布包需在程序目录携带 Hmi。平台内核目录不会开放给 EW-AI。");
+            }
+            return deployedHmiDirectory;
         }
 
         private static string ExtractText(JToken token)

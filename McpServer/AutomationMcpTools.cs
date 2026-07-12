@@ -341,7 +341,7 @@ namespace Automation.McpServer
       "isStopPoint": "true 时运行到该指令进入断点"
     },
     "constraints": "AlarmType 与 Goto1/2/3 联动：报警停止/报警忽略时不显示任何 Goto；自动处理仅 Goto1；弹框类按按钮数量显示。指令默认按 opIndex 顺序往下执行：执行完当前指令后自动执行下一条（opIndex+1），除非遇到跳转类指令（逻辑判断/IO逻辑跳转/跳转）改变了执行流。不写跳转指令就会默认往下执行。",
-    "commonMistakes": "AlarmType 选了弹框类但未填 AlarmInfoID 或对应 Goto 会导致跳转失败；AlarmInfoID 看起来像编号但仍是 string 字段，写 0 会被 Bridge 拒绝，必须写 \"0\"；Goto 格式必须是 procIndex-stepIndex-opIndex 三段式；忽略默认顺序执行会导致旁路 bug——相邻的非跳转类指令会依次执行，分析流程时务必检查跳转目标执行完后是否会被后续指令旁路；删除或插入指令后 opIndex 会位移，必须同步更新所有受影响的跳转目标（goto1/goto2/TrueGoto/FalseGoto/Goto/DefaultGoto），get_proc_detail 返回的 gotoWarnings 字段会列出越界的跳转目标"
+    "commonMistakes": "AlarmType 选了弹框类但未填 AlarmInfoID 或对应 Goto 会导致跳转失败；AlarmInfoID 看起来像编号但仍是 string 字段，写 0 会被 Bridge 拒绝，必须写 \"0\"；Goto 格式必须是 procIndex-stepIndex-opIndex 三段式；忽略默认顺序执行会导致旁路 bug——相邻的非跳转类指令会依次执行，分析流程时务必检查跳转目标执行完后是否会被后续指令旁路；通过 Patch 删除、插入或移动步骤/指令时 Bridge 会按目标指令 ID 自动重写同流程跳转，预演结果会报告重写数量；目标已被删除时必须根据预演提示明确修复"
   },
   "_跳转编码说明": {
     "purpose": "所有跳转类字段（Goto1/Goto2/Goto3、goto1/goto2、TrueGoto/FalseGoto、Goto、DefaultGoto、PopupGoto1/2/3）的统一编码格式",
