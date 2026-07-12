@@ -88,33 +88,42 @@ namespace Automation
         public OperationType temp;
         private void OperationType_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (OperationType.SelectedIndex != -1 && SF.isModify == ModifyKind.Operation)
+            if (OperationType.SelectedIndex == -1
+                || (SF.isModify != ModifyKind.Operation && !SF.isAddOps)
+                || !(OperationType.SelectedItem is OperationType template))
             {
-                // temp = DeepCopy((OperationType)OperationType.SelectedItem);
-                SF.frmDataGrid.OperationTemp = (OperationType)((OperationType)OperationType.SelectedItem).Clone();
-                SF.frmDataGrid.OperationTemp.Num = SF.frmDataGrid.iSelectedRow;
-                propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                SF.frmDataGrid.OperationTemp.evtRP();
-                if (SF.ActiveEditSession != null)
-                {
-                    SF.ReplaceActiveEditDraft(SF.frmDataGrid.OperationTemp);
-                }
-                propertyGrid1.ExpandAllGridItems();
+                return;
             }
-            if (OperationType.SelectedIndex != -1 && SF.isAddOps == true)
+
+            int num = SF.isAddOps && propertyGrid1.SelectedObject is OperationType current
+                ? current.Num
+                : SF.frmDataGrid.iSelectedRow;
+
+            // 克隆会经过属性 setter。克隆期间关闭编辑联动，避免 setter 操作仍指向旧类型的全局草稿。
+            ModifyKind originalModifyKind = SF.isModify;
+            bool originalIsAddOps = SF.isAddOps;
+            OperationType draft;
+            try
             {
-                int num = ((OperationType)propertyGrid1.SelectedObject).Num;
-                SF.frmDataGrid.OperationTemp = (OperationType)((OperationType)OperationType.SelectedItem).Clone();
-                SF.frmDataGrid.OperationTemp.Num = num;
-                propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                SF.frmDataGrid.OperationTemp.evtRP();
-                if (SF.ActiveEditSession != null)
-                {
-                    SF.ReplaceActiveEditDraft(SF.frmDataGrid.OperationTemp);
-                }
-                propertyGrid1.ExpandAllGridItems();
+                SF.isModify = ModifyKind.None;
+                SF.isAddOps = false;
+                draft = (OperationType)template.Clone();
             }
-         
+            finally
+            {
+                SF.isModify = originalModifyKind;
+                SF.isAddOps = originalIsAddOps;
+            }
+
+            draft.Num = num;
+            SF.frmDataGrid.OperationTemp = draft;
+            propertyGrid1.SelectedObject = draft;
+            draft.evtRP?.Invoke();
+            if (SF.ActiveEditSession != null)
+            {
+                SF.ReplaceActiveEditDraft(draft);
+            }
+            propertyGrid1.ExpandAllGridItems();
         }
         //展开特定的组
         public void ExpandGroup(PropertyGrid propertyGrid, string groupName)
