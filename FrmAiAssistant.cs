@@ -12,6 +12,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -31,6 +32,9 @@ namespace Automation
         // 当前流式段对应的临时 div id（每段递增），用于流式渲染与最终 HTML 替换定位。
         private string streamingDivId;
         private int streamingSegmentIndex;
+        private string latestAssistantSegmentText;
+        private string latestAssistantSegmentDivId;
+        private DateTime promptStartedAt;
         private bool streamingThought;
         private readonly StringBuilder streamingThoughtMarkdown = new StringBuilder();
         private string streamingThoughtDivId;
@@ -304,7 +308,7 @@ table{
     width:100%;
     margin:6px 0;
     border-collapse:collapse;
-    table-layout:fixed;
+    table-layout:auto;
     border:1px solid #d5deea;
     border-radius:6px;
     overflow:hidden;
@@ -345,7 +349,7 @@ pre code{background:transparent;border:0;padding:0;}
 img{max-width:100%;border-radius:8px;}
 hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .thinking-box{
-    max-height:min(42vh,320px);
+    max-height:calc(100vh - 150px);
     overflow-y:auto;
     background:#ffffff;
     border:1px solid #d7e1ee;
@@ -355,6 +359,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
     box-shadow:0 3px 10px rgba(31,45,61,.04);
 }
 .thinking-box.collapsed{max-height:32px;overflow:hidden;}
+.thinking-box .reasoning-text{margin:6px 10px;color:#445268;font-size:13px;line-height:1.55;}
 .thinking-box .toggle-bar{
     position:sticky;
     top:0;
@@ -453,12 +458,14 @@ function post(type,payload){if(window.chrome&&window.chrome.webview){window.chro
 function byId(id){return document.getElementById(id);}
 function toggleThinkingBox(id){
     var el=document.getElementById(id);
-    if(el){el.classList.toggle('collapsed');if(el.classList.contains('collapsed')){el.scrollTop=0;}}
+    if(el){el.classList.toggle('collapsed');if(el.classList.contains('collapsed')){el.style.maxHeight='32px';el.scrollTop=0;}else{el.style.maxHeight='';scrollThinkingBoxToBottom(id);}}
 }
-function onThinkingBoxScroll(box){
-    if(box.classList.contains('collapsed')){return;}
-    var atBottom=box.scrollTop+box.clientHeight>=box.scrollHeight-30;
-    if(atBottom){box.classList.remove('user-scrolled');}else{box.classList.add('user-scrolled');}
+function resizeThinkingBox(box){
+    if(!box||box.classList.contains('collapsed')){return;}
+    var chat=byId('messagesScroll');
+    if(!chat){return;}
+    var available=Math.max(120,chat.getBoundingClientRect().bottom-box.getBoundingClientRect().top-8);
+    box.style.maxHeight=available+'px';
 }
 function scrollMessagesToBottom(){
     var m=byId('messagesScroll');
@@ -470,13 +477,13 @@ function scrollMessagesToBottom(){
 }
 function scrollThinkingBoxToBottom(boxId){
     var box=document.getElementById(boxId);
-    if(box&&!box.classList.contains('collapsed')&&!box.classList.contains('user-scrolled')){
-        var run=function(){box.scrollTop=box.scrollHeight;};
+    if(box&&!box.classList.contains('collapsed')){
+        var run=function(){resizeThinkingBox(box);box.scrollTop=box.scrollHeight;};
+        scrollMessagesToBottom();
         run();
         window.requestAnimationFrame(run);
         window.setTimeout(run,80);
     }
-    scrollMessagesToBottom();
 }
 function setOptions(select,items,value){
     select.innerHTML='';
@@ -716,6 +723,7 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('configOverlay').addEventListener('click',function(e){if(e.target===this){closeConfig();}});
     post('ready');
 });
+window.addEventListener('resize',function(){document.querySelectorAll('.thinking-box:not(.collapsed)').forEach(resizeThinkingBox);});
 </script>
 </head>
 <body>
@@ -1644,6 +1652,9 @@ document.addEventListener('DOMContentLoaded',function(){
             // 每次发送对话强制重置 thinking-box 滚动状态并滚到底部，覆盖用户上滑设置，确保用户看到最新回复。
             EnqueueScript("document.querySelectorAll('.thinking-box').forEach(function(b){b.classList.remove('user-scrolled');if(!b.classList.contains('collapsed')){b.scrollTop=b.scrollHeight;}});if(window.scrollMessagesToBottom){scrollMessagesToBottom();}");
             sending = true;
+            latestAssistantSegmentText = null;
+            latestAssistantSegmentDivId = null;
+            promptStartedAt = DateTime.Now;
             promptCts?.Dispose();
             promptCts = new CancellationTokenSource();
             ApplyPermissions();
@@ -1672,7 +1683,9 @@ document.addEventListener('DOMContentLoaded',function(){
                     fileAttachmentPreviews.Remove(attachmentId);
                 }
                 txtPrompt.Clear();
-                string assistantText = client.LastAssistantResponse;
+                FinishStreaming();
+                FinishThoughtStreaming();
+                string assistantText = PromoteLatestAssistantSegment(client.LastAssistantResponse);
                 if (!string.IsNullOrWhiteSpace(assistantText))
                 {
                     activeConversation.Messages.Add(new AiConversationMessage
@@ -1853,6 +1866,9 @@ document.addEventListener('DOMContentLoaded',function(){
             streamingMarkdown.Clear();
             streamingDivId = null;
             streamingSegmentIndex = 0;
+            latestAssistantSegmentText = null;
+            latestAssistantSegmentDivId = null;
+            promptStartedAt = default(DateTime);
             streamingThought = false;
             streamingThoughtMarkdown.Clear();
             streamingThoughtDivId = null;
@@ -2571,7 +2587,8 @@ document.addEventListener('DOMContentLoaded',function(){
                 // 流式刚结束，内容已在流式 div 中完整渲染，跳过重复的 assistant 事件。
                 if (!justFinishedStreaming)
                 {
-                    AppendConversation("EW-AI", item.Text, Color.FromArgb(30, 104, 74));
+                    latestAssistantSegmentText = item.Text;
+                    latestAssistantSegmentDivId = null;
                 }
             }
             else if (string.Equals(item.Kind, "tool_call", StringComparison.Ordinal))
@@ -2626,7 +2643,7 @@ document.addEventListener('DOMContentLoaded',function(){
             thinkingBoxIndex++;
             currentThinkingBoxId = "thinking-box-" + thinkingBoxIndex;
             string boxId = currentThinkingBoxId;
-            string html = "<div class=\"thinking-box\" id=\"" + boxId + "\" onscroll=\"onThinkingBoxScroll(this)\">"
+            string html = "<div class=\"thinking-box\" id=\"" + boxId + "\">"
                 + "<div class=\"toggle-bar\" onclick=\"toggleThinkingBox('" + boxId + "')\">思维过程（点击折叠/展开）</div>"
                 + "</div>";
             EnqueueAppendHtml(html);
@@ -2649,12 +2666,17 @@ document.addEventListener('DOMContentLoaded',function(){
             {
                 return;
             }
-            string js = "var box=document.getElementById('" + currentThinkingBoxId + "');if(box){box.scrollTop=0;box.classList.add('collapsed');}";
+            TimeSpan elapsed = promptStartedAt == default(DateTime) ? TimeSpan.Zero : DateTime.Now - promptStartedAt;
+            string elapsedText = elapsed.TotalMinutes >= 1
+                ? $"{(int)elapsed.TotalMinutes}分{elapsed.Seconds}秒"
+                : $"{Math.Max(1, (int)Math.Ceiling(elapsed.TotalSeconds))}秒";
+            string js = "var box=document.getElementById('" + currentThinkingBoxId + "');if(box){box.style.maxHeight='32px';box.scrollTop=0;box.classList.add('collapsed');var bar=box.querySelector('.toggle-bar');if(bar){bar.textContent='已处理 "
+                + elapsedText + "';}}";
             EnqueueScript(js);
             currentThinkingBoxId = null;
         }
 
-        // 流式追加正式助手文本：直接渲染到对话区，避免完成后再复制一份结果。
+        // 一轮生成期间先把助手流式片段放入 reasoning 卡片；结束后仅提升最后一段为最终回答。
         private void AppendStreamingText(string text)
         {
             if (webViewConversation == null || webViewConversation.IsDisposed || string.IsNullOrEmpty(text))
@@ -2669,12 +2691,8 @@ document.addEventListener('DOMContentLoaded',function(){
                 streamingMarkdown.Append(text);
                 streamingAssistant = true;
                 lastStreamRender = DateTime.Now;
-                string time = DateTime.Now.ToString("HH:mm:ss");
-                string html = "<div class=\"msg assistant\"><div class=\"msg-head\"><img class=\"avatar avatar-image\" src=\"" + ChickAvatarDataUri + "\" alt=\"AI\" title=\"EW-AI " + HtmlEncode(time) + "\"><span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
-                    + CopyButtonHtml + "</div>"
-                    + "<div class=\"content\"><div class=\"streaming-segment\" id=\"" + streamingDivId + "\">"
-                    + StreamingTextToHtml(streamingMarkdown.ToString()) + "</div></div></div>";
-                EnqueueAppendHtml(html);
+                AppendToThinkingBox("<div class=\"reasoning-text streaming-segment\" id=\"" + streamingDivId + "\">"
+                    + StreamingTextToHtml(streamingMarkdown.ToString()) + "</div>");
             }
             else
             {
@@ -2702,8 +2720,30 @@ document.addEventListener('DOMContentLoaded',function(){
             string idJson = JsonConvert.SerializeObject(streamingDivId);
             string js = "var el=document.getElementById(" + idJson + ");if(el){el.innerHTML=" + htmlJson + ";}if(window.scrollMessagesToBottom){scrollMessagesToBottom();}";
             EnqueueScript(js);
+            latestAssistantSegmentText = streamingMarkdown.ToString();
+            latestAssistantSegmentDivId = streamingDivId;
             streamingAssistant = false;
             streamingDivId = null;
+        }
+
+        private string PromoteLatestAssistantSegment(string fallbackText)
+        {
+            string finalText = string.IsNullOrWhiteSpace(latestAssistantSegmentText)
+                ? fallbackText
+                : latestAssistantSegmentText;
+            if (!string.IsNullOrWhiteSpace(latestAssistantSegmentDivId))
+            {
+                EnqueueScript("var el=document.getElementById("
+                    + JsonConvert.SerializeObject(latestAssistantSegmentDivId)
+                    + ");if(el){var box=el.closest('.thinking-box');el.remove();if(box&&box.children.length<=1){box.remove();}}");
+            }
+            latestAssistantSegmentText = null;
+            latestAssistantSegmentDivId = null;
+            if (!string.IsNullOrWhiteSpace(finalText))
+            {
+                AppendConversation("EW-AI", finalText, Color.FromArgb(30, 104, 74));
+            }
+            return finalText;
         }
 
         // 协议显式标记的推理片段仅显示在思维窗口，不混入最终回答。
@@ -2883,7 +2923,10 @@ document.addEventListener('DOMContentLoaded',function(){
 
         private static string NormalizeMarkdownForRendering(string markdown)
         {
-            string[] lines = (markdown ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+            string normalizedMarkdown = (markdown ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n");
+            normalizedMarkdown = Regex.Replace(normalizedMarkdown, @"(?m)(?<!^)(```|~~~)", "\n$1");
+            normalizedMarkdown = UnwrapBareMarkdownFence(normalizedMarkdown);
+            string[] lines = normalizedMarkdown.Split('\n');
             var output = new List<string>();
             bool inCodeFence = false;
 
@@ -2916,6 +2959,56 @@ document.addEventListener('DOMContentLoaded',function(){
                 output.Add(normalizedLine);
             }
 
+            return string.Join("\n", output);
+        }
+
+        private static string UnwrapBareMarkdownFence(string markdown)
+        {
+            string[] lines = (markdown ?? string.Empty).Split('\n');
+            var output = new List<string>();
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string marker = lines[i].Trim();
+                if (marker != "```" && marker != "~~~")
+                {
+                    output.Add(lines[i]);
+                    continue;
+                }
+
+                int closingIndex = -1;
+                for (int j = i + 1; j < lines.Length; j++)
+                {
+                    if (string.Equals(lines[j].Trim(), marker, StringComparison.Ordinal))
+                    {
+                        closingIndex = j;
+                        break;
+                    }
+                }
+                if (closingIndex < 0)
+                {
+                    output.Add(lines[i]);
+                    continue;
+                }
+
+                bool containsMarkdown = lines
+                    .Skip(i + 1)
+                    .Take(closingIndex - i - 1)
+                    .Any(line => line.TrimStart().StartsWith("#", StringComparison.Ordinal)
+                        || line.TrimStart().StartsWith("|", StringComparison.Ordinal)
+                        || line.TrimStart().StartsWith("- ", StringComparison.Ordinal)
+                        || Regex.IsMatch(line, @"^\s*\d+[\.、]\s+"));
+                if (!containsMarkdown)
+                {
+                    output.Add(lines[i]);
+                    continue;
+                }
+
+                for (int j = i + 1; j < closingIndex; j++)
+                {
+                    output.Add(lines[j]);
+                }
+                i = closingIndex;
+            }
             return string.Join("\n", output);
         }
 

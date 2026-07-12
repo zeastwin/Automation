@@ -699,7 +699,10 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleBuildPatchFromIntent(JObject request)
         {
-            JObject intent = ReadIntentObject(request);
+            if (!TryReadIntentEnvelope(request, out JObject intent, out JObject error))
+            {
+                return error;
+            }
             JObject patch = ConvertIntentToPatch(intent);
             return new JObject
             {
@@ -711,7 +714,10 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandlePreviewIntent(JObject request)
         {
-            JObject intent = ReadIntentObject(request);
+            if (!TryReadIntentEnvelope(request, out JObject intent, out JObject error))
+            {
+                return error;
+            }
             JObject patch = ConvertIntentToPatch(intent);
             PatchExecutionResult result = ExecutePatch(patch);
             JObject preview = BuildRegisteredPatchPreview(patch, result);
@@ -728,8 +734,14 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleApplyIntent(JObject request)
         {
-            string previewId = ReadRequiredString(request, "previewId");
-            JObject intent = ReadIntentObject(request);
+            if (!TryReadString(request, "previewId", out string previewId, out JObject previewError))
+            {
+                return previewError;
+            }
+            if (!TryReadIntentEnvelope(request, out JObject intent, out JObject error))
+            {
+                return error;
+            }
             JObject patch = ConvertIntentToPatch(intent);
             ValidateConfirmedPreview(previewId, patch);
             PatchExecutionResult result = ExecutePatch(patch);
@@ -750,6 +762,92 @@ namespace Automation.Bridge
                     Changes = result.Changes
                 })
             };
+        }
+
+        private static bool TryReadIntentEnvelope(JObject request, out JObject intent, out JObject error)
+        {
+            intent = null;
+            error = null;
+            JToken intentToken = request?["intent"];
+            if (intentToken != null && intentToken.Type != JTokenType.Null)
+            {
+                if (!(intentToken is JObject intentObject))
+                {
+                    error = BridgeError(400, "INVALID_ARGUMENT", "字段 intent 必须是 JSON 对象。",
+                        "请传入 intent 对象，或把完整对象序列化到 intentJson 字符串中。");
+                    return false;
+                }
+                intent = (JObject)intentObject.DeepClone();
+            }
+            else
+            {
+                JToken jsonToken = request?["intentJson"];
+                if (jsonToken == null || jsonToken.Type != JTokenType.String)
+                {
+                    error = BridgeError(400, "INVALID_ARGUMENT", "字段 intentJson 必须是字符串，或直接提供 intent 对象。",
+                        "当前类型：" + (jsonToken?.Type.ToString() ?? "缺失"));
+                    return false;
+                }
+                try
+                {
+                    intent = JToken.Parse(jsonToken.Value<string>()) as JObject;
+                }
+                catch (JsonReaderException ex)
+                {
+                    error = BridgeError(400, "INVALID_ARGUMENT", "intentJson 不是合法 JSON。", ex.Message);
+                    return false;
+                }
+                if (intent == null)
+                {
+                    error = BridgeError(400, "INVALID_ARGUMENT", "intentJson 必须是 JSON 对象。",
+                        "请不要传数组、字符串、数字或 null。修正后可直接重试预演。");
+                    return false;
+                }
+            }
+
+            if (!TryReadString(intent, "intentType", out _, out error)
+                || !TryReadInteger(intent, "procIndex", out _, out error)
+                || !TryReadString(intent, "baseProcId", out string baseProcId, out error))
+            {
+                return false;
+            }
+            if (!Guid.TryParse(baseProcId, out _))
+            {
+                error = BridgeError(400, "INVALID_ARGUMENT", "字段 baseProcId 必须是合法 Guid 字符串。",
+                    "必须使用 get_proc_detail 返回的 procId 原值，不能使用对象、流程名、索引或占位值。");
+                return false;
+            }
+            return true;
+        }
+
+        private static bool TryReadString(JObject obj, string fieldName, out string value, out JObject error)
+        {
+            value = null;
+            error = null;
+            JToken token = obj?[fieldName];
+            if (token == null || token.Type != JTokenType.String || string.IsNullOrWhiteSpace(token.Value<string>()))
+            {
+                error = BridgeError(400, "INVALID_ARGUMENT", $"字段 {fieldName} 必须是非空字符串。",
+                    "当前类型：" + (token?.Type.ToString() ?? "缺失"));
+                return false;
+            }
+            value = token.Value<string>();
+            return true;
+        }
+
+        private static bool TryReadInteger(JObject obj, string fieldName, out int value, out JObject error)
+        {
+            value = 0;
+            error = null;
+            JToken token = obj?[fieldName];
+            if (token == null || token.Type != JTokenType.Integer)
+            {
+                error = BridgeError(400, "INVALID_ARGUMENT", $"字段 {fieldName} 必须是整数。",
+                    "当前类型：" + (token?.Type.ToString() ?? "缺失"));
+                return false;
+            }
+            value = token.Value<int>();
+            return true;
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
