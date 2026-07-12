@@ -5084,7 +5084,7 @@ namespace Automation.Bridge
                         continue;
                     }
 
-                    fields.Add(new JObject
+                    JObject field = new JObject
                     {
                         ["key"] = descriptor.Name,
                         ["displayName"] = descriptor.DisplayName,
@@ -5097,7 +5097,20 @@ namespace Automation.Bridge
                         ["referenceType"] = GetReferenceType(descriptor.Converter?.GetType().Name),
                         ["enumValues"] = BuildStandardValues(descriptor),
                         ["currentValue"] = ConvertValueToToken(descriptor.GetValue(op))
-                    });
+                    };
+
+                    if (string.Equals(GetReferenceType(descriptor.Converter?.GetType().Name), "proc.goto", StringComparison.Ordinal))
+                    {
+                        field["format"] = "procIndex-stepIndex-opIndex";
+                        field["example"] = "0-2-3";
+                        field["allowDisplayText"] = false;
+                        field["writeRule"] = "只能写三段式非负整数地址；下拉框显示的步骤名、指令名或“步骤：完成结束”等文字仅供界面展示，禁止作为字段值写入。";
+                        field["required"] = op is ParamGoto
+                            && (string.Equals(descriptor.Name, "goto1", StringComparison.Ordinal)
+                                || string.Equals(descriptor.Name, "goto2", StringComparison.Ordinal));
+                    }
+
+                    fields.Add(field);
                 }
 
                 return new JObject

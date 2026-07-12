@@ -800,10 +800,12 @@ namespace Automation
                 new ParamGotoParam()
             };
         }
-        [DisplayName("成功跳转"), Category("参数"), Description("条件成立时跳转到的目标位置。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [DisplayName("成功跳转"), Category("参数"), Description("条件成立时跳转到的目标位置。必须填写三段式数字地址 procIndex-stepIndex-opIndex；界面显示的步骤名或指令名不是可写值。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("标识的跳转属性")]
         public string goto1 { get; set; }
 
-        [DisplayName("失败跳转"), Category("参数"), Description("条件不成立时跳转到的目标位置。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [DisplayName("失败跳转"), Category("参数"), Description("条件不成立时跳转到的目标位置。必须填写三段式数字地址 procIndex-stepIndex-opIndex；若需继续下一条指令，也要填写下一条指令的地址。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("标识的跳转属性")]
         public string goto2 { get; set; }
 
         [DisplayName("失败延时(ms)"), Category("参数"), Description("条件不满足时的重试间隔（ms），用于降低轮询压力。"), ReadOnly(false)]

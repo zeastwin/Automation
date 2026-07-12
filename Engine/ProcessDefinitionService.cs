@@ -315,7 +315,17 @@ namespace Automation
                 if (propertyInfo.PropertyType == typeof(string) && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
                 {
                     string value = propertyInfo.GetValue(obj) as string;
-                    if (!string.IsNullOrWhiteSpace(value))
+                    bool isRequiredParamGoto = obj is ParamGoto
+                        && (string.Equals(propertyInfo.Name, "goto1", StringComparison.Ordinal)
+                            || string.Equals(propertyInfo.Name, "goto2", StringComparison.Ordinal));
+                    if (string.IsNullOrWhiteSpace(value))
+                    {
+                        if (isRequiredParamGoto)
+                        {
+                            errors.Add($"{context}{propertyInfo.Name}不能为空；必须填写三段式数字地址 procIndex-stepIndex-opIndex。若需继续下一条指令，请填写下一条指令地址。");
+                        }
+                    }
+                    else
                     {
                         if (value.StartsWith(DeletedGotoPrefix, StringComparison.Ordinal))
                         {
@@ -323,7 +333,7 @@ namespace Automation
                         }
                         else if (!TryParseGotoKey(value, out int gotoProc, out int gotoStep, out int gotoOp))
                         {
-                            errors.Add($"{context}跳转地址格式错误：{value}");
+                            errors.Add($"{context}跳转地址格式错误：{value}。只能填写三段式数字地址 procIndex-stepIndex-opIndex，例如 0-2-3；界面显示文字不能作为地址。");
                         }
                         else if (gotoProc != procIndex)
                         {

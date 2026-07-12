@@ -38,6 +38,7 @@ namespace Automation.KernelTests
             Run("暂停状态删除当前指令被拒绝", TestPausedCurrentOperationDeletionRejected);
             Run("编辑会话提交与取消隔离", TestEditSession);
             Run("流程结构变化按指令ID重写跳转", TestGotoRewriteByOperationId);
+            Run("逻辑判断跳转地址严格校验", TestParamGotoStrictValidation);
             Run("JSON原子替换与备份恢复", TestAtomicJsonRecovery);
             Run("流程目录事务中断恢复", TestProcessDirectoryRecovery);
             Run("多文件配置批量提交", TestConfigurationBatchWriter);
@@ -797,6 +798,25 @@ namespace Automation.KernelTests
             ProcessEditingService.RewriteGotoTargets(before, explicitUpdate, 0);
             Assert(((Goto)explicitUpdate.steps[0].Ops[0]).DefaultGoto == "0-0-3",
                 "本次显式修改的跳转被旧索引重写覆盖");
+        }
+
+        private static void TestParamGotoStrictValidation()
+        {
+            var operation = new ParamGoto { goto1 = "步骤：完成结束", goto2 = "0-0-1" };
+            Proc proc = CreateProc(operation, new Delay { Name = "完成结束" });
+            Assert(!ProcessDefinitionService.TryValidateOperationGoto(operation, 0, proc, out string displayTextError)
+                && displayTextError.Contains("只能填写三段式数字地址"),
+                "逻辑判断接受了界面显示文字作为跳转地址");
+
+            operation.goto1 = string.Empty;
+            Assert(!ProcessDefinitionService.TryValidateOperationGoto(operation, 0, proc, out string emptyError)
+                && emptyError.Contains("goto1不能为空"),
+                "逻辑判断接受了空的成功跳转地址");
+
+            operation.goto1 = "0-0-1";
+            operation.goto2 = "0-0-1";
+            Assert(ProcessDefinitionService.TryValidateOperationGoto(operation, 0, proc, out _),
+                "逻辑判断拒绝了合法的三段式跳转地址");
         }
 
         private static void TestAtomicJsonRecovery()
