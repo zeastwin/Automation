@@ -1500,18 +1500,22 @@ namespace Automation.McpServer
 
         private static async Task<string> ExecuteAsync(string toolName, object args, Func<AutomationBridgeClient, Task<string>> action)
         {
+            string callId = ToolCallLogger.Begin(toolName, args);
+            System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 string result = await action(AutomationMcpRuntime.GetBridgeClient()).ConfigureAwait(false);
-                ToolCallLogger.Log(toolName, args, result);
+                stopwatch.Stop();
+                ToolCallLogger.Complete(callId, toolName, args, result, durationMs: stopwatch.ElapsedMilliseconds);
                 return result;
             }
             catch (Exception ex)
             {
+                stopwatch.Stop();
                 string error = $$"""
 {"ok":false,"type":"mcp.error","errorCode":"TOOL_EXCEPTION","message":"{{toolName}} 调用异常","exceptionType":"{{Escape(ex.GetType().Name)}}","details":"{{Escape(ex.Message)}}"}
 """;
-                ToolCallLogger.Log(toolName, args, string.Empty, ex.ToString());
+                ToolCallLogger.Complete(callId, toolName, args, string.Empty, ex.ToString(), stopwatch.ElapsedMilliseconds);
                 return error;
             }
         }

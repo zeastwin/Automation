@@ -30,7 +30,6 @@ namespace Automation
         private const long MaxLogFileBytes = 5L * 1024L * 1024L;
 
         private static readonly string executionLogRoot = Path.Combine(@"D:\AutomationLogs", "AIExecution");
-        private static readonly string acpLogRoot = Path.Combine(@"D:\AutomationLogs", "GooseAcp");
         private static readonly Mutex executionLogMutex = new Mutex(false, "AutomationAIExecutionAuditLog");
 
         private readonly GooseConfig config;
@@ -42,6 +41,7 @@ namespace Automation
         // 每个 ACP 进程使用独立会话名，避免 Goose 恢复旧会话历史污染新的用户请求。
         private readonly string runtimeSessionName = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N").Substring(0, 6);
         private readonly StringBuilder assistantResponse = new StringBuilder();
+        private readonly StringBuilder assistantThought = new StringBuilder();
         private int nextRequestId;
         private Process process;
         private StreamWriter stdin;
@@ -146,7 +146,9 @@ namespace Automation
             {
                 // Goose 进程在两轮对话之间退出（崩溃/超时），EnsureSession 会重建会话。
                 // 新会话不携带之前的对话历史，必须提示用户，否则用户以为 AI 还记得上下文。
-                Report("exit", "⚠️ Goose 进程已退出并重建会话，之前对话上下文已丢失。如果之前的对话涉及方案选择，请重新说明。", null);
+                string message = "⚠️ Goose 进程已退出并重建会话，之前对话上下文已丢失。如果之前的对话涉及方案选择，请重新说明。";
+                LogExecution("session_recreated", message, null);
+                Report("exit", message, null);
             }
 
             await InitializeAsync(cancellationToken).ConfigureAwait(false);
@@ -166,8 +168,12 @@ namespace Automation
             {
                 currentPromptId = Guid.NewGuid().ToString("N");
                 assistantResponse.Clear();
+                assistantThought.Clear();
             }
-            LogExecution("user_prompt", prompt, null);
+            LogExecution("user_prompt", prompt, new JObject
+            {
+                ["effectivePrompt"] = finalPrompt
+            });
             try
             {
                 JObject result = await SendRequestAsync("session/prompt", new JObject
@@ -200,6 +206,16 @@ namespace Automation
                     response = assistantResponse.ToString();
                 }
                 LogExecution("assistant_response", response, null);
+
+                string thought;
+                lock (executionLock)
+                {
+                    thought = assistantThought.ToString();
+                }
+                if (!string.IsNullOrWhiteSpace(thought))
+                {
+                    LogExecution("assistant_thought", thought, null);
+                }
             }
         }
 
@@ -720,6 +736,10 @@ namespace Automation
                     string thoughtText = ExtractText(parameters);
                     if (!string.IsNullOrWhiteSpace(thoughtText))
                     {
+                        lock (executionLock)
+                        {
+                            assistantThought.Append(thoughtText);
+                        }
                         Report("assistant_thought", thoughtText, message);
                     }
                     return;
@@ -730,6 +750,7 @@ namespace Automation
                 {
                     string title = FindFirstString(parameters, "title", "name") ?? "调用工具";
                     string displayName = ResolveToolDisplayName(parameters, title);
+                    LogExecution("tool_call", displayName, message);
                     Report("tool_call", displayName, message);
                     return;
                 }
@@ -754,6 +775,20 @@ namespace Automation
                 if (string.IsNullOrWhiteSpace(text))
                 {
                     text = string.IsNullOrWhiteSpace(updateKind) ? "收到 session/update。" : $"收到 session/update：{updateKind}";
+                }
+                if (string.Equals(updateKind, "agent_message", StringComparison.Ordinal))
+                {
+                    lock (executionLock)
+                    {
+                        assistantResponse.Append(text);
+                    }
+                }
+                else if (string.Equals(updateKind, "agent_thought", StringComparison.Ordinal))
+                {
+                    lock (executionLock)
+                    {
+                        assistantThought.Append(text);
+                    }
                 }
                 LogFile($"ACP<- 通知 session/update kind={updateKind ?? "(空)"}", parameters, LogLevel.Normal);
                 Report(NormalizeUpdateKind(updateKind), text, message);
@@ -1187,41 +1222,35 @@ namespace Automation
                 {
                     return;
                 }
-                if (!string.Equals(record["source"]?.Value<string>(), "acp", StringComparison.Ordinal))
-                {
-                    Directory.CreateDirectory(executionLogRoot);
-                    string executionPath = Path.Combine(executionLogRoot, DateTime.Now.ToString("yyyy-MM-dd") + ".jsonl");
-                    File.AppendAllText(executionPath, record.ToString(Formatting.None) + Environment.NewLine,
-                        new UTF8Encoding(false));
-                    return;
-                }
-
-                string dayDirectory = Path.Combine(acpLogRoot, DateTime.Now.ToString("yyyy-MM-dd"));
-                Directory.CreateDirectory(dayDirectory);
+                Directory.CreateDirectory(executionLogRoot);
 
                 StringBuilder builder = new StringBuilder();
-                builder.AppendLine(new string('=', 80));
+                builder.AppendLine(new string('=', 100));
                 builder.Append("时间：").AppendLine(record["time"]?.Value<string>() ?? DateTime.Now.ToString("O"));
                 builder.Append("来源：").AppendLine(record["source"]?.Value<string>() ?? string.Empty);
                 builder.Append("类型：").AppendLine(record["kind"]?.Value<string>() ?? string.Empty);
                 AppendLogField(builder, "审计会话", record["auditSessionId"]);
                 AppendLogField(builder, "Goose 会话", record["gooseSessionId"]);
                 AppendLogField(builder, "Prompt ID", record["promptId"]);
+                AppendLogField(builder, "调用 ID", record["callId"]);
+                AppendLogField(builder, "工具", record["toolName"]);
+                AppendLogField(builder, "耗时", record["durationMs"], "毫秒");
                 builder.AppendLine("内容：");
                 builder.AppendLine(record["text"]?.Value<string>() ?? string.Empty);
-                if (record["raw"] != null)
-                {
-                    builder.AppendLine("原始数据：");
-                    builder.AppendLine(record["raw"].ToString(Formatting.Indented));
-                }
+                AppendJsonSection(builder, "参数", record["args"]);
+                AppendJsonSection(builder, "结果", record["result"]);
+                AppendLogField(builder, "异常", record["error"]);
+                AppendJsonSection(builder, "原始数据", record["raw"]);
                 builder.AppendLine();
 
                 string content = builder.ToString();
-                int index = 1;
+                string datePrefix = DateTime.Now.ToString("yyyy-MM-dd");
+                int index = 0;
                 string path;
                 while (true)
                 {
-                    path = Path.Combine(dayDirectory, $"log_{index:000}.txt");
+                    string suffix = index == 0 ? string.Empty : $"_{index:000}";
+                    path = Path.Combine(executionLogRoot, datePrefix + suffix + ".log");
                     if (!File.Exists(path)
                         || new FileInfo(path).Length + Encoding.UTF8.GetByteCount(content) <= MaxLogFileBytes)
                     {
@@ -1229,7 +1258,7 @@ namespace Automation
                     }
                     index++;
                 }
-                using (StreamWriter writer = new StreamWriter(path, true, new UTF8Encoding(true)))
+                using (StreamWriter writer = new StreamWriter(path, true, new UTF8Encoding(false)))
                 {
                     writer.Write(content);
                 }
@@ -1262,6 +1291,42 @@ namespace Automation
             if (!string.IsNullOrWhiteSpace(text))
             {
                 builder.Append(label).Append('：').AppendLine(text);
+            }
+        }
+
+        private static void AppendLogField(StringBuilder builder, string label, JToken value, string suffix)
+        {
+            if (value == null || value.Type == JTokenType.Null)
+            {
+                return;
+            }
+
+            builder.Append(label).Append('：').Append(value).AppendLine(suffix ?? string.Empty);
+        }
+
+        private static void AppendJsonSection(StringBuilder builder, string label, JToken value)
+        {
+            if (value == null || value.Type == JTokenType.Null)
+            {
+                return;
+            }
+
+            builder.AppendLine(label + "：");
+            if (value.Type == JTokenType.String)
+            {
+                string text = value.Value<string>() ?? string.Empty;
+                try
+                {
+                    builder.AppendLine(JToken.Parse(text).ToString(Formatting.Indented));
+                }
+                catch
+                {
+                    builder.AppendLine(text);
+                }
+            }
+            else
+            {
+                builder.AppendLine(value.ToString(Formatting.Indented));
             }
         }
 
