@@ -124,6 +124,7 @@
     <Compile Include="Engine\ProcessEditingService.cs" />
     <Compile Include="Engine\ProcessDefinitionService.cs" />
     <Compile Include="Engine\ProcessModels.cs" />
+    <Compile Include="Engine\OperationBehaviorCatalog.cs" />
     <Compile Include="Stores\\AlarmInfoStore.cs" />
     <Compile Include="Stores\\AtomicJsonFileStore.cs" />
     <Compile Include="Stores\\CardConfigStore.cs" />
@@ -444,7 +445,9 @@
       <LogicalName>Automation.Assets.Goose.system.md</LogicalName>
     </EmbeddedResource>
     <None Include="app.config" />
-    <None Include="IntentTemplates\intent_templates.json" />
+    <Content Include="IntentTemplates\intent_templates.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <None Include="packages.config" />
     <None Include="Properties\DataSources\FrmProc.datasource" />
     <None Include="Properties\DataSources\FrmState.datasource" />

@@ -9,6 +9,10 @@ using System.IO;
 using System.Text;
 using System.Net;
 using System.Net.Sockets;
+using System.ComponentModel;
+using System.Linq;
+using System.Reflection;
+using Newtonsoft.Json.Linq;
 
 namespace Automation.KernelTests
 {
@@ -39,6 +43,7 @@ namespace Automation.KernelTests
             Run("编辑会话提交与取消隔离", TestEditSession);
             Run("流程结构变化按指令ID重写跳转", TestGotoRewriteByOperationId);
             Run("逻辑判断跳转地址严格校验", TestParamGotoStrictValidation);
+            Run("指令行为契约与跳转标记一致", TestOperationBehaviorContracts);
             Run("JSON原子替换与备份恢复", TestAtomicJsonRecovery);
             Run("流程目录事务中断恢复", TestProcessDirectoryRecovery);
             Run("多文件配置批量提交", TestConfigurationBatchWriter);
@@ -817,6 +822,55 @@ namespace Automation.KernelTests
             operation.goto2 = "0-0-1";
             Assert(ProcessDefinitionService.TryValidateOperationGoto(operation, 0, proc, out _),
                 "逻辑判断拒绝了合法的三段式跳转地址");
+        }
+
+        private static void TestOperationBehaviorContracts()
+        {
+            Type[] operationTypes = typeof(OperationType).Assembly.GetTypes()
+                .Where(type => typeof(OperationType).IsAssignableFrom(type) || type == typeof(GotoParam))
+                .ToArray();
+            foreach (Type type in operationTypes)
+            {
+                foreach (PropertyInfo property in type.GetProperties())
+                {
+                    TypeConverterAttribute converter = property
+                        .GetCustomAttributes(typeof(TypeConverterAttribute), true)
+                        .Cast<TypeConverterAttribute>()
+                        .FirstOrDefault();
+                    if (converter != null && converter.ConverterTypeName.Contains("GotoItem"))
+                    {
+                        Assert(property.GetCustomAttribute<MarkedGotoAttribute>() != null,
+                            $"{type.Name}.{property.Name} 使用 GotoItem 但缺少 MarkedGoto 标记");
+                    }
+                }
+            }
+
+            var logic = new ParamGoto();
+            JObject logicContract = OperationBehaviorCatalog.BuildContract(logic);
+            Assert(logicContract?["controlFlow"]?["fallThrough"]?.Value<bool>() == false,
+                "逻辑判断契约未声明显式控制流");
+            Assert(OperationBehaviorCatalog.IsFieldRequired(logic, "goto1")
+                && OperationBehaviorCatalog.IsFieldRequired(logic, "goto2"),
+                "逻辑判断契约未声明两个跳转字段必填");
+
+            var popup = new PopupDialog();
+            Assert(!OperationBehaviorCatalog.IsFieldRequired(popup, "PopupGoto1")
+                && !OperationBehaviorCatalog.IsFieldRequired(popup, "PopupGoto2"),
+                "弹框可选跳转被错误标记为必填");
+            Proc popupAtEnd = CreateProc(popup);
+            Assert(ProcessDefinitionService.TryValidateOperationGoto(popup, 0, popupAtEnd, out _),
+                "流程末尾弹框的空跳转未被允许自然结束");
+            popup.PopupType = "弹是与否与取消";
+            Assert(!OperationBehaviorCatalog.IsFieldRequired(popup, "PopupGoto2")
+                && !OperationBehaviorCatalog.IsFieldRequired(popup, "PopupGoto3"),
+                "三按钮弹框的可选跳转被错误标记为必填");
+
+            var alarmOperation = new Delay { AlarmType = "弹框确定与否" };
+            Assert(OperationBehaviorCatalog.IsFieldRequired(alarmOperation, "AlarmInfoID")
+                && OperationBehaviorCatalog.IsFieldRequired(alarmOperation, "Goto1")
+                && OperationBehaviorCatalog.IsFieldRequired(alarmOperation, "Goto2")
+                && !OperationBehaviorCatalog.IsFieldRequired(alarmOperation, "Goto3"),
+                "报警策略的条件必填规则错误");
         }
 
         private static void TestAtomicJsonRecovery()

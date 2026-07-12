@@ -567,6 +567,20 @@ namespace Automation.Bridge
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleGetOperationGuide(JObject request)
+        {
+            EnsureRuntimeReady();
+            string operaType = ReadRequiredString(request, "operaType");
+            OperationType operation = CreateOperationTemplate(operaType);
+            JObject behavior = OperationBehaviorCatalog.BuildContract(operation);
+            return new JObject
+            {
+                ["operaType"] = operation.OperaType ?? string.Empty,
+                ["guide"] = behavior
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetReferenceCatalog(JObject request)
         {
             EnsureRuntimeReady();
@@ -2415,8 +2429,9 @@ namespace Automation.Bridge
             {
                 case "list_types": return HandleListOperationTypes();
                 case "schema": return HandleGetOperationSchema(p);
+                case "guide": return HandleGetOperationGuide(p);
                 case "reference_catalog": return HandleGetReferenceCatalog(p);
-                default: return BridgeError(400, "INVALID_ACTION", $"不支持的 action: {action}，可选：list_types/schema/reference_catalog（guide 由 MCP 层静态返回）");
+                default: return BridgeError(400, "INVALID_ACTION", $"不支持的 action: {action}，可选：list_types/schema/guide/reference_catalog");
             }
         }
 
@@ -5079,7 +5094,13 @@ namespace Automation.Bridge
                 JArray fields = new JArray();
                 foreach (PropertyDescriptor descriptor in TypeDescriptor.GetProperties(op).Cast<PropertyDescriptor>())
                 {
-                    if (descriptor == null || !descriptor.IsBrowsable)
+                    if (descriptor == null)
+                    {
+                        continue;
+                    }
+
+                    JObject behaviorRule = OperationBehaviorCatalog.BuildFieldRule(op, descriptor.Name);
+                    if (!descriptor.IsBrowsable && behaviorRule == null)
                     {
                         continue;
                     }
@@ -5093,6 +5114,7 @@ namespace Automation.Bridge
                         ["dataType"] = GetTypeLabel(descriptor.PropertyType),
                         ["jsonType"] = GetJsonTypeLabel(descriptor.PropertyType),
                         ["valueShape"] = GetFieldValueShape(descriptor),
+                        ["visible"] = descriptor.IsBrowsable,
                         ["readOnly"] = descriptor.IsReadOnly,
                         ["referenceType"] = GetReferenceType(descriptor.Converter?.GetType().Name),
                         ["enumValues"] = BuildStandardValues(descriptor),
@@ -5110,6 +5132,20 @@ namespace Automation.Bridge
                                 || string.Equals(descriptor.Name, "goto2", StringComparison.Ordinal));
                     }
 
+                    if (behaviorRule != null)
+                    {
+                        foreach (JProperty ruleProperty in behaviorRule.Properties())
+                        {
+                            field[ruleProperty.Name] = ruleProperty.Value.DeepClone();
+                        }
+                    }
+
+                    JObject itemSchema = BuildOperationListItemSchema(descriptor);
+                    if (itemSchema != null)
+                    {
+                        field["itemSchema"] = itemSchema;
+                    }
+
                     fields.Add(field);
                 }
 
@@ -5117,9 +5153,77 @@ namespace Automation.Bridge
                 {
                     ["operaType"] = op.OperaType ?? string.Empty,
                     ["name"] = op.Name ?? string.Empty,
+                    ["behavior"] = OperationBehaviorCatalog.BuildContract(op),
                     ["fields"] = fields
                 };
             });
+        }
+
+        private JObject BuildOperationListItemSchema(PropertyDescriptor listDescriptor)
+        {
+            Type listType = listDescriptor?.PropertyType;
+            if (listType == null || !listType.IsGenericType)
+            {
+                return null;
+            }
+
+            Type[] arguments = listType.GetGenericArguments();
+            if (arguments.Length != 1 || arguments[0] == typeof(string) || arguments[0].IsPrimitive)
+            {
+                return null;
+            }
+
+            Type itemType = arguments[0];
+            object item;
+            try
+            {
+                item = Activator.CreateInstance(itemType);
+            }
+            catch
+            {
+                return null;
+            }
+
+            JArray itemFields = new JArray();
+            foreach (PropertyDescriptor descriptor in TypeDescriptor.GetProperties(item).Cast<PropertyDescriptor>())
+            {
+                if (descriptor == null || !descriptor.IsBrowsable)
+                {
+                    continue;
+                }
+
+                string referenceType = GetReferenceType(descriptor.Converter?.GetType().Name);
+                JObject field = new JObject
+                {
+                    ["key"] = descriptor.Name,
+                    ["displayName"] = descriptor.DisplayName,
+                    ["description"] = descriptor.Description ?? string.Empty,
+                    ["jsonType"] = GetJsonTypeLabel(descriptor.PropertyType),
+                    ["valueShape"] = GetFieldValueShape(descriptor),
+                    ["referenceType"] = referenceType,
+                    ["enumValues"] = BuildStandardValues(descriptor)
+                };
+                if (string.Equals(referenceType, "proc.goto", StringComparison.Ordinal))
+                {
+                    field["requiredWhen"] = itemType == typeof(GotoParam)
+                        && string.Equals(descriptor.Name, "Goto", StringComparison.Ordinal)
+                        ? (JToken)new JObject
+                        {
+                            ["anySiblingConfigured"] = new JArray("MatchValue", "MatchValueIndex", "MatchValueV")
+                        }
+                        : null;
+                    field["format"] = "procIndex-stepIndex-opIndex";
+                    field["allowDisplayText"] = false;
+                    field["writeRule"] = "只能写三段式非负整数地址，禁止写步骤名、指令名或界面显示文字。";
+                }
+                itemFields.Add(field);
+            }
+
+            return new JObject
+            {
+                ["itemType"] = itemType.Name,
+                ["fields"] = itemFields
+            };
         }
 
         // 跳转类指令：执行后按条件跳转，不会自动流向 opIndex+1。

@@ -99,7 +99,7 @@ namespace Automation
                 Step step = proc.steps[i];
                 for (int j = 0; j < step.Ops.Count; j++)
                 {
-                    ValidateGotoTargets(step.Ops[j], procIndex, proc, errors, $"流程{procIndex}步骤{i}指令{j}");
+                    ValidateGotoTargets(step.Ops[j], step.Ops[j], procIndex, proc, errors, $"流程{procIndex}步骤{i}指令{j}");
                     ValidateCommunicationOperation(step.Ops[j], errors, $"流程{procIndex}步骤{i}指令{j}");
                 }
             }
@@ -287,7 +287,7 @@ namespace Automation
                     {
                         continue;
                     }
-                    ValidateGotoTargets(op, procIndex, proc, errors, $"流程{procIndex}步骤{i}指令{j}");
+                    ValidateGotoTargets(op, op, procIndex, proc, errors, $"流程{procIndex}步骤{i}指令{j}");
                 }
             }
             return errors;
@@ -298,13 +298,13 @@ namespace Automation
             var errors = new List<string>();
             if (operation != null)
             {
-                ValidateGotoTargets(operation, procIndex, proc, errors, "指令");
+                ValidateGotoTargets(operation, operation, procIndex, proc, errors, "指令");
             }
             error = errors.FirstOrDefault();
             return error == null;
         }
 
-        private static void ValidateGotoTargets(object obj, int procIndex, Proc proc, List<string> errors, string context)
+        private static void ValidateGotoTargets(object obj, OperationType rootOperation, int procIndex, Proc proc, List<string> errors, string context)
         {
             foreach (var propertyInfo in obj.GetType().GetProperties())
             {
@@ -315,12 +315,11 @@ namespace Automation
                 if (propertyInfo.PropertyType == typeof(string) && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
                 {
                     string value = propertyInfo.GetValue(obj) as string;
-                    bool isRequiredParamGoto = obj is ParamGoto
-                        && (string.Equals(propertyInfo.Name, "goto1", StringComparison.Ordinal)
-                            || string.Equals(propertyInfo.Name, "goto2", StringComparison.Ordinal));
+                    bool isRequiredGoto = ReferenceEquals(obj, rootOperation)
+                        && OperationBehaviorCatalog.IsFieldRequired(rootOperation, propertyInfo.Name);
                     if (string.IsNullOrWhiteSpace(value))
                     {
-                        if (isRequiredParamGoto)
+                        if (isRequiredGoto)
                         {
                             errors.Add($"{context}{propertyInfo.Name}不能为空；必须填写三段式数字地址 procIndex-stepIndex-opIndex。若需继续下一条指令，请填写下一条指令地址。");
                         }
@@ -355,7 +354,7 @@ namespace Automation
                         {
                             continue;
                         }
-                        ValidateGotoTargets(item, procIndex, proc, errors, context);
+                        ValidateGotoTargets(item, rootOperation, procIndex, proc, errors, context);
                     }
                 }
             }

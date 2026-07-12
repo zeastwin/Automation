@@ -272,12 +272,20 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "get_operation_guide"), Description(
             "按精确operaType读取单个指令类型的用途、约束和常见误用。")]
-        public static Task<string> GetOperationGuide(
+        public static async Task<string> GetOperationGuide(
             [Description("精确指令类型，例如IO检测、逻辑判断、工站运行")] string operaType)
         {
-            string result = GetOperationGuideByType(operaType);
-            ToolCallLogger.Log(nameof(GetOperationGuide), new { operaType }, result);
-            return Task.FromResult(result);
+            if (!UsesBehaviorContractGuide(operaType))
+            {
+                string legacyResult = GetOperationGuideByType(operaType);
+                ToolCallLogger.Log(nameof(GetOperationGuide), new { operaType }, legacyResult);
+                return legacyResult;
+            }
+            var parameters = new JsonObject { ["operaType"] = operaType };
+            return await ExecuteAsync(
+                toolName: nameof(GetOperationGuide),
+                args: new { operaType },
+                action: client => client.OpMetaAsync("guide", parameters)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "op_meta"), Description(
@@ -296,12 +304,29 @@ namespace Automation.McpServer
             {
                 JsonObject parsed = ParseParameters(parameters);
                 string? operaType = parsed["operaType"]?.GetValue<string>();
-                return await Task.FromResult(GetOperationGuideByType(operaType)).ConfigureAwait(false);
+                if (!UsesBehaviorContractGuide(operaType))
+                {
+                    return GetOperationGuideByType(operaType);
+                }
             }
             return await ExecuteAsync(
                 toolName: nameof(OpMeta),
                 args: new { action, parameters },
                 action: client => client.OpMetaAsync(action, ParseParameters(parameters))).ConfigureAwait(false);
+        }
+
+        private static bool UsesBehaviorContractGuide(string? operaType)
+        {
+            switch (operaType?.Trim())
+            {
+                case "逻辑判断":
+                case "IO逻辑跳转":
+                case "跳转":
+                case "弹框":
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         // 43 种指令类型的调用说明，基于执行代码（ProcessEngine.Operations.*.cs）和字段定义（OperationType.cs）编写。
