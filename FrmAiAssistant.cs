@@ -5,6 +5,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -69,6 +70,9 @@ namespace Automation
         private bool sending;
         private bool fullPermissionMode = false;
         private string lastConfirmedPreviewId;
+        private readonly List<AiConversation> conversations = new List<AiConversation>();
+        private AiConversation activeConversation;
+        private string restoredConversationContext;
 
         // Bridge 服务在生成预演记录时读取此属性，若为 true 则直接标记预演为已确认，
         // 避免 TryPromptPreviewConfirmation 通过 HTTP 回调 Bridge 确认导致 UI 线程死锁。
@@ -104,6 +108,7 @@ namespace Automation
 
         private async void FrmAiAssistant_Load(object sender, EventArgs e)
         {
+            LoadConversationHistory();
             LoadConfig();
             ApplyPermissions();
             await InitializeWebViewAsync();
@@ -135,6 +140,7 @@ namespace Automation
                     webViewConversation.CoreWebView2.NavigationCompleted += (s, e) =>
                     {
                         webDocumentReady = true;
+                        RenderActiveConversation();
                         PushWebAppState();
                     };
                     webViewEventsAttached = true;
@@ -198,6 +204,7 @@ body{
 .brand-title{font-weight:650;color:#172033;line-height:1.1;}
 .brand-subtitle{font-size:12px;color:#7b8798;margin-top:1px;}
 .top-actions{display:flex;align-items:center;gap:8px;}
+.session-select{height:28px;max-width:220px;border:1px solid #d8e0ea;border-radius:7px;background:#fff;color:#35445a;padding:0 8px;font:12px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;}
 .tool-mode{display:flex;align-items:center;padding:2px;border:1px solid #dbe3ed;border-radius:9px;background:#f5f7fa;}
 .toolbar-option,.permission-toggle{height:28px;border:0;border-radius:7px;padding:0 10px;background:transparent;color:#526071;font:12px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;cursor:pointer;white-space:nowrap;}
 .toolbar-option:hover,.permission-toggle:hover{background:#e9f0f7;color:#1f5f99;}
@@ -417,7 +424,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 @media (max-width:720px){.settings-grid{grid-template-columns:1fr}.composer-wrap{padding:10px}.topbar{padding:0 12px}.brand-subtitle{display:none}}
 </style>
 <script>
-var appState={sending:false,canAccess:false,canEditConfig:false,config:{},providerOptions:[],modelOptions:[]};
+var appState={sending:false,canAccess:false,canEditConfig:false,config:{},providerOptions:[],modelOptions:[],conversations:[],activeConversationId:''};
 var quickSettingPending=false;
 function post(type,payload){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage(Object.assign({type:type},payload||{}));}}
 function byId(id){return document.getElementById(id);}
@@ -506,6 +513,12 @@ function automationSetState(state){
     byId('promptInput').disabled=!appState.canAccess||appState.sending;
     refreshSendButton();
     byId('resetButton').disabled=!appState.canAccess||appState.sending;
+    var sessions=byId('sessionSelect');
+    sessions.innerHTML='';
+    (appState.conversations||[]).forEach(function(item){var option=document.createElement('option');option.value=item.id;option.textContent=item.title;sessions.appendChild(option);});
+    sessions.value=appState.activeConversationId||'';
+    sessions.disabled=appState.sending;
+    byId('newSessionButton').disabled=appState.sending;
     byId('configButton').disabled=false;
     fillConfig();
     refreshToolbar();
@@ -555,6 +568,8 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('toolEditor').addEventListener('click',function(){setToolProfile('Editor');});
     byId('fullPermissionButton').addEventListener('click',toggleFullPermission);
     byId('resetButton').addEventListener('click',function(){post('reset');});
+    byId('newSessionButton').addEventListener('click',function(){post('newSession');});
+    byId('sessionSelect').addEventListener('change',function(){post('switchSession',{id:this.value});});
     byId('sendButton').addEventListener('click',sendPrompt);
     byId('promptInput').addEventListener('input',autoGrowPrompt);
     byId('promptInput').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey&&!e.altKey){e.preventDefault();sendPrompt();}});
@@ -576,6 +591,8 @@ document.addEventListener('DOMContentLoaded',function(){
   <header class=""topbar"">
     <div class=""brand""><div class=""brand-mark"">EW</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div>
     <div class=""top-actions"">
+      <select class=""session-select"" id=""sessionSelect"" title=""历史会话"" aria-label=""历史会话""></select>
+      <button class=""toolbar-option"" id=""newSessionButton"" title=""新建会话"">新对话</button>
       <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""包含诊断能力并允许预演和修改"">编辑</button></div>
       <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演；代码访问范围仍限制为 Hmi 目录"">完全权限</button>
       <button class=""icon-button"" id=""resetButton"" title=""重置会话"" aria-label=""重置会话""><svg viewBox=""0 0 24 24""><path d=""M3 12a9 9 0 1 0 3-6.7""/><path d=""M3 4v6h6""/></svg></button>
@@ -831,6 +848,12 @@ document.addEventListener('DOMContentLoaded',function(){
                 case "reset":
                     BtnResetSession_Click(sender, EventArgs.Empty);
                     break;
+                case "newSession":
+                    StartNewConversation();
+                    break;
+                case "switchSession":
+                    SwitchConversation(message["id"]?.Value<string>());
+                    break;
                 case "copyText":
                     string copyText = message["text"]?.Value<string>() ?? string.Empty;
                     try
@@ -964,7 +987,15 @@ document.addEventListener('DOMContentLoaded',function(){
                     ["fullPermissionMode"] = fullPermissionMode
                 },
                 ["providerOptions"] = BuildComboOptions(cboProvider, providerText),
-                ["modelOptions"] = BuildComboOptions(cboModel, modelText)
+                ["modelOptions"] = BuildComboOptions(cboModel, modelText),
+                ["activeConversationId"] = activeConversation?.Id ?? string.Empty,
+                ["conversations"] = new JArray(conversations
+                    .OrderByDescending(item => item.UpdatedAt)
+                    .Select(item => new JObject
+                    {
+                        ["id"] = item.Id,
+                        ["title"] = item.Title
+                    }))
             };
         }
 
@@ -1247,6 +1278,18 @@ document.addEventListener('DOMContentLoaded',function(){
             }
 
             AppendConversation("用户", prompt, Color.FromArgb(22, 72, 130));
+            activeConversation.Messages.Add(new AiConversationMessage
+            {
+                Role = "user",
+                Text = prompt,
+                Time = DateTime.Now
+            });
+            if (activeConversation.Messages.Count == 1)
+            {
+                activeConversation.Title = prompt.Length > 24 ? prompt.Substring(0, 24) + "…" : prompt;
+            }
+            activeConversation.UpdatedAt = DateTime.Now;
+            SaveConversationHistory();
             // 每次发送对话强制重置 thinking-box 滚动状态并滚到底部，覆盖用户上滑设置，确保用户看到最新回复。
             EnqueueScript("document.querySelectorAll('.thinking-box').forEach(function(b){b.classList.remove('user-scrolled');if(!b.classList.contains('collapsed')){b.scrollTop=b.scrollHeight;}});if(window.scrollMessagesToBottom){scrollMessagesToBottom();}");
             txtPrompt.Clear();
@@ -1259,6 +1302,18 @@ document.addEventListener('DOMContentLoaded',function(){
             {
                 GooseAcpClient client = EnsureGooseClient(config);
                 await client.PromptAsync(prompt, promptCts.Token).ConfigureAwait(true);
+                string assistantText = client.LastAssistantResponse;
+                if (!string.IsNullOrWhiteSpace(assistantText))
+                {
+                    activeConversation.Messages.Add(new AiConversationMessage
+                    {
+                        Role = "assistant",
+                        Text = assistantText,
+                        Time = DateTime.Now
+                    });
+                    activeConversation.UpdatedAt = DateTime.Now;
+                    SaveConversationHistory();
+                }
             }
             catch (OperationCanceledException)
             {
@@ -1290,6 +1345,86 @@ document.addEventListener('DOMContentLoaded',function(){
 
         private void BtnResetSession_Click(object sender, EventArgs e)
         {
+            StartNewConversation();
+        }
+
+        private void LoadConversationHistory()
+        {
+            try
+            {
+                conversations.Clear();
+                conversations.AddRange(AiConversationStorage.Load());
+            }
+            catch (Exception ex)
+            {
+                conversations.Clear();
+                MessageBox.Show("AI 会话历史读取失败，已用空历史继续启动：" + ex.Message,
+                    "EW-AI 会话历史", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            activeConversation = conversations.OrderByDescending(item => item.UpdatedAt).FirstOrDefault();
+            if (activeConversation == null)
+            {
+                activeConversation = CreateConversation();
+                conversations.Add(activeConversation);
+                SaveConversationHistory();
+            }
+            else
+            {
+                restoredConversationContext = BuildRestoredConversationContext(activeConversation);
+            }
+        }
+
+        private static AiConversation CreateConversation()
+        {
+            DateTime now = DateTime.Now;
+            return new AiConversation
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Title = "新对话",
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+        }
+
+        private void StartNewConversation()
+        {
+            if (sending)
+            {
+                return;
+            }
+            activeConversation = CreateConversation();
+            conversations.Insert(0, activeConversation);
+            while (conversations.Count > AiConversationStorage.MaxConversationCount)
+            {
+                conversations.Remove(conversations.OrderBy(item => item.UpdatedAt).First());
+            }
+            SaveConversationHistory();
+            restoredConversationContext = null;
+            ResetConversationSessionState();
+        }
+
+        private void SwitchConversation(string conversationId)
+        {
+            if (sending || string.IsNullOrWhiteSpace(conversationId)
+                || string.Equals(activeConversation?.Id, conversationId, StringComparison.Ordinal))
+            {
+                return;
+            }
+            AiConversation target = conversations.FirstOrDefault(item =>
+                string.Equals(item.Id, conversationId, StringComparison.Ordinal));
+            if (target == null)
+            {
+                ShowWebToast("未找到该历史会话。");
+                PushWebAppState();
+                return;
+            }
+            activeConversation = target;
+            restoredConversationContext = BuildRestoredConversationContext(target);
+            ResetConversationSessionState();
+        }
+
+        private void ResetConversationSessionState()
+        {
             DisposeGooseClient();
             promptedPreviewIds.Clear();
             lastConfirmedPreviewId = null;
@@ -1303,10 +1438,51 @@ document.addEventListener('DOMContentLoaded',function(){
             streamingThoughtSegmentIndex = 0;
             currentThinkingBoxId = null;
             pendingScriptTask = Task.CompletedTask;
-            // 生成唯一会话名避免 Goose 加载磁盘上的同名历史上下文
-            txtSessionName.Text = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            txtSessionName.Text = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
             ResetConversationHtml();
-            PushWebAppState();
+        }
+
+        private static string BuildRestoredConversationContext(AiConversation conversation)
+        {
+            var builder = new StringBuilder();
+            foreach (AiConversationMessage message in conversation.Messages)
+            {
+                builder.Append(message.Role == "user" ? "用户：" : "EW-AI：");
+                builder.AppendLine(message.Text);
+            }
+            return builder.ToString();
+        }
+
+        private void SaveConversationHistory()
+        {
+            try
+            {
+                conversations.Sort((left, right) => right.UpdatedAt.CompareTo(left.UpdatedAt));
+                while (conversations.Count > AiConversationStorage.MaxConversationCount)
+                {
+                    conversations.RemoveAt(conversations.Count - 1);
+                }
+                AiConversationStorage.Save(conversations);
+                PushWebAppState();
+            }
+            catch (Exception ex)
+            {
+                ShowWebToast("会话历史保存失败：" + ex.Message);
+            }
+        }
+
+        private void RenderActiveConversation()
+        {
+            if (activeConversation == null)
+            {
+                return;
+            }
+            foreach (AiConversationMessage message in activeConversation.Messages)
+            {
+                AppendConversation(message.Role == "user" ? "用户" : "EW-AI", message.Text,
+                    message.Role == "user" ? Color.FromArgb(22, 72, 130) : Color.FromArgb(30, 104, 74),
+                    message.Time);
+            }
         }
 
         // 重置对话区：清空 #messages 容器内容（保留基础 HTML/CSS），等价于原 rtbConversation.Clear()。
@@ -1329,7 +1505,8 @@ document.addEventListener('DOMContentLoaded',function(){
                     return gooseClient;
                 }
 
-                gooseClient = new GooseAcpClient(config);
+                gooseClient = new GooseAcpClient(config, restoredConversationContext);
+                restoredConversationContext = null;
                 gooseClient.EventReceived += GooseClient_EventReceived;
                 gooseClient.PermissionRequestHandler = HandlePermissionRequest;
                 return gooseClient;
@@ -2134,13 +2311,13 @@ document.addEventListener('DOMContentLoaded',function(){
         }
 
         // 追加对话消息：根据 role/color 决定 CSS 类，用户消息纯文本转义，Goose 消息走 Markdown→HTML。
-        private void AppendConversation(string role, string text, Color color)
+        private void AppendConversation(string role, string text, Color color, DateTime? messageTime = null)
         {
             if (webViewConversation == null || webViewConversation.IsDisposed)
             {
                 return;
             }
-            string time = DateTime.Now.ToString("HH:mm:ss");
+            string time = (messageTime ?? DateTime.Now).ToString("HH:mm:ss");
             string cls;
             string contentHtml;
             string avatarHtml = string.Empty;

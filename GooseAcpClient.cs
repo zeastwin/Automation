@@ -42,6 +42,7 @@ namespace Automation
         private readonly string runtimeSessionName = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N").Substring(0, 6);
         private readonly StringBuilder assistantResponse = new StringBuilder();
         private readonly StringBuilder assistantThought = new StringBuilder();
+        private string restoredConversationContext;
         private int nextRequestId;
         private Process process;
         private StreamWriter stdin;
@@ -49,9 +50,10 @@ namespace Automation
         private string currentPromptId;
         private bool disposed;
 
-        public GooseAcpClient(GooseConfig config)
+        public GooseAcpClient(GooseConfig config, string restoredConversationContext = null)
         {
             this.config = config ?? throw new ArgumentNullException(nameof(config));
+            this.restoredConversationContext = restoredConversationContext;
         }
 
         public event Action<GooseAcpEvent> EventReceived;
@@ -59,6 +61,17 @@ namespace Automation
         public Func<JObject, JObject> PermissionRequestHandler { get; set; }
 
         public string SessionId => sessionId;
+
+        public string LastAssistantResponse
+        {
+            get
+            {
+                lock (executionLock)
+                {
+                    return assistantResponse.ToString();
+                }
+            }
+        }
 
         public async Task InitializeAsync(CancellationToken cancellationToken)
         {
@@ -962,6 +975,13 @@ namespace Automation
         private string BuildPrompt(string prompt)
         {
             string context = BuildSelectionContext();
+            string restoredContext = restoredConversationContext;
+            restoredConversationContext = null;
+            if (!string.IsNullOrWhiteSpace(restoredContext))
+            {
+                context += "\n\n以下是用户切回本会话时恢复的既有对话。它只属于当前会话，请延续其中的上下文：\n"
+                    + restoredContext.Trim();
+            }
             return context + "\n\n用户请求：\n" + prompt.Trim();
         }
 
