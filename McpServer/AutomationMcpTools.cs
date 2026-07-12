@@ -759,45 +759,46 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "build_patch_from_intent"), Description(
-            "把中间意图 JSON 转换成标准 patchJson。"
+            "把结构化中间意图对象转换成标准 patchJson。"
             + "适合先用模板约束输出，再由本地统一组装 Patch。"
-            + "intentJson 必须符合 get_intent_template 返回的 intentShape。")]
+            + "intent 必须符合 get_intent_template 返回的 intentShape；baseProcId可省略，由Bridge按procIndex补齐。")]
         public static async Task<string> BuildPatchFromIntent(
-            [Description("中间意图 JSON 字符串，必须符合 get_intent_template 返回的 intentShape")] string intentJson)
+            [Description("结构化中间意图对象，必须符合 get_intent_template 返回的 intentShape")] JsonElement intent)
         {
             return await ExecuteAsync(
                 toolName: nameof(BuildPatchFromIntent),
-                args: new { intentJson },
-                action: client => client.BuildPatchFromIntentAsync(intentJson)).ConfigureAwait(false);
+                args: new { intent },
+                action: client => client.BuildPatchFromIntentAsync(intent)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "preview_intent"), Description(
-            "使用中间意图 JSON 直接预演（内部先把意图转标准 Patch 再 preview，不需要模型自行组装 patchJson）。"
+            "使用结构化中间意图对象直接预演（内部先把意图转标准 Patch 再 preview，不需要模型自行组装patchJson）。"
+            + "只需提供procIndex，baseProcId由Bridge读取当前流程自动补齐。"
             + "返回 previewId 和 patchHash，提交前需由 Automation 前台确认 previewId。"
             + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_intent 提交即可。")]
         public static async Task<string> PreviewIntent(
-            [Description("中间意图 JSON 字符串")] string intentJson)
+            [Description("结构化中间意图对象；baseProcId可省略")] JsonElement intent)
         {
             return await ExecuteAsync(
                 toolName: nameof(PreviewIntent),
-                args: new { intentJson },
-                action: client => client.PreviewIntentAsync(intentJson)).ConfigureAwait(false);
+                args: new { intent },
+                action: client => client.PreviewIntentAsync(intent)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "apply_intent"), Description(
-            "使用中间意图 JSON 直接提交。必须携带前台已确认的 previewId，且意图内容必须与预演完全一致。"
+            "使用结构化中间意图对象直接提交。必须携带前台已确认的previewId，且意图内容必须与预演完全一致。"
             + "正式提交只允许目标流程处于Stopped；提交前先用get_snapshot确认。非Stopped时不要调用本工具、不得调用stop_proc，必须告知用户并等待操作员停止流程。"
             + "被PROC_NOT_STOPPED拒绝时没有停止流程、没有保存文件、没有发布热更新，状态未改变前禁止重复提交。"
             + "被SOURCE_VALIDATION_FAILED拒绝时应读取details逐项修正Hmi源码；该失败没有保存流程且预演仍有效，修正后使用同一previewId重试，不要重新生成流程Patch。"
             + "完全权限模式下预演自动确认，直接传入预演返回的 previewId 即可；禁止传字符串 null/undefined。")]
         public static async Task<string> ApplyIntent(
-            [Description("中间意图 JSON 字符串，必须与预演完全一致")] string intentJson,
+            [Description("结构化中间意图对象，必须与预演完全一致；baseProcId可省略")] JsonElement intent,
             [Description("预演阶段返回且已确认的 previewId")] string previewId)
         {
             return await ExecuteAsync(
                 toolName: nameof(ApplyIntent),
-                args: new { intentJson, previewId },
-                action: client => client.ApplyIntentAsync(intentJson, previewId)).ConfigureAwait(false);
+                args: new { intent, previewId },
+                action: client => client.ApplyIntentAsync(intent, previewId)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "preview_patch"), Description(

@@ -806,15 +806,17 @@ namespace Automation.Bridge
             }
 
             if (!TryReadString(intent, "intentType", out _, out error)
-                || !TryReadInteger(intent, "procIndex", out _, out error)
-                || !TryReadString(intent, "baseProcId", out string baseProcId, out error))
+                || !TryReadInteger(intent, "procIndex", out _, out error))
             {
                 return false;
             }
-            if (!Guid.TryParse(baseProcId, out _))
+            JToken baseProcIdToken = intent["baseProcId"];
+            if (baseProcIdToken != null && baseProcIdToken.Type != JTokenType.Null
+                && (baseProcIdToken.Type != JTokenType.String
+                    || !Guid.TryParse(baseProcIdToken.Value<string>(), out _)))
             {
                 error = BridgeError(400, "INVALID_ARGUMENT", "字段 baseProcId 必须是合法 Guid 字符串。",
-                    "必须使用 get_proc_detail 返回的 procId 原值，不能使用对象、流程名、索引或占位值。");
+                    "baseProcId 可以省略，由 Bridge 根据 procIndex 自动补齐；如果提供，必须使用 get_proc_detail 返回的 procId 原值。");
                 return false;
             }
             return true;
@@ -5340,45 +5342,15 @@ namespace Automation.Bridge
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
-        private static JObject ReadIntentObject(JObject request)
-        {
-            JObject intent = ReadOptionalObject(request, "intent");
-            if (intent != null)
-            {
-                return (JObject)intent.DeepClone();
-            }
-
-            string intentJson = ReadOptionalString(request, "intentJson");
-            if (string.IsNullOrWhiteSpace(intentJson))
-            {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "字段 intentJson 必须是字符串，或直接提供 intent 对象。");
-            }
-
-            try
-            {
-                JToken token = JToken.Parse(intentJson);
-                if (!(token is JObject obj))
-                {
-                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", "intentJson 必须是 JSON 对象。");
-                }
-                return obj;
-            }
-            catch (BridgeRequestException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "intentJson 不是合法 JSON。", ex.Message);
-            }
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private static JObject ConvertIntentToPatch(JObject intent)
+        private JObject ConvertIntentToPatch(JObject intent)
         {
             string intentType = ReadRequiredString(intent, "intentType");
             int procIndex = ReadRequiredInt(intent, "procIndex");
-            string baseProcId = ReadRequiredString(intent, "baseProcId");
+            string baseProcId = ReadOptionalString(intent, "baseProcId");
+            if (string.IsNullOrWhiteSpace(baseProcId))
+            {
+                baseProcId = GetProcByIndex(procIndex).head.Id.ToString("D");
+            }
 
             JObject action = new JObject();
             switch (intentType)

@@ -135,26 +135,26 @@ namespace Automation.McpServer
             return PostAsync("/bridge/intent/get_template", payload);
         }
 
-        public Task<string> BuildPatchFromIntentAsync(string intentJson)
+        public Task<string> BuildPatchFromIntentAsync(JsonElement intent)
         {
-            JsonObject payload = new JsonObject { ["intentJson"] = intentJson };
+            JsonObject payload = new JsonObject { ["intent"] = JsonNode.Parse(intent.GetRawText()) };
             return PostAsync("/bridge/intent/build_patch", payload);
         }
 
         // ---------- patch 拆分（4 个，patch_contract 由 MCP 层静态返回不走 Bridge） ----------
 
-        public Task<string> PreviewIntentAsync(string intentJson)
+        public Task<string> PreviewIntentAsync(JsonElement intent)
         {
-            JsonObject payload = new JsonObject { ["intentJson"] = intentJson };
+            JsonObject payload = new JsonObject { ["intent"] = JsonNode.Parse(intent.GetRawText()) };
             return PostAsync("/bridge/patch/preview_intent", payload);
         }
 
-        public Task<string> ApplyIntentAsync(string intentJson, string previewId)
+        public Task<string> ApplyIntentAsync(JsonElement intent, string previewId)
         {
             ValidatePreviewId(previewId);
             JsonObject payload = new JsonObject
             {
-                ["intentJson"] = intentJson,
+                ["intent"] = JsonNode.Parse(intent.GetRawText()),
                 ["previewId"] = previewId
             };
             return PostAsync("/bridge/patch/apply_intent", payload);
