@@ -23,6 +23,45 @@ namespace Automation
         public JObject Raw { get; set; }
     }
 
+    public sealed class GooseFileAttachment
+    {
+        public GooseFileAttachment(
+            string id,
+            string fileName,
+            string mimeType,
+            string typeLabel,
+            bool isImage,
+            byte[] data,
+            string extractedText,
+            string error)
+        {
+            Id = id ?? throw new ArgumentNullException(nameof(id));
+            FileName = fileName ?? throw new ArgumentNullException(nameof(fileName));
+            MimeType = mimeType ?? throw new ArgumentNullException(nameof(mimeType));
+            TypeLabel = typeLabel ?? throw new ArgumentNullException(nameof(typeLabel));
+            IsImage = isImage;
+            Data = data ?? throw new ArgumentNullException(nameof(data));
+            ExtractedText = extractedText;
+            Error = error;
+        }
+
+        public string Id { get; }
+
+        public string FileName { get; }
+
+        public string MimeType { get; }
+
+        public string TypeLabel { get; }
+
+        public bool IsImage { get; }
+
+        public byte[] Data { get; }
+
+        public string ExtractedText { get; }
+
+        public string Error { get; }
+    }
+
     public sealed class GooseAcpClient : IDisposable
     {
         private const int InitializeTimeoutMs = 30000;
@@ -48,6 +87,7 @@ namespace Automation
         private StreamWriter stdin;
         private string sessionId;
         private string currentPromptId;
+        private bool supportsImagePrompt;
         private bool disposed;
 
         public GooseAcpClient(GooseConfig config, string restoredConversationContext = null)
@@ -95,6 +135,7 @@ namespace Automation
                 }
             }, InitializeTimeoutMs, cancellationToken).ConfigureAwait(false);
 
+            supportsImagePrompt = result["agentCapabilities"]?["promptCapabilities"]?["image"]?.Value<bool>() ?? false;
             Report("lifecycle", "EW-AI ACP 初始化完成。", result);
         }
 
@@ -168,15 +209,80 @@ namespace Automation
             await NewSessionAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task<JObject> PromptAsync(string prompt, CancellationToken cancellationToken)
+        public async Task<JObject> PromptAsync(
+            string prompt,
+            IReadOnlyList<GooseFileAttachment> fileAttachments,
+            CancellationToken cancellationToken)
         {
-            if (string.IsNullOrWhiteSpace(prompt))
+            if (string.IsNullOrWhiteSpace(prompt) && (fileAttachments == null || fileAttachments.Count == 0))
             {
                 throw new InvalidOperationException("提示词不能为空。");
             }
 
             await EnsureSessionAsync(cancellationToken).ConfigureAwait(false);
-            string finalPrompt = BuildPrompt(prompt);
+            if (fileAttachments != null)
+            {
+                foreach (GooseFileAttachment file in fileAttachments)
+                {
+                    if (file == null || file.Data == null || file.Data.Length == 0
+                        || string.IsNullOrWhiteSpace(file.MimeType)
+                        || !string.IsNullOrWhiteSpace(file.Error))
+                    {
+                        throw new InvalidOperationException(file?.Error ?? "文件附件无效。");
+                    }
+                    if (file.IsImage)
+                    {
+                        if (IsKnownTextOnlyImageConfiguration(config.Provider, config.Model))
+                        {
+                            throw new InvalidOperationException(
+                                $"当前模型 {config.Provider}/{config.Model} 只支持文本，不能分析图片。请移除图片或切换到支持视觉的模型。");
+                        }
+                        if (!supportsImagePrompt)
+                        {
+                            throw new InvalidOperationException("当前 Goose 未声明图片输入能力，请升级 Goose 或改用支持图片分析的模型。");
+                        }
+                    }
+                    else if (string.IsNullOrWhiteSpace(file.ExtractedText))
+                    {
+                        throw new InvalidOperationException($"文件 {file.FileName} 没有可分析的文本内容。");
+                    }
+                }
+            }
+            var finalPromptBuilder = new StringBuilder(BuildPrompt(prompt));
+            if (fileAttachments != null)
+            {
+                foreach (GooseFileAttachment file in fileAttachments.Where(item => item != null && !item.IsImage))
+                {
+                    finalPromptBuilder.Append("\n\n===== 附件开始：")
+                        .Append(file.FileName)
+                        .Append("（")
+                        .Append(file.TypeLabel)
+                        .AppendLine("） =====");
+                    finalPromptBuilder.AppendLine(file.ExtractedText);
+                    finalPromptBuilder.Append("===== 附件结束：").Append(file.FileName).Append(" =====");
+                }
+            }
+            string finalPrompt = finalPromptBuilder.ToString();
+            var promptContent = new JArray
+            {
+                new JObject
+                {
+                    ["type"] = "text",
+                    ["text"] = finalPrompt
+                }
+            };
+            if (fileAttachments != null)
+            {
+                foreach (GooseFileAttachment file in fileAttachments.Where(item => item != null && item.IsImage))
+                {
+                    promptContent.Add(new JObject
+                    {
+                        ["type"] = "image",
+                        ["mimeType"] = file.MimeType,
+                        ["data"] = Convert.ToBase64String(file.Data)
+                    });
+                }
+            }
             lock (executionLock)
             {
                 currentPromptId = Guid.NewGuid().ToString("N");
@@ -192,14 +298,7 @@ namespace Automation
                 JObject result = await SendRequestAsync("session/prompt", new JObject
                 {
                     ["sessionId"] = sessionId,
-                    ["prompt"] = new JArray
-                    {
-                        new JObject
-                        {
-                            ["type"] = "text",
-                            ["text"] = finalPrompt
-                        }
-                    }
+                    ["prompt"] = promptContent
                 }, 0, cancellationToken).ConfigureAwait(false);
 
                 LogExecution("prompt_completed", result["stopReason"]?.Value<string>() ?? "unknown", result);
@@ -972,6 +1071,15 @@ namespace Automation
             return "update";
         }
 
+        public static bool IsKnownTextOnlyImageConfiguration(string provider, string model)
+        {
+            string normalizedProvider = (provider ?? string.Empty).Trim();
+            string normalizedModel = (model ?? string.Empty).Trim();
+            return string.Equals(normalizedProvider, "deepseek", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalizedProvider, "custom_deepseek", StringComparison.OrdinalIgnoreCase)
+                || normalizedModel.StartsWith("deepseek-", StringComparison.OrdinalIgnoreCase);
+        }
+
         private string BuildPrompt(string prompt)
         {
             string context = BuildSelectionContext();
@@ -1218,6 +1326,30 @@ namespace Automation
                 if (child is JProperty property)
                 {
                     string name = property.Name ?? string.Empty;
+                    JObject parentObject = property.Parent as JObject;
+                    JObject contentObject = parentObject;
+                    if (contentObject?["type"] == null
+                        && contentObject?.Parent is JProperty resourceProperty
+                        && string.Equals(resourceProperty.Name, "resource", StringComparison.OrdinalIgnoreCase))
+                    {
+                        contentObject = resourceProperty.Parent as JObject;
+                    }
+                    string contentType = contentObject?["type"]?.Value<string>();
+                    bool isAttachmentContent = string.Equals(contentType, "image", StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(name, "data", StringComparison.OrdinalIgnoreCase);
+                    bool isEmbeddedFileContent = string.Equals(contentType, "resource", StringComparison.OrdinalIgnoreCase)
+                        && (string.Equals(name, "blob", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(name, "text", StringComparison.OrdinalIgnoreCase));
+                    if (isAttachmentContent || isEmbeddedFileContent)
+                    {
+                        int dataLength = property.Value?.Type == JTokenType.String
+                            ? property.Value.Value<string>()?.Length ?? 0
+                            : 0;
+                        property.Value = isAttachmentContent
+                            ? $"[图片数据已省略，Base64长度={dataLength}]"
+                            : $"[文件内容已省略，长度={dataLength}]";
+                        continue;
+                    }
                     if (name.IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0
                         || name.IndexOf("secret", StringComparison.OrdinalIgnoreCase) >= 0
                         || name.IndexOf("apiKey", StringComparison.OrdinalIgnoreCase) >= 0

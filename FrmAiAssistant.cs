@@ -70,6 +70,10 @@ namespace Automation
         private bool sending;
         private bool fullPermissionMode = false;
         private string lastConfirmedPreviewId;
+        private const int MaxFileAttachmentCount = 4;
+        private const long MaxFileAttachmentBytes = 10L * 1024L * 1024L;
+        private readonly List<GooseFileAttachment> pendingFileAttachments = new List<GooseFileAttachment>();
+        private readonly Dictionary<string, string> fileAttachmentPreviews = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly List<AiConversation> conversations = new List<AiConversation>();
         private AiConversation activeConversation;
         private string restoredConversationContext;
@@ -383,8 +387,26 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 }
 .composer-wrap{padding:8px 14px 10px;background:#f5f7fb;}
 .composer{max-width:1120px;margin:0 auto;background:#fff;border:1px solid #e2e7ef;border-radius:16px;min-height:76px;box-shadow:0 6px 16px rgba(16,24,40,.06);position:relative;padding:10px 50px 34px 12px;}
-.prompt-input{width:100%;height:30px;max-height:100px;border:0;outline:none;resize:none;overflow-y:auto;background:transparent;color:#172033;font:14px/1.45 ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;}
+.composer.drag-over{border-color:#5b9bd5;box-shadow:0 0 0 3px rgba(91,155,213,.16),0 6px 16px rgba(16,24,40,.06);}
+.prompt-input{width:100%;height:30px;max-height:100px;border:0;padding:0;outline:none;resize:none;overflow-y:auto;background:transparent;color:#172033;font:14px/1.45 ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;}
 .prompt-input::placeholder{color:#b6bcc5;}
+.attachment-list{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 7px;max-height:138px;overflow-y:auto;}
+.attachment-list:empty{display:none;}
+.attachment-card{position:relative;display:flex;align-items:center;width:310px;height:58px;padding:7px 30px 7px 7px;border:1px solid #d9e1eb;border-radius:10px;background:#fff;color:#28364a;overflow:hidden;}
+.attachment-card.error{border-color:#e2a39d;background:#fff8f7;}
+.attachment-card.image-card{width:58px;padding:0;flex:0 0 58px;}
+.attachment-preview{width:100%;height:100%;object-fit:cover;border-radius:9px;display:block;}
+.attachment-icon{width:40px;height:40px;flex:0 0 40px;border-radius:9px;background:#ef762f;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+.attachment-meta{min-width:0;margin-left:9px;}
+.attachment-name{font-size:12px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.attachment-type{font-size:11px;color:#7b8798;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.attachment-error{font-size:10px;color:#b13b32;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.attachment-remove{position:absolute;right:5px;top:5px;width:19px;height:19px;border:0;border-radius:50%;background:#1f2329;color:#fff;cursor:pointer;font-size:14px;line-height:17px;padding:0;z-index:1;}
+.attachment-remove:hover{background:#b13b32;}
+.attachment-warning{position:absolute;left:4px;bottom:4px;width:17px;height:17px;border-radius:50%;background:#b13b32;color:#fff;font-size:11px;font-weight:700;text-align:center;line-height:17px;}
+.attach-button{position:absolute;left:10px;bottom:9px;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:#526071;cursor:pointer;font:24px/24px ""Segoe UI"",Arial,sans-serif;padding:0;}
+.attach-button:hover{background:#eef3f9;color:#1f5f99;}
+.attach-button:disabled{opacity:.42;cursor:default;}
 .send-button{position:absolute;right:7px;bottom:7px;width:30px;height:30px;border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center;}
 .send-button .circle{width:26px;height:26px;border-radius:50%;background:#8e929a;display:flex;align-items:center;justify-content:center;color:#fff;}
 .send-button:hover .circle{background:#848890;}
@@ -424,8 +446,9 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 @media (max-width:720px){.settings-grid{grid-template-columns:1fr}.composer-wrap{padding:10px}.topbar{padding:0 12px}.brand-subtitle{display:none}}
 </style>
 <script>
-var appState={sending:false,canAccess:false,canEditConfig:false,config:{},providerOptions:[],modelOptions:[],conversations:[],activeConversationId:''};
+var appState={sending:false,canAccess:false,canEditConfig:false,config:{},providerOptions:[],modelOptions:[],conversations:[],activeConversationId:'',attachments:[]};
 var quickSettingPending=false;
+var dropReadCount=0;
 function post(type,payload){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage(Object.assign({type:type},payload||{}));}}
 function byId(id){return document.getElementById(id);}
 function toggleThinkingBox(id){
@@ -511,7 +534,9 @@ function automationSetState(state){
     var status=byId('statusText');
     if(status){status.textContent=appState.sending?'生成中':'就绪';}
     byId('promptInput').disabled=!appState.canAccess||appState.sending;
+    refreshAttachments();
     refreshSendButton();
+    byId('attachButton').disabled=!appState.canAccess||appState.sending;
     byId('resetButton').disabled=!appState.canAccess||appState.sending;
     var sessions=byId('sessionSelect');
     sessions.innerHTML='';
@@ -531,12 +556,98 @@ function refreshSendButton(){
     var send=byId('sendButton');
     var input=byId('promptInput');
     if(!send||!input){return;}
-    var canSend=appState.canAccess&&!appState.sending&&input.value.trim().length>0;
+    var hasAttachmentError=(appState.attachments||[]).some(function(item){return !!item.error;});
+    var canSend=appState.canAccess&&!appState.sending&&dropReadCount===0
+        &&!hasAttachmentError&&(input.value.trim().length>0||(appState.attachments||[]).length>0);
     send.classList.toggle('stop',!!appState.sending);
     send.classList.toggle('ready',canSend);
     send.disabled=!appState.sending&&!canSend;
-    send.title=appState.sending?'停止':'发送';
+    send.title=appState.sending?'停止':(hasAttachmentError?'请先移除无法分析的附件':'发送');
     send.setAttribute('aria-label',appState.sending?'停止':'发送');
+}
+function readDroppedFile(file){
+    if(!file.size||file.size>10*1024*1024){
+        showToast('文件大小必须大于0且不超过10 MB。');
+        return;
+    }
+    dropReadCount++;
+    refreshSendButton();
+    var reader=new FileReader();
+    reader.onload=function(){
+        try{
+            var encoded=String(reader.result||'');
+            var comma=encoded.indexOf(',');
+            if(comma<0){showToast('文件读取失败。');return;}
+            post('dropFile',{name:file.name,mimeType:file.type||'',size:file.size,data:encoded.substring(comma+1)});
+        }finally{
+            dropReadCount--;
+            refreshSendButton();
+        }
+    };
+    reader.onerror=function(){dropReadCount--;refreshSendButton();showToast('文件读取失败。');};
+    reader.readAsDataURL(file);
+}
+function handleComposerDrop(event){
+    event.preventDefault();
+    var composer=byId('composer');
+    composer.classList.remove('drag-over');
+    if(appState.sending){return;}
+    Array.prototype.forEach.call((event.dataTransfer&&event.dataTransfer.files)||[],readDroppedFile);
+}
+function refreshAttachments(){
+    var host=byId('attachmentList');
+    if(!host){return;}
+    host.innerHTML='';
+    (appState.attachments||[]).forEach(function(item){
+        var card=document.createElement('div');
+        card.className='attachment-card'+(item.preview?' image-card':'')+(item.error?' error':'');
+        card.title=item.error||item.name||'文件';
+        if(item.preview){
+            var image=document.createElement('img');
+            image.className='attachment-preview';
+            image.src=item.preview;
+            image.alt=item.name||'图片';
+            card.appendChild(image);
+        }else{
+            var icon=document.createElement('div');
+            icon.className='attachment-icon';
+            var extension=(item.name||'FILE').split('.').pop().toUpperCase();
+            icon.textContent=extension.substring(0,4)||'FILE';
+            card.appendChild(icon);
+            var meta=document.createElement('div');
+            meta.className='attachment-meta';
+            var name=document.createElement('div');
+            name.className='attachment-name';
+            name.textContent=item.name||'文件';
+            var type=document.createElement('div');
+            type.className='attachment-type';
+            type.textContent=item.typeLabel||'文件';
+            meta.appendChild(name);
+            meta.appendChild(type);
+            if(item.error){
+                var error=document.createElement('div');
+                error.className='attachment-error';
+                error.textContent=item.error;
+                meta.appendChild(error);
+            }
+            card.appendChild(meta);
+        }
+        var remove=document.createElement('button');
+        remove.className='attachment-remove';
+        remove.type='button';
+        remove.textContent='×';
+        remove.title='移除文件';
+        remove.setAttribute('aria-label','移除文件');
+        remove.addEventListener('click',function(){post('removeFile',{id:item.id});});
+        card.appendChild(remove);
+        if(item.preview&&item.error){
+            var warning=document.createElement('div');
+            warning.className='attachment-warning';
+            warning.textContent='!';
+            card.appendChild(warning);
+        }
+        host.appendChild(card);
+    });
 }
 function openConfig(){fillConfig();byId('configOverlay').classList.add('open');}
 function closeConfig(){byId('configOverlay').classList.remove('open');}
@@ -549,9 +660,10 @@ function copyMessage(button){
 }
 function sendPrompt(){
     if(appState.sending){post('stop');return;}
+    if(dropReadCount>0){showToast('文件仍在读取，请稍候。');return;}
     var input=byId('promptInput');
     var text=input.value.trim();
-    if(!text){return;}
+    if(!text&&(appState.attachments||[]).length===0){return;}
     post('send',{prompt:text});
     input.value='';
     autoGrowPrompt();
@@ -563,6 +675,20 @@ function autoGrowPrompt(){
     refreshSendButton();
 }
 document.addEventListener('DOMContentLoaded',function(){
+    var composer=byId('composer');
+    composer.addEventListener('dragenter',function(e){
+        var hasFiles=e.dataTransfer&&((e.dataTransfer.files&&e.dataTransfer.files.length>0)
+            ||Array.prototype.indexOf.call(e.dataTransfer.types||[],'Files')>=0);
+        if(appState.sending||!hasFiles){return;}
+        e.preventDefault();composer.classList.add('drag-over');
+    });
+    composer.addEventListener('dragover',function(e){
+        if(!appState.sending){e.preventDefault();}
+    });
+    composer.addEventListener('dragleave',function(e){
+        if(e.relatedTarget&&!composer.contains(e.relatedTarget)){composer.classList.remove('drag-over');}
+    });
+    composer.addEventListener('drop',handleComposerDrop);
     byId('configButton').addEventListener('click',openConfig);
     byId('toolDiagnostic').addEventListener('click',function(){setToolProfile('Diagnostic');});
     byId('toolEditor').addEventListener('click',function(){setToolProfile('Editor');});
@@ -570,6 +696,7 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('resetButton').addEventListener('click',function(){post('reset');});
     byId('newSessionButton').addEventListener('click',function(){post('newSession');});
     byId('sessionSelect').addEventListener('change',function(){post('switchSession',{id:this.value});});
+    byId('attachButton').addEventListener('click',function(){post('chooseFile');});
     byId('sendButton').addEventListener('click',sendPrompt);
     byId('promptInput').addEventListener('input',autoGrowPrompt);
     byId('promptInput').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey&&!e.altKey){e.preventDefault();sendPrompt();}});
@@ -600,7 +727,7 @@ document.addEventListener('DOMContentLoaded',function(){
     </div>
   </header>
   <main class=""chat-area scrollable"" id=""messagesScroll""><div id=""messages""></div></main>
-  <footer class=""composer-wrap""><div class=""composer""><textarea id=""promptInput"" class=""prompt-input"" placeholder=""要求后续变更""></textarea><button id=""sendButton"" class=""send-button"" title=""发送"" aria-label=""发送""><span class=""circle""><svg class=""arrow-icon"" viewBox=""0 0 24 24""><path d=""M12 5 5.5 11.5l1.6 1.6 3.8-3.8V20h2.2V9.3l3.8 3.8 1.6-1.6L12 5Z""/></svg><span class=""stop-icon""></span></span></button></div></footer>
+  <footer class=""composer-wrap""><div id=""composer"" class=""composer""><div id=""attachmentList"" class=""attachment-list"" aria-label=""待发送文件""></div><textarea id=""promptInput"" class=""prompt-input"" placeholder=""要求后续变更""></textarea><button id=""attachButton"" class=""attach-button"" type=""button"" title=""添加文件"" aria-label=""添加文件"">+</button><button id=""sendButton"" class=""send-button"" title=""发送"" aria-label=""发送""><span class=""circle""><svg class=""arrow-icon"" viewBox=""0 0 24 24""><path d=""M12 5 5.5 11.5l1.6 1.6 3.8-3.8V20h2.2V9.3l3.8 3.8 1.6-1.6L12 5Z""/></svg><span class=""stop-icon""></span></span></button></div></footer>
 </div>
 <div class=""modal-backdrop"" id=""configOverlay"">
   <section class=""config-modal"">
@@ -787,6 +914,197 @@ document.addEventListener('DOMContentLoaded',function(){
             return trimmed;
         }
 
+        private async void ChooseFileAttachments()
+        {
+            if (sending)
+            {
+                return;
+            }
+
+            using (OpenFileDialog dialog = new OpenFileDialog())
+            {
+                dialog.Title = "选择要分析的文件";
+                dialog.Filter = "常用文件|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.csv;*.txt;*.json;*.xml;*.md;*.pdf|所有文件|*.*";
+                dialog.Multiselect = true;
+                dialog.CheckFileExists = true;
+                dialog.RestoreDirectory = true;
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                var errors = new List<string>();
+                foreach (string path in dialog.FileNames)
+                {
+                    if (pendingFileAttachments.Count >= MaxFileAttachmentCount)
+                    {
+                        errors.Add($"最多同时上传{MaxFileAttachmentCount}个文件。");
+                        break;
+                    }
+
+                    try
+                    {
+                        FileInfo fileInfo = new FileInfo(path);
+                        if (fileInfo.Length <= 0 || fileInfo.Length > MaxFileAttachmentBytes)
+                        {
+                            errors.Add($"文件大小必须大于0且不超过10 MB：{fileInfo.Name}");
+                            continue;
+                        }
+
+                        byte[] data = await Task.Run(() => File.ReadAllBytes(path)).ConfigureAwait(true);
+                        AttachmentPreparationResult preparation = await Task.Run(
+                            () => AttachmentTextExtractor.Prepare(fileInfo.Name, data)).ConfigureAwait(true);
+                        if (!TryAddFileAttachment(fileInfo.Name, data, preparation, out string addError))
+                        {
+                            errors.Add(addError);
+                            break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add($"读取文件失败：{Path.GetFileName(path)}（{ex.Message}）");
+                    }
+                }
+
+                if (errors.Count > 0)
+                {
+                    ShowWebToast(string.Join(" ", errors));
+                }
+            }
+
+            PushWebAppState();
+        }
+
+        private async void AddDroppedFile(JObject message)
+        {
+            if (sending)
+            {
+                return;
+            }
+
+            string fileName = Path.GetFileName(message?["name"]?.Value<string>());
+            string encoded = message?["data"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(encoded))
+            {
+                ShowWebToast("拖入的文件数据无效。");
+                return;
+            }
+            if (encoded.Any(char.IsWhiteSpace))
+            {
+                ShowWebToast("拖入的文件编码格式无效。");
+                return;
+            }
+            try
+            {
+                byte[] data = Convert.FromBase64String(encoded);
+                AttachmentPreparationResult preparation = await Task.Run(
+                    () => AttachmentTextExtractor.Prepare(fileName, data)).ConfigureAwait(true);
+                if (!TryAddFileAttachment(fileName, data, preparation, out string error))
+                {
+                    ShowWebToast(error);
+                }
+            }
+            catch (FormatException)
+            {
+                ShowWebToast("拖入的文件编码格式无效。");
+            }
+            PushWebAppState();
+        }
+
+        private bool TryAddFileAttachment(
+            string fileName,
+            byte[] data,
+            AttachmentPreparationResult preparation,
+            out string error)
+        {
+            error = null;
+            if (pendingFileAttachments.Count >= MaxFileAttachmentCount)
+            {
+                error = $"最多同时上传{MaxFileAttachmentCount}个文件。";
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                error = "文件名不能为空。";
+                return false;
+            }
+            if (data == null || data.Length == 0 || data.Length > MaxFileAttachmentBytes)
+            {
+                error = $"文件大小必须大于0且不超过10 MB：{fileName}";
+                return false;
+            }
+            if (preparation == null)
+            {
+                error = "文件解析结果无效：" + fileName;
+                return false;
+            }
+            string id = Guid.NewGuid().ToString("N");
+            string preview = preparation.IsImage ? CreateImagePreviewDataUri(data) : null;
+            if (preparation.IsImage
+                && !string.Equals(preparation.MimeType, "image/webp", StringComparison.OrdinalIgnoreCase)
+                && string.IsNullOrWhiteSpace(preview))
+            {
+                preparation.Error = "图片文件损坏、尺寸过大或格式与扩展名不匹配。";
+            }
+            pendingFileAttachments.Add(new GooseFileAttachment(
+                id,
+                fileName,
+                preparation.MimeType,
+                preparation.TypeLabel,
+                preparation.IsImage,
+                data,
+                preparation.ExtractedText,
+                preparation.Error));
+            if (!string.IsNullOrWhiteSpace(preview))
+            {
+                fileAttachmentPreviews[id] = preview;
+            }
+            return true;
+        }
+
+        private static string CreateImagePreviewDataUri(byte[] data)
+        {
+            try
+            {
+                using (var input = new MemoryStream(data, false))
+                using (Image image = Image.FromStream(input, false, true))
+                {
+                    if (image.Width <= 0 || image.Height <= 0
+                        || (long)image.Width * image.Height > 40000000L)
+                    {
+                        return null;
+                    }
+                    double scale = Math.Min(72.0 / image.Width, 72.0 / image.Height);
+                    int width = Math.Max(1, (int)Math.Round(image.Width * scale));
+                    int height = Math.Max(1, (int)Math.Round(image.Height * scale));
+                    using (var thumbnail = new Bitmap(width, height))
+                    using (Graphics graphics = Graphics.FromImage(thumbnail))
+                    using (var output = new MemoryStream())
+                    {
+                        graphics.Clear(Color.White);
+                        graphics.DrawImage(image, 0, 0, width, height);
+                        thumbnail.Save(output, System.Drawing.Imaging.ImageFormat.Png);
+                        return "data:image/png;base64," + Convert.ToBase64String(output.ToArray());
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void RemoveFileAttachment(string attachmentId)
+        {
+            if (sending || string.IsNullOrWhiteSpace(attachmentId))
+            {
+                return;
+            }
+            pendingFileAttachments.RemoveAll(item => string.Equals(item.Id, attachmentId, StringComparison.Ordinal));
+            fileAttachmentPreviews.Remove(attachmentId);
+            PushWebAppState();
+        }
+
         private void LoadConfig()
         {
             if (!GooseConfigStorage.TryLoad(out GooseConfig config, out string error))
@@ -838,6 +1156,15 @@ document.addEventListener('DOMContentLoaded',function(){
                 case "send":
                     txtPrompt.Text = message["prompt"]?.Value<string>() ?? string.Empty;
                     BtnSend_Click(sender, EventArgs.Empty);
+                    break;
+                case "chooseFile":
+                    ChooseFileAttachments();
+                    break;
+                case "dropFile":
+                    AddDroppedFile(message);
+                    break;
+                case "removeFile":
+                    RemoveFileAttachment(message["id"]?.Value<string>());
                     break;
                 case "stop":
                     if (sending)
@@ -988,6 +1315,7 @@ document.addEventListener('DOMContentLoaded',function(){
                 },
                 ["providerOptions"] = BuildComboOptions(cboProvider, providerText),
                 ["modelOptions"] = BuildComboOptions(cboModel, modelText),
+                ["attachments"] = new JArray(pendingFileAttachments.Select(BuildAttachmentWebState)),
                 ["activeConversationId"] = activeConversation?.Id ?? string.Empty,
                 ["conversations"] = new JArray(conversations
                     .OrderByDescending(item => item.UpdatedAt)
@@ -1265,10 +1593,16 @@ document.addEventListener('DOMContentLoaded',function(){
                 return;
             }
 
-            string prompt = txtPrompt.Text.Trim();
-            if (string.IsNullOrWhiteSpace(prompt))
+            string enteredPrompt = txtPrompt.Text;
+            string prompt = enteredPrompt.Trim();
+            List<GooseFileAttachment> fileAttachments = pendingFileAttachments.ToList();
+            if (string.IsNullOrWhiteSpace(prompt) && fileAttachments.Count == 0)
             {
                 return;
+            }
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                prompt = "请分析我上传的文件。";
             }
             if (!TryBuildConfig(out GooseConfig config, out string error))
             {
@@ -1277,22 +1611,29 @@ document.addEventListener('DOMContentLoaded',function(){
                 return;
             }
 
-            AppendConversation("用户", prompt, Color.FromArgb(22, 72, 130));
-            activeConversation.Messages.Add(new AiConversationMessage
+            GooseFileAttachment invalidAttachment = fileAttachments.FirstOrDefault(item =>
+                !string.IsNullOrWhiteSpace(item.Error)
+                || (item.IsImage && GooseAcpClient.IsKnownTextOnlyImageConfiguration(config.Provider, config.Model)));
+            if (invalidAttachment != null)
             {
-                Role = "user",
-                Text = prompt,
-                Time = DateTime.Now
-            });
-            if (activeConversation.Messages.Count == 1)
-            {
-                activeConversation.Title = prompt.Length > 24 ? prompt.Substring(0, 24) + "…" : prompt;
+                string attachmentError = invalidAttachment.Error;
+                if (string.IsNullOrWhiteSpace(attachmentError))
+                {
+                    attachmentError = "当前 Provider/Model 仅支持文本，不能分析图片。请移除图片或切换支持视觉的模型。";
+                }
+                ShowWebToast(invalidAttachment.FileName + "：" + attachmentError);
+                PushWebAppState();
+                return;
             }
-            activeConversation.UpdatedAt = DateTime.Now;
-            SaveConversationHistory();
+
+            string conversationText = prompt;
+            if (fileAttachments.Count > 0)
+            {
+                conversationText += "\n\n📎 附件：" + string.Join("、", fileAttachments.Select(item => item.FileName));
+            }
+            AppendConversation("用户", conversationText, Color.FromArgb(22, 72, 130));
             // 每次发送对话强制重置 thinking-box 滚动状态并滚到底部，覆盖用户上滑设置，确保用户看到最新回复。
             EnqueueScript("document.querySelectorAll('.thinking-box').forEach(function(b){b.classList.remove('user-scrolled');if(!b.classList.contains('collapsed')){b.scrollTop=b.scrollHeight;}});if(window.scrollMessagesToBottom){scrollMessagesToBottom();}");
-            txtPrompt.Clear();
             sending = true;
             promptCts?.Dispose();
             promptCts = new CancellationTokenSource();
@@ -1301,7 +1642,27 @@ document.addEventListener('DOMContentLoaded',function(){
             try
             {
                 GooseAcpClient client = EnsureGooseClient(config);
-                await client.PromptAsync(prompt, promptCts.Token).ConfigureAwait(true);
+                await client.PromptAsync(prompt, fileAttachments, promptCts.Token).ConfigureAwait(true);
+                DateTime completedAt = DateTime.Now;
+                activeConversation.Messages.Add(new AiConversationMessage
+                {
+                    Role = "user",
+                    Text = conversationText,
+                    Time = completedAt
+                });
+                if (activeConversation.Messages.Count == 1)
+                {
+                    activeConversation.Title = conversationText.Length > 24
+                        ? conversationText.Substring(0, 24) + "…"
+                        : conversationText;
+                }
+                HashSet<string> sentAttachmentIds = new HashSet<string>(fileAttachments.Select(item => item.Id), StringComparer.Ordinal);
+                pendingFileAttachments.RemoveAll(item => sentAttachmentIds.Contains(item.Id));
+                foreach (string attachmentId in sentAttachmentIds)
+                {
+                    fileAttachmentPreviews.Remove(attachmentId);
+                }
+                txtPrompt.Clear();
                 string assistantText = client.LastAssistantResponse;
                 if (!string.IsNullOrWhiteSpace(assistantText))
                 {
@@ -1312,16 +1673,19 @@ document.addEventListener('DOMContentLoaded',function(){
                         Time = DateTime.Now
                     });
                     activeConversation.UpdatedAt = DateTime.Now;
-                    SaveConversationHistory();
                 }
+                activeConversation.UpdatedAt = DateTime.Now;
+                SaveConversationHistory();
             }
             catch (OperationCanceledException)
             {
                 AppendConversation("系统", "已停止本轮生成。", Color.DarkOrange);
+                RestoreComposerAfterFailedSend(enteredPrompt);
             }
             catch (Exception ex)
             {
                 AppendConversation("错误", ex.Message, Color.Red);
+                RestoreComposerAfterFailedSend(enteredPrompt);
             }
             finally
             {
@@ -1346,6 +1710,15 @@ document.addEventListener('DOMContentLoaded',function(){
         private void BtnResetSession_Click(object sender, EventArgs e)
         {
             StartNewConversation();
+        }
+
+        private void RestoreComposerAfterFailedSend(string prompt)
+        {
+            txtPrompt.Text = prompt ?? string.Empty;
+            EnqueueScript("var input=document.getElementById('promptInput');if(input){input.value="
+                + JsonConvert.SerializeObject(prompt ?? string.Empty)
+                + ";if(window.autoGrowPrompt){window.autoGrowPrompt();}};");
+            PushWebAppState();
         }
 
         private void LoadConversationHistory()
@@ -1383,6 +1756,26 @@ document.addEventListener('DOMContentLoaded',function(){
                 Title = "新对话",
                 CreatedAt = now,
                 UpdatedAt = now
+            };
+        }
+
+        private JObject BuildAttachmentWebState(GooseFileAttachment attachment)
+        {
+            string error = attachment.Error;
+            if (string.IsNullOrWhiteSpace(error) && attachment.IsImage
+                && GooseAcpClient.IsKnownTextOnlyImageConfiguration(cboProvider.Text, cboModel.Text))
+            {
+                error = $"当前模型 {cboProvider.Text}/{cboModel.Text} 只支持文本，不能分析图片。";
+            }
+            fileAttachmentPreviews.TryGetValue(attachment.Id, out string preview);
+            return new JObject
+            {
+                ["id"] = attachment.Id,
+                ["name"] = attachment.FileName,
+                ["typeLabel"] = attachment.TypeLabel,
+                ["isImage"] = attachment.IsImage,
+                ["preview"] = preview ?? string.Empty,
+                ["error"] = error ?? string.Empty
             };
         }
 
@@ -1426,6 +1819,8 @@ document.addEventListener('DOMContentLoaded',function(){
         private void ResetConversationSessionState()
         {
             DisposeGooseClient();
+            pendingFileAttachments.Clear();
+            fileAttachmentPreviews.Clear();
             promptedPreviewIds.Clear();
             lastConfirmedPreviewId = null;
             streamingAssistant = false;
@@ -1912,7 +2307,42 @@ document.addEventListener('DOMContentLoaded',function(){
             }
             if (InvokeRequired)
             {
-                return (JObject)Invoke(new Func<JObject, JObject>(HandlePermissionRequest), request);
+                JObject response = null;
+                Exception dispatchError = null;
+                using (var completed = new ManualResetEventSlim(false))
+                {
+                    try
+                    {
+                        BeginInvoke((Action)(() =>
+                        {
+                            try
+                            {
+                                response = HandlePermissionRequest(request);
+                            }
+                            catch (Exception ex)
+                            {
+                                dispatchError = ex;
+                            }
+                            finally
+                            {
+                                completed.Set();
+                            }
+                        }));
+                    }
+                    catch
+                    {
+                        return BuildPermissionCancelled();
+                    }
+                    if (!completed.Wait(TimeSpan.FromMinutes(2)) || IsDisposed || Disposing)
+                    {
+                        return BuildPermissionCancelled();
+                    }
+                }
+                if (dispatchError != null)
+                {
+                    throw dispatchError;
+                }
+                return response ?? BuildPermissionCancelled();
             }
 
             string title = request["toolCall"]?["title"]?.Value<string>()
@@ -2593,7 +3023,7 @@ document.addEventListener('DOMContentLoaded',function(){
             return null;
         }
 
-        private void TryPromptPreviewConfirmation(JObject raw)
+        private async void TryPromptPreviewConfirmation(JObject raw)
         {
             // 从工具返回结果中提取 previewId。
             // previewId 只在 preview_intent / preview_patch 的返回值中存在，
@@ -2643,8 +3073,7 @@ document.addEventListener('DOMContentLoaded',function(){
             DialogResult result = ShowPreviewApprovalDialog(previewId, changes, messages);
             if (result == DialogResult.Yes)
             {
-                // 必须在继续工具调用前完成确认，避免 AI 抢先提交而命中“预演尚未确认”。
-                ConfirmPreviewAsync(previewId).GetAwaiter().GetResult();
+                await ConfirmPreviewAsync(previewId).ConfigureAwait(true);
             }
             else
             {
