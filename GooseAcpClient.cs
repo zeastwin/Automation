@@ -81,6 +81,9 @@ namespace Automation
         private readonly string runtimeSessionName = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N").Substring(0, 6);
         private readonly StringBuilder assistantResponse = new StringBuilder();
         private readonly StringBuilder assistantThought = new StringBuilder();
+        private readonly StringBuilder currentAssistantTraceSegment = new StringBuilder();
+        private readonly StringBuilder currentThoughtTraceSegment = new StringBuilder();
+        private readonly JArray reasoningTrace = new JArray();
         private string restoredConversationContext;
         private int nextRequestId;
         private Process process;
@@ -288,6 +291,9 @@ namespace Automation
                 currentPromptId = Guid.NewGuid().ToString("N");
                 assistantResponse.Clear();
                 assistantThought.Clear();
+                currentAssistantTraceSegment.Clear();
+                currentThoughtTraceSegment.Clear();
+                reasoningTrace.Clear();
             }
             LogExecution("user_prompt", prompt, new JObject
             {
@@ -313,11 +319,23 @@ namespace Automation
             finally
             {
                 string response;
+                JArray trace;
                 lock (executionLock)
                 {
+                    FlushReasoningTraceSegmentLocked("assistant_segment", currentAssistantTraceSegment);
+                    FlushReasoningTraceSegmentLocked("thought_segment", currentThoughtTraceSegment);
+                    MarkFinalAssistantTraceSegmentLocked();
                     response = assistantResponse.ToString();
+                    trace = (JArray)reasoningTrace.DeepClone();
                 }
                 LogExecution("assistant_response", response, null);
+                if (trace.Count > 0)
+                {
+                    LogExecution("reasoning_trace", $"本轮共记录 {trace.Count} 个推理与工具事件。", new JObject
+                    {
+                        ["events"] = trace
+                    });
+                }
 
                 string thought;
                 lock (executionLock)
@@ -835,7 +853,9 @@ namespace Automation
                     {
                         lock (executionLock)
                         {
+                            FlushReasoningTraceSegmentLocked("thought_segment", currentThoughtTraceSegment);
                             assistantResponse.Append(chunkText);
+                            currentAssistantTraceSegment.Append(chunkText);
                         }
                         Report("assistant_chunk", chunkText, message);
                     }
@@ -850,7 +870,9 @@ namespace Automation
                     {
                         lock (executionLock)
                         {
+                            FlushReasoningTraceSegmentLocked("assistant_segment", currentAssistantTraceSegment);
                             assistantThought.Append(thoughtText);
+                            currentThoughtTraceSegment.Append(thoughtText);
                         }
                         Report("assistant_thought", thoughtText, message);
                     }
@@ -862,6 +884,7 @@ namespace Automation
                 {
                     string title = FindFirstString(parameters, "title", "name") ?? "调用工具";
                     string displayName = ResolveToolDisplayName(parameters, title);
+                    AppendReasoningTraceEvent("tool_call", displayName, message);
                     LogExecution("tool_call", displayName, message);
                     Report("tool_call", displayName, message);
                     return;
@@ -879,6 +902,7 @@ namespace Automation
                     }
                     // 完成响应只提取摘要给 UI；完整参数和结果由 MCP 统一审计，避免重复落盘。
                     string summary = ExtractToolResultSummary(parameters);
+                    AppendReasoningTraceEvent("tool_result", summary, message);
                     Report("tool_result", summary, message);
                     return;
                 }
@@ -892,14 +916,18 @@ namespace Automation
                 {
                     lock (executionLock)
                     {
+                        FlushReasoningTraceSegmentLocked("thought_segment", currentThoughtTraceSegment);
                         assistantResponse.Append(text);
+                        currentAssistantTraceSegment.Append(text);
                     }
                 }
                 else if (string.Equals(updateKind, "agent_thought", StringComparison.Ordinal))
                 {
                     lock (executionLock)
                     {
+                        FlushReasoningTraceSegmentLocked("assistant_segment", currentAssistantTraceSegment);
                         assistantThought.Append(text);
+                        currentThoughtTraceSegment.Append(text);
                     }
                 }
                 LogFile($"ACP<- 通知 session/update kind={updateKind ?? "(空)"}", parameters, LogLevel.Normal);
@@ -1245,6 +1273,58 @@ namespace Automation
             }
             catch
             {
+            }
+        }
+
+        private void AppendReasoningTraceEvent(string kind, string text, JObject raw)
+        {
+            lock (executionLock)
+            {
+                FlushReasoningTraceSegmentLocked("assistant_segment", currentAssistantTraceSegment);
+                FlushReasoningTraceSegmentLocked("thought_segment", currentThoughtTraceSegment);
+                var traceEvent = new JObject
+                {
+                    ["time"] = DateTime.Now.ToString("O"),
+                    ["kind"] = kind ?? string.Empty,
+                    ["text"] = text ?? string.Empty
+                };
+                if (raw != null)
+                {
+                    traceEvent["raw"] = raw.DeepClone();
+                }
+                reasoningTrace.Add(traceEvent);
+            }
+        }
+
+        private void FlushReasoningTraceSegmentLocked(string kind, StringBuilder segment)
+        {
+            if (segment == null || segment.Length == 0)
+            {
+                return;
+            }
+            reasoningTrace.Add(new JObject
+            {
+                ["time"] = DateTime.Now.ToString("O"),
+                ["kind"] = kind ?? string.Empty,
+                ["text"] = segment.ToString()
+            });
+            segment.Clear();
+        }
+
+        private void MarkFinalAssistantTraceSegmentLocked()
+        {
+            JObject finalSegment = reasoningTrace
+                .OfType<JObject>()
+                .LastOrDefault(item => string.Equals(
+                    item["kind"]?.Value<string>(),
+                    "assistant_segment",
+                    StringComparison.Ordinal));
+            foreach (JObject item in reasoningTrace.OfType<JObject>())
+            {
+                if (string.Equals(item["kind"]?.Value<string>(), "assistant_segment", StringComparison.Ordinal))
+                {
+                    item["kind"] = ReferenceEquals(item, finalSegment) ? "final_answer" : "reasoning_segment";
+                }
             }
         }
 
