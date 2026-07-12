@@ -9,6 +9,7 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using static System.ComponentModel.TypeConverter;
 
 namespace Automation.Bridge
@@ -319,7 +320,11 @@ namespace Automation.Bridge
                     builder.Append("details=").AppendLine(exception?.Message ?? string.Empty);
                 }
                 builder.Append("exception=").Append(exception?.ToString() ?? string.Empty);
-                bridgeErrorLogger.Log(builder.ToString(), LogLevel.Error);
+                LogLevel level = exception is BridgeRequestException bridgeRequest
+                    && bridgeRequest.StatusCode < 500
+                    ? LogLevel.Normal
+                    : LogLevel.Error;
+                bridgeErrorLogger.Log(builder.ToString(), level);
             }
             catch
             {
@@ -4071,11 +4076,116 @@ namespace Automation.Bridge
                     $"retryableNow=false; currentState={snapshot.State}; sideEffects=none; actionRequired=wait_for_operator_stop; forbiddenAction=stop_proc");
             }
 
+            ValidateHmiCustomFunctionSource();
+
             if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
             {
                 throw new BridgeRequestException(500, "COMMIT_FAILED", "流程提交失败。", commitError);
             }
             NotifyProcChanged(procIndex, ProcChangeKind.Modified, affectedOps);
+        }
+
+        private static void ValidateHmiCustomFunctionSource()
+        {
+            string sourcePath = FindHmiCustomFunctionSource();
+            if (string.IsNullOrWhiteSpace(sourcePath))
+            {
+                return;
+            }
+
+            string source;
+            try
+            {
+                source = File.ReadAllText(sourcePath, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                throw new BridgeRequestException(
+                    409,
+                    "SOURCE_VALIDATION_FAILED",
+                    "无法读取 HMI 自定义函数源码，已阻止流程提交。",
+                    ex.Message);
+            }
+
+            var errors = new List<string>();
+            HashSet<string> valueStoreMethods = new HashSet<string>(
+                typeof(ValueConfigStore)
+                    .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                    .Select(method => method.Name),
+                StringComparer.Ordinal);
+            string[] usedValueStoreMethods = Regex.Matches(
+                    source,
+                    @"\bSF\s*\.\s*valueStore\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+                .Cast<Match>()
+                .Select(match => match.Groups[1].Value)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            foreach (string methodName in usedValueStoreMethods)
+            {
+                if (valueStoreMethods.Contains(methodName))
+                {
+                    continue;
+                }
+
+                string[] candidates = valueStoreMethods
+                    .Where(candidate => string.Equals(candidate, methodName, StringComparison.OrdinalIgnoreCase)
+                        || candidate.IndexOf(methodName, StringComparison.OrdinalIgnoreCase) >= 0
+                        || methodName.IndexOf(candidate, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .OrderBy(candidate => candidate, StringComparer.Ordinal)
+                    .Take(8)
+                    .ToArray();
+                string candidateText = candidates.Length == 0
+                    ? "请读取当前 ValueConfigStore 的公开方法后修改"
+                    : "可用候选：" + string.Join("、", candidates);
+                errors.Add($"CustomFunc.cs 调用了当前 ValueConfigStore 不存在的公开方法 {methodName}；C# 方法名区分大小写。{candidateText}。");
+            }
+
+            string[] registeredFunctions = Regex.Matches(
+                    source,
+                    "\\{\\s*\"[^\"]+\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\}")
+                .Cast<Match>()
+                .Select(match => match.Groups[1].Value)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            foreach (string functionName in registeredFunctions)
+            {
+                if (!Regex.IsMatch(
+                    source,
+                    $"\\b(?:public|private|protected|internal)\\s+(?:static\\s+)?(?:void|bool|int|long|double|string)\\s+{Regex.Escape(functionName)}\\s*\\(",
+                    RegexOptions.CultureInvariant))
+                {
+                    errors.Add($"functionMap 注册了自定义函数 {functionName}，但源码中没有对应的方法定义。");
+                }
+            }
+
+            if (source.Count(character => character == '{') != source.Count(character => character == '}'))
+            {
+                errors.Add("CustomFunc.cs 的大括号数量不匹配，源码结构不完整。");
+            }
+
+            if (errors.Count > 0)
+            {
+                throw new BridgeRequestException(
+                    409,
+                    "SOURCE_VALIDATION_FAILED",
+                    "HMI 自定义函数源码静态检查未通过；本次流程没有保存，预演记录仍保留。请根据 details 修正源码后，使用同一 previewId 重试提交。",
+                    string.Join("\r\n", errors.Distinct(StringComparer.Ordinal)));
+            }
+        }
+
+        private static string FindHmiCustomFunctionSource()
+        {
+            DirectoryInfo directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+            while (directory != null)
+            {
+                string candidate = Path.Combine(directory.FullName, "Hmi", "CustomFunc.cs");
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+                directory = directory.Parent;
+            }
+            return null;
         }
 
         private void ApplyProcHeadUpdate(JObject action, Proc draft, PatchExecutionResult result, int actionIndex)

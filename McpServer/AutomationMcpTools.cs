@@ -788,6 +788,7 @@ namespace Automation.McpServer
             "使用中间意图 JSON 直接提交。必须携带前台已确认的 previewId，且意图内容必须与预演完全一致。"
             + "正式提交只允许目标流程处于Stopped；提交前先用get_snapshot确认。非Stopped时不要调用本工具、不得调用stop_proc，必须告知用户并等待操作员停止流程。"
             + "被PROC_NOT_STOPPED拒绝时没有停止流程、没有保存文件、没有发布热更新，状态未改变前禁止重复提交。"
+            + "被SOURCE_VALIDATION_FAILED拒绝时应读取details逐项修正Hmi源码；该失败没有保存流程且预演仍有效，修正后使用同一previewId重试，不要重新生成流程Patch。"
             + "完全权限模式下预演自动确认，直接传入预演返回的 previewId 即可；禁止传字符串 null/undefined。")]
         public static async Task<string> ApplyIntent(
             [Description("中间意图 JSON 字符串，必须与预演完全一致")] string intentJson,
@@ -820,6 +821,7 @@ namespace Automation.McpServer
             + "必须携带前台已确认的 previewId，patchJson 必须与预演完全一致。"
             + "正式提交只允许目标流程处于Stopped；提交前先用get_snapshot确认。非Stopped时不得调用stop_proc，必须等待操作员停止。"
             + "被PROC_NOT_STOPPED拒绝时无任何保存/发布副作用，状态未改变前禁止重复提交。"
+            + "被SOURCE_VALIDATION_FAILED拒绝时应读取details逐项修正Hmi源码；该失败没有保存流程且预演仍有效，修正后使用同一previewId重试，不要重新生成Patch。"
             + "完全权限模式下预演自动确认，直接传入预演返回的 previewId 即可；禁止传字符串 null/undefined。")]
         public static async Task<string> ApplyPatch(
             [Description("Patch JSON 字符串，必须与预演完全一致")] string patchJson,

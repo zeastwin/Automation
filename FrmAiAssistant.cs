@@ -544,6 +544,7 @@ function automationSetState(state){
     sessions.value=appState.activeConversationId||'';
     sessions.disabled=appState.sending;
     byId('newSessionButton').disabled=appState.sending;
+    byId('deleteSessionButton').disabled=appState.sending||!appState.activeConversationId;
     byId('configButton').disabled=false;
     fillConfig();
     refreshToolbar();
@@ -695,6 +696,10 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('fullPermissionButton').addEventListener('click',toggleFullPermission);
     byId('resetButton').addEventListener('click',function(){post('reset');});
     byId('newSessionButton').addEventListener('click',function(){post('newSession');});
+    byId('deleteSessionButton').addEventListener('click',function(){
+        if(appState.sending||!appState.activeConversationId){return;}
+        if(window.confirm('确定删除当前对话吗？删除后无法恢复。')){post('deleteSession');}
+    });
     byId('sessionSelect').addEventListener('change',function(){post('switchSession',{id:this.value});});
     byId('attachButton').addEventListener('click',function(){post('chooseFile');});
     byId('sendButton').addEventListener('click',sendPrompt);
@@ -720,6 +725,7 @@ document.addEventListener('DOMContentLoaded',function(){
     <div class=""top-actions"">
       <select class=""session-select"" id=""sessionSelect"" title=""历史会话"" aria-label=""历史会话""></select>
       <button class=""toolbar-option"" id=""newSessionButton"" title=""新建会话"">新对话</button>
+      <button class=""icon-button"" id=""deleteSessionButton"" title=""删除当前对话"" aria-label=""删除当前对话""><svg viewBox=""0 0 24 24""><path d=""M4 7h16""/><path d=""M9 7V4h6v3""/><path d=""M7 7l1 13h8l1-13""/><path d=""M10 11v5""/><path d=""M14 11v5""/></svg></button>
       <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""包含诊断能力并允许预演和修改"">编辑</button></div>
       <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演；代码访问范围仍限制为 Hmi 目录"">完全权限</button>
       <button class=""icon-button"" id=""resetButton"" title=""重置会话"" aria-label=""重置会话""><svg viewBox=""0 0 24 24""><path d=""M3 12a9 9 0 1 0 3-6.7""/><path d=""M3 4v6h6""/></svg></button>
@@ -1177,6 +1183,9 @@ document.addEventListener('DOMContentLoaded',function(){
                     break;
                 case "newSession":
                     StartNewConversation();
+                    break;
+                case "deleteSession":
+                    DeleteCurrentConversation();
                     break;
                 case "switchSession":
                     SwitchConversation(message["id"]?.Value<string>());
@@ -1794,6 +1803,23 @@ document.addEventListener('DOMContentLoaded',function(){
             SaveConversationHistory();
             restoredConversationContext = null;
             ResetConversationSessionState();
+        }
+
+        private void DeleteCurrentConversation()
+        {
+            if (sending || activeConversation == null)
+            {
+                return;
+            }
+
+            string deletedId = activeConversation.Id;
+            conversations.RemoveAll(item => string.Equals(item.Id, deletedId, StringComparison.Ordinal));
+            activeConversation = CreateConversation();
+            conversations.Insert(0, activeConversation);
+            restoredConversationContext = null;
+            ResetConversationSessionState();
+            SaveConversationHistory();
+            ShowWebToast("当前对话已删除。");
         }
 
         private void SwitchConversation(string conversationId)
