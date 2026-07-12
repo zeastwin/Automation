@@ -223,7 +223,7 @@ namespace Automation
                 if (!ConfigurationBatchWriter.RecoverPendingTransactions(SF.ConfigPath, out string transactionError))
                 {
                     SF.SetSecurityLock(transactionError);
-                    throw new InvalidDataException(transactionError);
+                    SF.DR?.Logger?.Log($"配置事务恢复未完成，平台继续初始化并保持安全锁定：{transactionError}", LogLevel.Error);
                 }
                 SF.frmValue.RefreshDic();
                 EnsureSystemStatusVariables();
@@ -256,6 +256,7 @@ namespace Automation
                     SF.DR.Context.IoMap = SF.frmIO.DicIO;
                     SF.DR.Context.PlcStore = SF.plcStore;
                 }
+                SF.frmProc.RefreshProcList();
                 if (AutomationRuntimeOptions.Current.IsSimulation)
                 {
                     try
@@ -294,9 +295,11 @@ namespace Automation
                         ? "系统处于安全锁定模式，禁止自动启动流程。"
                         : $"系统处于安全锁定模式，禁止自动启动流程。锁定原因：{SF.SecurityLockReason}";
                     SF.StopAllProcs(lockReason);
-                    return;
                 }
-                TryStartAutoProcessesAfterReset();
+                else if (!SF.ProcConfigFaulted)
+                {
+                    TryStartAutoProcessesAfterReset();
+                }
             }
             catch (Exception ex)
             {

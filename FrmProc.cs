@@ -308,7 +308,8 @@ namespace Automation
             if (loadErrors.Count > 0)
             {
                 SF.ProcConfigFaulted = true;
-                string reason = "流程配置加载失败，已停机。\r\n" + string.Join("\r\n", loadErrors.Distinct());
+                string reason = "流程配置加载失败，所有流程已停止且禁止启动。请处理以下报警：\r\n"
+                    + string.Join("\r\n", loadErrors.Distinct());
                 SF.StopAllProcs(reason);
                 MessageBox.Show(reason, "流程配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -1030,11 +1031,6 @@ namespace Automation
                 proc_treeView.Enabled = true;
                 MessageBox.Show("当前流程编辑对象无效。");
             }
-        }
-
-        private void FrmProc_Load(object sender, EventArgs e)
-        {
-            Refresh();
         }
 
         private void startProc_Click(object sender, EventArgs e)

@@ -1431,6 +1431,11 @@ namespace Automation
                     : $"系统处于安全锁定状态:{SF.SecurityLockReason}";
                 return false;
             }
+            if (SF.ProcConfigFaulted)
+            {
+                error = "流程配置异常，所有流程已停止且禁止启动。请处理流程配置报警。";
+                return false;
+            }
             if (Context?.ValueStore == null)
             {
                 error = "变量库未初始化，禁止启动流程。";

@@ -135,7 +135,6 @@
             this.Controls.Add(this.proc_treeView);
             this.Name = "FrmProc";
             this.Text = "FrmProc";
-            this.Load += new System.EventHandler(this.FrmProc_Load);
             this.contextMenuStrip1.ResumeLayout(false);
             this.ResumeLayout(false);
 

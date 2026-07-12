@@ -155,13 +155,11 @@ namespace Automation
                 MonitorSystemValue("复位状态");
                 MonitorSystemValue("系统状态");
 
-                if (SF.ProcConfigFaulted)
-                {
-                    throw new InvalidOperationException("流程配置校验失败，平台已停止启动。");
-                }
                 SetState(PlatformRuntimeState.Ready, SF.SecurityLocked
                     ? $"平台已初始化，但处于安全锁定状态:{SF.SecurityLockReason}"
-                    : "平台已就绪");
+                    : SF.ProcConfigFaulted
+                        ? "平台已初始化，但流程配置异常；所有流程已停止且禁止启动，请处理流程配置报警。"
+                        : "平台已就绪");
                 return true;
             }
             catch (Exception ex)
