@@ -6,4 +6,8 @@
     <RootNamespace>Automation.Protocol</RootNamespace>
     <AssemblyName>Automation.Protocol</AssemblyName>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
 </Project>

@@ -40,7 +40,8 @@
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
     <PlatformTarget>x64</PlatformTarget>
-    <DebugType>pdbonly</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
@@ -79,13 +80,6 @@
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>packages\Newtonsoft.Json.13.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
-    <Reference Include="UglyToad.PdfPig"><HintPath>packages\PdfPig.0.1.13\lib\net471\UglyToad.PdfPig.dll</HintPath></Reference>
-    <Reference Include="UglyToad.PdfPig.Core"><HintPath>packages\PdfPig.0.1.13\lib\net471\UglyToad.PdfPig.Core.dll</HintPath></Reference>
-    <Reference Include="UglyToad.PdfPig.DocumentLayoutAnalysis"><HintPath>packages\PdfPig.0.1.13\lib\net471\UglyToad.PdfPig.DocumentLayoutAnalysis.dll</HintPath></Reference>
-    <Reference Include="UglyToad.PdfPig.Fonts"><HintPath>packages\PdfPig.0.1.13\lib\net471\UglyToad.PdfPig.Fonts.dll</HintPath></Reference>
-    <Reference Include="UglyToad.PdfPig.Package"><HintPath>packages\PdfPig.0.1.13\lib\net471\UglyToad.PdfPig.Package.dll</HintPath></Reference>
-    <Reference Include="UglyToad.PdfPig.Tokenization"><HintPath>packages\PdfPig.0.1.13\lib\net471\UglyToad.PdfPig.Tokenization.dll</HintPath></Reference>
-    <Reference Include="UglyToad.PdfPig.Tokens"><HintPath>packages\PdfPig.0.1.13\lib\net471\UglyToad.PdfPig.Tokens.dll</HintPath></Reference>
     <Reference Include="S7.Net, Version=0.20.0.0, Culture=neutral, PublicKeyToken=d5812d469e84c693, processorArchitecture=MSIL">
       <HintPath>packages\S7netplus.0.20.0\lib\net462\S7.Net.dll</HintPath>
     </Reference>
@@ -539,6 +533,13 @@
       <RedundantOutputFile Include="$(TargetDir)intent_templates.json" />
     </ItemGroup>
     <Delete Files="@(RedundantOutputFile)" />
+  </Target>
+  <!-- Release 运行包不携带调试符号；递归清理可同时移除项目引用遗留的 PDB。 -->
+  <Target Name="SlimReleaseOutput" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <ReleaseSymbolFile Include="$(TargetDir)**\*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(ReleaseSymbolFile)" />
   </Target>
   <Import Project="packages\LibGit2Sharp.NativeBinaries\build\net46\LibGit2Sharp.NativeBinaries.props" Condition="Exists('packages\LibGit2Sharp.NativeBinaries\build\net46\LibGit2Sharp.NativeBinaries.props')" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

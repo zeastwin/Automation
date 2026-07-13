@@ -12,6 +12,11 @@
     <AssemblyName>Automation.McpServer</AssemblyName>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.0" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="9.0.10" />
@@ -19,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Automation.Protocol\Automation.Protocol.csproj" />
+    <ProjectReference Include="..\KernelTests\KernelTests.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -32,40 +38,35 @@
     必须使用 SDK 计算出的发布清单，禁止扫描整个 TargetDir：命令行共享 OutDir 时，
     TargetDir 可能同时包含主程序和测试程序，通配复制会污染运行包。
   -->
-  <Target Name="CopyMcpServerToAutomationOutput"
-          AfterTargets="Build"
-          DependsOnTargets="ComputeFilesToPublish">
+  <Target Name="CopyMcpServerToAutomationOutput" AfterTargets="Build" DependsOnTargets="ComputeFilesToPublish">
     <PropertyGroup>
       <AutomationMcpOutputDir>$(MSBuildProjectDirectory)\..\bin\$(Configuration)\McpServer\</AutomationMcpOutputDir>
     </PropertyGroup>
     <ItemGroup>
       <McpServerRuntimeFile Include="@(ResolvedFileToPublish)" />
-      <McpServerRuntimeFile Include="$(TargetDir)$(AssemblyName).pdb"
-                            Condition="'$(Configuration)' == 'Debug' and Exists('$(TargetDir)$(AssemblyName).pdb')">
+      <McpServerRuntimeFile Include="$(TargetDir)$(AssemblyName).pdb" Condition="'$(Configuration)' == 'Debug' and Exists('$(TargetDir)$(AssemblyName).pdb')">
         <RelativePath>$(AssemblyName).pdb</RelativePath>
       </McpServerRuntimeFile>
-      <McpServerRuntimeFile Include="$(TargetDir)Automation.Protocol.pdb"
-                            Condition="'$(Configuration)' == 'Debug' and Exists('$(TargetDir)Automation.Protocol.pdb')">
+      <McpServerRuntimeFile Include="$(TargetDir)Automation.Protocol.pdb" Condition="'$(Configuration)' == 'Debug' and Exists('$(TargetDir)Automation.Protocol.pdb')">
         <RelativePath>Automation.Protocol.pdb</RelativePath>
       </McpServerRuntimeFile>
     </ItemGroup>
     <RemoveDir Directories="$(AutomationMcpOutputDir)" />
     <MakeDir Directories="$(AutomationMcpOutputDir)" />
-    <Copy
-      SourceFiles="@(McpServerRuntimeFile)"
-      DestinationFiles="@(McpServerRuntimeFile->'$(AutomationMcpOutputDir)%(RelativePath)')"
-      SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(McpServerRuntimeFile)" DestinationFiles="@(McpServerRuntimeFile->'$(AutomationMcpOutputDir)%(RelativePath)')" SkipUnchangedFiles="true" />
+    <ItemGroup Condition="'$(Configuration)' == 'Release'">
+      <McpReleaseSymbolFile Include="$(AutomationMcpOutputDir)**\*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(McpReleaseSymbolFile)" Condition="'$(Configuration)' == 'Release'" />
     <ItemGroup>
       <ForbiddenMcpRuntimeArtifact Include="$(AutomationMcpOutputDir)Logs\**\*" />
       <ForbiddenMcpRuntimeArtifact Include="$(AutomationMcpOutputDir)Config\**\*" />
-      <ForbiddenMcpRuntimeArtifact Include="$(AutomationMcpOutputDir)Automation.exe"
-                                   Condition="Exists('$(AutomationMcpOutputDir)Automation.exe')" />
+      <ForbiddenMcpRuntimeArtifact Include="$(AutomationMcpOutputDir)Automation.exe" Condition="Exists('$(AutomationMcpOutputDir)Automation.exe')" />
       <ForbiddenMcpRuntimeArtifact Include="$(AutomationMcpOutputDir)Automation.KernelTests*" />
     </ItemGroup>
     <!-- ComputeFilesToPublish 在普通 Build 中可能留下空 publish 目录，不属于运行输出。 -->
     <RemoveDir Directories="$(TargetDir)publish" />
-    <Error Condition="'@(ForbiddenMcpRuntimeArtifact)' != ''"
-           Text="MCP运行目录包含禁止复制的日志、配置、主程序或测试程序：@(ForbiddenMcpRuntimeArtifact)" />
+    <Error Condition="'@(ForbiddenMcpRuntimeArtifact)' != ''" Text="MCP运行目录包含禁止复制的日志、配置、主程序或测试程序：@(ForbiddenMcpRuntimeArtifact)" />
   </Target>
 
 </Project>

@@ -6,8 +6,6 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Xml.Linq;
-using UglyToad.PdfPig;
-using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
 
 namespace Automation
 {
@@ -99,11 +97,6 @@ namespace Automation
                     case ".ps1":
                     case ".sh":
                         return PrepareText(data, "text/plain", "文本文件");
-                    case ".pdf":
-                        result.MimeType = "application/pdf";
-                        result.TypeLabel = "PDF 文档";
-                        result.ExtractedText = ExtractPdf(data);
-                        break;
                     case ".docx":
                         result.MimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
                         result.TypeLabel = "Word 文档";
@@ -135,9 +128,7 @@ namespace Automation
 
                 if (string.IsNullOrWhiteSpace(result.ExtractedText))
                 {
-                    result.Error = extension == ".pdf"
-                        ? "PDF 未提取到文字，可能是扫描件或受密码保护。"
-                        : "文件中未提取到可分析的文字。";
+                    result.Error = "文件中未提取到可分析的文字。";
                 }
                 else if (result.ExtractedText.Length > MaxExtractedCharacters)
                 {
@@ -207,21 +198,6 @@ namespace Automation
                 return Encoding.GetEncoding(54936, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback)
                     .GetString(data);
             }
-        }
-
-        private static string ExtractPdf(byte[] data)
-        {
-            var builder = new StringBuilder();
-            using (PdfDocument document = PdfDocument.Open(data))
-            {
-                foreach (var page in document.GetPages())
-                {
-                    builder.Append("\n\n[第 ").Append(page.Number).AppendLine(" 页]");
-                    builder.Append(ContentOrderTextExtractor.GetText(page));
-                    EnsureTextLimit(builder);
-                }
-            }
-            return builder.ToString().Trim();
         }
 
         private static string ExtractWord(byte[] data)

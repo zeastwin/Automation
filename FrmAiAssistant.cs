@@ -1095,7 +1095,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             using (OpenFileDialog dialog = new OpenFileDialog())
             {
                 dialog.Title = "选择要分析的文件";
-                dialog.Filter = "常用文件|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.csv;*.txt;*.json;*.xml;*.md;*.pdf|所有文件|*.*";
+                dialog.Filter = "常用文件|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.csv;*.txt;*.json;*.xml;*.md|所有文件|*.*";
                 dialog.Multiselect = true;
                 dialog.CheckFileExists = true;
                 dialog.RestoreDirectory = true;
