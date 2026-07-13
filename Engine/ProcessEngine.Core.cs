@@ -359,7 +359,8 @@ namespace Automation
         }
         internal TimeSpan StopJoinTimeout => stopJoinTimeout;
         internal void UpdateSnapshot(int procIndex, Guid procId, string procName, ProcRunState state, int stepIndex, int opIndex,
-            bool isBreakpoint, string alarmMessage, bool raiseEvent)
+            bool isBreakpoint, string alarmMessage, bool raiseEvent,
+            ProcTerminationReason terminationReason = ProcTerminationReason.None)
         {
             EnsureCapacity(procIndex);
             long nowTicks = Stopwatch.GetTimestamp();
@@ -379,6 +380,7 @@ namespace Automation
                         && current.ProcId == procId
                         && current.PublishedRevision == publishedRevision
                         && current.AppliedRevision == appliedRevision
+                        && current.TerminationReason == terminationReason
                         && string.Equals(current.ProcName, procName, StringComparison.Ordinal)
                         && string.Equals(current.AlarmMessage, alarmMessage, StringComparison.Ordinal))
                     {
@@ -387,7 +389,7 @@ namespace Automation
                 }
             }
             EngineSnapshot snapshot = new EngineSnapshot(procIndex, procId, procName, state, stepIndex, opIndex,
-                isBreakpoint, alarmMessage, DateTime.Now, nowTicks, publishedRevision, appliedRevision);
+                isBreakpoint, alarmMessage, DateTime.Now, nowTicks, publishedRevision, appliedRevision, terminationReason);
             Volatile.Write(ref snapshots[procIndex], snapshot);
             EnqueueSnapshot(snapshot);
         }
@@ -399,7 +401,7 @@ namespace Automation
                 return;
             }
             UpdateSnapshot(handle.procNum, handle.procId, handle.procName, handle.State, handle.stepNum, handle.opsNum,
-                handle.isBreakpoint, handle.alarmMsg, raiseEvent);
+                handle.isBreakpoint, handle.alarmMsg, raiseEvent, handle.TerminationReason);
         }
 
         private long GetPublishedRevision(int procIndex)
@@ -420,7 +422,7 @@ namespace Automation
                 return;
             }
             UpdateSnapshot(procIndex, snapshot.ProcId, snapshot.ProcName, snapshot.State, snapshot.StepIndex,
-                snapshot.OpIndex, snapshot.IsBreakpoint, snapshot.AlarmMessage, true);
+                snapshot.OpIndex, snapshot.IsBreakpoint, snapshot.AlarmMessage, true, snapshot.TerminationReason);
         }
         private void UpdateSnapshotTimer()
         {
@@ -1505,8 +1507,13 @@ namespace Automation
         }
         public void Stop(int procIndex)
         {
+            Stop(procIndex, ProcTerminationReason.StopRequested);
+        }
+
+        public void Stop(int procIndex, ProcTerminationReason reason)
+        {
             ProcAgent agent = GetOrCreateAgent(procIndex);
-            agent?.RequestStop();
+            agent?.RequestStop(reason);
         }
         private bool EnqueueCommand(int procIndex, EngineCommand command)
         {
@@ -1537,6 +1544,7 @@ namespace Automation
             evt.procName = proc.head?.Name;
             if (proc.head?.Disable == true)
             {
+                evt.TerminationReason = ProcTerminationReason.Disabled;
                 string name = string.IsNullOrWhiteSpace(evt.procName) ? $"索引{evt.procNum}" : evt.procName;
                 Logger?.Log($"流程已禁用，禁止运行：{name}", LogLevel.Normal);
                 return;
@@ -2238,14 +2246,14 @@ namespace Automation
             return command.Completion.Task.Result;
         }
 
-        public void RequestStop()
+        public void RequestStop(ProcTerminationReason reason = ProcTerminationReason.StopRequested)
         {
             Interlocked.Increment(ref generation);
             lock (queueLock)
             {
                 ClearQueue();
             }
-            StopCurrent(true);
+            StopCurrent(true, reason);
         }
 
         public bool TryApplyPausedUpdate(PendingProcUpdate update, out string error)
@@ -2278,7 +2286,7 @@ namespace Automation
             }
             disposed = true;
             queue.CompleteAdding();
-            StopCurrent(false);
+            StopCurrent(false, ProcTerminationReason.EngineDisposed);
             if (!ReferenceEquals(dispatcher, Thread.CurrentThread))
             {
                 dispatcher.Join(engine.StopJoinTimeout);
@@ -2387,7 +2395,7 @@ namespace Automation
             }
             if (runningContext?.Thread != null && runningContext.Thread.IsAlive)
             {
-                StopCurrent(true);
+                StopCurrent(true, ProcTerminationReason.Restarted);
                 if (!runningContext.Thread.Join(engine.StopJoinTimeout))
                 {
                     const string timeoutMessage = "停止超时";
@@ -2444,8 +2452,9 @@ namespace Automation
                     Thread = execThread
                 };
             }
-            execThread.Start();
             engine.PublishHandleSnapshot(handle, true);
+            // 先发布 Running 再启动工作线程，避免极短流程先发布 Stopped，随后又被启动线程回写为 Running。
+            execThread.Start();
             if (command.Type == EngineCommandType.RunSingleOpOnce)
             {
                 control.RequestStep();
@@ -2532,7 +2541,7 @@ namespace Automation
             engine.PublishHandleSnapshot(handle, true);
         }
 
-        private void StopCurrent(bool raiseSnapshot)
+        private void StopCurrent(bool raiseSnapshot, ProcTerminationReason reason = ProcTerminationReason.StopRequested)
         {
             ProcHandle handle;
             ProcessControl control;
@@ -2545,6 +2554,7 @@ namespace Automation
             {
                 return;
             }
+            handle.TerminationReason = handle.HasAlarm ? ProcTerminationReason.Alarm : reason;
             handle.State = ProcRunState.Stopping;
             handle.isBreakpoint = false;
             engine.StopOwnedMotion(handle, false);
@@ -2570,6 +2580,7 @@ namespace Automation
             catch (Exception ex)
             {
                 runHandle.alarmMsg = string.IsNullOrWhiteSpace(ex.Message) ? "流程执行异常" : ex.Message;
+                runHandle.TerminationReason = ProcTerminationReason.Alarm;
                 runControl?.RequestStop();
                 engine.Logger?.Log(ex.Message, LogLevel.Error);
             }
@@ -2596,6 +2607,14 @@ namespace Automation
                     }
                 }
                 engine.ApplyPendingUpdateAfterStop(runHandle);
+                if (runHandle.TerminationReason == ProcTerminationReason.None)
+                {
+                    runHandle.TerminationReason = runHandle.HasAlarm
+                        ? ProcTerminationReason.Alarm
+                        : (runControl?.IsStopRequested == true
+                            ? ProcTerminationReason.StopRequested
+                            : ProcTerminationReason.Completed);
+                }
                 runHandle.State = ProcRunState.Stopped;
                 runHandle.isBreakpoint = false;
                 engine.PublishHandleSnapshot(runHandle, true);

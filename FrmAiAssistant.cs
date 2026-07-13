@@ -35,6 +35,11 @@ namespace Automation
         private int streamingSegmentIndex;
         private string latestAssistantSegmentText;
         private string latestAssistantSegmentDivId;
+        private readonly Dictionary<string, JObject> previewChangeSetsByCallId =
+            new Dictionary<string, JObject>(StringComparer.Ordinal);
+        private readonly Dictionary<string, JObject> changeSetsByPreviewId =
+            new Dictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
+        private readonly JArray flowVisualizationProcesses = new JArray();
         private DateTime promptStartedAt;
         private bool streamingThought;
         private readonly StringBuilder streamingThoughtMarkdown = new StringBuilder();
@@ -211,8 +216,31 @@ body{
 .brand-mark{width:30px;height:30px;border-radius:8px;background:#172033;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;letter-spacing:.2px;}
 .brand-title{font-weight:650;color:#172033;line-height:1.1;}
 .brand-subtitle{font-size:12px;color:#7b8798;margin-top:1px;}
-.top-actions{display:flex;align-items:center;gap:8px;}
-.session-select{height:28px;max-width:220px;border:1px solid #d8e0ea;border-radius:7px;background:#fff;color:#35445a;padding:0 8px;font:12px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;}
+.top-actions{display:flex;align-items:center;gap:8px;min-width:0;}
+.session-picker{position:relative;width:clamp(170px,24vw,280px);min-width:0;}
+.session-trigger{
+    width:100%;height:30px;display:flex;align-items:center;gap:8px;
+    border:1px solid #d8e0ea;border-radius:8px;background:#fff;color:#35445a;
+    padding:0 8px 0 10px;font:12px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;
+    cursor:pointer;text-align:left;
+}
+.session-trigger:hover,.session-trigger[aria-expanded=""true""]{border-color:#a9bfd7;background:#f9fbfd;}
+.session-trigger:focus-visible{outline:0;border-color:#75a7da;box-shadow:0 0 0 3px rgba(117,167,218,.18);}
+.session-trigger:disabled{opacity:.52;cursor:default;}
+.session-trigger-text{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.session-trigger-icon{width:14px;height:14px;flex:0 0 14px;stroke:#6c7a8d;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;transition:transform .14s ease;}
+.session-trigger[aria-expanded=""true""] .session-trigger-icon{transform:rotate(180deg);}
+.session-menu{
+    position:absolute;right:0;top:35px;z-index:25;width:min(360px,calc(100vw - 24px));
+    max-height:320px;overflow-y:auto;padding:6px;border:1px solid #dce4ee;border-radius:10px;
+    background:#fff;box-shadow:0 14px 38px rgba(15,23,42,.18);display:none;
+}
+.session-menu.open{display:block;}
+.session-item{width:100%;display:block;border:0;border-radius:7px;background:transparent;padding:7px 9px;color:#35445a;cursor:pointer;text-align:left;}
+.session-item:hover{background:#f0f5fa;}
+.session-item.active{background:#e8f1fa;color:#174f83;}
+.session-item-title{display:block;font-size:12px;line-height:1.4;white-space:normal;overflow-wrap:anywhere;}
+.session-item-time{display:block;margin-top:2px;color:#8a96a6;font-size:10px;line-height:1.25;}
 .tool-mode{display:flex;align-items:center;padding:2px;border:1px solid #dbe3ed;border-radius:9px;background:#f5f7fa;}
 .toolbar-option,.permission-toggle{height:28px;border:0;border-radius:7px;padding:0 10px;background:transparent;color:#526071;font:12px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;cursor:pointer;white-space:nowrap;}
 .toolbar-option:hover,.permission-toggle:hover{background:#e9f0f7;color:#1f5f99;}
@@ -287,6 +315,80 @@ p{margin:1px 0;}
 ul,ol{margin:1px 0;padding-left:19px;}
 li{margin:1px 0;}
 .merged-part + .merged-part{margin-top:2px;}
+.automation-flow-visual{
+    margin:8px 0 4px;
+    border:1px solid #d8e2ee;
+    border-radius:10px;
+    background:#f8fafc;
+    overflow:hidden;
+}
+.flow-visual-title{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:7px 10px;
+    color:#203047;
+    background:#eef4fa;
+    border-bottom:1px solid #d8e2ee;
+    font-size:13px;
+    font-weight:650;
+}
+.flow-process{padding:8px 10px 10px;}
+.flow-process + .flow-process{border-top:1px solid #dfe7f1;}
+.flow-process-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px;}
+.flow-process-name{font-weight:650;color:#102033;}
+.flow-badge{
+    display:inline-flex;
+    align-items:center;
+    height:20px;
+    padding:0 7px;
+    border-radius:10px;
+    color:#526071;
+    background:#e9eef5;
+    font-size:11px;
+    white-space:nowrap;
+}
+.flow-badge.loop{color:#8a4b08;background:#fff0d9;}
+.flow-track{
+    display:flex;
+    align-items:stretch;
+    gap:0;
+    overflow-x:auto;
+    padding:1px 1px 5px;
+}
+.flow-step{
+    flex:0 0 220px;
+    min-width:220px;
+    border:1px solid #cfdae7;
+    border-radius:8px;
+    background:#fff;
+    box-shadow:0 1px 4px rgba(31,45,61,.05);
+}
+.flow-step-head{padding:6px 8px;border-bottom:1px solid #e3e9f1;background:#f7f9fc;border-radius:8px 8px 0 0;}
+.flow-step-index{color:#6f7f92;font-size:11px;margin-right:5px;}
+.flow-step-name{color:#203047;font-weight:650;}
+.flow-step-key{color:#7b8798;font:11px Consolas,""Cascadia Mono"",monospace;margin-left:5px;}
+.flow-ops{padding:3px 7px 6px;}
+.flow-op{padding:5px 1px;border-bottom:1px dashed #e4e9f0;}
+.flow-op:last-child{border-bottom:0;}
+.flow-op-line{display:flex;align-items:flex-start;gap:5px;}
+.flow-op-index{flex:0 0 18px;color:#7b8798;font-size:11px;line-height:20px;text-align:center;}
+.flow-op-text{min-width:0;color:#27364a;line-height:20px;}
+.flow-paths{display:flex;gap:4px;flex-wrap:wrap;margin:3px 0 0 23px;}
+.flow-path{
+    display:inline-flex;
+    align-items:center;
+    min-height:19px;
+    padding:1px 6px;
+    border-radius:9px;
+    color:#285f46;
+    background:#e7f5ed;
+    font-size:11px;
+}
+.flow-path.false{color:#87500e;background:#fff1dc;}
+.flow-arrow{flex:0 0 30px;align-self:center;color:#7f91a7;text-align:center;font-size:20px;}
+.flow-empty{padding:8px;color:#7b8798;text-align:center;}
 blockquote{
     margin:6px 0;
     padding:6px 10px;
@@ -461,6 +563,50 @@ var quickSettingPending=false;
 var dropReadCount=0;
 function post(type,payload){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage(Object.assign({type:type},payload||{}));}}
 function byId(id){return document.getElementById(id);}
+function closeSessionMenu(){
+    var menu=byId('sessionMenu'),trigger=byId('sessionTrigger');
+    if(menu){menu.classList.remove('open');}
+    if(trigger){trigger.setAttribute('aria-expanded','false');}
+}
+function toggleSessionMenu(){
+    var trigger=byId('sessionTrigger'),menu=byId('sessionMenu');
+    if(!trigger||!menu||trigger.disabled){return;}
+    var open=!menu.classList.contains('open');
+    closeSessionMenu();
+    if(open){menu.classList.add('open');trigger.setAttribute('aria-expanded','true');}
+}
+function formatSessionTime(value){
+    if(!value){return '';}
+    var time=new Date(value);
+    if(isNaN(time.getTime())){return '';}
+    return time.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+}
+function refreshSessionPicker(){
+    var trigger=byId('sessionTrigger'),text=byId('sessionTriggerText'),menu=byId('sessionMenu');
+    if(!trigger||!text||!menu){return;}
+    var items=appState.conversations||[];
+    var active=items.filter(function(item){return item.id===appState.activeConversationId;})[0];
+    var title=active&&active.title?active.title:'选择历史会话';
+    text.textContent=title;
+    trigger.title=title;
+    trigger.disabled=!!appState.sending||items.length===0;
+    menu.innerHTML='';
+    items.forEach(function(item){
+        var button=document.createElement('button');
+        button.type='button';button.className='session-item'+(item.id===appState.activeConversationId?' active':'');
+        button.setAttribute('role','option');button.setAttribute('aria-selected',item.id===appState.activeConversationId?'true':'false');
+        var itemTitle=document.createElement('span');itemTitle.className='session-item-title';itemTitle.textContent=item.title||'未命名会话';
+        button.appendChild(itemTitle);
+        var displayTime=formatSessionTime(item.updatedAt);
+        if(displayTime){var itemTime=document.createElement('span');itemTime.className='session-item-time';itemTime.textContent=displayTime;button.appendChild(itemTime);}
+        button.addEventListener('click',function(){
+            closeSessionMenu();
+            if(item.id!==appState.activeConversationId){post('switchSession',{id:item.id});}
+        });
+        menu.appendChild(button);
+    });
+    if(trigger.disabled){closeSessionMenu();}
+}
 function toggleThinkingBox(id){
     var el=document.getElementById(id);
     if(el){el.classList.toggle('collapsed');if(el.classList.contains('collapsed')){el.style.maxHeight='32px';el.scrollTop=0;}else{el.style.maxHeight='';scrollThinkingBoxToBottom(id);}}
@@ -550,11 +696,7 @@ function automationSetState(state){
     refreshSendButton();
     byId('attachButton').disabled=!appState.canAccess||appState.sending;
     byId('resetButton').disabled=!appState.canAccess||appState.sending;
-    var sessions=byId('sessionSelect');
-    sessions.innerHTML='';
-    (appState.conversations||[]).forEach(function(item){var option=document.createElement('option');option.value=item.id;option.textContent=item.title;sessions.appendChild(option);});
-    sessions.value=appState.activeConversationId||'';
-    sessions.disabled=appState.sending;
+    refreshSessionPicker();
     byId('newSessionButton').disabled=appState.sending;
     byId('deleteSessionButton').disabled=appState.sending||!appState.activeConversationId;
     byId('configButton').disabled=false;
@@ -712,7 +854,10 @@ document.addEventListener('DOMContentLoaded',function(){
         if(appState.sending||!appState.activeConversationId){return;}
         if(window.confirm('确定删除当前对话吗？删除后无法恢复。')){post('deleteSession');}
     });
-    byId('sessionSelect').addEventListener('change',function(){post('switchSession',{id:this.value});});
+    byId('sessionTrigger').addEventListener('click',function(e){e.stopPropagation();toggleSessionMenu();});
+    byId('sessionMenu').addEventListener('click',function(e){e.stopPropagation();});
+    document.addEventListener('click',closeSessionMenu);
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'){closeSessionMenu();}});
     byId('attachButton').addEventListener('click',function(){post('chooseFile');});
     byId('sendButton').addEventListener('click',sendPrompt);
     byId('promptInput').addEventListener('input',autoGrowPrompt);
@@ -735,7 +880,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
   <header class=""topbar"">
     <div class=""brand""><div class=""brand-mark"">EW</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div>
     <div class=""top-actions"">
-      <select class=""session-select"" id=""sessionSelect"" title=""历史会话"" aria-label=""历史会话""></select>
+      <div class=""session-picker"" id=""sessionPicker"">
+        <button class=""session-trigger"" id=""sessionTrigger"" type=""button"" aria-haspopup=""listbox"" aria-expanded=""false""><span class=""session-trigger-text"" id=""sessionTriggerText"">选择历史会话</span><svg class=""session-trigger-icon"" viewBox=""0 0 24 24"" aria-hidden=""true""><path d=""m7 10 5 5 5-5""/></svg></button>
+        <div class=""session-menu scrollable"" id=""sessionMenu"" role=""listbox"" aria-label=""历史会话""></div>
+      </div>
       <button class=""toolbar-option"" id=""newSessionButton"" title=""新建会话"">新对话</button>
       <button class=""icon-button"" id=""deleteSessionButton"" title=""删除当前对话"" aria-label=""删除当前对话""><svg viewBox=""0 0 24 24""><path d=""M4 7h16""/><path d=""M9 7V4h6v3""/><path d=""M7 7l1 13h8l1-13""/><path d=""M10 11v5""/><path d=""M14 11v5""/></svg></button>
       <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""包含诊断能力并允许预演和修改"">编辑</button></div>
@@ -1333,7 +1481,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     .Select(item => new JObject
                     {
                         ["id"] = item.Id,
-                        ["title"] = item.Title
+                        ["title"] = item.Title,
+                        ["updatedAt"] = item.UpdatedAt
                     }))
             };
         }
@@ -1648,6 +1797,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             sending = true;
             latestAssistantSegmentText = null;
             latestAssistantSegmentDivId = null;
+            previewChangeSetsByCallId.Clear();
+            changeSetsByPreviewId.Clear();
+            flowVisualizationProcesses.RemoveAll();
             promptStartedAt = DateTime.Now;
             promptCts?.Dispose();
             promptCts = new CancellationTokenSource();
@@ -1679,14 +1831,18 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 txtPrompt.Clear();
                 FinishStreaming();
                 FinishThoughtStreaming();
-                string assistantText = PromoteLatestAssistantSegment(client.LastAssistantResponse);
+                string visualizationJson = flowVisualizationProcesses.Count == 0
+                    ? null
+                    : flowVisualizationProcesses.ToString(Formatting.None);
+                string assistantText = PromoteLatestAssistantSegment(client.LastAssistantResponse, visualizationJson);
                 if (!string.IsNullOrWhiteSpace(assistantText))
                 {
                     activeConversation.Messages.Add(new AiConversationMessage
                     {
                         Role = "assistant",
                         Text = assistantText,
-                        Time = DateTime.Now
+                        Time = DateTime.Now,
+                        VisualizationJson = visualizationJson
                     });
                     activeConversation.UpdatedAt = DateTime.Now;
                 }
@@ -1861,6 +2017,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             streamingSegmentIndex = 0;
             latestAssistantSegmentText = null;
             latestAssistantSegmentDivId = null;
+            previewChangeSetsByCallId.Clear();
+            changeSetsByPreviewId.Clear();
+            flowVisualizationProcesses.RemoveAll();
             promptStartedAt = default(DateTime);
             streamingThought = false;
             streamingThoughtMarkdown.Clear();
@@ -1911,7 +2070,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 AppendConversation(message.Role == "user" ? "用户" : "EW-AI", message.Text,
                     message.Role == "user" ? Color.FromArgb(22, 72, 130) : Color.FromArgb(30, 104, 74),
-                    message.Time);
+                    message.Time, message.VisualizationJson);
             }
         }
 
@@ -2095,6 +2254,49 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                             case "goto_rewrite":
                                 type = "跳转重写";
                                 location = $"重写{change["rewrittenCount"]?.Value<int>() ?? 0}/失效{change["invalidatedCount"]?.Value<int>() ?? 0}";
+                                break;
+                            case "process.delete":
+                                type = "删除流程";
+                                obj = change["name"]?.Value<string>() ?? "";
+                                field = "流程";
+                                oldVal = obj;
+                                newVal = "已删除";
+                                rowColor = Color.FromArgb(255, 235, 235);
+                                break;
+                            case "process.create":
+                                type = "创建流程";
+                                obj = change["name"]?.Value<string>() ?? "";
+                                field = change["potentiallyUnbounded"]?.Value<bool>() == true
+                                    ? "结构（含可达循环）"
+                                    : "结构";
+                                newVal = $"{change["stepCount"]?.Value<int>() ?? 0}步骤 / {change["operationCount"]?.Value<int>() ?? 0}指令";
+                                rowColor = Color.FromArgb(235, 255, 235);
+                                break;
+                            case "process.replace":
+                                type = "替换流程";
+                                location = $"流程{change["procIndex"]?.Value<int>() ?? 0}";
+                                obj = change["name"]?.Value<string>() ?? "";
+                                field = change["potentiallyUnbounded"]?.Value<bool>() == true
+                                    ? "完整结构（含可达循环）"
+                                    : "完整结构";
+                                oldVal = change["oldName"]?.Value<string>() ?? "";
+                                newVal = $"{change["stepCount"]?.Value<int>() ?? 0}步骤 / {change["operationCount"]?.Value<int>() ?? 0}指令";
+                                rowColor = Color.FromArgb(255, 248, 235);
+                                break;
+                            case "variable.create":
+                                type = "创建变量";
+                                obj = change["name"]?.Value<string>() ?? "";
+                                field = change["valueType"]?.Value<string>() ?? "";
+                                newVal = FormatJsonValue(change["newValue"]);
+                                rowColor = Color.FromArgb(235, 255, 235);
+                                break;
+                            case "variable.update":
+                                type = "更新变量";
+                                obj = change["name"]?.Value<string>() ?? "";
+                                field = change["valueType"]?.Value<string>() ?? "";
+                                oldVal = FormatJsonValue(change["oldValue"]);
+                                newVal = FormatJsonValue(change["newValue"]);
+                                rowColor = Color.FromArgb(255, 248, 235);
                                 break;
                         }
 
@@ -2596,6 +2798,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 justFinishedStreaming = true;
             }
             FinishThoughtStreaming();
+            CaptureFlowVisualizationEvent(item);
 
             if (string.Equals(item.Kind, "assistant", StringComparison.Ordinal))
             {
@@ -2634,6 +2837,187 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
         }
 
+        // 关联 preview_change_set 的结构化输入与 apply_change_set 的成功结果，仅渲染已提交流程。
+        private void CaptureFlowVisualizationEvent(GooseAcpEvent item)
+        {
+            JObject update = item?.Raw?["params"]?["update"] as JObject
+                ?? item?.Raw?["params"] as JObject;
+            string callId = update?["toolCallId"]?.Value<string>();
+            if (string.Equals(item?.Kind, "tool_call", StringComparison.Ordinal))
+            {
+                JObject changeSet = update?["rawInput"]?["changeSet"] as JObject;
+                if (!string.IsNullOrWhiteSpace(callId) && changeSet != null)
+                {
+                    previewChangeSetsByCallId[callId] = (JObject)changeSet.DeepClone();
+                }
+                return;
+            }
+            if (!string.Equals(item?.Kind, "tool_result", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            try
+            {
+                string resultText = ExtractToolResultText(item.Raw);
+                JObject result = string.IsNullOrWhiteSpace(resultText) ? null : JObject.Parse(resultText);
+                if (result?["ok"]?.Value<bool>() != true || result["data"] is not JObject data)
+                {
+                    return;
+                }
+
+                string resultType = result["type"]?.Value<string>();
+                if (string.Equals(resultType, "proc.overview", StringComparison.Ordinal)
+                    || string.Equals(resultType, "proc.detail", StringComparison.Ordinal))
+                {
+                    UpsertFlowVisualizationProcess(BuildReadFlowVisualization(data));
+                    return;
+                }
+
+                string previewId = data["previewId"]?.Value<string>();
+                if (string.Equals(resultType, "change_set.preview", StringComparison.Ordinal))
+                {
+                    if (!string.IsNullOrWhiteSpace(callId)
+                        && !string.IsNullOrWhiteSpace(previewId)
+                        && previewChangeSetsByCallId.TryGetValue(callId, out JObject changeSet))
+                    {
+                        changeSetsByPreviewId[previewId] = (JObject)changeSet.DeepClone();
+                    }
+                    return;
+                }
+
+                if (!string.Equals(resultType, "change_set.apply", StringComparison.Ordinal)
+                    || data["committed"]?.Value<bool>() != true
+                    || string.IsNullOrWhiteSpace(previewId)
+                    || !changeSetsByPreviewId.TryGetValue(previewId, out JObject committedChangeSet))
+                {
+                    return;
+                }
+
+                if (committedChangeSet["processes"] is JArray processes)
+                {
+                    foreach (JObject process in processes.OfType<JObject>())
+                    {
+                        UpsertFlowVisualizationProcess(process);
+                    }
+                }
+                changeSetsByPreviewId.Remove(previewId);
+            }
+            catch (JsonException)
+            {
+                // 可视化是辅助呈现，异常结果或非JSON工具结果不影响主链路。
+            }
+        }
+
+        private void UpsertFlowVisualizationProcess(JObject process)
+        {
+            if (process == null)
+            {
+                return;
+            }
+            int? procIndex = process["procIndex"]?.Value<int?>();
+            string processName = process["name"]?.Value<string>();
+            for (int i = 0; i < flowVisualizationProcesses.Count; i++)
+            {
+                if (flowVisualizationProcesses[i] is not JObject existing)
+                {
+                    continue;
+                }
+                bool sameIndex = procIndex.HasValue && existing["procIndex"]?.Value<int?>() == procIndex;
+                bool sameInspectedName = string.Equals(process["action"]?.Value<string>(), "inspect", StringComparison.Ordinal)
+                    && string.Equals(existing["action"]?.Value<string>(), "inspect", StringComparison.Ordinal)
+                    && string.Equals(existing["name"]?.Value<string>(), processName, StringComparison.Ordinal);
+                if (sameIndex || sameInspectedName)
+                {
+                    flowVisualizationProcesses[i] = process.DeepClone();
+                    return;
+                }
+            }
+            flowVisualizationProcesses.Add(process.DeepClone());
+        }
+
+        private static JObject BuildReadFlowVisualization(JObject data)
+        {
+            var process = new JObject
+            {
+                ["action"] = "inspect",
+                ["procIndex"] = data["procIndex"]?.DeepClone(),
+                ["name"] = data["name"]?.Value<string>() ?? "未命名流程",
+                ["state"] = data["state"]?.Value<string>() ?? string.Empty
+            };
+            var visualSteps = new JArray();
+            foreach (JObject step in (data["steps"] as JArray ?? new JArray()).OfType<JObject>())
+            {
+                int stepIndex = step["stepIndex"]?.Value<int?>() ?? visualSteps.Count;
+                var visualOperations = new JArray();
+                foreach (JObject operation in (step["ops"] as JArray ?? new JArray()).OfType<JObject>())
+                {
+                    string operaType = operation["operaType"]?.Value<string>() ?? string.Empty;
+                    string summary = operation["summary"]?.Value<string>() ?? string.Empty;
+                    var visualOperation = new JObject
+                    {
+                        ["kind"] = "platform.operation",
+                        ["name"] = operation["name"]?.Value<string>() ?? string.Empty,
+                        ["operaType"] = operaType,
+                        ["summary"] = summary
+                    };
+                    JObject fields = operation["fields"] as JObject;
+                    if (string.Equals(operaType, "逻辑判断", StringComparison.Ordinal)
+                        && TryBuildReadFlowTarget(fields?["goto1"]?.Value<string>(), out JObject whenTrue)
+                        && TryBuildReadFlowTarget(fields?["goto2"]?.Value<string>(), out JObject whenFalse))
+                    {
+                        visualOperation["kind"] = "branch.platform";
+                        visualOperation["whenTrue"] = whenTrue;
+                        visualOperation["whenFalse"] = whenFalse;
+                    }
+                    else
+                    {
+                        string targetAddress = fields?["DefaultGoto"]?.Value<string>();
+                        if (string.IsNullOrWhiteSpace(targetAddress))
+                        {
+                            Match match = Regex.Match(summary, @"默认跳转[=：]\s*(\d+-\d+-\d+)");
+                            targetAddress = match.Success ? match.Groups[1].Value : null;
+                        }
+                        if (TryBuildReadFlowTarget(targetAddress, out JObject target))
+                        {
+                            visualOperation["kind"] = "flow.goto";
+                            visualOperation["target"] = target;
+                        }
+                    }
+                    visualOperations.Add(visualOperation);
+                }
+                visualSteps.Add(new JObject
+                {
+                    ["key"] = "步骤" + stepIndex,
+                    ["name"] = step["name"]?.Value<string>() ?? "未命名步骤",
+                    ["operations"] = visualOperations
+                });
+            }
+            process["steps"] = visualSteps;
+            return process;
+        }
+
+        private static bool TryBuildReadFlowTarget(string address, out JObject target)
+        {
+            target = null;
+            string[] parts = (address ?? string.Empty).Split('-');
+            if (parts.Length != 3
+                || !int.TryParse(parts[0], out _)
+                || !int.TryParse(parts[1], out int stepIndex)
+                || !int.TryParse(parts[2], out int operationIndex)
+                || stepIndex < 0
+                || operationIndex < 0)
+            {
+                return false;
+            }
+            target = new JObject
+            {
+                ["step"] = "步骤" + stepIndex,
+                ["operation"] = operationIndex
+            };
+            return true;
+        }
+
         // 工具调用/结果紧凑单行显示；连续相同项合并计数，避免重复占用纵向空间。
         private void AppendToolEntry(string marker, string text, JObject raw)
         {
@@ -2644,7 +3028,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             bool isCall = string.Equals(marker, "call", StringComparison.Ordinal);
             string cls = isCall ? "tool-call" : "tool-result";
             string display = isCall ? "调用" : "结果";
-            string normalizedText = string.IsNullOrWhiteSpace(text) ? "无摘要" : text.Trim();
+            string normalizedText = string.IsNullOrWhiteSpace(text) ? "无摘要" : LocalizeAutomationToolText(text.Trim());
             string callId = raw?["params"]?["update"]?["toolCallId"]?.Value<string>()
                 ?? raw?["params"]?["toolCallId"]?.Value<string>()
                 ?? string.Empty;
@@ -2663,6 +3047,242 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 + JsonConvert.SerializeObject(normalizedText) + ";}}else{var entries2=box.querySelectorAll('.tool-entry');var last=entries2.length?entries2[entries2.length-1]:null;if(last&&last.dataset.signature===sig){var count=parseInt(last.dataset.count||'1',10)+1;last.dataset.count=count;var badge=last.querySelector('.tool-entry-count');if(badge){badge.textContent='×'+count;badge.style.display='inline-block';}}else{box.insertAdjacentHTML('beforeend',"
                 + htmlJson + ");var added=box.lastElementChild;if(added){added.dataset.signature=sig;added.dataset.count='1';added.dataset.callId=callId;}}}scrollThinkingBoxToBottom('" + boxId + "');}";
             EnqueueScript(js);
+        }
+
+        private static string LocalizeAutomationToolText(string value)
+        {
+            return (value ?? string.Empty)
+                .Replace("get_change_capabilities", "获取变更能力")
+                .Replace("get_operation_contracts", "获取指令契约")
+                .Replace("preview_change_set", "预演业务变更")
+                .Replace("apply_change_set", "提交业务变更")
+                .Replace("run_proc_test", "限时测试流程")
+                .Replace("wait_for_proc_state", "等待流程状态");
+        }
+
+        private static string BuildAutomationFlowCardsHtml(string visualizationJson)
+        {
+            if (string.IsNullOrWhiteSpace(visualizationJson))
+            {
+                return string.Empty;
+            }
+            try
+            {
+                JArray processes = JArray.Parse(visualizationJson);
+                if (processes.Count == 0)
+                {
+                    return string.Empty;
+                }
+
+                var html = new StringBuilder();
+                html.Append("<div class=\"automation-flow-visual\"><div class=\"flow-visual-title\"><span>流程结构</span><span class=\"flow-badge\">")
+                    .Append(processes.Count).Append(" 个流程</span></div>");
+                foreach (JObject process in processes.OfType<JObject>())
+                {
+                    AppendProcessFlowHtml(html, process);
+                }
+                html.Append("</div>");
+                return html.ToString();
+            }
+            catch (JsonException)
+            {
+                return string.Empty;
+            }
+        }
+
+        private static void AppendProcessFlowHtml(StringBuilder html, JObject process)
+        {
+            string processName = process["name"]?.Value<string>() ?? "未命名流程";
+            string action = process["action"]?.Value<string>();
+            JArray steps = process["steps"] as JArray ?? new JArray();
+            int operationCount = steps.OfType<JObject>()
+                .Sum(step => (step["operations"] as JArray)?.Count ?? 0);
+            bool hasBackEdge = HasBackEdge(steps);
+            string actionText;
+            switch (action)
+            {
+                case "replace": actionText = "替换"; break;
+                case "inspect": actionText = "现有"; break;
+                default: actionText = "新建"; break;
+            }
+
+            html.Append("<div class=\"flow-process\"><div class=\"flow-process-head\"><span class=\"flow-process-name\">")
+                .Append(HtmlEncode(processName)).Append("</span><span class=\"flow-badge\">")
+                .Append(actionText)
+                .Append("</span><span class=\"flow-badge\">").Append(steps.Count).Append(" 步骤 · ")
+                .Append(operationCount).Append(" 指令</span>");
+            if (hasBackEdge)
+            {
+                html.Append("<span class=\"flow-badge loop\">含回环</span>");
+            }
+            html.Append("</div>");
+            if (steps.Count == 0)
+            {
+                html.Append("<div class=\"flow-empty\">没有步骤</div></div>");
+                return;
+            }
+
+            html.Append("<div class=\"flow-track\">");
+            int stepIndex = 0;
+            foreach (JObject step in steps.OfType<JObject>())
+            {
+                if (stepIndex > 0)
+                {
+                    html.Append("<div class=\"flow-arrow\">→</div>");
+                }
+                AppendStepFlowHtml(html, step, stepIndex++);
+            }
+            html.Append("</div></div>");
+        }
+
+        private static void AppendStepFlowHtml(StringBuilder html, JObject step, int stepIndex)
+        {
+            string stepName = step["name"]?.Value<string>() ?? "未命名步骤";
+            string stepKey = step["key"]?.Value<string>() ?? string.Empty;
+            JArray operations = step["operations"] as JArray ?? new JArray();
+            html.Append("<div class=\"flow-step\"><div class=\"flow-step-head\"><span class=\"flow-step-index\">")
+                .Append(stepIndex + 1).Append("</span><span class=\"flow-step-name\">")
+                .Append(HtmlEncode(stepName)).Append("</span>");
+            if (!string.IsNullOrWhiteSpace(stepKey))
+            {
+                html.Append("<span class=\"flow-step-key\">").Append(HtmlEncode(stepKey)).Append("</span>");
+            }
+            html.Append("</div><div class=\"flow-ops\">");
+            if (operations.Count == 0)
+            {
+                html.Append("<div class=\"flow-empty\">没有指令</div>");
+            }
+            int operationIndex = 0;
+            foreach (JObject operation in operations.OfType<JObject>())
+            {
+                AppendOperationFlowHtml(html, operation, operationIndex++);
+            }
+            html.Append("</div></div>");
+        }
+
+        private static void AppendOperationFlowHtml(StringBuilder html, JObject operation, int operationIndex)
+        {
+            string kind = operation["kind"]?.Value<string>() ?? "unknown";
+            string name = operation["name"]?.Value<string>();
+            string summary = BuildOperationSummary(operation, kind);
+            html.Append("<div class=\"flow-op\" title=\"").Append(HtmlEncode(kind))
+                .Append("\"><div class=\"flow-op-line\"><span class=\"flow-op-index\">")
+                .Append(operationIndex + 1).Append("</span><span class=\"flow-op-text\">");
+            if (!string.IsNullOrWhiteSpace(name) && !string.Equals(name, summary, StringComparison.Ordinal))
+            {
+                html.Append(HtmlEncode(name)).Append(" · ");
+            }
+            html.Append(HtmlEncode(summary)).Append("</span></div>");
+
+            if (operation["whenTrue"] is JObject || operation["whenFalse"] is JObject)
+            {
+                AppendFlowPath(html, "满足", operation["whenTrue"] as JObject, false);
+                AppendFlowPath(html, "不满足", operation["whenFalse"] as JObject, true);
+            }
+            else if (string.Equals(kind, "flow.goto", StringComparison.Ordinal))
+            {
+                AppendFlowPath(html, "跳转", operation["target"] as JObject, true);
+            }
+            html.Append("</div>");
+        }
+
+        private static string BuildOperationSummary(JObject operation, string kind)
+        {
+            string explicitSummary = operation["summary"]?.Value<string>();
+            if (!string.IsNullOrWhiteSpace(explicitSummary))
+            {
+                return explicitSummary;
+            }
+            switch (kind)
+            {
+                case "wait":
+                    return $"等待 {operation["milliseconds"]?.ToString(Formatting.None) ?? "?"} ms";
+                case "variable.add":
+                    return $"{operation["variable"]?.Value<string>() ?? "变量"} + {operation["amount"]?.ToString(Formatting.None) ?? "?"}";
+                case "variable.set":
+                    return $"{operation["variable"]?.Value<string>() ?? "变量"} = {operation["value"]?.Value<string>() ?? ""}";
+                case "branch.number_range":
+                    string left = operation["includeBounds"]?.Value<bool>() == false ? "(" : "[";
+                    string right = operation["includeBounds"]?.Value<bool>() == false ? ")" : "]";
+                    return $"判断 {operation["variable"]?.Value<string>() ?? "变量"} ∈ {left}{operation["min"]?.ToString(Formatting.None) ?? "?"}, {operation["max"]?.ToString(Formatting.None) ?? "?"}{right}";
+                case "popup.message":
+                    return $"显示固定文本“{operation["message"]?.Value<string>() ?? ""}”{BuildAutoCloseSuffix(operation)}";
+                case "popup.variable":
+                    return $"显示变量“{operation["variable"]?.Value<string>() ?? ""}”当前值{BuildAutoCloseSuffix(operation)}";
+                case "flow.goto":
+                    return "跳转到指定位置";
+                case "io.write":
+                    return $"输出 {operation["io"]?.Value<string>() ?? "IO"} = {operation["state"]?.Value<bool>()}";
+                case "io.wait":
+                    return $"等待 {operation["io"]?.Value<string>() ?? "IO"} = {operation["state"]?.Value<bool>()}";
+                case "process.control":
+                    return $"{operation["action"]?.Value<string>() ?? "控制"}流程 {operation["process"]?.Value<string>() ?? ""}";
+                case "process.wait":
+                    return $"等待流程 {operation["process"]?.Value<string>() ?? ""} 到达 {operation["expectedState"]?.Value<string>() ?? "目标状态"}";
+                default:
+                    return string.IsNullOrWhiteSpace(operation["name"]?.Value<string>()) ? kind : operation["name"]?.Value<string>();
+            }
+        }
+
+        private static string BuildAutoCloseSuffix(JObject operation)
+        {
+            int? autoCloseMs = operation["autoCloseMs"]?.Value<int?>();
+            return autoCloseMs > 0 ? $" · {autoCloseMs} ms后关闭" : string.Empty;
+        }
+
+        private static void AppendFlowPath(StringBuilder html, string label, JObject target, bool alternative)
+        {
+            if (target == null)
+            {
+                return;
+            }
+            string step = target["step"]?.Value<string>() ?? "?";
+            int operation = target["operation"]?.Value<int?>() ?? 0;
+            html.Append("<div class=\"flow-paths\"><span class=\"flow-path")
+                .Append(alternative ? " false" : string.Empty).Append("\">")
+                .Append(HtmlEncode(label)).Append(" → ").Append(HtmlEncode(step))
+                .Append(" · ").Append(operation + 1).Append("</span></div>");
+        }
+
+        private static bool HasBackEdge(JArray steps)
+        {
+            var indexes = steps.OfType<JObject>()
+                .Select((step, index) => new { Key = step["key"]?.Value<string>(), Index = index })
+                .Where(item => !string.IsNullOrWhiteSpace(item.Key))
+                .ToDictionary(item => item.Key, item => item.Index, StringComparer.Ordinal);
+            int currentIndex = 0;
+            foreach (JObject step in steps.OfType<JObject>())
+            {
+                foreach (JObject operation in (step["operations"] as JArray ?? new JArray()).OfType<JObject>())
+                {
+                    foreach (string property in new[] { "target", "whenTrue", "whenFalse" })
+                    {
+                        string targetStep = operation[property]?["step"]?.Value<string>();
+                        if (!string.IsNullOrWhiteSpace(targetStep)
+                            && indexes.TryGetValue(targetStep, out int targetIndex)
+                            && targetIndex <= currentIndex)
+                        {
+                            return true;
+                        }
+                    }
+                }
+                currentIndex++;
+            }
+            return false;
+        }
+
+        private static string RemoveAsciiFlowDiagrams(string markdown)
+        {
+            if (string.IsNullOrWhiteSpace(markdown))
+            {
+                return markdown;
+            }
+            string result = Regex.Replace(markdown,
+                @"(?ms)(?:^[ \t]*#{1,6}[^\r\n]*(?:流程图|循环图)[ \t]*)?(?<fence>```|~~~)(?<body>.*?)\k<fence>[ \t]*",
+                match => Regex.Matches(match.Groups["body"].Value, @"[\u2500-\u257F]").Count >= 4
+                    ? string.Empty
+                    : match.Value);
+            return Regex.Replace(result, @"\n{3,}", "\n\n").Trim();
         }
 
         // 确保思维链窗口存在（首次调用时创建），返回窗口 ID。
@@ -2758,7 +3378,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             streamingDivId = null;
         }
 
-        private string PromoteLatestAssistantSegment(string fallbackText)
+        private string PromoteLatestAssistantSegment(string fallbackText, string visualizationJson)
         {
             string finalText = string.IsNullOrWhiteSpace(latestAssistantSegmentText)
                 ? fallbackText
@@ -2771,9 +3391,13 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             latestAssistantSegmentText = null;
             latestAssistantSegmentDivId = null;
+            if (!string.IsNullOrWhiteSpace(visualizationJson))
+            {
+                finalText = RemoveAsciiFlowDiagrams(finalText);
+            }
             if (!string.IsNullOrWhiteSpace(finalText))
             {
-                AppendConversation("EW-AI", finalText, Color.FromArgb(30, 104, 74));
+                AppendConversation("EW-AI", finalText, Color.FromArgb(30, 104, 74), null, visualizationJson);
             }
             return finalText;
         }
@@ -2839,7 +3463,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         }
 
         // 追加对话消息：根据 role/color 决定 CSS 类，用户消息纯文本转义，Goose 消息走 Markdown→HTML。
-        private void AppendConversation(string role, string text, Color color, DateTime? messageTime = null)
+        private void AppendConversation(string role, string text, Color color, DateTime? messageTime = null,
+            string visualizationJson = null)
         {
             if (webViewConversation == null || webViewConversation.IsDisposed)
             {
@@ -2857,7 +3482,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             else if (role == "EW-AI")
             {
                 cls = "msg assistant";
-                contentHtml = MarkdownToHtml(text);
+                contentHtml = BuildAutomationFlowCardsHtml(visualizationJson) + MarkdownToHtml(text);
                 avatarHtml = "<img class=\"avatar avatar-image\" src=\"" + ChickAvatarDataUri + "\" alt=\"AI\" title=\"EW-AI " + HtmlEncode(time) + "\">";
             }
             else if (role == "错误" || color.ToArgb() == Color.DarkRed.ToArgb())
@@ -2994,16 +3619,22 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 }
 
                 string normalizedLine = NormalizeHeadingMarkers(line);
-                if (TryGetTableSeparatorColumnCount(normalizedLine, out int columnCount)
-                    && !LastOutputIsPipeTableRow(output))
+                foreach (string logicalLine in normalizedLine.Split('\n'))
                 {
-                    if (output.Count > 0 && !string.IsNullOrWhiteSpace(output[output.Count - 1]))
+                    foreach (string expandedLine in ExpandMalformedHeadingBody(logicalLine))
                     {
-                        output.Add(string.Empty);
+                        if (TryGetTableSeparatorColumnCount(expandedLine, out int columnCount)
+                            && !LastOutputIsPipeTableRow(output))
+                        {
+                            if (output.Count > 0 && !string.IsNullOrWhiteSpace(output[output.Count - 1]))
+                            {
+                                output.Add(string.Empty);
+                            }
+                            output.Add(BuildEmptyTableHeader(columnCount));
+                        }
+                        output.Add(expandedLine);
                     }
-                    output.Add(BuildEmptyTableHeader(columnCount));
                 }
-                output.Add(normalizedLine);
             }
 
             return string.Join("\n", output);
@@ -3105,6 +3736,37 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 i = next;
             }
             return result.ToString();
+        }
+
+        // 模型可能把标题后的列表项或表头继续写在同一行，拆开后再交给 Markdown 渲染器。
+        private static IEnumerable<string> ExpandMalformedHeadingBody(string line)
+        {
+            string trimmed = (line ?? string.Empty).TrimStart();
+            if (!Regex.IsMatch(trimmed, @"^#{2,6}\s"))
+            {
+                yield return line;
+                yield break;
+            }
+
+            int bodyIndex = line.IndexOf("- **", StringComparison.Ordinal);
+            int pipeIndex = line.IndexOf('|');
+            if (pipeIndex >= 0 && line.IndexOf('|', pipeIndex + 1) < 0)
+            {
+                pipeIndex = -1;
+            }
+            if (bodyIndex < 0 || (pipeIndex >= 0 && pipeIndex < bodyIndex))
+            {
+                bodyIndex = pipeIndex;
+            }
+            if (bodyIndex <= 0)
+            {
+                yield return line;
+                yield break;
+            }
+
+            yield return line.Substring(0, bodyIndex).TrimEnd();
+            yield return string.Empty;
+            yield return line.Substring(bodyIndex).TrimStart();
         }
 
         private static bool TryGetTableSeparatorColumnCount(string line, out int columnCount)

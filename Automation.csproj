@@ -21,6 +21,12 @@
     </NuGetPackageImportStamp>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="Automation.Protocol\Automation.Protocol.csproj">
+      <Project>{9B777468-5118-4A4B-AB0E-6D02861C6B5F}</Project>
+      <Name>Automation.Protocol</Name>
+    </ProjectReference>
+  </ItemGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
     <PlatformTarget>x64</PlatformTarget>
     <DebugSymbols>true</DebugSymbols>
@@ -122,6 +128,11 @@
     <Compile Include="Communication\\CommunicationModels.cs" />
     <Compile Include="Engine\ValueRef.cs" />
     <Compile Include="Engine\ProcessEditingService.cs" />
+    <Compile Include="Engine\AiChangeSetCompiler.cs" />
+    <Compile Include="Engine\AiOperationCompilerRegistry.cs" />
+    <Compile Include="Engine\StructuredOperationCompiler.cs" />
+    <Compile Include="Engine\ProcessFlowAnalyzer.cs" />
+    <Compile Include="Engine\OperationDefinitionRegistry.cs" />
     <Compile Include="Engine\ProcessDefinitionService.cs" />
     <Compile Include="Engine\ProcessModels.cs" />
     <Compile Include="Engine\OperationBehaviorCatalog.cs" />
@@ -129,6 +140,7 @@
     <Compile Include="Stores\\AtomicJsonFileStore.cs" />
     <Compile Include="Stores\\CardConfigStore.cs" />
     <Compile Include="Stores\\ConfigurationBatchWriter.cs" />
+    <Compile Include="Stores\\AiConfigurationTransaction.cs" />
     <Compile Include="Stores\\CommunicationConfigStore.cs" />
     <Compile Include="Hmi\\CustomFunc.cs" />
     <Compile Include="Engine\\ProcessEngine.Core.cs" />
@@ -488,7 +500,7 @@
   </ItemGroup>
   <Target Name="CopySourceDllFiles" AfterTargets="Build">
     <ItemGroup>
-      <SourceDllFiles Include="SourceDLL\**\*.*" />
+      <SourceDllFiles Include="SourceDLL\**\*.dll" />
     </ItemGroup>
     <Copy Condition="'@(SourceDllFiles)' != ''" SourceFiles="@(SourceDllFiles)" DestinationFiles="@(SourceDllFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
@@ -517,6 +529,16 @@
   <!-- 旧仿真工具遗留目录不属于正式运行包，生成后强制清理，避免携带配置快照和账户文件。 -->
   <Target Name="RemoveLegacySimulationArtifacts" AfterTargets="Build">
     <RemoveDir Directories="$(TargetDir)SimulationRuns;$(TargetDir)SimulationScenarios" />
+  </Target>
+  <!-- 运行时不读取这些生成副本；Goose MD 已作为程序集资源部署，模板只读取 IntentTemplates 子目录。 -->
+  <Target Name="RemoveRedundantOutputArtifacts" AfterTargets="Build">
+    <RemoveDir Directories="$(TargetDir)Assets" />
+    <ItemGroup>
+      <RedundantOutputFile Include="$(TargetDir)*.xml" />
+      <RedundantOutputFile Include="$(TargetDir)README.md" />
+      <RedundantOutputFile Include="$(TargetDir)intent_templates.json" />
+    </ItemGroup>
+    <Delete Files="@(RedundantOutputFile)" />
   </Target>
   <Import Project="packages\LibGit2Sharp.NativeBinaries\build\net46\LibGit2Sharp.NativeBinaries.props" Condition="Exists('packages\LibGit2Sharp.NativeBinaries\build\net46\LibGit2Sharp.NativeBinaries.props')" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

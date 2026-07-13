@@ -5,32 +5,35 @@ namespace Automation.McpServer
 {
     internal static class McpToolProfile
     {
-        private static readonly HashSet<string> DiagnosticTools = new HashSet<string>(StringComparer.Ordinal)
+        private static readonly HashSet<string> CommonTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "get_platform_development_context",
-            "search_proc_catalog", "get_proc_overview", "get_op_detail",
-            "trace_resource", "search_operation_fields",
-            "get_operation_context", "audit_proc_batch", "get_snapshot",
-            "list_operation_types", "get_operation_schema", "get_operation_guide",
-            "analyze_flow_graph", "diagnose_issue",
-            "get_info_log_tail", "validate_proc",
+            "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_step_detail", "get_op_detail", "get_op_details",
+            "get_operation_references", "get_proc_references", "trace_resource",
+            "diagnose_issue", "get_snapshot",
+            "wait_for_proc_state",
             "list_variables", "search_variables", "get_variable",
             "list_stations", "get_station", "list_points", "get_point",
             "list_data_structs", "get_data_struct", "search_data_structs",
             "list_io", "get_io", "search_io", "get_io_state",
-            "search_alarms", "get_alarm"
+            "search_alarms", "get_alarm", "get_operation_guide"
+        };
+
+        private static readonly HashSet<string> DiagnosticOnlyTools = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "list_procs", "search_ops",
+            "search_operation_fields", "find_references", "find_variable_usages",
+            "get_operation_context", "audit_proc_batch", "list_operation_types", "get_operation_schema",
+            "analyze_flow_graph", "get_info_log_tail", "validate_proc", "diagnose_proc"
         };
 
         private static readonly HashSet<string> EditorOnlyTools = new HashSet<string>(StringComparer.Ordinal)
         {
-            "list_intent_templates", "get_intent_template", "build_patch_from_intent",
-            "preview_intent", "apply_intent", "preview_patch", "apply_patch", "get_patch_action_schema",
-            "create_proc", "create_proc_batch", "delete_procs", "reorder_proc", "copy_proc",
+            "get_change_capabilities", "get_operation_contracts", "get_native_operation_contract",
+            "preview_change_set", "apply_change_set",
+            "run_proc_test",
             "start_proc", "stop_proc", "pause_proc", "resume_proc",
-            "set_variable", "add_variable", "delete_variable",
-            "add_station", "update_station", "delete_station",
-            "set_point", "delete_point", "set_data_struct_field",
-            "set_alarm", "delete_alarm"
+            "set_variable"
         };
 
         public static IReadOnlyList<McpServerTool> CreateTools(string profile)
@@ -39,8 +42,12 @@ namespace Automation.McpServer
             if (string.Equals(profile, "Diagnostic", StringComparison.OrdinalIgnoreCase)) diagnostic = true;
             else if (string.Equals(profile, "Editor", StringComparison.OrdinalIgnoreCase)) diagnostic = false;
             else throw new InvalidDataException($"MCP工具模式不支持:{profile}");
-            var enabled = new HashSet<string>(DiagnosticTools, StringComparer.Ordinal);
-            if (!diagnostic)
+            var enabled = new HashSet<string>(CommonTools, StringComparer.Ordinal);
+            if (diagnostic)
+            {
+                enabled.UnionWith(DiagnosticOnlyTools);
+            }
+            else
             {
                 enabled.UnionWith(EditorOnlyTools);
             }
@@ -73,14 +80,20 @@ namespace Automation.McpServer
     {
         private readonly object syncRoot = new object();
         private readonly IReadOnlyDictionary<string, McpServerTool> allTools;
+        private readonly HashSet<string> editorToolNames;
         private readonly HashSet<string> diagnosticToolNames;
         private string profile = string.Empty;
 
         public DynamicMcpToolRegistry(string initialProfile)
         {
-            allTools = McpToolProfile.CreateEditorTools()
-                .ToDictionary(tool => tool.ProtocolTool.Name, StringComparer.Ordinal);
-            diagnosticToolNames = McpToolProfile.CreateTools("Diagnostic")
+            IReadOnlyList<McpServerTool> editorTools = McpToolProfile.CreateEditorTools();
+            IReadOnlyList<McpServerTool> diagnosticTools = McpToolProfile.CreateTools("Diagnostic");
+            allTools = editorTools.Concat(diagnosticTools)
+                .GroupBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            editorToolNames = editorTools
+                .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
+            diagnosticToolNames = diagnosticTools
                 .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
             SetProfile(initialProfile);
         }
@@ -94,8 +107,10 @@ namespace Automation.McpServer
         {
             lock (syncRoot)
             {
-                return allTools.Values.Where(tool => string.Equals(profile, "Editor", StringComparison.Ordinal)
-                        || diagnosticToolNames.Contains(tool.ProtocolTool.Name))
+                HashSet<string> enabledNames = string.Equals(profile, "Editor", StringComparison.Ordinal)
+                    ? editorToolNames
+                    : diagnosticToolNames;
+                return allTools.Values.Where(tool => enabledNames.Contains(tool.ProtocolTool.Name))
                     .OrderBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal).ToList();
             }
         }

@@ -5,6 +5,7 @@ using System.Windows.Forms;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
+using Automation.Protocol;
 
 namespace Automation.McpServer
 {
@@ -14,6 +15,12 @@ namespace Automation.McpServer
         private static async Task Main(string[] args)
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+            if (args.Any(value => string.Equals(value, "--verify-profile", StringComparison.Ordinal)))
+            {
+                VerifyEditorProfile();
+                return;
+            }
 
             var builder = WebApplication.CreateBuilder(args);
             AutomationMcpOptions options = AutomationMcpOptions.Load(builder.Configuration, AppContext.BaseDirectory);
@@ -129,6 +136,94 @@ namespace Automation.McpServer
             {
                 RestartCurrentProcess(args);
             }
+        }
+
+        private static void VerifyEditorProfile()
+        {
+            IReadOnlyList<McpServerTool> editorTools = McpToolProfile.CreateEditorTools();
+            string[] names = editorTools
+                .Select(tool => tool.ProtocolTool.Name)
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray();
+            string[] required =
+            {
+                "get_change_capabilities", "get_operation_contracts", "get_native_operation_contract", "preview_change_set",
+                "apply_change_set", "wait_for_proc_state", "run_proc_test"
+            };
+            string[] retired =
+            {
+                "preview_intent", "apply_intent", "preview_patch", "apply_patch",
+                "create_proc", "create_proc_batch",
+                "add_station", "update_station", "delete_station", "set_point",
+                "delete_point", "set_data_struct_field", "set_alarm", "delete_alarm"
+            };
+            string? missing = required.FirstOrDefault(name => !names.Contains(name, StringComparer.Ordinal));
+            if (missing != null) throw new InvalidOperationException($"Editor Profile 缺少工具：{missing}");
+            string? exposed = retired.FirstOrDefault(name => names.Contains(name, StringComparer.Ordinal));
+            if (exposed != null) throw new InvalidOperationException($"Editor Profile 意外暴露旧写入工具：{exposed}");
+            if (names.Contains("audit_proc_batch", StringComparer.Ordinal))
+                throw new InvalidOperationException("Editor Profile 不应固定暴露细粒度审计工具。");
+            McpServerTool previewTool = editorTools.First(tool =>
+                string.Equals(tool.ProtocolTool.Name, "preview_change_set", StringComparison.Ordinal));
+            string previewSchema = previewTool.ProtocolTool.InputSchema.ToString();
+            string? kindDescription = System.Text.Json.Nodes.JsonNode.Parse(previewSchema)?["properties"]?["changeSet"]?
+                ["properties"]?["processes"]?["items"]?["properties"]?["steps"]?["items"]?["properties"]?
+                ["operations"]?["items"]?["properties"]?["kind"]?["description"]?.GetValue<string>();
+            if (!previewSchema.Contains("popup.message", StringComparison.Ordinal)
+                || !previewSchema.Contains("popup.variable", StringComparison.Ordinal)
+                || !(kindDescription ?? string.Empty).Contains("不得自行创造 kind", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("preview_change_set 输入Schema未公开语义kind严格枚举。");
+            }
+            McpServerTool runTestTool = editorTools.First(tool =>
+                string.Equals(tool.ProtocolTool.Name, "run_proc_test", StringComparison.Ordinal));
+            McpServerTool startTool = editorTools.First(tool =>
+                string.Equals(tool.ProtocolTool.Name, "start_proc", StringComparison.Ordinal));
+            if (!(runTestTool.ProtocolTool.Description ?? string.Empty).Contains("禁止先调用start_proc", StringComparison.Ordinal)
+                || !(startTool.ProtocolTool.Description ?? string.Empty).Contains("直接调用run_proc_test", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("流程启动与有边界测试的工具职责未双向公开。");
+            }
+            string[] diagnosticNames = McpToolProfile.CreateTools("Diagnostic")
+                .Select(tool => tool.ProtocolTool.Name).ToArray();
+            if (!diagnosticNames.Contains("audit_proc_batch", StringComparer.Ordinal)
+                || diagnosticNames.Contains("preview_change_set", StringComparer.Ordinal)
+                || diagnosticNames.Contains("get_change_capabilities", StringComparer.Ordinal)
+                || diagnosticNames.Contains("get_operation_contracts", StringComparer.Ordinal)
+                || diagnosticNames.Contains("get_native_operation_contract", StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException("Diagnostic Profile 工具边界错误。");
+            }
+            string invalidDeletion = AiChangeSetCatalog.Validate(new AiChangeSet
+            {
+                Version = 2,
+                DeleteProcesses = new ProcessDeleteSelection
+                {
+                    Mode = "byNames",
+                    Names = new List<string> { "测试流程" }
+                }
+            });
+            if (!string.Equals(invalidDeletion, "deleteProcesses.mode 只能是 all 或 selected。", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("ChangeSet 删除模式本地校验未严格限制 all/selected。");
+            }
+            string invalidSelected = AiChangeSetCatalog.Validate(new AiChangeSet
+            {
+                Version = 2,
+                DeleteProcesses = new ProcessDeleteSelection { Mode = "selected" }
+            });
+            string validAll = AiChangeSetCatalog.Validate(new AiChangeSet
+            {
+                Version = 2,
+                DeleteProcesses = new ProcessDeleteSelection { Mode = "all" }
+            });
+            if (!string.Equals(invalidSelected,
+                    "deleteProcesses.mode=selected 时必须提供 names 或 procIds。", StringComparison.Ordinal)
+                || validAll != null)
+            {
+                throw new InvalidOperationException("ChangeSet 删除选择器组合校验错误。");
+            }
+            Console.WriteLine($"Editor Profile 校验通过，共 {names.Length} 个工具；V2 写入链完整，旧写入链未暴露。");
         }
 
         private static void RestartCurrentProcess(string[] args)

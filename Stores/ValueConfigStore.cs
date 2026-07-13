@@ -252,6 +252,37 @@ namespace Automation
             return data;
         }
 
+        /// <summary>
+        /// 在配置事务已经落盘后，用同一份已校验快照替换内存变量表。
+        /// 不在此方法内保存文件，避免把事务拆成第二次独立写入。
+        /// </summary>
+        public void ReplaceConfiguration(IDictionary<string, DicValue> source)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+            var snapshot = new Dictionary<string, DicValue>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, DicValue> item in source)
+            {
+                if (string.IsNullOrWhiteSpace(item.Key) || item.Value == null)
+                {
+                    throw new InvalidDataException("变量配置快照包含空名称或空对象。");
+                }
+                if (item.Value.Index < 0 || item.Value.Index >= ValueCapacity)
+                {
+                    throw new InvalidDataException($"变量[{item.Key}]索引超出范围：{item.Value.Index}");
+                }
+                if (!string.Equals(item.Value.Type, "double", StringComparison.Ordinal)
+                    && !string.Equals(item.Value.Type, "string", StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException($"变量[{item.Key}]类型无效：{item.Value.Type}");
+                }
+                snapshot[item.Key] = ObjectGraphCloner.Clone(item.Value);
+            }
+            LoadFromDictionary(snapshot);
+        }
+
         public bool TrySetValue(int index, string name, string type, string value, string note, string source = null)
         {
             name = name?.Trim();

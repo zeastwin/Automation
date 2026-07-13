@@ -13,6 +13,7 @@
 - `Assets/Goose/system.md` 只追加 EW-AI 身份、真实性和工业安全等跨任务恒定约束。平台内部的最小上下文路由规范存放在内嵌资源 `Assets/Goose/automation.md`，启动时部署到 `%APPDATA%/Automation/Goose/automation.md` 并通过 `GOOSE_MOIM_MESSAGE_FILE` 仅注入当前 EW-AI 进程；禁止将平台内部规范放入客户可修改的 `Hmi/`。具体参数类型、数量限制和调用协议写入 MCP 工具指南及 Schema；源码模块知识由当前源码任务按需读取，禁止固定注入所有会话。
 - 升级 Goose 或修改 System Prompt 前，必须先对照 Goose 官方仓库当前模板；若官方模板发生变化，应先同步官方基底，再重新应用 EW-AI 自定义区块，并递增 `GooseRuntimeProvisioner.SystemPromptVersion`。
 - `Assets/Goose/automation.md` 使用独立的 `GooseRuntimeProvisioner.IntegrationContextVersion` 和 `%APPDATA%/Automation/Goose/.automation-context-version`，不得与 System Prompt 共用版本号；修改该文件时只递增专用上下文版本。
+- AI 的流程与变量配置写入以 ChangeSet V2 为默认公开链路：业务语义 `preview_change_set` → 前台确认 → 仅携带 `previewId` 的 `apply_change_set`。Bridge 冻结编译后草稿并负责资源策略、符号跳转、版本校验与事务提交；旧 intent/patch/create_batch 工具不得重新加入 Goose 默认 Editor Profile。
 - Goose 受管 Markdown 同时作为 Manifest 资源和 `Assets/Goose/` 输出内容发布；运行时优先读取 Manifest，缺失时读取程序目录副本。两条通道均失败时只禁用 EW-AI 并明确报警，不得阻断 HMI/平台初始化。
 - Automation 源码开发知识通过 MCP 的 `get_platform_development_context` 按主题加载；常驻描述只负责让 AI 知道该入口及适用场景，具体 HMI 边界、平台 API 入口、自定义函数规则仅在调用结果中返回。已知目标直接读取 `hmi`、`platform-api` 或 `custom-function`，仅目标不明确时读取 `catalog`。
 - Goose 的编译/重启结论必须由本轮实际文件改动和运行机制推导，不能把某模块的部署限制固定注入所有任务；纯流程或运行配置变更不得提示编译、重启，也不得输出“需要重启”和“已热发布生效”之类互相矛盾的结论。

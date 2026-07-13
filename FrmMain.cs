@@ -226,6 +226,11 @@ namespace Automation
                     SF.SetSecurityLock(transactionError);
                     SF.DR?.Logger?.Log($"配置事务恢复未完成，平台继续初始化并保持安全锁定：{transactionError}", LogLevel.Error);
                 }
+                if (!AiConfigurationTransaction.RecoverPendingTransactions(SF.ConfigPath, out string changeSetTransactionError))
+                {
+                    SF.SetSecurityLock(changeSetTransactionError);
+                    SF.DR?.Logger?.Log($"ChangeSet事务恢复未完成，平台继续初始化并保持安全锁定：{changeSetTransactionError}", LogLevel.Error);
+                }
                 SF.frmValue.RefreshDic();
                 EnsureSystemStatusVariables();
                 InitializeSystemStatusValues();

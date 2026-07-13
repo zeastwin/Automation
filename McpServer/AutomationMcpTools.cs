@@ -2,12 +2,86 @@ using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Automation.Protocol;
 
 namespace Automation.McpServer
 {
     [McpServerToolType]
     public static class AutomationMcpTools
     {
+        [McpServerTool(Name = "get_change_capabilities"), Description(
+            "返回 AI 配置写入协议 V2 的轻量能力目录，只用于创建或替换流程配置。不得用于启动、停止、暂停、恢复或测试流程；运行请求应直接使用对应运行工具，当前模式未提供运行工具时必须明确告知不可执行。仅在任务所需语义 kind 未知时调用。")]
+        public static async Task<string> GetChangeCapabilities()
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetChangeCapabilities),
+                args: new { },
+                action: client => client.GetChangeCapabilitiesAsync()).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "get_operation_contracts"), Description(
+            "按精确语义 kind 读取 V2 高层指令字段说明。kind 不是平台原生 operaType，禁止把 process.control 等 kind 传给 get_operation_schema。只返回请求的类型。")]
+        public static async Task<string> GetOperationContracts(
+            [Description("精确语义类型数组，例如 variable.add/wait/flow.goto；最多6项")] string[] kinds)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetOperationContracts),
+                args: new { kinds },
+                action: client => client.GetOperationContractsAsync(kinds)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "get_native_operation_contract"), Description(
+            "按一个精确原生 operaType 读取 native.operation 的递归字段契约。仅当高层语义 kind 不覆盖目标指令时按需调用；返回嵌套对象、数组、符号跳转和严格值类型，不返回其他指令。")]
+        public static async Task<string> GetNativeOperationContract(
+            [Description("平台注册的精确原生指令类型，例如 跳转、网口通讯操作、IO组；不是 process.control 等语义 kind。")]
+            string operaType)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetNativeOperationContract),
+                args: new { operaType },
+                action: client => client.GetNativeOperationContractAsync(operaType)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "preview_change_set"), Description(
+            "预演完整业务变更集，一次可删除旧流程、声明变量资源、创建新流程或按ID/精确名称完整替换现有流程。"
+            + "operations[].kind 是工具输入 Schema 中列出的严格枚举，不得猜测或创造；目标语义未知时先调用 get_change_capabilities。不得填写 OperationType/PropertyGrid 内部字段。变量引用必须在同一 changeSet.variables 中声明策略。"
+            + "步骤跳转使用 {step:key,operation:index} 符号地址，由平台编译为物理地址。最多3个流程、单流程10个步骤、累计20条指令、64KB。"
+            + "返回 previewId 后等待前台确认，再仅用 previewId 调用 apply_change_set；禁止重新发送或重新生成 changeSet。")]
+        public static async Task<string> PreviewChangeSet(
+            [Description("V2业务变更集；version必须为2")] AiChangeSet changeSet)
+        {
+            string validationError = AiChangeSetCatalog.Validate(changeSet);
+            if (validationError != null)
+            {
+                string result = JsonSerializer.Serialize(new
+                {
+                    ok = false,
+                    type = "mcp.error",
+                    errorCode = "CHANGE_SET_INVALID",
+                    message = validationError
+                });
+                ToolCallLogger.Log(nameof(PreviewChangeSet), new { changeSet }, result);
+                return result;
+            }
+            return await ExecuteAsync(
+                toolName: nameof(PreviewChangeSet),
+                args: new { changeSet },
+                action: client => client.PreviewChangeSetAsync(changeSet)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "apply_change_set"), Description(
+            "提交已由 Automation 前台确认的冻结 V2 预演。只传 previewId，不得重发 changeSet。"
+            + "提交时平台会校验流程和变量版本，并以同一事务保存；版本变化会拒绝旧草稿。正式提交要求所有流程处于Stopped。"
+            + "成功结果直接返回 affectedProcesses 的 procIndex/procId；后续启动或验证直接使用它，禁止再搜索流程目录。")]
+        public static async Task<string> ApplyChangeSet(
+            [Description("preview_change_set 返回且已由前台确认的32位 previewId")] string previewId)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ApplyChangeSet),
+                args: new { previewId },
+                action: client => client.ApplyChangeSetAsync(previewId)).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "get_platform_development_context"), Description(
             "按需读取 Automation 源码开发上下文。修改 HMI、使用平台公开接口或编写自定义函数时调用；已知目标直接传对应 topic。")]
         public static string GetPlatformDevelopmentContext(
@@ -59,8 +133,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_proc_detail"), Description(
-            "读取流程完整详情（head/steps/ops/fields，含 isJump/flow/gotoWarnings）。"
-            + "修改流程前必须先调用本工具。返回的 flow 字段标注每条指令执行后的流向（opIndex+1 或跳转目标），"
+            "服务端先计算流程体积：不超过100条指令且序列化详情不超过256KB时，返回完整详情"
+            + "（head/steps/ops/fields，含 isJump/flow/gotoWarnings）；超限时只返回流程规模和轻量步骤目录。"
+            + "需要完整解释小型流程时只调用本工具一次；超限后按返回建议改用 get_step_detail 或 get_op_details，禁止逐条盲读。"
+            + "返回的 flow 字段标注每条指令执行后的流向（opIndex+1 或跳转目标），"
             + "gotoWarnings 列出越界的跳转目标。")]
         public static async Task<string> GetProcDetail(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
@@ -73,7 +149,7 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "get_op_detail"), Description(
             "读取单条指令详情（字段值/执行流向 flow/跳转有效性 gotoIssues）。"
-            + "用于细粒度检查某条指令的字段配置和跳转目标。")]
+            + "仅用于细粒度检查一条已知指令；解释完整流程应改用 get_proc_detail，避免手工组合多组索引。")]
         public static async Task<string> GetOpDetail(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
             [Description("步骤索引")] int stepIndex,
@@ -85,9 +161,23 @@ namespace Automation.McpServer
                 action: client => client.GetOpDetailAsync(procIndex, stepIndex, opIndex)).ConfigureAwait(false);
         }
 
+        [McpServerTool(Name = "get_op_details"), Description(
+            "按明确的 opId 有限批量读取指令详情，单次最多25条。"
+            + "适合从流程摘要中选出若干目标指令后一次读取；opIds 必须唯一，并且必须来自同一流程的读取结果。"
+            + "返回每条指令当前实际的 stepIndex、stepId、opIndex、字段和执行流向。")]
+        public static async Task<string> GetOpDetails(
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
+            [Description("1到25个唯一指令Guid；必须来自该流程的 get_proc_overview、get_proc_detail 或 get_step_detail 返回值")] string[] opIds)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetOpDetails),
+                args: new { procIndex, opIds },
+                action: client => client.GetOpDetailsAsync(procIndex, opIds)).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "get_step_detail"), Description(
             "读取单步骤完整指令列表（含每条指令 flow）。"
-            + "用于查看某个步骤下所有指令的执行流向。")]
+            + "用于查看一个明确步骤；若只需若干已知指令，优先使用 get_op_details。")]
         public static async Task<string> GetStepDetail(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
             [Description("步骤索引")] int stepIndex)
@@ -112,11 +202,44 @@ namespace Automation.McpServer
                 action: client => client.SearchOpsAsync(procIndex, operaType, keyword)).ConfigureAwait(false);
         }
 
+        [McpServerTool(Name = "get_operation_references"), Description(
+            "查询一条明确指令的完整跳转关系。以稳定opId定位目标，返回目标指令所有出向跳转，以及跨流程分页扫描得到的全部入向跳转；"
+            + "不会受邻近读取窗口限制，适合发现相隔很远或位于其他步骤的跳转来源。")]
+        public static async Task<string> GetOperationReferences(
+            [Description("目标流程索引")] int procIndex,
+            [Description("目标指令Guid，必须来自流程读取结果")] string opId,
+            [Description("扫描来源流程起点，默认0；继续扫描时使用nextProcOffset")] int? procOffset = null,
+            [Description("本批扫描流程数1..50，默认20")] int? procLimit = null,
+            [Description("本批最多返回入向跳转数1..100，默认50")] int? resultLimit = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetOperationReferences),
+                args: new { procIndex, opId, procOffset, procLimit, resultLimit },
+                action: client => client.GetOperationReferencesAsync(
+                    procIndex, opId, procOffset, procLimit, resultLimit)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "get_proc_references"), Description(
+            "查询一条明确流程被哪些指令引用。返回流程操作/等待流程等直接流程引用，以及所有跳入该流程的地址引用；按来源流程分页，不返回流程全文。")]
+        public static async Task<string> GetProcReferences(
+            [Description("目标流程索引")] int procIndex,
+            [Description("扫描来源流程起点，默认0；继续扫描时使用nextProcOffset")] int? procOffset = null,
+            [Description("本批扫描流程数1..50，默认20")] int? procLimit = null,
+            [Description("本批最多返回引用数1..100，默认50")] int? resultLimit = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetProcReferences),
+                args: new { procIndex, procOffset, procLimit, resultLimit },
+                action: client => client.GetProcReferencesAsync(
+                    procIndex, procOffset, procLimit, resultLimit)).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "trace_resource"), Description(
-            "按项目中的业务资源名称自动识别类型并追踪使用位置。优先用于“这个变量/IO/工站/PLC/数据结构/报警在哪里用过”，无需记referenceType；名称同时属于多类资源时会同时查询并标记ambiguous。")]
+            "按项目中的业务资源名称追踪使用位置，递归检查指令参数列表。优先用于“这个变量/IO/TCP或串口通讯/工站/PLC/数据结构/报警在哪里用过”；"
+            + "可自动识别资源类型，同名资源属于多类时会同时查询并标记ambiguous。")]
         public static async Task<string> TraceResource(
             [Description("资源精确名称；报警使用编号文本，例如12")] string name,
-            [Description("可选类型:auto/variable/io/station/plc/dataStruct/alarm，默认auto")] string? resourceKind = null,
+            [Description("可选类型:auto/variable/io/communication/tcp/serial/station/plc/dataStruct/alarm，默认auto")] string? resourceKind = null,
             [Description("流程扫描起点，默认0")] int? procOffset = null,
             [Description("本批扫描流程数1..50，默认20")] int? procLimit = null,
             [Description("本批最多返回命中数1..100，默认50")] int? resultLimit = null)
@@ -177,7 +300,8 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_operation_context"), Description(
-            "读取故障指令附近的小窗口。只返回目标指令完整字段，邻近指令仅返回摘要，适合排查顺序执行、旁路和跳转问题，避免读取整个流程。")]
+            "读取故障指令附近的小窗口。只返回目标指令完整字段，邻近指令仅返回摘要，适合排查局部顺序执行。"
+            + "窗口不能代表完整跳转关系；涉及跳转时必须按目标opId调用get_operation_references。")]
         public static async Task<string> GetOperationContext(
             [Description("流程索引")] int procIndex,
             [Description("步骤索引")] int stepIndex,
@@ -239,6 +363,33 @@ namespace Automation.McpServer
                 toolName: nameof(GetSnapshot),
                 args: new { procIndex },
                 action: client => client.GetSnapshotAsync(procIndex)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "wait_for_proc_state"), Description(
+            "在 Bridge 内长轮询等待单个有限流程到达目标状态。流程存在可达控制流环且等待Stopped时会立即拒绝，避免把人工停止误判为自然完成。"
+            + "必须用本工具替代连续 get_snapshot；等待期间不要调用 get_info_log_tail，只有到达 Alarming 或超时后才按需诊断。")]
+        public static async Task<string> WaitForProcState(
+            [Description("流程索引；优先使用 apply_change_set.affectedProcesses 返回值")] int procIndex,
+            [Description("目标状态，默认 Stopped/Alarming；可选 Stopped/Running/Paused/Alarming/Stopping")] string[]? states = null,
+            [Description("等待超时100..60000ms，默认30000ms")] int? timeoutMs = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(WaitForProcState),
+                args: new { procIndex, states, timeoutMs },
+                action: client => client.WaitForProcStateAsync(procIndex, states, timeoutMs)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "run_proc_test"), Description(
+            "独立执行一次有边界的流程测试：本工具会自行启动Stopped流程，调用前禁止先调用start_proc；已经运行的流程不会被接管。启动并观察500..15000ms，自然结束则直接返回，仍在运行或报警则由测试运行器安全停止。"
+            + "返回potentiallyUnbounded、真实terminationReason和outcome，不会把测试窗口结束或外部停止报告为自然完成。")]
+        public static async Task<string> RunProcTest(
+            [Description("必须处于Stopped的流程索引；优先使用 apply_change_set.affectedProcesses 返回值；不得预先start_proc")] int procIndex,
+            [Description("观察窗口500..15000ms，默认5000ms")] int? durationMs = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(RunProcTest),
+                args: new { procIndex, durationMs },
+                action: client => client.RunProcTestAsync(procIndex, durationMs)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "list_operation_types"), Description(
@@ -453,7 +604,7 @@ namespace Automation.McpServer
     "purpose": "弹出对话框供用户选择，支持报警灯/蜂鸣器联动和延时自动关闭",
     "keyFields": {"PopupType": "弹框样式：弹是/弹是与否/弹是与否与取消", "InfoType": "提示信息来源：自定义提示信息/变量类型/报警信息库", "PopupMessage": "固定提示文本", "PopupMessageValue": "提示变量名", "PopupAlarmInfoID": "报警信息编号；字段类型是 string，必须按 JSON 字符串传，例如 \"0\"", "Btn1Text/Btn2Text/Btn3Text": "按钮文本", "PopupGoto1/2/3": "跳转目标(格式 procIndex-stepIndex-opIndex)", "DelayClose/DelayCloseTimeMs": "延时自动关闭", "AlarmLightEnable": "启用报警灯", "BuzzerIo/RedLightIo/YellowLightIo/GreenLightIo": "报警灯IO"},
     "constraints": "PopupType 决定按钮数量；InfoType 决定提示文本来源；DelayClose=true 时 DelayCloseTimeMs 必须>0；AlarmLightEnable=启用 时蜂鸣器/灯IO才生效；PopupGoto 格式 procIndex-stepIndex-opIndex",
-    "commonMistakes": "InfoType=报警信息库时按钮文本从报警信息读取，自定义的 Btn*Text 会被忽略；PopupGoto 格式必须三段式，不可省略 procIndex"
+    "commonMistakes": "InfoType=自定义提示信息时 PopupMessage 原样显示，不解析 {变量名}；要显示变量当前值必须使用 InfoType=变量类型并填写 PopupMessageValue。InfoType=报警信息库时按钮文本从报警信息读取；PopupGoto 格式必须三段式"
   },
   "获取变量": {
     "purpose": "批量复制变量值(源→存储)，支持二级索引嵌套",
@@ -905,7 +1056,7 @@ namespace Automation.McpServer
             + "definition 必须直接传JSON对象，禁止传包含JSON文本的字符串；必须包含name/steps，steps包含name/operations，operations包含operaType和可选fieldValues。"
             + "预演阶段省略 previewId；确认后使用完全相同的 definition 和 previewId 再调用一次提交。"
             + "适用于新建完整流程，禁止拆成 create_proc/append_step/逐条指令多次确认。"
-            + "面向本地35B模型限制：最多10个步骤、单步骤20条指令、单次变更集累计最多20条指令、definition最大64KB、单条fieldValues最大8KB。"
+            + "为保证单次审核和配置事务边界清晰：最多10个步骤、单步骤20条指令、单次变更集累计最多20条指令、definition最大64KB、单条fieldValues最大8KB。"
             + "超过上限时应按独立流程拆分，禁止为绕过限制改用逐条弹窗提交。Bridge会分配ID、严格校验并原子保存。")]
         public static async Task<string> CreateProcBatch(
             [Description("完整流程定义对象，必须直接传对象而不是JSON字符串")] CreateProcBatchDefinition definition,
@@ -975,8 +1126,8 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "start_proc"), Description(
-            "启动流程。不需要预演确认，直接发送命令。"
-            + "要求流程处于 Stopped 状态。")]
+            "启动流程并让它按自身生命周期持续运行。不需要预演确认，要求流程处于Stopped状态。"
+            + "如果用户要求有边界运行、运行一次并验证、观察后停止或报告真实终止原因，不要调用本工具，直接调用run_proc_test。")]
         public static async Task<string> StartProc(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
         {
@@ -1461,13 +1612,13 @@ namespace Automation.McpServer
     "C. 运行控制（启动/停止/暂停/恢复）：用 start_proc/stop_proc/pause_proc/resume_proc 直接执行，无需预演",
     "",
     "1. list_procs 或 get_proc_overview 定位目标流程",
-    "2. get_proc_detail 读取完整结构（含 flow 字段标注执行流向、gotoWarnings 标注越界跳转）",
+    "2. get_proc_detail 先由服务端计算体积；小型流程返回完整结构，超限则按步骤目录改用get_step_detail或get_op_details读取目标范围",
     "3. 已知operaType时直接用get_operation_schema读取该类型字段；仅在语义或约束不明确时读取该类型get_operation_guide，仅在Schema包含资源引用且候选值未知时读取get_reference_catalog",
     "4. list_intent_templates / get_intent_template 读取中间意图模板（若未找到模板，改用 preview_patch 直接构建）",
     "5. preview_intent 预演，或 build_patch_from_intent 后再 preview_patch",
     "6. Automation 前台确认 previewId 后，apply_intent 或 apply_patch 携带同一个 previewId 提交",
     "7. 正式提交前用get_snapshot确认目标流程为Stopped；非Stopped时不得调用stop_proc，不得重复提交，应告知用户并等待操作员停止流程",
-    "细颗粒度读取：get_operation_detail 查单条指令、get_step_detail 查单步骤、search_operations 按类型/关键词搜索指令",
+    "细颗粒度读取：get_op_detail查单条已知指令、get_op_details按opId批量读取最多25条、get_step_detail查单步骤、search_ops按类型/关键词搜索指令",
     "结构验证：validate_proc 修改前后快速检查跳转目标有效性和空步骤/指令，diagnose_proc 含运行时状态的完整诊断"
   ],
   "preferredWritePath": [

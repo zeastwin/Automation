@@ -476,6 +476,14 @@ namespace Automation
             }
             startInfo.EnvironmentVariables["PATH"] = machineGitCommandPath + Path.PathSeparator
                 + (startInfo.EnvironmentVariables["PATH"] ?? Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
+            // 优先使用 PowerShell 7 保证 Developer Shell 的中文输出为 UTF-8；未安装时
+            // 回退到系统自带 Windows PowerShell。两者都不存在时保留 Goose 的 cmd
+            // 默认值，AI 仍可降级使用 Shell，不因辅助运行环境缺失而阻断平台可用性。
+            string developerShellPath = ResolveGooseDeveloperShellPath();
+            if (!string.IsNullOrWhiteSpace(developerShellPath))
+            {
+                startInfo.EnvironmentVariables["GOOSE_SHELL"] = developerShellPath;
+            }
             // Hmi 是客户可修改目录，不从其中加载平台内部规范。
             // Automation 专用上下文由程序内嵌资源部署到受管目录，仅注入当前 EW-AI 进程。
             startInfo.EnvironmentVariables["CONTEXT_FILE_NAMES"] = "[]";
@@ -542,6 +550,7 @@ namespace Automation
             startupInfo.Append(" cwd=").Append(ResolveWorkingDirectory());
             startupInfo.Append(" mcpUri=").Append(config.McpUri);
             startupInfo.Append(" sessionName=").Append(runtimeSessionName);
+            startupInfo.Append(" developerShell=").Append(developerShellPath ?? "cmd");
             if (!string.IsNullOrWhiteSpace(config.Provider))
             {
                 startupInfo.Append(" provider=").Append(config.Provider);
@@ -553,6 +562,40 @@ namespace Automation
             startupInfo.Append(" maxTurns=").Append(config.MaxTurns);
             LogFile(startupInfo.ToString(), LogLevel.Normal);
             Report("lifecycle", $"EW-AI ACP 进程已启动：{config.GooseExecutablePath} acp --with-builtin developer", null);
+        }
+
+        private static string ResolveGooseDeveloperShellPath()
+        {
+            var candidates = new List<string>();
+            foreach (string programFiles in new[]
+            {
+                Environment.GetEnvironmentVariable("ProgramW6432"),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
+            })
+            {
+                if (!string.IsNullOrWhiteSpace(programFiles))
+                {
+                    candidates.Add(Path.Combine(programFiles, "PowerShell", "7", "pwsh.exe"));
+                }
+            }
+
+            string pathValue = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            foreach (string pathEntry in pathValue.Split(Path.PathSeparator))
+            {
+                string directory = pathEntry.Trim().Trim('"');
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    candidates.Add(Path.Combine(directory, "pwsh.exe"));
+                }
+            }
+
+            candidates.Add(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "WindowsPowerShell", "v1.0", "powershell.exe"));
+            return candidates
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(File.Exists);
         }
 
         private void Process_Exited(object sender, EventArgs e)
@@ -943,7 +986,11 @@ namespace Automation
             {"automation__get_proc_overview", "获取流程概览"},
             {"automation__get_proc_detail", "获取流程详情"},
             {"automation__get_op_detail", "获取指令详情"},
+            {"automation__get_op_details", "批量获取指令详情"},
             {"automation__get_step_detail", "获取步骤详情"},
+            {"automation__get_operation_references", "获取指令跳转关系"},
+            {"automation__get_proc_references", "获取流程引用"},
+            {"automation__trace_resource", "追踪资源引用"},
             {"automation__search_ops", "搜索指令"},
             {"automation__list_operation_types", "列出指令类型"},
             {"automation__get_operation_schema", "获取指令Schema"},
@@ -1124,7 +1171,16 @@ namespace Automation
 
         private string BuildPrompt(string prompt)
         {
-            string context = BuildSelectionContext();
+            string context;
+            if (string.Equals(config.ToolProfile, "Diagnostic", StringComparison.Ordinal))
+            {
+                context = "当前 Automation 工具模式：Diagnostic（只读诊断）。本会话未开放流程启动、停止、测试或配置变更工具；用户要求执行这些动作时，应明确回复“当前模式不允许运行或变更，请切换到编辑模式”，不得改用其他工具模拟。";
+            }
+            else
+            {
+                context = "当前 Automation 工具模式：Editor。只能使用本会话实际开放的工具执行流程控制和配置变更。";
+            }
+            context += BuildSelectionContext();
             string restoredContext = restoredConversationContext;
             restoredConversationContext = null;
             if (!string.IsNullOrWhiteSpace(restoredContext))

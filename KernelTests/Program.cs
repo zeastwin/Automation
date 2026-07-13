@@ -13,6 +13,8 @@ using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
 using Newtonsoft.Json.Linq;
+using Automation.Protocol;
+using static Automation.OperationTypePartial;
 
 namespace Automation.KernelTests
 {
@@ -48,6 +50,18 @@ namespace Automation.KernelTests
             Run("流程目录事务中断恢复", TestProcessDirectoryRecovery);
             Run("多文件配置批量提交", TestConfigurationBatchWriter);
             Run("数据结构索引与字段类型严格校验", TestDataStructStrictIndexes);
+            Run("指令注册表无界面且定义唯一", TestOperationDefinitionRegistry);
+            Run("Goose平台上下文资源完整嵌入", TestGooseEmbeddedResources);
+            Run("AI语义变更集编译与符号跳转", TestAiChangeSetCompilation);
+            Run("全部原生指令递归契约与严格语义编译", TestStructuredNativeOperationCompilation);
+            Run("AI语义完整替换现有流程", TestAiChangeSetReplaceProcess);
+            Run("流程环检测与终止原因可追溯", TestFlowBoundariesAndTerminationReason);
+            Run("AI联合配置事务与中断恢复", TestAiConfigurationTransaction);
+            Run("AI回复粘连Markdown归一化", TestAiMarkdownNormalization);
+            Run("AI历史会话选择器布局契约", TestAiSessionPickerTemplate);
+            Run("Goose开发Shell可用性兜底", TestGooseDeveloperShellFallback);
+            Run("流程详情体积闸门与批量读取边界", TestProcDetailReadBoundaries);
+            Run("嵌套资源与跳转引用递归索引", TestNestedReferenceIndexing);
             Console.WriteLine(failures == 0 ? "内核回归测试全部通过。" : $"内核回归测试失败:{failures}");
             return failures == 0 ? 0 : 1;
         }
@@ -918,6 +932,836 @@ namespace Automation.KernelTests
             }
         }
 
+        private static void TestStructuredNativeOperationCompilation()
+        {
+            List<OperationType> registered = OperationDefinitionRegistry.CreateAll().ToList();
+            Assert(registered.Count == 43, $"原生指令注册数量异常：{registered.Count}");
+
+            var context = new AiOperationCompileContext(
+                0,
+                new Dictionary<string, int>(StringComparer.Ordinal) { ["main"] = 0 },
+                new Dictionary<string, int>(StringComparer.Ordinal) { ["main"] = 2 },
+                new Dictionary<string, DicValue>(StringComparer.Ordinal),
+                new AiResourceSnapshot());
+            foreach (OperationType definition in registered)
+            {
+                JObject contract = StructuredOperationCompiler.BuildContract(definition.OperaType);
+                Assert(contract["fields"] is JObject, $"{definition.OperaType} 未生成递归字段契约");
+                OperationType compiled = StructuredOperationCompiler.Compile(definition.OperaType,
+                    new Dictionary<string, object>(), context);
+                Assert(compiled.GetType() == definition.GetType(), $"{definition.OperaType} 编译结果类型错误");
+            }
+
+            JObject tcpContract = StructuredOperationCompiler.BuildContract("网口通讯操作");
+            Assert(tcpContract["fields"]?["Params"]?["jsonType"]?.Value<string>() == "array"
+                && tcpContract["fields"]?["Params"]?["items"]?["fields"]?["Name"] != null,
+                "网口通讯 Params[0].Name 未进入递归契约");
+            var tcpFields = new Dictionary<string, object>
+            {
+                ["Params"] = new JArray(new JObject
+                {
+                    ["Name"] = "测试TCP",
+                    ["Ops"] = "启动"
+                })
+            };
+            var tcp = (TcpOps)StructuredOperationCompiler.Compile("网口通讯操作", tcpFields, context);
+            Assert(tcp.Count == "1" && tcp.Params.Count == 1 && tcp.Params[0].Name == "测试TCP",
+                "通讯嵌套参数未编译或数量未自动同步");
+
+            JObject gotoContract = StructuredOperationCompiler.BuildContract("跳转");
+            Assert(gotoContract["fields"]?["Params"]?["items"]?["fields"]?["Goto"]?["referenceType"]
+                    ?.Value<string>() == "proc.goto.symbolic",
+                "Params[0].Goto 未声明为符号跳转");
+            var gotoFields = new Dictionary<string, object>
+            {
+                ["DefaultGoto"] = new JObject { ["step"] = "main", ["operation"] = 0 },
+                ["Params"] = new JArray(new JObject
+                {
+                    ["MatchValue"] = "1",
+                    ["Goto"] = new JObject { ["step"] = "main", ["operation"] = 1 }
+                })
+            };
+            var jump = (Goto)StructuredOperationCompiler.Compile("跳转", gotoFields, context);
+            Assert(jump.Count == "1" && jump.DefaultGoto == "0-0-0" && jump.Params[0].Goto == "0-0-1",
+                "嵌套符号跳转未正确编译为物理地址");
+
+            var changeSet = new AiChangeSet
+            {
+                Version = 2,
+                Processes = new List<ProcessDefinition>
+                {
+                    new ProcessDefinition
+                    {
+                        Name = "原生递归编译测试",
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                Key = "main",
+                                Name = "主步骤",
+                                Operations = new List<SemanticOperation>
+                                {
+                                    new SemanticOperation
+                                    {
+                                        Kind = "native.operation",
+                                        OperaType = "延时",
+                                        Fields = new Dictionary<string, object> { ["timeMiniSecond"] = "10" }
+                                    },
+                                    new SemanticOperation
+                                    {
+                                        Kind = "native.operation",
+                                        OperaType = "跳转",
+                                        Fields = gotoFields
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            AiChangeSetCompileResult changeSetResult = AiChangeSetCompiler.Compile(changeSet,
+                new List<Proc>(), new Dictionary<string, DicValue>(), new AiResourceSnapshot());
+            Assert(changeSetResult.Processes[0].steps[0].Ops[0] is Delay
+                && changeSetResult.Processes[0].steps[0].Ops[0].Name == "延时"
+                && changeSetResult.Processes[0].steps[0].Ops[1] is Goto,
+                "native.operation 未接入 V2 变更集编译主链");
+
+            var ioCheck = (IoCheck)StructuredOperationCompiler.Compile("IO检测",
+                new Dictionary<string, object>
+                {
+                    ["timeOutC"] = new JObject { ["TimeOut"] = 2500 },
+                    ["IoParams"] = new JArray()
+                }, context);
+            Assert(ioCheck.timeOutC.TimeOut == 2500 && ioCheck.IOCount == "0",
+                "嵌套对象或 IO 数量字段未正确编译");
+
+            AssertThrows<InvalidOperationException>(() => StructuredOperationCompiler.Compile("网口通讯操作",
+                new Dictionary<string, object> { ["Params_0_Name"] = "错误扁平字段" }, context),
+                "原生编译器接受了 PropertyGrid 扁平字段");
+            AssertThrows<InvalidOperationException>(() => StructuredOperationCompiler.Compile("跳转",
+                new Dictionary<string, object> { ["DefaultGoto"] = "0-0-0" }, context),
+                "原生编译器接受了物理跳转字符串");
+            AssertThrows<InvalidOperationException>(() => StructuredOperationCompiler.Compile("网口通讯操作",
+                new Dictionary<string, object>
+                {
+                    ["Params"] = new JArray(Enumerable.Range(0, StructuredOperationCompiler.MaxListItems + 1)
+                        .Select(_ => new JObject()))
+                }, context), "原生编译器未限制嵌套数组数量");
+        }
+
+        private static void TestAiChangeSetCompilation()
+        {
+            var variables = new Dictionary<string, DicValue>(StringComparer.Ordinal)
+            {
+                ["测试计数"] = new DicValue
+                {
+                    Index = 10,
+                    Name = "测试计数",
+                    Type = "double",
+                    ConfigValue = "0",
+                    Value = "0"
+                }
+            };
+            var changeSet = new AiChangeSet
+            {
+                Version = 2,
+                Title = "重建计数测试流程",
+                DeleteProcesses = new ProcessDeleteSelection { Mode = "all" },
+                Variables = new List<VariableChange>
+                {
+                    new VariableChange
+                    {
+                        Name = "测试计数",
+                        Type = "double",
+                        InitialValue = "0",
+                        Policy = "reuse"
+                    }
+                },
+                Processes = new List<Automation.Protocol.ProcessDefinition>
+                {
+                    new Automation.Protocol.ProcessDefinition
+                    {
+                        Name = "Test_循环计数",
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                Key = "loop",
+                                Name = "主循环",
+                                Operations = new List<SemanticOperation>
+                                {
+                                    new SemanticOperation
+                                    {
+                                        Kind = "variable.add",
+                                        Variable = "测试计数",
+                                        Amount = 1
+                                    },
+                                    new SemanticOperation { Kind = "wait", Milliseconds = 1000 },
+                                    new SemanticOperation
+                                    {
+                                        Kind = "flow.goto",
+                                        Target = new OperationTarget { Step = "loop", Operation = 0 }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            AiChangeSetCompileResult result = AiChangeSetCompiler.Compile(
+                changeSet,
+                new List<Proc> { CreateProc(new Delay { timeMiniSecond = "1" }) },
+                variables);
+            Assert(result.DeletedProcessCount == 1 && result.CreatedProcessCount == 1,
+                "流程删除与创建没有合并到同一编译结果");
+            Assert(result.ChangedVariableCount == 0, "reuse策略不应重复创建已有变量");
+            Assert(result.OperationCount == 3, "语义指令数量不正确");
+            Assert(result.Processes[0].steps[0].Ops[0] is ModifyValue modify
+                && modify.ModifyType == "叠加"
+                && modify.ValueSourceName == "测试计数"
+                && modify.OutputValueName == "测试计数", "variable.add编译结果不正确");
+            Assert(result.Processes[0].steps[0].Ops[2] is Goto gotoOperation
+                && gotoOperation.Count == "0"
+                && gotoOperation.DefaultGoto == "0-0-0", "符号跳转未解析为最终物理地址");
+            Assert(result.ProcessAnalyses?[0]?["potentiallyUnbounded"]?.Value<bool>() == true,
+                "变更集预演未携带循环流程的执行边界分析");
+
+            var branchChangeSet = new AiChangeSet
+            {
+                Version = 2,
+                Variables = new List<VariableChange>
+                {
+                    new VariableChange { Name = "测试计数", Type = "double", Policy = "require" }
+                },
+                Processes = new List<Automation.Protocol.ProcessDefinition>
+                {
+                    new Automation.Protocol.ProcessDefinition
+                    {
+                        Name = "分支测试",
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                Key = "main",
+                                Name = "主步骤",
+                                Operations = new List<SemanticOperation>
+                                {
+                                    new SemanticOperation
+                                    {
+                                        Kind = "branch.number_range",
+                                        Variable = "测试计数",
+                                        Min = 0,
+                                        Max = 10,
+                                        WhenTrue = new OperationTarget { Step = "main", Operation = 1 },
+                                        WhenFalse = new OperationTarget { Step = "main", Operation = 2 }
+                                    },
+                                    new SemanticOperation { Kind = "popup.message", Message = "范围内" },
+                                    new SemanticOperation
+                                    {
+                                        Kind = "flow.goto",
+                                        Target = new OperationTarget { Step = "main", Operation = 0 }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            AiChangeSetCompileResult branchResult = AiChangeSetCompiler.Compile(
+                branchChangeSet, new List<Proc>(), variables);
+            Assert(branchResult.Processes[0].steps[0].Ops[0] is ParamGoto branch
+                && branch.goto1 == "0-0-1"
+                && branch.goto2 == "0-0-2", "前向符号分支未按完整草稿解析");
+            Assert(branchResult.Processes[0].steps[0].Ops[1] is PopupDialog popup
+                && popup.PopupMessage == "范围内", "popup.message编译结果不正确");
+
+            var popupVariableChangeSet = new AiChangeSet
+            {
+                Version = 2,
+                Variables = new List<VariableChange>
+                {
+                    new VariableChange { Name = "测试计数", Type = "double", Policy = "require" }
+                },
+                Processes = new List<Automation.Protocol.ProcessDefinition>
+                {
+                    new Automation.Protocol.ProcessDefinition
+                    {
+                        Name = "变量弹框",
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                Key = "main",
+                                Name = "主步骤",
+                                Operations = new List<SemanticOperation>
+                                {
+                                    new SemanticOperation
+                                    {
+                                        Kind = "popup.variable",
+                                        Name = "当前计数",
+                                        Variable = "测试计数",
+                                        AutoCloseMs = 1000
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            AiChangeSetCompileResult popupVariableResult = AiChangeSetCompiler.Compile(
+                popupVariableChangeSet, new List<Proc>(), variables);
+            Assert(popupVariableResult.Processes[0].steps[0].Ops[0] is PopupDialog variablePopup
+                && variablePopup.InfoType == "变量类型"
+                && variablePopup.PopupMessageValue == "测试计数"
+                && variablePopup.Name == "当前计数", "popup.variable未编译为平台原生变量弹框");
+
+            popupVariableChangeSet.Processes[0].Steps[0].Operations[0] = new SemanticOperation
+            {
+                Kind = "popup.message",
+                Message = "当前计数：{测试计数}"
+            };
+            bool placeholderRejected = false;
+            try
+            {
+                AiChangeSetCompiler.Compile(popupVariableChangeSet, new List<Proc>(), variables);
+            }
+            catch (InvalidOperationException ex)
+            {
+                placeholderRejected = ex.Message.Contains("不支持 {变量名} 插值");
+            }
+            Assert(placeholderRejected, "popup.message错误接受了变量模板语法");
+
+            var resourceChangeSet = new AiChangeSet
+            {
+                Version = 2,
+                Processes = new List<Automation.Protocol.ProcessDefinition>
+                {
+                    new Automation.Protocol.ProcessDefinition
+                    {
+                        Name = "目标流程",
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                Key = "main", Name = "主步骤",
+                                Operations = new List<SemanticOperation> { new SemanticOperation { Kind = "wait", Milliseconds = 10 } }
+                            }
+                        }
+                    },
+                    new Automation.Protocol.ProcessDefinition
+                    {
+                        Name = "控制流程",
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                Key = "main", Name = "主步骤",
+                                Operations = new List<SemanticOperation>
+                                {
+                                    new SemanticOperation { Kind = "io.write", Io = "启动输出", State = true, AfterMs = 5 },
+                                    new SemanticOperation { Kind = "io.wait", Io = "到位输入", State = true, TimeoutMs = 1000 },
+                                    new SemanticOperation { Kind = "process.control", Process = "目标流程", Action = "start" },
+                                    new SemanticOperation { Kind = "process.wait", Process = "目标流程", ExpectedState = "stopped", TimeoutMs = 2000 }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            AiChangeSetCompileResult resourceResult = AiChangeSetCompiler.Compile(
+                resourceChangeSet,
+                new List<Proc>(),
+                new Dictionary<string, DicValue>(StringComparer.Ordinal),
+                new AiResourceSnapshot(new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["启动输出"] = "通用输出",
+                    ["到位输入"] = "通用输入"
+                }));
+            Assert(resourceResult.Processes[1].steps[0].Ops[0] is IoOperate ioWrite
+                && ioWrite.IoParams[0].IOName == "启动输出", "io.write编译结果不正确");
+            Assert(resourceResult.Processes[1].steps[0].Ops[1] is IoCheck ioWait
+                && ioWait.timeOutC.TimeOut == 1000, "io.wait编译结果不正确");
+            Assert(resourceResult.Processes[1].steps[0].Ops[2] is ProcOps processControl
+                && processControl.procParams[0].value == "运行", "process.control编译结果不正确");
+            Assert(resourceResult.Processes[1].steps[0].Ops[3] is WaitProc processWait
+                && processWait.Params[0].value == "停止", "process.wait编译结果不正确");
+
+            changeSet.Variables[0].Policy = "create";
+            bool rejected = false;
+            try
+            {
+                AiChangeSetCompiler.Compile(changeSet, new List<Proc>(), variables);
+            }
+            catch (InvalidOperationException ex)
+            {
+                rejected = ex.Message.Contains("已存在");
+            }
+            Assert(rejected, "create策略没有严格拒绝同名变量");
+        }
+
+        private static void TestOperationDefinitionRegistry()
+        {
+            IReadOnlyList<OperationType> first = OperationDefinitionRegistry.CreateAll();
+            IReadOnlyList<OperationType> second = OperationDefinitionRegistry.CreateAll();
+            Assert(first.Count == 43, $"指令注册数量错误：{first.Count}");
+            Assert(first.Select(item => item.OperaType).Distinct(StringComparer.Ordinal).Count() == first.Count,
+                "指令注册表包含重复OperaType");
+            Assert(!ReferenceEquals(first[0], second[0]), "指令注册表返回了共享可变模板实例");
+            OperationType delay = OperationDefinitionRegistry.Create(first.OfType<Delay>().Single().OperaType);
+            Assert(delay is Delay, "按OperaType创建指令类型错误");
+            JObject capabilities = AiOperationCompilerRegistry.BuildCapabilities();
+            Assert(capabilities["operationKinds"] is JArray kinds && kinds.Count == 12
+                && kinds.Values<string>().Contains("native.operation", StringComparer.Ordinal)
+                && capabilities["nativeOperation"]?["contractTool"]?.Value<string>() == "get_native_operation_contract",
+                "语义能力目录未由编译适配器正确生成");
+            Assert(capabilities["processDeletion"]?["modes"] is JArray deletionModes
+                && deletionModes.Values<string>().SequenceEqual(new[] { "all", "selected" })
+                && capabilities["processDeletion"]?["selected"]?["minimumSelectors"]?.Value<int>() == 1,
+                "变更能力目录没有完整发布流程删除模式及选择规则");
+            JObject contracts = AiOperationCompilerRegistry.BuildContracts(new[] { "wait", "flow.goto", "popup.message", "popup.variable" });
+            Assert(contracts["contracts"]?["wait"]?["required"] is JArray,
+                "语义指令契约未由编译适配器发布");
+            Assert(contracts["contracts"]?["popup.message"]?["interpolation"]?.Value<string>() == "unsupported"
+                && contracts["contracts"]?["popup.variable"]?["messageSource"]?.Value<string>() == "variable.currentValue",
+                "弹框固定文本与变量来源契约未明确区分");
+        }
+
+        private static void TestGooseEmbeddedResources()
+        {
+            string[] names = typeof(GooseRuntimeProvisioner).Assembly.GetManifestResourceNames();
+            Assert(names.Contains("Automation.Assets.Goose.system.md", StringComparer.Ordinal),
+                "程序集缺少内嵌System Prompt资源");
+            Assert(names.Contains("Automation.Assets.Goose.automation.md", StringComparer.Ordinal),
+                "程序集缺少内嵌Automation专用上下文资源");
+            using (Stream stream = typeof(GooseRuntimeProvisioner).Assembly
+                .GetManifestResourceStream("Automation.Assets.Goose.automation.md"))
+            using (var reader = new StreamReader(stream ?? throw new InvalidOperationException("Automation上下文资源为空"), Encoding.UTF8))
+            {
+                string content = reader.ReadToEnd();
+                Assert(content.Contains("preview_change_set") && content.Contains("wait_for_proc_state")
+                    && content.Contains("run_proc_test"),
+                    "内嵌Automation上下文不是当前V2版本");
+            }
+        }
+
+        private static void TestAiChangeSetReplaceProcess()
+        {
+            Proc untouched = CreateProc(new Delay { timeMiniSecond = "10" });
+            untouched.head.Name = "保留流程";
+            Proc existing = CreateProc(new Delay { timeMiniSecond = "20" });
+            existing.head.Name = "待修改流程";
+            Guid existingId = existing.head.Id;
+            var changeSet = new AiChangeSet
+            {
+                Version = 2,
+                Processes = new List<Automation.Protocol.ProcessDefinition>
+                {
+                    new Automation.Protocol.ProcessDefinition
+                    {
+                        Action = "replace",
+                        TargetProcId = existingId.ToString("D"),
+                        Name = "修改后流程",
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                Key = "loop",
+                                Name = "循环",
+                                Operations = new List<SemanticOperation>
+                                {
+                                    new SemanticOperation { Kind = "wait", Milliseconds = 100 },
+                                    new SemanticOperation
+                                    {
+                                        Kind = "flow.goto",
+                                        Target = new OperationTarget { Step = "loop", Operation = 0 }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            AiChangeSetCompileResult result = AiChangeSetCompiler.Compile(
+                changeSet,
+                new List<Proc> { untouched, existing },
+                new Dictionary<string, DicValue>(StringComparer.Ordinal));
+            Assert(result.CreatedProcessCount == 0 && result.ReplacedProcessCount == 1,
+                "现有流程替换被错误统计为创建");
+            Assert(result.Processes.Count == 2 && result.Processes[0].head.Name == "保留流程",
+                "替换现有流程改变了流程数量或无关流程");
+            Assert(result.Processes[1].head.Id == existingId && result.Processes[1].head.Name == "修改后流程",
+                "替换现有流程未保留ID和索引");
+            Assert(result.Processes[1].steps[0].Ops[1] is Goto jump
+                && jump.DefaultGoto == "1-0-0", "替换流程的符号跳转未按原索引编译");
+            Assert(result.Changes.OfType<JObject>().Any(change =>
+                string.Equals(change["type"]?.Value<string>(), "process.replace", StringComparison.Ordinal)),
+                "替换流程未生成确认差异");
+        }
+
+        private static void TestAiConfigurationTransaction()
+        {
+            string configPath = Path.Combine(Path.GetTempPath(), "AutomationAiTransaction-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(configPath, "Work"));
+            File.WriteAllText(Path.Combine(configPath, "Work", "old.txt"), "old");
+            File.WriteAllText(Path.Combine(configPath, "value.json"), "old-value");
+            try
+            {
+                var variables = new Dictionary<string, DicValue>(StringComparer.Ordinal)
+                {
+                    ["计数"] = new DicValue
+                    {
+                        Index = 3,
+                        Name = "计数",
+                        Type = "double",
+                        ConfigValue = "1",
+                        Value = "1"
+                    }
+                };
+                Assert(AiConfigurationTransaction.Commit(
+                    configPath,
+                    new List<Proc> { CreateProc(new Delay { timeMiniSecond = "10" }) },
+                    variables,
+                    out string commitError,
+                    out bool rollbackFailed), $"联合事务提交失败：{commitError}");
+                Assert(!rollbackFailed, "成功事务不应报告回滚失败");
+                Assert(File.Exists(Path.Combine(configPath, "Work", "0.json")), "流程目录未提交");
+                Assert(File.ReadAllText(Path.Combine(configPath, "value.json")).Contains("计数"), "变量文件未提交");
+
+                string transactionPath = Path.Combine(configPath, ".change-set-transaction-crash");
+                Directory.CreateDirectory(Path.Combine(transactionPath, "Work.old"));
+                File.WriteAllText(Path.Combine(transactionPath, "Work.old", "restored.txt"), "restored-work");
+                File.WriteAllText(Path.Combine(transactionPath, "value.old.json"), "restored-value");
+                File.WriteAllText(Path.Combine(transactionPath, "manifest.json"),
+                    "{\"WorkExisted\":true,\"ValueExisted\":true}");
+
+                Assert(AiConfigurationTransaction.RecoverPendingTransactions(configPath, out string recoveryError),
+                    $"联合事务恢复失败：{recoveryError}");
+                Assert(File.Exists(Path.Combine(configPath, "Work", "restored.txt")), "中断后旧流程目录未恢复");
+                Assert(File.ReadAllText(Path.Combine(configPath, "value.json")) == "restored-value",
+                    "中断后旧变量文件未恢复");
+                Assert(!Directory.Exists(transactionPath), "恢复后的事务目录未清理");
+            }
+            finally
+            {
+                if (Directory.Exists(configPath)) Directory.Delete(configPath, true);
+            }
+        }
+
+        private static void TestFlowBoundariesAndTerminationReason()
+        {
+            Proc finite = CreateProc(new Delay { timeMiniSecond = "1" });
+            Assert(!ProcessFlowAnalyzer.Analyze(0, finite).PotentiallyUnbounded,
+                "有限顺序流程被错误识别为潜在无限循环");
+
+            Proc loop = CreateProc(new Goto
+            {
+                Count = "0",
+                Params = new OperationTypePartial.CustomList<GotoParam>(),
+                DefaultGoto = "0-0-0"
+            });
+            ProcessFlowAnalysis loopAnalysis = ProcessFlowAnalyzer.Analyze(0, loop);
+            Assert(loopAnalysis.PotentiallyUnbounded && loopAnalysis.CycleLocations.Contains("0-0"),
+                "可达自循环未被控制流分析识别");
+
+            Proc loopThroughDisabled = CreateProc(
+                new Delay { timeMiniSecond = "1", Disable = true },
+                new Goto
+                {
+                    Count = "0",
+                    Params = new OperationTypePartial.CustomList<GotoParam>(),
+                    DefaultGoto = "0-0-0"
+                });
+            Assert(ProcessFlowAnalyzer.Analyze(0, loopThroughDisabled).PotentiallyUnbounded,
+                "跳转到禁用指令后形成的运行时循环未被识别");
+
+            ValueConfigStore values = CreateValueStore(ResetStatus.ResetCompleted);
+            using (ProcessEngine engine = CreateEngine(values, new CustomFunc(), finite))
+            {
+                Assert(engine.StartProc(finite, 0), "有限流程启动失败");
+                WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 2000, "有限流程未结束");
+                Assert(engine.GetSnapshot(0)?.TerminationReason == ProcTerminationReason.Completed,
+                    "自然结束没有记录Completed终止原因");
+            }
+
+            using (ProcessEngine engine = CreateEngine(values, new CustomFunc(), loop))
+            {
+                Assert(engine.StartProc(loop, 0), "循环流程启动失败");
+                WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Running, 1000, "循环流程未进入运行状态");
+                engine.Stop(0, ProcTerminationReason.TestWindowElapsed);
+                WaitUntil(() => engine.GetSnapshot(0)?.State == ProcRunState.Stopped, 2000, "循环流程测试停止失败");
+                Assert(engine.GetSnapshot(0)?.TerminationReason == ProcTerminationReason.TestWindowElapsed,
+                    "测试窗口停止被错误标记为自然完成");
+            }
+        }
+
+        private static void TestAiMarkdownNormalization()
+        {
+            MethodInfo normalize = typeof(FrmAiAssistant).GetMethod(
+                "NormalizeMarkdownForRendering", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert(normalize != null, "未找到AI回复Markdown归一化入口");
+            const string malformed =
+                "## 操作完成报告###1 删除流程- **已删除流程：** `旧流程`\n"
+                + "###2 创建变量|项目 |内容 |\n"
+                + "|------|------|\n"
+                + "|变量名|计数|";
+            string normalized = (string)normalize.Invoke(null, new object[] { malformed });
+            Assert(normalized.Contains("## 操作完成报告\n### 1 删除流程\n\n- **已删除流程：** `旧流程`"),
+                "粘连标题与列表项未正确拆分");
+            Assert(normalized.Contains("### 2 创建变量\n\n|项目 |内容 |\n|------|------|"),
+                "粘连标题与表格未正确拆分");
+
+            MethodInfo buildFlowCards = typeof(FrmAiAssistant).GetMethod(
+                "BuildAutomationFlowCardsHtml", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert(buildFlowCards != null, "未找到结构化流程卡片渲染入口");
+            const string visualizationJson = "[{\"action\":\"create\",\"name\":\"计数循环\",\"steps\":["
+                + "{\"key\":\"loop\",\"name\":\"循环\",\"operations\":["
+                + "{\"kind\":\"variable.add\",\"variable\":\"计数\",\"amount\":1},"
+                + "{\"kind\":\"branch.number_range\",\"variable\":\"计数\",\"min\":3,\"max\":9999,"
+                + "\"whenTrue\":{\"step\":\"done\",\"operation\":0},\"whenFalse\":{\"step\":\"loop\",\"operation\":0}}]},"
+                + "{\"key\":\"done\",\"name\":\"完成\",\"operations\":["
+                + "{\"kind\":\"popup.variable\",\"variable\":\"计数\",\"autoCloseMs\":2000}]}]}]";
+            string flowHtml = (string)buildFlowCards.Invoke(null, new object[] { visualizationJson });
+            Assert(flowHtml.Contains("automation-flow-visual")
+                && flowHtml.Contains("计数循环")
+                && flowHtml.Contains("满足 → done · 1")
+                && flowHtml.Contains("不满足 → loop · 1")
+                && flowHtml.Contains("含回环")
+                && flowHtml.Contains("显示变量“计数”当前值 &#183; 2000 ms后关闭"),
+                "结构化流程卡片缺少步骤、分支、回环或弹框语义");
+
+            MethodInfo removeAsciiFlow = typeof(FrmAiAssistant).GetMethod(
+                "RemoveAsciiFlowDiagrams", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert(removeAsciiFlow != null, "未找到ASCII流程图清理入口");
+            const string mixedMarkdown = "流程如下：\n```\n┌──loop──┐\n│ 计数+1 │\n└────────┘\n```\n```csharp\nConsole.WriteLine();\n```";
+            string cleaned = (string)removeAsciiFlow.Invoke(null, new object[] { mixedMarkdown });
+            Assert(!cleaned.Contains("┌──loop──┐") && cleaned.Contains("Console.WriteLine"),
+                "清理ASCII流程图时误删了普通代码块或保留了字符图");
+
+            const string gluedDiagram = "##整体运行循环图```┌──步骤0──┐│等待500ms│└───────┘```\n后续说明";
+            string gluedCleaned = (string)removeAsciiFlow.Invoke(null, new object[] { gluedDiagram });
+            Assert(!gluedCleaned.Contains("┌──步骤0──┐")
+                && !gluedCleaned.Contains("整体运行循环图")
+                && gluedCleaned.Contains("后续说明"),
+                "粘连标题与围栏的字符流程图未被结构化呈现替换");
+
+            MethodInfo buildReadFlow = typeof(FrmAiAssistant).GetMethod(
+                "BuildReadFlowVisualization", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert(buildReadFlow != null, "未找到现有流程可视化转换入口");
+            var overview = new JObject
+            {
+                ["procIndex"] = 0,
+                ["name"] = "持续心跳",
+                ["state"] = "Stopped",
+                ["steps"] = new JArray
+                {
+                    new JObject
+                    {
+                        ["stepIndex"] = 0,
+                        ["name"] = "心跳循环",
+                        ["ops"] = new JArray
+                        {
+                            new JObject
+                            {
+                                ["name"] = "等待500ms",
+                                ["operaType"] = "延时",
+                                ["summary"] = "等待500ms，[延时]"
+                            }
+                        }
+                    },
+                    new JObject
+                    {
+                        ["stepIndex"] = 1,
+                        ["name"] = "持续循环",
+                        ["ops"] = new JArray
+                        {
+                            new JObject
+                            {
+                                ["name"] = "回心跳",
+                                ["operaType"] = "跳转",
+                                ["summary"] = "回心跳，[跳转]，默认跳转=0-0-0"
+                            }
+                        }
+                    }
+                }
+            };
+            JObject readFlow = (JObject)buildReadFlow.Invoke(null, new object[] { overview });
+            string readFlowHtml = (string)buildFlowCards.Invoke(null,
+                new object[] { new JArray(readFlow).ToString(Newtonsoft.Json.Formatting.None) });
+            Assert(readFlowHtml.Contains("持续心跳")
+                && readFlowHtml.Contains("现有")
+                && readFlowHtml.Contains("含回环")
+                && readFlowHtml.Contains("跳转 → 步骤0 · 1"),
+                "现有流程读取结果未正确生成结构化回环图");
+        }
+
+        private static void TestAiSessionPickerTemplate()
+        {
+            FieldInfo templateField = typeof(FrmAiAssistant).GetField(
+                "BaseConversationHtmlTemplate", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert(templateField != null, "未找到AI助手页面模板");
+            string template = (string)templateField.GetRawConstantValue();
+            Assert(!template.Contains("sessionSelect") && !template.Contains("<select class=\"session-select\""),
+                "历史会话仍使用容易挤压标题的原生下拉框");
+            Assert(template.Contains("session-trigger-text")
+                && template.Contains("session-trigger-icon")
+                && template.Contains("session-menu")
+                && template.Contains("overflow-wrap:anywhere"),
+                "历史会话选择器未隔离标题、箭头或完整标题列表");
+        }
+
+        private static void TestGooseDeveloperShellFallback()
+        {
+            MethodInfo resolveShell = typeof(GooseAcpClient).GetMethod(
+                "ResolveGooseDeveloperShellPath", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert(resolveShell != null, "未找到Goose开发Shell解析入口");
+            string shellPath = (string)resolveShell.Invoke(null, null);
+            Assert(!string.IsNullOrWhiteSpace(shellPath) && File.Exists(shellPath),
+                "PowerShell 7与Windows PowerShell兜底均不可用");
+            string shellName = Path.GetFileName(shellPath);
+            Assert(string.Equals(shellName, "pwsh.exe", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(shellName, "powershell.exe", StringComparison.OrdinalIgnoreCase),
+                "Goose开发Shell解析到了不支持的程序：" + shellPath);
+        }
+
+        private static void TestProcDetailReadBoundaries()
+        {
+            Type serviceType = typeof(FrmAiAssistant).Assembly.GetType(
+                "Automation.Bridge.AutomationBridgeService", true);
+            FieldInfo detailLimitField = serviceType.GetField(
+                "MaxDetailOperationCount", BindingFlags.NonPublic | BindingFlags.Static);
+            FieldInfo batchLimitField = serviceType.GetField(
+                "MaxBatchReadOperationCount", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert((int)detailLimitField.GetRawConstantValue() == 100, "完整流程详情上限不是100条指令");
+            Assert((int)batchLimitField.GetRawConstantValue() == 25, "批量指令详情上限不是25条指令");
+
+            MethodInfo buildOmitted = serviceType.GetMethod(
+                "BuildProcDetailOmitted", BindingFlags.NonPublic | BindingFlags.Static);
+            JObject omitted = (JObject)buildOmitted.Invoke(null,
+                new object[] { 3, CreateProc(new CallCustomFunc()), 101, null });
+            Assert(omitted["detailAvailable"]?.Value<bool>() == false
+                && omitted["operationCount"]?.Value<int>() == 101
+                && omitted["steps"] is JArray steps
+                && steps.Count == 1
+                && steps[0]["ops"] == null,
+                "超限流程未返回轻量步骤目录");
+
+            object service = System.Runtime.Serialization.FormatterServices.GetUninitializedObject(serviceType);
+            MethodInfo getDetails = serviceType.GetMethod(
+                "HandleGetOperationDetails", BindingFlags.NonPublic | BindingFlags.Instance);
+            var tooManyIds = new JArray(Enumerable.Range(0, 26).Select(_ => Guid.NewGuid().ToString("D")));
+            JObject tooMany = (JObject)getDetails.Invoke(service,
+                new object[] { new JObject { ["procIndex"] = 0, ["opIds"] = tooManyIds } });
+            Assert(tooMany["code"]?.Value<string>() == "INVALID_ARGUMENT"
+                && tooMany["message"]?.Value<string>()?.Contains("1..25") == true,
+                "批量读取未拒绝26条指令");
+
+            string duplicateId = Guid.NewGuid().ToString("D");
+            JObject duplicated = (JObject)getDetails.Invoke(service,
+                new object[]
+                {
+                    new JObject
+                    {
+                        ["procIndex"] = 0,
+                        ["opIds"] = new JArray(duplicateId, duplicateId)
+                    }
+                });
+            Assert(duplicated["code"]?.Value<string>() == "INVALID_ARGUMENT"
+                && duplicated["message"]?.Value<string>()?.Contains("不允许重复") == true,
+                "批量读取未拒绝重复opId");
+
+            JObject emptyId = (JObject)getDetails.Invoke(service,
+                new object[]
+                {
+                    new JObject
+                    {
+                        ["procIndex"] = 0,
+                        ["opIds"] = new JArray(Guid.Empty.ToString("D"))
+                    }
+                });
+            Assert(emptyId["code"]?.Value<string>() == "INVALID_ARGUMENT"
+                && emptyId["message"]?.Value<string>()?.Contains("空 Guid") == true,
+                "批量读取未拒绝空opId");
+        }
+
+        private static void TestNestedReferenceIndexing()
+        {
+            Type serviceType = typeof(FrmAiAssistant).Assembly.GetType(
+                "Automation.Bridge.AutomationBridgeService", true);
+            Type recordType = serviceType.GetNestedType(
+                "DiagnosticFieldRecord", BindingFlags.NonPublic);
+            Type listType = typeof(List<>).MakeGenericType(recordType);
+            MethodInfo addFields = serviceType.GetMethod(
+                "AddDiagnosticFields", BindingFlags.NonPublic | BindingFlags.Static);
+
+            var ioOperation = new IoLogicGoto
+            {
+                Id = Guid.NewGuid(),
+                IoParams = new CustomList<IoLogicGotoParam>
+                {
+                    new IoLogicGotoParam { IOName = "测试输入" }
+                }
+            };
+            object ioFields = Activator.CreateInstance(listType);
+            addFields.Invoke(null, new object[]
+            {
+                ioFields, 0, "流程", 0, Guid.NewGuid(), "步骤", 0,
+                ioOperation, ioOperation, string.Empty, 0, new List<object>()
+            });
+            Assert(ContainsDiagnosticReference(ioFields, "IoParams[0].IOName", "io.all", "测试输入"),
+                "未递归索引IO参数列表引用");
+
+            var gotoOperation = new Goto
+            {
+                Id = Guid.NewGuid(),
+                Params = new CustomList<GotoParam>
+                {
+                    new GotoParam { Goto = "0-3-7" }
+                }
+            };
+            object gotoFields = Activator.CreateInstance(listType);
+            addFields.Invoke(null, new object[]
+            {
+                gotoFields, 0, "流程", 0, Guid.NewGuid(), "步骤", 0,
+                gotoOperation, gotoOperation, string.Empty, 0, new List<object>()
+            });
+            Assert(ContainsDiagnosticReference(gotoFields, "Params[0].Goto", "proc.goto", "0-3-7"),
+                "未递归索引条件列表中的远距离跳转");
+
+            var tcpOperation = new TcpOps
+            {
+                Id = Guid.NewGuid(),
+                Params = new CustomList<TcpOpsParam>
+                {
+                    new TcpOpsParam { Name = "测试TCP" }
+                }
+            };
+            object tcpFields = Activator.CreateInstance(listType);
+            addFields.Invoke(null, new object[]
+            {
+                tcpFields, 0, "流程", 0, Guid.NewGuid(), "步骤", 0,
+                tcpOperation, tcpOperation, string.Empty, 0, new List<object>()
+            });
+            Assert(ContainsDiagnosticReference(tcpFields, "Params[0].Name", "comm.tcp", "测试TCP"),
+                "未递归索引TCP参数列表引用");
+        }
+
+        private static bool ContainsDiagnosticReference(object records, string field, string referenceType, string value)
+        {
+            foreach (object record in (System.Collections.IEnumerable)records)
+            {
+                Type type = record.GetType();
+                if (string.Equals((string)type.GetProperty("Field").GetValue(record), field, StringComparison.Ordinal)
+                    && string.Equals((string)type.GetProperty("ReferenceType").GetValue(record), referenceType, StringComparison.Ordinal)
+                    && string.Equals((string)type.GetProperty("Value").GetValue(record), value, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private static ProcessEngine CreateEngine(ValueConfigStore values, CustomFunc functions, Proc proc)
         {
             return new ProcessEngine(new EngineContext
@@ -981,7 +1825,16 @@ namespace Automation.KernelTests
             catch (Exception ex)
             {
                 failures++;
-                Console.WriteLine($"失败: {name} - {ex}");
+                string detail;
+                try
+                {
+                    detail = ex.ToString();
+                }
+                catch
+                {
+                    detail = $"{ex.GetType().FullName}: {ex.Message}";
+                }
+                Console.WriteLine($"失败: {name} - {detail}");
             }
         }
 
@@ -991,6 +1844,20 @@ namespace Automation.KernelTests
             {
                 throw new InvalidOperationException(message);
             }
+        }
+
+        private static void AssertThrows<TException>(Action action, string message)
+            where TException : Exception
+        {
+            try
+            {
+                action();
+            }
+            catch (TException)
+            {
+                return;
+            }
+            throw new InvalidOperationException(message);
         }
     }
 }

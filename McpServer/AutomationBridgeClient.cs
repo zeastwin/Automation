@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using Automation.Protocol;
 
 namespace Automation.McpServer
 {
@@ -31,6 +32,23 @@ namespace Automation.McpServer
         // op_meta 和 list_resources 仍为合并工具（通过 action 分发），其余为独立工具。
 
         // ---------- proc_query 拆分（7 个） ----------
+
+        public Task<string> GetChangeCapabilitiesAsync()
+        {
+            return PostAsync("/bridge/change-set/capabilities", new JsonObject());
+        }
+
+        public Task<string> GetOperationContractsAsync(string[] kinds)
+        {
+            var values = new JsonArray();
+            foreach (string kind in kinds ?? Array.Empty<string>()) values.Add(kind);
+            return PostAsync("/bridge/change-set/contracts", new JsonObject { ["kinds"] = values });
+        }
+
+        public Task<string> GetNativeOperationContractAsync(string operaType)
+        {
+            return PostAsync("/bridge/change-set/native-contract", new JsonObject { ["operaType"] = operaType });
+        }
 
         public Task<string> ListProcsAsync(bool? includeStepSummary = null)
         {
@@ -73,6 +91,24 @@ namespace Automation.McpServer
             return PostAsync("/bridge/proc/op_detail", payload);
         }
 
+        public Task<string> GetOpDetailsAsync(int procIndex, IReadOnlyList<string> opIds)
+        {
+            var idArray = new JsonArray();
+            if (opIds != null)
+            {
+                foreach (string opId in opIds)
+                {
+                    idArray.Add(opId);
+                }
+            }
+            JsonObject payload = new JsonObject
+            {
+                ["procIndex"] = procIndex,
+                ["opIds"] = idArray
+            };
+            return PostAsync("/bridge/proc/op_details", payload);
+        }
+
         public Task<string> GetStepDetailAsync(int procIndex, int stepIndex)
         {
             JsonObject payload = new JsonObject
@@ -97,6 +133,26 @@ namespace Automation.McpServer
             JsonObject payload = new JsonObject();
             if (procIndex.HasValue) payload["procIndex"] = procIndex.Value;
             return PostAsync("/bridge/proc/snapshot", payload);
+        }
+
+        public Task<string> WaitForProcStateAsync(int procIndex, string[]? states, int? timeoutMs)
+        {
+            var payload = new JsonObject { ["procIndex"] = procIndex };
+            if (states != null)
+            {
+                var values = new JsonArray();
+                foreach (string state in states) values.Add(state);
+                payload["states"] = values;
+            }
+            if (timeoutMs.HasValue) payload["timeoutMs"] = timeoutMs.Value;
+            return PostAsync("/bridge/proc/wait_state", payload);
+        }
+
+        public Task<string> RunProcTestAsync(int procIndex, int? durationMs)
+        {
+            var payload = new JsonObject { ["procIndex"] = procIndex };
+            if (durationMs.HasValue) payload["durationMs"] = durationMs.Value;
+            return PostAsync("/bridge/proc/test_run", payload);
         }
 
         // ---------- proc_diagnose 拆分（3 个） ----------
@@ -178,6 +234,25 @@ namespace Automation.McpServer
             JsonObject payload = parsed as JsonObject ?? new JsonObject();
             payload["previewId"] = previewId;
             return PostAsync("/bridge/patch/apply_patch", payload);
+        }
+
+        public Task<string> PreviewChangeSetAsync(AiChangeSet changeSet)
+        {
+            JsonNode changeSetNode = JsonSerializer.SerializeToNode(changeSet, jsonOptions)
+                ?? throw new ArgumentException("语义变更集不能为 null。", nameof(changeSet));
+            return PostAsync("/bridge/change-set/preview", new JsonObject
+            {
+                ["changeSet"] = changeSetNode
+            });
+        }
+
+        public Task<string> ApplyChangeSetAsync(string previewId)
+        {
+            ValidatePreviewId(previewId);
+            return PostAsync("/bridge/change-set/apply", new JsonObject
+            {
+                ["previewId"] = previewId
+            });
         }
 
         // ---------- proc_manage 拆分（4 个，previewId 为空预演，非空提交） ----------
@@ -414,6 +489,30 @@ namespace Automation.McpServer
             if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
             if (resultLimit.HasValue) payload["resultLimit"] = resultLimit.Value;
             return PostAsync("/bridge/diagnostics/references", payload);
+        }
+
+        public Task<string> GetOperationReferencesAsync(int procIndex, string opId, int? procOffset,
+            int? procLimit, int? resultLimit)
+        {
+            JsonObject payload = new JsonObject
+            {
+                ["procIndex"] = procIndex,
+                ["opId"] = opId
+            };
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (resultLimit.HasValue) payload["resultLimit"] = resultLimit.Value;
+            return PostAsync("/bridge/diagnostics/operation_references", payload);
+        }
+
+        public Task<string> GetProcReferencesAsync(int procIndex, int? procOffset, int? procLimit,
+            int? resultLimit)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (resultLimit.HasValue) payload["resultLimit"] = resultLimit.Value;
+            return PostAsync("/bridge/diagnostics/proc_references", payload);
         }
 
         public Task<string> TraceResourceAsync(string name, string? resourceKind, int? procOffset,

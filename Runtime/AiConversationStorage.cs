@@ -12,6 +12,8 @@ namespace Automation
         public string Role { get; set; }
         public string Text { get; set; }
         public DateTime Time { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string VisualizationJson { get; set; }
     }
 
     public sealed class AiConversation

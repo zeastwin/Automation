@@ -38,6 +38,10 @@
       <Project>{A51BCDAB-5B3B-493A-8048-D4CD963BA84A}</Project>
       <Name>Automation</Name>
     </ProjectReference>
+    <ProjectReference Include="..\Automation.Protocol\Automation.Protocol.csproj">
+      <Project>{9B777468-5118-4A4B-AB0E-6D02861C6B5F}</Project>
+      <Name>Automation.Protocol</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

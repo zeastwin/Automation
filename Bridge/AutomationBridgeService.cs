@@ -1,6 +1,8 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Automation.Protocol;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
@@ -19,7 +21,10 @@ namespace Automation.Bridge
     {
         private const string IntentTemplateCatalogRelativePath = @"IntentTemplates\intent_templates.json";
         private const int MaxOverviewOperationCount = 300;
-        private const int MaxDetailOperationCount = 80;
+        private const int MaxDetailOperationCount = 100;
+        private const int MaxBatchReadOperationCount = 25;
+        private const int MaxProcDetailUtf8Bytes = 256 * 1024;
+        private const int MaxBatchReadUtf8Bytes = 256 * 1024;
         private const int MaxStepDetailOperationCount = 100;
         private const int MaxBatchStepCount = 10;
         private const int MaxBatchOperationCount = 20;
@@ -27,6 +32,7 @@ namespace Automation.Bridge
         private const int MaxBatchDefinitionUtf8Bytes = 64 * 1024;
         private const int MaxBatchFieldValuesUtf8Bytes = 8 * 1024;
         private const int MaxBatchNameLength = 64;
+        private const int MaxChangeSetUtf8Bytes = 64 * 1024;
         private static readonly LocalFileLogger bridgeErrorLogger = new LocalFileLogger(
             Path.Combine(@"D:\AutomationLogs", "Bridge"));
 
@@ -155,12 +161,18 @@ namespace Automation.Bridge
                         return WrapResponse("proc.detail", ExecuteOnUiThread(() => HandleGetProcDetail(request)));
                     case "/bridge/proc/op_detail":
                         return WrapResponse("proc.op_detail", ExecuteOnUiThread(() => HandleGetOperationDetail(request)));
+                    case "/bridge/proc/op_details":
+                        return WrapResponse("proc.op_details", ExecuteOnUiThread(() => HandleGetOperationDetails(request)));
                     case "/bridge/proc/step_detail":
                         return WrapResponse("proc.step_detail", ExecuteOnUiThread(() => HandleGetStepDetail(request)));
                     case "/bridge/proc/search":
                         return WrapResponse("proc.search", ExecuteOnUiThread(() => HandleSearchOperations(request)));
                     case "/bridge/proc/snapshot":
                         return WrapResponse("proc.snapshot", ExecuteOnUiThread(() => HandleGetRuntimeSnapshot(request)));
+                    case "/bridge/proc/wait_state":
+                        return WrapResponse("proc.wait_state", HandleWaitForProcState(request));
+                    case "/bridge/proc/test_run":
+                        return WrapResponse("proc.test_run", HandleRunProcTest(request));
                     // ---------- proc_diagnose 拆分端点 ----------
                     case "/bridge/proc/log_tail":
                         return WrapResponse("proc.log_tail", ExecuteOnUiThread(() => HandleGetInfoLogTail(request)));
@@ -170,6 +182,10 @@ namespace Automation.Bridge
                         return WrapResponse("proc.validate", ExecuteOnUiThread(() => HandleValidateProc(request)));
                     case "/bridge/diagnostics/references":
                         return WrapResponse("diagnostics.references", ExecuteOnUiThread(() => HandleFindReferences(request)));
+                    case "/bridge/diagnostics/operation_references":
+                        return WrapResponse("diagnostics.operation_references", ExecuteOnUiThread(() => HandleGetOperationReferences(request)));
+                    case "/bridge/diagnostics/proc_references":
+                        return WrapResponse("diagnostics.proc_references", ExecuteOnUiThread(() => HandleGetProcReferences(request)));
                     case "/bridge/diagnostics/trace_resource":
                         return WrapResponse("diagnostics.trace_resource", ExecuteOnUiThread(() => HandleTraceResource(request)));
                     case "/bridge/diagnostics/search_fields":
@@ -200,6 +216,19 @@ namespace Automation.Bridge
                     case "/bridge/patch/apply_patch":
                         WaitForPreviewConfirmation(request);
                         return WrapResponse("patch.apply_patch", ExecuteOnUiThread(() => HandleApplyPatch(request)));
+                    // ---------- AI 语义变更集 V2 ----------
+                    case "/bridge/change-set/preview":
+                        AiChangeSet changeSet = ParseChangeSet(request);
+                        return WrapResponse("change_set.preview", ExecuteOnUiThread(() => HandlePreviewChangeSet(changeSet)));
+                    case "/bridge/change-set/apply":
+                        WaitForPreviewConfirmation(request);
+                        return WrapResponse("change_set.apply", ExecuteOnUiThread(() => HandleApplyChangeSet(request)));
+                    case "/bridge/change-set/capabilities":
+                        return WrapResponse("change_set.capabilities", AiOperationCompilerRegistry.BuildCapabilities());
+                    case "/bridge/change-set/contracts":
+                        return WrapResponse("change_set.contracts", HandleGetChangeSetContracts(request));
+                    case "/bridge/change-set/native-contract":
+                        return WrapResponse("change_set.native_contract", HandleGetNativeOperationContract(request));
                     // ---------- proc_manage 拆分端点（previewId 为空预演，非空提交） ----------
                     case "/bridge/proc/create":
                         WaitForPreviewConfirmation(request, false);
@@ -499,18 +528,28 @@ namespace Automation.Bridge
             int operationCount = CountOperations(proc);
             if (operationCount > MaxDetailOperationCount)
             {
-                return BridgeError(413, "PROC_DETAIL_TOO_LARGE",
-                    $"流程包含{operationCount}条指令，超过完整详情上限{MaxDetailOperationCount}；禁止全量读取，请改用局部诊断工具。");
+                return BuildProcDetailOmitted(procIndex, proc, operationCount);
             }
-            return BuildProcDetail(procIndex, proc);
+            JObject detail = BuildProcDetail(procIndex, proc);
+            detail["detailOperationLimit"] = MaxDetailOperationCount;
+            detail["detailUtf8ByteLimit"] = MaxProcDetailUtf8Bytes;
+            detail["detailUtf8Bytes"] = 0;
+            int detailBytes = Encoding.UTF8.GetByteCount(detail.ToString(Formatting.None));
+            detail["detailUtf8Bytes"] = detailBytes;
+            detailBytes = Encoding.UTF8.GetByteCount(detail.ToString(Formatting.None));
+            if (detailBytes > MaxProcDetailUtf8Bytes)
+            {
+                return BuildProcDetailOmitted(procIndex, proc, operationCount, detailBytes);
+            }
+            detail["detailUtf8Bytes"] = detailBytes;
+            return detail;
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListOperationTypes()
         {
-            EnsureRuntimeReady();
             JArray items = new JArray();
-            foreach (OperationType template in SF.frmPropertyGrid.OperationTypeList.OfType<OperationType>())
+            foreach (OperationType template in OperationDefinitionRegistry.CreateAll())
             {
                 if (template == null)
                 {
@@ -1305,6 +1344,605 @@ namespace Automation.Bridge
             }
         }
 
+        private static AiChangeSet ParseChangeSet(JObject request)
+        {
+            JObject token = ReadRequiredObject(request, "changeSet");
+            int byteCount = Encoding.UTF8.GetByteCount(token.ToString(Formatting.None));
+            if (byteCount > MaxChangeSetUtf8Bytes)
+            {
+                throw new BridgeRequestException(413, "CHANGE_SET_TOO_LARGE",
+                    $"changeSet 超过 {MaxChangeSetUtf8Bytes / 1024} KB 上限。");
+            }
+            ValidateChangeSetShape(token);
+            try
+            {
+                return JsonConvert.DeserializeObject<AiChangeSet>(token.ToString(Formatting.None),
+                    new JsonSerializerSettings
+                    {
+                        MissingMemberHandling = MissingMemberHandling.Error,
+                        NullValueHandling = NullValueHandling.Include
+                    }) ?? throw new JsonSerializationException("changeSet 反序列化结果为空。");
+            }
+            catch (JsonException ex)
+            {
+                throw new BridgeRequestException(400, "CHANGE_SET_INVALID",
+                    "changeSet 不符合 V2 协议。", ex.Message);
+            }
+        }
+
+        private static JObject HandleGetChangeSetContracts(JObject request)
+        {
+            JArray kinds = ReadRequiredArray(request, "kinds");
+            if (kinds.Any(token => token.Type != JTokenType.String))
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "kinds 只能包含字符串。");
+            }
+            try
+            {
+                return AiOperationCompilerRegistry.BuildContracts(kinds.Values<string>());
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", ex.Message);
+            }
+        }
+
+        private static JObject HandleGetNativeOperationContract(JObject request)
+        {
+            string operaType = ReadRequiredString(request, "operaType").Trim();
+            try
+            {
+                return StructuredOperationCompiler.BuildContract(operaType);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException
+                || ex is ArgumentException || ex is KeyNotFoundException)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", ex.Message);
+            }
+        }
+
+        private static void ValidateChangeSetShape(JObject changeSet)
+        {
+            EnsureOnlyProperties(changeSet, "changeSet",
+                "version", "title", "deleteProcesses", "variables", "processes");
+            if (changeSet["deleteProcesses"] is JObject deletion)
+            {
+                EnsureOnlyProperties(deletion, "changeSet.deleteProcesses", "mode", "names", "procIds");
+            }
+            else if (changeSet["deleteProcesses"] != null && changeSet["deleteProcesses"].Type != JTokenType.Null)
+            {
+                throw new BridgeRequestException(400, "CHANGE_SET_INVALID", "changeSet.deleteProcesses 必须是对象。");
+            }
+
+            ValidateObjectArray(changeSet["variables"], "changeSet.variables", variable =>
+                EnsureOnlyProperties(variable, "changeSet.variables[]",
+                    "name", "type", "initialValue", "note", "policy"));
+            ValidateObjectArray(changeSet["processes"], "changeSet.processes", process =>
+            {
+                EnsureOnlyProperties(process, "changeSet.processes[]", "action", "targetProcId", "targetName",
+                    "name", "autoStart", "disable", "steps");
+                ValidateObjectArray(process["steps"], "changeSet.processes[].steps", step =>
+                {
+                    EnsureOnlyProperties(step, "changeSet.processes[].steps[]", "key", "name", "disable", "operations");
+                    ValidateObjectArray(step["operations"], "changeSet.processes[].steps[].operations", operation =>
+                    {
+                        ValidateSemanticOperationShape(operation);
+                    });
+                });
+            });
+        }
+
+        private static void ValidateSemanticOperationShape(JObject operation)
+        {
+            string kind = operation["kind"]?.Type == JTokenType.String
+                ? operation["kind"].Value<string>()
+                : null;
+            if (string.IsNullOrWhiteSpace(kind))
+            {
+                throw new BridgeRequestException(400, "CHANGE_SET_INVALID",
+                    "语义指令 kind 必须是字符串且不能为空。");
+            }
+            JObject contract;
+            try
+            {
+                contract = AiOperationCompilerRegistry.Get(kind).BuildContract();
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new BridgeRequestException(400, "CHANGE_SET_INVALID", ex.Message);
+            }
+            string[] allowed = (contract["required"]?.Values<string>() ?? Enumerable.Empty<string>())
+                .Concat(contract["optional"]?.Values<string>() ?? Enumerable.Empty<string>())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            EnsureOnlyProperties(operation, $"语义指令 {kind}", allowed);
+            if (string.Equals(kind, "native.operation", StringComparison.Ordinal))
+            {
+                if (operation["operaType"]?.Type != JTokenType.String
+                    || string.IsNullOrWhiteSpace(operation["operaType"]?.Value<string>()))
+                {
+                    throw new BridgeRequestException(400, "CHANGE_SET_INVALID",
+                        "native.operation.operaType 必须是非空字符串。");
+                }
+                if (!(operation["fields"] is JObject))
+                {
+                    throw new BridgeRequestException(400, "CHANGE_SET_INVALID",
+                        "native.operation.fields 必须是 JSON 对象。");
+                }
+            }
+            foreach (string targetField in new[] { "target", "whenTrue", "whenFalse" })
+            {
+                if (allowed.Contains(targetField, StringComparer.Ordinal))
+                {
+                    ValidateOperationTarget(operation[targetField], targetField);
+                }
+            }
+        }
+
+        private static void ValidateObjectArray(JToken token, string path, Action<JObject> validate)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+            {
+                return;
+            }
+            if (!(token is JArray array))
+            {
+                throw new BridgeRequestException(400, "CHANGE_SET_INVALID", $"{path} 必须是数组。");
+            }
+            for (int index = 0; index < array.Count; index++)
+            {
+                if (!(array[index] is JObject item))
+                {
+                    throw new BridgeRequestException(400, "CHANGE_SET_INVALID", $"{path}[{index}] 必须是对象。");
+                }
+                validate(item);
+            }
+        }
+
+        private static void ValidateOperationTarget(JToken token, string field)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+            {
+                return;
+            }
+            if (!(token is JObject target))
+            {
+                throw new BridgeRequestException(400, "CHANGE_SET_INVALID", $"语义指令 {field} 必须是对象。");
+            }
+            EnsureOnlyProperties(target, $"语义指令.{field}", "step", "operation");
+        }
+
+        private static void EnsureOnlyProperties(JObject value, string path, params string[] allowedNames)
+        {
+            var allowed = new HashSet<string>(allowedNames, StringComparer.Ordinal);
+            string invalidName = value.Properties().Select(property => property.Name)
+                .FirstOrDefault(name => !allowed.Contains(name));
+            if (invalidName != null)
+            {
+                throw new BridgeRequestException(400, "CHANGE_SET_INVALID",
+                    $"{path} 包含未定义字段：{invalidName}");
+            }
+        }
+
+        private JObject HandlePreviewChangeSet(AiChangeSet changeSet)
+        {
+            EnsureRuntimeReady();
+            Dictionary<string, DicValue> variables = SF.valueStore?.BuildSaveData()
+                ?? throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+            AiChangeSetCompileResult draft;
+            try
+            {
+                draft = AiChangeSetCompiler.Compile(
+                    changeSet, SF.frmProc.procsList, variables, BuildAiResourceSnapshot());
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new BridgeRequestException(400, "CHANGE_SET_COMPILE_FAILED",
+                    "语义变更集编译失败。", ex.Message);
+            }
+
+            JObject normalized = JObject.FromObject(changeSet);
+            string previewId = RegisterManagePreview(normalized);
+            PreviewApprovalRecord record;
+            lock (previewLock)
+            {
+                record = previewRecords[previewId];
+                record.AiChangeSetDraft = draft;
+                record.BaseStateHash = AiChangeSetCompiler.ComputeStateHash(SF.frmProc.procsList, variables);
+            }
+            return new JObject
+            {
+                ["previewId"] = previewId,
+                ["confirmed"] = record.Confirmed,
+                ["committed"] = false,
+                ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                ["title"] = changeSet.Title ?? string.Empty,
+                ["summary"] = new JObject
+                {
+                    ["deletedProcesses"] = draft.DeletedProcessCount,
+                    ["createdProcesses"] = draft.CreatedProcessCount,
+                    ["replacedProcesses"] = draft.ReplacedProcessCount,
+                    ["changedVariables"] = draft.ChangedVariableCount,
+                    ["operations"] = draft.OperationCount
+                },
+                ["changes"] = draft.Changes.DeepClone(),
+                ["processAnalyses"] = draft.ProcessAnalyses?.DeepClone() ?? new JArray(),
+                ["messages"] = new JArray(
+                    $"本次将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、替换 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量，共 {draft.OperationCount} 条指令。")
+            };
+        }
+
+        private static AiResourceSnapshot BuildAiResourceSnapshot()
+        {
+            var ioTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (SF.frmIO?.DicIO != null)
+            {
+                foreach (KeyValuePair<string, IO> item in SF.frmIO.DicIO)
+                {
+                    if (!string.IsNullOrWhiteSpace(item.Key) && item.Value != null)
+                    {
+                        ioTypes[item.Key] = item.Value.IOType ?? string.Empty;
+                    }
+                }
+            }
+            return new AiResourceSnapshot(ioTypes);
+        }
+
+        private JObject HandleApplyChangeSet(JObject request)
+        {
+            string previewId = ReadRequiredString(request, "previewId");
+            ValidateConfirmedManagePreview(previewId);
+            AiChangeSetCompileResult draft;
+            string expectedStateHash;
+            JArray changes;
+            lock (previewLock)
+            {
+                if (!previewRecords.TryGetValue(previewId, out PreviewApprovalRecord record)
+                    || record.AiChangeSetDraft == null)
+                {
+                    throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND",
+                        $"语义变更集预演不存在或已过期：{previewId}");
+                }
+                draft = record.AiChangeSetDraft;
+                expectedStateHash = record.BaseStateHash;
+                changes = draft.Changes == null ? new JArray() : (JArray)draft.Changes.DeepClone();
+            }
+
+            Dictionary<string, DicValue> currentVariables = SF.valueStore?.BuildSaveData()
+                ?? throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+            string currentStateHash = AiChangeSetCompiler.ComputeStateHash(SF.frmProc.procsList, currentVariables);
+            if (!string.Equals(expectedStateHash, currentStateHash, StringComparison.Ordinal))
+            {
+                throw new BridgeRequestException(409, "CHANGE_SET_VERSION_MISMATCH",
+                    "预演后流程或变量配置已发生变化，禁止提交旧草稿。请重新预演。");
+            }
+
+            CommitChangeSet(draft);
+            RemovePreview(previewId);
+            var createdProcesses = new JArray();
+            var affectedProcesses = new JArray();
+            foreach (JObject change in changes.OfType<JObject>()
+                .Where(change => string.Equals(change["type"]?.Value<string>(), "process.create", StringComparison.Ordinal)
+                    || string.Equals(change["type"]?.Value<string>(), "process.replace", StringComparison.Ordinal)))
+            {
+                string changeType = change["type"]?.Value<string>() ?? string.Empty;
+                string name = change["name"]?.Value<string>() ?? string.Empty;
+                int procIndex = change["procIndex"]?.Value<int>() ?? draft.Processes.FindIndex(proc =>
+                    string.Equals(proc?.head?.Name, name, StringComparison.Ordinal));
+                if (procIndex >= 0)
+                {
+                    var item = new JObject
+                    {
+                        ["procIndex"] = procIndex,
+                        ["procId"] = draft.Processes[procIndex].head?.Id.ToString("D") ?? string.Empty,
+                        ["name"] = name,
+                        ["changeType"] = changeType,
+                        ["potentiallyUnbounded"] = change["potentiallyUnbounded"]?.Value<bool>() ?? false
+                    };
+                    affectedProcesses.Add(item);
+                    if (string.Equals(changeType, "process.create", StringComparison.Ordinal))
+                    {
+                        createdProcesses.Add(item.DeepClone());
+                    }
+                }
+            }
+            return new JObject
+            {
+                ["previewId"] = previewId,
+                ["committed"] = true,
+                ["procCount"] = draft.Processes.Count,
+                ["variableCount"] = draft.Variables.Count,
+                ["createdProcesses"] = createdProcesses,
+                ["affectedProcesses"] = affectedProcesses,
+                ["processAnalyses"] = draft.ProcessAnalyses?.DeepClone() ?? new JArray(),
+                ["changes"] = changes,
+                ["message"] = "语义变更集已按冻结预演原子提交。"
+            };
+        }
+
+        private JObject HandleWaitForProcState(JObject request)
+        {
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            int timeoutMs = ReadOptionalInt(request, "timeoutMs") ?? 30000;
+            if (timeoutMs < 100 || timeoutMs > 60000)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "timeoutMs 必须在 100..60000 之间。");
+            }
+            JArray statesToken = ReadOptionalArray(request, "states") ?? new JArray("Stopped", "Alarming");
+            if (statesToken.Count < 1 || statesToken.Count > 4)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "states 必须包含 1..4 个目标状态。");
+            }
+            var targetStates = new HashSet<ProcRunState>();
+            foreach (JToken stateToken in statesToken)
+            {
+                if (stateToken.Type != JTokenType.String
+                    || !Enum.TryParse(stateToken.Value<string>(), false, out ProcRunState state))
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT",
+                        $"不支持的流程状态：{stateToken}. 可选 Stopped/Running/Paused/Alarming/Stopping。");
+                }
+                targetStates.Add(state);
+            }
+
+            if (targetStates.Contains(ProcRunState.Stopped))
+            {
+                Proc proc = ExecuteOnUiThread(() => ObjectGraphCloner.Clone(GetProcByIndex(procIndex)));
+                EngineSnapshot current = SF.DR?.GetSnapshot(procIndex);
+                ProcessFlowAnalysis flow = ProcessFlowAnalyzer.Analyze(procIndex, proc);
+                if (current != null && current.State != ProcRunState.Stopped && flow.PotentiallyUnbounded)
+                {
+                    throw new BridgeRequestException(
+                        409,
+                        "PROC_MAY_NOT_STOP_NATURALLY",
+                        $"流程 {procIndex} 存在可达控制流环，不能把等待 Stopped 当作自然完成验证。",
+                        $"cycleLocations={string.Join(",", flow.CycleLocations)}; actionRequired=use_run_proc_test");
+                }
+            }
+
+            DateTime startedAt = DateTime.UtcNow;
+            EngineSnapshot snapshot;
+            Guid expectedProcId = Guid.Empty;
+            while (true)
+            {
+                if (SF.DR == null || SF.DR.Context?.Procs == null)
+                {
+                    throw new BridgeRequestException(503, "RUNTIME_NOT_READY", "流程运行时尚未初始化。");
+                }
+                if (procIndex < 0 || procIndex >= SF.DR.Context.Procs.Count)
+                {
+                    throw new BridgeRequestException(404, "PROC_NOT_FOUND", $"流程索引不存在：{procIndex}");
+                }
+                Guid currentProcId = SF.DR.Context.Procs[procIndex]?.head?.Id ?? Guid.Empty;
+                if (expectedProcId == Guid.Empty) expectedProcId = currentProcId;
+                else if (currentProcId != expectedProcId)
+                {
+                    throw new BridgeRequestException(409, "PROC_ID_CHANGED",
+                        $"等待期间流程索引 {procIndex} 已指向其他流程，已停止等待以避免误判。");
+                }
+                snapshot = SF.DR.GetSnapshot(procIndex);
+                if (snapshot != null && targetStates.Contains(snapshot.State))
+                {
+                    break;
+                }
+                if ((DateTime.UtcNow - startedAt).TotalMilliseconds >= timeoutMs)
+                {
+                    return new JObject
+                    {
+                        ["reached"] = false,
+                        ["timedOut"] = true,
+                        ["elapsedMs"] = (long)(DateTime.UtcNow - startedAt).TotalMilliseconds,
+                        ["snapshot"] = snapshot == null ? null : BuildEngineSnapshot(snapshot, procIndex)
+                    };
+                }
+                Thread.Sleep(50);
+            }
+            return new JObject
+            {
+                ["reached"] = true,
+                ["timedOut"] = false,
+                ["elapsedMs"] = (long)(DateTime.UtcNow - startedAt).TotalMilliseconds,
+                ["snapshot"] = BuildEngineSnapshot(snapshot, procIndex)
+            };
+        }
+
+        private JObject HandleRunProcTest(JObject request)
+        {
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            int durationMs = ReadOptionalInt(request, "durationMs") ?? 5000;
+            if (durationMs < 500 || durationMs > 15000)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "durationMs 必须在 500..15000 之间。");
+            }
+
+            Guid procId = Guid.Empty;
+            string procName = string.Empty;
+            ProcessFlowAnalysis flow = null;
+            ExecuteOnUiThread(() =>
+            {
+                EnsureRuntimeReady();
+                Proc proc = GetProcByIndex(procIndex);
+                EngineSnapshot before = SF.DR.GetSnapshot(procIndex);
+                if (before != null && before.State != ProcRunState.Stopped)
+                {
+                    throw new BridgeRequestException(409, "PROC_ALREADY_RUNNING",
+                        $"流程 {procIndex} 已处于 {before.State}，测试运行不会接管已有运行实例。");
+                }
+                procId = proc.head?.Id ?? Guid.Empty;
+                procName = proc.head?.Name ?? string.Empty;
+                flow = ProcessFlowAnalyzer.Analyze(procIndex, proc);
+                if (!SF.DR.StartProc(proc, procIndex))
+                {
+                    string startError = SF.DR.TryValidateStartGate(out string gateError)
+                        ? "流程测试启动请求未被内核接受，详见流程日志。"
+                        : gateError;
+                    throw new BridgeRequestException(409, "START_GATE_REJECTED", startError);
+                }
+                return true;
+            });
+
+            DateTime startedAt = DateTime.UtcNow;
+            bool observedRunning = false;
+            int positionChanges = 0;
+            string lastPosition = null;
+            EngineSnapshot snapshot = null;
+            bool stoppedByTestRunner = false;
+            ProcTerminationReason requestedReason = ProcTerminationReason.TestWindowElapsed;
+            try
+            {
+                while ((DateTime.UtcNow - startedAt).TotalMilliseconds < durationMs)
+                {
+                    snapshot = SF.DR?.GetSnapshot(procIndex);
+                    if (snapshot != null)
+                    {
+                        if (snapshot.ProcId != procId)
+                        {
+                            throw new BridgeRequestException(409, "PROC_ID_CHANGED",
+                                $"测试期间流程索引 {procIndex} 已指向其他流程，已中止结果判定。");
+                        }
+                        observedRunning |= snapshot.State == ProcRunState.Running
+                            || snapshot.State == ProcRunState.Paused
+                            || snapshot.State == ProcRunState.SingleStep;
+                        string position = $"{snapshot.StepIndex}-{snapshot.OpIndex}";
+                        if (lastPosition != null && !string.Equals(lastPosition, position, StringComparison.Ordinal))
+                        {
+                            positionChanges++;
+                        }
+                        lastPosition = position;
+                        if (snapshot.State == ProcRunState.Alarming)
+                        {
+                            requestedReason = ProcTerminationReason.Alarm;
+                            break;
+                        }
+                        if (snapshot.State == ProcRunState.Stopped)
+                        {
+                            break;
+                        }
+                    }
+                    Thread.Sleep(50);
+                }
+            }
+            finally
+            {
+                ExecuteOnUiThread(() =>
+                {
+                    EngineSnapshot current = SF.DR?.GetSnapshot(procIndex);
+                    if (current != null && current.ProcId == procId && current.State != ProcRunState.Stopped)
+                    {
+                        SF.DR.Stop(procIndex, requestedReason);
+                        stoppedByTestRunner = true;
+                    }
+                    return true;
+                });
+            }
+
+            DateTime stopDeadline = DateTime.UtcNow.AddSeconds(3);
+            do
+            {
+                snapshot = SF.DR?.GetSnapshot(procIndex);
+                if (snapshot != null && snapshot.State == ProcRunState.Stopped)
+                {
+                    break;
+                }
+                Thread.Sleep(25);
+            }
+            while (DateTime.UtcNow < stopDeadline);
+
+            if (snapshot == null || snapshot.State != ProcRunState.Stopped)
+            {
+                throw new BridgeRequestException(500, "TEST_RUN_STOP_TIMEOUT",
+                    $"流程 {procIndex} 测试窗口结束后未能在 3 秒内停止，已保持安全停止请求，请人工检查设备与流程状态。");
+            }
+
+            string outcome;
+            switch (snapshot.TerminationReason)
+            {
+                case ProcTerminationReason.Completed:
+                    outcome = "NaturallyCompleted";
+                    break;
+                case ProcTerminationReason.Disabled:
+                    outcome = "NotExecutedDisabled";
+                    break;
+                case ProcTerminationReason.TestWindowElapsed:
+                    outcome = "ObservationWindowCompleted";
+                    break;
+                case ProcTerminationReason.Alarm:
+                    outcome = "Alarmed";
+                    break;
+                default:
+                    outcome = "ExternallyStopped";
+                    break;
+            }
+            return new JObject
+            {
+                ["procIndex"] = procIndex,
+                ["procId"] = procId.ToString("D"),
+                ["procName"] = procName,
+                ["outcome"] = outcome,
+                ["observedRunning"] = observedRunning,
+                ["positionChanges"] = positionChanges,
+                ["potentiallyUnbounded"] = flow?.PotentiallyUnbounded ?? false,
+                ["cycleLocations"] = new JArray(flow?.CycleLocations ?? Array.Empty<string>()),
+                ["stoppedByTestRunner"] = stoppedByTestRunner,
+                ["elapsedMs"] = (long)(DateTime.UtcNow - startedAt).TotalMilliseconds,
+                ["snapshot"] = BuildEngineSnapshot(snapshot, procIndex)
+            };
+        }
+
+        private void CommitChangeSet(AiChangeSetCompileResult draft)
+        {
+            EnsureRuntimeReady();
+            EnsureAllProcsStoppedForAiStructureCommit("提交语义变更集");
+            if (SF.SecurityLocked)
+            {
+                throw new BridgeRequestException(423, "SECURITY_LOCKED", $"系统已安全锁定：{SF.SecurityLockReason}");
+            }
+
+            List<Proc> oldProcesses = SF.frmProc.procsList.Select(ObjectGraphCloner.Clone).ToList();
+            Dictionary<string, DicValue> oldVariables = SF.valueStore.BuildSaveData();
+            if (!AiConfigurationTransaction.Commit(
+                SF.ConfigPath, draft.Processes, draft.Variables,
+                out string commitError, out bool rollbackFailed))
+            {
+                if (rollbackFailed) SF.SetSecurityLock(commitError);
+                throw new BridgeRequestException(
+                    rollbackFailed ? 500 : 409,
+                    rollbackFailed ? "CHANGE_SET_ROLLBACK_FAILED" : "CHANGE_SET_COMMIT_FAILED",
+                    commitError);
+            }
+            try
+            {
+                SF.valueStore.ReplaceConfiguration(draft.Variables);
+                SF.frmProc.RefreshProcList();
+                SF.frmValue?.FreshFrmValue();
+            }
+            catch (Exception ex)
+            {
+                bool diskRestored = AiConfigurationTransaction.Commit(
+                    SF.ConfigPath, oldProcesses, oldVariables,
+                    out string restoreError, out bool restoreRollbackFailed);
+                bool memoryRestored = true;
+                try
+                {
+                    SF.valueStore.ReplaceConfiguration(oldVariables);
+                    SF.frmProc.RefreshProcList();
+                    SF.frmValue?.FreshFrmValue();
+                }
+                catch
+                {
+                    memoryRestored = false;
+                }
+                if (!diskRestored || !memoryRestored || restoreRollbackFailed)
+                {
+                    string reason = $"语义变更集提交后刷新失败且回滚不完整：diskRestored={diskRestored}, memoryRestored={memoryRestored}, error={ex.Message}, restoreError={restoreError}";
+                    SF.SetSecurityLock(reason);
+                    throw new BridgeRequestException(500, "CHANGE_SET_ROLLBACK_FAILED", reason);
+                }
+                throw new BridgeRequestException(500, "CHANGE_SET_COMMIT_FAILED",
+                    "语义变更集提交失败，流程与变量配置已恢复。", ex.Message);
+            }
+        }
+
         private JObject PreviewCreateProcBatch(JObject definition)
         {
             EnsureRuntimeReady();
@@ -1750,8 +2388,7 @@ namespace Automation.Bridge
                 AddFinding(findings, "error", "proc.empty", "流程没有步骤，无法执行有效动作。");
             }
 
-            IEnumerable<OperationType> operationTypes = SF.frmPropertyGrid?.OperationTypeList?.OfType<OperationType>()
-                ?? Enumerable.Empty<OperationType>();
+            IEnumerable<OperationType> operationTypes = OperationDefinitionRegistry.CreateAll();
             HashSet<string> knownOperationTypes = new HashSet<string>(
                 operationTypes
                     .Where(item => item != null && !string.IsNullOrWhiteSpace(item.OperaType))
@@ -1865,25 +2502,19 @@ namespace Automation.Bridge
                     {
                         OperationType op = step.Ops[oi];
                         if (op == null) continue;
-                        foreach (PropertyDescriptor descriptor in TypeDescriptor.GetProperties(op).Cast<PropertyDescriptor>())
-                        {
-                            if (descriptor == null || !descriptor.IsBrowsable) continue;
-                            fields.Add(new DiagnosticFieldRecord
-                            {
-                                ProcIndex = procIndex,
-                                ProcName = proc.head?.Name ?? string.Empty,
-                                StepIndex = si,
-                                StepName = step.Name ?? string.Empty,
-                                OpIndex = oi,
-                                OpId = op.Id,
-                                OpName = op.Name ?? string.Empty,
-                                OperaType = op.OperaType ?? string.Empty,
-                                Field = descriptor.Name,
-                                DisplayName = descriptor.DisplayName,
-                                ReferenceType = GetReferenceType(descriptor.Converter?.GetType().Name),
-                                Value = ConvertFieldValueToText(descriptor.GetValue(op)) ?? string.Empty
-                            });
-                        }
+                        AddDiagnosticFields(
+                            fields,
+                            procIndex,
+                            proc.head?.Name ?? string.Empty,
+                            si,
+                            step.Id,
+                            step.Name ?? string.Empty,
+                            oi,
+                            op,
+                            op,
+                            string.Empty,
+                            0,
+                            new List<object>());
                     }
                 }
             }
@@ -1894,6 +2525,95 @@ namespace Automation.Bridge
                 Fields = fields
             };
             return fields;
+        }
+
+        // 引用字段可能位于参数列表或内嵌参数组中，必须递归索引，不能只看指令顶层属性。
+        private static void AddDiagnosticFields(
+            ICollection<DiagnosticFieldRecord> fields,
+            int procIndex,
+            string procName,
+            int stepIndex,
+            Guid stepId,
+            string stepName,
+            int opIndex,
+            OperationType operation,
+            object value,
+            string path,
+            int depth,
+            IList<object> visited)
+        {
+            if (value == null || depth > 5 || visited.Any(item => ReferenceEquals(item, value)))
+            {
+                return;
+            }
+            visited.Add(value);
+            foreach (PropertyDescriptor descriptor in TypeDescriptor.GetProperties(value).Cast<PropertyDescriptor>())
+            {
+                if (descriptor == null || !descriptor.IsBrowsable)
+                {
+                    continue;
+                }
+                object fieldValue;
+                try
+                {
+                    fieldValue = descriptor.GetValue(value);
+                }
+                catch
+                {
+                    continue;
+                }
+                string fieldPath = string.IsNullOrEmpty(path) ? descriptor.Name : $"{path}.{descriptor.Name}";
+                fields.Add(new DiagnosticFieldRecord
+                {
+                    ProcIndex = procIndex,
+                    ProcName = procName,
+                    StepIndex = stepIndex,
+                    StepId = stepId,
+                    StepName = stepName,
+                    OpIndex = opIndex,
+                    OpId = operation.Id,
+                    OpName = operation.Name ?? string.Empty,
+                    OperaType = operation.OperaType ?? string.Empty,
+                    Field = fieldPath,
+                    DisplayName = descriptor.DisplayName,
+                    ReferenceType = GetReferenceType(descriptor.Converter?.GetType().Name),
+                    Value = ConvertFieldValueToText(fieldValue) ?? string.Empty
+                });
+
+                if (depth >= 5 || fieldValue == null || fieldValue is string)
+                {
+                    continue;
+                }
+                if (fieldValue is IEnumerable items)
+                {
+                    int itemIndex = 0;
+                    foreach (object item in items)
+                    {
+                        if (item != null && !IsSimpleDiagnosticValue(item.GetType()))
+                        {
+                            AddDiagnosticFields(fields, procIndex, procName, stepIndex, stepId, stepName,
+                                opIndex, operation, item, $"{fieldPath}[{itemIndex}]", depth + 1, visited);
+                        }
+                        itemIndex++;
+                    }
+                    continue;
+                }
+                Type fieldType = fieldValue.GetType();
+                if (!IsSimpleDiagnosticValue(fieldType)
+                    && fieldType.Assembly == typeof(OperationType).Assembly)
+                {
+                    AddDiagnosticFields(fields, procIndex, procName, stepIndex, stepId, stepName,
+                        opIndex, operation, fieldValue, fieldPath, depth + 1, visited);
+                }
+            }
+        }
+
+        private static bool IsSimpleDiagnosticValue(Type type)
+        {
+            Type actualType = Nullable.GetUnderlyingType(type) ?? type;
+            return actualType.IsPrimitive || actualType.IsEnum || actualType == typeof(string)
+                || actualType == typeof(decimal) || actualType == typeof(Guid)
+                || actualType == typeof(DateTime) || actualType == typeof(TimeSpan);
         }
 
         private static string BuildDiagnosticSignature(Proc proc)
@@ -1946,13 +2666,15 @@ namespace Automation.Bridge
                 var kindMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
                     ["variable"] = "value", ["value"] = "value", ["io"] = "io",
+                    ["communication"] = "comm", ["comm"] = "comm",
+                    ["tcp"] = "comm.tcp", ["serial"] = "comm.serial",
                     ["station"] = "station", ["plc"] = "plc.device",
                     ["dataStruct"] = "dataStruct", ["alarm"] = "alarm.infoId"
                 };
                 if (!kindMap.TryGetValue(resourceKind, out string mapped))
                 {
                     return BridgeError(400, "INVALID_ARGUMENT",
-                        "resourceKind 可选:auto/variable/io/station/plc/dataStruct/alarm。");
+                        "resourceKind 可选:auto/variable/io/communication/tcp/serial/station/plc/dataStruct/alarm。");
                 }
                 resolvedTypes.Add(mapped);
             }
@@ -1962,6 +2684,11 @@ namespace Automation.Bridge
                     resolvedTypes.Add("value");
                 if ((SF.frmIO?.IoItems ?? new List<string>()).Contains(name, StringComparer.Ordinal))
                     resolvedTypes.Add("io");
+                CommReferenceCatalog communications = GetCommNames();
+                if (communications.Tcp.Contains(name, StringComparer.Ordinal))
+                    resolvedTypes.Add("comm.tcp");
+                if (communications.Serial.Contains(name, StringComparer.Ordinal))
+                    resolvedTypes.Add("comm.serial");
                 if ((SF.frmCard?.dataStation ?? new List<DataStation>()).Any(item => item?.Name == name))
                     resolvedTypes.Add("station");
                 if ((SF.plcStore?.Devices ?? Array.Empty<PlcDevice>()).Any(item => item?.Name == name))
@@ -1975,7 +2702,7 @@ namespace Automation.Bridge
             if (resolvedTypes.Count == 0)
             {
                 return BridgeError(404, "RESOURCE_NOT_FOUND",
-                    $"未在变量、IO、工站、PLC、数据结构或报警配置中找到资源:{name}");
+                    $"未在变量、IO、TCP/串口通讯、工站、PLC、数据结构或报警配置中找到资源:{name}");
             }
             var delegated = new JObject
             {
@@ -2077,8 +2804,7 @@ namespace Automation.Bridge
                     {
                         continue;
                     }
-                    if (!referenceTypes.Contains(field.ReferenceType)
-                        && !(referenceTypes.Contains("io") && field.ReferenceType.StartsWith("io.", StringComparison.OrdinalIgnoreCase))) continue;
+                    if (!referenceTypes.Any(expected => IsMatchingReferenceType(expected, field.ReferenceType))) continue;
                     if (!string.Equals(field.Value.Trim(), value, StringComparison.Ordinal)) continue;
                     totalMatchesInBatch++;
                     if (matches.Count < resultLimit) matches.Add(BuildDiagnosticMatch(field, false));
@@ -2100,6 +2826,195 @@ namespace Automation.Bridge
                 ["hasMoreProcs"] = procEnd < procCount,
                 ["nextProcOffset"] = procEnd < procCount ? procEnd : (JToken)JValue.CreateNull(),
                 ["matches"] = matches
+            };
+        }
+
+        private JObject HandleGetOperationReferences(JObject request)
+        {
+            int targetProcIndex = ReadRequiredInt(request, "procIndex");
+            Guid targetOpId = ParseGuid(ReadRequiredString(request, "opId"), "opId");
+            int procOffset = ReadOptionalInt(request, "procOffset") ?? 0;
+            int procLimit = ReadOptionalInt(request, "procLimit") ?? 20;
+            int resultLimit = ReadOptionalInt(request, "resultLimit") ?? 50;
+            if (procOffset < 0 || procLimit < 1 || procLimit > 50 || resultLimit < 1 || resultLimit > 100)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT",
+                    "procOffset 必须大于等于0，procLimit 必须在1..50，resultLimit 必须在1..100。");
+            }
+            if (!TryGetProcByIndexForRead(targetProcIndex, out Proc targetProc, out JObject error))
+            {
+                return error;
+            }
+
+            int targetStepIndex = -1;
+            int targetOpIndex = -1;
+            Step targetStep = null;
+            OperationType targetOperation = null;
+            if (targetProc.steps != null)
+            {
+                for (int stepIndex = 0; stepIndex < targetProc.steps.Count && targetOperation == null; stepIndex++)
+                {
+                    Step step = targetProc.steps[stepIndex];
+                    if (step?.Ops == null) continue;
+                    for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
+                    {
+                        if (step.Ops[opIndex]?.Id != targetOpId) continue;
+                        targetStepIndex = stepIndex;
+                        targetOpIndex = opIndex;
+                        targetStep = step;
+                        targetOperation = step.Ops[opIndex];
+                        break;
+                    }
+                }
+            }
+            if (targetOperation == null)
+            {
+                return BridgeError(404, "OP_NOT_FOUND", $"流程 {targetProcIndex} 中未找到指令：{targetOpId:D}");
+            }
+
+            var outgoing = new JArray();
+            foreach (DiagnosticFieldRecord field in GetDiagnosticFields(targetProcIndex, targetProc)
+                .Where(item => item.OpId == targetOpId
+                    && string.Equals(item.ReferenceType, "proc.goto", StringComparison.OrdinalIgnoreCase)))
+            {
+                outgoing.Add(BuildGotoReference(field));
+            }
+
+            int procCount = SF.frmProc.procsList.Count;
+            int procEnd = Math.Min(procCount, procOffset + procLimit);
+            int incomingCount = 0;
+            var incoming = new JArray();
+            for (int procIndex = procOffset; procIndex < procEnd; procIndex++)
+            {
+                Proc proc = SF.frmProc.procsList[procIndex];
+                foreach (DiagnosticFieldRecord field in GetDiagnosticFields(procIndex, proc))
+                {
+                    if (!string.Equals(field.ReferenceType, "proc.goto", StringComparison.OrdinalIgnoreCase)
+                        || !ProcessDefinitionService.TryParseGotoKey(
+                            field.Value, out int gotoProc, out int gotoStep, out int gotoOp)
+                        || gotoProc != targetProcIndex || gotoStep != targetStepIndex || gotoOp != targetOpIndex)
+                    {
+                        continue;
+                    }
+                    incomingCount++;
+                    if (incoming.Count < resultLimit)
+                    {
+                        JObject match = BuildDiagnosticMatch(field, false);
+                        match["referenceKind"] = "explicitGoto";
+                        match["isRemote"] = field.ProcIndex != targetProcIndex
+                            || field.StepIndex != targetStepIndex
+                            || Math.Abs(field.OpIndex - targetOpIndex) > 10;
+                        incoming.Add(match);
+                    }
+                }
+            }
+
+            return new JObject
+            {
+                ["target"] = new JObject
+                {
+                    ["procIndex"] = targetProcIndex,
+                    ["procId"] = targetProc.head?.Id.ToString("D"),
+                    ["procName"] = targetProc.head?.Name ?? string.Empty,
+                    ["stepIndex"] = targetStepIndex,
+                    ["stepId"] = targetStep?.Id.ToString("D"),
+                    ["stepName"] = targetStep?.Name ?? string.Empty,
+                    ["opIndex"] = targetOpIndex,
+                    ["opId"] = targetOpId.ToString("D"),
+                    ["opName"] = targetOperation.Name ?? string.Empty,
+                    ["operaType"] = targetOperation.OperaType ?? string.Empty
+                },
+                ["outgoingGotoTargets"] = outgoing,
+                ["incomingGotoCountInBatch"] = incomingCount,
+                ["truncatedIncoming"] = incomingCount > incoming.Count,
+                ["incomingGotoReferences"] = incoming,
+                ["procRange"] = new JObject { ["from"] = procOffset, ["toExclusive"] = procEnd },
+                ["indexRevision"] = GetDiagnosticIndexRevision(),
+                ["hasMoreProcs"] = procEnd < procCount,
+                ["nextProcOffset"] = procEnd < procCount ? procEnd : (JToken)JValue.CreateNull()
+            };
+        }
+
+        private JObject HandleGetProcReferences(JObject request)
+        {
+            int targetProcIndex = ReadRequiredInt(request, "procIndex");
+            int procOffset = ReadOptionalInt(request, "procOffset") ?? 0;
+            int procLimit = ReadOptionalInt(request, "procLimit") ?? 20;
+            int resultLimit = ReadOptionalInt(request, "resultLimit") ?? 50;
+            if (procOffset < 0 || procLimit < 1 || procLimit > 50 || resultLimit < 1 || resultLimit > 100)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT",
+                    "procOffset 必须大于等于0，procLimit 必须在1..50，resultLimit 必须在1..100。");
+            }
+            if (!TryGetProcByIndexForRead(targetProcIndex, out Proc targetProc, out JObject error))
+            {
+                return error;
+            }
+
+            int procCount = SF.frmProc.procsList.Count;
+            int procEnd = Math.Min(procCount, procOffset + procLimit);
+            int matchCount = 0;
+            var matches = new JArray();
+            for (int procIndex = procOffset; procIndex < procEnd; procIndex++)
+            {
+                Proc proc = SF.frmProc.procsList[procIndex];
+                foreach (DiagnosticFieldRecord field in GetDiagnosticFields(procIndex, proc))
+                {
+                    string referenceKind = null;
+                    if (string.Equals(field.ReferenceType, "proc", StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(field.Value.Trim(), targetProc.head?.Name ?? string.Empty, StringComparison.Ordinal))
+                    {
+                        referenceKind = "processControl";
+                    }
+                    else if (string.Equals(field.ReferenceType, "proc.goto", StringComparison.OrdinalIgnoreCase)
+                        && ProcessDefinitionService.TryParseGotoKey(
+                            field.Value, out int gotoProc, out _, out _)
+                        && gotoProc == targetProcIndex)
+                    {
+                        referenceKind = "gotoIntoProcess";
+                    }
+                    if (referenceKind == null) continue;
+                    matchCount++;
+                    if (matches.Count < resultLimit)
+                    {
+                        JObject match = BuildDiagnosticMatch(field, false);
+                        match["referenceKind"] = referenceKind;
+                        matches.Add(match);
+                    }
+                }
+            }
+
+            return new JObject
+            {
+                ["target"] = new JObject
+                {
+                    ["procIndex"] = targetProcIndex,
+                    ["procId"] = targetProc.head?.Id.ToString("D"),
+                    ["procName"] = targetProc.head?.Name ?? string.Empty
+                },
+                ["referenceCountInBatch"] = matchCount,
+                ["truncatedReferences"] = matchCount > matches.Count,
+                ["references"] = matches,
+                ["procRange"] = new JObject { ["from"] = procOffset, ["toExclusive"] = procEnd },
+                ["indexRevision"] = GetDiagnosticIndexRevision(),
+                ["hasMoreProcs"] = procEnd < procCount,
+                ["nextProcOffset"] = procEnd < procCount ? procEnd : (JToken)JValue.CreateNull()
+            };
+        }
+
+        private static JObject BuildGotoReference(DiagnosticFieldRecord field)
+        {
+            bool parsed = ProcessDefinitionService.TryParseGotoKey(
+                field.Value, out int procIndex, out int stepIndex, out int opIndex);
+            return new JObject
+            {
+                ["field"] = field.Field,
+                ["displayName"] = field.DisplayName,
+                ["rawValue"] = field.Value,
+                ["parsed"] = parsed,
+                ["procIndex"] = parsed ? procIndex : (JToken)JValue.CreateNull(),
+                ["stepIndex"] = parsed ? stepIndex : (JToken)JValue.CreateNull(),
+                ["opIndex"] = parsed ? opIndex : (JToken)JValue.CreateNull()
             };
         }
 
@@ -2164,6 +3079,7 @@ namespace Automation.Bridge
                 ["procIndex"] = field.ProcIndex,
                 ["procName"] = field.ProcName,
                 ["stepIndex"] = field.StepIndex,
+                ["stepId"] = field.StepId.ToString("D"),
                 ["stepName"] = field.StepName,
                 ["opIndex"] = field.OpIndex,
                 ["opId"] = field.OpId.ToString("D"),
@@ -2193,9 +3109,9 @@ namespace Automation.Bridge
             int totalFindingCount = 0;
             var findings = new JArray();
             var knownOperationTypes = new HashSet<string>(
-                SF.frmPropertyGrid?.OperationTypeList?.OfType<OperationType>()
+                OperationDefinitionRegistry.CreateAll()
                     .Where(item => !string.IsNullOrWhiteSpace(item?.OperaType))
-                    .Select(item => item.OperaType) ?? Enumerable.Empty<string>(),
+                    .Select(item => item.OperaType),
                 StringComparer.Ordinal);
             for (int pi = procOffset; pi < procEnd; pi++)
             {
@@ -2376,12 +3292,15 @@ namespace Automation.Bridge
             {
                 AddFlowFinding(findings, "error", "goto.invalid", procIndex, -1, -1, error);
             }
+            ProcessFlowAnalysis controlFlow = ProcessFlowAnalyzer.Analyze(procIndex, proc);
             return new JObject
             {
                 ["procIndex"] = procIndex,
                 ["procId"] = proc?.head?.Id.ToString("D"),
                 ["name"] = proc?.head?.Name ?? string.Empty,
                 ["operationCount"] = CountOperations(proc),
+                ["potentiallyUnbounded"] = controlFlow.PotentiallyUnbounded,
+                ["cycleLocations"] = new JArray(controlFlow.CycleLocations),
                 ["findingCount"] = findings.Count,
                 ["findings"] = findings
             };
@@ -2458,21 +3377,143 @@ namespace Automation.Bridge
             {
                 return BridgeError(400, "OP_NOT_FOUND", $"指令索引越界：{opIndex}");
             }
-            OperationType op = step.Ops[opIndex];
+            IReadOnlyList<string> gotoErrors = ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc);
+            return BuildOperationDetail(procIndex, stepIndex, opIndex, step, step.Ops[opIndex], gotoErrors);
+        }
+
+        // 按稳定 opId 有限批量读取指令，避免调用方维护容易漂移的 stepIndex/opIndex 组合。
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleGetOperationDetails(JObject request)
+        {
+            int procIndex = ReadRequiredInt(request, "procIndex");
+            JArray opIdTokens = ReadRequiredArray(request, "opIds");
+            if (opIdTokens.Count < 1 || opIdTokens.Count > MaxBatchReadOperationCount)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT",
+                    $"opIds 数量必须在1..{MaxBatchReadOperationCount}之间。");
+            }
+
+            var opIds = new List<Guid>(opIdTokens.Count);
+            var uniqueIds = new HashSet<Guid>();
+            for (int i = 0; i < opIdTokens.Count; i++)
+            {
+                JToken token = opIdTokens[i];
+                if (token == null || token.Type != JTokenType.String)
+                {
+                    return BridgeError(400, "INVALID_ARGUMENT", $"opIds[{i}] 必须是 Guid 字符串。");
+                }
+
+                Guid opId;
+                try
+                {
+                    opId = ParseGuid(token.Value<string>(), $"opIds[{i}]");
+                }
+                catch (BridgeRequestException ex)
+                {
+                    return BridgeError(ex.StatusCode, ex.Code, ex.Message);
+                }
+                if (opId == Guid.Empty)
+                {
+                    return BridgeError(400, "INVALID_ARGUMENT", $"opIds[{i}] 不能是空 Guid。");
+                }
+                if (!uniqueIds.Add(opId))
+                {
+                    return BridgeError(400, "INVALID_ARGUMENT", $"opIds 不允许重复：{opId:D}");
+                }
+                opIds.Add(opId);
+            }
+
+            if (!TryGetProcByIndexForRead(procIndex, out Proc proc, out JObject error))
+            {
+                return error;
+            }
+
+            var locations = new Dictionary<Guid, Tuple<int, int, Step, OperationType>>();
+            if (proc.steps != null)
+            {
+                for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
+                {
+                    Step step = proc.steps[stepIndex];
+                    if (step?.Ops == null)
+                    {
+                        continue;
+                    }
+                    for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
+                    {
+                        OperationType op = step.Ops[opIndex];
+                        if (op != null && uniqueIds.Contains(op.Id))
+                        {
+                            locations[op.Id] = Tuple.Create(stepIndex, opIndex, step, op);
+                        }
+                    }
+                }
+            }
+
+            Guid missingId = opIds.FirstOrDefault(opId => !locations.ContainsKey(opId));
+            if (missingId != Guid.Empty)
+            {
+                return BridgeError(404, "OP_NOT_FOUND",
+                    $"流程 {procIndex} 中未找到指令：{missingId:D}。opId 必须来自该流程的 get_proc_overview、get_proc_detail 或 get_step_detail 返回值。");
+            }
+
+            IReadOnlyList<string> gotoErrors = ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc);
+            var items = new JArray();
+            foreach (Guid opId in opIds)
+            {
+                Tuple<int, int, Step, OperationType> location = locations[opId];
+                items.Add(BuildOperationDetail(
+                    procIndex,
+                    location.Item1,
+                    location.Item2,
+                    location.Item3,
+                    location.Item4,
+                    gotoErrors));
+            }
+
+            var result = new JObject
+            {
+                ["procIndex"] = procIndex,
+                ["procId"] = proc.head?.Id.ToString("D"),
+                ["procName"] = proc.head?.Name ?? string.Empty,
+                ["requestedCount"] = opIds.Count,
+                ["batchOperationLimit"] = MaxBatchReadOperationCount,
+                ["batchUtf8ByteLimit"] = MaxBatchReadUtf8Bytes,
+                ["resultUtf8Bytes"] = 0,
+                ["operations"] = items
+            };
+            int resultBytes = Encoding.UTF8.GetByteCount(result.ToString(Formatting.None));
+            result["resultUtf8Bytes"] = resultBytes;
+            resultBytes = Encoding.UTF8.GetByteCount(result.ToString(Formatting.None));
+            if (resultBytes > MaxBatchReadUtf8Bytes)
+            {
+                return BridgeError(413, "OP_DETAILS_TOO_LARGE",
+                    $"{opIds.Count}条指令详情序列化后为{resultBytes}字节，超过批量读取上限{MaxBatchReadUtf8Bytes}字节；请减少 opIds 后重试。");
+            }
+            result["resultUtf8Bytes"] = resultBytes;
+            return result;
+        }
+
+        private JObject BuildOperationDetail(
+            int procIndex,
+            int stepIndex,
+            int opIndex,
+            Step step,
+            OperationType op,
+            IReadOnlyList<string> gotoErrors)
+        {
             bool isJump = IsJumpOperation(op?.OperaType);
             string flow = isJump
                 ? "条件跳转（不自动流向下一条）"
-                : (opIndex < step.Ops.Count - 1 ? $"执行后自动流向[{opIndex + 1}]" : "执行后步骤完成");
-
-            // 检查该指令的跳转目标是否有效（仅跳转类指令）
-            JArray gotoIssues = new JArray();
-            if (isJump)
+                : (opIndex < (step?.Ops?.Count ?? 0) - 1 ? $"执行后自动流向[{opIndex + 1}]" : "执行后步骤完成");
+            var gotoIssues = new JArray();
+            if (isJump && gotoErrors != null)
             {
-                foreach (string error in ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc))
+                foreach (string gotoError in gotoErrors)
                 {
-                    if (error.Contains($"{stepIndex}-{opIndex}") || error.Contains($"步骤 {stepIndex} 指令 {opIndex}"))
+                    if (gotoError.Contains($"{stepIndex}-{opIndex}")
+                        || gotoError.Contains($"步骤 {stepIndex} 指令 {opIndex}"))
                     {
-                        gotoIssues.Add(new JObject { ["message"] = error });
+                        gotoIssues.Add(new JObject { ["message"] = gotoError });
                     }
                 }
             }
@@ -2481,6 +3522,8 @@ namespace Automation.Bridge
             {
                 ["procIndex"] = procIndex,
                 ["stepIndex"] = stepIndex,
+                ["stepId"] = step?.Id.ToString("D"),
+                ["stepName"] = step?.Name ?? string.Empty,
                 ["opIndex"] = opIndex,
                 ["opId"] = op?.Id.ToString("D"),
                 ["name"] = op?.Name ?? string.Empty,
@@ -2493,6 +3536,29 @@ namespace Automation.Bridge
                 ["fields"] = op == null ? new JObject() : BuildOperationFields(op),
                 ["gotoIssues"] = gotoIssues
             };
+        }
+
+        private static bool IsMatchingReferenceType(string expected, string actual)
+        {
+            if (string.IsNullOrEmpty(expected) || string.IsNullOrEmpty(actual))
+            {
+                return false;
+            }
+            if (string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            if (string.Equals(expected, "io", StringComparison.OrdinalIgnoreCase))
+            {
+                return actual.StartsWith("io.", StringComparison.OrdinalIgnoreCase);
+            }
+            if (string.Equals(expected, "comm", StringComparison.OrdinalIgnoreCase))
+            {
+                return actual.StartsWith("comm.", StringComparison.OrdinalIgnoreCase);
+            }
+            return (string.Equals(expected, "comm.tcp", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(expected, "comm.serial", StringComparison.OrdinalIgnoreCase))
+                && string.Equals(actual, "comm.all", StringComparison.OrdinalIgnoreCase);
         }
 
         // 读取单个步骤的完整指令列表。介于 get_proc_overview 和 get_proc_detail 之间的颗粒度。
@@ -5328,7 +6394,58 @@ namespace Automation.Bridge
                 ["disable"] = proc?.head?.Disable ?? false,
                 ["state"] = snapshot?.State.ToString() ?? ProcRunState.Stopped.ToString(),
                 ["stepCount"] = proc?.steps?.Count ?? 0,
+                ["operationCount"] = CountOperations(proc),
                 ["steps"] = steps
+            };
+        }
+
+        private static JObject BuildProcDetailOmitted(
+            int procIndex,
+            Proc proc,
+            int operationCount,
+            int? detailUtf8Bytes = null)
+        {
+            var steps = new JArray();
+            if (proc?.steps != null)
+            {
+                for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
+                {
+                    Step step = proc.steps[stepIndex];
+                    steps.Add(new JObject
+                    {
+                        ["stepIndex"] = stepIndex,
+                        ["stepId"] = step?.Id.ToString("D"),
+                        ["name"] = step?.Name ?? string.Empty,
+                        ["disable"] = step?.Disable ?? false,
+                        ["opCount"] = step?.Ops?.Count ?? 0
+                    });
+                }
+            }
+
+            string reasonCode = operationCount > MaxDetailOperationCount
+                ? "OPERATION_COUNT_EXCEEDED"
+                : "SERIALIZED_SIZE_EXCEEDED";
+            string reason = operationCount > MaxDetailOperationCount
+                ? $"流程包含{operationCount}条指令，超过完整详情上限{MaxDetailOperationCount}条。"
+                : $"完整详情序列化后为{detailUtf8Bytes.GetValueOrDefault()}字节，超过{MaxProcDetailUtf8Bytes}字节上限。";
+            return new JObject
+            {
+                ["procIndex"] = procIndex,
+                ["procId"] = proc?.head?.Id.ToString("D"),
+                ["name"] = proc?.head?.Name ?? string.Empty,
+                ["detailAvailable"] = false,
+                ["reasonCode"] = reasonCode,
+                ["reason"] = reason,
+                ["operationCount"] = operationCount,
+                ["detailOperationLimit"] = MaxDetailOperationCount,
+                ["detailUtf8Bytes"] = detailUtf8Bytes,
+                ["detailUtf8ByteLimit"] = MaxProcDetailUtf8Bytes,
+                ["stepCount"] = proc?.steps?.Count ?? 0,
+                ["steps"] = steps,
+                ["nextReadOptions"] = new JArray(
+                    "调用 get_proc_overview 获取含 opId 的轻量指令目录",
+                    "调用 get_step_detail 读取一个步骤",
+                    $"调用 get_op_details 按明确 opId 批量读取，单次最多{MaxBatchReadOperationCount}条")
             };
         }
 
@@ -5705,6 +6822,7 @@ namespace Automation.Bridge
                     ["publishedRevision"] = 0,
                     ["appliedRevision"] = 0,
                     ["hasPendingUpdate"] = false,
+                    ["terminationReason"] = ProcTerminationReason.None.ToString(),
                     ["updateTime"] = JValue.CreateNull()
                 };
             }
@@ -5723,6 +6841,7 @@ namespace Automation.Bridge
                 ["publishedRevision"] = snapshot.PublishedRevision,
                 ["appliedRevision"] = snapshot.AppliedRevision,
                 ["hasPendingUpdate"] = snapshot.HasPendingUpdate,
+                ["terminationReason"] = snapshot.TerminationReason.ToString(),
                 ["updateTime"] = snapshot.UpdateTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture),
                 ["updateTicks"] = snapshot.UpdateTicks
             };
@@ -6045,17 +7164,14 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private static OperationType CreateOperationTemplate(string operaType)
         {
-            EnsureRuntimeReady();
-            OperationType template = SF.frmPropertyGrid.OperationTypeList
-                .OfType<OperationType>()
-                .FirstOrDefault(item => item != null && string.Equals(item.OperaType, operaType, StringComparison.Ordinal));
-
-            if (template == null)
+            try
+            {
+                return OperationDefinitionRegistry.Create(operaType);
+            }
+            catch (KeyNotFoundException)
             {
                 throw new BridgeRequestException(404, "OPERA_TYPE_NOT_FOUND", $"未找到指令类型：{operaType}");
             }
-
-            return (OperationType)template.Clone();
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
@@ -6806,6 +7922,10 @@ namespace Automation.Bridge
 
             public List<(int stepIndex, int opIndex, ProcChangeKind kind)> AffectedOps { get; set; }
 
+            public AiChangeSetCompileResult AiChangeSetDraft { get; set; }
+
+            public string BaseStateHash { get; set; }
+
             public DateTime? ConfirmedAtUtc { get; set; }
         }
 
@@ -6821,6 +7941,7 @@ namespace Automation.Bridge
             public int ProcIndex { get; set; }
             public string ProcName { get; set; }
             public int StepIndex { get; set; }
+            public Guid StepId { get; set; }
             public string StepName { get; set; }
             public int OpIndex { get; set; }
             public Guid OpId { get; set; }

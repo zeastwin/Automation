@@ -60,6 +60,7 @@ namespace Automation.Hmi
             : this()
         {
             this.platformHost = platformHost ?? throw new ArgumentNullException(nameof(platformHost));
+            homePage.AttachHost(platformHost);
             debugPage.AttachHost(platformHost);
             platformHost.RuntimeStateChanged += PlatformHost_RuntimeStateChanged;
             platformHost.ProcessSnapshotChanged += PlatformHost_ProcessSnapshotChanged;
@@ -83,6 +84,7 @@ namespace Automation.Hmi
             {
                 return;
             }
+            homePage.RefreshRuntimeView();
             debugPage.RefreshRuntimeView();
         }
 

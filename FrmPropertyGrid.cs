@@ -28,49 +28,7 @@ namespace Automation
             propertyGrid1.PropertySort = PropertySort.Categorized;
             InlineListTypeDescriptionProvider.Register();
             
-            OperationTypeList.Add(new HomeRun());
-            OperationTypeList.Add(new StationRunPos());
-            OperationTypeList.Add(new ModifyStationPos());
-            OperationTypeList.Add(new GetStationPos());
-            OperationTypeList.Add(new CreateTray());
-            OperationTypeList.Add(new TrayRunPos());
-            OperationTypeList.Add(new StationRunRel());
-            OperationTypeList.Add(new SetStationVel());
-            OperationTypeList.Add(new StationStop());
-            OperationTypeList.Add(new WaitStationStop());
-            OperationTypeList.Add(new CallCustomFunc());
-            OperationTypeList.Add(new IoOperate());
-            OperationTypeList.Add(new IoCheck());
-            OperationTypeList.Add(new IoGroup());
-            OperationTypeList.Add(new IoLogicGoto());
-            OperationTypeList.Add(new ProcOps());
-            OperationTypeList.Add(new WaitProc());
-            OperationTypeList.Add(new Goto());
-            OperationTypeList.Add(new ParamGoto());
-            OperationTypeList.Add(new Delay());
-            OperationTypeList.Add(new PopupDialog());
-            OperationTypeList.Add(new GetValue());
-            OperationTypeList.Add(new ModifyValue());
-            OperationTypeList.Add(new StringFormat());
-            OperationTypeList.Add(new Split());
-            OperationTypeList.Add(new Replace());
-            OperationTypeList.Add(new TcpOps());
-            OperationTypeList.Add(new WaitTcp());
-            OperationTypeList.Add(new SendTcpMsg());
-            OperationTypeList.Add(new ReceoveTcpMsg());
-            OperationTypeList.Add(new SerialPortOps());
-            OperationTypeList.Add(new WaitSerialPort());
-            OperationTypeList.Add(new SendSerialPortMsg());
-            OperationTypeList.Add(new ReceoveSerialPortMsg());
-            OperationTypeList.Add(new SendReceoveCommMsg());
-            OperationTypeList.Add(new PlcReadWrite());
-            OperationTypeList.Add(new GetDataStructCount());
-            OperationTypeList.Add(new SetDataStructItem());
-            OperationTypeList.Add(new GetDataStructItem());
-            OperationTypeList.Add(new CopyDataStructItem());
-            OperationTypeList.Add(new InsertDataStructItem());
-            OperationTypeList.Add(new DelDataStructItem());
-            OperationTypeList.Add(new FindDataStructItem());
+            OperationTypeList.AddRange(OperationDefinitionRegistry.CreateAll().Cast<object>());
      
          
 

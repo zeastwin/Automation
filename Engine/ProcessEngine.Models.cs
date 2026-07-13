@@ -36,6 +36,18 @@ namespace Automation
         Stopping = 6
     }
 
+    public enum ProcTerminationReason
+    {
+        None = 0,
+        Completed = 1,
+        StopRequested = 2,
+        Alarm = 3,
+        Disabled = 4,
+        TestWindowElapsed = 5,
+        Restarted = 6,
+        EngineDisposed = 7
+    }
+
     //复位状态（变量表：复位状态）
     public enum ResetStatus
     {
@@ -118,6 +130,8 @@ namespace Automation
             internal set => Interlocked.Exchange(ref appliedRevision, value);
         }
 
+        public ProcTerminationReason TerminationReason { get; internal set; }
+
     }
     public enum EngineCommandType
     {
@@ -189,6 +203,14 @@ namespace Automation
         public EngineSnapshot(int procIndex, Guid procId, string procName, ProcRunState state, int stepIndex, int opIndex,
             bool isBreakpoint, string alarmMessage, DateTime updateTime, long updateTicks,
             long publishedRevision = 0, long appliedRevision = 0)
+            : this(procIndex, procId, procName, state, stepIndex, opIndex, isBreakpoint, alarmMessage,
+                updateTime, updateTicks, publishedRevision, appliedRevision, ProcTerminationReason.None)
+        {
+        }
+
+        public EngineSnapshot(int procIndex, Guid procId, string procName, ProcRunState state, int stepIndex, int opIndex,
+            bool isBreakpoint, string alarmMessage, DateTime updateTime, long updateTicks,
+            long publishedRevision, long appliedRevision, ProcTerminationReason terminationReason)
         {
             ProcIndex = procIndex;
             ProcId = procId;
@@ -202,6 +224,7 @@ namespace Automation
             UpdateTicks = updateTicks;
             PublishedRevision = publishedRevision;
             AppliedRevision = appliedRevision;
+            TerminationReason = terminationReason;
         }
 
         public int ProcIndex { get; }
@@ -218,6 +241,7 @@ namespace Automation
         public long PublishedRevision { get; }
         public long AppliedRevision { get; }
         public bool HasPendingUpdate => PublishedRevision > AppliedRevision;
+        public ProcTerminationReason TerminationReason { get; }
     }
 
     public sealed class OperationTraceEntry

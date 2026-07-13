@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpServer", "McpServer\McpS
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KernelTests", "KernelTests\KernelTests.csproj", "{B1C5F06B-7696-40D2-AD74-C73C831403D3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Automation.Protocol", "Automation.Protocol\Automation.Protocol.csproj", "{9B777468-5118-4A4B-AB0E-6D02861C6B5F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -27,6 +29,10 @@ Global
 		{B1C5F06B-7696-40D2-AD74-C73C831403D3}.Debug|x64.Build.0 = Debug|x64
 		{B1C5F06B-7696-40D2-AD74-C73C831403D3}.Release|x64.ActiveCfg = Release|x64
 		{B1C5F06B-7696-40D2-AD74-C73C831403D3}.Release|x64.Build.0 = Release|x64
+		{9B777468-5118-4A4B-AB0E-6D02861C6B5F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9B777468-5118-4A4B-AB0E-6D02861C6B5F}.Debug|x64.Build.0 = Debug|Any CPU
+		{9B777468-5118-4A4B-AB0E-6D02861C6B5F}.Release|x64.ActiveCfg = Release|Any CPU
+		{9B777468-5118-4A4B-AB0E-6D02861C6B5F}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
