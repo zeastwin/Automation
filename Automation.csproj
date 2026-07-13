@@ -168,6 +168,7 @@
     <Compile Include="Runtime\\UiBranding.cs" />
     <Compile Include="Runtime\\AiProviderSecretStorage.cs" />
     <Compile Include="Runtime\\ConfigurationVersionService.cs" />
+    <Compile Include="Runtime\\UiStatusImages.cs" />
     <Compile Include="Simulation\\SimulationGatewayClient.cs" />
     <Compile Include="Bridge\\AutomationBridgeHost.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.cs" />
@@ -432,6 +433,7 @@
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
       <SubType>Designer</SubType>
+      <LogicalName>Automation.Properties.Resources.resources</LogicalName>
     </EmbeddedResource>
     <Compile Include="Properties\Resources.Designer.cs">
       <AutoGen>True</AutoGen>
@@ -444,6 +446,15 @@
     <EmbeddedResource Include="Assets\Goose\system.md">
       <LogicalName>Automation.Assets.Goose.system.md</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\automation.md">
+      <LogicalName>Automation.Assets.Goose.automation.md</LogicalName>
+    </EmbeddedResource>
+    <Content Include="Assets\Goose\system.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Goose\automation.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <None Include="app.config" />
     <Content Include="IntentTemplates\intent_templates.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

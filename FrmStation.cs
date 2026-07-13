@@ -116,8 +116,8 @@ namespace Automation
                 axisRowMap[i] = dataGridView2.Rows.Add();
             }
         }
-        public System.Drawing.Image validImage = Properties.Resources.vaild;
-        public System.Drawing.Image invalidImage = Properties.Resources.invalid;
+        public System.Drawing.Image validImage = UiStatusImages.CreateValidImage();
+        public System.Drawing.Image invalidImage = UiStatusImages.CreateInvalidImage();
         public void RefleshFrmStation()
         {
             RefleshDgvState();

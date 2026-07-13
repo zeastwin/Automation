@@ -7,6 +7,7 @@ namespace Automation.McpServer
     {
         private static readonly HashSet<string> DiagnosticTools = new HashSet<string>(StringComparer.Ordinal)
         {
+            "get_platform_development_context",
             "search_proc_catalog", "get_proc_overview", "get_op_detail",
             "trace_resource", "search_operation_fields",
             "get_operation_context", "audit_proc_batch", "get_snapshot",
@@ -24,7 +25,7 @@ namespace Automation.McpServer
         {
             "list_intent_templates", "get_intent_template", "build_patch_from_intent",
             "preview_intent", "apply_intent", "preview_patch", "apply_patch", "get_patch_action_schema",
-            "create_proc", "delete_procs", "reorder_proc", "copy_proc",
+            "create_proc", "create_proc_batch", "delete_procs", "reorder_proc", "copy_proc",
             "start_proc", "stop_proc", "pause_proc", "resume_proc",
             "set_variable", "add_variable", "delete_variable",
             "add_station", "update_station", "delete_station",

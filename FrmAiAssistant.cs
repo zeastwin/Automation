@@ -23,6 +23,7 @@ namespace Automation
     {
         private readonly TableLayoutPanel rootLayout = new TableLayoutPanel();
         private WebView2 webViewConversation;
+        private bool webViewClosing;
         private bool webViewEventsAttached;
         private bool webDocumentReady;
         // 标记当前是否正在流式输出 assistant 文本（assistant_chunk），用于在同一渲染段累积而非每 chunk 新建 div。
@@ -73,7 +74,6 @@ namespace Automation
         private CancellationTokenSource promptCts;
         private bool sending;
         private bool fullPermissionMode = false;
-        private string lastConfirmedPreviewId;
         private const int MaxFileAttachmentCount = 4;
         private const long MaxFileAttachmentBytes = 10L * 1024L * 1024L;
         private readonly List<GooseFileAttachment> pendingFileAttachments = new List<GooseFileAttachment>();
@@ -377,15 +377,20 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .thinking-box .toggle-bar::before{content:'▼ ';font-size:10px;}
 .thinking-box.collapsed .toggle-bar::before{content:'▶ ';font-size:10px;}
 .tool-call,.tool-result{
-    margin:4px 8px;
-    padding:6px 8px;
-    border-radius:6px;
-    font:12px/1.4 Consolas,""Cascadia Mono"",monospace;
-    white-space:pre-wrap;
-    overflow-wrap:anywhere;
+    min-height:22px;
+    margin:1px 6px;
+    padding:2px 6px;
+    border-radius:4px;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font:12px/1.35 ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;
 }
-.tool-call{color:#5a3a10;background:#fff8ec;border:1px solid #f0dfbd;}
-.tool-result{color:#485465;background:#f7f9fc;border:1px solid #e2e8f0;}
+.tool-call{color:#69430f;background:#fffaf1;}
+.tool-result{color:#405069;background:#f7f9fc;}
+.tool-entry-label{flex:0 0 auto;color:#7b8798;font-size:11px;}
+.tool-entry-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:Consolas,""Cascadia Mono"",monospace;}
+.tool-entry-count{flex:0 0 auto;margin-left:auto;padding:0 5px;border-radius:8px;background:#e7edf5;color:#526071;font-size:10px;line-height:16px;}
 .streaming-segment{
     padding:6px 10px;
     color:#334155;
@@ -556,7 +561,7 @@ function automationSetState(state){
     fillConfig();
     refreshToolbar();
     var lock=!appState.canEditConfig||appState.sending;
-    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgProvider','cfgModel','cfgApiKey','cfgTurns','saveConfig','clearApiKey','restorePrompt'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
+    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgProvider','cfgModel','cfgApiKey','cfgTurns','saveConfig','clearApiKey'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
     byId('reloadConfig').disabled=appState.sending;
     byId('checkConfig').disabled=appState.sending||!appState.canAccess;
 }
@@ -718,7 +723,6 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('reloadConfig').addEventListener('click',function(){post('reloadConfig');});
     byId('checkConfig').addEventListener('click',function(){post('checkConfig',{config:collectConfig()});});
     byId('clearApiKey').addEventListener('click',function(){post('clearApiKey',{provider:byId('cfgProvider').value});});
-    byId('restorePrompt').addEventListener('click',function(){post('restorePrompt');});
     byId('cfgProvider').addEventListener('change',function(){post('providerChanged',{provider:this.value,config:collectConfig()});});
     byId('configOverlay').addEventListener('click',function(e){if(e.target===this){closeConfig();}});
     post('ready');
@@ -758,7 +762,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         <div class=""field field-wide""><label>API Key（使用 Windows 当前用户加密，仅保存在本机）</label><input id=""cfgApiKey"" type=""password"" autocomplete=""new-password""></div>
       </div>
     </div>
-    <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""reloadConfig"">重载</button><button class=""text-button"" id=""checkConfig"">检查 AI 组件</button><button class=""text-button"" id=""clearApiKey"">清除本机密钥</button><button class=""text-button"" id=""restorePrompt"">恢复上一版 Prompt</button></div><div class=""foot-right""><button class=""text-button"" id=""cancelConfig"">取消</button><button class=""primary-button"" id=""saveConfig"">保存配置</button></div></div>
+    <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""reloadConfig"">重载</button><button class=""text-button"" id=""checkConfig"">检查 AI 组件</button><button class=""text-button"" id=""clearApiKey"">清除本机密钥</button></div><div class=""foot-right""><button class=""text-button"" id=""cancelConfig"">取消</button><button class=""primary-button"" id=""saveConfig"">保存配置</button></div></div>
   </section>
 </div>
 <div class=""toast"" id=""toast""></div>
@@ -767,6 +771,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private void FrmAiAssistant_FormClosing(object sender, FormClosingEventArgs e)
         {
+            webViewClosing = true;
+            webDocumentReady = false;
             DisposeGooseClient();
         }
 
@@ -774,9 +780,12 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         {
             if (disposing)
             {
+                webViewClosing = true;
+                webDocumentReady = false;
                 DisposeGooseClient();
                 promptCts?.Dispose();
                 webViewConversation?.Dispose();
+                webViewConversation = null;
             }
             base.Dispose(disposing);
         }
@@ -1283,21 +1292,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         ShowWebToast("已清除当前 Provider 的本机 API Key。");
                     }
                     PushWebAppState();
-                    break;
-                case "restorePrompt":
-                    if (MessageBox.Show(
-                        "将恢复最近一次 System Prompt 备份，并重置当前 EW-AI 会话。是否继续？",
-                        "恢复 System Prompt",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Warning) != DialogResult.Yes)
-                    {
-                        break;
-                    }
-                    if (GooseRuntimeProvisioner.TryRestoreLatestBackup(out string restoreMessage))
-                    {
-                        DisposeGooseClient();
-                    }
-                    ShowWebToast(restoreMessage);
                     break;
                 case "checkConfig":
                     ApplyWebConfig(message["config"] as JObject);
@@ -1861,7 +1855,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             pendingFileAttachments.Clear();
             fileAttachmentPreviews.Clear();
             promptedPreviewIds.Clear();
-            lastConfirmedPreviewId = null;
             streamingAssistant = false;
             streamingMarkdown.Clear();
             streamingDivId = null;
@@ -1959,34 +1952,46 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 dlg.Text = "EW-AI 预演确认";
                 dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.Width = 880;
-                dlg.Height = 540;
+                bool hasChanges = changes != null && changes.Count > 0;
+                dlg.Width = 820;
+                dlg.Height = hasChanges ? 520 : 330;
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
                 dlg.MinimizeBox = false;
-                dlg.BackColor = Color.White;
+                dlg.ShowInTaskbar = false;
+                dlg.BackColor = Color.FromArgb(246, 248, 251);
                 dlg.Font = new Font("微软雅黑", 9F);
 
-                // 标题栏
-                Panel headerPanel = new Panel { Dock = DockStyle.Top, Height = 48, BackColor = Color.FromArgb(30, 104, 74) };
+                // 标题区：使用浅色层级，避免大色块压迫内容。
+                Panel headerPanel = new Panel { Dock = DockStyle.Top, Height = 70, BackColor = Color.White, Padding = new Padding(18, 10, 18, 8) };
                 headerPanel.Controls.Add(new Label
                 {
-                    Text = "  EW-AI 预演确认 — 请审核以下变更",
-                    Font = new Font("微软雅黑", 11F, FontStyle.Bold),
-                    ForeColor = Color.White,
-                    Dock = DockStyle.Fill,
+                    Text = "确认本次预演",
+                    Font = new Font("微软雅黑", 14F, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(25, 39, 58),
+                    Dock = DockStyle.Top,
+                    Height = 30,
+                    TextAlign = ContentAlignment.MiddleLeft
+                });
+                headerPanel.Controls.Add(new Label
+                {
+                    Text = hasChanges ? "请检查变更明细，确认后才会提交。" : "请确认以下操作，确认后才会提交。",
+                    Font = new Font("微软雅黑", 9F),
+                    ForeColor = Color.FromArgb(100, 113, 132),
+                    Dock = DockStyle.Bottom,
+                    Height = 22,
                     TextAlign = ContentAlignment.MiddleLeft
                 });
 
                 // 信息行
-                Panel infoPanel = new Panel { Dock = DockStyle.Top, Height = 28, Padding = new Padding(12, 4, 12, 4) };
+                Panel infoPanel = new Panel { Dock = DockStyle.Top, Height = 42, Padding = new Padding(18, 8, 18, 6), BackColor = Color.FromArgb(246, 248, 251) };
                 infoPanel.Controls.Add(new Label
                 {
-                    Text = $"PreviewId: {previewId}    变更数量: {changes?.Count ?? 0}",
+                    Text = $"预演编号  {previewId}      变更  {changes?.Count ?? 0} 项",
                     Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleLeft,
-                    ForeColor = Color.FromArgb(90, 98, 108),
-                    Font = new Font("Consolas", 8.5F)
+                    ForeColor = Color.FromArgb(82, 96, 116),
+                    Font = new Font("Consolas", 9F)
                 });
 
                 // 变更表格
@@ -1998,10 +2003,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     ReadOnly = true,
                     AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
                     BackgroundColor = Color.White,
-                    BorderStyle = BorderStyle.None,
+                    BorderStyle = BorderStyle.FixedSingle,
                     ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
                     {
-                        BackColor = Color.FromArgb(240, 243, 247),
+                        BackColor = Color.FromArgb(237, 242, 247),
                         Font = new Font("微软雅黑", 9F, FontStyle.Bold),
                         Alignment = DataGridViewContentAlignment.MiddleCenter
                     },
@@ -2013,7 +2018,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     },
                     RowHeadersVisible = false,
                     SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                    GridColor = Color.FromArgb(220, 225, 230)
+                    GridColor = Color.FromArgb(226, 232, 240),
+                    EnableHeadersVisualStyles = false,
+                    ColumnHeadersHeight = 34,
+                    RowTemplate = { Height = 32 }
                 };
                 dgv.Columns.Add("colType", "操作类型");
                 dgv.Columns.Add("colLocation", "位置");
@@ -2098,14 +2106,16 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 // 消息区
                 TextBox txtMessages = new TextBox
                 {
-                    Dock = DockStyle.Bottom,
-                    Height = 70,
+                    Dock = hasChanges ? DockStyle.Bottom : DockStyle.Fill,
+                    Height = hasChanges ? 82 : 0,
                     Multiline = true,
                     ScrollBars = ScrollBars.Vertical,
                     ReadOnly = true,
-                    BackColor = Color.FromArgb(250, 251, 252),
-                    Font = new Font("微软雅黑", 8.5F),
-                    BorderStyle = BorderStyle.FixedSingle
+                    BackColor = Color.White,
+                    ForeColor = Color.FromArgb(37, 52, 73),
+                    Font = new Font("微软雅黑", 10F),
+                    BorderStyle = BorderStyle.FixedSingle,
+                    Padding = new Padding(10)
                 };
                 if (messages != null && messages.Count > 0)
                 {
@@ -2118,25 +2128,25 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 }
 
                 // 按钮区
-                Panel btnPanel = new Panel { Dock = DockStyle.Bottom, Height = 46, BackColor = Color.FromArgb(244, 247, 250) };
+                Panel btnPanel = new Panel { Dock = DockStyle.Bottom, Height = 62, BackColor = Color.White };
                 Button btnReject = new Button
                 {
-                    Text = "✗ 拒绝",
+                    Text = "取消",
                     DialogResult = DialogResult.No,
-                    Size = new Size(100, 32),
-                    BackColor = Color.FromArgb(208, 60, 60),
-                    ForeColor = Color.White,
+                    Size = new Size(96, 36),
+                    BackColor = Color.White,
+                    ForeColor = Color.FromArgb(63, 76, 95),
                     FlatStyle = FlatStyle.Flat,
                     Font = new Font("微软雅黑", 9F),
                     Anchor = AnchorStyles.Right
                 };
-                btnReject.FlatAppearance.BorderSize = 0;
+                btnReject.FlatAppearance.BorderColor = Color.FromArgb(204, 213, 224);
                 Button btnConfirm = new Button
                 {
-                    Text = "✓ 确认提交",
+                    Text = "确认并继续",
                     DialogResult = DialogResult.Yes,
-                    Size = new Size(120, 32),
-                    BackColor = Color.FromArgb(35, 134, 54),
+                    Size = new Size(128, 36),
+                    BackColor = Color.FromArgb(31, 111, 82),
                     ForeColor = Color.White,
                     FlatStyle = FlatStyle.Flat,
                     Font = new Font("微软雅黑", 9F, FontStyle.Bold),
@@ -2147,7 +2157,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 btnPanel.Controls.Add(btnReject);
 
                 // 按顺序添加控件（WinForms docking: 后添加的先停靠）
-                dlg.Controls.Add(dgv);
+                if (hasChanges)
+                {
+                    dlg.Controls.Add(dgv);
+                }
                 dlg.Controls.Add(txtMessages);
                 dlg.Controls.Add(btnPanel);
                 dlg.Controls.Add(infoPanel);
@@ -2155,14 +2168,16 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
                 dlg.Resize += (s, e) =>
                 {
-                    btnConfirm.Location = new Point(btnPanel.Width - btnConfirm.Width - 16, 7);
-                    btnReject.Location = new Point(btnConfirm.Left - btnReject.Width - 10, 7);
+                    btnConfirm.Location = new Point(btnPanel.Width - btnConfirm.Width - 18, 13);
+                    btnReject.Location = new Point(btnConfirm.Left - btnReject.Width - 10, 13);
                 };
                 // 初始定位按钮
                 dlg.Shown += (s, e) =>
                 {
-                    btnConfirm.Location = new Point(btnPanel.Width - btnConfirm.Width - 16, 7);
-                    btnReject.Location = new Point(btnConfirm.Left - btnReject.Width - 10, 7);
+                    btnConfirm.Location = new Point(btnPanel.Width - btnConfirm.Width - 18, 13);
+                    btnReject.Location = new Point(btnConfirm.Left - btnReject.Width - 10, 13);
+                    dlg.BringToFront();
+                    dlg.Activate();
                 };
 
                 return dlg.ShowDialog(this);
@@ -2593,11 +2608,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             else if (string.Equals(item.Kind, "tool_call", StringComparison.Ordinal))
             {
-                AppendToolEntry("call", item.Text, Color.FromArgb(96, 62, 14));
+                AppendToolEntry("call", item.Text, item.Raw);
             }
             else if (string.Equals(item.Kind, "tool_result", StringComparison.Ordinal))
             {
-                AppendToolEntry("result", item.Text, Color.Gray);
+                AppendToolEntry("result", item.Text, item.Raw);
             }
             else if (string.Equals(item.Kind, "tool", StringComparison.Ordinal))
             {
@@ -2619,8 +2634,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
         }
 
-        // 工具调用/结果紧凑单行显示，放在思维链折叠窗口内（不单独占对话区空间）。
-        private void AppendToolEntry(string marker, string text, Color color)
+        // 工具调用/结果紧凑单行显示；连续相同项合并计数，避免重复占用纵向空间。
+        private void AppendToolEntry(string marker, string text, JObject raw)
         {
             if (webViewConversation == null || webViewConversation.IsDisposed)
             {
@@ -2628,9 +2643,26 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             bool isCall = string.Equals(marker, "call", StringComparison.Ordinal);
             string cls = isCall ? "tool-call" : "tool-result";
-            string display = isCall ? "工具调用" : "工具返回";
-            string html = "<div class=\"" + cls + "\">" + display + " " + HtmlEncode(text) + "</div>";
-            AppendToThinkingBox(html);
+            string display = isCall ? "调用" : "结果";
+            string normalizedText = string.IsNullOrWhiteSpace(text) ? "无摘要" : text.Trim();
+            string callId = raw?["params"]?["update"]?["toolCallId"]?.Value<string>()
+                ?? raw?["params"]?["toolCallId"]?.Value<string>()
+                ?? string.Empty;
+            string html = "<div class=\"tool-entry " + cls + "\" title=\"" + HtmlEncode(normalizedText) + "\">"
+                + "<span class=\"tool-entry-label\">" + display + "</span>"
+                + "<span class=\"tool-entry-text\">" + HtmlEncode(normalizedText) + "</span>"
+                + "<span class=\"tool-entry-count\" style=\"display:none\"></span></div>";
+            string boxId = EnsureThinkingBox();
+            string htmlJson = JsonConvert.SerializeObject(html);
+            string signatureJson = JsonConvert.SerializeObject(marker + "\n" + normalizedText);
+            string callIdJson = JsonConvert.SerializeObject(callId);
+            string js = "var box=document.getElementById('" + boxId + "');if(box){var callId=" + callIdJson + ";var sig=" + signatureJson
+                + ";var paired=null;if(callId){var entries=box.querySelectorAll('.tool-entry');for(var i=entries.length-1;i>=0;i--){if(entries[i].dataset.callId===callId){paired=entries[i];break;}}}"
+                + "if(paired&&" + (isCall ? "false" : "true") + "){paired.classList.remove('tool-call');paired.classList.add('tool-result');paired.title=paired.title+' | '+"
+                + JsonConvert.SerializeObject(normalizedText) + ";var label=paired.querySelector('.tool-entry-label');if(label){label.textContent='完成';}var value=paired.querySelector('.tool-entry-text');if(value){value.textContent=value.textContent+'  →  '+"
+                + JsonConvert.SerializeObject(normalizedText) + ";}}else{var entries2=box.querySelectorAll('.tool-entry');var last=entries2.length?entries2[entries2.length-1]:null;if(last&&last.dataset.signature===sig){var count=parseInt(last.dataset.count||'1',10)+1;last.dataset.count=count;var badge=last.querySelector('.tool-entry-count');if(badge){badge.textContent='×'+count;badge.style.display='inline-block';}}else{box.insertAdjacentHTML('beforeend',"
+                + htmlJson + ");var added=box.lastElementChild;if(added){added.dataset.signature=sig;added.dataset.count='1';added.dataset.callId=callId;}}}scrollThinkingBoxToBottom('" + boxId + "');}";
+            EnqueueScript(js);
         }
 
         // 确保思维链窗口存在（首次调用时创建），返回窗口 ID。
@@ -2877,24 +2909,39 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         // 串行化 ExecuteScriptAsync：通过 ContinueWith 链保证脚本按入队顺序执行（状态修改在调用前同步完成，脚本内 HTML 已捕获）。
         private void EnqueueScript(string js)
         {
-            WebView2 localWebView = webViewConversation;
-            if (localWebView == null || localWebView.CoreWebView2 == null)
+            if (webViewClosing || IsDisposed || Disposing)
             {
                 return;
             }
-            pendingScriptTask = pendingScriptTask.ContinueWith(
-                async _ =>
-                {
-                    try
+            WebView2 localWebView = webViewConversation;
+            var localCoreWebView = localWebView?.CoreWebView2;
+            if (localWebView == null || localWebView.IsDisposed || localCoreWebView == null)
+            {
+                return;
+            }
+            try
+            {
+                pendingScriptTask = (pendingScriptTask ?? Task.CompletedTask).ContinueWith(
+                    async _ =>
                     {
-                        await localWebView.CoreWebView2.ExecuteScriptAsync(js);
-                    }
-                    catch
-                    {
-                        // 忽略脚本执行异常，避免单条脚本失败阻塞后续渲染。
-                    }
-                },
-                TaskScheduler.FromCurrentSynchronizationContext()).Unwrap();
+                        try
+                        {
+                            if (!webViewClosing && !localWebView.IsDisposed)
+                            {
+                                await localCoreWebView.ExecuteScriptAsync(js);
+                            }
+                        }
+                        catch
+                        {
+                            // WebView 关闭或单条脚本失败时终止本次渲染，不影响窗体退出。
+                        }
+                    },
+                    TaskScheduler.FromCurrentSynchronizationContext()).Unwrap();
+            }
+            catch (InvalidOperationException)
+            {
+                // 窗体关闭期间 UI 同步上下文可能已终止，不再接受新脚本。
+            }
         }
 
         // HTML 转义文本（< > & 等）。
@@ -3163,16 +3210,27 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 return;
             }
 
-            // 只处理预演类工具返回（intent.preview / patch.preview），避免误匹配。
-            string resultType = resultObj["type"]?.Value<string>() ?? string.Empty;
-            if (!string.Equals(resultType, "intent.preview", StringComparison.Ordinal)
-                && !string.Equals(resultType, "patch.preview", StringComparison.Ordinal))
+            // Bridge 的预演类型不只有 intent.preview / patch.preview，流程结构操作还会
+            // 以 proc.create / proc.delete / proc.reorder / proc.copy 返回。以服务端统一的
+            // previewId + confirmed=false 判定“待前台确认的预演”，避免每新增一种类型就漏弹审核窗口。
+            JObject resultData = resultObj["data"] as JObject;
+            string previewId = resultData?["previewId"]?.Value<string>();
+            bool confirmed = resultData?["confirmed"]?.Value<bool?>()
+                ?? resultData?["preview"]?["confirmed"]?.Value<bool?>()
+                ?? false;
+            bool committed = resultData?["committed"]?.Value<bool?>() == true;
+            string mode = resultData?["mode"]?.Value<string>()
+                ?? resultData?["apply"]?["mode"]?.Value<string>()
+                ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(previewId)
+                || confirmed
+                || committed
+                || string.Equals(mode, "apply", StringComparison.Ordinal))
             {
                 return;
             }
 
-            string previewId = resultObj["data"]?["previewId"]?.Value<string>();
-            if (string.IsNullOrWhiteSpace(previewId) || promptedPreviewIds.Contains(previewId))
+            if (promptedPreviewIds.Contains(previewId))
             {
                 return;
             }
@@ -3196,13 +3254,12 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             else
             {
-                AppendConversation("系统", $"预演未确认：{previewId}", Color.DarkOrange);
+                await RejectPreviewAsync(previewId).ConfigureAwait(true);
+                AppendConversation("系统", "已取消本次变更。", Color.DarkOrange);
             }
         }
 
-        // 注意：使用 ConfigureAwait(false) + BeginInvoke 包装 UI 更新，
-        // 使得本方法可被 HandlePermissionRequest 同步等待（.GetAwaiter().GetResult()），
-        // 避免 fire-and-forget 导致 Goose 在确认完成前就提交变更触发 ValidateConfirmedPreview 失败。
+        // Bridge 确认请求不占用 UI 线程，确认完成后再更新前台状态。
         private async Task ConfirmPreviewAsync(string previewId)
         {
             try
@@ -3211,12 +3268,25 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 {
                     ["previewId"] = previewId
                 }).ConfigureAwait(false);
-                lastConfirmedPreviewId = previewId;
-                BeginInvoke((Action)(() => AppendConversation("系统", $"预演已确认，previewId={previewId}。提交时必须携带该 previewId。", Color.FromArgb(35, 92, 48))));
             }
             catch (Exception ex)
             {
                 BeginInvoke((Action)(() => AppendConversation("错误", "确认预演失败：" + ex.Message, Color.Red)));
+            }
+        }
+
+        private async Task RejectPreviewAsync(string previewId)
+        {
+            try
+            {
+                await SendBridgeRequestAsync("POST", "/bridge/previews/reject", new JObject
+                {
+                    ["previewId"] = previewId
+                }).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                BeginInvoke((Action)(() => AppendConversation("错误", "取消预演失败：" + ex.Message, Color.Red)));
             }
         }
 

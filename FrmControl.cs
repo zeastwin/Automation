@@ -27,8 +27,8 @@ namespace Automation
 {
     public partial class FrmControl : Form
     {
-        public System.Drawing.Image validImage = Properties.Resources.vaild;
-        public System.Drawing.Image invalidImage = Properties.Resources.invalid;
+        public System.Drawing.Image validImage = UiStatusImages.CreateValidImage();
+        public System.Drawing.Image invalidImage = UiStatusImages.CreateInvalidImage();
         public BindingSource bindingSource = new BindingSource();
         public List<System.Windows.Forms.TextBox> PosTextBox = new List<System.Windows.Forms.TextBox>();
         public List<System.Windows.Forms.PictureBox> pictureBoxes = new List<System.Windows.Forms.PictureBox>();

@@ -3,6 +3,7 @@ using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Drawing;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -58,7 +59,7 @@ namespace Automation
             }
             if (type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)
                 || type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(TimeSpan)
-                || type == typeof(Guid))
+                || type == typeof(Guid) || type == typeof(Color))
             {
                 return true;
             }
@@ -102,7 +103,8 @@ namespace Automation
             if (!string.Equals(simpleName, AutomationAssembly.GetName().Name, StringComparison.Ordinal)
                 && !string.Equals(simpleName, "mscorlib", StringComparison.Ordinal)
                 && !string.Equals(simpleName, "System", StringComparison.Ordinal)
-                && !string.Equals(simpleName, "System.Core", StringComparison.Ordinal))
+                && !string.Equals(simpleName, "System.Core", StringComparison.Ordinal)
+                && !string.Equals(simpleName, typeof(Color).Assembly.GetName().Name, StringComparison.Ordinal))
             {
                 throw new JsonSerializationException($"配置引用了不允许的程序集：{simpleName}");
             }

@@ -476,19 +476,15 @@ namespace Automation
             }
             startInfo.EnvironmentVariables["PATH"] = machineGitCommandPath + Path.PathSeparator
                 + (startInfo.EnvironmentVariables["PATH"] ?? Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
-            // 根目录 AGENTS.MD 是平台开发规范，不属于自动化项目开发上下文；
-            // Goose 仅加载当前 Hmi 工作区的 .goosehints。
-            startInfo.EnvironmentVariables["CONTEXT_FILE_NAMES"] = "[\".goosehints\"]";
-            // 保留 Goose 用户级 AGENTS.md（%USERPROFILE%\.agents\AGENTS.md），
-            // 但不让它通过项目 Git 根目录上下文重新带入平台开发用 AGENTS.MD。
-            string gooseUserAgentsPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".agents", "AGENTS.md");
-            if (File.Exists(gooseUserAgentsPath)
-                && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GOOSE_MOIM_MESSAGE_FILE")))
+            // Hmi 是客户可修改目录，不从其中加载平台内部规范。
+            // Automation 专用上下文由程序内嵌资源部署到受管目录，仅注入当前 EW-AI 进程。
+            startInfo.EnvironmentVariables["CONTEXT_FILE_NAMES"] = "[]";
+            if (!File.Exists(GooseRuntimeProvisioner.IntegrationContextPath))
             {
-                startInfo.EnvironmentVariables["GOOSE_MOIM_MESSAGE_FILE"] = gooseUserAgentsPath;
+                throw new FileNotFoundException("Automation 专用 Goose 上下文不存在。",
+                    GooseRuntimeProvisioner.IntegrationContextPath);
             }
+            startInfo.EnvironmentVariables["GOOSE_MOIM_MESSAGE_FILE"] = GooseRuntimeProvisioner.IntegrationContextPath;
 
             string configuredProvider = config.Provider?.Trim();
             bool useDeepSeekProvider = string.Equals(configuredProvider, "deepseek", StringComparison.OrdinalIgnoreCase);
@@ -943,11 +939,16 @@ namespace Automation
         private static readonly Dictionary<string, string> toolDisplayNames = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             {"automation__list_procs", "列出所有流程"},
+            {"automation__search_proc_catalog", "搜索流程目录"},
             {"automation__get_proc_overview", "获取流程概览"},
             {"automation__get_proc_detail", "获取流程详情"},
+            {"automation__get_op_detail", "获取指令详情"},
+            {"automation__get_step_detail", "获取步骤详情"},
+            {"automation__search_ops", "搜索指令"},
             {"automation__list_operation_types", "列出指令类型"},
             {"automation__get_operation_schema", "获取指令Schema"},
             {"automation__get_operation_guide", "获取指令调用说明"},
+            {"automation__op_meta", "获取指令元数据"},
             {"automation__get_reference_catalog", "获取引用目录"},
             {"automation__list_intent_templates", "列出意图模板"},
             {"automation__get_intent_template", "获取意图模板"},
@@ -961,6 +962,7 @@ namespace Automation
             {"automation__diagnose_proc", "诊断流程"},
             {"automation__get_patch_contract", "获取调用约束"},
             {"automation__create_proc", "创建流程"},
+            {"automation__create_proc_batch", "批量创建完整流程"},
             {"automation__apply_create_proc", "提交流程创建"},
             {"automation__delete_procs", "批量删除流程"},
             {"automation__apply_delete_procs", "提交流程删除"},
@@ -968,7 +970,14 @@ namespace Automation
             {"automation__apply_reorder_proc", "提交流程重排"},
             {"automation__copy_proc", "复制流程"},
             {"automation__apply_copy_proc", "提交流程复制"},
-            {"automation__control_proc", "控制流程运行"}
+            {"automation__control_proc", "控制流程运行"},
+            {"automation__get_snapshot", "获取平台快照"},
+            {"automation__list_variables", "列出变量"},
+            {"automation__search_variables", "搜索变量"},
+            {"automation__list_io", "列出 IO"},
+            {"automation__search_io", "搜索 IO"},
+            {"automation__list_alarms", "列出报警"},
+            {"automation__list_resources", "列出资源"}
         };
 
         // 工具返回 type → 中文摘要名映射。
@@ -992,7 +1001,12 @@ namespace Automation
             {"patch.apply", "补丁提交"},
             {"proc.manage.preview", "流程结构预演"},
             {"proc.manage.apply", "流程结构提交"},
-            {"proc.control", "流程控制"}
+            {"proc.control", "流程控制"},
+            {"proc.create_batch", "完整流程变更集"},
+            {"op.meta", "指令元数据"},
+            {"io.list", "IO 列表"},
+            {"variable.list", "变量列表"},
+            {"resource.list", "资源列表"}
         };
 
         // 优先用 toolName 映射中文显示名，无映射则回退到 title。

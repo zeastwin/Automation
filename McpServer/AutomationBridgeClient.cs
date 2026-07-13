@@ -9,6 +9,8 @@ namespace Automation.McpServer
 {
     internal sealed class AutomationBridgeClient : IDisposable
     {
+        private const int MaxRequestBytes = 1024 * 1024;
+        private const int MaxResponseBytes = 8 * 1024 * 1024;
         private readonly AutomationMcpOptions options;
         private readonly JsonSerializerOptions jsonOptions;
 
@@ -187,6 +189,15 @@ namespace Automation.McpServer
             if (disable.HasValue) payload["disable"] = disable.Value;
             AddPreviewIdIfPresent(payload, previewId);
             return PostAsync("/bridge/proc/create", payload);
+        }
+
+        public Task<string> CreateProcBatchAsync(CreateProcBatchDefinition definition, string? previewId)
+        {
+            JsonNode definitionNode = JsonSerializer.SerializeToNode(definition, jsonOptions)
+                ?? throw new ArgumentException("流程变更集不能为 null。", nameof(definition));
+            JsonObject payload = new JsonObject { ["definition"] = definitionNode };
+            AddPreviewIdIfPresent(payload, previewId);
+            return PostAsync("/bridge/proc/create_batch", payload);
         }
 
         public Task<string> DeleteProcsAsync(int[] procIndexes, string? previewId)
@@ -641,6 +652,10 @@ namespace Automation.McpServer
                     Path = path,
                     BodyJson = payloadJson ?? "{}"
                 }, jsonOptions);
+                if (Encoding.UTF8.GetByteCount(request) > MaxRequestBytes)
+                {
+                    return BuildBridgeError("REQUEST_TOO_LARGE", $"Bridge 请求超过 {MaxRequestBytes / 1024} KB 上限。", details: BuildStageDetails(stage, path, requestId));
+                }
 
                 stage = "write_request";
                 await WriteMessageAsync(pipe, request, cts.Token).ConfigureAwait(false);
@@ -715,9 +730,9 @@ namespace Automation.McpServer
         {
             byte[] lengthBuffer = await ReadExactlyAsync(stream, sizeof(int), cancellationToken).ConfigureAwait(false);
             int length = BitConverter.ToInt32(lengthBuffer, 0);
-            if (length < 0)
+            if (length < 0 || length > MaxResponseBytes)
             {
-                throw new InvalidDataException("Bridge 响应长度非法。");
+                throw new InvalidDataException($"Bridge 响应长度非法或超过 {MaxResponseBytes / 1024 / 1024} MB 上限。");
             }
             if (length == 0)
             {

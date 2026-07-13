@@ -14,7 +14,8 @@ namespace Automation
         private static readonly object SaveLock = new object();
         private static readonly JsonSerializerSettings Settings = new JsonSerializerSettings
         {
-            TypeNameHandling = TypeNameHandling.All,
+            // 只为多态对象写入 $type；Color 等已知字段类型不写冗余类型元数据。
+            TypeNameHandling = TypeNameHandling.Auto,
             SerializationBinder = AutomationConfigSerializationBinder.Instance,
             ObjectCreationHandling = ObjectCreationHandling.Replace
         };

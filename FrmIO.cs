@@ -17,8 +17,8 @@ namespace Automation
     {
         public List<List<IO>> IOMap = new List<List<IO>>();
         public Dictionary<string,IO> DicIO = new Dictionary<string,IO>();
-        public System.Drawing.Image validImage = Properties.Resources.vaild;
-        public System.Drawing.Image invalidImage = Properties.Resources.invalid;
+        public System.Drawing.Image validImage = UiStatusImages.CreateValidImage();
+        public System.Drawing.Image invalidImage = UiStatusImages.CreateInvalidImage();
         public int iSelectedIORow = -1;
         public List<string> IoOutItems = new List<string>();
         public List<string> IoInItems = new List<string>();

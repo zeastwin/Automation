@@ -10,6 +10,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using static System.ComponentModel.TypeConverter;
 
 namespace Automation.Bridge
@@ -20,6 +21,12 @@ namespace Automation.Bridge
         private const int MaxOverviewOperationCount = 300;
         private const int MaxDetailOperationCount = 80;
         private const int MaxStepDetailOperationCount = 100;
+        private const int MaxBatchStepCount = 10;
+        private const int MaxBatchOperationCount = 20;
+        private const int MaxBatchStepOperationCount = 20;
+        private const int MaxBatchDefinitionUtf8Bytes = 64 * 1024;
+        private const int MaxBatchFieldValuesUtf8Bytes = 8 * 1024;
+        private const int MaxBatchNameLength = 64;
         private static readonly LocalFileLogger bridgeErrorLogger = new LocalFileLogger(
             Path.Combine(@"D:\AutomationLogs", "Bridge"));
 
@@ -186,19 +193,29 @@ namespace Automation.Bridge
                     case "/bridge/patch/preview_intent":
                         return WrapResponse("patch.preview_intent", ExecuteOnUiThread(() => HandlePreviewIntent(request)));
                     case "/bridge/patch/apply_intent":
+                        WaitForPreviewConfirmation(request);
                         return WrapResponse("patch.apply_intent", ExecuteOnUiThread(() => HandleApplyIntent(request)));
                     case "/bridge/patch/preview_patch":
                         return WrapResponse("patch.preview_patch", ExecuteOnUiThread(() => HandlePreviewPatch(request)));
                     case "/bridge/patch/apply_patch":
+                        WaitForPreviewConfirmation(request);
                         return WrapResponse("patch.apply_patch", ExecuteOnUiThread(() => HandleApplyPatch(request)));
                     // ---------- proc_manage 拆分端点（previewId 为空预演，非空提交） ----------
                     case "/bridge/proc/create":
+                        WaitForPreviewConfirmation(request, false);
                         return WrapResponse("proc.create", ExecuteOnUiThread(() => HandleCreateOrApply(request)));
+                    case "/bridge/proc/create_batch":
+                        ValidateCreateBatchRequestShape(request);
+                        WaitForPreviewConfirmation(request, false);
+                        return WrapResponse("proc.create_batch", ExecuteOnUiThread(() => HandleCreateBatchOrApply(request)));
                     case "/bridge/proc/delete":
+                        WaitForPreviewConfirmation(request, false);
                         return WrapResponse("proc.delete", ExecuteOnUiThread(() => HandleDeleteOrApply(request)));
                     case "/bridge/proc/reorder":
+                        WaitForPreviewConfirmation(request, false);
                         return WrapResponse("proc.reorder", ExecuteOnUiThread(() => HandleReorderOrApply(request)));
                     case "/bridge/proc/copy":
+                        WaitForPreviewConfirmation(request, false);
                         return WrapResponse("proc.copy", ExecuteOnUiThread(() => HandleCopyOrApply(request)));
                     // ---------- control_proc 拆分端点（直接构造 action 调用 HandleControlProc） ----------
                     case "/bridge/proc/start":
@@ -276,6 +293,8 @@ namespace Automation.Bridge
                         return WrapResponse("resources", ExecuteOnUiThread(() => HandleListResources(request)));
                     case "/bridge/previews/confirm":
                         return WrapResponse("preview.confirm", ExecuteOnUiThread(() => HandleConfirmPreview(request)));
+                    case "/bridge/previews/reject":
+                        return WrapResponse("preview.reject", HandleRejectPreview(request));
                     default:
                         throw new BridgeRequestException(404, "NOT_FOUND", $"未知的 Bridge 端点：{normalizedPath}");
                 }
@@ -758,7 +777,7 @@ namespace Automation.Bridge
             }
             JObject patch = ConvertIntentToPatch(intent);
             ValidateConfirmedPreview(previewId, patch);
-            PatchExecutionResult result = ExecutePatch(patch);
+            PatchExecutionResult result = GetStoredPatchResult(previewId);
             CommitPatch(result.ProcIndex, result.Proc, result.AffectedOps);
             RemovePreview(previewId);
 
@@ -882,6 +901,7 @@ namespace Automation.Bridge
                 EnsurePreviewProcVersion(record);
                 record.Confirmed = true;
                 record.ConfirmedAtUtc = DateTime.UtcNow;
+                Monitor.PulseAll(previewLock);
             }
 
             return new JObject
@@ -893,6 +913,64 @@ namespace Automation.Bridge
                 ["confirmed"] = true,
                 ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
             };
+        }
+
+        private JObject HandleRejectPreview(JObject request)
+        {
+            string previewId = ReadRequiredString(request, "previewId");
+            lock (previewLock)
+            {
+                CleanupExpiredPreviewsLocked();
+                if (!previewRecords.TryGetValue(previewId, out PreviewApprovalRecord record))
+                {
+                    return BridgeError(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
+                }
+                record.Rejected = true;
+                Monitor.PulseAll(previewLock);
+            }
+            return new JObject { ["previewId"] = previewId, ["rejected"] = true };
+        }
+
+        // 提交请求可能在用户操作审核窗口前抵达。在 Bridge 工作线程等待审核结果，
+        // 不占用 UI 线程；确认后原提交直接继续，拒绝则明确终止。
+        private void WaitForPreviewConfirmation(JObject request, bool previewIdRequired = true)
+        {
+            string previewId = ReadOptionalString(request, "previewId");
+            if (string.IsNullOrWhiteSpace(previewId))
+            {
+                if (previewIdRequired)
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", "提交阶段必须携带 previewId。");
+                }
+                return;
+            }
+            ValidatePreviewIdFormat(previewId);
+            DateTime deadline = DateTime.UtcNow.AddSeconds(110);
+            lock (previewLock)
+            {
+                while (true)
+                {
+                    CleanupExpiredPreviewsLocked();
+                    if (!previewRecords.TryGetValue(previewId, out PreviewApprovalRecord record))
+                    {
+                        throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
+                    }
+                    if (record.Confirmed)
+                    {
+                        return;
+                    }
+                    if (record.Rejected)
+                    {
+                        throw new BridgeRequestException(409, "PREVIEW_REJECTED", "用户已拒绝本次预演，未执行提交。");
+                    }
+                    TimeSpan remaining = deadline - DateTime.UtcNow;
+                    if (remaining <= TimeSpan.Zero)
+                    {
+                        throw new BridgeRequestException(408, "PREVIEW_CONFIRM_TIMEOUT", "等待前台确认预演超时，未执行提交。");
+                    }
+                    Monitor.Wait(previewLock, remaining);
+                }
+            }
         }
 
         // 流程运行控制：启动/停止/暂停/恢复。不需要预演确认。
@@ -1132,6 +1210,225 @@ namespace Automation.Bridge
             };
         }
 
+        private JObject HandleCreateBatchOrApply(JObject request)
+        {
+            string previewId = ReadOptionalString(request, "previewId");
+            JObject definition = ReadRequiredObject(request, "definition");
+            if (string.IsNullOrWhiteSpace(previewId))
+            {
+                return PreviewCreateProcBatch(definition);
+            }
+
+            ValidateConfirmedManagePreview(previewId);
+            PreviewApprovalRecord record;
+            lock (previewLock)
+            {
+                if (!previewRecords.TryGetValue(previewId, out record)
+                    || record.DraftProc == null
+                    || !JToken.DeepEquals(record.Patch, definition))
+                {
+                    throw new BridgeRequestException(409, "PREVIEW_PATCH_MISMATCH", "提交的流程变更集与已确认预演不一致。");
+                }
+            }
+
+            Proc draft = ObjectGraphCloner.Clone(record.DraftProc);
+            int procIndex = SF.frmProc.procsList.Count;
+            EnsureAllProcsStoppedForAiStructureCommit("批量创建流程");
+            SF.frmProc.procsList.Add(draft);
+            if (!SF.frmProc.RebuildWorkConfig(procIndex))
+            {
+                if (SF.frmProc.procsList.Count > procIndex)
+                {
+                    SF.frmProc.procsList.RemoveAt(procIndex);
+                }
+                throw new BridgeRequestException(500, "SAVE_FAILED", "批量创建流程失败，原流程配置已恢复。");
+            }
+            RemovePreview(previewId);
+            NotifyProcChanged(procIndex, ProcChangeKind.Added);
+            return new JObject
+            {
+                ["action"] = "create_proc_batch",
+                ["procIndex"] = procIndex,
+                ["procName"] = draft.head?.Name ?? string.Empty,
+                ["stepCount"] = draft.steps?.Count ?? 0,
+                ["operationCount"] = CountOperations(draft),
+                ["committed"] = true
+            };
+        }
+
+        // 纯JSON结构和大小校验不依赖WinForms状态，必须在切换UI线程前完成，
+        // 避免无效请求因UI线程繁忙而长时间等待。
+        private void ValidateCreateBatchRequestShape(JObject request)
+        {
+            JObject definition = ReadRequiredObject(request, "definition");
+            int definitionBytes = Encoding.UTF8.GetByteCount(definition.ToString(Formatting.None));
+            if (definitionBytes > MaxBatchDefinitionUtf8Bytes)
+            {
+                throw new BridgeRequestException(413, "BATCH_DEFINITION_TOO_LARGE",
+                    $"流程变更集超过 {MaxBatchDefinitionUtf8Bytes / 1024} KB 上限，请缩小单次构建规模。");
+            }
+            JToken stepsToken = definition["steps"];
+            if (!(stepsToken is JArray steps))
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "definition.steps 必须是数组。");
+            }
+            if (steps.Count < 1 || steps.Count > MaxBatchStepCount)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT",
+                    $"steps 数量必须在 1..{MaxBatchStepCount} 之间。");
+            }
+
+            int operationCount = 0;
+            for (int stepIndex = 0; stepIndex < steps.Count; stepIndex++)
+            {
+                if (!(steps[stepIndex] is JObject step))
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"definition.steps[{stepIndex}] 必须是对象。");
+                }
+                JToken operationsToken = step["operations"];
+                if (!(operationsToken is JArray operations))
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT",
+                        $"definition.steps[{stepIndex}].operations 必须是数组。");
+                }
+                if (operations.Count > MaxBatchStepOperationCount)
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT",
+                        $"definition.steps[{stepIndex}].operations 最多 {MaxBatchStepOperationCount} 条。");
+                }
+                operationCount += operations.Count;
+                if (operationCount > MaxBatchOperationCount)
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT",
+                        $"单次流程变更集累计指令数最多 {MaxBatchOperationCount} 条。");
+                }
+            }
+        }
+
+        private JObject PreviewCreateProcBatch(JObject definition)
+        {
+            EnsureRuntimeReady();
+            EnsureAllProcsStoppedForAiStructureCommit("批量创建流程");
+            int definitionBytes = Encoding.UTF8.GetByteCount(definition.ToString(Formatting.None));
+            if (definitionBytes > MaxBatchDefinitionUtf8Bytes)
+            {
+                throw new BridgeRequestException(413, "BATCH_DEFINITION_TOO_LARGE", $"流程变更集超过 {MaxBatchDefinitionUtf8Bytes / 1024} KB 上限，请缩小单次构建规模。");
+            }
+            string name = ReadRequiredString(definition, "name");
+            ValidateBatchName(name, "definition.name");
+            if (SF.frmProc.procsList.Any(item => string.Equals(item?.head?.Name, name, StringComparison.Ordinal)))
+            {
+                throw new BridgeRequestException(409, "PROC_NAME_EXISTS", $"流程名称已存在：{name}");
+            }
+            JArray steps = ReadRequiredArray(definition, "steps");
+            if (steps.Count == 0 || steps.Count > MaxBatchStepCount)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"steps 数量必须在 1..{MaxBatchStepCount} 之间。");
+            }
+
+            int procIndex = SF.frmProc.procsList.Count;
+            var draft = new Proc
+            {
+                head = new ProcHead
+                {
+                    Name = name,
+                    AutoStart = ReadOptionalBoolean(definition, "autoStart") ?? false,
+                    Disable = ReadOptionalBoolean(definition, "disable") ?? false
+                },
+                steps = new List<Step>()
+            };
+            var result = new PatchExecutionResult { ProcIndex = procIndex, Proc = draft };
+            int operationCount = 0;
+            for (int stepIndex = 0; stepIndex < steps.Count; stepIndex++)
+            {
+                if (!(steps[stepIndex] is JObject stepDefinition))
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"steps[{stepIndex}] 必须是 JSON 对象。");
+                }
+                var step = new Step
+                {
+                    Id = Guid.NewGuid(),
+                    Name = ReadRequiredString(stepDefinition, "name"),
+                    Disable = ReadOptionalBoolean(stepDefinition, "disable") ?? false,
+                    Ops = new List<OperationType>()
+                };
+                ValidateBatchName(step.Name, $"steps[{stepIndex}].name");
+                draft.steps.Add(step);
+                result.Changes.Add(new JObject
+                {
+                    ["type"] = "append_step",
+                    ["stepIndex"] = stepIndex,
+                    ["stepId"] = step.Id.ToString("D"),
+                    ["name"] = step.Name
+                });
+                JArray operations = ReadOptionalArray(stepDefinition, "operations") ?? new JArray();
+                if (operations.Count > MaxBatchStepOperationCount)
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"steps[{stepIndex}].operations 最多允许 {MaxBatchStepOperationCount} 条指令。");
+                }
+                operationCount += operations.Count;
+                if (operationCount > MaxBatchOperationCount)
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"单次流程变更集最多允许 {MaxBatchOperationCount} 条指令。");
+                }
+                for (int opIndex = 0; opIndex < operations.Count; opIndex++)
+                {
+                    if (!(operations[opIndex] is JObject operation))
+                    {
+                        throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"steps[{stepIndex}].operations[{opIndex}] 必须是 JSON 对象。");
+                    }
+                    JObject action = new JObject
+                    {
+                        ["operaType"] = ReadRequiredString(operation, "operaType")
+                    };
+                    JObject fieldValues = ReadOptionalObject(operation, "fieldValues");
+                    if (fieldValues != null)
+                    {
+                        int fieldValuesBytes = Encoding.UTF8.GetByteCount(fieldValues.ToString(Formatting.None));
+                        if (fieldValuesBytes > MaxBatchFieldValuesUtf8Bytes)
+                        {
+                            throw new BridgeRequestException(413, "FIELD_VALUES_TOO_LARGE", $"steps[{stepIndex}].operations[{opIndex}].fieldValues 超过 {MaxBatchFieldValuesUtf8Bytes / 1024} KB 上限。");
+                        }
+                        action["fieldValues"] = fieldValues.DeepClone();
+                    }
+                    InsertOperationCore(action, draft, step, result, operationCount, step.Ops.Count, "append_operation");
+                }
+            }
+            List<string> errors = new List<string>();
+            ProcessDefinitionService.NormalizeProc(procIndex, draft, errors);
+            if (errors.Count > 0)
+            {
+                throw new BridgeRequestException(400, "PROC_VALIDATE_FAILED", "流程变更集校验失败。", string.Join("\r\n", errors.Distinct()));
+            }
+
+            string previewId = RegisterManagePreview(definition);
+            lock (previewLock)
+            {
+                previewRecords[previewId].DraftProc = ObjectGraphCloner.Clone(draft);
+            }
+            return new JObject
+            {
+                ["action"] = "create_proc_batch",
+                ["procName"] = name,
+                ["targetIndex"] = procIndex,
+                ["stepCount"] = draft.steps.Count,
+                ["operationCount"] = operationCount,
+                ["changes"] = result.Changes,
+                ["messages"] = new JArray($"将创建流程「{name}」，包含 {draft.steps.Count} 个步骤、{operationCount} 条指令。"),
+                ["previewId"] = previewId,
+                ["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true,
+                ["committed"] = false
+            };
+        }
+
+        private static void ValidateBatchName(string value, string fieldPath)
+        {
+            if (value.Length > MaxBatchNameLength)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"字段 {fieldPath} 最长 {MaxBatchNameLength} 个字符。");
+            }
+        }
+
         private JObject ExecuteDeleteProcs(JObject request)
         {
             JArray indexes = ReadRequiredArray(request, "procIndexes");
@@ -1307,6 +1604,7 @@ namespace Automation.Bridge
             lock (previewLock)
             {
                 CleanupExpiredPreviewsLocked();
+                EnsureNoActivePreviewLocked();
                 // 复用 PreviewApprovalRecord，patch 字段存 previewData
                 var record = new PreviewApprovalRecord
                 {
@@ -1358,7 +1656,7 @@ namespace Automation.Bridge
         {
             string previewId = ReadRequiredString(request, "previewId");
             ValidateConfirmedPreview(previewId, request);
-            PatchExecutionResult result = ExecutePatch(request);
+            PatchExecutionResult result = GetStoredPatchResult(previewId);
             CommitPatch(result.ProcIndex, result.Proc, result.AffectedOps);
             RemovePreview(previewId);
 
@@ -4827,16 +5125,59 @@ namespace Automation.Bridge
                 BaseProcId = ReadRequiredString(normalizedPatch, "baseProcId"),
                 CreatedAtUtc = DateTime.UtcNow,
                 ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
-                Confirmed = false
+                Confirmed = false,
+                DraftProc = ObjectGraphCloner.Clone(result.Proc),
+                PreviewMessages = new List<string>(result.Messages ?? new List<string>()),
+                PreviewChanges = result.Changes == null ? new JArray() : (JArray)result.Changes.DeepClone(),
+                AffectedOps = result.AffectedOps == null
+                    ? new List<(int stepIndex, int opIndex, ProcChangeKind kind)>()
+                    : new List<(int stepIndex, int opIndex, ProcChangeKind kind)>(result.AffectedOps)
             };
 
             lock (previewLock)
             {
                 CleanupExpiredPreviewsLocked();
+                EnsureNoActivePreviewLocked();
                 previewRecords[record.PreviewId] = record;
             }
 
             return record;
+        }
+
+        private PatchExecutionResult GetStoredPatchResult(string previewId)
+        {
+            lock (previewLock)
+            {
+                if (!previewRecords.TryGetValue(previewId, out PreviewApprovalRecord record)
+                    || record.DraftProc == null)
+                {
+                    throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND", $"预演草稿不存在或已过期：{previewId}");
+                }
+                return new PatchExecutionResult
+                {
+                    ProcIndex = record.ProcIndex,
+                    Proc = ObjectGraphCloner.Clone(record.DraftProc),
+                    Messages = new List<string>(record.PreviewMessages ?? new List<string>()),
+                    Changes = record.PreviewChanges == null ? new JArray() : (JArray)record.PreviewChanges.DeepClone(),
+                    AffectedOps = record.AffectedOps == null
+                        ? new List<(int stepIndex, int opIndex, ProcChangeKind kind)>()
+                        : new List<(int stepIndex, int opIndex, ProcChangeKind kind)>(record.AffectedOps)
+                };
+            }
+        }
+
+        private void EnsureNoActivePreviewLocked()
+        {
+            PreviewApprovalRecord active = previewRecords.Values.FirstOrDefault(item =>
+                item != null && !item.Rejected && item.ExpiresAtUtc > DateTime.UtcNow);
+            if (active != null)
+            {
+                throw new BridgeRequestException(
+                    409,
+                    "PREVIEW_IN_FLIGHT",
+                    "当前预演尚未完成提交或拒绝，禁止并行创建第二个预演。",
+                    $"activePreviewId={active.PreviewId}; confirmed={active.Confirmed}; actionRequired=wait_for_current_preview_completion");
+            }
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
@@ -5919,6 +6260,20 @@ namespace Automation.Bridge
             return array;
         }
 
+        private static JArray ReadOptionalArray(JObject request, string fieldName)
+        {
+            JToken token = request?[fieldName];
+            if (token == null || token.Type == JTokenType.Null)
+            {
+                return null;
+            }
+            if (!(token is JArray array))
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"字段 {fieldName} 必须是数组。");
+            }
+            return array;
+        }
+
         [System.Diagnostics.DebuggerNonUserCode]
         private static void WithOperationReadContext(OperationType op, Action action)
         {
@@ -6440,6 +6795,16 @@ namespace Automation.Bridge
             public DateTime ExpiresAtUtc { get; set; }
 
             public bool Confirmed { get; set; }
+
+            public bool Rejected { get; set; }
+
+            public Proc DraftProc { get; set; }
+
+            public List<string> PreviewMessages { get; set; }
+
+            public JArray PreviewChanges { get; set; }
+
+            public List<(int stepIndex, int opIndex, ProcChangeKind kind)> AffectedOps { get; set; }
 
             public DateTime? ConfirmedAtUtc { get; set; }
         }

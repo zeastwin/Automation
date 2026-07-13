@@ -8,6 +8,16 @@ namespace Automation.McpServer
     [McpServerToolType]
     public static class AutomationMcpTools
     {
+        [McpServerTool(Name = "get_platform_development_context"), Description(
+            "按需读取 Automation 源码开发上下文。修改 HMI、使用平台公开接口或编写自定义函数时调用；已知目标直接传对应 topic。")]
+        public static string GetPlatformDevelopmentContext(
+            [Description("主题：hmi/platform-api/custom-function；仅目标不明确时使用 catalog")] string topic)
+        {
+            string result = PlatformDevelopmentContextCatalog.Get(topic);
+            ToolCallLogger.Log(nameof(GetPlatformDevelopmentContext), new { topic }, result);
+            return result;
+        }
+
         [McpServerTool(Name = "list_procs"), Description(
             "列出所有流程的基础信息（procIndex/procId/name/autoStart/disable/state/stepCount）。"
             + "意图定位第一步，不要假设流程名唯一。"
@@ -800,6 +810,8 @@ namespace Automation.McpServer
             "使用结构化中间意图对象直接预演（内部先把意图转标准 Patch 再 preview，不需要模型自行组装patchJson）。"
             + "只需提供procIndex，baseProcId由Bridge读取当前流程自动补齐。"
             + "返回 previewId 和 patchHash，提交前需由 Automation 前台确认 previewId。"
+            + "禁止用本工具逐条新增多条指令；同一步骤需要新增两条及以上指令时，必须将全部 append_operation 放入一个 preview_patch.actions 中，只生成一个预演。"
+            + "当前存在待审核预演时禁止继续创建新预演，必须等待用户确认或拒绝。"
             + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_intent 提交即可。")]
         public static async Task<string> PreviewIntent(
             [Description("结构化中间意图对象；baseProcId可省略")] JsonElement intent)
@@ -830,7 +842,8 @@ namespace Automation.McpServer
             "预演结构化 Patch，不会落盘。"
             + "patchJson 必须是完整 JSON 对象，至少含 procIndex/baseProcId/actions。"
             + "update_proc_head_fields/update_step_fields/update_operation_fields 使用fieldChanges；append/insert_operation使用fieldValues。"
-            + "同一流程内需要互相跳转的多条新指令应放在同一个actions数组中，Bridge会在全部动作完成后统一校验前向跳转。"
+            + "fieldValues/fieldChanges 必须严格保持 get_operation_schema 返回的 JSON 类型：number 必须传数值且禁止加引号，boolean 必须传 true/false，禁止把字符串数字当作数值。"
+            + "同一步骤的多条新指令必须放在同一个actions数组中，禁止拆成逐条预演；Bridge会在全部动作完成后统一校验跳转。"
             + "提交前必须先调用本工具。返回 previewId 和 patchHash，需由 Automation 前台确认 previewId。"
             + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_patch 提交即可。")]
         public static async Task<string> PreviewPatch(
@@ -870,6 +883,7 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "create_proc"), Description(
             "新增空流程。两阶段操作：预演阶段省略 previewId；提交阶段传入预演返回的 previewId。禁止传字符串 null/undefined。"
+            + "本工具只允许用于用户明确要求创建空流程的场景。只要需要步骤或指令，必须直接使用 create_proc_batch，禁止先创建空流程再逐步追加。"
             + "新增流程含一个默认步骤，后续用 preview_patch 添加步骤指令。流程名不能重复。"
             + "预演返回的 targetIndex 只是预计位置，流程尚不存在；提交成功后必须调用 list_procs 获取真实 procIndex，禁止据此直接读取流程详情。"
             + "典型场景：新建流程来唤醒/启动其他流程、创建独立控制流程。"
@@ -884,6 +898,36 @@ namespace Automation.McpServer
                 toolName: nameof(CreateProc),
                 args: new { name, autoStart, disable, previewId },
                 action: client => client.CreateProcAsync(name, autoStart, disable, previewId)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "create_proc_batch"), Description(
+            "一次构建完整新流程（流程+步骤+全部指令），仅做一次预演和前台确认。"
+            + "definition 必须直接传JSON对象，禁止传包含JSON文本的字符串；必须包含name/steps，steps包含name/operations，operations包含operaType和可选fieldValues。"
+            + "预演阶段省略 previewId；确认后使用完全相同的 definition 和 previewId 再调用一次提交。"
+            + "适用于新建完整流程，禁止拆成 create_proc/append_step/逐条指令多次确认。"
+            + "面向本地35B模型限制：最多10个步骤、单步骤20条指令、单次变更集累计最多20条指令、definition最大64KB、单条fieldValues最大8KB。"
+            + "超过上限时应按独立流程拆分，禁止为绕过限制改用逐条弹窗提交。Bridge会分配ID、严格校验并原子保存。")]
+        public static async Task<string> CreateProcBatch(
+            [Description("完整流程定义对象，必须直接传对象而不是JSON字符串")] CreateProcBatchDefinition definition,
+            [Description("提交阶段必填：预演返回的 previewId；预演阶段省略")] string? previewId = null)
+        {
+            string? validationError = CreateProcBatchDefinitionValidator.Validate(definition);
+            if (validationError != null)
+            {
+                string result = JsonSerializer.Serialize(new
+                {
+                    ok = false,
+                    type = "mcp.error",
+                    errorCode = "BATCH_DEFINITION_INVALID",
+                    message = validationError
+                });
+                ToolCallLogger.Log(nameof(CreateProcBatch), new { definition, previewId }, result);
+                return result;
+            }
+            return await ExecuteAsync(
+                toolName: nameof(CreateProcBatch),
+                args: new { definition, previewId },
+                action: client => client.CreateProcBatchAsync(definition, previewId)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "delete_procs"), Description(

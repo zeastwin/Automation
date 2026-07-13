@@ -8,7 +8,7 @@ namespace Automation.McpServer
         public string ListenHost { get; set; } = "127.0.0.1";
         public int ListenPort { get; set; } = 8081;
         public string BridgePipeName { get; set; } = "AutomationBridgePipe";
-        public int BridgeTimeoutMs { get; set; } = 30000;
+        public int BridgeTimeoutMs { get; set; } = 120000;
         public bool EnableTrayIcon { get; set; } = true;
         public string ToolProfile { get; set; } = "Diagnostic";
         public string LogRoot { get; set; } = Path.Combine(@"D:\AutomationLogs", "AIExecution");
@@ -48,7 +48,7 @@ namespace Automation.McpServer
 
             if (BridgeTimeoutMs <= 0)
             {
-                BridgeTimeoutMs = 30000;
+                BridgeTimeoutMs = 120000;
             }
 
             if (string.Equals(ToolProfile, "Diagnostic", StringComparison.OrdinalIgnoreCase))

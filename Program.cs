@@ -31,8 +31,8 @@ namespace Automation
             }
             if (!GooseRuntimeProvisioner.TryEnsureSystemPrompt(out string promptMessage))
             {
-                MessageBox.Show(promptMessage, "EW-AI System Prompt 部署失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
+                // Goose 属于辅助能力，部署异常只能禁用 EW-AI，不能阻断 HMI/平台初始化。
+                MessageBox.Show(promptMessage, "EW-AI System Prompt 部署失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);

@@ -9,6 +9,15 @@
 - 不是教 AI 忽略无关信息，而是不要把无关信息交给 AI。
 - 系统提示词只保留跨任务始终成立的约束；模块知识、操作指南和候选资源必须由当前任务按需读取。
 - 已知精确类型或目标时直接读取对应 Schema/详情；只有目标未知、需要发现时才返回目录，禁止把完整模块清单作为固定前置上下文。
+- `Assets/Goose/system.md` 必须以 Goose 官方仓库 [`aaif-goose/goose` 的 `crates/goose/src/prompts/system.md`](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/system.md) 为完整基底，保留官方模板变量、扩展说明、工具数量提示和响应规则；项目自定义内容使用明确命名的附加区块，禁止用精简重写替代官方主体。
+- `Assets/Goose/system.md` 只追加 EW-AI 身份、真实性和工业安全等跨任务恒定约束。平台内部的最小上下文路由规范存放在内嵌资源 `Assets/Goose/automation.md`，启动时部署到 `%APPDATA%/Automation/Goose/automation.md` 并通过 `GOOSE_MOIM_MESSAGE_FILE` 仅注入当前 EW-AI 进程；禁止将平台内部规范放入客户可修改的 `Hmi/`。具体参数类型、数量限制和调用协议写入 MCP 工具指南及 Schema；源码模块知识由当前源码任务按需读取，禁止固定注入所有会话。
+- 升级 Goose 或修改 System Prompt 前，必须先对照 Goose 官方仓库当前模板；若官方模板发生变化，应先同步官方基底，再重新应用 EW-AI 自定义区块，并递增 `GooseRuntimeProvisioner.SystemPromptVersion`。
+- `Assets/Goose/automation.md` 使用独立的 `GooseRuntimeProvisioner.IntegrationContextVersion` 和 `%APPDATA%/Automation/Goose/.automation-context-version`，不得与 System Prompt 共用版本号；修改该文件时只递增专用上下文版本。
+- Goose 受管 Markdown 同时作为 Manifest 资源和 `Assets/Goose/` 输出内容发布；运行时优先读取 Manifest，缺失时读取程序目录副本。两条通道均失败时只禁用 EW-AI 并明确报警，不得阻断 HMI/平台初始化。
+- Automation 源码开发知识通过 MCP 的 `get_platform_development_context` 按主题加载；常驻描述只负责让 AI 知道该入口及适用场景，具体 HMI 边界、平台 API 入口、自定义函数规则仅在调用结果中返回。已知目标直接读取 `hmi`、`platform-api` 或 `custom-function`，仅目标不明确时读取 `catalog`。
+- Goose 的编译/重启结论必须由本轮实际文件改动和运行机制推导，不能把某模块的部署限制固定注入所有任务；纯流程或运行配置变更不得提示编译、重启，也不得输出“需要重启”和“已热发布生效”之类互相矛盾的结论。
+- MCP 工具采用“短而完整的自描述 + 强类型参数 Schema + 按需模块知识 + Bridge 强校验”分层。禁止设置每工具首次必读、进程级已读缓存或 `TOOL_GUIDE_REQUIRED` 错误驱动协议；基础调用契约直接写入工具描述和参数类型，业务知识通过指令 Schema/Guide、Patch Action Schema、开发 Context 按目标读取。
+- 能用结构化 DTO 表达的 MCP 参数禁止使用无约束 `JsonElement` 或 JSON 字符串；基础对象类型、必填字段、数量、长度和大小校验必须在 MCP 或 Bridge 工作线程完成，不得切换 UI 线程后才发现基础参数错误。
 
 ## 安全准则
 - 运行时遇到可能影响设备、人员或流程安全的异常或不确定状态时，必须优先停机/报警，禁止继续运行。

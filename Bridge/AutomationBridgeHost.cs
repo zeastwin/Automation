@@ -11,6 +11,8 @@ namespace Automation.Bridge
 {
     internal sealed class AutomationBridgeHost : IDisposable
     {
+        private const int MaxRequestBytes = 1024 * 1024;
+        private const int MaxResponseBytes = 8 * 1024 * 1024;
         internal const string DefaultPipeName = "AutomationBridgePipe";
         internal const string DefaultPipePath = @"\\.\pipe\AutomationBridgePipe";
 
@@ -230,9 +232,9 @@ namespace Automation.Bridge
         {
             byte[] lengthBuffer = await ReadExactlyAsync(stream, sizeof(int)).ConfigureAwait(false);
             int length = BitConverter.ToInt32(lengthBuffer, 0);
-            if (length < 0)
+            if (length < 0 || length > MaxRequestBytes)
             {
-                throw new InvalidDataException("Pipe 消息长度非法。");
+                throw new InvalidDataException($"Pipe 请求长度非法或超过 {MaxRequestBytes / 1024} KB 上限。");
             }
             if (length == 0)
             {
@@ -262,6 +264,10 @@ namespace Automation.Bridge
         private static async Task WriteMessageAsync(Stream stream, string text)
         {
             byte[] payloadBuffer = Encoding.UTF8.GetBytes(text ?? string.Empty);
+            if (payloadBuffer.Length > MaxResponseBytes)
+            {
+                throw new InvalidDataException($"Pipe 响应超过 {MaxResponseBytes / 1024 / 1024} MB 上限。");
+            }
             byte[] lengthBuffer = BitConverter.GetBytes(payloadBuffer.Length);
             await stream.WriteAsync(lengthBuffer, 0, lengthBuffer.Length).ConfigureAwait(false);
             if (payloadBuffer.Length > 0)

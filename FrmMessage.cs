@@ -131,7 +131,7 @@ namespace Automation
                     ? SF.mainfrm
                     : null;
             }
-            StartPosition = owner == null ? FormStartPosition.CenterScreen : FormStartPosition.CenterParent;
+            StartPosition = FormStartPosition.CenterScreen;
             if (modal)
             {
                 if (owner == null)
