@@ -39,6 +39,8 @@ namespace Automation
         private readonly int _procIndex;
         private readonly IReadOnlyDictionary<string, int> _stepIndexes;
         private readonly IReadOnlyDictionary<string, int> _stepOperationCounts;
+        private readonly IReadOnlyDictionary<Guid, OperationReferenceLocation> _operationIdLocations;
+        private readonly IReadOnlyDictionary<string, OperationReferenceLocation> _operationKeyLocations;
         private readonly IReadOnlyDictionary<string, DicValue> _variables;
         private readonly AiResourceSnapshot _resources;
 
@@ -47,11 +49,17 @@ namespace Automation
             IReadOnlyDictionary<string, int> stepIndexes,
             IReadOnlyDictionary<string, int> stepOperationCounts,
             IReadOnlyDictionary<string, DicValue> variables,
-            AiResourceSnapshot resources)
+            AiResourceSnapshot resources,
+            IReadOnlyDictionary<Guid, OperationReferenceLocation> operationIdLocations = null,
+            IReadOnlyDictionary<string, OperationReferenceLocation> operationKeyLocations = null)
         {
             _procIndex = procIndex;
             _stepIndexes = stepIndexes ?? throw new ArgumentNullException(nameof(stepIndexes));
             _stepOperationCounts = stepOperationCounts ?? throw new ArgumentNullException(nameof(stepOperationCounts));
+            _operationIdLocations = operationIdLocations
+                ?? new Dictionary<Guid, OperationReferenceLocation>();
+            _operationKeyLocations = operationKeyLocations
+                ?? new Dictionary<string, OperationReferenceLocation>(StringComparer.Ordinal);
             _variables = variables ?? throw new ArgumentNullException(nameof(variables));
             _resources = resources ?? new AiResourceSnapshot();
         }
@@ -116,17 +124,57 @@ namespace Automation
         public string ResolveTarget(OperationTarget target, string path)
         {
             if (target == null) throw new InvalidOperationException($"{path} 必填。");
+            bool hasOperationId = !string.IsNullOrWhiteSpace(target.OperationId);
+            bool hasOperationKey = !string.IsNullOrWhiteSpace(target.OperationKey);
+            bool hasOperationIndex = target.Operation.HasValue;
+            int selectorCount = (hasOperationId ? 1 : 0) + (hasOperationKey ? 1 : 0)
+                + (hasOperationIndex ? 1 : 0);
+            if (selectorCount != 1)
+            {
+                throw new InvalidOperationException(
+                    $"{path} 必须且只能使用 operationId、operationKey 或 operation 定位目标。");
+            }
+            if (hasOperationId)
+            {
+                if (!Guid.TryParse(target.OperationId, out Guid operationId) || operationId == Guid.Empty)
+                {
+                    throw new InvalidOperationException($"{path}.operationId 不是有效 Guid。");
+                }
+                if (!_operationIdLocations.TryGetValue(operationId, out OperationReferenceLocation idLocation))
+                {
+                    throw new InvalidOperationException($"{path}.operationId 未在最终流程结构中找到：{operationId:D}");
+                }
+                return $"{_procIndex}-{idLocation.StepIndex}-{idLocation.OperationIndex}";
+            }
+
             string stepKey = RequireText(target.Step, path + ".step");
             if (!_stepIndexes.TryGetValue(stepKey, out int stepIndex))
             {
                 throw new InvalidOperationException($"{path}.step 未找到：{stepKey}");
             }
+            if (hasOperationKey)
+            {
+                string operationKey = RequireText(target.OperationKey, path + ".operationKey");
+                if (!_operationKeyLocations.TryGetValue(BuildOperationKey(stepKey, operationKey),
+                    out OperationReferenceLocation keyLocation))
+                {
+                    throw new InvalidOperationException(
+                        $"{path}.operationKey 未在步骤[{stepKey}]中找到：{operationKey}");
+                }
+                return $"{_procIndex}-{keyLocation.StepIndex}-{keyLocation.OperationIndex}";
+            }
             int operationCount = _stepOperationCounts[stepKey];
-            if (target.Operation < 0 || target.Operation >= operationCount)
+            int operationIndex = target.Operation.Value;
+            if (operationIndex < 0 || operationIndex >= operationCount)
             {
                 throw new InvalidOperationException($"{path}.operation 超出步骤[{stepKey}]指令范围 [0,{operationCount})。");
             }
-            return $"{_procIndex}-{stepIndex}-{target.Operation}";
+            return $"{_procIndex}-{stepIndex}-{operationIndex}";
+        }
+
+        public static string BuildOperationKey(string stepKey, string operationKey)
+        {
+            return stepKey + "\0" + operationKey;
         }
 
         public static string RequireText(string value, string path)
@@ -134,6 +182,19 @@ namespace Automation
             if (string.IsNullOrWhiteSpace(value)) throw new InvalidOperationException($"{path} 不能为空。");
             return value.Trim();
         }
+    }
+
+    public sealed class OperationReferenceLocation
+    {
+        public OperationReferenceLocation(int stepIndex, int operationIndex)
+        {
+            StepIndex = stepIndex;
+            OperationIndex = operationIndex;
+        }
+
+        public int StepIndex { get; }
+
+        public int OperationIndex { get; }
     }
 
     /// <summary>
@@ -174,13 +235,6 @@ namespace Automation
             return new JObject
             {
                 ["protocol"] = "change-set-v2",
-                ["limits"] = new JObject
-                {
-                    ["processes"] = AiChangeSetCompiler.MaxProcessCount,
-                    ["stepsPerProcess"] = AiChangeSetCompiler.MaxStepCount,
-                    ["operationsTotal"] = AiChangeSetCompiler.MaxOperationCount,
-                    ["jsonBytes"] = 65536
-                },
                 ["processActions"] = new JArray("create", "replace"),
                 ["processDeletion"] = new JObject
                 {
@@ -206,8 +260,8 @@ namespace Automation
                     ["rule"] = "高层 kind 不覆盖目标指令时，按一个精确原生 operaType 读取递归契约"
                 },
                 ["workflow"] = new JArray(
-                    "复杂流程：begin_change_set_draft → append_change_set_draft（每批最多5条）",
-                    "preview_change_set({version:2,draftId})；简单变更可直接preview_change_set(changeSet)",
+                    "一次性构造包含全部步骤和指令的完整 changeSet",
+                    "preview_change_set(changeSet)",
                     "等待 Automation 前台确认",
                     "apply_change_set(previewId)"),
                 ["rule"] = "根据既有配置或精确规范重建时使用preserveOperationTypes=true并按原operaType追加native.operation；仅业务目标创建才使用高层语义kind。"

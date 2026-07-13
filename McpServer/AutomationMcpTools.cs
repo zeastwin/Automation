@@ -9,126 +9,35 @@ namespace Automation.McpServer
     [McpServerToolType]
     public static class AutomationMcpTools
     {
-        [McpServerTool(Name = "get_change_capabilities"), Description(
-            "返回 AI 配置写入协议 V2 的轻量能力目录，只用于创建或替换流程配置。不得用于启动、停止、暂停、恢复或测试流程；运行请求应直接使用对应运行工具，当前模式未提供运行工具时必须明确告知不可执行。仅在任务所需语义 kind 未知时调用。")]
-        public static async Task<string> GetChangeCapabilities()
+        [McpServerTool(Name = "get_operation_schemas"), Description(
+            "一次读取1..12个精确原生operaType的递归字段Schema。已知目标类型时直接读取所需类型；字段、嵌套数组、资源引用和符号跳转均按返回Schema填写。")]
+        public static async Task<string> GetOperationSchemas(
+            [Description("精确原生指令类型数组，去重后最多12项，例如 跳转、延时、修改变量")] string[] operaTypes)
         {
+            if (operaTypes == null || operaTypes.Length < 1 || operaTypes.Length > 12
+                || operaTypes.Any(string.IsNullOrWhiteSpace))
+                throw new ArgumentException("operaTypes 必须包含1..12个非空精确原生指令类型。", nameof(operaTypes));
             return await ExecuteAsync(
-                toolName: nameof(GetChangeCapabilities),
-                args: new { },
-                action: client => client.GetChangeCapabilitiesAsync()).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "get_operation_contracts"), Description(
-            "按精确语义 kind 读取 V2 高层指令字段说明。kind 不是平台原生 operaType，禁止把 process.control 等 kind 传给 get_operation_schema。只返回请求的类型。")]
-        public static async Task<string> GetOperationContracts(
-            [Description("精确语义类型数组，例如 variable.add/wait/flow.goto；最多6项")] string[] kinds)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(GetOperationContracts),
-                args: new { kinds },
-                action: client => client.GetOperationContractsAsync(kinds)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "get_native_operation_contract"), Description(
-            "按一个精确原生 operaType 读取 native.operation 的递归字段契约。仅当高层语义 kind 不覆盖目标指令时按需调用；返回嵌套对象、数组、符号跳转和严格值类型，不返回其他指令。")]
-        public static async Task<string> GetNativeOperationContract(
-            [Description("平台注册的精确原生指令类型，例如 跳转、网口通讯操作、IO组；不是 process.control 等语义 kind。")]
-            string operaType)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(GetNativeOperationContract),
-                args: new { operaType },
-                action: client => client.GetNativeOperationContractAsync(operaType)).ConfigureAwait(false);
+                toolName: nameof(GetOperationSchemas),
+                args: new { operaTypes },
+                action: client => client.GetNativeOperationContractsAsync(operaTypes)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "preview_change_set"), Description(
-            "预演完整业务变更集或已完成的渐进草稿，一次可删除旧流程、声明变量资源、创建新流程或按ID/精确名称完整替换现有流程。"
-            + "operations[].kind 是工具输入 Schema 中列出的严格枚举，不得猜测或创造；目标语义未知时先调用 get_change_capabilities。不得填写 OperationType/PropertyGrid 内部字段。变量引用必须在同一 changeSet.variables 中声明策略。"
-            + "步骤跳转使用 {step:key,operation:index} 符号地址，由平台编译为物理地址。最多3个流程、单流程10个步骤、累计20条指令、64KB。"
-            + "复杂流程应先用begin_change_set_draft和append_change_set_draft渐进组装，完成后只传{version:2,draftId}；简单变更可直接传完整changeSet。"
-            + "返回 previewId 后等待前台确认，再仅用 previewId 调用 apply_change_set；禁止重新发送或重新生成 changeSet。")]
+            "一次提交完整的ChangeSet V2进行预演，不分批、不保存渐进草稿。可删除流程、声明变量并创建或完整替换流程；所有步骤必须同时提供完整原生指令列表。"
+            + "替换既有流程时用stepId/opId保留原对象；仅调整既有指令顺序时operations项只传opId，新指令提供key/operaType/fields。"
+            + "跳转优先使用目标operationId，或用{step,operationKey}引用同一变更中新指令；Bridge在最终结构上统一重算物理索引。"
+            + "普通新建省略expectedOperaTypes；精确复刻时按原顺序提供expectedOperaTypes，服务端逐条核对。"
+            + "成功后严格按nextAction执行：confirmed时立即仅用previewId调用apply_change_set，await_confirmation时等待前台确认。")]
         public static async Task<string> PreviewChangeSet(
-            [Description("V2业务变更集；version必须为2")] AiChangeSet changeSet)
+            [Description("一次性完整变更定义")] CompleteChangeSetDefinition changeSet)
         {
-            string validationError = AiChangeSetCatalog.Validate(changeSet);
-            if (validationError != null)
-            {
-                string result = JsonSerializer.Serialize(new
-                {
-                    ok = false,
-                    type = "mcp.error",
-                    errorCode = "CHANGE_SET_INVALID",
-                    message = validationError
-                });
-                ToolCallLogger.Log(nameof(PreviewChangeSet), new { changeSet }, result);
-                return result;
-            }
+            AiChangeSet compiledInput = BuildCompleteChangeSet(changeSet);
             return await ExecuteAsync(
                 toolName: nameof(PreviewChangeSet),
                 args: new { changeSet },
-                action: client => client.PreviewChangeSetAsync(changeSet)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "begin_change_set_draft"), Description(
-            "创建服务端渐进ChangeSet草稿，不修改平台、不触发确认。先声明变量、流程/步骤骨架和每步expectedOperationCount，operations必须为空。"
-            + "根据既有配置或精确规范重建时将processes[].preserveOperationTypes设为true，后续只能追加native.operation，避免相近语义替换原指令。")]
-        public static async Task<string> BeginChangeSetDraft(
-            [Description("V2草稿骨架；每个流程必须有唯一key，每个步骤必须声明expectedOperationCount")] AiChangeSet changeSet)
-        {
-            string validationError = AiChangeSetCatalog.ValidateDraftDefinition(changeSet);
-            if (validationError != null)
-            {
-                string result = JsonSerializer.Serialize(new
-                {
-                    ok = false,
-                    type = "mcp.error",
-                    errorCode = "CHANGE_SET_DRAFT_INVALID",
-                    message = validationError
-                });
-                ToolCallLogger.Log(nameof(BeginChangeSetDraft), new { changeSet }, result);
-                return result;
-            }
-            return await ExecuteAsync(
-                toolName: nameof(BeginChangeSetDraft),
-                args: new { changeSet },
-                action: client => client.BeginChangeSetDraftAsync(changeSet)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "append_change_set_draft"), Description(
-            "向渐进草稿的明确流程/步骤追加1..5条指令，不修改平台、不触发确认。Bridge会立即校验类型、嵌套字段、资源引用和草稿容量；失败时本批不会写入。"
-            + "返回remainingOperations=0后，用preview_change_set({version:2,draftId})生成唯一正式预演。")]
-        public static async Task<string> AppendChangeSetDraft(
-            [Description("草稿ID、流程key、步骤key和本批1..5条强类型语义指令")] ChangeSetDraftAppend append)
-        {
-            string validationError = AiChangeSetCatalog.ValidateDraftAppend(append);
-            if (validationError != null)
-            {
-                string result = JsonSerializer.Serialize(new
-                {
-                    ok = false,
-                    type = "mcp.error",
-                    errorCode = "CHANGE_SET_DRAFT_INVALID",
-                    message = validationError
-                });
-                ToolCallLogger.Log(nameof(AppendChangeSetDraft), new { append }, result);
-                return result;
-            }
-            return await ExecuteAsync(
-                toolName: nameof(AppendChangeSetDraft),
-                args: append,
-                action: client => client.AppendChangeSetDraftAsync(append)).ConfigureAwait(false);
-        }
-
-        [McpServerTool(Name = "get_change_set_draft"), Description(
-            "读取渐进草稿的轻量进度，只返回流程/步骤预期、已追加和剩余指令数，不返回完整指令正文。")]
-        public static async Task<string> GetChangeSetDraft(
-            [Description("begin_change_set_draft返回的32位draftId")] string draftId)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(GetChangeSetDraft),
-                args: new { draftId },
-                action: client => client.GetChangeSetDraftAsync(draftId)).ConfigureAwait(false);
+                action: client => client.PreviewChangeSetAsync(compiledInput),
+                throwIfBridgeFailed: false).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "apply_change_set"), Description(
@@ -455,7 +364,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "list_operation_types"), Description(
-            "列出平台实际注册的指令类型和名称。仅在用户或源数据未给出精确指令类型、需要发现可用类型时调用；已知operaType时直接调用get_operation_schema。")]
+            "列出平台实际注册的指令类型和名称。仅在用户或源数据未给出精确指令类型、需要发现可用类型时调用；已知operaType时直接调用get_operation_schemas。")]
         public static async Task<string> ListOperationTypes()
         {
             return await ExecuteAsync(
@@ -1118,8 +1027,7 @@ namespace Automation.McpServer
             + "definition 必须直接传JSON对象，禁止传包含JSON文本的字符串；必须包含name/steps，steps包含name/operations，operations包含operaType和可选fieldValues。"
             + "预演阶段省略 previewId；确认后使用完全相同的 definition 和 previewId 再调用一次提交。"
             + "适用于新建完整流程，禁止拆成 create_proc/append_step/逐条指令多次确认。"
-            + "为保证单次审核和配置事务边界清晰：最多10个步骤、单步骤20条指令、单次变更集累计最多20条指令、definition最大64KB、单条fieldValues最大8KB。"
-            + "超过上限时应按独立流程拆分，禁止为绕过限制改用逐条弹窗提交。Bridge会分配ID、严格校验并原子保存。")]
+            + "Bridge会分配ID、严格校验并原子保存。")]
         public static async Task<string> CreateProcBatch(
             [Description("完整流程定义对象，必须直接传对象而不是JSON字符串")] CreateProcBatchDefinition definition,
             [Description("提交阶段必填：预演返回的 previewId；预演阶段省略")] string? previewId = null)
@@ -1785,13 +1693,125 @@ namespace Automation.McpServer
             }
         }
 
-        private static async Task<string> ExecuteAsync(string toolName, object args, Func<AutomationBridgeClient, Task<string>> action)
+        private static AiChangeSet BuildCompleteChangeSet(CompleteChangeSetDefinition definition)
+        {
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+
+            var processes = new List<ProcessDefinition>();
+            foreach (CompleteProcessDefinition sourceProcess in definition.Processes ?? new List<CompleteProcessDefinition>())
+            {
+                if (sourceProcess == null) throw new ArgumentException("processes 不能包含 null。", nameof(definition));
+                var steps = new List<StepDefinition>();
+                foreach (CompleteStepDefinition sourceStep in sourceProcess.Steps ?? new List<CompleteStepDefinition>())
+                {
+                    if (sourceStep == null) throw new ArgumentException("steps 不能包含 null。", nameof(definition));
+                    List<string>? exactTypes = sourceStep.ExpectedOperaTypes?.ToList();
+                    List<NativeOperationDefinition> sourceOperations = sourceStep.Operations
+                        ?? new List<NativeOperationDefinition>();
+                    if (exactTypes != null && exactTypes.Count != sourceOperations.Count)
+                        throw new ArgumentException(
+                            $"流程[{sourceProcess.Name}]步骤[{sourceStep.Key}]的expectedOperaTypes必须与operations数量一致。",
+                            nameof(definition));
+                    var operations = new List<SemanticOperation>();
+                    for (int index = 0; index < sourceOperations.Count; index++)
+                    {
+                        NativeOperationDefinition operation = sourceOperations[index];
+                        bool reuseExisting = operation != null
+                            && !string.IsNullOrWhiteSpace(operation.OpId)
+                            && string.IsNullOrWhiteSpace(operation.OperaType)
+                            && operation.Fields == null
+                            && string.IsNullOrWhiteSpace(operation.Name);
+                        if (operation == null
+                            || !reuseExisting && string.IsNullOrWhiteSpace(operation.OperaType))
+                            throw new ArgumentException(
+                                $"流程[{sourceProcess.Name}]步骤[{sourceStep.Key}]第{index}条指令必须提供opId复用现有指令，或提供operaType和fields定义新指令。",
+                                nameof(definition));
+                        if (!reuseExisting && operation.Fields == null)
+                            throw new ArgumentException(
+                                $"流程[{sourceProcess.Name}]步骤[{sourceStep.Key}]第{index}条指令fields必须是对象。",
+                                nameof(definition));
+                        if (exactTypes != null
+                            && !reuseExisting
+                            && !string.Equals(exactTypes[index], operation.OperaType, StringComparison.Ordinal))
+                            throw new ArgumentException(
+                                $"流程[{sourceProcess.Name}]步骤[{sourceStep.Key}]第{index}条指令类型必须为[{exactTypes[index]}]。",
+                                nameof(definition));
+                        operations.Add(new SemanticOperation
+                        {
+                            Kind = reuseExisting ? null : "native.operation",
+                            OpId = operation.OpId,
+                            Key = operation.Key,
+                            OperaType = operation.OperaType,
+                            Name = operation.Name,
+                            Fields = operation.Fields
+                        });
+                    }
+                    steps.Add(new StepDefinition
+                    {
+                        StepId = sourceStep.StepId,
+                        Key = sourceStep.Key,
+                        Name = sourceStep.Name,
+                        Disable = sourceStep.Disable,
+                        ExpectedOperaTypes = exactTypes,
+                        Operations = operations
+                    });
+                }
+                processes.Add(new ProcessDefinition
+                {
+                    Action = sourceProcess.Action,
+                    TargetProcId = sourceProcess.TargetProcId,
+                    TargetName = sourceProcess.TargetName,
+                    Name = sourceProcess.Name,
+                    AutoStart = sourceProcess.AutoStart,
+                    Disable = sourceProcess.Disable,
+                    Steps = steps
+                });
+            }
+            if (definition.DeleteProcesses == null && (definition.Variables?.Count ?? 0) == 0
+                && processes.Count == 0)
+                throw new ArgumentException("definition 至少包含删除、变量或流程变更之一。", nameof(definition));
+            return new AiChangeSet
+            {
+                Version = 2,
+                Title = definition.Title,
+                DeleteProcesses = definition.DeleteProcesses,
+                Variables = definition.Variables,
+                Processes = processes
+            };
+        }
+
+        private static void ThrowIfBridgeFailed(string result)
+        {
+            JsonObject? root;
+            try
+            {
+                root = JsonNode.Parse(result) as JsonObject;
+            }
+            catch (JsonException)
+            {
+                return;
+            }
+            if (root?["ok"]?.GetValue<bool>() != false) return;
+            string code = root["errorCode"]?.GetValue<string>() ?? "BRIDGE_ERROR";
+            string message = root["message"]?.GetValue<string>() ?? "Bridge 调用失败。";
+            string? details = root["details"]?.GetValue<string>();
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(details)
+                ? $"{code}: {message}"
+                : $"{code}: {message}（{details}）");
+        }
+
+        private static async Task<string> ExecuteAsync(string toolName, object args,
+            Func<AutomationBridgeClient, Task<string>> action, bool throwIfBridgeFailed = true)
         {
             string callId = ToolCallLogger.Begin(toolName, args);
             System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 string result = await action(AutomationMcpRuntime.GetBridgeClient()).ConfigureAwait(false);
+                if (throwIfBridgeFailed)
+                {
+                    ThrowIfBridgeFailed(result);
+                }
                 stopwatch.Stop();
                 ToolCallLogger.Complete(callId, toolName, args, result, durationMs: stopwatch.ElapsedMilliseconds);
                 return result;
@@ -1799,21 +1819,10 @@ namespace Automation.McpServer
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                string error = $$"""
-{"ok":false,"type":"mcp.error","errorCode":"TOOL_EXCEPTION","message":"{{toolName}} 调用异常","exceptionType":"{{Escape(ex.GetType().Name)}}","details":"{{Escape(ex.Message)}}"}
-""";
                 ToolCallLogger.Complete(callId, toolName, args, string.Empty, ex.ToString(), stopwatch.ElapsedMilliseconds);
-                return error;
+                throw;
             }
         }
 
-        private static string Escape(string text)
-        {
-            return (text ?? string.Empty)
-                .Replace("\\", "\\\\", StringComparison.Ordinal)
-                .Replace("\"", "\\\"", StringComparison.Ordinal)
-                .Replace("\r", "\\r", StringComparison.Ordinal)
-                .Replace("\n", "\\n", StringComparison.Ordinal);
-        }
     }
 }

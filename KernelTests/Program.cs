@@ -55,7 +55,7 @@ namespace Automation.KernelTests
             Run("指令注册表无界面且定义唯一", TestOperationDefinitionRegistry);
             Run("Goose平台上下文资源完整嵌入", TestGooseEmbeddedResources);
             Run("AI语义变更集编译与符号跳转", TestAiChangeSetCompilation);
-            Run("AI渐进草稿完整性与精确重建", TestAiChangeSetProgressiveDraftCompilation);
+            Run("AI完整变更与精确重建", TestAiChangeSetCompleteCompilation);
             Run("全部原生指令递归契约与严格语义编译", TestStructuredNativeOperationCompilation);
             Run("AI语义完整替换现有流程", TestAiChangeSetReplaceProcess);
             Run("流程环检测与终止原因可追溯", TestFlowBoundariesAndTerminationReason);
@@ -1010,8 +1010,14 @@ namespace Automation.KernelTests
             {
                 JObject contract = StructuredOperationCompiler.BuildContract(definition.OperaType);
                 Assert(contract["fields"] is JObject, $"{definition.OperaType} 未生成递归字段契约");
+                IDictionary<string, object> minimumFields = definition is Goto
+                    ? new Dictionary<string, object>
+                    {
+                        ["DefaultGoto"] = new JObject { ["step"] = "main", ["operation"] = 0 }
+                    }
+                    : new Dictionary<string, object>();
                 OperationType compiled = StructuredOperationCompiler.Compile(definition.OperaType,
-                    new Dictionary<string, object>(), context);
+                    minimumFields, context);
                 Assert(compiled.GetType() == definition.GetType(), $"{definition.OperaType} 编译结果类型错误");
             }
 
@@ -1037,6 +1043,7 @@ namespace Automation.KernelTests
                 "Params[0].Goto 未声明为符号跳转");
             var gotoFields = new Dictionary<string, object>
             {
+                ["ValueIndex"] = "0",
                 ["DefaultGoto"] = new JObject { ["step"] = "main", ["operation"] = 0 },
                 ["Params"] = new JArray(new JObject
                 {
@@ -1363,7 +1370,7 @@ namespace Automation.KernelTests
             Assert(rejected, "create策略没有严格拒绝同名变量");
         }
 
-        private static void TestAiChangeSetProgressiveDraftCompilation()
+        private static void TestAiChangeSetCompleteCompilation()
         {
             var changeSet = new AiChangeSet
             {
@@ -1372,100 +1379,33 @@ namespace Automation.KernelTests
                 {
                     new Automation.Protocol.ProcessDefinition
                     {
-                        Key = "source_proc",
                         Name = "精确重建流程",
-                        PreserveOperationTypes = true,
                         Steps = new List<StepDefinition>
                         {
                             new StepDefinition
                             {
                                 Key = "main",
                                 Name = "主步骤",
-                                ExpectedOperationCount = 2,
-                                Operations = new List<SemanticOperation>()
-                            }
-                        }
-                    }
-                }
-            };
-
-            AiChangeSetCompileResult emptyDraft = AiChangeSetCompiler.Compile(
-                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
-                new AiResourceSnapshot(), allowIncompleteDraft: true);
-            Assert(emptyDraft.OperationCount == 0, "空骨架未作为渐进草稿通过校验");
-
-            changeSet.Processes[0].Steps[0].Operations.Add(new SemanticOperation
-            {
-                Kind = "native.operation",
-                OperaType = "延时",
-                Fields = new Dictionary<string, object> { ["timeMiniSecond"] = "10" }
-            });
-            AiChangeSetCompileResult partialDraft = AiChangeSetCompiler.Compile(
-                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
-                new AiResourceSnapshot(), allowIncompleteDraft: true);
-            Assert(partialDraft.OperationCount == 1, "渐进草稿未接受已校验的部分指令");
-
-            AssertThrows<InvalidOperationException>(() => AiChangeSetCompiler.Compile(
-                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(), new AiResourceSnapshot()),
-                "未达到expectedOperationCount的草稿进入了正式编译");
-
-            changeSet.Processes[0].Steps[0].Operations.Add(new SemanticOperation
-            {
-                Kind = "wait",
-                Milliseconds = 10
-            });
-            AssertThrows<InvalidOperationException>(() => AiChangeSetCompiler.Compile(
-                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
-                new AiResourceSnapshot(), allowIncompleteDraft: true),
-                "精确重建模式接受了高层语义替代原生指令");
-
-            changeSet.Processes[0].Steps[0].Operations[1] = new SemanticOperation
-            {
-                Kind = "native.operation",
-                OperaType = "跳转",
-                Fields = new Dictionary<string, object>
-                {
-                    ["DefaultGoto"] = new JObject { ["step"] = "main", ["operation"] = 0 },
-                    ["Params"] = new JArray()
-                }
-            };
-            AiChangeSetCompileResult complete = AiChangeSetCompiler.Compile(
-                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(), new AiResourceSnapshot());
-            Assert(complete.OperationCount == 2
-                && complete.Processes[0].steps[0].Ops[0] is Delay
-                && complete.Processes[0].steps[0].Ops[1] is Goto jump
-                && jump.DefaultGoto == "0-0-0",
-                "完成草稿未保留精确operaType或符号跳转");
-
-            var ioResourceChangeSet = new AiChangeSet
-            {
-                Version = 2,
-                Processes = new List<Automation.Protocol.ProcessDefinition>
-                {
-                    new Automation.Protocol.ProcessDefinition
-                    {
-                        Name = "原生资源校验",
-                        PreserveOperationTypes = true,
-                        Steps = new List<StepDefinition>
-                        {
-                            new StepDefinition
-                            {
-                                Key = "main",
-                                Name = "主步骤",
-                                ExpectedOperationCount = 1,
+                                ExpectedOperaTypes = new List<string> { "延时", "跳转" },
                                 Operations = new List<SemanticOperation>
                                 {
                                     new SemanticOperation
                                     {
                                         Kind = "native.operation",
-                                        OperaType = "IO操作",
+                                        OperaType = "延时",
+                                        Fields = new Dictionary<string, object> { ["timeMiniSecond"] = "10" }
+                                    },
+                                    new SemanticOperation
+                                    {
+                                        Kind = "native.operation",
+                                        OperaType = "跳转",
                                         Fields = new Dictionary<string, object>
                                         {
-                                            ["IoParams"] = new JArray(new JObject
+                                            ["DefaultGoto"] = new JObject
                                             {
-                                                ["IOName"] = "红灯",
-                                                ["value"] = true
-                                            })
+                                                ["step"] = "main",
+                                                ["operation"] = 0
+                                            }
                                         }
                                     }
                                 }
@@ -1474,20 +1414,186 @@ namespace Automation.KernelTests
                     }
                 }
             };
-            AssertThrows<InvalidOperationException>(() => AiChangeSetCompiler.Compile(
-                ioResourceChangeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
-                new AiResourceSnapshot()), "原生指令接受了不存在的IO引用");
-            AiChangeSetCompileResult ioResourceResult = AiChangeSetCompiler.Compile(
-                ioResourceChangeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
-                new AiResourceSnapshot(new Dictionary<string, string> { ["红灯"] = "通用输出" }));
-            Assert(ioResourceResult.Processes[0].steps[0].Ops[0] is IoOperate,
-                "原生指令的有效IO引用未通过强校验");
 
-            changeSet.Processes[0].Steps[0].ExpectedOperationCount = 21;
+            AiChangeSetCompileResult complete = AiChangeSetCompiler.Compile(
+                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(), new AiResourceSnapshot());
+            Assert(complete.OperationCount == 2
+                && complete.Processes[0].steps[0].Ops[0] is Delay
+                && complete.Processes[0].steps[0].Ops[1] is Goto jump
+                && jump.Count == "0" && jump.DefaultGoto == "0-0-0",
+                "完整变更未保留精确operaType或未归一化无条件跳转");
+
+            var keyTargetChangeSet = new AiChangeSet
+            {
+                Version = 2,
+                Processes = new List<Automation.Protocol.ProcessDefinition>
+                {
+                    new Automation.Protocol.ProcessDefinition
+                    {
+                        Name = "局部键跳转",
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                Key = "main",
+                                Name = "主步骤",
+                                Operations = new List<SemanticOperation>
+                                {
+                                    new SemanticOperation
+                                    {
+                                        Kind = "native.operation",
+                                        Key = "jump",
+                                        OperaType = "跳转",
+                                        Fields = new Dictionary<string, object>
+                                        {
+                                            ["DefaultGoto"] = new JObject
+                                            {
+                                                ["step"] = "main",
+                                                ["operationKey"] = "target"
+                                            }
+                                        }
+                                    },
+                                    new SemanticOperation
+                                    {
+                                        Kind = "native.operation",
+                                        Key = "target",
+                                        OperaType = "延时",
+                                        Fields = new Dictionary<string, object> { ["timeMiniSecond"] = "1" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            AiChangeSetCompileResult keyTargetResult = AiChangeSetCompiler.Compile(
+                keyTargetChangeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
+                new AiResourceSnapshot());
+            Assert(keyTargetResult.Processes[0].steps[0].Ops[0] is Goto keyJump
+                && keyJump.DefaultGoto == "0-0-1", "新指令局部key没有在最终结构上解析跳转");
+
+            var candidateResourceChangeSet = new AiChangeSet
+            {
+                Version = 2,
+                Variables = new List<VariableChange>
+                {
+                    new VariableChange { Name = "接收结果", Type = "string", InitialValue = string.Empty }
+                },
+                Processes = new List<Automation.Protocol.ProcessDefinition>
+                {
+                    new Automation.Protocol.ProcessDefinition
+                    {
+                        Name = "候选资源校验",
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                Key = "main",
+                                Name = "主步骤",
+                                Operations = new List<SemanticOperation>
+                                {
+                                    new SemanticOperation
+                                    {
+                                        Kind = "native.operation",
+                                        OperaType = "接收TCP通讯消息",
+                                        Fields = new Dictionary<string, object>
+                                        {
+                                            ["ID"] = "Tcp_1",
+                                            ["MsgSaveValue"] = "接收结果",
+                                            ["isConVert"] = false,
+                                            ["TImeOut"] = 1000,
+                                            ["AlarmType"] = "报警停止"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            var candidateReferences = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
+            {
+                ["comm.tcp"] = new[] { "Tcp_1" },
+                ["comm.serial"] = Array.Empty<string>()
+            };
+            AiChangeSetCompileResult candidateResourceResult = AiChangeSetCompiler.Compile(
+                candidateResourceChangeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
+                new AiResourceSnapshot(references: candidateReferences));
+            Assert(candidateResourceResult.ChangedVariableCount == 1
+                && candidateResourceResult.Processes[0].steps[0].Ops[0] is ReceoveTcpMsg,
+                "同一ChangeSet声明的候选变量未贯穿通讯指令最终校验");
+
+            changeSet.Processes[0].Steps[0].Operations[1].OperaType = "延时";
+            changeSet.Processes[0].Steps[0].Operations[1].Fields =
+                new Dictionary<string, object> { ["timeMiniSecond"] = "10" };
             AssertThrows<InvalidOperationException>(() => AiChangeSetCompiler.Compile(
-                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
-                new AiResourceSnapshot(), allowIncompleteDraft: true),
-                "渐进草稿未限制预期指令总数");
+                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(), new AiResourceSnapshot()),
+                "精确重建接受了错误顺序的原生指令类型");
+
+            changeSet.Processes[0].Steps[0].ExpectedOperaTypes = null;
+            changeSet.Processes[0].Steps[0].Operations = Enumerable.Range(0, 21)
+                .Select(_ => new SemanticOperation
+                {
+                    Kind = "native.operation",
+                    OperaType = "延时",
+                    Fields = new Dictionary<string, object> { ["timeMiniSecond"] = "1" }
+                }).ToList();
+            AiChangeSetCompileResult largeChangeSet = AiChangeSetCompiler.Compile(
+                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(), new AiResourceSnapshot());
+            Assert(largeChangeSet.OperationCount == 21, "完整变更仍然限制累计指令数量");
+
+            changeSet.Processes = Enumerable.Range(0, 4)
+                .Select(processIndex => new Automation.Protocol.ProcessDefinition
+                {
+                    Name = $"批量流程{processIndex}",
+                    Steps = Enumerable.Range(0, 11).Select(stepIndex => new StepDefinition
+                    {
+                        Key = $"step_{stepIndex}",
+                        Name = $"步骤{stepIndex}",
+                        Operations = new List<SemanticOperation>
+                        {
+                            new SemanticOperation
+                            {
+                                Kind = "native.operation",
+                                OperaType = "延时",
+                                Fields = new Dictionary<string, object> { ["timeMiniSecond"] = "1" }
+                            }
+                        }
+                    }).ToList()
+                }).ToList();
+            AiChangeSetCompileResult multiProcessChangeSet = AiChangeSetCompiler.Compile(
+                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(), new AiResourceSnapshot());
+            Assert(multiProcessChangeSet.CreatedProcessCount == 4
+                && multiProcessChangeSet.OperationCount == 44,
+                "完整变更仍然限制流程数或单流程步骤数");
+
+            Proc deletedFirst = CreateProc(new Delay { timeMiniSecond = "1" });
+            deletedFirst.head.Name = "删除项";
+            Proc shiftedSecond = CreateProc(new Goto
+            {
+                Params = new CustomList<GotoParam>(), Count = "0", DefaultGoto = "1-0-0"
+            });
+            shiftedSecond.head.Name = "原流程1";
+            Proc shiftedThird = CreateProc(new Goto
+            {
+                Params = new CustomList<GotoParam>(), Count = "0", DefaultGoto = "2-0-0"
+            });
+            shiftedThird.head.Name = "原流程2";
+            var deleteAndReindex = new AiChangeSet
+            {
+                Version = 2,
+                DeleteProcesses = new ProcessDeleteSelection
+                {
+                    Mode = "selected",
+                    ProcIds = new List<string> { deletedFirst.head.Id.ToString("D") }
+                }
+            };
+            AiChangeSetCompileResult reindexed = AiChangeSetCompiler.Compile(
+                deleteAndReindex, new List<Proc> { deletedFirst, shiftedSecond, shiftedThird },
+                new Dictionary<string, DicValue>(), new AiResourceSnapshot());
+            Assert(((Goto)reindexed.Processes[0].steps[0].Ops[0]).DefaultGoto == "0-0-0"
+                && ((Goto)reindexed.Processes[1].steps[0].Ops[0]).DefaultGoto == "1-0-0",
+                "删除前置流程后剩余流程的物理procIndex没有统一重写");
         }
 
         private static void TestOperationDefinitionRegistry()
@@ -1529,8 +1635,10 @@ namespace Automation.KernelTests
             using (var reader = new StreamReader(stream ?? throw new InvalidOperationException("Automation上下文资源为空"), Encoding.UTF8))
             {
                 string content = reader.ReadToEnd();
-                Assert(content.Contains("preview_change_set") && content.Contains("wait_for_proc_state")
-                    && content.Contains("run_proc_test"),
+                Assert(content.Contains("preview_change_set") && !content.Contains("stage_changes")
+                    && content.Contains("get_operation_schemas") && content.Contains("wait_for_proc_state")
+                    && content.Contains("run_proc_test") && content.Contains("operationId")
+                    && content.Contains("nextAction"),
                     "内嵌Automation上下文不是当前V2版本");
             }
         }
@@ -1588,6 +1696,68 @@ namespace Automation.KernelTests
             Assert(result.Changes.OfType<JObject>().Any(change =>
                 string.Equals(change["type"]?.Value<string>(), "process.replace", StringComparison.Ordinal)),
                 "替换流程未生成确认差异");
+
+            var sourceJump = new Goto
+            {
+                Id = Guid.NewGuid(),
+                Name = "跳到目标",
+                Params = new CustomList<GotoParam>(),
+                Count = "0",
+                DefaultGoto = "0-0-2"
+            };
+            var sourceMiddle = new Delay { Id = Guid.NewGuid(), Name = "中间", timeMiniSecond = "1" };
+            var sourceTarget = new Delay { Id = Guid.NewGuid(), Name = "目标", timeMiniSecond = "1" };
+            Proc stableExisting = CreateProc(sourceJump, sourceMiddle, sourceTarget);
+            stableExisting.head.Name = "稳定插入流程";
+            var stableInsert = new AiChangeSet
+            {
+                Version = 2,
+                Processes = new List<Automation.Protocol.ProcessDefinition>
+                {
+                    new Automation.Protocol.ProcessDefinition
+                    {
+                        Action = "replace",
+                        TargetProcId = stableExisting.head.Id.ToString("D"),
+                        Name = stableExisting.head.Name,
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                StepId = stableExisting.steps[0].Id.ToString("D"),
+                                Key = "main",
+                                Operations = new List<SemanticOperation>
+                                {
+                                    new SemanticOperation { OpId = sourceJump.Id.ToString("D") },
+                                    new SemanticOperation
+                                    {
+                                        Key = "inserted",
+                                        Kind = "native.operation",
+                                        OperaType = "延时",
+                                        Fields = new Dictionary<string, object> { ["timeMiniSecond"] = "5" }
+                                    },
+                                    new SemanticOperation { OpId = sourceMiddle.Id.ToString("D") },
+                                    new SemanticOperation { OpId = sourceTarget.Id.ToString("D") }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            AiChangeSetCompileResult stableInsertResult = AiChangeSetCompiler.Compile(
+                stableInsert, new List<Proc> { stableExisting },
+                new Dictionary<string, DicValue>(), new AiResourceSnapshot());
+            Proc insertedProc = stableInsertResult.Processes[0];
+            Assert(insertedProc.steps[0].Id == stableExisting.steps[0].Id
+                && insertedProc.steps[0].Ops[0].Id == sourceJump.Id
+                && insertedProc.steps[0].Ops[2].Id == sourceMiddle.Id
+                && insertedProc.steps[0].Ops[3].Id == sourceTarget.Id,
+                "稳定插入没有保留既有步骤或指令ID");
+            Assert(insertedProc.steps[0].Ops[0] is Goto rewritten
+                && rewritten.DefaultGoto == "0-0-3",
+                "插入指令后既有跳转没有按目标opId自动重写");
+            Assert(stableInsertResult.Changes.OfType<JObject>().Any(change =>
+                change["rewrittenGotoCount"]?.Value<int>() == 1),
+                "预演差异没有报告自动重写的跳转数量");
         }
 
         private static void TestAiConfigurationTransaction()

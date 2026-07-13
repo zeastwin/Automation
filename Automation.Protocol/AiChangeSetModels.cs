@@ -16,9 +16,6 @@ namespace Automation.Protocol
     {
         public int Version { get; set; }
 
-        [Description("引用服务端渐进草稿；设置后只允许再提供version，最终仍由preview_change_set生成冻结预演。")]
-        public string DraftId { get; set; }
-
         public string Title { get; set; }
 
         [Description("删除流程选择；mode=all 删除全部，mode=selected 时通过 names/procIds 精确选择。")]
@@ -56,9 +53,6 @@ namespace Automation.Protocol
 
     public sealed class ProcessDefinition
     {
-        [Description("渐进草稿中的流程稳定键；仅用于定位草稿片段，不写入平台配置。")]
-        public string Key { get; set; }
-
         /// <summary>create（默认）或 replace。</summary>
         public string Action { get; set; }
 
@@ -70,40 +64,96 @@ namespace Automation.Protocol
 
         public string Name { get; set; }
 
-        public bool AutoStart { get; set; }
+        [Description("create 时省略表示 false；replace 时省略表示保留现值。")]
+        public bool? AutoStart { get; set; }
 
-        public bool Disable { get; set; }
-
-        [Description("按既有配置或精确规范重建时设为true；所有指令必须使用native.operation并保留精确operaType。")]
-        public bool? PreserveOperationTypes { get; set; }
+        [Description("create 时省略表示 false；replace 时省略表示保留现值。")]
+        public bool? Disable { get; set; }
 
         public List<StepDefinition> Steps { get; set; }
     }
 
     public sealed class StepDefinition
     {
+        [Description("replace 时可提供现有 stepId 以保留步骤身份；新步骤不得提供。")]
+        public string StepId { get; set; }
+
         public string Key { get; set; }
 
         public string Name { get; set; }
 
-        public bool Disable { get; set; }
+        [Description("新步骤省略表示 false；保留步骤省略表示保留现值。")]
+        public bool? Disable { get; set; }
 
-        [Description("渐进草稿中该步骤最终应包含的指令数；最终预演时必须与实际数量完全一致。")]
-        public int? ExpectedOperationCount { get; set; }
+        [Description("按既有配置或精确规范重建时提供原生指令类型序列；完整预演会逐项核对，禁止静默替换相近指令。")]
+        public List<string> ExpectedOperaTypes { get; set; }
 
         public List<SemanticOperation> Operations { get; set; }
     }
 
-    public sealed class ChangeSetDraftAppend
+    /// <summary>
+    /// MCP 对外的单次完整变更定义。内部语义协议不暴露给模型。
+    /// </summary>
+    public sealed class CompleteChangeSetDefinition
     {
-        public string DraftId { get; set; }
+        public string Title { get; set; }
 
-        public string ProcessKey { get; set; }
+        public ProcessDeleteSelection DeleteProcesses { get; set; }
 
-        public string StepKey { get; set; }
+        public List<VariableChange> Variables { get; set; }
 
-        [Description("本批追加的指令，最多5条；草稿追加不修改平台也不触发前台确认。")]
-        public List<SemanticOperation> Operations { get; set; }
+        public List<CompleteProcessDefinition> Processes { get; set; }
+    }
+
+    public sealed class CompleteProcessDefinition
+    {
+        public string Action { get; set; }
+
+        public string TargetProcId { get; set; }
+
+        public string TargetName { get; set; }
+
+        public string Name { get; set; }
+
+        public bool? AutoStart { get; set; }
+
+        public bool? Disable { get; set; }
+
+        public List<CompleteStepDefinition> Steps { get; set; }
+    }
+
+    public sealed class CompleteStepDefinition
+    {
+        [Description("替换现有流程时，使用 get_proc_detail 返回的 stepId 保留步骤身份；新步骤省略。")]
+        public string StepId { get; set; }
+
+        public string Key { get; set; }
+
+        public string Name { get; set; }
+
+        public bool? Disable { get; set; }
+
+        [Description("仅在精确复刻既有配置或规范时提供按顺序排列的原生 operaType；普通新建流程省略。")]
+        public List<string> ExpectedOperaTypes { get; set; }
+
+        [Description("该步骤的完整原生指令列表；operaType必须来自get_operation_schemas。")]
+        public List<NativeOperationDefinition> Operations { get; set; }
+    }
+
+    public sealed class NativeOperationDefinition
+    {
+        [Description("替换现有流程时，使用读取结果中的 opId 保留指令身份；仅调整顺序时只需提供 opId。")]
+        public string OpId { get; set; }
+
+        [Description("同一 ChangeSet 新建指令的局部稳定 key；被其他新指令跳转引用时必填。")]
+        public string Key { get; set; }
+
+        public string OperaType { get; set; }
+
+        public string Name { get; set; }
+
+        [Description("严格结构化字段；嵌套对象和数组必须遵循get_operation_schemas返回的契约。")]
+        public Dictionary<string, object> Fields { get; set; }
     }
 
     /// <summary>
@@ -111,6 +161,12 @@ namespace Automation.Protocol
     /// </summary>
     public sealed class SemanticOperation
     {
+        [Description("replace 时保留既有指令身份；只提供 opId 表示完整复用原指令。")]
+        public string OpId { get; set; }
+
+        [Description("新指令在当前步骤内的局部稳定 key。")]
+        public string Key { get; set; }
+
         [Description("严格枚举：" + SemanticOperationKinds.SupportedKinds + "。固定文本弹框用 popup.message；显示变量当前值用 popup.variable；不得自行创造 kind。")]
         public string Kind { get; set; }
 
@@ -167,8 +223,15 @@ namespace Automation.Protocol
 
     public sealed class OperationTarget
     {
+        [Description("目标现有指令的稳定 Guid；与 step/operationKey/operation 三种方式互斥。")]
+        public string OperationId { get; set; }
+
         public string Step { get; set; }
 
-        public int Operation { get; set; }
+        [Description("目标新指令的局部 key；必须同时提供 step。")]
+        public string OperationKey { get; set; }
+
+        [Description("兼容完整新建流程的最终索引；编辑既有流程优先使用 operationId 或 operationKey。")]
+        public int? Operation { get; set; }
     }
 }

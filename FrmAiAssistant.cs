@@ -481,7 +481,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .thinking-box .toggle-bar:hover{color:#1f5f99;background:#f1f6fb;}
 .thinking-box .toggle-bar::before{content:'▼ ';font-size:10px;}
 .thinking-box.collapsed .toggle-bar::before{content:'▶ ';font-size:10px;}
-.tool-call,.tool-result{
+.tool-call,.tool-result,.tool-error{
     min-height:22px;
     margin:1px 6px;
     padding:2px 6px;
@@ -493,6 +493,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 }
 .tool-call{color:#69430f;background:#fffaf1;}
 .tool-result{color:#405069;background:#f7f9fc;}
+.tool-error{color:#9b2c2c;background:#fff5f5;}
 .tool-entry-label{flex:0 0 auto;color:#7b8798;font-size:11px;}
 .tool-entry-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:Consolas,""Cascadia Mono"",monospace;}
 .tool-entry-count{flex:0 0 auto;margin-left:auto;padding:0 5px;border-radius:8px;background:#e7edf5;color:#526071;font-size:10px;line-height:16px;}
@@ -621,23 +622,51 @@ function resizeThinkingBox(box){
     var available=Math.max(120,chat.getBoundingClientRect().bottom-box.getBoundingClientRect().top-8);
     box.style.maxHeight=available+'px';
 }
+var messageScrollFrame=0;
 function scrollMessagesToBottom(){
-    var m=byId('messagesScroll');
-    if(!m){return;}
-    var run=function(){m.scrollTop=m.scrollHeight;};
-    run();
-    window.requestAnimationFrame(run);
-    window.setTimeout(run,80);
+    if(messageScrollFrame){window.cancelAnimationFrame(messageScrollFrame);}
+    messageScrollFrame=window.requestAnimationFrame(function(){
+        messageScrollFrame=0;
+        var m=byId('messagesScroll');
+        if(m){m.scrollTop=m.scrollHeight;}
+    });
 }
 function scrollThinkingBoxToBottom(boxId){
     var box=document.getElementById(boxId);
-    if(box&&!box.classList.contains('collapsed')){
-        var run=function(){resizeThinkingBox(box);box.scrollTop=box.scrollHeight;};
-        scrollMessagesToBottom();
-        run();
-        window.requestAnimationFrame(run);
-        window.setTimeout(run,80);
-    }
+    if(!box||box.classList.contains('collapsed')){return;}
+    if(box._scrollFrame){window.cancelAnimationFrame(box._scrollFrame);}
+    box._scrollFrame=window.requestAnimationFrame(function(){
+        box._scrollFrame=0;
+        if(!box.isConnected||box.classList.contains('collapsed')){return;}
+        resizeThinkingBox(box);
+        box.scrollTop=box.scrollHeight;
+        var messages=byId('messagesScroll');
+        if(messages){messages.scrollTop=messages.scrollHeight;}
+    });
+}
+var forcedStreamScrollFrame=0;
+var forcedStreamScrollActive=false;
+function runForcedStreamScroll(){
+    if(!forcedStreamScrollActive){forcedStreamScrollFrame=0;return;}
+    document.querySelectorAll('.thinking-box:not(.collapsed)').forEach(function(box){
+        box.scrollTop=box.scrollHeight;
+    });
+    var messages=byId('messagesScroll');
+    if(messages){messages.scrollTop=messages.scrollHeight;}
+    forcedStreamScrollFrame=window.requestAnimationFrame(runForcedStreamScroll);
+}
+function startForcedStreamScroll(){
+    forcedStreamScrollActive=true;
+    if(!forcedStreamScrollFrame){runForcedStreamScroll();}
+}
+function stopForcedStreamScroll(){
+    forcedStreamScrollActive=false;
+    if(forcedStreamScrollFrame){window.cancelAnimationFrame(forcedStreamScrollFrame);forcedStreamScrollFrame=0;}
+    document.querySelectorAll('.thinking-box:not(.collapsed)').forEach(function(box){
+        resizeThinkingBox(box);
+        box.scrollTop=box.scrollHeight;
+    });
+    scrollMessagesToBottom();
 }
 function setOptions(select,items,value){
     select.innerHTML='';
@@ -1795,8 +1824,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 conversationText += "\n\n📎 附件：" + string.Join("、", fileAttachments.Select(item => item.FileName));
             }
             AppendConversation("用户", conversationText, Color.FromArgb(22, 72, 130));
-            // 每次发送对话强制重置 thinking-box 滚动状态并滚到底部，覆盖用户上滑设置，确保用户看到最新回复。
-            EnqueueScript("document.querySelectorAll('.thinking-box').forEach(function(b){b.classList.remove('user-scrolled');if(!b.classList.contains('collapsed')){b.scrollTop=b.scrollHeight;}});if(window.scrollMessagesToBottom){scrollMessagesToBottom();}");
+            // 生成期间持续强制跟随消息区与思考框底部，不允许增量脚本或用户上滑打断信息流。
+            EnqueueScript("if(window.startForcedStreamScroll){startForcedStreamScroll();}");
             sending = true;
             latestAssistantSegmentText = null;
             latestAssistantSegmentDivId = null;
@@ -1868,6 +1897,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 FinishStreaming();
                 FinishThoughtStreaming();
                 CollapseThinkingBox();
+                EnqueueScript("if(window.stopForcedStreamScroll){stopForcedStreamScroll();}");
                 sending = false;
                 ApplyPermissions();
             }
@@ -2840,7 +2870,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
         }
 
-        // 关联 preview_change_set 的结构化输入与 apply_change_set 的成功结果，仅渲染已提交流程。
+        // 关联流程读取及已提交结果，渲染当前会话中可确认的流程结构。
         private void CaptureFlowVisualizationEvent(GooseAcpEvent item)
         {
             JObject update = item?.Raw?["params"]?["update"] as JObject
@@ -2880,9 +2910,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 string previewId = data["previewId"]?.Value<string>();
                 if (string.Equals(resultType, "change_set.preview", StringComparison.Ordinal))
                 {
-                    if (!string.IsNullOrWhiteSpace(callId)
-                        && !string.IsNullOrWhiteSpace(previewId)
-                        && previewChangeSetsByCallId.TryGetValue(callId, out JObject changeSet))
+                    JObject changeSet = null;
+                    if (!string.IsNullOrWhiteSpace(callId))
+                        previewChangeSetsByCallId.TryGetValue(callId, out changeSet);
+                    if (!string.IsNullOrWhiteSpace(previewId) && changeSet != null)
                     {
                         changeSetsByPreviewId[previewId] = (JObject)changeSet.DeepClone();
                     }
@@ -3029,9 +3060,30 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 return;
             }
             bool isCall = string.Equals(marker, "call", StringComparison.Ordinal);
-            string cls = isCall ? "tool-call" : "tool-result";
-            string display = isCall ? "调用" : "结果";
             string normalizedText = string.IsNullOrWhiteSpace(text) ? "无摘要" : LocalizeAutomationToolText(text.Trim());
+            bool isError = false;
+            if (!isCall)
+            {
+                try
+                {
+                    JObject result = JObject.Parse(ExtractToolResultText(raw) ?? string.Empty);
+                    isError = result["ok"]?.Value<bool?>() == false;
+                    if (isError)
+                    {
+                        string code = result["errorCode"]?.Value<string>() ?? "工具调用失败";
+                        string detail = result["recovery"]?["validationError"]?.Value<string>()
+                            ?? result["message"]?.Value<string>();
+                        normalizedText = string.IsNullOrWhiteSpace(detail)
+                            ? code
+                            : code + " · " + detail;
+                    }
+                }
+                catch (JsonReaderException)
+                {
+                }
+            }
+            string cls = isCall ? "tool-call" : isError ? "tool-error" : "tool-result";
+            string display = isCall ? "调用" : isError ? "异常" : "结果";
             string callId = raw?["params"]?["update"]?["toolCallId"]?.Value<string>()
                 ?? raw?["params"]?["toolCallId"]?.Value<string>()
                 ?? string.Empty;
@@ -3045,8 +3097,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             string callIdJson = JsonConvert.SerializeObject(callId);
             string js = "var box=document.getElementById('" + boxId + "');if(box){var callId=" + callIdJson + ";var sig=" + signatureJson
                 + ";var paired=null;if(callId){var entries=box.querySelectorAll('.tool-entry');for(var i=entries.length-1;i>=0;i--){if(entries[i].dataset.callId===callId){paired=entries[i];break;}}}"
-                + "if(paired&&" + (isCall ? "false" : "true") + "){paired.classList.remove('tool-call');paired.classList.add('tool-result');paired.title=paired.title+' | '+"
-                + JsonConvert.SerializeObject(normalizedText) + ";var label=paired.querySelector('.tool-entry-label');if(label){label.textContent='完成';}var value=paired.querySelector('.tool-entry-text');if(value){value.textContent=value.textContent+'  →  '+"
+                + "if(paired&&" + (isCall ? "false" : "true") + "){paired.classList.remove('tool-call');paired.classList.add('" + cls + "');paired.title=paired.title+' | '+"
+                + JsonConvert.SerializeObject(normalizedText) + ";var label=paired.querySelector('.tool-entry-label');if(label){label.textContent='" + (isError ? "异常" : "完成") + "';}var value=paired.querySelector('.tool-entry-text');if(value){value.textContent=value.textContent+'  →  '+"
                 + JsonConvert.SerializeObject(normalizedText) + ";}}else{var entries2=box.querySelectorAll('.tool-entry');var last=entries2.length?entries2[entries2.length-1]:null;if(last&&last.dataset.signature===sig){var count=parseInt(last.dataset.count||'1',10)+1;last.dataset.count=count;var badge=last.querySelector('.tool-entry-count');if(badge){badge.textContent='×'+count;badge.style.display='inline-block';}}else{box.insertAdjacentHTML('beforeend',"
                 + htmlJson + ");var added=box.lastElementChild;if(added){added.dataset.signature=sig;added.dataset.count='1';added.dataset.callId=callId;}}}scrollThinkingBoxToBottom('" + boxId + "');}";
             EnqueueScript(js);
@@ -3055,12 +3107,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         private static string LocalizeAutomationToolText(string value)
         {
             return (value ?? string.Empty)
-                .Replace("get_change_capabilities", "获取变更能力")
-                .Replace("get_operation_contracts", "获取指令契约")
-                .Replace("begin_change_set_draft", "创建变更草稿")
-                .Replace("append_change_set_draft", "追加草稿指令")
-                .Replace("get_change_set_draft", "查看草稿进度")
-                .Replace("preview_change_set", "预演业务变更")
+                .Replace("get_operation_schemas", "获取指令结构")
+                .Replace("preview_change_set", "预演完整变更")
                 .Replace("apply_change_set", "提交业务变更")
                 .Replace("run_proc_test", "限时测试流程")
                 .Replace("wait_for_proc_state", "等待流程状态");
@@ -3168,7 +3216,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private static void AppendOperationFlowHtml(StringBuilder html, JObject operation, int operationIndex)
         {
-            string kind = operation["kind"]?.Value<string>() ?? "unknown";
+            string kind = operation["kind"]?.Value<string>()
+                ?? (operation["operaType"] == null ? "unknown" : "platform.operation");
             string name = operation["name"]?.Value<string>();
             string summary = BuildOperationSummary(operation, kind);
             html.Append("<div class=\"flow-op\" title=\"").Append(HtmlEncode(kind))
@@ -3226,7 +3275,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 case "process.wait":
                     return $"等待流程 {operation["process"]?.Value<string>() ?? ""} 到达 {operation["expectedState"]?.Value<string>() ?? "目标状态"}";
                 default:
-                    return string.IsNullOrWhiteSpace(operation["name"]?.Value<string>()) ? kind : operation["name"]?.Value<string>();
+                    return operation["operaType"]?.Value<string>()
+                        ?? (string.IsNullOrWhiteSpace(operation["name"]?.Value<string>())
+                            ? kind : operation["name"]?.Value<string>());
             }
         }
 

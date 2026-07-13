@@ -26,15 +26,8 @@ namespace Automation.Bridge
         private const int MaxProcDetailUtf8Bytes = 256 * 1024;
         private const int MaxBatchReadUtf8Bytes = 256 * 1024;
         private const int MaxStepDetailOperationCount = 100;
-        private const int MaxBatchStepCount = 10;
-        private const int MaxBatchOperationCount = 20;
-        private const int MaxBatchStepOperationCount = 20;
-        private const int MaxBatchDefinitionUtf8Bytes = 64 * 1024;
         private const int MaxBatchFieldValuesUtf8Bytes = 8 * 1024;
         private const int MaxBatchNameLength = 64;
-        private const int MaxChangeSetUtf8Bytes = 64 * 1024;
-        private const int MaxDraftAppendOperationCount = 5;
-        private const int MaxActiveChangeSetDraftCount = 16;
         private static readonly LocalFileLogger bridgeErrorLogger = new LocalFileLogger(
             Path.Combine(@"D:\AutomationLogs", "Bridge"));
 
@@ -76,8 +69,6 @@ namespace Automation.Bridge
         private readonly object previewLock = new object();
         private readonly Dictionary<string, PreviewApprovalRecord> previewRecords =
             new Dictionary<string, PreviewApprovalRecord>(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, AiChangeSetDraftRecord> changeSetDraftRecords =
-            new Dictionary<string, AiChangeSetDraftRecord>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<int, DiagnosticProcIndex> diagnosticIndexes =
             new Dictionary<int, DiagnosticProcIndex>();
 
@@ -221,18 +212,10 @@ namespace Automation.Bridge
                         WaitForPreviewConfirmation(request);
                         return WrapResponse("patch.apply_patch", ExecuteOnUiThread(() => HandleApplyPatch(request)));
                     // ---------- AI 语义变更集 V2 ----------
-                    case "/bridge/change-set/draft/begin":
-                        AiChangeSet draftDefinition = ParseChangeSet(request);
-                        return WrapResponse("change_set.draft", ExecuteOnUiThread(() => HandleBeginChangeSetDraft(draftDefinition)));
-                    case "/bridge/change-set/draft/append":
-                        return WrapResponse("change_set.draft", ExecuteOnUiThread(() => HandleAppendChangeSetDraft(request)));
-                    case "/bridge/change-set/draft/get":
-                        return WrapResponse("change_set.draft", ExecuteOnUiThread(() => HandleGetChangeSetDraft(request)));
                     case "/bridge/change-set/preview":
                         AiChangeSet changeSet = ParseChangeSet(request);
-                        string sourceDraftId = changeSet.DraftId;
-                        return WrapResponse("change_set.preview", ExecuteOnUiThread(() =>
-                            HandlePreviewChangeSet(ResolveChangeSetForPreview(changeSet), sourceDraftId)));
+                        return WrapResponse("change_set.preview",
+                            ExecuteOnUiThread(() => HandlePreviewChangeSet(changeSet)));
                     case "/bridge/change-set/apply":
                         WaitForPreviewConfirmation(request);
                         return WrapResponse("change_set.apply", ExecuteOnUiThread(() => HandleApplyChangeSet(request)));
@@ -242,6 +225,8 @@ namespace Automation.Bridge
                         return WrapResponse("change_set.contracts", HandleGetChangeSetContracts(request));
                     case "/bridge/change-set/native-contract":
                         return WrapResponse("change_set.native_contract", HandleGetNativeOperationContract(request));
+                    case "/bridge/change-set/native-contracts":
+                        return WrapResponse("change_set.native_contracts", HandleGetNativeOperationContracts(request));
                     // ---------- proc_manage 拆分端点（previewId 为空预演，非空提交） ----------
                     case "/bridge/proc/create":
                         WaitForPreviewConfirmation(request, false);
@@ -395,14 +380,29 @@ namespace Automation.Bridge
 
         public static string BuildErrorBody(string code, string message, string details = null)
         {
-            return new JObject
+            var error = new JObject
             {
                 ["ok"] = false,
                 ["type"] = "bridge.error",
                 ["errorCode"] = code ?? string.Empty,
                 ["message"] = message ?? string.Empty,
                 ["details"] = string.IsNullOrWhiteSpace(details) ? null : details
-            }.ToString(Formatting.None);
+            };
+            if (!string.IsNullOrWhiteSpace(details))
+            {
+                try
+                {
+                    JToken recovery = JToken.Parse(details);
+                    if (recovery is JObject)
+                    {
+                        error["recovery"] = recovery;
+                    }
+                }
+                catch (JsonReaderException)
+                {
+                }
+            }
+            return error.ToString(Formatting.None);
         }
 
         private static string BuildSuccessBody(string type, JToken data)
@@ -978,12 +978,6 @@ namespace Automation.Bridge
                     return BridgeError(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
                 }
                 record.Rejected = true;
-                if (!string.IsNullOrWhiteSpace(record.SourceDraftId)
-                    && changeSetDraftRecords.TryGetValue(record.SourceDraftId, out AiChangeSetDraftRecord sourceDraft)
-                    && string.Equals(sourceDraft.FrozenPreviewId, previewId, StringComparison.OrdinalIgnoreCase))
-                {
-                    sourceDraft.FrozenPreviewId = null;
-                }
                 Monitor.PulseAll(previewLock);
             }
             return new JObject { ["previewId"] = previewId, ["rejected"] = true };
@@ -1314,29 +1308,21 @@ namespace Automation.Bridge
             };
         }
 
-        // 纯JSON结构和大小校验不依赖WinForms状态，必须在切换UI线程前完成，
+        // 纯JSON结构校验不依赖WinForms状态，必须在切换UI线程前完成，
         // 避免无效请求因UI线程繁忙而长时间等待。
         private void ValidateCreateBatchRequestShape(JObject request)
         {
             JObject definition = ReadRequiredObject(request, "definition");
-            int definitionBytes = Encoding.UTF8.GetByteCount(definition.ToString(Formatting.None));
-            if (definitionBytes > MaxBatchDefinitionUtf8Bytes)
-            {
-                throw new BridgeRequestException(413, "BATCH_DEFINITION_TOO_LARGE",
-                    $"流程变更集超过 {MaxBatchDefinitionUtf8Bytes / 1024} KB 上限，请缩小单次构建规模。");
-            }
             JToken stepsToken = definition["steps"];
             if (!(stepsToken is JArray steps))
             {
                 throw new BridgeRequestException(400, "INVALID_ARGUMENT", "definition.steps 必须是数组。");
             }
-            if (steps.Count < 1 || steps.Count > MaxBatchStepCount)
+            if (steps.Count < 1)
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT",
-                    $"steps 数量必须在 1..{MaxBatchStepCount} 之间。");
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "steps 至少包含一个步骤。");
             }
 
-            int operationCount = 0;
             for (int stepIndex = 0; stepIndex < steps.Count; stepIndex++)
             {
                 if (!(steps[stepIndex] is JObject step))
@@ -1349,29 +1335,12 @@ namespace Automation.Bridge
                     throw new BridgeRequestException(400, "INVALID_ARGUMENT",
                         $"definition.steps[{stepIndex}].operations 必须是数组。");
                 }
-                if (operations.Count > MaxBatchStepOperationCount)
-                {
-                    throw new BridgeRequestException(400, "INVALID_ARGUMENT",
-                        $"definition.steps[{stepIndex}].operations 最多 {MaxBatchStepOperationCount} 条。");
-                }
-                operationCount += operations.Count;
-                if (operationCount > MaxBatchOperationCount)
-                {
-                    throw new BridgeRequestException(400, "INVALID_ARGUMENT",
-                        $"单次流程变更集累计指令数最多 {MaxBatchOperationCount} 条。");
-                }
             }
         }
 
         private static AiChangeSet ParseChangeSet(JObject request)
         {
             JObject token = ReadRequiredObject(request, "changeSet");
-            int byteCount = Encoding.UTF8.GetByteCount(token.ToString(Formatting.None));
-            if (byteCount > MaxChangeSetUtf8Bytes)
-            {
-                throw new BridgeRequestException(413, "CHANGE_SET_TOO_LARGE",
-                    $"changeSet 超过 {MaxChangeSetUtf8Bytes / 1024} KB 上限。");
-            }
             ValidateChangeSetShape(token);
             try
             {
@@ -1420,10 +1389,37 @@ namespace Automation.Bridge
             }
         }
 
+        private static JObject HandleGetNativeOperationContracts(JObject request)
+        {
+            EnsureOnlyProperties(request, "nativeOperationContracts", "operaTypes");
+            JArray operaTypes = ReadRequiredArray(request, "operaTypes");
+            if (operaTypes.Count < 1 || operaTypes.Count > 12
+                || operaTypes.Any(token => token.Type != JTokenType.String
+                    || string.IsNullOrWhiteSpace(token.Value<string>())))
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT",
+                    "operaTypes 必须包含 1..12 个非空字符串。");
+            }
+            string[] distinct = operaTypes.Values<string>()
+                .Select(value => value.Trim()).Distinct(StringComparer.Ordinal).ToArray();
+            try
+            {
+                return new JObject
+                {
+                    ["contracts"] = new JArray(distinct.Select(StructuredOperationCompiler.BuildContract))
+                };
+            }
+            catch (Exception ex) when (ex is InvalidOperationException
+                || ex is ArgumentException || ex is KeyNotFoundException)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", ex.Message);
+            }
+        }
+
         private static void ValidateChangeSetShape(JObject changeSet)
         {
             EnsureOnlyProperties(changeSet, "changeSet",
-                "version", "draftId", "title", "deleteProcesses", "variables", "processes");
+                "version", "title", "deleteProcesses", "variables", "processes");
             if (changeSet["deleteProcesses"] is JObject deletion)
             {
                 EnsureOnlyProperties(deletion, "changeSet.deleteProcesses", "mode", "names", "procIds");
@@ -1438,12 +1434,12 @@ namespace Automation.Bridge
                     "name", "type", "initialValue", "note", "policy"));
             ValidateObjectArray(changeSet["processes"], "changeSet.processes", process =>
             {
-                EnsureOnlyProperties(process, "changeSet.processes[]", "key", "action", "targetProcId", "targetName",
-                    "name", "autoStart", "disable", "preserveOperationTypes", "steps");
+                EnsureOnlyProperties(process, "changeSet.processes[]", "action", "targetProcId", "targetName",
+                    "name", "autoStart", "disable", "steps");
                 ValidateObjectArray(process["steps"], "changeSet.processes[].steps", step =>
                 {
-                    EnsureOnlyProperties(step, "changeSet.processes[].steps[]", "key", "name", "disable",
-                        "expectedOperationCount", "operations");
+                    EnsureOnlyProperties(step, "changeSet.processes[].steps[]", "stepId", "key", "name", "disable",
+                        "expectedOperaTypes", "operations");
                     ValidateObjectArray(step["operations"], "changeSet.processes[].steps[].operations", operation =>
                     {
                         ValidateSemanticOperationShape(operation);
@@ -1452,330 +1448,13 @@ namespace Automation.Bridge
             });
         }
 
-        private JObject HandleBeginChangeSetDraft(AiChangeSet changeSet)
-        {
-            EnsureRuntimeReady();
-            if (!string.IsNullOrWhiteSpace(changeSet.DraftId))
-            {
-                throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_INVALID",
-                    "创建渐进草稿时不得提供 draftId。");
-            }
-            if ((changeSet.Processes?.Count ?? 0) < 1)
-            {
-                throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_INVALID",
-                    "渐进草稿至少包含一个流程骨架；仅变量或删除变更请直接预演。");
-            }
-
-            int expectedTotal = 0;
-            var processKeys = new HashSet<string>(StringComparer.Ordinal);
-            foreach (ProcessDefinition process in changeSet.Processes)
-            {
-                if (process == null || string.IsNullOrWhiteSpace(process.Key)
-                    || !processKeys.Add(process.Key.Trim()))
-                {
-                    throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_INVALID",
-                        "渐进草稿的 processes[].key 必须非空且唯一。");
-                }
-                if (!process.PreserveOperationTypes.HasValue)
-                {
-                    throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_INVALID",
-                        $"流程[{process.Key}]必须明确指定 preserveOperationTypes。根据既有配置或精确规范重建时为 true，按业务目标创建时为 false。");
-                }
-                var stepKeys = new HashSet<string>(StringComparer.Ordinal);
-                foreach (StepDefinition step in process.Steps ?? new List<StepDefinition>())
-                {
-                    if (step == null || string.IsNullOrWhiteSpace(step.Key) || !stepKeys.Add(step.Key.Trim()))
-                    {
-                        throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_INVALID",
-                            $"流程[{process.Key}]的步骤 key 必须非空且唯一。");
-                    }
-                    if (!step.ExpectedOperationCount.HasValue)
-                    {
-                        throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_INVALID",
-                            $"流程[{process.Key}]步骤[{step.Key}]必须声明 expectedOperationCount。");
-                    }
-                    if ((step.Operations?.Count ?? 0) != 0)
-                    {
-                        throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_INVALID",
-                            "创建渐进草稿时步骤 operations 必须为空，后续使用 append_change_set_draft 分批追加。");
-                    }
-                    expectedTotal += step.ExpectedOperationCount.Value;
-                }
-            }
-            if (expectedTotal < 1 || expectedTotal > AiChangeSetCompiler.MaxOperationCount)
-            {
-                throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_INVALID",
-                    $"渐进草稿预期指令总数必须在 1..{AiChangeSetCompiler.MaxOperationCount} 之间，当前为 {expectedTotal}。");
-            }
-
-            Dictionary<string, DicValue> variables = SF.valueStore?.BuildSaveData()
-                ?? throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
-            ValidateIncompleteChangeSetDraft(changeSet, variables);
-            string draftId = Guid.NewGuid().ToString("N");
-            lock (previewLock)
-            {
-                CleanupExpiredChangeSetDraftsLocked();
-                if (changeSetDraftRecords.Count >= MaxActiveChangeSetDraftCount)
-                {
-                    throw new BridgeRequestException(409, "CHANGE_SET_DRAFT_LIMIT",
-                        $"当前渐进草稿数量已达到上限 {MaxActiveChangeSetDraftCount}，请完成现有草稿后再创建。");
-                }
-                changeSetDraftRecords[draftId] = new AiChangeSetDraftRecord
-                {
-                    DraftId = draftId,
-                    ChangeSet = CloneChangeSet(changeSet),
-                    CreatedAtUtc = DateTime.UtcNow,
-                    ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
-                    BaseStateHash = AiChangeSetCompiler.ComputeStateHash(SF.frmProc.procsList, variables),
-                    Revision = 0
-                };
-                return BuildChangeSetDraftSummary(changeSetDraftRecords[draftId]);
-            }
-        }
-
-        private JObject HandleAppendChangeSetDraft(JObject request)
-        {
-            EnsureRuntimeReady();
-            EnsureOnlyProperties(request, "changeSetDraftAppend", "draftId", "processKey", "stepKey", "operations");
-            string draftId = ReadRequiredString(request, "draftId").Trim();
-            string processKey = ReadRequiredString(request, "processKey").Trim();
-            string stepKey = ReadRequiredString(request, "stepKey").Trim();
-            JArray operationTokens = ReadRequiredArray(request, "operations");
-            if (operationTokens.Count < 1 || operationTokens.Count > MaxDraftAppendOperationCount)
-            {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT",
-                    $"operations 数量必须在 1..{MaxDraftAppendOperationCount} 之间。");
-            }
-            foreach (JToken token in operationTokens)
-            {
-                if (!(token is JObject operation))
-                {
-                    throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_INVALID", "operations 只能包含对象。");
-                }
-                ValidateSemanticOperationShape(operation);
-            }
-
-            AiChangeSetDraftRecord record;
-            AiChangeSet candidate;
-            int baseRevision;
-            lock (previewLock)
-            {
-                CleanupExpiredChangeSetDraftsLocked();
-                if (!changeSetDraftRecords.TryGetValue(draftId, out record))
-                {
-                    throw new BridgeRequestException(404, "CHANGE_SET_DRAFT_NOT_FOUND",
-                        $"渐进草稿不存在或已过期：{draftId}");
-                }
-                if (!string.IsNullOrWhiteSpace(record.FrozenPreviewId))
-                {
-                    throw new BridgeRequestException(409, "CHANGE_SET_DRAFT_FROZEN",
-                        "渐进草稿已生成正式预演，审核完成前不能继续追加。",
-                        $"previewId={record.FrozenPreviewId}");
-                }
-                candidate = CloneChangeSet(record.ChangeSet);
-                baseRevision = record.Revision;
-            }
-
-            ProcessDefinition process = candidate.Processes?.SingleOrDefault(item =>
-                string.Equals(item?.Key, processKey, StringComparison.Ordinal));
-            if (process == null)
-            {
-                throw new BridgeRequestException(404, "CHANGE_SET_DRAFT_TARGET_NOT_FOUND",
-                    $"渐进草稿中不存在流程 key：{processKey}");
-            }
-            StepDefinition step = process.Steps?.SingleOrDefault(item =>
-                string.Equals(item?.Key, stepKey, StringComparison.Ordinal));
-            if (step == null)
-            {
-                throw new BridgeRequestException(404, "CHANGE_SET_DRAFT_TARGET_NOT_FOUND",
-                    $"流程[{processKey}]中不存在步骤 key：{stepKey}");
-            }
-            step.Operations = step.Operations ?? new List<SemanticOperation>();
-            List<SemanticOperation> additions;
-            try
-            {
-                additions = JsonConvert.DeserializeObject<List<SemanticOperation>>(
-                    operationTokens.ToString(Formatting.None), new JsonSerializerSettings
-                    {
-                        MissingMemberHandling = MissingMemberHandling.Error,
-                        NullValueHandling = NullValueHandling.Include
-                    });
-            }
-            catch (JsonException ex)
-            {
-                throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_INVALID",
-                    "追加指令不符合 V2 协议。", ex.Message);
-            }
-            step.Operations.AddRange(additions ?? new List<SemanticOperation>());
-
-            Dictionary<string, DicValue> variables = SF.valueStore?.BuildSaveData()
-                ?? throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
-            string currentStateHash = AiChangeSetCompiler.ComputeStateHash(SF.frmProc.procsList, variables);
-            if (!string.Equals(record.BaseStateHash, currentStateHash, StringComparison.Ordinal))
-            {
-                throw new BridgeRequestException(409, "CHANGE_SET_DRAFT_VERSION_MISMATCH",
-                    "渐进草稿创建后流程或变量配置已变化，请重新创建草稿。");
-            }
-            ValidateIncompleteChangeSetDraft(candidate, variables);
-            lock (previewLock)
-            {
-                if (!changeSetDraftRecords.TryGetValue(draftId, out AiChangeSetDraftRecord current)
-                    || !ReferenceEquals(current, record) || current.Revision != baseRevision)
-                {
-                    throw new BridgeRequestException(409, "CHANGE_SET_DRAFT_CONFLICT",
-                        "渐进草稿已被其他请求更新，请先读取最新草稿进度再继续追加。");
-                }
-                record.ChangeSet = candidate;
-                record.ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30);
-                record.Revision++;
-                return BuildChangeSetDraftSummary(record);
-            }
-        }
-
-        private JObject HandleGetChangeSetDraft(JObject request)
-        {
-            EnsureOnlyProperties(request, "changeSetDraft", "draftId");
-            string draftId = ReadRequiredString(request, "draftId").Trim();
-            lock (previewLock)
-            {
-                CleanupExpiredChangeSetDraftsLocked();
-                if (!changeSetDraftRecords.TryGetValue(draftId, out AiChangeSetDraftRecord record))
-                {
-                    throw new BridgeRequestException(404, "CHANGE_SET_DRAFT_NOT_FOUND",
-                        $"渐进草稿不存在或已过期：{draftId}");
-                }
-                return BuildChangeSetDraftSummary(record);
-            }
-        }
-
-        private AiChangeSet ResolveChangeSetForPreview(AiChangeSet request)
-        {
-            if (string.IsNullOrWhiteSpace(request.DraftId))
-            {
-                return request;
-            }
-            EnsureRuntimeReady();
-            if (!string.IsNullOrWhiteSpace(request.Title) || request.DeleteProcesses != null
-                || (request.Variables?.Count ?? 0) > 0 || (request.Processes?.Count ?? 0) > 0)
-            {
-                throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_INVALID",
-                    "通过 draftId 预演时只允许提供 version 和 draftId。");
-            }
-            lock (previewLock)
-            {
-                CleanupExpiredChangeSetDraftsLocked();
-                if (!changeSetDraftRecords.TryGetValue(request.DraftId.Trim(), out AiChangeSetDraftRecord record))
-                {
-                    throw new BridgeRequestException(404, "CHANGE_SET_DRAFT_NOT_FOUND",
-                        $"渐进草稿不存在或已过期：{request.DraftId}");
-                }
-                Dictionary<string, DicValue> variables = SF.valueStore?.BuildSaveData()
-                    ?? throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
-                string currentStateHash = AiChangeSetCompiler.ComputeStateHash(SF.frmProc.procsList, variables);
-                if (!string.Equals(record.BaseStateHash, currentStateHash, StringComparison.Ordinal))
-                {
-                    throw new BridgeRequestException(409, "CHANGE_SET_DRAFT_VERSION_MISMATCH",
-                        "渐进草稿创建后流程或变量配置已变化，请重新创建草稿。");
-                }
-                if (!IsChangeSetDraftComplete(record.ChangeSet))
-                {
-                    throw new BridgeRequestException(409, "CHANGE_SET_DRAFT_INCOMPLETE",
-                        "渐进草稿尚未完成，不能生成正式预演。", BuildDraftRemainingText(record.ChangeSet));
-                }
-                AiChangeSet resolved = CloneChangeSet(record.ChangeSet);
-                resolved.DraftId = null;
-                return resolved;
-            }
-        }
-
-        private static void ValidateIncompleteChangeSetDraft(
-            AiChangeSet changeSet, Dictionary<string, DicValue> variables)
-        {
-            try
-            {
-                AiChangeSetCompiler.Compile(changeSet, SF.frmProc.procsList, variables,
-                    BuildAiResourceSnapshot(), allowIncompleteDraft: true);
-            }
-            catch (InvalidOperationException ex)
-            {
-                throw new BridgeRequestException(400, "CHANGE_SET_DRAFT_COMPILE_FAILED",
-                    "渐进草稿校验失败，本批内容未写入草稿。", ex.Message);
-            }
-        }
-
-        private static AiChangeSet CloneChangeSet(AiChangeSet value)
-        {
-            return JsonConvert.DeserializeObject<AiChangeSet>(JsonConvert.SerializeObject(value));
-        }
-
-        private static bool IsChangeSetDraftComplete(AiChangeSet changeSet)
-        {
-            return (changeSet.Processes ?? new List<ProcessDefinition>()).All(process =>
-                (process.Steps ?? new List<StepDefinition>()).All(step =>
-                    (step.Operations?.Count ?? 0) == (step.ExpectedOperationCount ?? step.Operations?.Count ?? 0)));
-        }
-
-        private static string BuildDraftRemainingText(AiChangeSet changeSet)
-        {
-            return string.Join("; ", (changeSet.Processes ?? new List<ProcessDefinition>())
-                .SelectMany(process => (process.Steps ?? new List<StepDefinition>()).Select(step => new
-                {
-                    Process = process.Key,
-                    Step = step.Key,
-                    Remaining = (step.ExpectedOperationCount ?? 0) - (step.Operations?.Count ?? 0)
-                }))
-                .Where(item => item.Remaining > 0)
-                .Select(item => $"{item.Process}/{item.Step} remaining={item.Remaining}"));
-        }
-
-        private static JObject BuildChangeSetDraftSummary(AiChangeSetDraftRecord record)
-        {
-            var processes = new JArray();
-            int expectedTotal = 0;
-            int actualTotal = 0;
-            foreach (ProcessDefinition process in record.ChangeSet.Processes ?? new List<ProcessDefinition>())
-            {
-                var steps = new JArray();
-                foreach (StepDefinition step in process.Steps ?? new List<StepDefinition>())
-                {
-                    int expected = step.ExpectedOperationCount ?? step.Operations?.Count ?? 0;
-                    int actual = step.Operations?.Count ?? 0;
-                    expectedTotal += expected;
-                    actualTotal += actual;
-                    steps.Add(new JObject
-                    {
-                        ["stepKey"] = step.Key ?? string.Empty,
-                        ["name"] = step.Name ?? string.Empty,
-                        ["expectedOperations"] = expected,
-                        ["actualOperations"] = actual,
-                        ["remainingOperations"] = Math.Max(0, expected - actual)
-                    });
-                }
-                processes.Add(new JObject
-                {
-                    ["processKey"] = process.Key ?? string.Empty,
-                    ["name"] = process.Name ?? string.Empty,
-                    ["preserveOperationTypes"] = process.PreserveOperationTypes ?? false,
-                    ["steps"] = steps
-                });
-            }
-            return new JObject
-            {
-                ["draftId"] = record.DraftId,
-                ["title"] = record.ChangeSet.Title ?? string.Empty,
-                ["readyForPreview"] = IsChangeSetDraftComplete(record.ChangeSet),
-                ["frozenPreviewId"] = record.FrozenPreviewId,
-                ["revision"] = record.Revision,
-                ["expectedOperations"] = expectedTotal,
-                ["actualOperations"] = actualTotal,
-                ["remainingOperations"] = Math.Max(0, expectedTotal - actualTotal),
-                ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-                ["processes"] = processes
-            };
-        }
-
         private static void ValidateSemanticOperationShape(JObject operation)
         {
+            if (operation["kind"] == null && operation["opId"]?.Type == JTokenType.String)
+            {
+                EnsureOnlyProperties(operation, "既有指令引用", "opId", "key");
+                return;
+            }
             string kind = operation["kind"]?.Type == JTokenType.String
                 ? operation["kind"].Value<string>()
                 : null;
@@ -1795,6 +1474,7 @@ namespace Automation.Bridge
             }
             string[] allowed = (contract["required"]?.Values<string>() ?? Enumerable.Empty<string>())
                 .Concat(contract["optional"]?.Values<string>() ?? Enumerable.Empty<string>())
+                .Concat(new[] { "opId", "key" })
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
             EnsureOnlyProperties(operation, $"语义指令 {kind}", allowed);
@@ -1851,7 +1531,8 @@ namespace Automation.Bridge
             {
                 throw new BridgeRequestException(400, "CHANGE_SET_INVALID", $"语义指令 {field} 必须是对象。");
             }
-            EnsureOnlyProperties(target, $"语义指令.{field}", "step", "operation");
+            EnsureOnlyProperties(target, $"语义指令.{field}",
+                "step", "operation", "operationId", "operationKey");
         }
 
         private static void EnsureOnlyProperties(JObject value, string path, params string[] allowedNames)
@@ -1866,7 +1547,7 @@ namespace Automation.Bridge
             }
         }
 
-        private JObject HandlePreviewChangeSet(AiChangeSet changeSet, string sourceDraftId = null)
+        private JObject HandlePreviewChangeSet(AiChangeSet changeSet)
         {
             EnsureRuntimeReady();
             Dictionary<string, DicValue> variables = SF.valueStore?.BuildSaveData()
@@ -1880,7 +1561,12 @@ namespace Automation.Bridge
             catch (InvalidOperationException ex)
             {
                 throw new BridgeRequestException(400, "CHANGE_SET_COMPILE_FAILED",
-                    "语义变更集编译失败。", ex.Message);
+                    "语义变更集编译失败。", new JObject
+                    {
+                        ["validationError"] = ex.Message,
+                        ["nextAction"] = "fix_change_set_and_retry",
+                        ["sideEffects"] = "none"
+                    }.ToString(Formatting.None));
             }
 
             JObject normalized = JObject.FromObject(changeSet);
@@ -1889,20 +1575,19 @@ namespace Automation.Bridge
             lock (previewLock)
             {
                 record = previewRecords[previewId];
-                record.AiChangeSetDraft = draft;
+                record.AiChangeSetPreview = draft;
                 record.BaseStateHash = AiChangeSetCompiler.ComputeStateHash(SF.frmProc.procsList, variables);
-                record.SourceDraftId = sourceDraftId;
-                if (!string.IsNullOrWhiteSpace(sourceDraftId)
-                    && changeSetDraftRecords.TryGetValue(sourceDraftId, out AiChangeSetDraftRecord sourceDraft))
-                {
-                    sourceDraft.FrozenPreviewId = previewId;
-                }
             }
             return new JObject
             {
                 ["previewId"] = previewId,
                 ["confirmed"] = record.Confirmed,
                 ["committed"] = false,
+                ["status"] = record.Confirmed ? "confirmed" : "awaiting_confirmation",
+                ["nextAction"] = record.Confirmed ? "apply_change_set" : "await_foreground_confirmation",
+                ["nextToolArgs"] = record.Confirmed
+                    ? new JObject { ["previewId"] = previewId }
+                    : null,
                 ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 ["title"] = changeSet.Title ?? string.Empty,
                 ["summary"] = new JObject
@@ -1954,19 +1639,17 @@ namespace Automation.Bridge
             ValidateConfirmedManagePreview(previewId);
             AiChangeSetCompileResult draft;
             string expectedStateHash;
-            string sourceDraftId;
             JArray changes;
             lock (previewLock)
             {
                 if (!previewRecords.TryGetValue(previewId, out PreviewApprovalRecord record)
-                    || record.AiChangeSetDraft == null)
+                    || record.AiChangeSetPreview == null)
                 {
                     throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND",
                         $"语义变更集预演不存在或已过期：{previewId}");
                 }
-                draft = record.AiChangeSetDraft;
+                draft = record.AiChangeSetPreview;
                 expectedStateHash = record.BaseStateHash;
-                sourceDraftId = record.SourceDraftId;
                 changes = draft.Changes == null ? new JArray() : (JArray)draft.Changes.DeepClone();
             }
 
@@ -1981,10 +1664,6 @@ namespace Automation.Bridge
 
             CommitChangeSet(draft);
             RemovePreview(previewId);
-            if (!string.IsNullOrWhiteSpace(sourceDraftId))
-            {
-                lock (previewLock) changeSetDraftRecords.Remove(sourceDraftId);
-            }
             var createdProcesses = new JArray();
             var affectedProcesses = new JArray();
             foreach (JObject change in changes.OfType<JObject>()
@@ -2016,6 +1695,8 @@ namespace Automation.Bridge
             {
                 ["previewId"] = previewId,
                 ["committed"] = true,
+                ["status"] = "committed",
+                ["nextAction"] = "complete",
                 ["procCount"] = draft.Processes.Count,
                 ["variableCount"] = draft.Variables.Count,
                 ["createdProcesses"] = createdProcesses,
@@ -2313,11 +1994,6 @@ namespace Automation.Bridge
         {
             EnsureRuntimeReady();
             EnsureAllProcsStoppedForAiStructureCommit("批量创建流程");
-            int definitionBytes = Encoding.UTF8.GetByteCount(definition.ToString(Formatting.None));
-            if (definitionBytes > MaxBatchDefinitionUtf8Bytes)
-            {
-                throw new BridgeRequestException(413, "BATCH_DEFINITION_TOO_LARGE", $"流程变更集超过 {MaxBatchDefinitionUtf8Bytes / 1024} KB 上限，请缩小单次构建规模。");
-            }
             string name = ReadRequiredString(definition, "name");
             ValidateBatchName(name, "definition.name");
             if (SF.frmProc.procsList.Any(item => string.Equals(item?.head?.Name, name, StringComparison.Ordinal)))
@@ -2325,9 +2001,9 @@ namespace Automation.Bridge
                 throw new BridgeRequestException(409, "PROC_NAME_EXISTS", $"流程名称已存在：{name}");
             }
             JArray steps = ReadRequiredArray(definition, "steps");
-            if (steps.Count == 0 || steps.Count > MaxBatchStepCount)
+            if (steps.Count == 0)
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"steps 数量必须在 1..{MaxBatchStepCount} 之间。");
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "steps 至少包含一个步骤。");
             }
 
             int procIndex = SF.frmProc.procsList.Count;
@@ -2366,15 +2042,7 @@ namespace Automation.Bridge
                     ["name"] = step.Name
                 });
                 JArray operations = ReadOptionalArray(stepDefinition, "operations") ?? new JArray();
-                if (operations.Count > MaxBatchStepOperationCount)
-                {
-                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"steps[{stepIndex}].operations 最多允许 {MaxBatchStepOperationCount} 条指令。");
-                }
                 operationCount += operations.Count;
-                if (operationCount > MaxBatchOperationCount)
-                {
-                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"单次流程变更集最多允许 {MaxBatchOperationCount} 条指令。");
-                }
                 for (int opIndex = 0; opIndex < operations.Count; opIndex++)
                 {
                     if (!(operations[opIndex] is JObject operation))
@@ -6608,7 +6276,18 @@ namespace Automation.Bridge
                     409,
                     "PREVIEW_IN_FLIGHT",
                     "当前预演尚未完成提交或拒绝，禁止并行创建第二个预演。",
-                    $"activePreviewId={active.PreviewId}; confirmed={active.Confirmed}; actionRequired=wait_for_current_preview_completion");
+                    new JObject
+                    {
+                        ["activePreviewId"] = active.PreviewId,
+                        ["confirmed"] = active.Confirmed,
+                        ["nextAction"] = active.Confirmed
+                            ? "apply_change_set"
+                            : "await_foreground_confirmation",
+                        ["nextToolArgs"] = active.Confirmed
+                            ? new JObject { ["previewId"] = active.PreviewId }
+                            : null,
+                        ["sideEffects"] = "none"
+                    }.ToString(Formatting.None));
             }
         }
 
@@ -6643,13 +6322,6 @@ namespace Automation.Bridge
         {
             lock (previewLock)
             {
-                if (previewRecords.TryGetValue(previewId, out PreviewApprovalRecord record)
-                    && !string.IsNullOrWhiteSpace(record.SourceDraftId)
-                    && changeSetDraftRecords.TryGetValue(record.SourceDraftId, out AiChangeSetDraftRecord sourceDraft)
-                    && string.Equals(sourceDraft.FrozenPreviewId, previewId, StringComparison.OrdinalIgnoreCase))
-                {
-                    sourceDraft.FrozenPreviewId = null;
-                }
                 previewRecords.Remove(previewId);
             }
         }
@@ -6677,13 +6349,6 @@ namespace Automation.Bridge
                 .ToList();
             foreach (string expiredId in expiredIds)
             {
-                PreviewApprovalRecord record = previewRecords[expiredId];
-                if (!string.IsNullOrWhiteSpace(record?.SourceDraftId)
-                    && changeSetDraftRecords.TryGetValue(record.SourceDraftId, out AiChangeSetDraftRecord sourceDraft)
-                    && string.Equals(sourceDraft.FrozenPreviewId, expiredId, StringComparison.OrdinalIgnoreCase))
-                {
-                    sourceDraft.FrozenPreviewId = null;
-                }
                 previewRecords.Remove(expiredId);
             }
         }
@@ -7554,19 +7219,6 @@ namespace Automation.Bridge
             }
         }
 
-        private void CleanupExpiredChangeSetDraftsLocked()
-        {
-            DateTime now = DateTime.UtcNow;
-            List<string> expiredIds = changeSetDraftRecords
-                .Where(item => item.Value == null || item.Value.ExpiresAtUtc <= now)
-                .Select(item => item.Key)
-                .ToList();
-            foreach (string expiredId in expiredIds)
-            {
-                changeSetDraftRecords.Remove(expiredId);
-            }
-        }
-
         [System.Diagnostics.DebuggerNonUserCode]
         private static Guid ParseGuid(string text, string fieldName)
         {
@@ -8315,30 +7967,11 @@ namespace Automation.Bridge
 
             public List<(int stepIndex, int opIndex, ProcChangeKind kind)> AffectedOps { get; set; }
 
-            public AiChangeSetCompileResult AiChangeSetDraft { get; set; }
+            public AiChangeSetCompileResult AiChangeSetPreview { get; set; }
 
             public string BaseStateHash { get; set; }
-
-            public string SourceDraftId { get; set; }
 
             public DateTime? ConfirmedAtUtc { get; set; }
-        }
-
-        private sealed class AiChangeSetDraftRecord
-        {
-            public string DraftId { get; set; }
-
-            public AiChangeSet ChangeSet { get; set; }
-
-            public string BaseStateHash { get; set; }
-
-            public DateTime CreatedAtUtc { get; set; }
-
-            public DateTime ExpiresAtUtc { get; set; }
-
-            public int Revision { get; set; }
-
-            public string FrozenPreviewId { get; set; }
         }
 
         private sealed class DiagnosticProcIndex

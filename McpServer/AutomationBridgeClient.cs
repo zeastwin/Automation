@@ -33,23 +33,6 @@ namespace Automation.McpServer
 
         // ---------- proc_query 拆分（7 个） ----------
 
-        public Task<string> GetChangeCapabilitiesAsync()
-        {
-            return PostAsync("/bridge/change-set/capabilities", new JsonObject());
-        }
-
-        public Task<string> GetOperationContractsAsync(string[] kinds)
-        {
-            var values = new JsonArray();
-            foreach (string kind in kinds ?? Array.Empty<string>()) values.Add(kind);
-            return PostAsync("/bridge/change-set/contracts", new JsonObject { ["kinds"] = values });
-        }
-
-        public Task<string> GetNativeOperationContractAsync(string operaType)
-        {
-            return PostAsync("/bridge/change-set/native-contract", new JsonObject { ["operaType"] = operaType });
-        }
-
         public Task<string> ListProcsAsync(bool? includeStepSummary = null)
         {
             JsonObject payload = new JsonObject();
@@ -246,28 +229,11 @@ namespace Automation.McpServer
             });
         }
 
-        public Task<string> BeginChangeSetDraftAsync(AiChangeSet changeSet)
+        public Task<string> GetNativeOperationContractsAsync(string[] operaTypes)
         {
-            JsonNode changeSetNode = JsonSerializer.SerializeToNode(changeSet, jsonOptions)
-                ?? throw new ArgumentException("渐进草稿不能为 null。", nameof(changeSet));
-            return PostAsync("/bridge/change-set/draft/begin", new JsonObject
+            return PostAsync("/bridge/change-set/native-contracts", new JsonObject
             {
-                ["changeSet"] = changeSetNode
-            });
-        }
-
-        public Task<string> AppendChangeSetDraftAsync(ChangeSetDraftAppend append)
-        {
-            JsonNode appendNode = JsonSerializer.SerializeToNode(append, jsonOptions)
-                ?? throw new ArgumentException("渐进草稿追加内容不能为 null。", nameof(append));
-            return PostAsync("/bridge/change-set/draft/append", appendNode.AsObject());
-        }
-
-        public Task<string> GetChangeSetDraftAsync(string draftId)
-        {
-            return PostAsync("/bridge/change-set/draft/get", new JsonObject
-            {
-                ["draftId"] = draftId
+                ["operaTypes"] = JsonSerializer.SerializeToNode(operaTypes, jsonOptions)
             });
         }
 

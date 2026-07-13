@@ -38,9 +38,6 @@ namespace Automation
     /// </summary>
     public static class AiChangeSetCompiler
     {
-        public const int MaxProcessCount = 3;
-        public const int MaxStepCount = 10;
-        public const int MaxOperationCount = 20;
         public const int MaxNameLength = 64;
 
         private static readonly HashSet<string> ProtectedVariables = new HashSet<string>(StringComparer.Ordinal)
@@ -55,8 +52,7 @@ namespace Automation
             AiChangeSet changeSet,
             IList<Proc> currentProcesses,
             IDictionary<string, DicValue> currentVariables,
-            AiResourceSnapshot resources = null,
-            bool allowIncompleteDraft = false)
+            AiResourceSnapshot resources = null)
         {
             if (changeSet == null)
             {
@@ -73,35 +69,41 @@ namespace Automation
             var changes = new JArray();
 
             int deletedCount = ApplyProcessDeletion(changeSet.DeleteProcesses, processes, changes);
+            if (deletedCount > 0)
+            {
+                ProcessEditingService.AdaptGotoProcIndexes(processes, 0);
+            }
             int variableCount = ApplyVariableChanges(changeSet.Variables, variables, changes);
             int operationCount = 0;
             int replacedCount;
             int createdCount = ApplyProcessDefinitions(
                 changeSet.Processes, processes, variables, resources, changes, ref operationCount,
-                out replacedCount, allowIncompleteDraft);
+                out replacedCount);
 
             if (deletedCount == 0 && variableCount == 0 && createdCount == 0 && replacedCount == 0)
             {
                 throw new InvalidOperationException("changeSet 不包含任何变更。");
             }
 
-            if (!allowIncompleteDraft)
+            IReadOnlyCollection<string> tcpNames = GetReferenceValues(resources, "comm.tcp");
+            IReadOnlyCollection<string> serialNames = GetReferenceValues(resources, "comm.serial");
+            var validationContext = new ProcessDefinitionValidationContext(
+                variables.Keys, tcpNames, serialNames);
+            for (int procIndex = 0; procIndex < processes.Count; procIndex++)
             {
-                for (int procIndex = 0; procIndex < processes.Count; procIndex++)
+                var errors = new List<string>();
+                ProcessDefinitionService.NormalizeProc(
+                    procIndex, processes[procIndex], errors, validationContext);
+                errors.AddRange(ProcessDefinitionService.ValidateProcGotoTargets(procIndex, processes[procIndex]));
+                if (errors.Count > 0)
                 {
-                    var errors = new List<string>();
-                    ProcessDefinitionService.NormalizeProc(procIndex, processes[procIndex], errors);
-                    errors.AddRange(ProcessDefinitionService.ValidateProcGotoTargets(procIndex, processes[procIndex]));
-                    if (errors.Count > 0)
-                    {
-                        throw new InvalidOperationException(
-                            $"流程[{processes[procIndex]?.head?.Name ?? procIndex.ToString()}]校验失败："
-                            + string.Join("；", errors.Distinct()));
-                    }
+                    throw new InvalidOperationException(
+                        $"流程[{processes[procIndex]?.head?.Name ?? procIndex.ToString()}]校验失败："
+                        + string.Join("；", errors.Distinct()));
                 }
             }
             ValidateProcessOperationReferences(processes, changes);
-            JArray processAnalyses = allowIncompleteDraft ? new JArray() : BuildChangedProcessAnalyses(processes, changes);
+            JArray processAnalyses = BuildChangedProcessAnalyses(processes, changes);
 
             return new AiChangeSetCompileResult
             {
@@ -115,6 +117,17 @@ namespace Automation
                 OperationCount = operationCount,
                 ProcessAnalyses = processAnalyses
             };
+        }
+
+        private static IReadOnlyCollection<string> GetReferenceValues(
+            AiResourceSnapshot resources, string referenceType)
+        {
+            if (resources?.References != null
+                && resources.References.TryGetValue(referenceType, out IReadOnlyCollection<string> values))
+            {
+                return values;
+            }
+            return Array.Empty<string>();
         }
 
         public static string ComputeStateHash(IList<Proc> processes, IDictionary<string, DicValue> variables)
@@ -329,20 +342,8 @@ namespace Automation
             AiResourceSnapshot resources,
             JArray changes,
             ref int operationCount,
-            out int replaced,
-            bool allowIncompleteDraft)
+            out int replaced)
         {
-            if ((definitions?.Count ?? 0) > MaxProcessCount)
-            {
-                throw new InvalidOperationException($"单次最多定义 {MaxProcessCount} 个流程。");
-            }
-            int expectedTotal = (definitions ?? Array.Empty<ProcessDefinition>()).Sum(process =>
-                (process?.Steps ?? new List<StepDefinition>()).Sum(step =>
-                    step?.ExpectedOperationCount ?? step?.Operations?.Count ?? 0));
-            if (expectedTotal > MaxOperationCount)
-            {
-                throw new InvalidOperationException($"单次变更集预期指令数最多 {MaxOperationCount} 条，当前为 {expectedTotal} 条。");
-            }
             int created = 0;
             replaced = 0;
             var replacedProcessIds = new HashSet<Guid>();
@@ -382,9 +383,9 @@ namespace Automation
                 {
                     throw new InvalidOperationException($"流程名称已存在：{processName}");
                 }
-                if ((definition.Steps?.Count ?? 0) < 1 || definition.Steps.Count > MaxStepCount)
+                if ((definition.Steps?.Count ?? 0) < 1)
                 {
-                    throw new InvalidOperationException($"流程[{processName}]步骤数必须在 1..{MaxStepCount} 之间。");
+                    throw new InvalidOperationException($"流程[{processName}]至少包含一个步骤。");
                 }
 
                 var proc = new Proc
@@ -393,14 +394,19 @@ namespace Automation
                     {
                         Id = replacedProcess?.head?.Id ?? Guid.NewGuid(),
                         Name = processName,
-                        AutoStart = definition.AutoStart,
-                        Disable = definition.Disable
+                        AutoStart = definition.AutoStart ?? replacedProcess?.head?.AutoStart ?? false,
+                        Disable = definition.Disable ?? replacedProcess?.head?.Disable ?? false
                     },
                     steps = new List<Step>()
                 };
                 var stepIndexes = new Dictionary<string, int>(StringComparer.Ordinal);
                 var stepOperationCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-                int expectedProcessOperationCount = 0;
+                var operationIdLocations = new Dictionary<Guid, OperationReferenceLocation>();
+                var operationKeyLocations = new Dictionary<string, OperationReferenceLocation>(StringComparer.Ordinal);
+                Dictionary<Guid, Step> existingSteps = BuildExistingStepMap(replacedProcess);
+                Dictionary<Guid, OperationType> existingOperations = BuildExistingOperationMap(replacedProcess);
+                var usedStepIds = new HashSet<Guid>();
+                var usedOperationIds = new HashSet<Guid>();
                 foreach (StepDefinition stepDefinition in definition.Steps)
                 {
                     if (stepDefinition == null) throw new InvalidOperationException($"流程[{processName}]包含 null 步骤。");
@@ -414,60 +420,133 @@ namespace Automation
                         throw new InvalidOperationException($"流程[{processName}]步骤 key 重复：{key}");
                     }
                     stepIndexes.Add(key, proc.steps.Count);
+                    Step existingStep = ResolveExistingStep(
+                        stepDefinition, replacedProcess, existingSteps, usedStepIds, processName);
                     int actualCount = stepDefinition.Operations?.Count ?? 0;
-                    int expectedCount = stepDefinition.ExpectedOperationCount ?? actualCount;
-                    if (expectedCount < 0 || expectedCount > MaxOperationCount)
+                    List<string> expectedOperaTypes = stepDefinition.ExpectedOperaTypes;
+                    if (expectedOperaTypes != null)
                     {
-                        throw new InvalidOperationException(
-                            $"流程[{processName}]步骤[{key}] expectedOperationCount 必须在 0..{MaxOperationCount} 之间。");
+                        if (expectedOperaTypes.Any(string.IsNullOrWhiteSpace))
+                        {
+                            throw new InvalidOperationException(
+                                $"流程[{processName}]步骤[{key}] expectedOperaTypes 不能包含空类型。");
+                        }
+                        if (expectedOperaTypes.Count != actualCount)
+                        {
+                            throw new InvalidOperationException(
+                                $"流程[{processName}]步骤[{key}] expectedOperaTypes 必须与 operations 数量一致。");
+                        }
                     }
-                    if (allowIncompleteDraft && actualCount > expectedCount)
-                    {
-                        throw new InvalidOperationException(
-                            $"流程[{processName}]步骤[{key}]已包含 {actualCount} 条指令，超过预期 {expectedCount} 条。");
-                    }
-                    if (!allowIncompleteDraft && actualCount != expectedCount)
-                    {
-                        throw new InvalidOperationException(
-                            $"流程[{processName}]步骤[{key}]指令数不完整：预期 {expectedCount} 条，实际 {actualCount} 条。");
-                    }
-                    expectedProcessOperationCount += expectedCount;
-                    if (expectedProcessOperationCount > MaxOperationCount)
-                    {
-                        throw new InvalidOperationException($"流程[{processName}]预期指令数超过 {MaxOperationCount} 条。");
-                    }
-                    stepOperationCounts.Add(key, expectedCount);
+                    stepOperationCounts.Add(key, actualCount);
+                    int stepIndex = proc.steps.Count;
                     proc.steps.Add(new Step
                     {
-                        Id = Guid.NewGuid(),
-                        Name = RequiredName(stepDefinition.Name, $"流程[{processName}]步骤 name"),
-                        Disable = stepDefinition.Disable,
+                        Id = existingStep?.Id ?? Guid.NewGuid(),
+                        Name = string.IsNullOrWhiteSpace(stepDefinition.Name)
+                            ? existingStep?.Name ?? throw new InvalidOperationException(
+                                $"流程[{processName}]新步骤[{key}]必须提供 name。")
+                            : RequiredName(stepDefinition.Name, $"流程[{processName}]步骤 name"),
+                        Disable = stepDefinition.Disable ?? existingStep?.Disable ?? false,
                         Ops = new List<OperationType>()
                     });
+                    for (int operationIndex = 0; operationIndex < actualCount; operationIndex++)
+                    {
+                        SemanticOperation semantic = stepDefinition.Operations[operationIndex]
+                            ?? throw new InvalidOperationException(
+                                $"流程[{processName}]步骤[{key}]包含 null 指令。");
+                        if (!string.IsNullOrWhiteSpace(semantic.OpId))
+                        {
+                            Guid operationId = ParseStableId(semantic.OpId,
+                                $"流程[{processName}]步骤[{key}]指令 opId");
+                            if (replacedProcess == null || !existingOperations.ContainsKey(operationId))
+                            {
+                                throw new InvalidOperationException(
+                                    $"流程[{processName}]未找到要保留的指令：{operationId:D}");
+                            }
+                            if (!usedOperationIds.Add(operationId))
+                            {
+                                throw new InvalidOperationException(
+                                    $"流程[{processName}]重复使用指令 opId：{operationId:D}");
+                            }
+                            operationIdLocations.Add(operationId,
+                                new OperationReferenceLocation(stepIndex, operationIndex));
+                        }
+                        if (!string.IsNullOrWhiteSpace(semantic.Key))
+                        {
+                            string operationKey = ValidateLocalKey(semantic.Key,
+                                $"流程[{processName}]步骤[{key}]指令 key");
+                            string mapKey = AiOperationCompileContext.BuildOperationKey(key, operationKey);
+                            if (operationKeyLocations.ContainsKey(mapKey))
+                            {
+                                throw new InvalidOperationException(
+                                    $"流程[{processName}]步骤[{key}]指令 key 重复：{operationKey}");
+                            }
+                            operationKeyLocations.Add(mapKey,
+                                new OperationReferenceLocation(stepIndex, operationIndex));
+                        }
+                    }
                 }
 
                 for (int stepIndex = 0; stepIndex < definition.Steps.Count; stepIndex++)
                 {
                     StepDefinition stepDefinition = definition.Steps[stepIndex];
                     Step step = proc.steps[stepIndex];
+                    int semanticIndex = 0;
                     foreach (SemanticOperation semantic in stepDefinition.Operations ?? Enumerable.Empty<SemanticOperation>())
                     {
-                        if (definition.PreserveOperationTypes == true
+                        OperationType existingOperation = null;
+                        if (!string.IsNullOrWhiteSpace(semantic.OpId))
+                        {
+                            Guid operationId = ParseStableId(semantic.OpId,
+                                $"流程[{processName}]步骤[{stepDefinition.Key}]指令 opId");
+                            existingOperation = existingOperations[operationId];
+                        }
+                        bool reuseExisting = existingOperation != null && IsExistingOperationReference(semantic);
+                        string actualOperaType = reuseExisting
+                            ? existingOperation.OperaType
+                            : semantic?.OperaType;
+                        if (stepDefinition.ExpectedOperaTypes != null
+                            && !reuseExisting
                             && !string.Equals(semantic?.Kind, "native.operation", StringComparison.Ordinal))
                         {
                             throw new InvalidOperationException(
                                 $"流程[{processName}]要求保留精确指令类型，所有指令必须使用 native.operation。");
                         }
-                        operationCount++;
-                        if (operationCount > MaxOperationCount)
+                        if (stepDefinition.ExpectedOperaTypes != null
+                            && !string.Equals(actualOperaType,
+                                stepDefinition.ExpectedOperaTypes[semanticIndex], StringComparison.Ordinal))
                         {
-                            throw new InvalidOperationException($"单次变更集最多 {MaxOperationCount} 条指令。");
+                            throw new InvalidOperationException(
+                                $"流程[{processName}]步骤[{stepDefinition.Key}]第 {semanticIndex} 条指令类型必须为"
+                                + $"[{stepDefinition.ExpectedOperaTypes[semanticIndex]}]，实际为[{actualOperaType ?? "空"}]。");
                         }
-                        step.Ops.Add(CompileOperation(
-                            semantic, processName, procIndex, stepIndexes, stepOperationCounts, variables, resources));
+                        operationCount++;
+                        if (reuseExisting)
+                        {
+                            step.Ops.Add(ObjectGraphCloner.Clone(existingOperation));
+                        }
+                        else
+                        {
+                            OperationType compiled = CompileOperation(
+                                semantic, processName, procIndex, stepIndexes, stepOperationCounts,
+                                variables, resources, operationIdLocations, operationKeyLocations);
+                            if (existingOperation != null)
+                            {
+                                compiled.Id = existingOperation.Id;
+                                if (string.IsNullOrWhiteSpace(semantic.Name))
+                                {
+                                    compiled.Name = existingOperation.Name;
+                                }
+                            }
+                            step.Ops.Add(compiled);
+                        }
+                        semanticIndex++;
                     }
-                    ProcessEditingService.RenumberOperations(proc);
                 }
+                GotoRewriteResult gotoRewrite = replacedProcess == null
+                    ? new GotoRewriteResult()
+                    : ProcessEditingService.RewriteGotoTargets(replacedProcess, proc, procIndex);
+                ProcessEditingService.RenumberOperations(proc);
 
                 if (replacedProcess == null)
                 {
@@ -480,7 +559,8 @@ namespace Automation
                         ["name"] = processName,
                         ["procIndex"] = procIndex,
                         ["stepCount"] = proc.steps.Count,
-                        ["operationCount"] = proc.steps.Sum(step => step?.Ops?.Count ?? 0)
+                        ["operationCount"] = proc.steps.Sum(step => step?.Ops?.Count ?? 0),
+                        ["rewrittenGotoCount"] = 0
                     });
                 }
                 else
@@ -495,11 +575,76 @@ namespace Automation
                         ["name"] = processName,
                         ["procIndex"] = procIndex,
                         ["stepCount"] = proc.steps.Count,
-                        ["operationCount"] = proc.steps.Sum(step => step?.Ops?.Count ?? 0)
+                        ["operationCount"] = proc.steps.Sum(step => step?.Ops?.Count ?? 0),
+                        ["rewrittenGotoCount"] = gotoRewrite.RewrittenCount,
+                        ["invalidatedGotoCount"] = gotoRewrite.InvalidatedCount
                     });
                 }
             }
             return created;
+        }
+
+        private static Dictionary<Guid, Step> BuildExistingStepMap(Proc proc)
+        {
+            return proc?.steps?.Where(step => step != null && step.Id != Guid.Empty)
+                .ToDictionary(step => step.Id) ?? new Dictionary<Guid, Step>();
+        }
+
+        private static Dictionary<Guid, OperationType> BuildExistingOperationMap(Proc proc)
+        {
+            return proc?.steps?.Where(step => step?.Ops != null)
+                .SelectMany(step => step.Ops)
+                .Where(operation => operation != null && operation.Id != Guid.Empty)
+                .ToDictionary(operation => operation.Id) ?? new Dictionary<Guid, OperationType>();
+        }
+
+        private static Step ResolveExistingStep(StepDefinition definition, Proc replacedProcess,
+            Dictionary<Guid, Step> existingSteps, HashSet<Guid> usedStepIds, string processName)
+        {
+            if (string.IsNullOrWhiteSpace(definition.StepId))
+            {
+                return null;
+            }
+            Guid stepId = ParseStableId(definition.StepId, $"流程[{processName}]步骤 stepId");
+            if (replacedProcess == null || !existingSteps.TryGetValue(stepId, out Step existingStep))
+            {
+                throw new InvalidOperationException($"流程[{processName}]未找到要保留的步骤：{stepId:D}");
+            }
+            if (!usedStepIds.Add(stepId))
+            {
+                throw new InvalidOperationException($"流程[{processName}]重复使用步骤 stepId：{stepId:D}");
+            }
+            return existingStep;
+        }
+
+        private static Guid ParseStableId(string value, string path)
+        {
+            if (!Guid.TryParse(value, out Guid id) || id == Guid.Empty)
+            {
+                throw new InvalidOperationException($"{path} 不是有效 Guid：{value}");
+            }
+            return id;
+        }
+
+        private static string ValidateLocalKey(string value, string path)
+        {
+            string key = RequiredText(value, path);
+            if (key.Length > 32 || !IsValidKey(key))
+            {
+                throw new InvalidOperationException(
+                    $"{path}[{key}]只能包含英文字母、数字、下划线和短横线，且必须以字母开头、最长32字符。");
+            }
+            return key;
+        }
+
+        private static bool IsExistingOperationReference(SemanticOperation operation)
+        {
+            return operation != null
+                && !string.IsNullOrWhiteSpace(operation.OpId)
+                && string.IsNullOrWhiteSpace(operation.Kind)
+                && string.IsNullOrWhiteSpace(operation.OperaType)
+                && operation.Fields == null
+                && string.IsNullOrWhiteSpace(operation.Name);
         }
 
         private static JArray BuildChangedProcessAnalyses(List<Proc> processes, JArray changes)
@@ -564,13 +709,16 @@ namespace Automation
             Dictionary<string, int> stepIndexes,
             Dictionary<string, int> stepOperationCounts,
             Dictionary<string, DicValue> variables,
-            AiResourceSnapshot resources)
+            AiResourceSnapshot resources,
+            IReadOnlyDictionary<Guid, OperationReferenceLocation> operationIdLocations,
+            IReadOnlyDictionary<string, OperationReferenceLocation> operationKeyLocations)
         {
             if (semantic == null) throw new InvalidOperationException($"流程[{processName}]包含 null 指令。");
             string kind = RequiredText(semantic.Kind, $"流程[{processName}]指令 kind");
             IAiOperationCompiler compiler = AiOperationCompilerRegistry.Get(kind);
             OperationType operation = compiler.Compile(semantic, new AiOperationCompileContext(
-                procIndex, stepIndexes, stepOperationCounts, variables, resources));
+                procIndex, stepIndexes, stepOperationCounts, variables, resources,
+                operationIdLocations, operationKeyLocations));
 
             operation.Id = Guid.NewGuid();
             operation.Name = string.IsNullOrWhiteSpace(semantic.Name)

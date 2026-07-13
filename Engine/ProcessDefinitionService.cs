@@ -7,11 +7,31 @@ using static Automation.OperationTypePartial;
 
 namespace Automation
 {
+    public sealed class ProcessDefinitionValidationContext
+    {
+        public ProcessDefinitionValidationContext(
+            IEnumerable<string> variableNames,
+            IEnumerable<string> tcpNames,
+            IEnumerable<string> serialNames)
+        {
+            VariableNames = new HashSet<string>(variableNames ?? Array.Empty<string>(), StringComparer.Ordinal);
+            TcpNames = new HashSet<string>(tcpNames ?? Array.Empty<string>(), StringComparer.Ordinal);
+            SerialNames = new HashSet<string>(serialNames ?? Array.Empty<string>(), StringComparer.Ordinal);
+        }
+
+        public IReadOnlyCollection<string> VariableNames { get; }
+
+        public IReadOnlyCollection<string> TcpNames { get; }
+
+        public IReadOnlyCollection<string> SerialNames { get; }
+    }
+
     public static class ProcessDefinitionService
     {
         internal const string DeletedGotoPrefix = "#DELETED-GOTO#";
 
-        public static void NormalizeProc(int procIndex, Proc proc, List<string> errors)
+        public static void NormalizeProc(int procIndex, Proc proc, List<string> errors,
+            ProcessDefinitionValidationContext validationContext = null)
         {
             if (proc == null)
             {
@@ -100,12 +120,14 @@ namespace Automation
                 for (int j = 0; j < step.Ops.Count; j++)
                 {
                     ValidateGotoTargets(step.Ops[j], step.Ops[j], procIndex, proc, errors, $"流程{procIndex}步骤{i}指令{j}");
-                    ValidateCommunicationOperation(step.Ops[j], errors, $"流程{procIndex}步骤{i}指令{j}");
+                    ValidateCommunicationOperation(step.Ops[j], errors,
+                        $"流程{procIndex}步骤{i}指令{j}", validationContext);
                 }
             }
         }
 
-        private static void ValidateCommunicationOperation(OperationType operation, List<string> errors, string location)
+        private static void ValidateCommunicationOperation(OperationType operation, List<string> errors,
+            string location, ProcessDefinitionValidationContext validationContext)
         {
             if (operation == null || operation.Disable)
             {
@@ -113,11 +135,17 @@ namespace Automation
             }
 
             bool HasValue(string name) => !string.IsNullOrWhiteSpace(name)
-                && SF.valueStore != null && SF.valueStore.TryGetValueByName(name, out _);
-            bool HasTcp(string name) => SF.communicationStore != null
-                && SF.communicationStore.TryGetSocket(name, out _);
-            bool HasSerial(string name) => SF.communicationStore != null
-                && SF.communicationStore.TryGetSerial(name, out _);
+                && (validationContext != null
+                    ? validationContext.VariableNames.Contains(name)
+                    : SF.valueStore != null && SF.valueStore.TryGetValueByName(name, out _));
+            bool HasTcp(string name) => !string.IsNullOrWhiteSpace(name)
+                && (validationContext != null
+                    ? validationContext.TcpNames.Contains(name)
+                    : SF.communicationStore != null && SF.communicationStore.TryGetSocket(name, out _));
+            bool HasSerial(string name) => !string.IsNullOrWhiteSpace(name)
+                && (validationContext != null
+                    ? validationContext.SerialNames.Contains(name)
+                    : SF.communicationStore != null && SF.communicationStore.TryGetSerial(name, out _));
 
             if (operation is TcpOps tcpOps)
             {

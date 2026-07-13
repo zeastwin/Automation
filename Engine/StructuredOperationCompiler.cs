@@ -30,18 +30,16 @@ namespace Automation
             OperationType operation = OperationDefinitionRegistry.Create(RequireText(operaType, "operaType"));
             return new JObject
             {
-                ["kind"] = "native.operation",
                 ["operaType"] = operation.OperaType,
                 ["purpose"] = "严格配置一个平台注册的原生指令；fields 只允许本契约列出的精确字段",
                 ["behavior"] = OperationBehaviorCatalog.BuildContract(operation),
-                ["guideTool"] = "语义或字段联动仍不明确时，按同一 operaType 调用 get_operation_guide",
-                ["required"] = new JArray("kind", "operaType", "fields"),
+                ["required"] = new JArray("operaType", "fields"),
                 ["optional"] = new JArray("name"),
                 ["fields"] = BuildObjectFields(operation.GetType(), 0),
                 ["rules"] = new JArray(
                     "字段名区分大小写，未知字段直接拒绝",
                     "数组数量字段由编译器计算，禁止手工填写 Count/IOCount/ProcCount",
-                    "跳转字段使用 {step,operation} 符号目标，禁止填写物理索引字符串",
+                    "跳转字段优先使用 operationId 或 {step,operationKey} 稳定目标；完整新建也可使用 {step,operation}，禁止填写物理索引字符串",
                     $"单个嵌套数组最多 {MaxListItems} 项")
             };
         }
@@ -57,7 +55,44 @@ namespace Automation
                 throw new InvalidOperationException("native.operation.fields 必须是对象。");
             }
             ApplyObject(operation, fieldObject, "native.operation.fields", context, 0);
+            NormalizeAndValidateOperation(operation, fieldObject);
             return operation;
+        }
+
+        private static void NormalizeAndValidateOperation(OperationType operation, JObject fields)
+        {
+            if (!(operation is Goto jump)) return;
+
+            // Goto 构造函数为 PropertyGrid 预放了一个空分支；结构化输入未提供 Params 时不能把该占位项带入运行时。
+            if (fields.Property(nameof(Goto.Params), StringComparison.Ordinal) == null)
+            {
+                jump.Params = new OperationTypePartial.CustomList<GotoParam>();
+                jump.Count = "0";
+            }
+            if (jump.Params == null || jump.Params.Count == 0)
+            {
+                if (string.IsNullOrWhiteSpace(jump.DefaultGoto))
+                    throw new InvalidOperationException("native.operation.fields.DefaultGoto：无条件跳转必须提供默认目标。");
+                return;
+            }
+
+            bool hasSource = !string.IsNullOrWhiteSpace(jump.ValueIndex)
+                || !string.IsNullOrWhiteSpace(jump.ValueName);
+            if (!hasSource)
+                throw new InvalidOperationException("native.operation.fields：条件跳转必须提供 ValueIndex 或 ValueName。");
+            for (int index = 0; index < jump.Params.Count; index++)
+            {
+                GotoParam item = jump.Params[index];
+                bool hasLiteral = !string.IsNullOrWhiteSpace(item?.MatchValue);
+                bool hasReference = !string.IsNullOrWhiteSpace(item?.MatchValueIndex)
+                    || !string.IsNullOrWhiteSpace(item?.MatchValueV);
+                if (hasLiteral == hasReference)
+                    throw new InvalidOperationException(
+                        $"native.operation.fields.Params[{index}]必须且只能提供固定匹配值或匹配值变量。");
+                if (string.IsNullOrWhiteSpace(item.Goto))
+                    throw new InvalidOperationException(
+                        $"native.operation.fields.Params[{index}].Goto 不能为空。");
+            }
         }
 
         private static JObject BuildObjectFields(Type type, int depth)
@@ -83,7 +118,12 @@ namespace Automation
             {
                 schema["jsonType"] = "object";
                 schema["referenceType"] = "proc.goto.symbolic";
-                schema["shape"] = new JObject { ["step"] = "步骤key", ["operation"] = "步骤内从0开始的指令索引" };
+                schema["shapes"] = new JArray
+                {
+                    new JObject { ["operationId"] = "现有目标指令Guid" },
+                    new JObject { ["step"] = "步骤key", ["operationKey"] = "新目标指令key" },
+                    new JObject { ["step"] = "步骤key", ["operation"] = "完整新建流程的最终指令索引" }
+                };
                 return schema;
             }
             if (property.GetCustomAttribute<InlineListAttribute>() != null)
@@ -183,17 +223,27 @@ namespace Automation
         {
             if (token.Type == JTokenType.Null) return null;
             if (!(token is JObject value))
-                throw new InvalidOperationException($"{path} 必须使用 {{step,operation}} 符号目标，禁止填写物理索引字符串。");
+                throw new InvalidOperationException(
+                    $"{path} 必须使用 operationId、{{step,operationKey}} 或 {{step,operation}} 符号目标，禁止填写物理索引字符串。");
             JProperty unknown = value.Properties().FirstOrDefault(item =>
                 !string.Equals(item.Name, "step", StringComparison.Ordinal)
-                && !string.Equals(item.Name, "operation", StringComparison.Ordinal));
+                && !string.Equals(item.Name, "operation", StringComparison.Ordinal)
+                && !string.Equals(item.Name, "operationId", StringComparison.Ordinal)
+                && !string.Equals(item.Name, "operationKey", StringComparison.Ordinal));
             if (unknown != null) throw new InvalidOperationException($"{path}.{unknown.Name} 不是允许字段。");
-            if (value["step"]?.Type != JTokenType.String || value["operation"]?.Type != JTokenType.Integer)
-                throw new InvalidOperationException($"{path} 必须提供字符串 step 和非负整数 operation。");
+            if (value["step"] != null && value["step"].Type != JTokenType.String
+                || value["operation"] != null && value["operation"].Type != JTokenType.Integer
+                || value["operationId"] != null && value["operationId"].Type != JTokenType.String
+                || value["operationKey"] != null && value["operationKey"].Type != JTokenType.String)
+            {
+                throw new InvalidOperationException($"{path} 的符号目标字段类型无效。");
+            }
             return context.ResolveTarget(new Automation.Protocol.OperationTarget
             {
-                Step = value["step"].Value<string>(),
-                Operation = value["operation"].Value<int>()
+                Step = value["step"]?.Value<string>(),
+                Operation = value["operation"]?.Value<int>(),
+                OperationId = value["operationId"]?.Value<string>(),
+                OperationKey = value["operationKey"]?.Value<string>()
             }, path);
         }
 
