@@ -146,6 +146,16 @@ namespace Automation
             {
                 return;
             }
+            if (root is Proc proc)
+            {
+                AdaptGotoProcIndex(proc.steps, procIndex);
+                return;
+            }
+            if (root is Step step)
+            {
+                AdaptGotoProcIndex(step.Ops, procIndex);
+                return;
+            }
             if (root is IEnumerable rootItems && !(root is string))
             {
                 foreach (object item in rootItems)

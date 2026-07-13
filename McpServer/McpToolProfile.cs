@@ -10,7 +10,7 @@ namespace Automation.McpServer
             "get_platform_development_context",
             "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_step_detail", "get_op_detail", "get_op_details",
             "get_operation_references", "get_proc_references", "trace_resource",
-            "diagnose_issue", "get_snapshot",
+            "diagnose_issue", "get_snapshot", "validate_proc",
             "wait_for_proc_state",
             "list_variables", "search_variables", "get_variable",
             "list_stations", "get_station", "list_points", "get_point",
@@ -24,12 +24,13 @@ namespace Automation.McpServer
             "list_procs", "search_ops",
             "search_operation_fields", "find_references", "find_variable_usages",
             "get_operation_context", "audit_proc_batch", "list_operation_types", "get_operation_schema",
-            "analyze_flow_graph", "get_info_log_tail", "validate_proc", "diagnose_proc"
+            "analyze_flow_graph", "get_info_log_tail", "diagnose_proc"
         };
 
         private static readonly HashSet<string> EditorOnlyTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "get_change_capabilities", "get_operation_contracts", "get_native_operation_contract",
+            "begin_change_set_draft", "append_change_set_draft", "get_change_set_draft",
             "preview_change_set", "apply_change_set",
             "run_proc_test",
             "start_proc", "stop_proc", "pause_proc", "resume_proc",

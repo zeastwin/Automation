@@ -246,6 +246,31 @@ namespace Automation.McpServer
             });
         }
 
+        public Task<string> BeginChangeSetDraftAsync(AiChangeSet changeSet)
+        {
+            JsonNode changeSetNode = JsonSerializer.SerializeToNode(changeSet, jsonOptions)
+                ?? throw new ArgumentException("渐进草稿不能为 null。", nameof(changeSet));
+            return PostAsync("/bridge/change-set/draft/begin", new JsonObject
+            {
+                ["changeSet"] = changeSetNode
+            });
+        }
+
+        public Task<string> AppendChangeSetDraftAsync(ChangeSetDraftAppend append)
+        {
+            JsonNode appendNode = JsonSerializer.SerializeToNode(append, jsonOptions)
+                ?? throw new ArgumentException("渐进草稿追加内容不能为 null。", nameof(append));
+            return PostAsync("/bridge/change-set/draft/append", appendNode.AsObject());
+        }
+
+        public Task<string> GetChangeSetDraftAsync(string draftId)
+        {
+            return PostAsync("/bridge/change-set/draft/get", new JsonObject
+            {
+                ["draftId"] = draftId
+            });
+        }
+
         public Task<string> ApplyChangeSetAsync(string previewId)
         {
             ValidatePreviewId(previewId);

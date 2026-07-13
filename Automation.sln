@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KernelTests", "KernelTests\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Automation.Protocol", "Automation.Protocol\Automation.Protocol.csproj", "{9B777468-5118-4A4B-AB0E-6D02861C6B5F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GooseShell", "GooseShell\GooseShell.csproj", "{D812DDE6-B0F2-4609-9E4E-10D72CD3CB52}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -33,6 +35,10 @@ Global
 		{9B777468-5118-4A4B-AB0E-6D02861C6B5F}.Debug|x64.Build.0 = Debug|Any CPU
 		{9B777468-5118-4A4B-AB0E-6D02861C6B5F}.Release|x64.ActiveCfg = Release|Any CPU
 		{9B777468-5118-4A4B-AB0E-6D02861C6B5F}.Release|x64.Build.0 = Release|Any CPU
+		{D812DDE6-B0F2-4609-9E4E-10D72CD3CB52}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D812DDE6-B0F2-4609-9E4E-10D72CD3CB52}.Debug|x64.Build.0 = Debug|Any CPU
+		{D812DDE6-B0F2-4609-9E4E-10D72CD3CB52}.Release|x64.ActiveCfg = Release|Any CPU
+		{D812DDE6-B0F2-4609-9E4E-10D72CD3CB52}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

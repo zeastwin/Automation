@@ -154,6 +154,10 @@ namespace Automation.MotionControl
 
         public IDisposable ValidateAxesForCommand(IReadOnlyCollection<AxisCommandRequest> requests)
         {
+            if (SF.MotionConfigRestartRequired)
+            {
+                throw new InvalidOperationException("运动设备配置已变更，必须重启程序后才能执行轴运动。");
+            }
             EnsureCardInitialized();
             if (requests == null || requests.Count == 0)
             {

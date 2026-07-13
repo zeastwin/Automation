@@ -126,6 +126,7 @@ namespace Automation
 
         public static bool ProcConfigFaulted { get; set; }
         public static bool VersionRestartRequired { get; set; }
+        public static bool MotionConfigRestartRequired { get; set; }
 
         public static void Delay(int milliSecond)
         {

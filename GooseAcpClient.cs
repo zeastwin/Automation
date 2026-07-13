@@ -476,9 +476,8 @@ namespace Automation
             }
             startInfo.EnvironmentVariables["PATH"] = machineGitCommandPath + Path.PathSeparator
                 + (startInfo.EnvironmentVariables["PATH"] ?? Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
-            // 优先使用 PowerShell 7 保证 Developer Shell 的中文输出为 UTF-8；未安装时
-            // 回退到系统自带 Windows PowerShell。两者都不存在时保留 Goose 的 cmd
-            // 默认值，AI 仍可降级使用 Shell，不因辅助运行环境缺失而阻断平台可用性。
+            // Goose 会把 Developer Shell 输出严格按 UTF-8 解码。统一通过随程序发布的
+            // UTF-8 适配器启动 PowerShell，避免系统代码页把中文不可逆地解码成乱码。
             string developerShellPath = ResolveGooseDeveloperShellPath();
             if (!string.IsNullOrWhiteSpace(developerShellPath))
             {
@@ -566,36 +565,13 @@ namespace Automation
 
         private static string ResolveGooseDeveloperShellPath()
         {
-            var candidates = new List<string>();
-            foreach (string programFiles in new[]
+            string adapterPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                "GooseShell", "pwsh.exe");
+            if (!File.Exists(adapterPath))
             {
-                Environment.GetEnvironmentVariable("ProgramW6432"),
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
-            })
-            {
-                if (!string.IsNullOrWhiteSpace(programFiles))
-                {
-                    candidates.Add(Path.Combine(programFiles, "PowerShell", "7", "pwsh.exe"));
-                }
+                throw new FileNotFoundException("EW-AI UTF-8 Shell 适配器不存在。", adapterPath);
             }
-
-            string pathValue = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-            foreach (string pathEntry in pathValue.Split(Path.PathSeparator))
-            {
-                string directory = pathEntry.Trim().Trim('"');
-                if (!string.IsNullOrWhiteSpace(directory))
-                {
-                    candidates.Add(Path.Combine(directory, "pwsh.exe"));
-                }
-            }
-
-            candidates.Add(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.System),
-                "WindowsPowerShell", "v1.0", "powershell.exe"));
-            return candidates
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault(File.Exists);
+            return adapterPath;
         }
 
         private void Process_Exited(object sender, EventArgs e)

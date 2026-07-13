@@ -9,7 +9,18 @@ namespace Automation
     /// </summary>
     public static class ProcessConfigStore
     {
+        private static readonly object transactionLock = new object();
+
         public static bool Rebuild(string workPath, IList<Proc> processes, int startIndex,
+            out string error, out bool rollbackFailed)
+        {
+            lock (transactionLock)
+            {
+                return RebuildCore(workPath, processes, startIndex, out error, out rollbackFailed);
+            }
+        }
+
+        private static bool RebuildCore(string workPath, IList<Proc> processes, int startIndex,
             out string error, out bool rollbackFailed)
         {
             error = null;
@@ -21,7 +32,7 @@ namespace Automation
                 error = "流程目录或流程数据无效。";
                 return false;
             }
-            if (!RecoverIfNeeded(workDir, out string recoveryMessage))
+            if (!RecoverIfNeededCore(workDir, out string recoveryMessage))
             {
                 error = recoveryMessage;
                 return false;
@@ -78,6 +89,14 @@ namespace Automation
         }
 
         public static bool RecoverIfNeeded(string workPath, out string message)
+        {
+            lock (transactionLock)
+            {
+                return RecoverIfNeededCore(workPath, out message);
+            }
+        }
+
+        private static bool RecoverIfNeededCore(string workPath, out string message)
         {
             message = null;
             string workDir = (workPath ?? string.Empty).TrimEnd('\\');

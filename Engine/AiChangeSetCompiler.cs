@@ -55,7 +55,8 @@ namespace Automation
             AiChangeSet changeSet,
             IList<Proc> currentProcesses,
             IDictionary<string, DicValue> currentVariables,
-            AiResourceSnapshot resources = null)
+            AiResourceSnapshot resources = null,
+            bool allowIncompleteDraft = false)
         {
             if (changeSet == null)
             {
@@ -76,27 +77,31 @@ namespace Automation
             int operationCount = 0;
             int replacedCount;
             int createdCount = ApplyProcessDefinitions(
-                changeSet.Processes, processes, variables, resources, changes, ref operationCount, out replacedCount);
+                changeSet.Processes, processes, variables, resources, changes, ref operationCount,
+                out replacedCount, allowIncompleteDraft);
 
             if (deletedCount == 0 && variableCount == 0 && createdCount == 0 && replacedCount == 0)
             {
                 throw new InvalidOperationException("changeSet 不包含任何变更。");
             }
 
-            for (int procIndex = 0; procIndex < processes.Count; procIndex++)
+            if (!allowIncompleteDraft)
             {
-                var errors = new List<string>();
-                ProcessDefinitionService.NormalizeProc(procIndex, processes[procIndex], errors);
-                errors.AddRange(ProcessDefinitionService.ValidateProcGotoTargets(procIndex, processes[procIndex]));
-                if (errors.Count > 0)
+                for (int procIndex = 0; procIndex < processes.Count; procIndex++)
                 {
-                    throw new InvalidOperationException(
-                        $"流程[{processes[procIndex]?.head?.Name ?? procIndex.ToString()}]校验失败："
-                        + string.Join("；", errors.Distinct()));
+                    var errors = new List<string>();
+                    ProcessDefinitionService.NormalizeProc(procIndex, processes[procIndex], errors);
+                    errors.AddRange(ProcessDefinitionService.ValidateProcGotoTargets(procIndex, processes[procIndex]));
+                    if (errors.Count > 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"流程[{processes[procIndex]?.head?.Name ?? procIndex.ToString()}]校验失败："
+                            + string.Join("；", errors.Distinct()));
+                    }
                 }
             }
             ValidateProcessOperationReferences(processes, changes);
-            JArray processAnalyses = BuildChangedProcessAnalyses(processes, changes);
+            JArray processAnalyses = allowIncompleteDraft ? new JArray() : BuildChangedProcessAnalyses(processes, changes);
 
             return new AiChangeSetCompileResult
             {
@@ -324,11 +329,19 @@ namespace Automation
             AiResourceSnapshot resources,
             JArray changes,
             ref int operationCount,
-            out int replaced)
+            out int replaced,
+            bool allowIncompleteDraft)
         {
             if ((definitions?.Count ?? 0) > MaxProcessCount)
             {
                 throw new InvalidOperationException($"单次最多定义 {MaxProcessCount} 个流程。");
+            }
+            int expectedTotal = (definitions ?? Array.Empty<ProcessDefinition>()).Sum(process =>
+                (process?.Steps ?? new List<StepDefinition>()).Sum(step =>
+                    step?.ExpectedOperationCount ?? step?.Operations?.Count ?? 0));
+            if (expectedTotal > MaxOperationCount)
+            {
+                throw new InvalidOperationException($"单次变更集预期指令数最多 {MaxOperationCount} 条，当前为 {expectedTotal} 条。");
             }
             int created = 0;
             replaced = 0;
@@ -387,6 +400,7 @@ namespace Automation
                 };
                 var stepIndexes = new Dictionary<string, int>(StringComparer.Ordinal);
                 var stepOperationCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+                int expectedProcessOperationCount = 0;
                 foreach (StepDefinition stepDefinition in definition.Steps)
                 {
                     if (stepDefinition == null) throw new InvalidOperationException($"流程[{processName}]包含 null 步骤。");
@@ -400,7 +414,29 @@ namespace Automation
                         throw new InvalidOperationException($"流程[{processName}]步骤 key 重复：{key}");
                     }
                     stepIndexes.Add(key, proc.steps.Count);
-                    stepOperationCounts.Add(key, stepDefinition.Operations?.Count ?? 0);
+                    int actualCount = stepDefinition.Operations?.Count ?? 0;
+                    int expectedCount = stepDefinition.ExpectedOperationCount ?? actualCount;
+                    if (expectedCount < 0 || expectedCount > MaxOperationCount)
+                    {
+                        throw new InvalidOperationException(
+                            $"流程[{processName}]步骤[{key}] expectedOperationCount 必须在 0..{MaxOperationCount} 之间。");
+                    }
+                    if (allowIncompleteDraft && actualCount > expectedCount)
+                    {
+                        throw new InvalidOperationException(
+                            $"流程[{processName}]步骤[{key}]已包含 {actualCount} 条指令，超过预期 {expectedCount} 条。");
+                    }
+                    if (!allowIncompleteDraft && actualCount != expectedCount)
+                    {
+                        throw new InvalidOperationException(
+                            $"流程[{processName}]步骤[{key}]指令数不完整：预期 {expectedCount} 条，实际 {actualCount} 条。");
+                    }
+                    expectedProcessOperationCount += expectedCount;
+                    if (expectedProcessOperationCount > MaxOperationCount)
+                    {
+                        throw new InvalidOperationException($"流程[{processName}]预期指令数超过 {MaxOperationCount} 条。");
+                    }
+                    stepOperationCounts.Add(key, expectedCount);
                     proc.steps.Add(new Step
                     {
                         Id = Guid.NewGuid(),
@@ -416,6 +452,12 @@ namespace Automation
                     Step step = proc.steps[stepIndex];
                     foreach (SemanticOperation semantic in stepDefinition.Operations ?? Enumerable.Empty<SemanticOperation>())
                     {
+                        if (definition.PreserveOperationTypes == true
+                            && !string.Equals(semantic?.Kind, "native.operation", StringComparison.Ordinal))
+                        {
+                            throw new InvalidOperationException(
+                                $"流程[{processName}]要求保留精确指令类型，所有指令必须使用 native.operation。");
+                        }
                         operationCount++;
                         if (operationCount > MaxOperationCount)
                         {

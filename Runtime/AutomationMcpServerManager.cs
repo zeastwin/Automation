@@ -170,6 +170,15 @@ namespace Automation
                 if (await Task.WhenAny(responseTask, Task.Delay(timeoutMs)).ConfigureAwait(false) != responseTask)
                 {
                     request.Abort();
+                    try
+                    {
+                        using (WebResponse abortedResponse = await responseTask.ConfigureAwait(false))
+                        {
+                        }
+                    }
+                    catch (WebException ex) when (ex.Status == WebExceptionStatus.RequestCanceled)
+                    {
+                    }
                     return null;
                 }
 

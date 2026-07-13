@@ -43,5 +43,12 @@
       <Name>Automation.Protocol</Name>
     </ProjectReference>
   </ItemGroup>
+  <Target Name="CopyGooseShellForTests" AfterTargets="Build">
+    <ItemGroup>
+      <GooseShellTestFile Include="..\bin\$(Configuration)\GooseShell\*" />
+    </ItemGroup>
+    <MakeDir Directories="$(OutputPath)GooseShell" />
+    <Copy SourceFiles="@(GooseShellTestFile)" DestinationFolder="$(OutputPath)GooseShell" SkipUnchangedFiles="true" />
+  </Target>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

@@ -150,7 +150,9 @@ namespace Automation
                     continue;
                 }
                 object converted = ConvertScalar(input.Value, property.PropertyType, fieldPath);
-                ValidateStandardValue(GetPropertyDescriptor(property), converted, fieldPath);
+                PropertyDescriptor descriptor = GetPropertyDescriptor(property);
+                context.ValidateReference(GetReferenceType(descriptor?.Converter?.GetType().Name), converted, fieldPath);
+                ValidateStandardValue(descriptor, converted, fieldPath);
                 property.SetValue(target, converted);
             }
         }

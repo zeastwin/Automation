@@ -16,6 +16,9 @@ namespace Automation.Protocol
     {
         public int Version { get; set; }
 
+        [Description("引用服务端渐进草稿；设置后只允许再提供version，最终仍由preview_change_set生成冻结预演。")]
+        public string DraftId { get; set; }
+
         public string Title { get; set; }
 
         [Description("删除流程选择；mode=all 删除全部，mode=selected 时通过 names/procIds 精确选择。")]
@@ -53,6 +56,9 @@ namespace Automation.Protocol
 
     public sealed class ProcessDefinition
     {
+        [Description("渐进草稿中的流程稳定键；仅用于定位草稿片段，不写入平台配置。")]
+        public string Key { get; set; }
+
         /// <summary>create（默认）或 replace。</summary>
         public string Action { get; set; }
 
@@ -68,6 +74,9 @@ namespace Automation.Protocol
 
         public bool Disable { get; set; }
 
+        [Description("按既有配置或精确规范重建时设为true；所有指令必须使用native.operation并保留精确operaType。")]
+        public bool? PreserveOperationTypes { get; set; }
+
         public List<StepDefinition> Steps { get; set; }
     }
 
@@ -79,6 +88,21 @@ namespace Automation.Protocol
 
         public bool Disable { get; set; }
 
+        [Description("渐进草稿中该步骤最终应包含的指令数；最终预演时必须与实际数量完全一致。")]
+        public int? ExpectedOperationCount { get; set; }
+
+        public List<SemanticOperation> Operations { get; set; }
+    }
+
+    public sealed class ChangeSetDraftAppend
+    {
+        public string DraftId { get; set; }
+
+        public string ProcessKey { get; set; }
+
+        public string StepKey { get; set; }
+
+        [Description("本批追加的指令，最多5条；草稿追加不修改平台也不触发前台确认。")]
         public List<SemanticOperation> Operations { get; set; }
     }
 

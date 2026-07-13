@@ -44,15 +44,18 @@ namespace Automation.KernelTests
             Run("暂停状态删除当前指令被拒绝", TestPausedCurrentOperationDeletionRejected);
             Run("编辑会话提交与取消隔离", TestEditSession);
             Run("流程结构变化按指令ID重写跳转", TestGotoRewriteByOperationId);
+            Run("删除流程后重排自身索引与跳转地址", TestGotoProcIndexRebuildAfterDeletion);
             Run("逻辑判断跳转地址严格校验", TestParamGotoStrictValidation);
             Run("指令行为契约与跳转标记一致", TestOperationBehaviorContracts);
             Run("JSON原子替换与备份恢复", TestAtomicJsonRecovery);
             Run("流程目录事务中断恢复", TestProcessDirectoryRecovery);
+            Run("流程目录并发事务串行化", TestConcurrentProcessDirectoryRebuild);
             Run("多文件配置批量提交", TestConfigurationBatchWriter);
             Run("数据结构索引与字段类型严格校验", TestDataStructStrictIndexes);
             Run("指令注册表无界面且定义唯一", TestOperationDefinitionRegistry);
             Run("Goose平台上下文资源完整嵌入", TestGooseEmbeddedResources);
             Run("AI语义变更集编译与符号跳转", TestAiChangeSetCompilation);
+            Run("AI渐进草稿完整性与精确重建", TestAiChangeSetProgressiveDraftCompilation);
             Run("全部原生指令递归契约与严格语义编译", TestStructuredNativeOperationCompilation);
             Run("AI语义完整替换现有流程", TestAiChangeSetReplaceProcess);
             Run("流程环检测与终止原因可追溯", TestFlowBoundariesAndTerminationReason);
@@ -724,7 +727,7 @@ namespace Automation.KernelTests
             {
                 File.WriteAllText(Path.Combine(path, "a.json"), "old-a");
                 File.WriteAllText(Path.Combine(path, "b.json"), "old-b");
-                using (var writer = new ConfigurationBatchWriter(path))
+                using (var writer = new ConfigurationBatchWriter(path + Path.DirectorySeparatorChar))
                 {
                     writer.AddJson("a.json", new { value = "new-a" });
                     writer.AddJson("b.json", new { value = "new-b" });
@@ -817,6 +820,30 @@ namespace Automation.KernelTests
             ProcessEditingService.RewriteGotoTargets(before, explicitUpdate, 0);
             Assert(((Goto)explicitUpdate.steps[0].Ops[0]).DefaultGoto == "0-0-3",
                 "本次显式修改的跳转被旧索引重写覆盖");
+        }
+
+        private static void TestGotoProcIndexRebuildAfterDeletion()
+        {
+            Proc first = CreateProc(new Delay { Id = Guid.NewGuid(), Name = "流程0" });
+            Proc second = CreateProc(
+                new Goto { Id = Guid.NewGuid(), DefaultGoto = "1-0-1" },
+                new Delay { Id = Guid.NewGuid(), Name = "流程1目标" });
+            Proc third = CreateProc(
+                new Goto { Id = Guid.NewGuid(), DefaultGoto = "2-0-1" },
+                new Delay { Id = Guid.NewGuid(), Name = "流程2目标" });
+            var processes = new List<Proc> { first, second, third };
+
+            processes.RemoveAt(0);
+            ProcessEditingService.AdaptGotoProcIndexes(processes, 0);
+
+            Assert(((Goto)processes[0].steps[0].Ops[0]).DefaultGoto == "0-0-1",
+                "原流程1删除前序流程后未更新为流程0地址");
+            Assert(((Goto)processes[1].steps[0].Ops[0]).DefaultGoto == "1-0-1",
+                "原流程2删除前序流程后未更新为流程1地址");
+            Assert(ProcessDefinitionService.ValidateProcGotoTargets(0, processes[0]).Count == 0,
+                "重排后的流程0跳转校验失败");
+            Assert(ProcessDefinitionService.ValidateProcGotoTargets(1, processes[1]).Count == 0,
+                "重排后的流程1跳转校验失败");
         }
 
         private static void TestParamGotoStrictValidation()
@@ -925,6 +952,42 @@ namespace Automation.KernelTests
                 Assert(Directory.Exists(workPath), "Work_bak未恢复为Work");
                 Assert(File.Exists(Path.Combine(workPath, "0.json")), "恢复后的流程文件不存在");
                 Assert(!string.IsNullOrWhiteSpace(message), "目录恢复未返回诊断消息");
+            }
+            finally
+            {
+                Directory.Delete(configPath, true);
+            }
+        }
+
+        private static void TestConcurrentProcessDirectoryRebuild()
+        {
+            string configPath = Path.Combine(Path.GetTempPath(), "AutomationWorkConcurrent-" + Guid.NewGuid().ToString("N"));
+            string workPath = Path.Combine(configPath, "Work");
+            Directory.CreateDirectory(configPath);
+            try
+            {
+                const int taskCount = 8;
+                var successes = new bool[taskCount];
+                var errors = new string[taskCount];
+                Task[] tasks = Enumerable.Range(0, taskCount).Select(index => Task.Run(() =>
+                {
+                    var processes = new List<Proc>
+                    {
+                        CreateProc(new Delay { Id = Guid.NewGuid(), Name = $"并发流程{index}" })
+                    };
+                    successes[index] = ProcessConfigStore.Rebuild(
+                        workPath, processes, 0, out errors[index], out bool rollbackFailed)
+                        && !rollbackFailed;
+                })).ToArray();
+
+                Task.WaitAll(tasks);
+                Assert(successes.All(item => item),
+                    "并发流程目录事务失败：" + string.Join(";", errors.Where(item => !string.IsNullOrWhiteSpace(item))));
+                Dictionary<int, string> indexMap = ProcessDefinitionService.BuildProcFileIndexMap(workPath, out int maxIndex);
+                Assert(maxIndex == 0 && indexMap.Count == 1 && File.Exists(Path.Combine(workPath, "0.json")),
+                    "并发事务完成后的流程目录不连续");
+                Assert(!Directory.Exists(Path.Combine(configPath, "Work_tmp")),
+                    "并发事务完成后残留Work_tmp目录");
             }
             finally
             {
@@ -1300,6 +1363,133 @@ namespace Automation.KernelTests
             Assert(rejected, "create策略没有严格拒绝同名变量");
         }
 
+        private static void TestAiChangeSetProgressiveDraftCompilation()
+        {
+            var changeSet = new AiChangeSet
+            {
+                Version = 2,
+                Processes = new List<Automation.Protocol.ProcessDefinition>
+                {
+                    new Automation.Protocol.ProcessDefinition
+                    {
+                        Key = "source_proc",
+                        Name = "精确重建流程",
+                        PreserveOperationTypes = true,
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                Key = "main",
+                                Name = "主步骤",
+                                ExpectedOperationCount = 2,
+                                Operations = new List<SemanticOperation>()
+                            }
+                        }
+                    }
+                }
+            };
+
+            AiChangeSetCompileResult emptyDraft = AiChangeSetCompiler.Compile(
+                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
+                new AiResourceSnapshot(), allowIncompleteDraft: true);
+            Assert(emptyDraft.OperationCount == 0, "空骨架未作为渐进草稿通过校验");
+
+            changeSet.Processes[0].Steps[0].Operations.Add(new SemanticOperation
+            {
+                Kind = "native.operation",
+                OperaType = "延时",
+                Fields = new Dictionary<string, object> { ["timeMiniSecond"] = "10" }
+            });
+            AiChangeSetCompileResult partialDraft = AiChangeSetCompiler.Compile(
+                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
+                new AiResourceSnapshot(), allowIncompleteDraft: true);
+            Assert(partialDraft.OperationCount == 1, "渐进草稿未接受已校验的部分指令");
+
+            AssertThrows<InvalidOperationException>(() => AiChangeSetCompiler.Compile(
+                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(), new AiResourceSnapshot()),
+                "未达到expectedOperationCount的草稿进入了正式编译");
+
+            changeSet.Processes[0].Steps[0].Operations.Add(new SemanticOperation
+            {
+                Kind = "wait",
+                Milliseconds = 10
+            });
+            AssertThrows<InvalidOperationException>(() => AiChangeSetCompiler.Compile(
+                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
+                new AiResourceSnapshot(), allowIncompleteDraft: true),
+                "精确重建模式接受了高层语义替代原生指令");
+
+            changeSet.Processes[0].Steps[0].Operations[1] = new SemanticOperation
+            {
+                Kind = "native.operation",
+                OperaType = "跳转",
+                Fields = new Dictionary<string, object>
+                {
+                    ["DefaultGoto"] = new JObject { ["step"] = "main", ["operation"] = 0 },
+                    ["Params"] = new JArray()
+                }
+            };
+            AiChangeSetCompileResult complete = AiChangeSetCompiler.Compile(
+                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(), new AiResourceSnapshot());
+            Assert(complete.OperationCount == 2
+                && complete.Processes[0].steps[0].Ops[0] is Delay
+                && complete.Processes[0].steps[0].Ops[1] is Goto jump
+                && jump.DefaultGoto == "0-0-0",
+                "完成草稿未保留精确operaType或符号跳转");
+
+            var ioResourceChangeSet = new AiChangeSet
+            {
+                Version = 2,
+                Processes = new List<Automation.Protocol.ProcessDefinition>
+                {
+                    new Automation.Protocol.ProcessDefinition
+                    {
+                        Name = "原生资源校验",
+                        PreserveOperationTypes = true,
+                        Steps = new List<StepDefinition>
+                        {
+                            new StepDefinition
+                            {
+                                Key = "main",
+                                Name = "主步骤",
+                                ExpectedOperationCount = 1,
+                                Operations = new List<SemanticOperation>
+                                {
+                                    new SemanticOperation
+                                    {
+                                        Kind = "native.operation",
+                                        OperaType = "IO操作",
+                                        Fields = new Dictionary<string, object>
+                                        {
+                                            ["IoParams"] = new JArray(new JObject
+                                            {
+                                                ["IOName"] = "红灯",
+                                                ["value"] = true
+                                            })
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            AssertThrows<InvalidOperationException>(() => AiChangeSetCompiler.Compile(
+                ioResourceChangeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
+                new AiResourceSnapshot()), "原生指令接受了不存在的IO引用");
+            AiChangeSetCompileResult ioResourceResult = AiChangeSetCompiler.Compile(
+                ioResourceChangeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
+                new AiResourceSnapshot(new Dictionary<string, string> { ["红灯"] = "通用输出" }));
+            Assert(ioResourceResult.Processes[0].steps[0].Ops[0] is IoOperate,
+                "原生指令的有效IO引用未通过强校验");
+
+            changeSet.Processes[0].Steps[0].ExpectedOperationCount = 21;
+            AssertThrows<InvalidOperationException>(() => AiChangeSetCompiler.Compile(
+                changeSet, new List<Proc>(), new Dictionary<string, DicValue>(),
+                new AiResourceSnapshot(), allowIncompleteDraft: true),
+                "渐进草稿未限制预期指令总数");
+        }
+
         private static void TestOperationDefinitionRegistry()
         {
             IReadOnlyList<OperationType> first = OperationDefinitionRegistry.CreateAll();
@@ -1618,11 +1808,65 @@ namespace Automation.KernelTests
             Assert(resolveShell != null, "未找到Goose开发Shell解析入口");
             string shellPath = (string)resolveShell.Invoke(null, null);
             Assert(!string.IsNullOrWhiteSpace(shellPath) && File.Exists(shellPath),
-                "PowerShell 7与Windows PowerShell兜底均不可用");
-            string shellName = Path.GetFileName(shellPath);
-            Assert(string.Equals(shellName, "pwsh.exe", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(shellName, "powershell.exe", StringComparison.OrdinalIgnoreCase),
-                "Goose开发Shell解析到了不支持的程序：" + shellPath);
+                "Goose UTF-8 Shell适配器未随程序发布");
+            Assert(string.Equals(Path.GetFileName(shellPath), "pwsh.exe", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(Path.GetFileName(Path.GetDirectoryName(shellPath)), "GooseShell",
+                    StringComparison.OrdinalIgnoreCase),
+                "Goose未使用受管UTF-8 Shell适配器：" + shellPath);
+
+            string tempDirectory = Path.Combine(Path.GetTempPath(), "自动化中文路径_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDirectory);
+            string testFile = Path.Combine(tempDirectory, "流程说明.txt");
+            File.WriteAllText(testFile, "系统复位检测", new UTF8Encoding(false));
+            try
+            {
+                var realShells = new List<string> { null };
+                string windowsPowerShell = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.System),
+                    "WindowsPowerShell", "v1.0", "powershell.exe");
+                if (File.Exists(windowsPowerShell)) realShells.Add(windowsPowerShell);
+
+                foreach (string realShell in realShells)
+                {
+                    string escapedPath = testFile.Replace("'", "''");
+                    string command = "$f=Get-Item -LiteralPath '" + escapedPath
+                        + "';$f.FullName;Get-Content -LiteralPath $f.FullName -Raw";
+                    var startInfo = new ProcessStartInfo
+                    {
+                        FileName = shellPath,
+                        Arguments = "-NoProfile -NonInteractive -Command \"" + command.Replace("\"", "\\\"") + "\"",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    };
+                    if (realShell != null)
+                    {
+                        startInfo.EnvironmentVariables["AUTOMATION_GOOSE_POWERSHELL"] = realShell;
+                    }
+                    using (Process process = Process.Start(startInfo))
+                    using (var stdout = new MemoryStream())
+                    using (var stderr = new MemoryStream())
+                    {
+                        Task stdoutCopy = process.StandardOutput.BaseStream.CopyToAsync(stdout);
+                        Task stderrCopy = process.StandardError.BaseStream.CopyToAsync(stderr);
+                        process.WaitForExit();
+                        Task.WaitAll(stdoutCopy, stderrCopy);
+                        string output = new UTF8Encoding(false, true).GetString(stdout.ToArray());
+                        string error = new UTF8Encoding(false, true).GetString(stderr.ToArray());
+                        Assert(process.ExitCode == 0,
+                            "Goose UTF-8 Shell执行失败：" + error);
+                        Assert(output.Contains("自动化中文路径")
+                            && output.Contains("流程说明.txt")
+                            && output.Contains("系统复位检测"),
+                            "Goose UTF-8 Shell中文路径或内容发生乱码：" + output);
+                    }
+                }
+            }
+            finally
+            {
+                Directory.Delete(tempDirectory, true);
+            }
         }
 
         private static void TestProcDetailReadBoundaries()

@@ -37,7 +37,8 @@ namespace Automation
 
         public ConfigurationBatchWriter(string configPath)
         {
-            this.configPath = Path.GetFullPath(configPath ?? throw new ArgumentNullException(nameof(configPath)));
+            this.configPath = Path.GetFullPath(configPath ?? throw new ArgumentNullException(nameof(configPath)))
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             Directory.CreateDirectory(this.configPath);
             if (!RecoverPendingTransactions(this.configPath, out string recoveryError))
             {
@@ -137,7 +138,8 @@ namespace Automation
             error = null;
             try
             {
-                string root = Path.GetFullPath(configPath ?? throw new ArgumentNullException(nameof(configPath)));
+                string root = Path.GetFullPath(configPath ?? throw new ArgumentNullException(nameof(configPath)))
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 if (!Directory.Exists(root))
                 {
                     return true;

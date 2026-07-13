@@ -381,7 +381,9 @@ namespace Automation
                 {
                     try
                     {
-                        if (!(SF.ActiveEditSession?.Draft is FrmCard.CardHead) && SF.frmCard != null)
+                        if (!SF.MotionConfigRestartRequired
+                            && !(SF.ActiveEditSession?.Draft is FrmCard.CardHead)
+                            && SF.frmCard != null)
                         {
                             if (SF.cardStore == null)
                             {
@@ -1144,6 +1146,17 @@ namespace Automation
         {
             SF.VersionRestartRequired = true;
             SF.StopAllProcs("设备配置已还原，必须重启程序后才能继续运行。");
+        }
+
+        public void RequireRestartAfterMotionConfigurationChange()
+        {
+            SF.MotionConfigRestartRequired = true;
+            const string message = "运动设备配置已变更；重启前禁止轴运动，MES、通讯及其他非运动流程可继续运行。";
+            dataRun?.Logger?.Log(message, LogLevel.Error);
+            if (frmInfo != null && !frmInfo.IsDisposed)
+            {
+                frmInfo.PrintInfo(message, FrmInfo.Level.Error);
+            }
         }
 
         private void FrmMain_KeyDown(object sender, KeyEventArgs e)

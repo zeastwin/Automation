@@ -265,7 +265,8 @@ body{
     margin:0 0 4px;
 }
 .msg.user{align-items:flex-end;}
-.msg.assistant,.msg.error{align-items:flex-start;margin-left:12px;}
+.msg.assistant{align-items:flex-start;margin-left:4px;}
+.msg.error{align-items:flex-start;margin-left:12px;}
 .msg-head{display:flex;align-items:center;gap:5px;padding:0 2px;min-height:22px;}
 .msg.user .msg-head{justify-content:flex-end;}
 .msg-time{font-size:10px;color:#7b8798;line-height:1.2;}
@@ -295,6 +296,8 @@ body{
     padding:2px 6px;
 }
 .msg.assistant .content{
+    max-width:calc(92% - 30px);
+    margin-left:30px;
     color:#182434;
     background:#ffffff;
     border:1px solid #dfe6ef;
@@ -3054,6 +3057,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             return (value ?? string.Empty)
                 .Replace("get_change_capabilities", "获取变更能力")
                 .Replace("get_operation_contracts", "获取指令契约")
+                .Replace("begin_change_set_draft", "创建变更草稿")
+                .Replace("append_change_set_draft", "追加草稿指令")
+                .Replace("get_change_set_draft", "查看草稿进度")
                 .Replace("preview_change_set", "预演业务变更")
                 .Replace("apply_change_set", "提交业务变更")
                 .Replace("run_proc_test", "限时测试流程")

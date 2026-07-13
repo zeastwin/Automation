@@ -43,9 +43,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_change_set"), Description(
-            "预演完整业务变更集，一次可删除旧流程、声明变量资源、创建新流程或按ID/精确名称完整替换现有流程。"
+            "预演完整业务变更集或已完成的渐进草稿，一次可删除旧流程、声明变量资源、创建新流程或按ID/精确名称完整替换现有流程。"
             + "operations[].kind 是工具输入 Schema 中列出的严格枚举，不得猜测或创造；目标语义未知时先调用 get_change_capabilities。不得填写 OperationType/PropertyGrid 内部字段。变量引用必须在同一 changeSet.variables 中声明策略。"
             + "步骤跳转使用 {step:key,operation:index} 符号地址，由平台编译为物理地址。最多3个流程、单流程10个步骤、累计20条指令、64KB。"
+            + "复杂流程应先用begin_change_set_draft和append_change_set_draft渐进组装，完成后只传{version:2,draftId}；简单变更可直接传完整changeSet。"
             + "返回 previewId 后等待前台确认，再仅用 previewId 调用 apply_change_set；禁止重新发送或重新生成 changeSet。")]
         public static async Task<string> PreviewChangeSet(
             [Description("V2业务变更集；version必须为2")] AiChangeSet changeSet)
@@ -67,6 +68,67 @@ namespace Automation.McpServer
                 toolName: nameof(PreviewChangeSet),
                 args: new { changeSet },
                 action: client => client.PreviewChangeSetAsync(changeSet)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "begin_change_set_draft"), Description(
+            "创建服务端渐进ChangeSet草稿，不修改平台、不触发确认。先声明变量、流程/步骤骨架和每步expectedOperationCount，operations必须为空。"
+            + "根据既有配置或精确规范重建时将processes[].preserveOperationTypes设为true，后续只能追加native.operation，避免相近语义替换原指令。")]
+        public static async Task<string> BeginChangeSetDraft(
+            [Description("V2草稿骨架；每个流程必须有唯一key，每个步骤必须声明expectedOperationCount")] AiChangeSet changeSet)
+        {
+            string validationError = AiChangeSetCatalog.ValidateDraftDefinition(changeSet);
+            if (validationError != null)
+            {
+                string result = JsonSerializer.Serialize(new
+                {
+                    ok = false,
+                    type = "mcp.error",
+                    errorCode = "CHANGE_SET_DRAFT_INVALID",
+                    message = validationError
+                });
+                ToolCallLogger.Log(nameof(BeginChangeSetDraft), new { changeSet }, result);
+                return result;
+            }
+            return await ExecuteAsync(
+                toolName: nameof(BeginChangeSetDraft),
+                args: new { changeSet },
+                action: client => client.BeginChangeSetDraftAsync(changeSet)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "append_change_set_draft"), Description(
+            "向渐进草稿的明确流程/步骤追加1..5条指令，不修改平台、不触发确认。Bridge会立即校验类型、嵌套字段、资源引用和草稿容量；失败时本批不会写入。"
+            + "返回remainingOperations=0后，用preview_change_set({version:2,draftId})生成唯一正式预演。")]
+        public static async Task<string> AppendChangeSetDraft(
+            [Description("草稿ID、流程key、步骤key和本批1..5条强类型语义指令")] ChangeSetDraftAppend append)
+        {
+            string validationError = AiChangeSetCatalog.ValidateDraftAppend(append);
+            if (validationError != null)
+            {
+                string result = JsonSerializer.Serialize(new
+                {
+                    ok = false,
+                    type = "mcp.error",
+                    errorCode = "CHANGE_SET_DRAFT_INVALID",
+                    message = validationError
+                });
+                ToolCallLogger.Log(nameof(AppendChangeSetDraft), new { append }, result);
+                return result;
+            }
+            return await ExecuteAsync(
+                toolName: nameof(AppendChangeSetDraft),
+                args: append,
+                action: client => client.AppendChangeSetDraftAsync(append)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "get_change_set_draft"), Description(
+            "读取渐进草稿的轻量进度，只返回流程/步骤预期、已追加和剩余指令数，不返回完整指令正文。")]
+        public static async Task<string> GetChangeSetDraft(
+            [Description("begin_change_set_draft返回的32位draftId")] string draftId)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetChangeSetDraft),
+                args: new { draftId },
+                action: client => client.GetChangeSetDraftAsync(draftId)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "apply_change_set"), Description(

@@ -10,12 +10,17 @@ namespace Automation
 {
     public sealed class AiResourceSnapshot
     {
-        public AiResourceSnapshot(IReadOnlyDictionary<string, string> ioTypes = null)
+        public AiResourceSnapshot(
+            IReadOnlyDictionary<string, string> ioTypes = null,
+            IReadOnlyDictionary<string, IReadOnlyCollection<string>> references = null)
         {
             IoTypes = ioTypes ?? new Dictionary<string, string>(StringComparer.Ordinal);
+            References = references ?? new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal);
         }
 
         public IReadOnlyDictionary<string, string> IoTypes { get; }
+
+        public IReadOnlyDictionary<string, IReadOnlyCollection<string>> References { get; }
     }
 
     public interface IAiOperationCompiler
@@ -78,6 +83,34 @@ namespace Automation
                 throw new InvalidOperationException($"变量[{exactName}]类型不匹配：现有 {variable?.Type ?? "空"}，要求 {requiredType}。");
             }
             return variable;
+        }
+
+        public void ValidateReference(string referenceType, object value, string path)
+        {
+            string text = value?.ToString();
+            if (string.IsNullOrWhiteSpace(referenceType) || string.IsNullOrWhiteSpace(text)) return;
+            if (string.Equals(referenceType, "value", StringComparison.Ordinal))
+            {
+                RequireVariable(text, path);
+                return;
+            }
+            if (referenceType.StartsWith("io.", StringComparison.Ordinal))
+            {
+                string ioName = RequireIo(text, path,
+                    string.Equals(referenceType, "io.output", StringComparison.Ordinal));
+                if (string.Equals(referenceType, "io.input", StringComparison.Ordinal)
+                    && _resources.IoTypes.TryGetValue(ioName, out string ioType)
+                    && !string.Equals(ioType, "通用输入", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException($"{path} 只能引用通用输入：{ioName} 当前类型为 {ioType}");
+                }
+                return;
+            }
+            if (!_resources.References.TryGetValue(referenceType, out IReadOnlyCollection<string> candidates)) return;
+            if (!candidates.Contains(text, StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException($"{path} 引用的{referenceType}资源不存在：{text}");
+            }
         }
 
         public string ResolveTarget(OperationTarget target, string path)
@@ -173,10 +206,11 @@ namespace Automation
                     ["rule"] = "高层 kind 不覆盖目标指令时，按一个精确原生 operaType 读取递归契约"
                 },
                 ["workflow"] = new JArray(
-                    "preview_change_set(changeSet)",
+                    "复杂流程：begin_change_set_draft → append_change_set_draft（每批最多5条）",
+                    "preview_change_set({version:2,draftId})；简单变更可直接preview_change_set(changeSet)",
                     "等待 Automation 前台确认",
                     "apply_change_set(previewId)"),
-                ["rule"] = "已知 kind 时直接调用 preview_change_set；仅在字段不确定时按需读取 get_operation_contracts。"
+                ["rule"] = "根据既有配置或精确规范重建时使用preserveOperationTypes=true并按原operaType追加native.operation；仅业务目标创建才使用高层语义kind。"
             };
         }
 

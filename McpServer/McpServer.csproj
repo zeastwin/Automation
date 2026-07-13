@@ -24,7 +24,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Automation.Protocol\Automation.Protocol.csproj" />
-    <ProjectReference Include="..\KernelTests\KernelTests.csproj" />
   </ItemGroup>
 
   <ItemGroup>

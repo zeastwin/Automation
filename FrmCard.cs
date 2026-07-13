@@ -356,7 +356,7 @@ namespace Automation
                         RefreshCardTree();
                         SF.frmIO.RefreshIODgv();
                         SF.mainfrm.ResetAxisRuntimeState();
-                        SF.mainfrm.RequireRestartAfterEquipmentRestore();
+                        SF.mainfrm.RequireRestartAfterMotionConfigurationChange();
                     }, FinishDraftEdit));
             }
         }
@@ -456,7 +456,7 @@ namespace Automation
                             }
                             catch
                             {
-                                SF.mainfrm.RequireRestartAfterEquipmentRestore();
+                                SF.mainfrm.RequireRestartAfterMotionConfigurationChange();
                                 throw;
                             }
                         }
@@ -491,7 +491,7 @@ namespace Automation
                             SF.cardStore.ReplaceControlCard(cardIndex, sourceCard);
                             throw new InvalidOperationException("控制卡配置保存失败。");
                         }
-                        SF.mainfrm.RequireRestartAfterEquipmentRestore();
+                        SF.mainfrm.RequireRestartAfterMotionConfigurationChange();
                         FinishDraftEdit();
                         RefreshCardTree();
                         SF.mainfrm.ResetAxisRuntimeState();
@@ -590,7 +590,8 @@ namespace Automation
                     throw;
                 }
                 SF.frmCard.RefreshCardTree();
-
+                SF.mainfrm.RequireRestartAfterMotionConfigurationChange();
+                SF.mainfrm.ResetAxisRuntimeState();
                 SF.frmIO.dgvIO.Rows.Clear();
 
                 SF.frmIO.RefreshIODgv();

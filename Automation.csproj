@@ -26,6 +26,11 @@
       <Project>{9B777468-5118-4A4B-AB0E-6D02861C6B5F}</Project>
       <Name>Automation.Protocol</Name>
     </ProjectReference>
+    <ProjectReference Include="GooseShell\GooseShell.csproj">
+      <Project>{D812DDE6-B0F2-4609-9E4E-10D72CD3CB52}</Project>
+      <Name>GooseShell</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
     <PlatformTarget>x64</PlatformTarget>
@@ -541,7 +546,6 @@
     </ItemGroup>
     <Delete Files="@(ReleaseSymbolFile)" />
   </Target>
-  <Import Project="packages\LibGit2Sharp.NativeBinaries\build\net46\LibGit2Sharp.NativeBinaries.props" Condition="Exists('packages\LibGit2Sharp.NativeBinaries\build\net46\LibGit2Sharp.NativeBinaries.props')" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="EnsureWebView2TargetsImported" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
