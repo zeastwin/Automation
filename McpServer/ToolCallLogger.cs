@@ -71,6 +71,32 @@ namespace Automation.McpServer
             Complete(callId, toolName, args, result, error);
         }
 
+        public static void LogInvocationFailure(
+            string toolName, object? args, Exception exception, long durationMs)
+        {
+            string stackTrace = exception?.ToString() ?? string.Empty;
+            if (stackTrace.Contains(
+                "Automation.McpServer.AutomationMcpTools.ExecuteAsync", StringComparison.Ordinal))
+            {
+                // 工具方法已经进入统一执行边界，异常已由 ExecuteAsync 记录。
+                return;
+            }
+            WriteRecord(new
+            {
+                time = DateTime.Now.ToString("O"),
+                source = "mcp",
+                kind = "tool_invocation_failed",
+                callId = Guid.NewGuid().ToString("N"),
+                toolName = toolName ?? string.Empty,
+                durationMs,
+                stage = "dispatch_or_parameter_binding",
+                args = FormatJson(args),
+                exceptionType = exception?.GetType().FullName ?? string.Empty,
+                error = exception?.Message ?? string.Empty,
+                stackTrace
+            });
+        }
+
         private static void WriteRecord(object record)
         {
             try
@@ -139,9 +165,12 @@ namespace Automation.McpServer
             AppendField(builder, "调用 ID", root, "callId");
             AppendField(builder, "工具", root, "toolName");
             AppendField(builder, "耗时", root, "durationMs", "毫秒");
+            AppendField(builder, "失败阶段", root, "stage");
+            AppendField(builder, "异常类型", root, "exceptionType");
             AppendJsonSection(builder, "参数", root, "args");
             AppendJsonSection(builder, "结果", root, "result");
             AppendField(builder, "异常", root, "error");
+            AppendField(builder, "异常堆栈", root, "stackTrace");
             builder.AppendLine();
             return builder.ToString();
         }

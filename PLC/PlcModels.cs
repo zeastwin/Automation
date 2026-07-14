@@ -31,6 +31,17 @@ namespace Automation
         Double = 8
     }
 
+    /// <summary>
+    /// 跨多个Modbus寄存器的数值字节序。
+    /// </summary>
+    public enum PlcDataFormat
+    {
+        ABCD = 0,
+        BADC = 1,
+        CDAB = 2,
+        DCBA = 3
+    }
+
     public enum PlcMapDirection
     {
         ReadFromPlc = 0,
@@ -82,6 +93,12 @@ namespace Automation
         Write = 1
     }
 
+    public enum PlcReadMode
+    {
+        DiscreteItems = 0,
+        ContinuousBatch = 1
+    }
+
     public enum PlcWriteSource
     {
         Variables = 0,
@@ -105,8 +122,9 @@ namespace Automation
         public int UnitId { get; set; } = 1;
         public int ConnectTimeoutMs { get; set; } = 1000;
         public int ReceiveTimeoutMs { get; set; } = 3000;
+        public bool AutoConnect { get; set; } = true;
         public int ScanIntervalMs { get; set; } = 50;
-        public string DataFormat { get; set; } = "ABCD";
+        public string DataFormat { get; set; } = "CDAB";
         public bool IsStringReverse { get; set; }
         public bool AddressStartWithZero { get; set; } = true;
         public string StatusVariableName { get; set; } = string.Empty;
@@ -196,6 +214,7 @@ namespace Automation
                 UnitId = source.UnitId,
                 ConnectTimeoutMs = source.ConnectTimeoutMs,
                 ReceiveTimeoutMs = source.ReceiveTimeoutMs,
+                AutoConnect = source.AutoConnect,
                 ScanIntervalMs = source.ScanIntervalMs,
                 DataFormat = source.DataFormat,
                 IsStringReverse = source.IsStringReverse,

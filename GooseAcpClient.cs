@@ -74,6 +74,8 @@ namespace Automation
         private readonly GooseConfig config;
         private readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> pendingRequests =
             new ConcurrentDictionary<string, TaskCompletionSource<JObject>>(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, byte> parameterGenerationFailureCalls =
+            new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
         private readonly object writeLock = new object();
         private readonly object executionLock = new object();
         private readonly string auditSessionId = Guid.NewGuid().ToString("N");
@@ -906,8 +908,15 @@ namespace Automation
                 if (string.Equals(updateKind, "tool_call", StringComparison.Ordinal))
                 {
                     string title = FindFirstString(parameters, "title", "name") ?? "调用工具";
-                    string displayName = string.Equals(title, "error", StringComparison.OrdinalIgnoreCase)
-                        ? "工具参数生成失败"
+                    bool parameterGenerationFailed =
+                        string.Equals(title, "error", StringComparison.OrdinalIgnoreCase);
+                    string callId = FindFirstString(parameters, "toolCallId");
+                    if (parameterGenerationFailed && !string.IsNullOrWhiteSpace(callId))
+                    {
+                        parameterGenerationFailureCalls[callId] = 0;
+                    }
+                    string displayName = parameterGenerationFailed
+                        ? "模型工具参数未形成"
                         : ResolveToolDisplayName(parameters, title);
                     AppendReasoningTraceEvent("tool_call", displayName, message);
                     LogExecution("tool_call", displayName, message);
@@ -921,12 +930,33 @@ namespace Automation
                     string status = FindFirstString(parameters, "status");
                     if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase))
                     {
+                        string callId = FindFirstString(parameters, "toolCallId");
+                        bool parameterGenerationFailed = !string.IsNullOrWhiteSpace(callId)
+                            && parameterGenerationFailureCalls.TryRemove(callId, out _);
                         string detail = FindFirstString(parameters, "message", "error", "text");
-                        string failureSummary = string.IsNullOrWhiteSpace(detail)
-                            ? "× 工具调用失败，未返回错误详情"
-                            : "× " + detail;
+                        string failureSummary = parameterGenerationFailed
+                            ? "× 请求未到达 MCP，未产生任何变更"
+                            : string.IsNullOrWhiteSpace(detail)
+                                ? "× 工具调用失败，ACP 未提供错误内容"
+                                : "× " + detail;
                         AppendReasoningTraceEvent("tool_error", failureSummary, message);
-                        LogFile("ACP<- 工具调用失败", parameters, LogLevel.Error);
+                        var diagnostic = (JObject)parameters.DeepClone();
+                        diagnostic["automationDiagnostic"] = parameterGenerationFailed
+                            ? new JObject
+                            {
+                                ["category"] = "provider_tool_arguments_not_formed",
+                                ["requestReachedMcp"] = false,
+                                ["sideEffects"] = "none"
+                            }
+                            : new JObject
+                            {
+                                ["category"] = "acp_tool_call_failed",
+                                ["requestReachedMcp"] = null,
+                                ["sideEffects"] = "unknown"
+                            };
+                        LogFile(parameterGenerationFailed
+                            ? "ACP<- 模型工具参数未形成"
+                            : "ACP<- 工具调用失败", diagnostic, LogLevel.Error);
                         Report("tool_result", failureSummary, message);
                         return;
                     }
@@ -935,6 +965,11 @@ namespace Automation
                     {
                         LogFile("ACP<- 通知 session/update kind=tool_call_update (progress)", parameters, LogLevel.Normal);
                         return;
+                    }
+                    string completedCallId = FindFirstString(parameters, "toolCallId");
+                    if (!string.IsNullOrWhiteSpace(completedCallId))
+                    {
+                        parameterGenerationFailureCalls.TryRemove(completedCallId, out _);
                     }
                     // 完成响应只提取摘要给 UI；完整参数和结果由 MCP 统一审计，避免重复落盘。
                     string summary = ExtractToolResultSummary(parameters);

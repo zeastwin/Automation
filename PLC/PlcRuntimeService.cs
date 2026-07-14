@@ -106,15 +106,9 @@ namespace Automation
 
             if (connectDevices)
             {
-                foreach (DeviceSession session in replacements.Values)
+                foreach (DeviceSession session in replacements.Values.Where(item => item.AutoConnect))
                 {
-                    Task.Run(() =>
-                    {
-                        if (!session.Reinitialize(out string connectError))
-                        {
-                            Raise(session.DeviceName, connectError, true);
-                        }
-                    });
+                    session.StartAutoConnect();
                 }
             }
             return true;
@@ -158,6 +152,23 @@ namespace Automation
             if (!ValidateDirectRequest(request, false, out error)) return false;
             if (!TryGetSession(deviceName, out DeviceSession session, out error)) return false;
             return session.DirectRead(request, out values, out error);
+        }
+
+        public bool TryReadBatch(string deviceName, IReadOnlyList<PlcMapConfig> requests,
+            out IReadOnlyDictionary<string, object[]> values, out string error)
+        {
+            values = null;
+            if (requests == null || requests.Count == 0)
+            { error = "PLC批量读取项为空。"; return false; }
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (PlcMapConfig request in requests)
+            {
+                if (!ValidateDirectRequest(request, false, out error)) return false;
+                if (string.IsNullOrWhiteSpace(request.Id) || !ids.Add(request.Id))
+                { error = "PLC批量读取项ID为空或重复。"; return false; }
+            }
+            if (!TryGetSession(deviceName, out DeviceSession session, out error)) return false;
+            return session.DirectReadBatch(requests, out values, out error);
         }
 
         public bool TryWrite(string deviceName, PlcMapConfig request, IReadOnlyList<object> values, out string error)
@@ -250,7 +261,6 @@ namespace Automation
         private sealed class DeviceSession : IDisposable
         {
             private readonly object stateLock = new object();
-            private readonly object ioLock = new object();
             private readonly PlcRuntimeService owner;
             private readonly ValueConfigStore valueStore;
             private readonly PlcDeviceConfig config;
@@ -258,6 +268,8 @@ namespace Automation
             private IPlcAdapter adapter;
             private CancellationTokenSource mappingCts;
             private Task mappingTask;
+            private CancellationTokenSource reconnectCts;
+            private Task reconnectTask;
             private PlcRuntimeState state = PlcRuntimeState.Uninitialized;
             private string lastError = string.Empty;
             private DateTime? lastCommunicationUtc;
@@ -277,27 +289,81 @@ namespace Automation
             }
 
             public string DeviceName => config.Name;
+            public bool AutoConnect => config.AutoConnect;
 
             public bool Reinitialize(out string error)
+            {
+                StopReconnectWorker();
+                return ReinitializeCore(false, out error);
+            }
+
+            public void StartAutoConnect()
+            {
+                if (!config.AutoConnect || disposed) return;
+                lock (stateLock)
+                {
+                    if (reconnectTask != null && !reconnectTask.IsCompleted) return;
+                    reconnectCts = new CancellationTokenSource();
+                    CancellationTokenSource source = reconnectCts;
+                    reconnectTask = Task.Run(() => AutoConnectLoop(source));
+                }
+            }
+
+            private bool ReinitializeCore(bool automaticAttempt, out string error)
             {
                 error = null;
                 if (disposed) { error = "PLC设备运行时已释放。"; return false; }
                 StopWorker(false);
-                lock (ioLock)
+                SetState(PlcRuntimeState.Connecting, string.Empty);
+                adapter?.Dispose();
+                adapter = owner.adapterFactory(PlcModelClone.Clone(config));
+                if (!adapter.Connect(out error))
                 {
-                    SetState(PlcRuntimeState.Connecting, string.Empty);
-                    adapter?.Dispose();
-                    adapter = owner.adapterFactory(PlcModelClone.Clone(config));
-                    if (!adapter.Connect(out error))
+                    if (automaticAttempt) SetAutomaticConnectionFault(error);
+                    else Fault(error, false);
+                    return false;
+                }
+                foreach (MapState mapState in mapStates.Values) mapState.Reset();
+                SetState(PlcRuntimeState.Ready, string.Empty);
+                SetStatusVariable(1d);
+                owner.Raise(config.Name, "连接初始化成功。", false);
+                return true;
+            }
+
+            private void AutoConnectLoop(CancellationTokenSource source)
+            {
+                int attempt = 0;
+                try
+                {
+                    while (!source.IsCancellationRequested && !disposed)
                     {
-                        Fault(error, false);
-                        return false;
+                        attempt++;
+                        if (ReinitializeCore(true, out string error)) return;
+                        int delayMs = attempt == 1 ? 1000
+                            : attempt == 2 ? 2000
+                            : attempt == 3 ? 5000
+                            : attempt == 4 ? 10000
+                            : 30000;
+                        owner.Raise(config.Name,
+                            $"自动连接第{attempt}次失败:{error}，{delayMs}ms后重试。",
+                            attempt == 1);
+                        if (source.Token.WaitHandle.WaitOne(delayMs)) return;
                     }
-                    foreach (MapState mapState in mapStates.Values) mapState.Reset();
-                    SetState(PlcRuntimeState.Ready, string.Empty);
-                    SetStatusVariable(1d);
-                    owner.Raise(config.Name, "连接初始化成功。", false);
-                    return true;
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                finally
+                {
+                    lock (stateLock)
+                    {
+                        if (ReferenceEquals(reconnectCts, source))
+                        {
+                            reconnectCts = null;
+                            reconnectTask = null;
+                        }
+                    }
+                    source.Dispose();
                 }
             }
 
@@ -311,15 +377,12 @@ namespace Automation
                     { error = $"设备状态[{state}]禁止启动映射，请先重新初始化。"; return false; }
                 }
 
-                lock (ioLock)
+                foreach (MapState mapState in mapStates.Values.Where(item => item.Config.Enabled))
                 {
-                    foreach (MapState mapState in mapStates.Values.Where(item => item.Config.Enabled))
+                    if (!InitializeMap(mapState, out error))
                     {
-                        if (!InitializeMap(mapState, out error))
-                        {
-                            Fault(error, false);
-                            return false;
-                        }
+                        Fault(error, false);
+                        return false;
                     }
                 }
 
@@ -353,28 +416,25 @@ namespace Automation
                     if (state != PlcRuntimeState.Mapping) { error = "设备未处于映射状态。"; return false; }
                     if (mapState.State != PlcMapRuntimeState.Conflict) { error = "映射项当前不存在冲突。"; return false; }
                 }
-                lock (ioLock)
+                if (!adapter.Read(mapState.Config, out object[] plcValues, out error))
+                { Fault(error, true); return false; }
+                if (!TryGetLocalValues(mapState.Config, out object[] localValues, out error)) return false;
+                if (resolution == PlcConflictResolution.UsePlcValue)
                 {
-                    if (!adapter.Read(mapState.Config, out object[] plcValues, out error))
-                    { Fault(error, true); return false; }
-                    if (!TryGetLocalValues(mapState.Config, out object[] localValues, out error)) return false;
-                    if (resolution == PlcConflictResolution.UsePlcValue)
-                    {
-                        if (!SetLocalValues(mapState.Config, plcValues, out error)) return false;
-                        localValues = CloneValues(plcValues);
-                    }
-                    else
-                    {
-                        if (!adapter.Write(mapState.Config, localValues, out error))
-                        { Fault(error, true); return false; }
-                        plcValues = CloneValues(localValues);
-                    }
-                    mapState.SetNormal(plcValues, localValues);
-                    MarkCommunication();
-                    owner.Raise(config.Name,
-                        $"映射[{mapState.Config.Name}]冲突已由操作员选择[{resolution}]解除。", false);
-                    return true;
+                    if (!SetLocalValues(mapState.Config, plcValues, out error)) return false;
+                    localValues = CloneValues(plcValues);
                 }
+                else
+                {
+                    if (!adapter.Write(mapState.Config, localValues, out error))
+                    { Fault(error, true); return false; }
+                    plcValues = CloneValues(localValues);
+                }
+                mapState.SetNormal(plcValues, localValues);
+                MarkCommunication();
+                owner.Raise(config.Name,
+                    $"映射[{mapState.Config.Name}]冲突已由操作员选择[{resolution}]解除。", false);
+                return true;
             }
 
             public bool DirectRead(PlcMapConfig request, out object[] values, out string error)
@@ -382,13 +442,22 @@ namespace Automation
                 values = null;
                 error = null;
                 if (!EnsureConnected(out error)) return false;
-                lock (ioLock)
-                {
-                    if (!adapter.Read(request, out values, out error))
-                    { Fault(error, true); return false; }
-                    MarkCommunication();
-                    return true;
-                }
+                if (!adapter.Read(request, out values, out error))
+                { Fault(error, true); return false; }
+                MarkCommunication();
+                return true;
+            }
+
+            public bool DirectReadBatch(IReadOnlyList<PlcMapConfig> requests,
+                out IReadOnlyDictionary<string, object[]> values, out string error)
+            {
+                values = null;
+                error = null;
+                if (!EnsureConnected(out error)) return false;
+                if (!adapter.ReadBatch(requests, out values, out error))
+                { Fault(error, true); return false; }
+                MarkCommunication();
+                return true;
             }
 
             public bool DirectWrite(PlcMapConfig request, IReadOnlyList<object> values, out string error)
@@ -400,13 +469,10 @@ namespace Automation
                     if (state == PlcRuntimeState.Mapping && config.Mappings.Any(map => map.Enabled && Overlaps(map, request)))
                     { error = "直接写入地址与活动映射重叠，请先停止该设备映射。"; return false; }
                 }
-                lock (ioLock)
-                {
-                    if (!adapter.Write(request, values, out error))
-                    { Fault(error, true); return false; }
-                    MarkCommunication();
-                    return true;
-                }
+                if (!adapter.Write(request, values, out error))
+                { Fault(error, true); return false; }
+                MarkCommunication();
+                return true;
             }
 
             public PlcDeviceRuntimeSnapshot GetSnapshot()
@@ -429,13 +495,29 @@ namespace Automation
             {
                 if (disposed) return;
                 disposed = true;
+                StopReconnectWorker();
                 StopWorker(false);
-                lock (ioLock)
-                {
-                    adapter?.Dispose();
-                    adapter = null;
-                }
+                adapter?.Dispose();
+                adapter = null;
                 SetStatusVariable(0d);
+            }
+
+            private void StopReconnectWorker()
+            {
+                CancellationTokenSource source;
+                Task task;
+                lock (stateLock)
+                {
+                    source = reconnectCts;
+                    task = reconnectTask;
+                    reconnectCts = null;
+                    reconnectTask = null;
+                    source?.Cancel();
+                }
+                if (task != null && Task.CurrentId != task.Id)
+                {
+                    try { task.Wait(Math.Max(1000, config.ConnectTimeoutMs + 500)); } catch { }
+                }
             }
 
             private bool InitializeMap(MapState mapState, out string error)
@@ -485,26 +567,23 @@ namespace Automation
                             && mapState.State != PlcMapRuntimeState.Conflict
                             && mapState.State != PlcMapRuntimeState.Faulted
                             && IsDue(mapState.Config.Priority, cycle)).ToList();
-                        lock (ioLock)
+                        List<PlcMapConfig> readMaps = dueMaps
+                            .Where(item => item.Config.Direction != PlcMapDirection.WriteToPlc)
+                            .Select(item => item.Config).ToList();
+                        if (!adapter.ReadBatch(readMaps,
+                            out IReadOnlyDictionary<string, object[]> batchValues, out string batchError))
                         {
-                            List<PlcMapConfig> readMaps = dueMaps
-                                .Where(item => item.Config.Direction != PlcMapDirection.WriteToPlc)
-                                .Select(item => item.Config).ToList();
-                            if (!adapter.ReadBatch(readMaps,
-                                out IReadOnlyDictionary<string, object[]> batchValues, out string batchError))
+                            Fault(batchError, true);
+                            return;
+                        }
+                        foreach (MapState mapState in dueMaps)
+                        {
+                            if (token.IsCancellationRequested) break;
+                            batchValues.TryGetValue(mapState.Config.Id, out object[] plcValues);
+                            if (!ProcessMap(mapState, plcValues, out string error))
                             {
-                                Fault(batchError, true);
+                                Fault(error, true);
                                 return;
-                            }
-                            foreach (MapState mapState in dueMaps)
-                            {
-                                if (token.IsCancellationRequested) break;
-                                batchValues.TryGetValue(mapState.Config.Id, out object[] plcValues);
-                                if (!ProcessMap(mapState, plcValues, out string error))
-                                {
-                                    Fault(error, true);
-                                    return;
-                                }
                             }
                         }
                         watch.Stop();
@@ -665,8 +744,22 @@ namespace Automation
                 }
                 try { adapter?.Close(); } catch { }
                 SetStatusVariable(-1d);
-                owner.Raise(config.Name, lastError + " 设备映射已停止，必须重新初始化。", true);
+                owner.Raise(config.Name, lastError + (config.AutoConnect
+                    ? " 设备映射已停止，将自动重连；重连成功后仍需重新启动映射。"
+                    : " 设备映射已停止，必须重新初始化。"), true);
                 if (!fromMappingThread) StopWorker(false);
+                if (config.AutoConnect) StartAutoConnect();
+            }
+
+            private void SetAutomaticConnectionFault(string error)
+            {
+                lock (stateLock)
+                {
+                    lastError = string.IsNullOrWhiteSpace(error) ? "PLC通讯故障。" : error;
+                    SetStateUnsafe(PlcRuntimeState.Faulted, lastError);
+                }
+                try { adapter?.Close(); } catch { }
+                SetStatusVariable(-1d);
             }
 
             private void SetState(PlcRuntimeState next, string error)

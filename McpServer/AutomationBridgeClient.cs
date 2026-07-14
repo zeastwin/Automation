@@ -358,9 +358,10 @@ namespace Automation.McpServer
             return PostAsync("/bridge/variable/get", payload);
         }
 
-        public Task<string> SearchVariablesAsync(string keyword, string? type, string? valueLike, int? limit)
+        public Task<string> SearchVariablesAsync(string? keyword, string? type, string? valueLike, int? limit)
         {
-            JsonObject payload = new JsonObject { ["keyword"] = keyword };
+            JsonObject payload = new JsonObject();
+            if (keyword != null) payload["keyword"] = keyword;
             if (!string.IsNullOrEmpty(type)) payload["type"] = type;
             if (!string.IsNullOrEmpty(valueLike)) payload["valueLike"] = valueLike;
             if (limit.HasValue) payload["limit"] = limit.Value;
@@ -676,9 +677,10 @@ namespace Automation.McpServer
             return PostAsync("/bridge/io/get", payload);
         }
 
-        public Task<string> SearchIoAsync(string keyword, string? type, int? cardNum, int? limit)
+        public Task<string> SearchIoAsync(string? keyword, string? type, int? cardNum, int? limit)
         {
-            JsonObject payload = new JsonObject { ["keyword"] = keyword };
+            JsonObject payload = new JsonObject();
+            if (keyword != null) payload["keyword"] = keyword;
             if (!string.IsNullOrEmpty(type)) payload["type"] = type;
             if (cardNum.HasValue) payload["cardNum"] = cardNum.Value;
             if (limit.HasValue) payload["limit"] = limit.Value;

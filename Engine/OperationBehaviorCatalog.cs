@@ -10,7 +10,7 @@ namespace Automation
     /// </summary>
     public static class OperationBehaviorCatalog
     {
-        public const int ContractVersion = 1;
+        public const int ContractVersion = 2;
 
         public static JObject BuildContract(OperationType operation)
         {
@@ -29,6 +29,13 @@ namespace Automation
                         false);
                     AddRequiredGoto(contract, "goto1", "条件成立时的跳转目标");
                     AddRequiredGoto(contract, "goto2", "条件不成立时的跳转目标；若需继续下一条，也必须明确指向下一条指令");
+                    contract["judgeModes"] = new JObject
+                    {
+                        ["值在区间左"] = "equal=true: value <= Down；equal=false: value < Down；Up 不参与该模式",
+                        ["值在区间右"] = "equal=true: value >= Down；equal=false: value > Down；Up 不参与该模式",
+                        ["值在区间内"] = "equal=true: Down <= value <= Up；equal=false: Down < value < Up",
+                        ["等于特征字符"] = "变量文本与 keyString 做区分大小写的完全相等比较"
+                    };
                     contract["failureModes"] = new JArray("条件变量无效时报警", "failDelay 不是非负整数时报警", "任一跳转目标为空或无效时报警");
                     break;
 
@@ -92,14 +99,15 @@ namespace Automation
 
                 case "PLC读写":
                     contract = CreateContract(
-                        "按强类型Modbus地址执行一次PLC读取或写入。",
-                        new[] { "校验设备、地址区、数据类型和变量契约", "通过设备运行时串行读写", "失败时报警且不执行宽松转换" },
+                        "按强类型Modbus地址执行离散多项读取、连续批量读取或连续写入。",
+                        new[] { "按项读取时一次配置多个独立地址", "连续批量读取时从首变量按索引展开", "同一HSL客户端在库内部逐次完成请求响应", "失败时报警且不执行宽松转换" },
                         true);
                     contract["constraints"] = new JArray(
                         "Action只能是Read或Write",
+                        "ReadMode=DiscreteItems时ItemCount必须与ReadItems数量一致，每项绑定一个变量",
+                        "ReadMode=ContinuousBatch时使用连续参数，并从FirstVariableName按变量索引展开",
                         "Boolean只允许Coil或DiscreteInput，其他类型只允许寄存器区",
                         "DiscreteInput和InputRegister禁止Write",
-                        "数组必须显式提供与ElementCount等长的VariableNames",
                         "Constant仅允许单元素Write");
                     contract["failureModes"] = new JArray("设备未初始化时报警", "参数或变量类型不匹配时报警", "通讯失败时设备进入故障状态");
                     break;

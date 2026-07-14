@@ -11,20 +11,30 @@ namespace Automation
         {
             if (operation == null) return FailPlc(evt, "PLC读写参数为空。");
             if (Context?.PlcRuntime == null) return FailPlc(evt, "PLC运行时未初始化。");
-            if (!TryBuildDirectRequest(operation, out PlcMapConfig request, out string error))
-                return FailPlc(evt, error);
+            if (string.IsNullOrWhiteSpace(operation.DeviceName)) return FailPlc(evt, "PLC设备名称为空。");
+            if (!Enum.IsDefined(typeof(PlcAccessAction), operation.Action)
+                || !Enum.IsDefined(typeof(PlcReadMode), operation.ReadMode)
+                || !Enum.IsDefined(typeof(PlcWriteSource), operation.WriteSource))
+                return FailPlc(evt, "PLC读写枚举参数无效。");
 
             if (operation.Action == PlcAccessAction.Read)
             {
+                if (operation.ReadMode == PlcReadMode.DiscreteItems)
+                    return RunPlcDiscreteRead(evt, operation);
+                if (!TryBuildContinuousRequest(operation, false, out PlcMapConfig request,
+                    out List<string> variableNames, out string error)) return FailPlc(evt, error);
                 if (!Context.PlcRuntime.TryRead(operation.DeviceName, request, out object[] values, out error))
                     return FailPlc(evt, $"PLC读取失败:{error}");
-                if (!SetReadVariables(operation, values, out error)) return FailPlc(evt, error);
+                if (!SetReadVariables(operation.DataType, variableNames, values, out error)) return FailPlc(evt, error);
                 return true;
             }
 
-            if (!TryGetWriteValues(operation, out object[] writeValues, out error)) return FailPlc(evt, error);
-            if (!Context.PlcRuntime.TryWrite(operation.DeviceName, request, writeValues, out error))
-                return FailPlc(evt, $"PLC写入失败:{error}");
+            if (!TryBuildContinuousRequest(operation, true, out PlcMapConfig writeRequest,
+                out List<string> writeVariableNames, out string writeError)) return FailPlc(evt, writeError);
+            if (!TryGetWriteValues(operation, writeVariableNames, out object[] writeValues, out writeError))
+                return FailPlc(evt, writeError);
+            if (!Context.PlcRuntime.TryWrite(operation.DeviceName, writeRequest, writeValues, out writeError))
+                return FailPlc(evt, $"PLC写入失败:{writeError}");
             return true;
         }
 
@@ -54,77 +64,139 @@ namespace Automation
             return success || FailPlc(evt, $"PLC映射控制失败:{error}");
         }
 
-        private bool TryBuildDirectRequest(PlcReadWrite operation, out PlcMapConfig request, out string error)
+        private bool RunPlcDiscreteRead(ProcHandle evt, PlcReadWrite operation)
         {
-            request = null;
-            error = null;
-            if (string.IsNullOrWhiteSpace(operation.DeviceName)) { error = "PLC设备名称为空。"; return false; }
-            if (!Enum.IsDefined(typeof(PlcAccessAction), operation.Action)
-                || !Enum.IsDefined(typeof(PlcArea), operation.Area)
-                || !Enum.IsDefined(typeof(PlcDataType), operation.DataType)
-                || !Enum.IsDefined(typeof(PlcWriteSource), operation.WriteSource))
-            { error = "PLC读写枚举参数无效。"; return false; }
-            if (operation.StartAddress < 0 || operation.StartAddress > 65535) { error = "PLC起始地址超出范围。"; return false; }
-            if (operation.ElementCount < 1 || operation.ElementCount > 1000) { error = "PLC元素数量必须为1..1000。"; return false; }
-            if ((operation.Area == PlcArea.Coil || operation.Area == PlcArea.DiscreteInput)
-                != (operation.DataType == PlcDataType.Boolean))
-            { error = "Boolean只允许线圈地址区，寄存器类型只允许寄存器地址区。"; return false; }
-            if (operation.Action == PlcAccessAction.Write
-                && (operation.Area == PlcArea.DiscreteInput || operation.Area == PlcArea.InputRegister))
-            { error = "只读地址区禁止写入。"; return false; }
-            if (operation.DataType == PlcDataType.String)
+            if (operation.ItemCount < 1 || operation.ItemCount > 100
+                || operation.ReadItems == null || operation.ReadItems.Count != operation.ItemCount)
+                return FailPlc(evt, "PLC按项读取数量必须为1..100，并与读取项数量一致。");
+
+            var requests = new List<PlcMapConfig>(operation.ItemCount);
+            var variableNames = new List<string>(operation.ItemCount);
+            var uniqueVariables = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < operation.ReadItems.Count; i++)
             {
-                if (operation.ElementCount != 1 || operation.StringByteLength < 1 || operation.StringByteLength > 2000)
-                { error = "String必须为单元素且字符串字节数为1..2000。"; return false; }
+                PlcReadItem item = operation.ReadItems[i];
+                if (item == null) return FailPlc(evt, $"PLC读取项{i + 1}为空。");
+                if (!TryBuildRequest(item.Area, item.StartAddress, item.DataType, 1,
+                    item.StringByteLength, false, $"流程按项读取{i + 1}", out PlcMapConfig request,
+                    out string error)) return FailPlc(evt, $"PLC读取项{i + 1}:{error}");
+                request.Id = $"direct-item-{i}";
+                if (!ValidateVariable(item.VariableName, item.DataType, uniqueVariables, out error))
+                    return FailPlc(evt, $"PLC读取项{i + 1}:{error}");
+                request.VariableNames = new List<string> { item.VariableName };
+                requests.Add(request);
+                variableNames.Add(item.VariableName);
             }
-            else if (operation.StringByteLength != 0)
-            { error = "非String类型的字符串字节数必须为0。"; return false; }
 
-            int requiredVariables = operation.Action == PlcAccessAction.Read
-                || operation.WriteSource == PlcWriteSource.Variables ? operation.ElementCount : 0;
-            if ((operation.VariableNames?.Count ?? 0) != requiredVariables)
-            { error = $"PLC变量数量必须为{requiredVariables}。"; return false; }
-            if (operation.Action == PlcAccessAction.Write && operation.WriteSource == PlcWriteSource.Constant
-                && operation.ElementCount != 1)
-            { error = "固定常量只支持单元素写入。"; return false; }
+            if (!Context.PlcRuntime.TryReadBatch(operation.DeviceName, requests,
+                out IReadOnlyDictionary<string, object[]> results, out string batchError))
+                return FailPlc(evt, $"PLC按项读取失败:{batchError}");
 
-            request = new PlcMapConfig
+            for (int i = 0; i < requests.Count; i++)
             {
-                Name = "流程直接读写",
-                Area = operation.Area,
-                StartAddress = operation.StartAddress,
-                DataType = operation.DataType,
-                Direction = operation.Action == PlcAccessAction.Read
-                    ? PlcMapDirection.ReadFromPlc : PlcMapDirection.WriteToPlc,
-                ElementCount = operation.ElementCount,
-                StringByteLength = operation.StringByteLength,
-                VariableNames = operation.VariableNames?.ToList() ?? new List<string>()
-            };
-            int span = PlcConfigStore.GetAddressSpan(request);
-            if ((long)request.StartAddress + span - 1 > 65535)
-            { error = "PLC访问范围超过65535。"; request = null; return false; }
-            return ValidateOperationVariables(operation, out error);
-        }
-
-        private bool ValidateOperationVariables(PlcReadWrite operation, out string error)
-        {
-            error = null;
-            if (operation.VariableNames == null) return true;
-            var unique = new HashSet<string>(StringComparer.Ordinal);
-            string expectedType = operation.DataType == PlcDataType.String ? "string" : "double";
-            foreach (string name in operation.VariableNames)
-            {
-                if (string.IsNullOrWhiteSpace(name) || !unique.Add(name))
-                { error = "PLC变量名称为空或重复。"; return false; }
-                if (Context.ValueStore == null || !Context.ValueStore.TryGetValueByName(name, out DicValue value))
-                { error = $"PLC变量不存在:{name}"; return false; }
-                if (!string.Equals(value?.Type, expectedType, StringComparison.OrdinalIgnoreCase))
-                { error = $"PLC变量[{name}]必须是{expectedType}类型。"; return false; }
+                if (!results.TryGetValue(requests[i].Id, out object[] values) || values == null || values.Length != 1)
+                    return FailPlc(evt, $"PLC读取项{i + 1}返回数量异常。");
+                if (!SetReadVariables(operation.ReadItems[i].DataType,
+                    new[] { variableNames[i] }, values, out string error)) return FailPlc(evt, error);
             }
             return true;
         }
 
-        private bool TryGetWriteValues(PlcReadWrite operation, out object[] values, out string error)
+        private bool TryBuildContinuousRequest(PlcReadWrite operation, bool isWrite,
+            out PlcMapConfig request, out List<string> variableNames, out string error)
+        {
+            variableNames = new List<string>();
+            if (!TryBuildRequest(operation.Area, operation.StartAddress, operation.DataType,
+                operation.ElementCount, operation.StringByteLength, isWrite, "流程连续读写",
+                out request, out error)) return false;
+            if (isWrite && operation.WriteSource == PlcWriteSource.Constant)
+            {
+                if (operation.ElementCount != 1)
+                { error = "固定常量只支持单元素写入。"; request = null; return false; }
+                return true;
+            }
+            if (!ResolveConsecutiveVariables(operation.FirstVariableName, operation.ElementCount,
+                operation.DataType, out variableNames, out error)) { request = null; return false; }
+            request.VariableNames = variableNames.ToList();
+            return true;
+        }
+
+        private static bool TryBuildRequest(PlcArea area, int startAddress, PlcDataType dataType,
+            int elementCount, int stringByteLength, bool isWrite, string name,
+            out PlcMapConfig request, out string error)
+        {
+            request = null;
+            error = null;
+            if (!Enum.IsDefined(typeof(PlcArea), area) || !Enum.IsDefined(typeof(PlcDataType), dataType))
+            { error = "地址区或数据类型无效。"; return false; }
+            if (startAddress < 0 || startAddress > 65535)
+            { error = "起始地址超出0..65535。"; return false; }
+            if (elementCount < 1 || elementCount > 1000)
+            { error = "元素数量必须为1..1000。"; return false; }
+            if ((area == PlcArea.Coil || area == PlcArea.DiscreteInput) != (dataType == PlcDataType.Boolean))
+            { error = "Boolean只允许线圈地址区，寄存器类型只允许寄存器地址区。"; return false; }
+            if (isWrite && (area == PlcArea.DiscreteInput || area == PlcArea.InputRegister))
+            { error = "只读地址区禁止写入。"; return false; }
+            if (dataType == PlcDataType.String)
+            {
+                if (elementCount != 1 || stringByteLength < 1 || stringByteLength > 2000)
+                { error = "String必须为单元素且字符串字节数为1..2000。"; return false; }
+            }
+            else if (stringByteLength != 0)
+            { error = "非String类型的字符串字节数必须为0。"; return false; }
+
+            request = new PlcMapConfig
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Name = name,
+                Area = area,
+                StartAddress = startAddress,
+                DataType = dataType,
+                Direction = isWrite ? PlcMapDirection.WriteToPlc : PlcMapDirection.ReadFromPlc,
+                ElementCount = elementCount,
+                StringByteLength = stringByteLength,
+                VariableNames = new List<string>()
+            };
+            int span = PlcConfigStore.GetAddressSpan(request);
+            if ((long)startAddress + span - 1 > 65535)
+            { error = "PLC访问范围超过65535。"; request = null; return false; }
+            return true;
+        }
+
+        private bool ResolveConsecutiveVariables(string firstVariableName, int count, PlcDataType dataType,
+            out List<string> variableNames, out string error)
+        {
+            variableNames = new List<string>();
+            error = null;
+            if (Context.ValueStore == null) { error = "平台变量库未初始化。"; return false; }
+            if (!Context.ValueStore.TryGetValueByName(firstVariableName, out DicValue first))
+            { error = $"首保存变量不存在:{firstVariableName}"; return false; }
+            var unique = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < count; i++)
+            {
+                if (!Context.ValueStore.TryGetValueByIndex(first.Index + i, out DicValue value))
+                { error = $"从变量[{firstVariableName}]开始的第{i + 1}个连续变量不存在。"; return false; }
+                if (!ValidateVariable(value.Name, dataType, unique, out error)) return false;
+                variableNames.Add(value.Name);
+            }
+            return true;
+        }
+
+        private bool ValidateVariable(string name, PlcDataType dataType, HashSet<string> unique, out string error)
+        {
+            error = null;
+            if (string.IsNullOrWhiteSpace(name) || !unique.Add(name))
+            { error = "PLC保存变量为空或重复。"; return false; }
+            if (Context.ValueStore == null || !Context.ValueStore.TryGetValueByName(name, out DicValue value))
+            { error = $"PLC变量不存在:{name}"; return false; }
+            string expectedType = dataType == PlcDataType.String ? "string" : "double";
+            if (!string.Equals(value.Type, expectedType, StringComparison.OrdinalIgnoreCase))
+            { error = $"PLC变量[{name}]必须是{expectedType}类型。"; return false; }
+            return true;
+        }
+
+        private bool TryGetWriteValues(PlcReadWrite operation, IReadOnlyList<string> variableNames,
+            out object[] values, out string error)
         {
             error = null;
             if (operation.WriteSource == PlcWriteSource.Constant)
@@ -134,10 +206,10 @@ namespace Automation
             }
             else
             {
-                values = new object[operation.VariableNames.Count];
-                for (int i = 0; i < operation.VariableNames.Count; i++)
+                values = new object[variableNames.Count];
+                for (int i = 0; i < variableNames.Count; i++)
                 {
-                    DicValue value = Context.ValueStore.GetValueByName(operation.VariableNames[i]);
+                    DicValue value = Context.ValueStore.GetValueByName(variableNames[i]);
                     if (operation.DataType == PlcDataType.String) values[i] = value.Value ?? string.Empty;
                     else if (!double.TryParse(value.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
                         || double.IsNaN(number) || double.IsInfinity(number))
@@ -148,20 +220,21 @@ namespace Automation
             return HslModbusAdapter.TryNormalizeValues(operation.DataType, values, out _, out error);
         }
 
-        private bool SetReadVariables(PlcReadWrite operation, IReadOnlyList<object> values, out string error)
+        private bool SetReadVariables(PlcDataType dataType, IReadOnlyList<string> variableNames,
+            IReadOnlyList<object> values, out string error)
         {
             error = null;
-            if (values == null || values.Count != operation.VariableNames.Count)
+            if (values == null || values.Count != variableNames.Count)
             { error = "PLC返回数量与变量数量不一致。"; return false; }
             for (int i = 0; i < values.Count; i++)
             {
-                object value = operation.DataType == PlcDataType.String
+                object value = dataType == PlcDataType.String
                     ? (object)(values[i]?.ToString() ?? string.Empty)
-                    : operation.DataType == PlcDataType.Boolean
+                    : dataType == PlcDataType.Boolean
                         ? ((bool)values[i] ? 1d : 0d)
                         : Convert.ToDouble(values[i], CultureInfo.InvariantCulture);
-                if (!Context.ValueStore.setValueByName(operation.VariableNames[i], value, "PLC读写"))
-                { error = $"PLC读取结果写入变量失败:{operation.VariableNames[i]}"; return false; }
+                if (!Context.ValueStore.setValueByName(variableNames[i], value, "PLC读写"))
+                { error = $"PLC读取结果写入变量失败:{variableNames[i]}"; return false; }
             }
             return true;
         }

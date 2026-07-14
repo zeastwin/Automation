@@ -555,6 +555,8 @@ namespace Automation.KernelTests
             var configuration = new PlcConfiguration { Devices = new List<PlcDeviceConfig> { device } };
             Assert(PlcConfigStore.Validate(configuration, values, out string error), "有效PLC配置被拒绝:" + error);
             Assert(device.IsStringReverse, "汇川设备默认未启用字符串反转");
+            Assert(device.DataFormat == "CDAB", "新建PLC默认字节序不是CDAB");
+            Assert(device.AutoConnect, "新建PLC没有保持默认自动连接行为");
             Assert(PlcConfigStore.GetAddressSpan(device.Mappings[0]) == 2, "Float寄存器跨度错误");
             Assert(PlcConfigStore.GetAddressSpan(device.Mappings[1]) == 8, "String寄存器跨度错误");
 
@@ -628,6 +630,8 @@ namespace Automation.KernelTests
                 device.Port = port;
                 device.ConnectTimeoutMs = 2000;
                 device.ReceiveTimeoutMs = 2000;
+                // 实报文服务按ABCD返回，用于验证可显式覆盖设备默认的CDAB。
+                device.DataFormat = "ABCD";
                 var configuration = new PlcConfiguration { Devices = new List<PlcDeviceConfig> { device } };
                 Assert(store.Save(tempPath, configuration, values, out string saveError), "保存PLC测试配置失败:" + saveError);
                 using (var runtime = new PlcRuntimeService(store, values))
@@ -691,6 +695,7 @@ namespace Automation.KernelTests
             PlcDeviceConfig secondary = PlcDeviceConfig.Create(PlcDeviceProfile.GenericModbusTcp);
             secondary.Name = "独立设备";
             secondary.IpAddress = "127.0.0.1";
+            secondary.AutoConnect = false;
             secondary.ScanIntervalMs = 50;
             secondary.Mappings.Add(CreateRuntimeTestMap(secondaryId, "独立读取", 0, "独立设备变量",
                 PlcMapDirection.ReadFromPlc, PlcMapPriority.High));
@@ -717,10 +722,15 @@ namespace Automation.KernelTests
             using (var runtime = new PlcRuntimeService(new PlcConfigStore(), values,
                 config => adapters[config.Name]))
             {
-                Assert(runtime.ReloadConfiguration(configuration, false, out string reloadError),
+                Assert(runtime.ReloadConfiguration(configuration, true, out string reloadError),
                     "载入假PLC配置失败:" + reloadError);
-                Assert(runtime.TryReinitialize(primary.Name, out string primaryError),
-                    "主设备初始化失败:" + primaryError);
+                WaitUntil(() => runtime.GetSnapshots().Single(item => item.DeviceName == primary.Name)
+                    .State == PlcRuntimeState.Ready, 2000, "开启自动连接的主设备未自动进入就绪状态");
+                Assert(primaryAdapter.ConnectCount == 1, "自动连接设备的初始连接次数错误");
+                Assert(runtime.GetSnapshots().Single(item => item.DeviceName == secondary.Name)
+                    .State == PlcRuntimeState.Uninitialized && secondaryAdapter.ConnectCount == 0,
+                    "关闭自动连接的设备仍在启动时连接");
+                string primaryError = null;
                 Assert(runtime.TryReinitialize(secondary.Name, out string secondaryError),
                     "独立设备初始化失败:" + secondaryError);
                 Assert(runtime.TryStartMapping(primary.Name, out primaryError),
@@ -767,9 +777,16 @@ namespace Automation.KernelTests
                     out string readError) && Convert.ToDouble(directValues[0]) == 10d,
                     "映射期间直接读取未与扫描串行执行:" + readError);
 
+                primaryAdapter.SetConnectFailures(1);
                 primaryAdapter.FailNextBatch();
                 WaitUntil(() => runtime.GetSnapshots().Single(item => item.DeviceName == primary.Name)
-                    .State == PlcRuntimeState.Faulted, 2000, "通讯故障未停止主设备映射");
+                    .State == PlcRuntimeState.Ready && primaryAdapter.ConnectCount >= 3,
+                    5000, "自动连接设备断线后未持续重连并恢复到就绪状态");
+                PlcDeviceRuntimeSnapshot recoveredState = runtime.GetSnapshots()
+                    .Single(item => item.DeviceName == primary.Name);
+                Assert(recoveredState.State == PlcRuntimeState.Ready
+                    && recoveredState.Mappings.All(item => item.State == PlcMapRuntimeState.Idle),
+                    "自动重连后错误地恢复了变量映射");
                 PlcDeviceRuntimeSnapshot secondaryState = runtime.GetSnapshots()
                     .Single(item => item.DeviceName == secondary.Name);
                 Assert(secondaryState.State == PlcRuntimeState.Mapping,
@@ -840,11 +857,28 @@ namespace Automation.KernelTests
             private readonly Dictionary<string, object[]> values = new Dictionary<string, object[]>(StringComparer.Ordinal);
             private readonly Dictionary<string, int> batchCounts = new Dictionary<string, int>(StringComparer.Ordinal);
             private bool failNextBatch;
+            private int connectFailuresRemaining;
+            private int connectCount;
+
+            public int ConnectCount
+            {
+                get { lock (syncRoot) return connectCount; }
+            }
 
             public bool Connect(out string error)
             {
-                error = null;
-                return true;
+                lock (syncRoot)
+                {
+                    connectCount++;
+                    if (connectFailuresRemaining > 0)
+                    {
+                        connectFailuresRemaining--;
+                        error = "模拟连接失败";
+                        return false;
+                    }
+                    error = null;
+                    return true;
+                }
             }
 
             public void Close()
@@ -931,6 +965,11 @@ namespace Automation.KernelTests
             public void FailNextBatch()
             {
                 lock (syncRoot) failNextBatch = true;
+            }
+
+            public void SetConnectFailures(int count)
+            {
+                lock (syncRoot) connectFailuresRemaining = count;
             }
 
             public void Dispose()

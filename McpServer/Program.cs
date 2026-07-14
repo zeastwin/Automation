@@ -41,9 +41,24 @@ namespace Automation.McpServer
                         {
                             Tools = toolRegistry.GetTools().Select(tool => tool.ProtocolTool).ToList()
                         });
-                    serverOptions.Handlers.CallToolHandler = (request, cancellationToken) =>
-                        toolRegistry.GetEnabledTool(request.Params?.Name ?? string.Empty)
-                            .InvokeAsync(request, cancellationToken);
+                    serverOptions.Handlers.CallToolHandler = async (request, cancellationToken) =>
+                    {
+                        string toolName = request.Params?.Name ?? string.Empty;
+                        object? arguments = request.Params?.Arguments;
+                        var stopwatch = Stopwatch.StartNew();
+                        try
+                        {
+                            return await toolRegistry.GetEnabledTool(toolName)
+                                .InvokeAsync(request, cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            stopwatch.Stop();
+                            ToolCallLogger.LogInvocationFailure(
+                                toolName, arguments, ex, stopwatch.ElapsedMilliseconds);
+                            throw;
+                        }
+                    };
                 })
                 .WithHttpTransport(options =>
                 {

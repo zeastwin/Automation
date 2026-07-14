@@ -602,7 +602,7 @@ namespace Automation.McpServer
   "逻辑判断": {
     "purpose": "多条件数值/字符判断后跳转",
     "keyFields": {"goto1": "条件成立时的符号目标，必填", "goto2": "条件不成立时的符号目标，必填", "failDelay": "失败时重试延时(ms，字符串)", "Count": "条件分支数量", "Params": "条件项列表，含 ValueIndex/ValueName(判断变量)、JudgeMode、Up/Down、keyString、equal、Operator"},
-    "constraints": "JudgeMode 仅\"值在区间左\"/\"值在区间右\"/\"值在区间内\"/\"等于特征字符\"；前三种按数值解析(用 Up/Down)，第四种按字符(用 keyString)；Operator 仅\"且\"/\"或\"；第一项 Operator 忽略；goto1 和 goto2 均必填，为空会报\"跳转位置为空\"",
+    "constraints": "JudgeMode 仅\"值在区间左\"/\"值在区间右\"/\"值在区间内\"/\"等于特征字符\"；值在区间左比较 value 与 Down（equal=true 为 value<=Down，否则 value<Down，Up 不参与）；值在区间右比较 value 与 Down（equal=true 为 value>=Down，否则 value>Down，Up 不参与）；值在区间内按 equal 决定 Down/Up 边界是否包含；等于特征字符比较变量文本与 keyString；Operator 仅\"且\"/\"或\"；第一项 Operator 忽略；goto1 和 goto2 均必填，为空会报\"跳转位置为空\"",
     "commonMistakes": "goto2为空不是不跳转或正常结束；若条件不成立时需继续执行下一条，应显式指向下一条指令的符号目标"
   },
   "延时": {
@@ -738,10 +738,10 @@ namespace Automation.McpServer
     "commonMistakes": "CommType 决定 ID 可选范围"
   },
   "PLC读写": {
-    "purpose": "通过指定Modbus地址执行一次严格的PLC读取或写入",
-    "keyFields": {"DeviceName": "PLC设备名", "Action": "Read/Write", "Area": "Coil/DiscreteInput/HoldingRegister/InputRegister", "StartAddress": "起始地址(0..65535)", "DataType": "String/Boolean/Byte/UShort/Short/UInt/Int/Float/Double", "ElementCount": "元素数量(1..1000)", "StringByteLength": "String固定字节数，其他类型必须为0", "VariableNames": "按元素顺序排列的变量名数组", "WriteSource": "Variables/Constant", "ConstantValue": "仅单元素常量写入"},
-    "constraints": "Action只能Read或Write；只读地址区禁止Write；Boolean只允许线圈区；Read和变量写入要求VariableNames数量等于ElementCount；Constant只允许单元素",
-    "commonMistakes": "不支持一次指令先写后读；数组必须显式列出全部变量名"
+    "purpose": "执行离散多项PLC读取、连续批量读取或连续写入",
+    "keyFields": {"DeviceName": "PLC设备名", "Action": "Read/Write", "ReadMode": "DiscreteItems/ContinuousBatch", "ItemCount": "离散读取项数量(1..100)", "ReadItems": "离散项数组，每项含Area/StartAddress/DataType/StringByteLength/VariableName", "Area/StartAddress/DataType/ElementCount": "连续批量读取或写入参数", "FirstVariableName": "连续结果首变量，后续按变量索引展开", "WriteSource": "Variables/Constant", "ConstantValue": "仅单元素常量写入"},
+    "constraints": "离散读取的ItemCount必须等于ReadItems数量；连续批量读取从FirstVariableName按变量索引展开；Boolean仅线圈区；只读区禁止Write；Constant仅单元素Write",
+    "commonMistakes": "离散地址不要填到连续批量模式；String必须单元素并设置StringByteLength；首变量后必须存在足够数量且类型一致的连续变量"
   },
   "PLC映射控制": {
     "purpose": "按设备重新初始化、启动或停止PLC变量映射",
@@ -1220,9 +1220,9 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "search_variables"), Description(
             "按名称关键词/类型/运行时值内容搜索变量。"
-            + "keyword 匹配变量名。")]
+            + "keyword 按普通文本匹配变量名；省略、空字符串或*返回全部变量。")]
         public static async Task<string> SearchVariables(
-            [Description("名称关键词")] string keyword,
+            [Description("名称关键词；省略、空字符串或*表示全部")] string? keyword = null,
             [Description("类型过滤：double 或 string")] string? type = null,
             [Description("运行时值内容模糊匹配")] string? valueLike = null,
             [Description("返回上限")] int? limit = null)
@@ -1487,9 +1487,9 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "search_io"), Description(
             "按名称关键词/类型/卡号搜索 IO。"
-            + "keyword 匹配 IO 名称。")]
+            + "keyword 按普通文本匹配 IO 名称；省略、空字符串或*返回全部 IO。")]
         public static async Task<string> SearchIo(
-            [Description("名称关键词")] string keyword,
+            [Description("名称关键词；省略、空字符串或*表示全部")] string? keyword = null,
             [Description("类型过滤：通用输入 或 通用输出")] string? type = null,
             [Description("卡号过滤")] int? cardNum = null,
             [Description("返回上限")] int? limit = null)

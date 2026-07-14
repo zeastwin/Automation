@@ -300,7 +300,8 @@ namespace Automation
             set
             {
                 iOCount = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(IOCount);
                     ((IoOperate)SF.frmDataGrid.OperationTemp).IoParams = new CustomList<IoOutParam>();
@@ -370,7 +371,8 @@ namespace Automation
             set
             {
                 iOCount = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(IOCount);
                     ((IoCheck)SF.frmDataGrid.OperationTemp).IoParams = new CustomList<IoCheckParam>();
@@ -422,7 +424,8 @@ namespace Automation
             set
             {
                 outIOCount = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(OutIOCount);
                     ((IoGroup)SF.frmDataGrid.OperationTemp).OutIoParams = new CustomList<IoOutParam>();
@@ -446,7 +449,8 @@ namespace Automation
             set
             {
                 checkIOCount = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(CheckIOCount);
                     ((IoGroup)SF.frmDataGrid.OperationTemp).CheckIoParams = new CustomList<IoCheckParam>();
@@ -498,7 +502,8 @@ namespace Automation
             set
             {
                 iOCount = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(IOCount);
                     ((IoLogicGoto)SF.frmDataGrid.OperationTemp).IoParams = new CustomList<IoLogicGotoParam>();
@@ -595,7 +600,8 @@ namespace Automation
             set
             {
                 procCount = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(procCount);
                     ((ProcOps)SF.frmDataGrid.OperationTemp).procParams = new CustomList<procParam>();
@@ -660,7 +666,8 @@ namespace Automation
             set
             {
                 procCount = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(procCount);
                     ((WaitProc)SF.frmDataGrid.OperationTemp).Params = new CustomList<WaitProcParam>();
@@ -741,7 +748,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((Goto)SF.frmDataGrid.OperationTemp).Params = new CustomList<GotoParam>();
@@ -823,7 +831,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((ParamGoto)SF.frmDataGrid.OperationTemp).Params = new CustomList<ParamGotoParam>();
@@ -862,7 +871,7 @@ namespace Automation
         [DisplayName("变量名称二级"), Category("参数"), Description("二级变量名称；用于嵌套对象或二维结构的第二层定位。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string ValueName2Index { get; set; }
 
-        [DisplayName("判断模式"), Category("参数"), Description("比较判断模式（区间/特征/表达式等）。"), ReadOnly(false), TypeConverter(typeof(JudgeMode))]
+        [DisplayName("判断模式"), Category("参数"), Description("值在区间左：equal=true 时变量值<=Down，否则<Down；值在区间右：equal=true 时变量值>=Down，否则>Down；值在区间内：equal=true 时 Down<=变量值<=Up，否则 Down<变量值<Up；等于特征字符：变量文本等于 keyString。"), ReadOnly(false), TypeConverter(typeof(JudgeMode))]
         public string JudgeMode { get; set; } = "值在区间内";
 
         [DisplayName("上限"), Category("参数"), Description("区间判断上限值。"), ReadOnly(false)]
@@ -1150,7 +1159,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((GetValue)SF.frmDataGrid.OperationTemp).Params = new CustomList<GetValueParam>();
@@ -1300,7 +1310,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((StringFormat)SF.frmDataGrid.OperationTemp).Params = new CustomList<StringFormatParam>();
@@ -1481,7 +1492,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((SetDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<SetDataStructItemParam>();
@@ -1551,7 +1563,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((GetDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<GetDataStructItemParam>();
@@ -1634,7 +1647,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((CopyDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<CopyDataStructItemParam>();
@@ -1703,7 +1717,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((InsertDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<InsertDataStructItemParam>();
@@ -1825,7 +1840,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((TcpOps)SF.frmDataGrid.OperationTemp).Params = new CustomList<TcpOpsParam>();
@@ -1884,7 +1900,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((WaitTcp)SF.frmDataGrid.OperationTemp).Params = new CustomList<WaitTcpParam>();
@@ -1999,7 +2016,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((SerialPortOps)SF.frmDataGrid.OperationTemp).Params = new CustomList<SerialPortOpsParam>();
@@ -2058,7 +2076,8 @@ namespace Automation
             set
             {
                 count = value;
-                if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
                 {
                     int num = int.Parse(count);
                     ((WaitSerialPort)SF.frmDataGrid.OperationTemp).Params = new CustomList<WaitSerialPortParam>();
@@ -2187,45 +2206,97 @@ namespace Automation
     [Serializable]
     public class PlcReadWrite : OperationType
     {
+        private int itemCount = 1;
+
         public PlcReadWrite()
         {
             OperaType = "PLC读写";
             Action = PlcAccessAction.Read;
+            ReadMode = PlcReadMode.DiscreteItems;
             Area = PlcArea.HoldingRegister;
             DataType = PlcDataType.Float;
             ElementCount = 1;
-            VariableNames = new List<string>();
+            ReadItems = new CustomList<PlcReadItem> { new PlcReadItem() };
         }
 
         [DisplayName("PLC设备"), Category("参数"), Description("PLC设备名称；运行时按名称选择目标连接。"), ReadOnly(false), TypeConverter(typeof(PlcItem))]
         public string DeviceName { get; set; }
 
-        [DisplayName("操作"), Category("参数"), Description("只允许Read或Write。"), ReadOnly(false)]
+        [DisplayName("操作"), Category("参数"), Description("读取或写入。"), ReadOnly(false), TypeConverter(typeof(PlcAccessActionItem))]
         public PlcAccessAction Action { get; set; }
 
-        [DisplayName("地址区"), Category("参数"), Description("Coil、DiscreteInput、HoldingRegister或InputRegister。"), ReadOnly(false)]
+        [DisplayName("读取模式"), Category("读取"), Description("按项读取可配置多个离散地址；连续批量读取从起始地址一次读取多个连续元素。"), ReadOnly(false), TypeConverter(typeof(PlcReadModeItem))]
+        public PlcReadMode ReadMode { get; set; }
+
+        [DisplayName("读取项数量"), Category("按项读取"), Description("离散地址读取项数量，范围1..100。修改后会生成对应数量的配置项。"), ReadOnly(false), RefreshProperties(RefreshProperties.All)]
+        public int ItemCount
+        {
+            get => itemCount;
+            set
+            {
+                itemCount = value;
+                if (value < 1 || value > 100) return;
+                if (ReadItems == null) ReadItems = new CustomList<PlcReadItem>();
+                while (ReadItems.Count < value) ReadItems.Add(new PlcReadItem());
+                while (ReadItems.Count > value) ReadItems.RemoveAt(ReadItems.Count - 1);
+            }
+        }
+
+        [DisplayName("读取项设置"), Category("按项读取"), Description("每项分别配置PLC地址、数据类型和保存变量。"), ReadOnly(false)]
+        [InlineList("读取项", "按项读取")]
+        [TypeConverter(typeof(ParamListConverter<PlcReadItem>))]
+        public CustomList<PlcReadItem> ReadItems { get; set; }
+
+        [DisplayName("地址区"), Category("连续批量/写入"), Description("连续批量读取或写入使用的数据区。"), ReadOnly(false)]
+        [TypeConverter(typeof(PlcAreaItem))]
         public PlcArea Area { get; set; }
 
-        [DisplayName("起始地址"), Category("参数"), Description("Modbus零基或一基地址由设备配置决定。"), ReadOnly(false)]
+        [DisplayName("起始地址"), Category("连续批量/写入"), Description("连续批量读取或写入的起始地址。"), ReadOnly(false)]
         public int StartAddress { get; set; }
 
-        [DisplayName("数据类型"), Category("参数"), Description("PLC数据类型。"), ReadOnly(false)]
+        [DisplayName("数据类型"), Category("连续批量/写入"), Description("连续批量读取或写入的数据类型。"), ReadOnly(false)]
         public PlcDataType DataType { get; set; }
 
-        [DisplayName("元素数量"), Category("参数"), Description("连续读写元素数量。"), ReadOnly(false)]
+        [DisplayName("元素数量"), Category("连续批量/写入"), Description("连续数据元素数量；不是字节数。"), ReadOnly(false)]
         public int ElementCount { get; set; }
 
-        [DisplayName("字符串字节数"), Category("参数"), Description("String类型固定字节长度；其他类型必须为0。"), ReadOnly(false)]
+        [DisplayName("字符串字节数"), Category("连续批量/写入"), Description("String类型固定字节长度；其他类型必须为0。"), ReadOnly(false)]
         public int StringByteLength { get; set; }
 
-        [DisplayName("变量列表"), Category("参数"), Description("按PLC元素顺序绑定的完整变量名列表。"), ReadOnly(false)]
-        public List<string> VariableNames { get; set; }
+        [DisplayName("首保存变量"), Category("连续批量/写入"), Description("选择变量表中的首变量，后续元素按变量索引连续展开。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string FirstVariableName { get; set; }
 
-        [DisplayName("写入来源"), Category("写入"), Description("Variables读取变量列表；Constant使用固定常量。"), ReadOnly(false)]
+        [DisplayName("写入来源"), Category("写入"), Description("使用连续变量或固定常量。"), ReadOnly(false), TypeConverter(typeof(PlcWriteSourceItem))]
         public PlcWriteSource WriteSource { get; set; }
 
         [DisplayName("固定常量"), Category("写入"), Description("仅单元素Write+Constant有效，按目标类型严格解析。"), ReadOnly(false)]
         public string ConstantValue { get; set; }
+    }
+
+    [TypeConverter(typeof(SerializableExpandableObjectConverter))]
+    [Serializable]
+    public class PlcReadItem
+    {
+        [DisplayName("地址区"), Category("PLC地址"), Description("线圈/离散输入仅支持Boolean，寄存器区支持数值和字符串。"), ReadOnly(false)]
+        [TypeConverter(typeof(PlcAreaItem))]
+        public PlcArea Area { get; set; } = PlcArea.HoldingRegister;
+
+        [DisplayName("地址"), Category("PLC地址"), Description("本项要读取的PLC地址。"), ReadOnly(false)]
+        public int StartAddress { get; set; }
+
+        [DisplayName("数据类型"), Category("PLC地址"), Description("本项PLC数据类型。"), ReadOnly(false)]
+        public PlcDataType DataType { get; set; } = PlcDataType.Float;
+
+        [DisplayName("字符串字节数"), Category("PLC地址"), Description("String填写1..2000，其他类型必须为0。"), ReadOnly(false)]
+        public int StringByteLength { get; set; }
+
+        [DisplayName("保存变量"), Category("结果"), Description("本项读取结果保存到的平台变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string VariableName { get; set; }
+
+        public override string ToString()
+        {
+            return $"{Area}/{StartAddress} → {VariableName}";
+        }
     }
 
     [Serializable]
@@ -2240,7 +2311,7 @@ namespace Automation
         [DisplayName("PLC设备"), Category("参数"), Description("按设备独立控制映射。"), ReadOnly(false), TypeConverter(typeof(PlcItem))]
         public string DeviceName { get; set; }
 
-        [DisplayName("控制动作"), Category("参数"), Description("Reinitialize、Start或Stop。"), ReadOnly(false)]
+        [DisplayName("控制动作"), Category("参数"), Description("重新初始化、启动映射或停止映射。"), ReadOnly(false), TypeConverter(typeof(PlcMappingActionItem))]
         public PlcMappingAction Action { get; set; }
     }
 

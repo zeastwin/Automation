@@ -4195,7 +4195,9 @@ namespace Automation.Bridge
             {
                 return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
             }
-            string keyword = request["keyword"]?.Value<string>() ?? string.Empty;
+            string keyword = request["keyword"]?.Value<string>()?.Trim() ?? string.Empty;
+            bool returnAll = string.IsNullOrEmpty(keyword)
+                || string.Equals(keyword, "*", StringComparison.Ordinal);
             string typeFilter = request["type"]?.Value<string>();
             string valueLike = request["valueLike"]?.Value<string>();
             int limit = request["limit"]?.Value<int>() ?? 100;
@@ -4206,7 +4208,7 @@ namespace Automation.Bridge
             foreach (string name in allNames)
             {
                 if (string.IsNullOrEmpty(name)) continue;
-                bool nameMatched = string.IsNullOrEmpty(keyword)
+                bool nameMatched = returnAll
                     || name.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0;
                 if (!nameMatched) continue;
                 if (!store.TryGetValueByName(name, out DicValue val)) continue;
@@ -4229,6 +4231,7 @@ namespace Automation.Bridge
             return new JObject
             {
                 ["keyword"] = keyword,
+                ["queryMode"] = returnAll ? "all" : "contains",
                 ["type"] = typeFilter ?? string.Empty,
                 ["valueLike"] = valueLike ?? string.Empty,
                 ["returned"] = items.Count,
@@ -5139,7 +5142,9 @@ namespace Automation.Bridge
             {
                 return BridgeError(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
             }
-            string keyword = request["keyword"]?.Value<string>() ?? string.Empty;
+            string keyword = request["keyword"]?.Value<string>()?.Trim() ?? string.Empty;
+            bool returnAll = string.IsNullOrEmpty(keyword)
+                || string.Equals(keyword, "*", StringComparison.Ordinal);
             string typeFilter = request["type"]?.Value<string>();
             int? cardNum = request["cardNum"]?.Value<int>();
             int limit = request["limit"]?.Value<int>() ?? 100;
@@ -5150,7 +5155,7 @@ namespace Automation.Bridge
             {
                 IO io = kv.Value;
                 if (io == null) continue;
-                if (!string.IsNullOrEmpty(keyword)
+                if (!returnAll
                     && (io.Name ?? string.Empty).IndexOf(keyword, StringComparison.OrdinalIgnoreCase) < 0)
                 {
                     continue;
@@ -5170,6 +5175,7 @@ namespace Automation.Bridge
             return new JObject
             {
                 ["keyword"] = keyword,
+                ["queryMode"] = returnAll ? "all" : "contains",
                 ["type"] = typeFilter ?? string.Empty,
                 ["cardNum"] = cardNum.HasValue ? JToken.FromObject(cardNum.Value) : null,
                 ["returned"] = items.Count,
@@ -5448,6 +5454,7 @@ namespace Automation.Bridge
                     ["unitId"] = dev.UnitId,
                     ["connectTimeoutMs"] = dev.ConnectTimeoutMs,
                     ["receiveTimeoutMs"] = dev.ReceiveTimeoutMs,
+                    ["autoConnect"] = dev.AutoConnect,
                     ["scanIntervalMs"] = dev.ScanIntervalMs,
                     ["dataFormat"] = dev.DataFormat,
                     ["isStringReverse"] = dev.IsStringReverse,

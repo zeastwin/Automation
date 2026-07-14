@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Design;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -608,6 +609,125 @@ namespace Automation
             {
                 return true;
             }
+        }
+
+        public sealed class PlcMappingActionItem : EnumConverter
+        {
+            public PlcMappingActionItem() : base(typeof(PlcMappingAction))
+            {
+            }
+
+            public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
+            {
+                switch (value as string)
+                {
+                    case "重新初始化": return PlcMappingAction.Reinitialize;
+                    case "启动映射": return PlcMappingAction.Start;
+                    case "停止映射": return PlcMappingAction.Stop;
+                    default: return base.ConvertFrom(context, culture, value);
+                }
+            }
+
+            public override object ConvertTo(ITypeDescriptorContext context, CultureInfo culture, object value,
+                Type destinationType)
+            {
+                if (destinationType == typeof(string) && value is PlcMappingAction action)
+                {
+                    switch (action)
+                    {
+                        case PlcMappingAction.Reinitialize: return "重新初始化";
+                        case PlcMappingAction.Start: return "启动映射";
+                        case PlcMappingAction.Stop: return "停止映射";
+                    }
+                }
+                return base.ConvertTo(context, culture, value, destinationType);
+            }
+        }
+
+        public sealed class PlcReadModeItem : EnumConverter
+        {
+            public PlcReadModeItem() : base(typeof(PlcReadMode))
+            {
+            }
+
+            public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
+            {
+                switch (value as string)
+                {
+                    case "按项读取": return PlcReadMode.DiscreteItems;
+                    case "连续批量读取": return PlcReadMode.ContinuousBatch;
+                    default: return base.ConvertFrom(context, culture, value);
+                }
+            }
+
+            public override object ConvertTo(ITypeDescriptorContext context, CultureInfo culture, object value,
+                Type destinationType)
+            {
+                if (destinationType == typeof(string) && value is PlcReadMode mode)
+                {
+                    return mode == PlcReadMode.DiscreteItems ? "按项读取" : "连续批量读取";
+                }
+                return base.ConvertTo(context, culture, value, destinationType);
+            }
+        }
+
+        public abstract class PlcChineseEnumItem<T> : EnumConverter where T : struct
+        {
+            private readonly Dictionary<T, string> displays;
+
+            protected PlcChineseEnumItem(Dictionary<T, string> displays) : base(typeof(T))
+            {
+                this.displays = displays;
+            }
+
+            public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
+            {
+                if (value is string text)
+                {
+                    foreach (KeyValuePair<T, string> item in displays)
+                    {
+                        if (string.Equals(item.Value, text, StringComparison.Ordinal)) return item.Key;
+                    }
+                }
+                return base.ConvertFrom(context, culture, value);
+            }
+
+            public override object ConvertTo(ITypeDescriptorContext context, CultureInfo culture, object value,
+                Type destinationType)
+            {
+                if (destinationType == typeof(string) && value is T typed
+                    && displays.TryGetValue(typed, out string display)) return display;
+                return base.ConvertTo(context, culture, value, destinationType);
+            }
+        }
+
+        public sealed class PlcAccessActionItem : PlcChineseEnumItem<PlcAccessAction>
+        {
+            public PlcAccessActionItem() : base(new Dictionary<PlcAccessAction, string>
+            {
+                [PlcAccessAction.Read] = "读取",
+                [PlcAccessAction.Write] = "写入"
+            }) { }
+        }
+
+        public sealed class PlcAreaItem : PlcChineseEnumItem<PlcArea>
+        {
+            public PlcAreaItem() : base(new Dictionary<PlcArea, string>
+            {
+                [PlcArea.Coil] = "线圈",
+                [PlcArea.DiscreteInput] = "离散输入",
+                [PlcArea.HoldingRegister] = "保持寄存器",
+                [PlcArea.InputRegister] = "输入寄存器"
+            }) { }
+        }
+
+        public sealed class PlcWriteSourceItem : PlcChineseEnumItem<PlcWriteSource>
+        {
+            public PlcWriteSourceItem() : base(new Dictionary<PlcWriteSource, string>
+            {
+                [PlcWriteSource.Variables] = "变量",
+                [PlcWriteSource.Constant] = "固定常量"
+            }) { }
         }
 
         public class PointModifyType : StringConverter

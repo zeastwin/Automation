@@ -33,6 +33,7 @@ namespace Automation
         private PlcDeviceConfig currentDevice;
         private bool loading;
         private bool monitorBusy;
+        private string lastMonitorSignature;
 
         public FrmPlc()
         {
@@ -62,57 +63,80 @@ namespace Automation
 
         private void BuildUi()
         {
-            var header = new Panel { Dock = DockStyle.Top, Height = 72, BackColor = Color.White, Padding = new Padding(18, 10, 18, 8) };
+            var header = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 78,
+                BackColor = Color.White,
+                Padding = new Padding(24, 12, 24, 8)
+            };
             header.Controls.Add(new Label
             {
                 Text = "PLC 通讯中心",
                 AutoSize = true,
-                Font = new Font("Microsoft YaHei UI", 16F, FontStyle.Bold),
+                Font = new Font("Microsoft YaHei UI", 18F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(31, 41, 55),
-                Location = new Point(18, 10)
+                Location = new Point(24, 10)
             });
             summaryLabel.AutoSize = true;
             summaryLabel.ForeColor = Color.FromArgb(100, 116, 139);
-            summaryLabel.Location = new Point(20, 43);
+            summaryLabel.Location = new Point(26, 48);
             header.Controls.Add(summaryLabel);
-            Controls.Add(header);
 
             var commandBar = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 45,
-                BackColor = Color.White,
-                Padding = new Padding(14, 5, 8, 5),
+                Height = 52,
+                BackColor = Color.FromArgb(248, 250, 252),
+                Padding = new Padding(20, 9, 12, 8),
                 WrapContents = false
             };
             commandBar.Controls.AddRange(new Control[]
             {
-                CommandButton("新增设备", AddDevice),
-                CommandButton("删除设备", DeleteDevice),
+                SectionLabel("设备配置"),
+                CommandButton("新增", AddDevice),
+                CommandButton("删除", DeleteDevice),
                 CommandButton("保存配置", SaveConfiguration, true),
+                CommandSeparator(),
+                SectionLabel("设备控制"),
                 CommandButton("重新初始化", ReinitializeDevice),
                 CommandButton("启动映射", StartMapping, true),
-                CommandButton("停止映射", StopMapping)
+                CommandButton("停止映射", StopMapping, false, true)
             });
-            Controls.Add(commandBar);
 
             var split = new SplitContainer
             {
                 Dock = DockStyle.Fill,
-                SplitterDistance = 225,
                 FixedPanel = FixedPanel.Panel1,
+                IsSplitterFixed = true,
+                SplitterWidth = 1,
                 BackColor = Color.FromArgb(226, 232, 240)
             };
             split.Panel1.Padding = new Padding(12);
             split.Panel1.BackColor = Color.FromArgb(248, 250, 252);
             split.Panel2.Padding = new Padding(12);
             split.Panel2.BackColor = BackColor;
+            // Dock布局按添加顺序反向计算，标题必须最后加入才能显示在最上方。
             Controls.Add(split);
-            split.BringToFront();
+            Controls.Add(commandBar);
+            Controls.Add(header);
+            bool splitInitialized = false;
+            Action applySplitLayout = () =>
+            {
+                // SplitContainer 创建时仍是设计期默认宽度，此时设置最小宽度会抛异常；
+                // 必须等窗体完成首轮布局后再固定设备栏，避免首次打开时只剩几十像素。
+                if (splitInitialized || split.IsDisposed || split.Width < 900) return;
+                split.Panel1MinSize = 220;
+                split.Panel2MinSize = 650;
+                split.SplitterDistance = 240;
+                splitInitialized = true;
+            };
+            split.Layout += (sender, args) => applySplitLayout();
+            Shown += (sender, args) => applySplitLayout();
 
             var deviceTitle = new Label
             {
-                Text = "设备",
+                Text = "设备列表",
                 Dock = DockStyle.Top,
                 Height = 30,
                 Font = new Font(Font, FontStyle.Bold),
@@ -122,12 +146,14 @@ namespace Automation
             deviceList.BorderStyle = BorderStyle.None;
             deviceList.DisplayMember = "Name";
             deviceList.Font = new Font(Font.FontFamily, 10F);
+            deviceList.IntegralHeight = false;
             deviceList.SelectedIndexChanged += DeviceList_SelectedIndexChanged;
             stateLabel.Dock = DockStyle.Bottom;
-            stateLabel.Height = 138;
+            stateLabel.Height = 178;
             stateLabel.Padding = new Padding(8);
             stateLabel.BackColor = Color.White;
             stateLabel.ForeColor = Color.FromArgb(71, 85, 105);
+            stateLabel.Font = new Font(Font.FontFamily, 9F);
             split.Panel1.Controls.Add(deviceList);
             split.Panel1.Controls.Add(stateLabel);
             split.Panel1.Controls.Add(deviceTitle);
@@ -145,14 +171,15 @@ namespace Automation
             var help = new Label
             {
                 Dock = DockStyle.Bottom,
-                Height = 108,
+                Height = 128,
                 Padding = new Padding(10, 8, 10, 8),
                 BackColor = Color.FromArgb(239, 246, 255),
                 ForeColor = Color.FromArgb(30, 64, 175),
                 Text = "参数提示：\r\n"
                     + "• 字节序只影响 UInt、Int、Float、Double 等跨多个寄存器的数值；Coil、Boolean、UShort、Short 不受影响。\r\n"
                     + "• 扫描周期是映射运行时相邻两轮通讯的最短间隔；最低 50ms，避免通讯尚未完成就堆积下一轮请求。\r\n"
-                    + "• 汇川旧项目若已验证为 CDAB，请在此明确设置为 CDAB；字符串反转由“字符串反转”参数控制。"
+                    + "• 汇川旧项目若已验证为 CDAB，请在此明确设置为 CDAB；字符串反转由“字符串反转”参数控制。\r\n"
+                    + "• 开启“自动连接”时，平台启动会连接设备并在断线后自动重连；只恢复到就绪，不会自动恢复映射。关闭后需执行“重新初始化”。"
             };
             deviceProperties.Dock = DockStyle.Fill;
             deviceProperties.HelpVisible = true;
@@ -172,7 +199,14 @@ namespace Automation
         private TabPage BuildMappingTab()
         {
             var tab = new TabPage("变量映射") { BackColor = Color.White, Padding = new Padding(8) };
-            var actions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 42, WrapContents = false };
+            var actions = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 78,
+                WrapContents = true,
+                BackColor = Color.FromArgb(248, 250, 252),
+                Padding = new Padding(4, 5, 4, 4)
+            };
             variableSelector.DropDownStyle = ComboBoxStyle.DropDownList;
             variableSelector.Width = 190;
             variableSelector.Margin = new Padding(12, 5, 2, 4);
@@ -185,6 +219,13 @@ namespace Automation
                 CommandButton("按数量填入变量", ApplySelectedVariable),
                 CommandButton("以PLC为准解除冲突", (s,e) => ResolveConflict(PlcConflictResolution.UsePlcValue)),
                 CommandButton("以本地为准解除冲突", (s,e) => ResolveConflict(PlcConflictResolution.UseLocalValue))
+            });
+            actions.Controls.Add(new Label
+            {
+                Text = "映射是PLC地址与平台变量的持续同步关系；保存前请先停止该设备映射。",
+                AutoSize = true,
+                ForeColor = Color.FromArgb(71, 85, 105),
+                Padding = new Padding(8, 8, 0, 0)
             });
             ConfigureMapGrid();
             tab.Controls.Add(mapGrid);
@@ -201,13 +242,24 @@ namespace Automation
                 Height = 78,
                 AutoScroll = true,
                 WrapContents = false,
-                Padding = new Padding(0, 3, 0, 3)
+                Padding = new Padding(4, 7, 4, 3),
+                BackColor = Color.FromArgb(248, 250, 252)
             };
             debugArea.DropDownStyle = ComboBoxStyle.DropDownList;
             debugArea.DataSource = Enum.GetValues(typeof(PlcArea));
+            debugArea.FormattingEnabled = true;
+            debugArea.Format += (sender, args) =>
+            {
+                if (args.ListItem is PlcArea area) args.Value = EnumDisplay(area);
+            };
             debugType.DropDownStyle = ComboBoxStyle.DropDownList;
-            debugType.DataSource = Enum.GetValues(typeof(PlcDataType));
-            debugType.SelectedItem = PlcDataType.Float;
+            debugType.FormattingEnabled = true;
+            debugType.Format += (sender, args) =>
+            {
+                if (args.ListItem is PlcDataType dataType) args.Value = EnumDisplay(dataType);
+            };
+            debugArea.SelectedIndexChanged += (sender, args) => RefreshDebugDataTypes();
+            RefreshDebugDataTypes();
             debugAddress.Maximum = 65535;
             debugCount.Minimum = 1;
             debugCount.Maximum = 1000;
@@ -221,7 +273,14 @@ namespace Automation
                 DebugField("字符串字节数", debugStringLength), DebugField("写入值（逗号分隔）", debugValue)
             });
 
-            var actions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 42, WrapContents = false };
+            var actions = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 46,
+                WrapContents = false,
+                BackColor = Color.White,
+                Padding = new Padding(4, 5, 4, 4)
+            };
             actions.Controls.AddRange(new Control[]
             {
                 CommandButton("读取一次", async (s,e) => await DebugReadAsync("单次读取"), true),
@@ -237,10 +296,41 @@ namespace Automation
             historyGrid.Dock = DockStyle.Fill;
             historyGrid.AutoGenerateColumns = true;
             historyGrid.DataSource = history;
+            var historyHeaders = new Dictionary<string, string>
+            {
+                ["Time"] = "时间",
+                ["Action"] = "操作",
+                ["Device"] = "设备",
+                ["Address"] = "PLC地址",
+                ["Success"] = "结果",
+                ["Result"] = "数据 / 错误信息",
+                ["ElapsedMs"] = "耗时(ms)"
+            };
+            foreach (DataGridViewColumn column in historyGrid.Columns)
+            {
+                if (historyHeaders.TryGetValue(column.Name, out string header)) column.HeaderText = header;
+            }
             historyGrid.ReadOnly = true;
             historyGrid.AllowUserToAddRows = false;
             historyGrid.AllowUserToDeleteRows = false;
             historyGrid.BackgroundColor = Color.White;
+            historyGrid.BorderStyle = BorderStyle.None;
+            historyGrid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+            historyGrid.ColumnHeadersHeight = 32;
+            historyGrid.RowTemplate.Height = 28;
+            historyGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            historyGrid.MultiSelect = false;
+            historyGrid.EnableHeadersVisualStyles = false;
+            historyGrid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Color.FromArgb(241, 245, 249),
+                ForeColor = Color.FromArgb(30, 41, 59),
+                Font = new Font(Font, FontStyle.Bold)
+            };
+            historyGrid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Color.FromArgb(248, 250, 252)
+            };
             historyGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             tab.Controls.Add(historyGrid);
             tab.Controls.Add(actions);
@@ -253,28 +343,52 @@ namespace Automation
             mapGrid.Dock = DockStyle.Fill;
             mapGrid.AllowUserToAddRows = false;
             mapGrid.AllowUserToDeleteRows = false;
+            mapGrid.AllowUserToResizeRows = false;
             mapGrid.BackgroundColor = Color.White;
             mapGrid.RowHeadersVisible = false;
-            mapGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
+            mapGrid.BorderStyle = BorderStyle.None;
+            mapGrid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+            mapGrid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+            mapGrid.ColumnHeadersHeight = 34;
+            mapGrid.RowTemplate.Height = 30;
+            mapGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            mapGrid.MultiSelect = false;
+            mapGrid.EnableHeadersVisualStyles = false;
+            mapGrid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Color.FromArgb(241, 245, 249),
+                ForeColor = Color.FromArgb(30, 41, 59),
+                Font = new Font(Font, FontStyle.Bold),
+                Alignment = DataGridViewContentAlignment.MiddleLeft
+            };
+            mapGrid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Color.FromArgb(248, 250, 252)
+            };
+            mapGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
             mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Id", Visible = false });
-            mapGrid.Columns.Add(new DataGridViewCheckBoxColumn { Name = "Enabled", HeaderText = "启用", Width = 50 });
+            mapGrid.Columns.Add(new DataGridViewCheckBoxColumn { Name = "Enabled", HeaderText = "启用", Width = 58 });
             mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "MapName", HeaderText = "名称", Width = 120 });
             mapGrid.Columns.Add(EnumColumn<PlcArea>("Area", "地址区"));
-            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "StartAddress", HeaderText = "起始地址" });
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "StartAddress", HeaderText = "起始地址", Width = 82 });
             mapGrid.Columns.Add(EnumColumn<PlcDataType>("DataType", "数据类型"));
             mapGrid.Columns.Add(EnumColumn<PlcMapDirection>("Direction", "方向"));
             mapGrid.Columns.Add(EnumColumn<PlcMapPriority>("Priority", "优先级"));
-            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "ElementCount", HeaderText = "元素数" });
-            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "StringByteLength", HeaderText = "字符串字节数" });
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "ElementCount", HeaderText = "元素数", Width = 72 });
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "StringByteLength", HeaderText = "字符串字节数", Width = 105 });
             mapGrid.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name = "VariableNames",
                 HeaderText = "变量列表（下拉选择或逗号分隔）",
                 Width = 240
             });
-            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "ChangeTolerance", HeaderText = "变化容差" });
-            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "RuntimeState", HeaderText = "运行状态", ReadOnly = true });
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "ChangeTolerance", HeaderText = "变化容差", Width = 82 });
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "RuntimeState", HeaderText = "运行状态", ReadOnly = true, Width = 96 });
             mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "RuntimeMessage", HeaderText = "状态信息", ReadOnly = true, Width = 240 });
+            mapGrid.Columns["Area"].Width = 190;
+            mapGrid.Columns["DataType"].Width = 155;
+            mapGrid.Columns["Direction"].Width = 110;
+            mapGrid.Columns["Priority"].Width = 112;
         }
 
         private void FrmPlc_Load(object sender, EventArgs e)
@@ -561,16 +675,68 @@ namespace Automation
 
         private void ToggleMonitor(object sender, EventArgs e)
         {
-            monitorTimer.Enabled = !monitorTimer.Enabled;
-            monitorLabel.Text = monitorTimer.Enabled ? "监视中" : "监视已停止";
+            if (monitorTimer.Enabled)
+            {
+                monitorTimer.Stop();
+                monitorLabel.Text = "监视已停止";
+                lastMonitorSignature = null;
+                return;
+            }
+            if (!TryBuildDebugRequest(out _, out _, out string error))
+            {
+                monitorLabel.Text = "监视未启动：" + error;
+                ShowError(error);
+                return;
+            }
+            lastMonitorSignature = null;
+            monitorTimer.Start();
+            monitorLabel.Text = "监视中，等待首次数据";
         }
 
         private async Task MonitorOnceAsync()
         {
             if (monitorBusy) return;
             monitorBusy = true;
-            try { await DebugReadAsync("连续监视"); }
+            try
+            {
+                if (!TryBuildDebugRequest(out string deviceName, out PlcMapConfig request, out string error))
+                {
+                    monitorTimer.Stop();
+                    monitorLabel.Text = "监视已停止：" + error;
+                    lastMonitorSignature = null;
+                    return;
+                }
+                Stopwatch watch = Stopwatch.StartNew();
+                DebugResult result = await Task.Run(() =>
+                {
+                    bool ok = SF.plcRuntime.TryRead(deviceName, request, out object[] values, out string readError);
+                    return new DebugResult { Success = ok, Values = values, Error = readError };
+                });
+                watch.Stop();
+                string resultText = result.Success ? FormatValues(result.Values) : result.Error ?? string.Empty;
+                string signature = $"{deviceName}|{request.Area}|{request.StartAddress}|{request.DataType}|"
+                    + $"{request.ElementCount}|{request.StringByteLength}|{result.Success}|{resultText}";
+                if (!string.Equals(signature, lastMonitorSignature, StringComparison.Ordinal))
+                {
+                    lastMonitorSignature = signature;
+                    monitorLabel.Text = result.Success ? "监视中 · 当前值：" + resultText : "监视异常：" + resultText;
+                    AddHistory("监视变化", result.Success, resultText, watch.ElapsedMilliseconds);
+                }
+            }
             finally { monitorBusy = false; }
+        }
+
+        private void RefreshDebugDataTypes()
+        {
+            PlcDataType selected = debugType.SelectedItem is PlcDataType value ? value : PlcDataType.Float;
+            bool bitArea = debugArea.SelectedItem is PlcArea area
+                && (area == PlcArea.Coil || area == PlcArea.DiscreteInput);
+            List<PlcDataType> options = bitArea
+                ? new List<PlcDataType> { PlcDataType.Boolean }
+                : Enum.GetValues(typeof(PlcDataType)).Cast<PlcDataType>()
+                    .Where(item => item != PlcDataType.Boolean).ToList();
+            debugType.DataSource = options;
+            debugType.SelectedItem = options.Contains(selected) ? selected : options[0];
         }
 
         private async Task PerformanceTestAsync()
@@ -647,13 +813,18 @@ namespace Automation
                 : runtime == null
                     ? "状态：0（未初始化）"
                     : $"状态：{FormatRuntimeState(runtime.State)}\r\n最后通讯：{FormatUtc(runtime.LastCommunicationUtc)}\r\n扫描耗时：{runtime.LastScanElapsedMs}ms\r\n{runtime.LastError}";
-            stateLabel.Text += "\r\n\r\n状态码：0 未初始化/已释放；1 连接就绪或映射已停止；2 映射运行中；-1 通讯故障，需重新初始化。";
+            if (currentDevice != null)
+            {
+                string connectionMode = currentDevice.AutoConnect ? "自动连接/自动重连" : "手动连接";
+                stateLabel.Text += "\r\n连接方式：" + connectionMode;
+            }
+            stateLabel.Text += "\r\n\r\n状态码：0 未初始化/已释放；1 连接就绪或映射已停止；2 映射运行中；-1 通讯故障（自动设备等待重连，手动设备需重新初始化）。";
             if (currentDevice == null || runtime?.Mappings == null) return;
             foreach (DataGridViewRow row in mapGrid.Rows)
             {
                 string id = Convert.ToString(row.Cells["Id"].Value);
                 PlcMapRuntimeSnapshot map = runtime.Mappings.FirstOrDefault(item => item.MapId == id);
-                row.Cells["RuntimeState"].Value = map?.State.ToString() ?? string.Empty;
+                row.Cells["RuntimeState"].Value = map == null ? string.Empty : FormatMapState(map.State);
                 row.Cells["RuntimeMessage"].Value = map?.Message ?? string.Empty;
                 row.DefaultCellStyle.BackColor = map?.State == PlcMapRuntimeState.Conflict
                     ? Color.FromArgb(254, 226, 226)
@@ -705,6 +876,18 @@ namespace Automation
             }
         }
 
+        private static string FormatMapState(PlcMapRuntimeState state)
+        {
+            switch (state)
+            {
+                case PlcMapRuntimeState.Idle: return "未启动";
+                case PlcMapRuntimeState.Normal: return "正常";
+                case PlcMapRuntimeState.Conflict: return "冲突隔离";
+                case PlcMapRuntimeState.Faulted: return "故障隔离";
+                default: return state.ToString();
+            }
+        }
+
         private void AddHistory(string action, bool success, string result, long elapsedMs)
         {
             history.Insert(0, new DebugHistoryItem
@@ -712,7 +895,9 @@ namespace Automation
                 Time = DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture),
                 Action = action,
                 Device = currentDevice?.Name ?? string.Empty,
-                Address = $"{debugArea.SelectedItem}/{debugAddress.Value}",
+                Address = debugArea.SelectedItem is PlcArea area
+                    ? $"{EnumDisplay(area)} / {debugAddress.Value}"
+                    : $"{debugArea.SelectedItem} / {debugAddress.Value}",
                 Success = success ? "成功" : "失败",
                 Result = result ?? string.Empty,
                 ElapsedMs = elapsedMs
@@ -729,7 +914,7 @@ namespace Automation
             }
         }
 
-        private static Button CommandButton(string text, EventHandler click, bool primary = false)
+        private static Button CommandButton(string text, EventHandler click, bool primary = false, bool danger = false)
         {
             var button = new Button
             {
@@ -737,14 +922,38 @@ namespace Automation
                 AutoSize = true,
                 Height = 31,
                 FlatStyle = FlatStyle.Flat,
-                BackColor = primary ? Color.FromArgb(37, 99, 235) : Color.White,
-                ForeColor = primary ? Color.White : Color.FromArgb(51, 65, 85),
+                BackColor = danger ? Color.FromArgb(254, 242, 242) : primary ? Color.FromArgb(37, 99, 235) : Color.White,
+                ForeColor = danger ? Color.FromArgb(185, 28, 28) : primary ? Color.White : Color.FromArgb(51, 65, 85),
                 Margin = new Padding(4, 1, 4, 1),
                 Padding = new Padding(8, 0, 8, 0)
             };
-            button.FlatAppearance.BorderColor = primary ? Color.FromArgb(37, 99, 235) : Color.FromArgb(203, 213, 225);
+            button.FlatAppearance.BorderColor = danger ? Color.FromArgb(252, 165, 165) : primary ? Color.FromArgb(37, 99, 235) : Color.FromArgb(203, 213, 225);
             button.Click += click;
             return button;
+        }
+
+        private static Label SectionLabel(string text)
+        {
+            return new Label
+            {
+                Text = text,
+                AutoSize = true,
+                ForeColor = Color.FromArgb(71, 85, 105),
+                Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
+                Padding = new Padding(4, 8, 2, 0),
+                Margin = new Padding(4, 1, 0, 1)
+            };
+        }
+
+        private static Control CommandSeparator()
+        {
+            return new Panel
+            {
+                Width = 1,
+                Height = 28,
+                BackColor = Color.FromArgb(203, 213, 225),
+                Margin = new Padding(10, 2, 6, 1)
+            };
         }
 
         private static Control DebugField(string label, Control control)
@@ -760,12 +969,67 @@ namespace Automation
 
         private static DataGridViewComboBoxColumn EnumColumn<T>(string name, string header) where T : struct
         {
+            List<EnumOption<T>> options = Enum.GetValues(typeof(T)).Cast<T>()
+                .Select(value => new EnumOption<T> { Value = value, Display = EnumDisplay(value) })
+                .ToList();
             return new DataGridViewComboBoxColumn
             {
                 Name = name,
                 HeaderText = header,
-                DataSource = Enum.GetValues(typeof(T))
+                DataSource = options,
+                DisplayMember = "Display",
+                ValueMember = "Value",
+                ValueType = typeof(T),
+                FlatStyle = FlatStyle.Flat
             };
+        }
+
+        private static string EnumDisplay<T>(T value) where T : struct
+        {
+            if (typeof(T) == typeof(PlcArea))
+            {
+                switch ((PlcArea)(object)value)
+                {
+                    case PlcArea.Coil: return "线圈 Coil";
+                    case PlcArea.DiscreteInput: return "离散输入 DiscreteInput";
+                    case PlcArea.HoldingRegister: return "保持寄存器 HoldingRegister";
+                    case PlcArea.InputRegister: return "输入寄存器 InputRegister";
+                }
+            }
+            if (typeof(T) == typeof(PlcDataType))
+            {
+                switch ((PlcDataType)(object)value)
+                {
+                    case PlcDataType.String: return "字符串 String";
+                    case PlcDataType.Boolean: return "布尔 Boolean";
+                    case PlcDataType.Byte: return "字节 Byte";
+                    case PlcDataType.UShort: return "无符号16位 UShort";
+                    case PlcDataType.Short: return "有符号16位 Short";
+                    case PlcDataType.UInt: return "无符号32位 UInt";
+                    case PlcDataType.Int: return "有符号32位 Int";
+                    case PlcDataType.Float: return "单精度浮点 Float";
+                    case PlcDataType.Double: return "双精度浮点 Double";
+                }
+            }
+            if (typeof(T) == typeof(PlcMapDirection))
+            {
+                switch ((PlcMapDirection)(object)value)
+                {
+                    case PlcMapDirection.ReadFromPlc: return "PLC → 平台";
+                    case PlcMapDirection.WriteToPlc: return "平台 → PLC";
+                    case PlcMapDirection.Bidirectional: return "双向同步";
+                }
+            }
+            if (typeof(T) == typeof(PlcMapPriority))
+            {
+                switch ((PlcMapPriority)(object)value)
+                {
+                    case PlcMapPriority.High: return "高（每轮）";
+                    case PlcMapPriority.Medium: return "中（每10轮）";
+                    case PlcMapPriority.Low: return "低（每40轮）";
+                }
+            }
+            return value.ToString();
         }
 
         private static string RequireText(DataGridViewRow row, string column)
@@ -792,9 +1056,18 @@ namespace Automation
 
         private static T RequireEnum<T>(DataGridViewRow row, string column) where T : struct
         {
-            if (!Enum.TryParse(Convert.ToString(row.Cells[column].Value), false, out T value)
-                || !Enum.IsDefined(typeof(T), value)) throw new FormatException($"{column}无效");
-            return value;
+            object cellValue = row.Cells[column].Value;
+            if (cellValue is EnumOption<T> option)
+            {
+                return option.Value;
+            }
+            if (cellValue is T typed && Enum.IsDefined(typeof(T), typed))
+            {
+                return typed;
+            }
+            if (!Enum.TryParse(Convert.ToString(cellValue), false, out T parsed)
+                || !Enum.IsDefined(typeof(T), parsed)) throw new FormatException($"{column}无效");
+            return parsed;
         }
 
         private static List<string> SplitVariables(string text)
@@ -845,6 +1118,17 @@ namespace Automation
             }
         }
 
+        private sealed class EnumOption<T>
+        {
+            public T Value { get; set; }
+            public string Display { get; set; }
+
+            public override string ToString()
+            {
+                return Display;
+            }
+        }
+
         private sealed class DevicePropertyView
         {
             private readonly PlcDeviceConfig device;
@@ -872,10 +1156,22 @@ namespace Automation
             public int ConnectTimeoutMs { get => device.ConnectTimeoutMs; set => device.ConnectTimeoutMs = value; }
             [Category("网络"), DisplayName("接收超时(ms)")]
             public int ReceiveTimeoutMs { get => device.ReceiveTimeoutMs; set => device.ReceiveTimeoutMs = value; }
+            [Category("网络"), DisplayName("自动连接"), Description("开启后平台启动自动连接，断线后自动重连；关闭后只能通过重新初始化手动连接。")]
+            public bool AutoConnect { get => device.AutoConnect; set => device.AutoConnect = value; }
             [Category("映射"), DisplayName("扫描周期(ms)")]
             public int ScanIntervalMs { get => device.ScanIntervalMs; set => device.ScanIntervalMs = value; }
             [Category("数据格式"), DisplayName("字节序")]
-            public string DataFormat { get => device.DataFormat; set => device.DataFormat = value; }
+            public PlcDataFormat DataFormat
+            {
+                get
+                {
+                    return Enum.TryParse(device.DataFormat, false, out PlcDataFormat value)
+                        && Enum.IsDefined(typeof(PlcDataFormat), value)
+                        ? value
+                        : PlcDataFormat.CDAB;
+                }
+                set => device.DataFormat = value.ToString();
+            }
             [Category("数据格式"), DisplayName("字符串反转")]
             public bool IsStringReverse { get => device.IsStringReverse; set => device.IsStringReverse = value; }
             [Category("数据格式"), DisplayName("地址从0开始")]
