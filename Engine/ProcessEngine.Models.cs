@@ -72,6 +72,7 @@ namespace Automation
         private int breakpointFlag;
         private int gotoFlag;
         private int pauseBySignalFlag;
+        private int completionRequestedFlag;
         private string alarmMessage;
         private long appliedRevision;
 
@@ -128,6 +129,11 @@ namespace Automation
         {
             get => Interlocked.Read(ref appliedRevision);
             internal set => Interlocked.Exchange(ref appliedRevision, value);
+        }
+        public bool CompletionRequested
+        {
+            get => Volatile.Read(ref completionRequestedFlag) == 1;
+            internal set => Volatile.Write(ref completionRequestedFlag, value ? 1 : 0);
         }
 
         public ProcTerminationReason TerminationReason { get; internal set; }

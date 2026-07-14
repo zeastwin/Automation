@@ -92,6 +92,10 @@ namespace Automation
                     case Delay delay:
                         return RunDelay(evt, delay);
 
+                    case EndProcess _:
+                        evt.CompletionRequested = true;
+                        return true;
+
                     case PopupDialog popupDialog:
                         return RunPopupDialog(evt, popupDialog);
 

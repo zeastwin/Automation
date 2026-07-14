@@ -1,36 +1,43 @@
 using System.Reflection;
 using ModelContextProtocol.Server;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Automation.McpServer
 {
     internal static class McpToolProfile
     {
-        private static readonly HashSet<string> CommonTools = new HashSet<string>(StringComparer.Ordinal)
+        // 知识和只读定位能力是所有模式的基础；模式只决定是否追加深度诊断或配置写入能力。
+        private static readonly HashSet<string> KnowledgeAndReadTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "get_platform_development_context",
-            "search_proc_catalog", "get_proc_detail", "get_step_detail", "get_op_detail", "get_op_details",
+            "list_procs", "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_step_detail",
+            "get_op_detail", "get_op_details",
             "get_operation_references", "get_proc_references", "trace_resource",
+            "list_operation_types", "get_native_operation_schemas",
+            "get_semantic_operation_schemas", "get_operation_guide",
             "get_snapshot", "validate_proc",
             "wait_for_proc_state",
             "search_variables", "get_variable",
             "list_stations", "get_station", "list_points", "get_point",
             "get_data_struct", "search_data_structs",
             "get_io", "search_io", "get_io_state",
+            "get_communication",
             "search_alarms", "get_alarm"
         };
 
-        private static readonly HashSet<string> DiagnosticOnlyTools = new HashSet<string>(StringComparer.Ordinal)
+        private static readonly HashSet<string> DiagnosticAnalysisTools = new HashSet<string>(StringComparer.Ordinal)
         {
-            "list_procs", "get_proc_overview", "search_ops", "diagnose_issue",
+            "search_ops", "diagnose_issue", "get_operation_schema",
             "search_operation_fields", "find_references", "find_variable_usages",
-            "get_operation_context", "audit_proc_batch", "list_operation_types", "get_operation_schema",
-            "analyze_flow_graph", "get_info_log_tail", "diagnose_proc", "get_operation_guide",
+            "get_operation_context", "audit_proc_batch",
+            "analyze_flow_graph", "get_info_log_tail", "diagnose_proc",
             "list_variables", "list_data_structs", "list_io"
         };
 
-        private static readonly HashSet<string> EditorOnlyTools = new HashSet<string>(StringComparer.Ordinal)
+        private static readonly HashSet<string> EditorMutationTools = new HashSet<string>(StringComparer.Ordinal)
         {
-            "list_operation_types", "get_operation_schemas", "preview_change_set", "apply_change_set",
+            "preview_change_set", "apply_change_set",
             "run_proc_test",
             "start_proc", "stop_proc", "pause_proc", "resume_proc",
             "set_variable"
@@ -42,14 +49,14 @@ namespace Automation.McpServer
             if (string.Equals(profile, "Diagnostic", StringComparison.OrdinalIgnoreCase)) diagnostic = true;
             else if (string.Equals(profile, "Editor", StringComparison.OrdinalIgnoreCase)) diagnostic = false;
             else throw new InvalidDataException($"MCP工具模式不支持:{profile}");
-            var enabled = new HashSet<string>(CommonTools, StringComparer.Ordinal);
+            var enabled = new HashSet<string>(KnowledgeAndReadTools, StringComparer.Ordinal);
             if (diagnostic)
             {
-                enabled.UnionWith(DiagnosticOnlyTools);
+                enabled.UnionWith(DiagnosticAnalysisTools);
             }
             else
             {
-                enabled.UnionWith(EditorOnlyTools);
+                enabled.UnionWith(EditorMutationTools);
             }
             var tools = new List<McpServerTool>();
             foreach (MethodInfo method in typeof(AutomationMcpTools).GetMethods(
@@ -61,13 +68,148 @@ namespace Automation.McpServer
                 {
                     continue;
                 }
-                tools.Add(McpServerTool.Create(method, (object)null!));
+                McpServerTool tool = McpServerTool.Create(method, (object)null!);
+                if (string.Equals(toolName, "preview_change_set", StringComparison.Ordinal))
+                {
+                    ApplyChangeActionDiscriminator(tool);
+                }
+                tools.Add(tool);
             }
             if (tools.Count == 0)
             {
                 throw new InvalidOperationException($"MCP工具Profile未注册任何工具:{profile}");
             }
             return tools.OrderBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal).ToList();
+        }
+
+        private static void ApplyChangeActionDiscriminator(McpServerTool tool)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            JsonObject? actionSchema = FindChangeActionSchema(root);
+            JsonObject? operationSchema = FindSemanticOperationSchema(root);
+            if (root == null || actionSchema == null || operationSchema == null)
+                throw new InvalidOperationException("preview_change_set 生成Schema缺少动作或语义指令定义。");
+
+            actionSchema["oneOf"] = new JsonArray
+            {
+                ActionShape("variable.change", "variable"),
+                ActionShape("process.create", "process"),
+                ActionShape("process.update", "targetProcess", "process"),
+                ActionShape("process.delete", "targetProcess"),
+                ActionShape("process.delete_all"),
+                ActionShape("step.append", "targetProcess", "step"),
+                ActionShape("step.insert", "targetProcess", "position", "step"),
+                ActionShape("step.update", "targetProcess", "targetStep", "step"),
+                ActionShape("step.delete", "targetProcess", "targetStep"),
+                ActionShape("step.move", "targetProcess", "targetStep", "position"),
+                ActionShape("operation.append", "targetProcess", "targetStep", "operation"),
+                ActionShape("operation.insert", "targetProcess", "targetStep", "position", "operation"),
+                ActionShape("operation.update", "targetProcess", "targetOperation", "operation"),
+                ActionShape("operation.delete", "targetProcess", "targetOperation"),
+                ActionShape("operation.move", "targetProcess", "targetOperation", "position")
+            };
+            operationSchema["oneOf"] = new JsonArray
+            {
+                SemanticShape("variable.set", "variable", "value"),
+                SemanticShape("variable.add", "variable", "amount"),
+                SemanticShape("variable.compute", "sourceVariable", "operator", "outputVariable"),
+                SemanticShape("wait", "milliseconds"),
+                SemanticShape("flow.goto"),
+                SemanticShape("flow.end"),
+                SemanticShape("branch.number_compare", "variable", "comparison", "compareValue"),
+                SemanticShape("branch.number_range", "variable", "min", "max"),
+                SemanticShape("popup.message", "message"),
+                SemanticShape("popup.variable", "variable"),
+                SemanticShape("config.placeholder", "message"),
+                SemanticShape("io.write", "io", "state"),
+                SemanticShape("io.wait", "io", "state", "timeoutMs"),
+                SemanticShape("process.control"),
+                SemanticShape("process.wait"),
+                SemanticShape("native.operation", "operaType", "fields")
+            };
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static JsonObject? FindChangeActionSchema(JsonNode? node)
+        {
+            if (node is JsonObject obj)
+            {
+                if (obj["properties"] is JsonObject properties
+                    && properties.ContainsKey("type")
+                    && properties.ContainsKey("targetProcess")
+                    && properties.ContainsKey("operation"))
+                    return obj;
+                foreach (KeyValuePair<string, JsonNode?> property in obj)
+                {
+                    JsonObject? found = FindChangeActionSchema(property.Value);
+                    if (found != null) return found;
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (JsonNode? item in array)
+                {
+                    JsonObject? found = FindChangeActionSchema(item);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
+        private static JsonObject? FindSemanticOperationSchema(JsonNode? node)
+        {
+            if (node is JsonObject obj)
+            {
+                if (obj["properties"] is JsonObject properties
+                    && properties.ContainsKey("kind")
+                    && properties.ContainsKey("sourceVariable")
+                    && properties.ContainsKey("operaType"))
+                    return obj;
+                foreach (KeyValuePair<string, JsonNode?> property in obj)
+                {
+                    JsonObject? found = FindSemanticOperationSchema(property.Value);
+                    if (found != null) return found;
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (JsonNode? item in array)
+                {
+                    JsonObject? found = FindSemanticOperationSchema(item);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
+        private static JsonObject ActionShape(string type, params string[] requiredPayload)
+        {
+            var required = new JsonArray { "type" };
+            foreach (string field in requiredPayload) required.Add(field);
+            return new JsonObject
+            {
+                ["title"] = type,
+                ["properties"] = new JsonObject
+                {
+                    ["type"] = new JsonObject { ["const"] = type }
+                },
+                ["required"] = required
+            };
+        }
+
+        private static JsonObject SemanticShape(string kind, params string[] requiredPayload)
+        {
+            var required = new JsonArray { "kind" };
+            foreach (string field in requiredPayload) required.Add(field);
+            return new JsonObject
+            {
+                ["title"] = kind,
+                ["properties"] = new JsonObject
+                {
+                    ["kind"] = new JsonObject { ["const"] = kind }
+                },
+                ["required"] = required
+            };
         }
 
         public static IReadOnlyList<McpServerTool> CreateEditorTools()

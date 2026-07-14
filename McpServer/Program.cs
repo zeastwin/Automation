@@ -147,16 +147,19 @@ namespace Automation.McpServer
                 .ToArray();
             string[] required =
             {
-                "list_operation_types", "get_operation_schemas", "preview_change_set",
-                "apply_change_set", "validate_proc", "wait_for_proc_state", "run_proc_test"
+                "list_operation_types", "get_native_operation_schemas", "get_semantic_operation_schemas", "preview_change_set",
+                "get_operation_guide", "apply_change_set", "validate_proc",
+                "wait_for_proc_state", "run_proc_test", "get_communication"
             };
             string[] retired =
             {
                 "preview_intent", "apply_intent", "preview_patch", "apply_patch",
                 "create_proc", "create_proc_batch",
+                "get_operation_schema",
                 "add_station", "update_station", "delete_station", "set_point",
                 "delete_point", "set_data_struct_field", "set_alarm", "delete_alarm",
                 "get_change_capabilities", "get_operation_contracts", "get_native_operation_contract",
+                "get_operation_schemas",
                 "begin_change_set_draft", "append_change_set_draft", "get_change_set_draft",
                 "stage_changes", "get_staged_changes", "preview_staged_changes", "discard_staged_changes"
             };
@@ -169,21 +172,25 @@ namespace Automation.McpServer
             McpServerTool previewTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "preview_change_set", StringComparison.Ordinal));
             string previewSchema = previewTool.ProtocolTool.InputSchema.ToString();
-            if (!previewSchema.Contains("expectedOperaTypes", StringComparison.Ordinal)
-                || !previewSchema.Contains("operations", StringComparison.Ordinal)
-                || !previewSchema.Contains("operaType", StringComparison.Ordinal)
+            if (!previewSchema.Contains("actions", StringComparison.Ordinal)
+                || !previewSchema.Contains("targetProcess", StringComparison.Ordinal)
+                || !previewSchema.Contains("targetOperation", StringComparison.Ordinal)
+                || !previewSchema.Contains("position", StringComparison.Ordinal)
+                || !previewSchema.Contains("oneOf", StringComparison.Ordinal)
+                || !previewSchema.Contains("variable.compute", StringComparison.Ordinal)
+                || !previewSchema.Contains("branch.number_compare", StringComparison.Ordinal)
                 || previewSchema.Contains("draftId", StringComparison.Ordinal)
                 || previewSchema.Contains("expectedOperationCount", StringComparison.Ordinal)
-                || previewSchema.Contains("kind", StringComparison.Ordinal))
+                || !previewSchema.Contains("kind", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("完整变更Schema泄漏草稿协议或缺少原生指令定义。");
+                throw new InvalidOperationException("原子动作Schema缺少稳定目标、位置或语义指令定义。");
             }
             McpServerTool runTestTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "run_proc_test", StringComparison.Ordinal));
             McpServerTool startTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "start_proc", StringComparison.Ordinal));
-            if (!(runTestTool.ProtocolTool.Description ?? string.Empty).Contains("禁止先调用start_proc", StringComparison.Ordinal)
-                || !(startTool.ProtocolTool.Description ?? string.Empty).Contains("直接调用run_proc_test", StringComparison.Ordinal))
+            if (!(runTestTool.ProtocolTool.Description ?? string.Empty).Contains("负责启动、观察和安全停止", StringComparison.Ordinal)
+                || !(startTool.ProtocolTool.Description ?? string.Empty).Contains("由run_proc_test一次完成", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException("流程启动与有边界测试的工具职责未双向公开。");
             }
@@ -191,9 +198,11 @@ namespace Automation.McpServer
                 .Select(tool => tool.ProtocolTool.Name).ToArray();
             string[] editorWriteNames =
             {
-                "get_operation_schemas", "preview_change_set", "apply_change_set"
+                "preview_change_set", "apply_change_set"
             };
             if (!diagnosticNames.Contains("audit_proc_batch", StringComparer.Ordinal)
+                || !diagnosticNames.Contains("get_native_operation_schemas", StringComparer.Ordinal)
+                || !diagnosticNames.Contains("get_operation_guide", StringComparer.Ordinal)
                 || editorWriteNames.Any(name => diagnosticNames.Contains(name, StringComparer.Ordinal)))
             {
                 throw new InvalidOperationException("Diagnostic Profile 工具边界错误。");

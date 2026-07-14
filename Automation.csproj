@@ -131,6 +131,7 @@
     <Compile Include="Engine\AiOperationCompilerRegistry.cs" />
     <Compile Include="Engine\StructuredOperationCompiler.cs" />
     <Compile Include="Engine\ProcessFlowAnalyzer.cs" />
+    <Compile Include="Engine\ProcessReadinessService.cs" />
     <Compile Include="Engine\OperationDefinitionRegistry.cs" />
     <Compile Include="Engine\ProcessDefinitionService.cs" />
     <Compile Include="Engine\ProcessModels.cs" />

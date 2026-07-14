@@ -70,6 +70,7 @@ namespace Automation
         private List<GooseProviderInfo> gooseProviders = new List<GooseProviderInfo>();
         private readonly ComboBox cboModel = new ComboBox();
         private readonly NumericUpDown nudMaxTurns = new NumericUpDown();
+        private readonly NumericUpDown nudMaxOutputTokens = new NumericUpDown();
         private string toolProfile = GooseConfigStorage.DefaultToolProfile;
         private GooseConfig appliedConfig;
         private readonly HashSet<string> promptedPreviewIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -360,14 +361,17 @@ li{margin:1px 0;}
     overflow-x:auto;
     padding:1px 1px 5px;
 }
+.flow-track.single-step{overflow-x:hidden;}
 .flow-step{
-    flex:0 0 220px;
-    min-width:220px;
+    flex:0 0 clamp(300px,44vw,480px);
+    min-width:300px;
+    max-width:480px;
     border:1px solid #cfdae7;
     border-radius:8px;
     background:#fff;
     box-shadow:0 1px 4px rgba(31,45,61,.05);
 }
+.flow-track.single-step .flow-step{flex:1 1 100%;min-width:0;max-width:none;}
 .flow-step-head{padding:6px 8px;border-bottom:1px solid #e3e9f1;background:#f7f9fc;border-radius:8px 8px 0 0;}
 .flow-step-index{color:#6f7f92;font-size:11px;margin-right:5px;}
 .flow-step-name{color:#203047;font-weight:650;}
@@ -377,7 +381,7 @@ li{margin:1px 0;}
 .flow-op:last-child{border-bottom:0;}
 .flow-op-line{display:flex;align-items:flex-start;gap:5px;}
 .flow-op-index{flex:0 0 18px;color:#7b8798;font-size:11px;line-height:20px;text-align:center;}
-.flow-op-text{min-width:0;color:#27364a;line-height:20px;}
+.flow-op-text{min-width:0;color:#27364a;line-height:20px;overflow-wrap:anywhere;word-break:break-word;}
 .flow-paths{display:flex;gap:4px;flex-wrap:wrap;margin:3px 0 0 23px;}
 .flow-path{
     display:inline-flex;
@@ -684,6 +688,7 @@ function collectConfig(){
         model:byId('cfgModel').value,
         apiKey:byId('cfgApiKey').value,
         maxTurns:parseInt(byId('cfgTurns').value||'1',10),
+        maxOutputTokens:parseInt(byId('cfgOutputTokens').value||'8192',10),
         toolProfile:(appState.config||{}).toolProfile||'Diagnostic',
         fullPermissionMode:!!(appState.config||{}).fullPermissionMode
     };
@@ -695,6 +700,7 @@ function fillConfig(){
     byId('cfgMcp').value=c.mcpUri||'';
     byId('cfgSession').value=c.sessionName||'';
     byId('cfgTurns').value=c.maxTurns||20;
+    byId('cfgOutputTokens').value=c.maxOutputTokens||8192;
     setOptions(byId('cfgProvider'),appState.providerOptions||[],c.provider||'deepseek');
     setOptions(byId('cfgModel'),appState.modelOptions||[],c.model||'deepseek-v4-pro');
     byId('cfgApiKey').value='';
@@ -735,7 +741,7 @@ function automationSetState(state){
     fillConfig();
     refreshToolbar();
     var lock=!appState.canEditConfig||appState.sending;
-    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgProvider','cfgModel','cfgApiKey','cfgTurns','saveConfig','clearApiKey'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
+    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgProvider','cfgModel','cfgApiKey','cfgTurns','cfgOutputTokens','saveConfig','clearApiKey'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
     byId('reloadConfig').disabled=appState.sending;
     byId('checkConfig').disabled=appState.sending||!appState.canAccess;
 }
@@ -937,6 +943,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         <div class=""field""><label>MCP 地址</label><input id=""cfgMcp"" autocomplete=""off""></div>
         <div class=""field""><label>会话名</label><input id=""cfgSession"" autocomplete=""off""></div>
         <div class=""field""><label>最大轮次</label><input id=""cfgTurns"" type=""number"" min=""1"" max=""200""></div>
+        <div class=""field""><label>单次输出 Token</label><input id=""cfgOutputTokens"" type=""number"" min=""1024"" max=""65536"" step=""1024""></div>
         <div class=""field""><label>Provider</label><select id=""cfgProvider""></select></div>
         <div class=""field""><label>模型</label><select id=""cfgModel""></select></div>
         <div class=""field field-wide""><label>API Key（使用 Windows 当前用户加密，仅保存在本机）</label><input id=""cfgApiKey"" type=""password"" autocomplete=""new-password""></div>
@@ -997,6 +1004,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             nudMaxTurns.Minimum = 1;
             nudMaxTurns.Maximum = 200;
             nudMaxTurns.Value = GooseConfigStorage.DefaultMaxTurns;
+            nudMaxOutputTokens.Minimum = 1024;
+            nudMaxOutputTokens.Maximum = 65536;
+            nudMaxOutputTokens.Increment = 1024;
+            nudMaxOutputTokens.Value = GooseConfigStorage.DefaultMaxOutputTokens;
         }
 
         private void BuildMainLayout()
@@ -1329,6 +1340,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? GooseConfigStorage.DefaultProvider : config.Provider;
             RefreshModelOptions(cboProvider.Text, string.IsNullOrWhiteSpace(config.Model) ? GooseConfigStorage.DefaultModel : config.Model);
             nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, config.MaxTurns));
+            nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
+                Math.Min(nudMaxOutputTokens.Maximum, config.MaxOutputTokens));
             toolProfile = config.ToolProfile;
             fullPermissionMode = config.FullPermissionMode;
             // 保存界面当前实际采用的配置。配置文件首次缺失或损坏时缓存可能为空，
@@ -1501,6 +1514,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     ["hasApiKey"] = !string.IsNullOrWhiteSpace(normalizedProvider)
                         && AiProviderSecretStorage.HasSecret(normalizedProvider),
                     ["maxTurns"] = (int)nudMaxTurns.Value,
+                    ["maxOutputTokens"] = (int)nudMaxOutputTokens.Value,
                     ["toolProfile"] = toolProfile,
                     ["fullPermissionMode"] = fullPermissionMode
                 },
@@ -1568,6 +1582,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
             int maxTurns = config["maxTurns"]?.Value<int?>() ?? GooseConfigStorage.DefaultMaxTurns;
             nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, maxTurns));
+            int maxOutputTokens = config["maxOutputTokens"]?.Value<int?>()
+                ?? GooseConfigStorage.DefaultMaxOutputTokens;
+            nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
+                Math.Min(nudMaxOutputTokens.Maximum, maxOutputTokens));
             toolProfile = config["toolProfile"]?.Value<string>() ?? GooseConfigStorage.DefaultToolProfile;
             fullPermissionMode = config["fullPermissionMode"]?.Value<bool?>() ?? false;
         }
@@ -1599,6 +1617,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 || !string.Equals(oldConfig.Provider, config.Provider, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.Model, config.Model, StringComparison.Ordinal)
                 || oldConfig.MaxTurns != config.MaxTurns
+                || oldConfig.MaxOutputTokens != config.MaxOutputTokens
                 || oldConfig.FullPermissionMode != config.FullPermissionMode;
             bool uriChanged = oldConfig == null
                 || !string.Equals(oldConfig.McpUri, config.McpUri, StringComparison.Ordinal);
@@ -1737,6 +1756,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 Provider = NormalizeGooseOverride(cboProvider.Text),
                 Model = NormalizeGooseOverride(cboModel.Text),
                 MaxTurns = (int)nudMaxTurns.Value,
+                MaxOutputTokens = (int)nudMaxOutputTokens.Value,
                 ToolProfile = toolProfile,
                 FullPermissionMode = fullPermissionMode
             };
@@ -1772,6 +1792,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 Provider = config.Provider,
                 Model = config.Model,
                 MaxTurns = config.MaxTurns,
+                MaxOutputTokens = config.MaxOutputTokens,
                 ToolProfile = config.ToolProfile,
                 FullPermissionMode = config.FullPermissionMode
             };
@@ -2299,7 +2320,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                             case "process.create":
                                 type = "创建流程";
                                 obj = change["name"]?.Value<string>() ?? "";
-                                field = change["potentiallyUnbounded"]?.Value<bool>() == true
+                                field = change["containsReachableCycle"]?.Value<bool>() == true
                                     ? "结构（含可达循环）"
                                     : "结构";
                                 newVal = $"{change["stepCount"]?.Value<int>() ?? 0}步骤 / {change["operationCount"]?.Value<int>() ?? 0}指令";
@@ -2309,10 +2330,20 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                                 type = "替换流程";
                                 location = $"流程{change["procIndex"]?.Value<int>() ?? 0}";
                                 obj = change["name"]?.Value<string>() ?? "";
-                                field = change["potentiallyUnbounded"]?.Value<bool>() == true
+                                field = change["containsReachableCycle"]?.Value<bool>() == true
                                     ? "完整结构（含可达循环）"
                                     : "完整结构";
                                 oldVal = change["oldName"]?.Value<string>() ?? "";
+                                newVal = $"{change["stepCount"]?.Value<int>() ?? 0}步骤 / {change["operationCount"]?.Value<int>() ?? 0}指令";
+                                rowColor = Color.FromArgb(255, 248, 235);
+                                break;
+                            case "process.modify":
+                                type = "修改流程";
+                                location = $"流程{change["procIndex"]?.Value<int>() ?? 0}";
+                                obj = change["name"]?.Value<string>() ?? "";
+                                field = change["containsReachableCycle"]?.Value<bool>() == true
+                                    ? "动作完成后结构（含可达循环）"
+                                    : "动作完成后结构";
                                 newVal = $"{change["stepCount"]?.Value<int>() ?? 0}步骤 / {change["operationCount"]?.Value<int>() ?? 0}指令";
                                 rowColor = Color.FromArgb(255, 248, 235);
                                 break;
@@ -3004,6 +3035,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         visualOperation["whenTrue"] = whenTrue;
                         visualOperation["whenFalse"] = whenFalse;
                     }
+                    else if (string.Equals(operaType, "流程结束", StringComparison.Ordinal))
+                    {
+                        visualOperation["kind"] = "flow.end";
+                    }
                     else
                     {
                         string targetAddress = fields?["DefaultGoto"]?.Value<string>();
@@ -3107,8 +3142,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         private static string LocalizeAutomationToolText(string value)
         {
             return (value ?? string.Empty)
-                .Replace("get_operation_schemas", "获取指令结构")
-                .Replace("preview_change_set", "预演完整变更")
+                .Replace("get_native_operation_schemas", "获取原生指令结构")
+                .Replace("preview_change_set", "预演变更阶段")
                 .Replace("apply_change_set", "提交业务变更")
                 .Replace("run_proc_test", "限时测试流程")
                 .Replace("wait_for_proc_state", "等待流程状态");
@@ -3176,7 +3211,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 return;
             }
 
-            html.Append("<div class=\"flow-track\">");
+            html.Append(steps.Count == 1
+                ? "<div class=\"flow-track single-step\">"
+                : "<div class=\"flow-track\">");
             int stepIndex = 0;
             foreach (JObject step in steps.OfType<JObject>())
             {
@@ -3266,6 +3303,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     return $"显示变量“{operation["variable"]?.Value<string>() ?? ""}”当前值{BuildAutoCloseSuffix(operation)}";
                 case "flow.goto":
                     return "跳转到指定位置";
+                case "flow.end":
+                    return "正常结束当前流程";
                 case "io.write":
                     return $"输出 {operation["io"]?.Value<string>() ?? "IO"} = {operation["state"]?.Value<bool>()}";
                 case "io.wait":
@@ -4167,6 +4206,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     Provider = config.Provider,
                     Model = config.Model,
                     MaxTurns = config.MaxTurns,
+                    MaxOutputTokens = config.MaxOutputTokens,
                     ToolProfile = config.ToolProfile,
                     FullPermissionMode = config.FullPermissionMode
                 };

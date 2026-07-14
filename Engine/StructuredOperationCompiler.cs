@@ -16,12 +16,11 @@ namespace Automation
     /// </summary>
     public static class StructuredOperationCompiler
     {
-        public const int MaxListItems = 20;
         private const int MaxDepth = 6;
 
         private static readonly HashSet<string> OperationManagedProperties = new HashSet<string>(StringComparer.Ordinal)
         {
-            nameof(OperationType.Id), nameof(OperationType.Num), nameof(OperationType.Name),
+            nameof(OperationType.Id), nameof(OperationType.AiKey), nameof(OperationType.Num), nameof(OperationType.Name),
             nameof(OperationType.OperaType), "Count", "IOCount", "OutIOCount", "CheckIOCount", "ProcCount"
         };
 
@@ -39,8 +38,8 @@ namespace Automation
                 ["rules"] = new JArray(
                     "字段名区分大小写，未知字段直接拒绝",
                     "数组数量字段由编译器计算，禁止手工填写 Count/IOCount/ProcCount",
-                    "跳转字段优先使用 operationId 或 {step,operationKey} 稳定目标；完整新建也可使用 {step,operation}，禁止填写物理索引字符串",
-                    $"单个嵌套数组最多 {MaxListItems} 项")
+                    "operation.update 可通过 clearFields 显式清空顶层字符串字段；同一字段不得同时出现在 fields",
+                    "现有目标使用 {operationId}；当前步骤内按 key 定位使用 {operationKey}；跨步骤时再附加 stepId 或 stepKey；禁止填写物理索引字符串")
             };
         }
 
@@ -55,43 +54,77 @@ namespace Automation
                 throw new InvalidOperationException("native.operation.fields 必须是对象。");
             }
             ApplyObject(operation, fieldObject, "native.operation.fields", context, 0);
-            NormalizeAndValidateOperation(operation, fieldObject);
+            NormalizeAndValidateOperation(operation, fieldObject, false);
             return operation;
         }
 
-        private static void NormalizeAndValidateOperation(OperationType operation, JObject fields)
+        public static OperationType CompilePatch(OperationType existing, string operaType,
+            IDictionary<string, object> fields, IEnumerable<string> clearFields,
+            AiOperationCompileContext context)
+        {
+            if (existing == null) throw new ArgumentNullException(nameof(existing));
+            string exactType = RequireText(operaType, "native.operation.operaType");
+            if (!string.Equals(existing.OperaType, exactType, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"operation.update 的 operaType 必须保持为[{existing.OperaType}]；改变指令类型请删除后新增。");
+            JObject fieldObject = fields == null ? null : JObject.FromObject(fields);
+            if (fieldObject == null)
+                throw new InvalidOperationException("native.operation.fields 必须是对象。");
+            ApplyClearFields(existing.GetType(), fieldObject, clearFields);
+            OperationType operation = ObjectGraphCloner.Clone(existing);
+            ApplyObject(operation, fieldObject, "native.operation.fields", context, 0);
+            NormalizeAndValidateOperation(operation, fieldObject, true);
+            return operation;
+        }
+
+        private static void ApplyClearFields(Type operationType, JObject fields,
+            IEnumerable<string> clearFields)
+        {
+            var properties = GetConfigurableProperties(operationType)
+                .ToDictionary(property => property.Name, StringComparer.Ordinal);
+            foreach (string rawName in clearFields ?? Enumerable.Empty<string>())
+            {
+                string name = rawName?.Trim();
+                if (string.IsNullOrEmpty(name))
+                    throw new InvalidOperationException("native.operation.clearFields 不能包含空字段名。");
+                if (!properties.TryGetValue(name, out PropertyInfo property))
+                    throw new InvalidOperationException($"native.operation.clearFields 包含未知或受管字段：{name}。");
+                if (property.PropertyType != typeof(string))
+                    throw new InvalidOperationException(
+                        $"native.operation.clearFields 目前只允许清空顶层字符串字段：{name}。");
+                if (fields.Property(name, StringComparison.Ordinal) != null)
+                    throw new InvalidOperationException(
+                        $"native.operation 字段 {name} 不能同时出现在 fields 和 clearFields。");
+                fields[name] = JValue.CreateNull();
+            }
+        }
+
+        private static void NormalizeAndValidateOperation(
+            OperationType operation, JObject fields, bool preserveUnspecified)
         {
             if (!(operation is Goto jump)) return;
 
             // Goto 构造函数为 PropertyGrid 预放了一个空分支；结构化输入未提供 Params 时不能把该占位项带入运行时。
-            if (fields.Property(nameof(Goto.Params), StringComparison.Ordinal) == null)
+            if (!preserveUnspecified
+                && fields.Property(nameof(Goto.Params), StringComparison.Ordinal) == null)
             {
                 jump.Params = new OperationTypePartial.CustomList<GotoParam>();
                 jump.Count = "0";
             }
             if (jump.Params == null || jump.Params.Count == 0)
             {
-                if (string.IsNullOrWhiteSpace(jump.DefaultGoto))
-                    throw new InvalidOperationException("native.operation.fields.DefaultGoto：无条件跳转必须提供默认目标。");
                 return;
             }
 
-            bool hasSource = !string.IsNullOrWhiteSpace(jump.ValueIndex)
-                || !string.IsNullOrWhiteSpace(jump.ValueName);
-            if (!hasSource)
-                throw new InvalidOperationException("native.operation.fields：条件跳转必须提供 ValueIndex 或 ValueName。");
             for (int index = 0; index < jump.Params.Count; index++)
             {
                 GotoParam item = jump.Params[index];
                 bool hasLiteral = !string.IsNullOrWhiteSpace(item?.MatchValue);
                 bool hasReference = !string.IsNullOrWhiteSpace(item?.MatchValueIndex)
                     || !string.IsNullOrWhiteSpace(item?.MatchValueV);
-                if (hasLiteral == hasReference)
+                if (hasLiteral && hasReference)
                     throw new InvalidOperationException(
-                        $"native.operation.fields.Params[{index}]必须且只能提供固定匹配值或匹配值变量。");
-                if (string.IsNullOrWhiteSpace(item.Goto))
-                    throw new InvalidOperationException(
-                        $"native.operation.fields.Params[{index}].Goto 不能为空。");
+                        $"native.operation.fields.Params[{index}]不能同时提供固定匹配值和匹配值变量。");
             }
         }
 
@@ -116,13 +149,15 @@ namespace Automation
             };
             if (property.GetCustomAttribute<MarkedGotoAttribute>() != null)
             {
+                schema["description"] = "符号跳转目标；Bridge 在最终结构上解析并重算物理地址。";
                 schema["jsonType"] = "object";
                 schema["referenceType"] = "proc.goto.symbolic";
                 schema["shapes"] = new JArray
                 {
                     new JObject { ["operationId"] = "现有目标指令Guid" },
-                    new JObject { ["step"] = "步骤key", ["operationKey"] = "新目标指令key" },
-                    new JObject { ["step"] = "步骤key", ["operation"] = "完整新建流程的最终指令索引" }
+                    new JObject { ["operationKey"] = "当前步骤内目标指令key" },
+                    new JObject { ["stepId"] = "现有步骤Guid", ["operationKey"] = "目标指令key" },
+                    new JObject { ["stepKey"] = "步骤key", ["operationKey"] = "目标指令key" }
                 };
                 return schema;
             }
@@ -130,7 +165,6 @@ namespace Automation
             {
                 Type itemType = GetListItemType(property.PropertyType);
                 schema["jsonType"] = "array";
-                schema["maxItems"] = MaxListItems;
                 schema["items"] = new JObject
                 {
                     ["jsonType"] = "object",
@@ -152,7 +186,9 @@ namespace Automation
             if (valueType == typeof(Color)) schema["format"] = "#RRGGBB 或 .NET 已知颜色名";
             if (valueType == typeof(char)) schema["length"] = 1;
             if (valueType.IsEnum) schema["values"] = new JArray(Enum.GetNames(valueType));
-            JArray values = BuildStandardValues(GetPropertyDescriptor(property));
+            JArray values = string.IsNullOrEmpty(referenceType)
+                ? BuildStandardValues(GetPropertyDescriptor(property))
+                : new JArray();
             if (values.Count > 0) schema["values"] = values;
             return schema;
         }
@@ -201,7 +237,6 @@ namespace Automation
             AiOperationCompileContext context, int depth)
         {
             if (!(token is JArray array)) throw new InvalidOperationException($"{path} 必须是 JSON 数组。");
-            if (array.Count > MaxListItems) throw new InvalidOperationException($"{path} 最多 {MaxListItems} 项。");
             Type itemType = GetListItemType(property.PropertyType);
             IList list = (IList)Activator.CreateInstance(property.PropertyType);
             for (int index = 0; index < array.Count; index++)
@@ -224,15 +259,15 @@ namespace Automation
             if (token.Type == JTokenType.Null) return null;
             if (!(token is JObject value))
                 throw new InvalidOperationException(
-                    $"{path} 必须使用 operationId、{{step,operationKey}} 或 {{step,operation}} 符号目标，禁止填写物理索引字符串。");
+                    $"{path} 必须使用 {{operationId}}、{{operationKey}}、{{stepId,operationKey}} 或 {{stepKey,operationKey}} 符号目标，禁止填写物理索引字符串。");
             JProperty unknown = value.Properties().FirstOrDefault(item =>
-                !string.Equals(item.Name, "step", StringComparison.Ordinal)
-                && !string.Equals(item.Name, "operation", StringComparison.Ordinal)
+                !string.Equals(item.Name, "stepId", StringComparison.Ordinal)
+                && !string.Equals(item.Name, "stepKey", StringComparison.Ordinal)
                 && !string.Equals(item.Name, "operationId", StringComparison.Ordinal)
                 && !string.Equals(item.Name, "operationKey", StringComparison.Ordinal));
             if (unknown != null) throw new InvalidOperationException($"{path}.{unknown.Name} 不是允许字段。");
-            if (value["step"] != null && value["step"].Type != JTokenType.String
-                || value["operation"] != null && value["operation"].Type != JTokenType.Integer
+            if (value["stepId"] != null && value["stepId"].Type != JTokenType.String
+                || value["stepKey"] != null && value["stepKey"].Type != JTokenType.String
                 || value["operationId"] != null && value["operationId"].Type != JTokenType.String
                 || value["operationKey"] != null && value["operationKey"].Type != JTokenType.String)
             {
@@ -240,8 +275,8 @@ namespace Automation
             }
             return context.ResolveTarget(new Automation.Protocol.OperationTarget
             {
-                Step = value["step"]?.Value<string>(),
-                Operation = value["operation"]?.Value<int>(),
+                StepId = value["stepId"]?.Value<string>(),
+                StepKey = value["stepKey"]?.Value<string>(),
                 OperationId = value["operationId"]?.Value<string>(),
                 OperationKey = value["operationKey"]?.Value<string>()
             }, path);

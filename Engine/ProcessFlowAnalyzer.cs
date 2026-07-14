@@ -8,7 +8,7 @@ namespace Automation
 {
     public sealed class ProcessFlowAnalysis
     {
-        public bool PotentiallyUnbounded { get; internal set; }
+        public bool ContainsReachableCycle { get; internal set; }
 
         public IReadOnlyList<string> CycleLocations { get; internal set; } = Array.Empty<string>();
     }
@@ -68,7 +68,7 @@ namespace Automation
                 }
 
                 // “跳转”运行时必定选择匹配分支或默认目标；其他指令保留顺序执行边。
-                if (!(operation is Goto) && index + 1 < order.Count)
+                if (!(operation is Goto) && !(operation is EndProcess) && index + 1 < order.Count)
                 {
                     edges[key].Add(order[index + 1]);
                 }
@@ -81,7 +81,7 @@ namespace Automation
             FindCycles(order[0], edges, visited, active, stack, cycleLocations);
             return new ProcessFlowAnalysis
             {
-                PotentiallyUnbounded = cycleLocations.Count > 0,
+                ContainsReachableCycle = cycleLocations.Count > 0,
                 CycleLocations = cycleLocations.OrderBy(value => value, StringComparer.Ordinal).ToArray()
             };
         }

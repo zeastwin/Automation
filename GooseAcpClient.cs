@@ -495,18 +495,21 @@ namespace Automation
 
             string configuredProvider = config.Provider?.Trim();
             bool useDeepSeekProvider = string.Equals(configuredProvider, "deepseek", StringComparison.OrdinalIgnoreCase);
+            string effectiveProvider = useDeepSeekProvider ? "custom_deepseek" : configuredProvider;
             if (useDeepSeekProvider)
             {
                 GooseConfigStorage.RemoveManagedDeepSeekGooseConfiguration();
             }
             if (!string.IsNullOrWhiteSpace(configuredProvider))
             {
-                startInfo.EnvironmentVariables["GOOSE_PROVIDER"] = useDeepSeekProvider ? "custom_deepseek" : configuredProvider;
+                startInfo.EnvironmentVariables["GOOSE_PROVIDER"] = effectiveProvider;
             }
             if (!string.IsNullOrWhiteSpace(config.Model))
             {
                 startInfo.EnvironmentVariables["GOOSE_MODEL"] = config.Model.Trim();
             }
+            startInfo.EnvironmentVariables["GOOSE_MAX_TOKENS"] =
+                config.MaxOutputTokens.ToString(System.Globalization.CultureInfo.InvariantCulture);
             if (!string.IsNullOrWhiteSpace(config.Provider))
             {
                 if (!AiProviderSecretStorage.TryGetEnvironmentVariableName(config.Provider, out string secretVariable))
@@ -552,13 +555,14 @@ namespace Automation
             startupInfo.Append(" developerShell=").Append(developerShellPath ?? "cmd");
             if (!string.IsNullOrWhiteSpace(config.Provider))
             {
-                startupInfo.Append(" provider=").Append(config.Provider);
+                startupInfo.Append(" provider=").Append(effectiveProvider);
             }
             if (!string.IsNullOrWhiteSpace(config.Model))
             {
                 startupInfo.Append(" model=").Append(config.Model);
             }
             startupInfo.Append(" maxTurns=").Append(config.MaxTurns);
+            startupInfo.Append(" maxOutputTokens=").Append(config.MaxOutputTokens);
             LogFile(startupInfo.ToString(), LogLevel.Normal);
             Report("lifecycle", $"EW-AI ACP 进程已启动：{config.GooseExecutablePath} acp --with-builtin developer", null);
         }
@@ -898,7 +902,9 @@ namespace Automation
                 if (string.Equals(updateKind, "tool_call", StringComparison.Ordinal))
                 {
                     string title = FindFirstString(parameters, "title", "name") ?? "调用工具";
-                    string displayName = ResolveToolDisplayName(parameters, title);
+                    string displayName = string.Equals(title, "error", StringComparison.OrdinalIgnoreCase)
+                        ? "工具参数生成失败"
+                        : ResolveToolDisplayName(parameters, title);
                     AppendReasoningTraceEvent("tool_call", displayName, message);
                     LogExecution("tool_call", displayName, message);
                     Report("tool_call", displayName, message);
@@ -909,6 +915,17 @@ namespace Automation
                 if (string.Equals(updateKind, "tool_call_update", StringComparison.Ordinal))
                 {
                     string status = FindFirstString(parameters, "status");
+                    if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string detail = FindFirstString(parameters, "message", "error");
+                        string failureSummary = string.IsNullOrWhiteSpace(detail)
+                            ? "× 工具请求未形成有效调用，未到达 MCP"
+                            : "× " + detail;
+                        AppendReasoningTraceEvent("tool_error", failureSummary, message);
+                        LogFile("ACP<- 工具调用失败", parameters, LogLevel.Error);
+                        Report("tool_result", failureSummary, message);
+                        return;
+                    }
                     // 进度描述（非完成）：仅落盘，不转发 UI。
                     if (!string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase))
                     {

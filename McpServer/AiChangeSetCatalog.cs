@@ -8,6 +8,27 @@ namespace Automation.McpServer
         {
             if (changeSet == null) return "changeSet 不能为空。";
             if (changeSet.Version != 2) return "changeSet.version 必须为2。";
+            List<ChangeSetAction> actions = changeSet.Actions ?? new List<ChangeSetAction>();
+            if (actions.Count > 0)
+            {
+                if (changeSet.DeleteProcesses != null || (changeSet.Variables?.Count ?? 0) > 0
+                    || (changeSet.Processes?.Count ?? 0) > 0)
+                    return "changeSet.actions 不得与旧写入字段混用。";
+                for (int index = 0; index < actions.Count; index++)
+                {
+                    ChangeSetAction action = actions[index];
+                    if (action == null || string.IsNullOrWhiteSpace(action.Type))
+                        return $"actions[{index}].type 不能为空。";
+                    if (!ChangeSetActionTypes.SupportedTypes.Split('、').Contains(action.Type, StringComparer.Ordinal))
+                        return $"actions[{index}].type 不受支持：{action.Type}。";
+                    if (action.Operation != null)
+                    {
+                        string operationError = ValidateOperation(action.Operation);
+                        if (operationError != null) return $"actions[{index}].operation：{operationError}";
+                    }
+                }
+                return null!;
+            }
             string deletionError = ValidateProcessDeletion(changeSet.DeleteProcesses);
             if (deletionError != null) return deletionError;
             int steps = changeSet.Processes?.Sum(process => process?.Steps?.Count ?? 0) ?? 0;
@@ -25,8 +46,7 @@ namespace Automation.McpServer
                     return $"流程[{process.Name}]替换时targetProcId与targetName必须且只能提供一个。";
                 if (action == "create" && (hasTargetId || hasTargetName))
                     return $"流程[{process.Name}]创建时不得提供targetProcId或targetName。";
-                if ((process.Steps?.Count ?? 0) == 0) return $"流程[{process.Name}]至少包含一个步骤。";
-                foreach (StepDefinition step in process.Steps!)
+                foreach (StepDefinition step in process.Steps ?? new List<StepDefinition>())
                 {
                     if (step == null || string.IsNullOrWhiteSpace(step.Key)
                         || string.IsNullOrWhiteSpace(step.Name) && string.IsNullOrWhiteSpace(step.StepId))
@@ -71,6 +91,9 @@ namespace Automation.McpServer
                     ? null!
                     : "指令必须提供 opId 复用现有指令，或提供 kind 定义新指令。";
             }
+            if ((operation.ClearFields?.Count ?? 0) > 0
+                && !string.Equals(operation.Kind, "native.operation", StringComparison.Ordinal))
+                return "clearFields 仅用于 operation.update 的 native.operation。";
             switch (operation.Kind)
             {
                 case "variable.set":
@@ -81,17 +104,53 @@ namespace Automation.McpServer
                     if (string.IsNullOrWhiteSpace(operation.Variable) || !operation.Amount.HasValue)
                         return "variable.add 必须提供 variable/amount。";
                     return null!;
+                case "variable.compute":
+                    if (string.IsNullOrWhiteSpace(operation.SourceVariable)
+                        || string.IsNullOrWhiteSpace(operation.OutputVariable)
+                        || string.IsNullOrWhiteSpace(operation.Operator))
+                        return "variable.compute 必须提供 sourceVariable/operator/outputVariable。";
+                    bool hasOperandValue = operation.OperandValue.HasValue;
+                    bool hasOperandVariable = !string.IsNullOrWhiteSpace(operation.OperandVariable);
+                    if (operation.Operator == "absolute")
+                        return hasOperandValue || hasOperandVariable
+                            ? "variable.compute.operator=absolute 时不得提供操作数。"
+                            : null!;
+                    if (!new[] { "add", "subtract", "multiply", "divide", "modulo" }
+                        .Contains(operation.Operator, StringComparer.Ordinal))
+                        return "variable.compute.operator 只能是 add/subtract/multiply/divide/modulo/absolute。";
+                    if (hasOperandValue == hasOperandVariable)
+                        return "variable.compute 必须且只能提供 operandValue 或 operandVariable。";
+                    if ((operation.Operator == "divide" || operation.Operator == "modulo")
+                        && operation.OperandValue == 0d)
+                        return "variable.compute 的除数或求余操作数不能为0。";
+                    return null!;
                 case "wait":
                     if (!operation.Milliseconds.HasValue || operation.Milliseconds < 0 || operation.Milliseconds > 86400000)
                         return "wait.milliseconds 必须在0..86400000之间。";
                     return null!;
                 case "flow.goto":
-                    return ValidateTarget(operation.Target, "flow.goto.target");
+                    return operation.Target == null ? null! : ValidateTarget(operation.Target, "flow.goto.target");
+                case "flow.end":
+                    return null!;
                 case "branch.number_range":
                     if (string.IsNullOrWhiteSpace(operation.Variable) || !operation.Min.HasValue || !operation.Max.HasValue)
                         return "branch.number_range 必须提供 variable/min/max。";
-                    return ValidateTarget(operation.WhenTrue, "branch.number_range.whenTrue")
-                        ?? ValidateTarget(operation.WhenFalse, "branch.number_range.whenFalse");
+                    return operation.WhenTrue == null
+                        ? operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "branch.number_range.whenFalse")
+                        : ValidateTarget(operation.WhenTrue, "branch.number_range.whenTrue")
+                            ?? (operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "branch.number_range.whenFalse"));
+                case "branch.number_compare":
+                    if (string.IsNullOrWhiteSpace(operation.Variable)
+                        || string.IsNullOrWhiteSpace(operation.Comparison)
+                        || !operation.CompareValue.HasValue)
+                        return "branch.number_compare 必须提供 variable/comparison/compareValue。";
+                    if (!new[] { "gt", "gte", "lt", "lte", "eq", "ne" }
+                        .Contains(operation.Comparison, StringComparer.Ordinal))
+                        return "branch.number_compare.comparison 只能是 gt/gte/lt/lte/eq/ne。";
+                    return operation.WhenTrue == null
+                        ? operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "branch.number_compare.whenFalse")
+                        : ValidateTarget(operation.WhenTrue, "branch.number_compare.whenTrue")
+                            ?? (operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "branch.number_compare.whenFalse"));
                 case "popup.message":
                     if (string.IsNullOrWhiteSpace(operation.Message)) return "popup.message.message 不能为空。";
                     if (ContainsPlaceholderSyntax(operation.Message))
@@ -100,6 +159,10 @@ namespace Automation.McpServer
                 case "popup.variable":
                     if (string.IsNullOrWhiteSpace(operation.Variable)) return "popup.variable.variable 不能为空。";
                     return operation.Target == null ? null! : ValidateTarget(operation.Target, "popup.variable.target");
+                case "config.placeholder":
+                    return string.IsNullOrWhiteSpace(operation.Message)
+                        ? "config.placeholder.message 不能为空。"
+                        : null!;
                 case "io.write":
                     if (string.IsNullOrWhiteSpace(operation.Io) || !operation.State.HasValue)
                         return "io.write 必须提供 io/state。";
@@ -109,20 +172,15 @@ namespace Automation.McpServer
                         return "io.wait 必须提供 io/state/timeoutMs。";
                     return null!;
                 case "process.control":
-                    if (string.IsNullOrWhiteSpace(operation.Process) || string.IsNullOrWhiteSpace(operation.Action))
-                        return "process.control 必须提供 process/action。";
                     return null!;
                 case "process.wait":
-                    if (string.IsNullOrWhiteSpace(operation.Process) || string.IsNullOrWhiteSpace(operation.ExpectedState)
-                        || !operation.TimeoutMs.HasValue)
-                        return "process.wait 必须提供 process/expectedState/timeoutMs。";
                     return null!;
                 case "native.operation":
                     if (string.IsNullOrWhiteSpace(operation.OperaType) || operation.Fields == null)
                         return "native.operation 必须提供精确 operaType 和 fields 对象。";
                     return null!;
                 default:
-                    return $"不支持的语义指令：{operation.Kind}。支持的 kind：{SemanticOperationKinds.SupportedKinds}；目标语义不明确时先调用 get_change_capabilities。";
+                    return $"不支持的语义指令：{operation.Kind}。支持的 kind：{SemanticOperationKinds.SupportedKinds}；原生类型按需读取 get_native_operation_schemas。";
             }
         }
 
@@ -130,15 +188,15 @@ namespace Automation.McpServer
         {
             if (target == null) return $"{path} 必填。";
             int selectorCount = (!string.IsNullOrWhiteSpace(target.OperationId) ? 1 : 0)
-                + (!string.IsNullOrWhiteSpace(target.OperationKey) ? 1 : 0)
-                + (target.Operation.HasValue ? 1 : 0);
+                + (!string.IsNullOrWhiteSpace(target.OperationKey) ? 1 : 0);
             if (selectorCount != 1)
-                return $"{path} 必须且只能使用 operationId、operationKey 或 operation。";
-            if ((!string.IsNullOrWhiteSpace(target.OperationKey) || target.Operation.HasValue)
-                && string.IsNullOrWhiteSpace(target.Step))
-                return $"{path} 使用 operationKey 或 operation 时必须提供 step。";
-            if (target.Operation.HasValue && target.Operation.Value < 0)
-                return $"{path}.operation 必须是非负整数。";
+                return $"{path} 必须且只能使用 operationId 或 operationKey。";
+            int stepSelectorCount = (!string.IsNullOrWhiteSpace(target.StepId) ? 1 : 0)
+                + (!string.IsNullOrWhiteSpace(target.StepKey) ? 1 : 0);
+            if (!string.IsNullOrWhiteSpace(target.OperationId) && stepSelectorCount != 0)
+                return $"{path} 使用 operationId 时不得提供 stepId 或 stepKey。";
+            if (!string.IsNullOrWhiteSpace(target.OperationKey) && stepSelectorCount > 1)
+                return $"{path} 使用 operationKey 时 stepId 和 stepKey 不能同时提供。";
             return null!;
         }
 

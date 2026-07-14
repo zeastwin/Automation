@@ -237,6 +237,14 @@ namespace Automation.McpServer
             });
         }
 
+        public Task<string> GetSemanticOperationContractsAsync(string[] kinds)
+        {
+            return PostAsync("/bridge/change-set/contracts", new JsonObject
+            {
+                ["kinds"] = JsonSerializer.SerializeToNode(kinds, jsonOptions)
+            });
+        }
+
         public Task<string> ApplyChangeSetAsync(string previewId)
         {
             ValidatePreviewId(previewId);
@@ -688,6 +696,14 @@ namespace Automation.McpServer
             JsonObject payload = new JsonObject { ["action"] = action };
             if (parameters != null) payload["params"] = parameters;
             return PostAsync("/bridge/resources", payload);
+        }
+
+        public Task<string> GetCommunicationAsync(string name, string? kind, bool? includeStatus)
+        {
+            var parameters = new JsonObject { ["name"] = name };
+            if (!string.IsNullOrEmpty(kind)) parameters["kind"] = kind;
+            if (includeStatus.HasValue) parameters["includeStatus"] = includeStatus.Value;
+            return ListResourcesAsync("communications", parameters);
         }
 
         private Task<string> PostAsync(string path, object payload)

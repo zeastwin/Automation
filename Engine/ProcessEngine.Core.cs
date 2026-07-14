@@ -981,11 +981,6 @@ namespace Automation
         }
         public bool StartProcAt(Proc proc, int procIndex, int stepIndex, int opIndex, ProcRunState startState)
         {
-            if (!TryValidateStartGate(out string gateError))
-            {
-                Logger?.Log($"启动流程失败:{gateError}", LogLevel.Error);
-                return false;
-            }
             if (proc == null && Context?.Procs != null && procIndex >= 0 && procIndex < Context.Procs.Count)
             {
                 proc = Context.Procs[procIndex];
@@ -993,6 +988,11 @@ namespace Automation
             if (proc == null)
             {
                 Logger?.Log("启动流程失败：流程为空。", LogLevel.Error);
+                return false;
+            }
+            if (!TryValidateProcessStart(proc, procIndex, out string gateError))
+            {
+                Logger?.Log($"启动流程失败:{gateError}", LogLevel.Error);
                 return false;
             }
             if (!TryValidateCustomFunctions(proc, out string customFunctionError))
@@ -1450,6 +1450,22 @@ namespace Automation
             return true;
         }
 
+        public bool TryValidateProcessStart(Proc proc, int procIndex, out string error)
+        {
+            if (!TryValidateStartGate(out error))
+            {
+                return false;
+            }
+            ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
+                procIndex, proc, Context?.Procs);
+            if (readiness.Runnable)
+            {
+                return true;
+            }
+            error = "流程配置尚不可运行：" + string.Join("；", readiness.RunBlockers);
+            return false;
+        }
+
         private bool TryValidateMotionResetGate(out string error)
         {
             error = null;
@@ -1555,6 +1571,7 @@ namespace Automation
                 control.SetRunning();
             }
             evt.PauseBySignal = false;
+            evt.CompletionRequested = false;
             evt.isBreakpoint = false;
             PublishHandleSnapshot(evt, true);
             while (true)
@@ -1601,6 +1618,10 @@ namespace Automation
                 evt.procName = currentProc.head?.Name;
                 PublishHandleSnapshot(evt, false);
                 RunStep(evt, control);
+                if (evt.CompletionRequested)
+                {
+                    break;
+                }
                 if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
                 {
                     break;
@@ -1841,6 +1862,10 @@ namespace Automation
                         {
                             control.RequestStop();
                             return false;
+                        }
+                        if (evt.CompletionRequested)
+                        {
+                            return true;
                         }
                         if (evt.isGoto)
                         {

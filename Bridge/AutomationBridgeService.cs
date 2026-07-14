@@ -1045,7 +1045,7 @@ namespace Automation.Bridge
                     }
                     if (!SF.DR.StartProc(proc, procIndex))
                     {
-                        string startError = SF.DR.TryValidateStartGate(out string gateError)
+                        string startError = SF.DR.TryValidateProcessStart(proc, procIndex, out string gateError)
                             ? "流程启动请求未被内核接受，详见流程日志。"
                             : gateError;
                         return BridgeError(409, "START_GATE_REJECTED", startError);
@@ -1419,7 +1419,8 @@ namespace Automation.Bridge
         private static void ValidateChangeSetShape(JObject changeSet)
         {
             EnsureOnlyProperties(changeSet, "changeSet",
-                "version", "title", "deleteProcesses", "variables", "processes");
+                "version", "title", "actions", "deleteProcesses", "variables", "processes");
+            ValidateObjectArray(changeSet["actions"], "changeSet.actions", ValidateAtomicActionShape);
             if (changeSet["deleteProcesses"] is JObject deletion)
             {
                 EnsureOnlyProperties(deletion, "changeSet.deleteProcesses", "mode", "names", "procIds");
@@ -1434,7 +1435,7 @@ namespace Automation.Bridge
                     "name", "type", "initialValue", "note", "policy"));
             ValidateObjectArray(changeSet["processes"], "changeSet.processes", process =>
             {
-                EnsureOnlyProperties(process, "changeSet.processes[]", "action", "targetProcId", "targetName",
+                EnsureOnlyProperties(process, "changeSet.processes[]", "key", "action", "targetProcId", "targetName",
                     "name", "autoStart", "disable", "steps");
                 ValidateObjectArray(process["steps"], "changeSet.processes[].steps", step =>
                 {
@@ -1446,6 +1447,45 @@ namespace Automation.Bridge
                     });
                 });
             });
+        }
+
+        private static void ValidateAtomicActionShape(JObject action)
+        {
+            EnsureOnlyProperties(action, "changeSet.actions[]", "type", "targetProcess", "targetStep",
+                "targetOperation", "position", "variable", "process", "step", "operation");
+            if (action["type"]?.Type != JTokenType.String
+                || string.IsNullOrWhiteSpace(action["type"]?.Value<string>()))
+            {
+                throw new BridgeRequestException(400, "CHANGE_SET_INVALID",
+                    "changeSet.actions[].type 必须是非空字符串。");
+            }
+            ValidateOptionalObject(action["targetProcess"], "changeSet.actions[].targetProcess", value =>
+                EnsureOnlyProperties(value, "changeSet.actions[].targetProcess", "procId", "name", "key"));
+            ValidateOptionalObject(action["targetStep"], "changeSet.actions[].targetStep", value =>
+                EnsureOnlyProperties(value, "changeSet.actions[].targetStep", "stepId", "key"));
+            ValidateOptionalObject(action["targetOperation"], "changeSet.actions[].targetOperation", value =>
+                EnsureOnlyProperties(value, "changeSet.actions[].targetOperation", "opId", "key"));
+            ValidateOptionalObject(action["position"], "changeSet.actions[].position", value =>
+                EnsureOnlyProperties(value, "changeSet.actions[].position",
+                    "beforeId", "beforeKey", "afterId", "afterKey"));
+            ValidateOptionalObject(action["variable"], "changeSet.actions[].variable", value =>
+                EnsureOnlyProperties(value, "changeSet.actions[].variable",
+                    "name", "type", "initialValue", "note", "policy"));
+            ValidateOptionalObject(action["process"], "changeSet.actions[].process", value =>
+                EnsureOnlyProperties(value, "changeSet.actions[].process",
+                    "key", "name", "autoStart", "disable"));
+            ValidateOptionalObject(action["step"], "changeSet.actions[].step", value =>
+                EnsureOnlyProperties(value, "changeSet.actions[].step", "key", "name", "disable"));
+            ValidateOptionalObject(action["operation"], "changeSet.actions[].operation",
+                ValidateSemanticOperationShape);
+        }
+
+        private static void ValidateOptionalObject(JToken token, string path, Action<JObject> validate)
+        {
+            if (token == null || token.Type == JTokenType.Null) return;
+            if (!(token is JObject value))
+                throw new BridgeRequestException(400, "CHANGE_SET_INVALID", $"{path} 必须是对象。");
+            validate(value);
         }
 
         private static void ValidateSemanticOperationShape(JObject operation)
@@ -1532,7 +1572,7 @@ namespace Automation.Bridge
                 throw new BridgeRequestException(400, "CHANGE_SET_INVALID", $"语义指令 {field} 必须是对象。");
             }
             EnsureOnlyProperties(target, $"语义指令.{field}",
-                "step", "operation", "operationId", "operationKey");
+                "stepId", "stepKey", "operationId", "operationKey");
         }
 
         private static void EnsureOnlyProperties(JObject value, string path, params string[] allowedNames)
@@ -1596,12 +1636,18 @@ namespace Automation.Bridge
                     ["createdProcesses"] = draft.CreatedProcessCount,
                     ["replacedProcesses"] = draft.ReplacedProcessCount,
                     ["changedVariables"] = draft.ChangedVariableCount,
-                    ["operations"] = draft.OperationCount
+                    ["atomicActions"] = draft.AtomicActionCount,
+                    ["operationsInAffectedProcesses"] = draft.OperationCount
                 },
                 ["changes"] = draft.Changes.DeepClone(),
                 ["processAnalyses"] = draft.ProcessAnalyses?.DeepClone() ?? new JArray(),
-                ["messages"] = new JArray(
-                    $"本次将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、替换 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量，共 {draft.OperationCount} 条指令。")
+                ["readinessStatus"] = draft.ReadinessStatus,
+                ["runnable"] = draft.Runnable,
+                ["warnings"] = draft.ConfigurationWarnings?.DeepClone() ?? new JArray(),
+                ["runBlockers"] = draft.RunBlockers?.DeepClone() ?? new JArray(),
+                ["messages"] = new JArray(draft.AtomicActionCount > 0
+                    ? $"本阶段包含 {draft.AtomicActionCount} 个原子动作；将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、修改 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量。受影响流程修改后共 {draft.OperationCount} 条指令。"
+                    : $"本次将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、替换 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量，共 {draft.OperationCount} 条指令。")
             };
         }
 
@@ -1624,11 +1670,18 @@ namespace Automation.Bridge
             string[] serialNames = (SF.communicationStore?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>())
                 .Where(item => item != null && !string.IsNullOrWhiteSpace(item.Name))
                 .Select(item => item.Name).Distinct(StringComparer.Ordinal).ToArray();
+            string[] alarmInfoIds = (SF.alarmInfoStore?.Alarms ?? new System.ComponentModel.BindingList<AlarmInfo>())
+                .Where(item => item != null
+                    && !string.IsNullOrWhiteSpace(item.Name)
+                    && !string.IsNullOrWhiteSpace(item.Note))
+                .Select(item => item.Index.ToString(CultureInfo.InvariantCulture))
+                .ToArray();
             var references = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
             {
                 ["comm.tcp"] = tcpNames,
                 ["comm.serial"] = serialNames,
-                ["comm.all"] = tcpNames.Concat(serialNames).Distinct(StringComparer.Ordinal).ToArray()
+                ["comm.all"] = tcpNames.Concat(serialNames).Distinct(StringComparer.Ordinal).ToArray(),
+                ["alarm.infoId"] = alarmInfoIds
             };
             return new AiResourceSnapshot(ioTypes, references);
         }
@@ -1659,7 +1712,7 @@ namespace Automation.Bridge
             if (!string.Equals(expectedStateHash, currentStateHash, StringComparison.Ordinal))
             {
                 throw new BridgeRequestException(409, "CHANGE_SET_VERSION_MISMATCH",
-                    "预演后流程或变量配置已发生变化，禁止提交旧草稿。请重新预演。");
+                    "预演后流程或变量配置已发生变化，禁止提交过期预演。请重新预演。");
             }
 
             CommitChangeSet(draft);
@@ -1668,7 +1721,8 @@ namespace Automation.Bridge
             var affectedProcesses = new JArray();
             foreach (JObject change in changes.OfType<JObject>()
                 .Where(change => string.Equals(change["type"]?.Value<string>(), "process.create", StringComparison.Ordinal)
-                    || string.Equals(change["type"]?.Value<string>(), "process.replace", StringComparison.Ordinal)))
+                    || string.Equals(change["type"]?.Value<string>(), "process.replace", StringComparison.Ordinal)
+                    || string.Equals(change["type"]?.Value<string>(), "process.modify", StringComparison.Ordinal)))
             {
                 string changeType = change["type"]?.Value<string>() ?? string.Empty;
                 string name = change["name"]?.Value<string>() ?? string.Empty;
@@ -1682,7 +1736,9 @@ namespace Automation.Bridge
                         ["procId"] = draft.Processes[procIndex].head?.Id.ToString("D") ?? string.Empty,
                         ["name"] = name,
                         ["changeType"] = changeType,
-                        ["potentiallyUnbounded"] = change["potentiallyUnbounded"]?.Value<bool>() ?? false
+                        ["readinessStatus"] = change["readinessStatus"]?.Value<string>() ?? "ready",
+                        ["runnable"] = change["runnable"]?.Value<bool>() ?? true,
+                        ["containsReachableCycle"] = change["containsReachableCycle"]?.Value<bool>() ?? false
                     };
                     affectedProcesses.Add(item);
                     if (string.Equals(changeType, "process.create", StringComparison.Ordinal))
@@ -1701,7 +1757,17 @@ namespace Automation.Bridge
                 ["variableCount"] = draft.Variables.Count,
                 ["createdProcesses"] = createdProcesses,
                 ["affectedProcesses"] = affectedProcesses,
+                ["createdObjects"] = draft.CreatedObjects?.DeepClone() ?? new JObject
+                {
+                    ["processes"] = new JArray(),
+                    ["steps"] = new JArray(),
+                    ["operations"] = new JArray()
+                },
                 ["processAnalyses"] = draft.ProcessAnalyses?.DeepClone() ?? new JArray(),
+                ["readinessStatus"] = draft.ReadinessStatus,
+                ["runnable"] = draft.Runnable,
+                ["warnings"] = draft.ConfigurationWarnings?.DeepClone() ?? new JArray(),
+                ["runBlockers"] = draft.RunBlockers?.DeepClone() ?? new JArray(),
                 ["changes"] = changes,
                 ["message"] = "语义变更集已按冻结预演原子提交。"
             };
@@ -1737,7 +1803,7 @@ namespace Automation.Bridge
                 Proc proc = ExecuteOnUiThread(() => ObjectGraphCloner.Clone(GetProcByIndex(procIndex)));
                 EngineSnapshot current = SF.DR?.GetSnapshot(procIndex);
                 ProcessFlowAnalysis flow = ProcessFlowAnalyzer.Analyze(procIndex, proc);
-                if (current != null && current.State != ProcRunState.Stopped && flow.PotentiallyUnbounded)
+                if (current != null && current.State != ProcRunState.Stopped && flow.ContainsReachableCycle)
                 {
                     throw new BridgeRequestException(
                         409,
@@ -1820,7 +1886,7 @@ namespace Automation.Bridge
                 flow = ProcessFlowAnalyzer.Analyze(procIndex, proc);
                 if (!SF.DR.StartProc(proc, procIndex))
                 {
-                    string startError = SF.DR.TryValidateStartGate(out string gateError)
+                    string startError = SF.DR.TryValidateProcessStart(proc, procIndex, out string gateError)
                         ? "流程测试启动请求未被内核接受，详见流程日志。"
                         : gateError;
                     throw new BridgeRequestException(409, "START_GATE_REJECTED", startError);
@@ -1928,7 +1994,7 @@ namespace Automation.Bridge
                 ["outcome"] = outcome,
                 ["observedRunning"] = observedRunning,
                 ["positionChanges"] = positionChanges,
-                ["potentiallyUnbounded"] = flow?.PotentiallyUnbounded ?? false,
+                ["containsReachableCycle"] = flow?.ContainsReachableCycle ?? false,
                 ["cycleLocations"] = new JArray(flow?.CycleLocations ?? Array.Empty<string>()),
                 ["stoppedByTestRunner"] = stoppedByTestRunner,
                 ["elapsedMs"] = (long)(DateTime.UtcNow - startedAt).TotalMilliseconds,
@@ -3333,7 +3399,7 @@ namespace Automation.Bridge
                 ["procId"] = proc?.head?.Id.ToString("D"),
                 ["name"] = proc?.head?.Name ?? string.Empty,
                 ["operationCount"] = CountOperations(proc),
-                ["potentiallyUnbounded"] = controlFlow.PotentiallyUnbounded,
+                ["containsReachableCycle"] = controlFlow.ContainsReachableCycle,
                 ["cycleLocations"] = new JArray(controlFlow.CycleLocations),
                 ["findingCount"] = findings.Count,
                 ["findings"] = findings
@@ -3753,6 +3819,8 @@ namespace Automation.Bridge
         {
             int procIndex = ReadRequiredInt(request, "procIndex");
             Proc proc = GetProcByIndex(procIndex);
+            ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
+                procIndex, proc, SF.frmProc?.procsList);
 
             JArray errors = new JArray();
             JArray warnings = new JArray();
@@ -3766,7 +3834,7 @@ namespace Automation.Bridge
             // 2. 空步骤/指令检查
             if (proc.steps == null || proc.steps.Count == 0)
             {
-                errors.Add(new JObject { ["message"] = "流程没有步骤。" });
+                warnings.Add(new JObject { ["message"] = "流程尚未添加步骤，可以继续分阶段配置。" });
             }
             else
             {
@@ -3798,6 +3866,10 @@ namespace Automation.Bridge
                         {
                             warnings.Add(new JObject { ["message"] = $"步骤 {si} 指令 {oi} [{op.Name}] 已禁用。" });
                         }
+                        else if (ProcessReadinessService.IsPlaceholder(op))
+                        {
+                            warnings.Add(new JObject { ["message"] = $"步骤 {si} 指令 {oi} [{op.Name}] 是待完善占位。" });
+                        }
                     }
                 }
             }
@@ -3808,6 +3880,9 @@ namespace Automation.Bridge
                 ["procIndex"] = procIndex,
                 ["procName"] = proc.head?.Name ?? string.Empty,
                 ["isValid"] = isValid,
+                ["readinessStatus"] = readiness.ReadinessStatus,
+                ["runnable"] = readiness.Runnable,
+                ["runBlockers"] = new JArray(readiness.RunBlockers),
                 ["errorCount"] = errors.Count,
                 ["warningCount"] = warnings.Count,
                 ["errors"] = errors,
@@ -5424,12 +5499,23 @@ namespace Automation.Bridge
         {
             EnsureRuntimeReady();
             bool includeStatus = request["includeStatus"]?.Value<bool>() ?? true;
+            string exactName = ReadOptionalString(request, "name");
+            string kind = ReadOptionalString(request, "kind");
+            if (!string.IsNullOrWhiteSpace(kind)
+                && !string.Equals(kind, "tcp", StringComparison.Ordinal)
+                && !string.Equals(kind, "serial", StringComparison.Ordinal))
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "kind 只能是 tcp 或 serial。");
+            }
             IReadOnlyList<SocketInfo> socketInfos = SF.communicationStore?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>();
             IReadOnlyList<SerialPortInfo> serialPortInfos = SF.communicationStore?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>();
             var tcpItems = new JArray();
             foreach (SocketInfo sock in socketInfos)
             {
                 if (sock == null) continue;
+                if (!string.IsNullOrWhiteSpace(exactName)
+                    && !string.Equals(sock.Name, exactName, StringComparison.Ordinal)) continue;
+                if (string.Equals(kind, "serial", StringComparison.Ordinal)) continue;
                 JObject obj = new JObject
                 {
                     ["name"] = sock.Name ?? string.Empty,
@@ -5455,6 +5541,9 @@ namespace Automation.Bridge
             foreach (SerialPortInfo sp in serialPortInfos)
             {
                 if (sp == null) continue;
+                if (!string.IsNullOrWhiteSpace(exactName)
+                    && !string.Equals(sp.Name, exactName, StringComparison.Ordinal)) continue;
+                if (string.Equals(kind, "tcp", StringComparison.Ordinal)) continue;
                 JObject obj = new JObject
                 {
                     ["name"] = sp.Name ?? string.Empty,
@@ -5474,6 +5563,17 @@ namespace Automation.Bridge
                     obj["droppedFrames"] = status.DroppedFrames;
                 }
                 serialItems.Add(obj);
+            }
+            if (!string.IsNullOrWhiteSpace(exactName) && tcpItems.Count + serialItems.Count == 0)
+            {
+                throw new BridgeRequestException(404, "COMMUNICATION_NOT_FOUND",
+                    $"未找到通讯对象：{exactName}" + (string.IsNullOrWhiteSpace(kind) ? string.Empty : $" ({kind})"));
+            }
+            if (!string.IsNullOrWhiteSpace(exactName) && string.IsNullOrWhiteSpace(kind)
+                && tcpItems.Count + serialItems.Count > 1)
+            {
+                throw new BridgeRequestException(409, "COMMUNICATION_AMBIGUOUS",
+                    $"通讯名称同时存在于 TCP 和串口配置：{exactName}，请指定 kind。");
             }
             return new JObject
             {
@@ -6251,7 +6351,7 @@ namespace Automation.Bridge
                 if (!previewRecords.TryGetValue(previewId, out PreviewApprovalRecord record)
                     || record.DraftProc == null)
                 {
-                    throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND", $"预演草稿不存在或已过期：{previewId}");
+                    throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND", $"冻结预演不存在或已过期：{previewId}");
                 }
                 return new PatchExecutionResult
                 {

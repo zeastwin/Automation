@@ -37,31 +37,31 @@ namespace Automation
     public sealed class AiOperationCompileContext
     {
         private readonly int _procIndex;
-        private readonly IReadOnlyDictionary<string, int> _stepIndexes;
-        private readonly IReadOnlyDictionary<string, int> _stepOperationCounts;
         private readonly IReadOnlyDictionary<Guid, OperationReferenceLocation> _operationIdLocations;
         private readonly IReadOnlyDictionary<string, OperationReferenceLocation> _operationKeyLocations;
         private readonly IReadOnlyDictionary<string, DicValue> _variables;
         private readonly AiResourceSnapshot _resources;
+        private readonly Guid _currentStepId;
+        private readonly string _currentStepKey;
 
         public AiOperationCompileContext(
             int procIndex,
-            IReadOnlyDictionary<string, int> stepIndexes,
-            IReadOnlyDictionary<string, int> stepOperationCounts,
             IReadOnlyDictionary<string, DicValue> variables,
             AiResourceSnapshot resources,
             IReadOnlyDictionary<Guid, OperationReferenceLocation> operationIdLocations = null,
-            IReadOnlyDictionary<string, OperationReferenceLocation> operationKeyLocations = null)
+            IReadOnlyDictionary<string, OperationReferenceLocation> operationKeyLocations = null,
+            Guid currentStepId = default(Guid),
+            string currentStepKey = null)
         {
             _procIndex = procIndex;
-            _stepIndexes = stepIndexes ?? throw new ArgumentNullException(nameof(stepIndexes));
-            _stepOperationCounts = stepOperationCounts ?? throw new ArgumentNullException(nameof(stepOperationCounts));
             _operationIdLocations = operationIdLocations
                 ?? new Dictionary<Guid, OperationReferenceLocation>();
             _operationKeyLocations = operationKeyLocations
                 ?? new Dictionary<string, OperationReferenceLocation>(StringComparer.Ordinal);
             _variables = variables ?? throw new ArgumentNullException(nameof(variables));
             _resources = resources ?? new AiResourceSnapshot();
+            _currentStepId = currentStepId;
+            _currentStepKey = currentStepKey;
         }
 
         public string RequireIo(string name, string path, bool outputOnly)
@@ -123,19 +123,23 @@ namespace Automation
 
         public string ResolveTarget(OperationTarget target, string path)
         {
-            if (target == null) throw new InvalidOperationException($"{path} 必填。");
+            if (target == null) return string.Empty;
             bool hasOperationId = !string.IsNullOrWhiteSpace(target.OperationId);
             bool hasOperationKey = !string.IsNullOrWhiteSpace(target.OperationKey);
-            bool hasOperationIndex = target.Operation.HasValue;
-            int selectorCount = (hasOperationId ? 1 : 0) + (hasOperationKey ? 1 : 0)
-                + (hasOperationIndex ? 1 : 0);
+            int selectorCount = (hasOperationId ? 1 : 0) + (hasOperationKey ? 1 : 0);
             if (selectorCount != 1)
             {
                 throw new InvalidOperationException(
-                    $"{path} 必须且只能使用 operationId、operationKey 或 operation 定位目标。");
+                    $"{path} 必须且只能使用 operationId 或 operationKey 定位目标。");
             }
             if (hasOperationId)
             {
+                if (!string.IsNullOrWhiteSpace(target.StepId)
+                    || !string.IsNullOrWhiteSpace(target.StepKey))
+                {
+                    throw new InvalidOperationException(
+                        $"{path} 使用 operationId 时不得提供 stepId 或 stepKey。");
+                }
                 if (!Guid.TryParse(target.OperationId, out Guid operationId) || operationId == Guid.Empty)
                 {
                     throw new InvalidOperationException($"{path}.operationId 不是有效 Guid。");
@@ -147,34 +151,60 @@ namespace Automation
                 return $"{_procIndex}-{idLocation.StepIndex}-{idLocation.OperationIndex}";
             }
 
-            string stepKey = RequireText(target.Step, path + ".step");
-            if (!_stepIndexes.TryGetValue(stepKey, out int stepIndex))
+            int stepSelectorCount = (!string.IsNullOrWhiteSpace(target.StepId) ? 1 : 0)
+                + (!string.IsNullOrWhiteSpace(target.StepKey) ? 1 : 0);
+            if (stepSelectorCount > 1)
             {
-                throw new InvalidOperationException($"{path}.step 未找到：{stepKey}");
+                throw new InvalidOperationException(
+                    $"{path} 使用 operationKey 时 stepId 和 stepKey 不能同时提供。");
             }
-            if (hasOperationKey)
+            string operationKey = RequireText(target.OperationKey, path + ".operationKey");
+            string mapKey;
+            string stepDisplay;
+            if (!string.IsNullOrWhiteSpace(target.StepId))
             {
-                string operationKey = RequireText(target.OperationKey, path + ".operationKey");
-                if (!_operationKeyLocations.TryGetValue(BuildOperationKey(stepKey, operationKey),
-                    out OperationReferenceLocation keyLocation))
+                if (!Guid.TryParse(target.StepId, out Guid stepId) || stepId == Guid.Empty)
                 {
-                    throw new InvalidOperationException(
-                        $"{path}.operationKey 未在步骤[{stepKey}]中找到：{operationKey}");
+                    throw new InvalidOperationException($"{path}.stepId 不是有效 Guid。");
                 }
-                return $"{_procIndex}-{keyLocation.StepIndex}-{keyLocation.OperationIndex}";
+                mapKey = BuildOperationKeyForStepId(stepId, operationKey);
+                stepDisplay = stepId.ToString("D");
             }
-            int operationCount = _stepOperationCounts[stepKey];
-            int operationIndex = target.Operation.Value;
-            if (operationIndex < 0 || operationIndex >= operationCount)
+            else if (!string.IsNullOrWhiteSpace(target.StepKey))
             {
-                throw new InvalidOperationException($"{path}.operation 超出步骤[{stepKey}]指令范围 [0,{operationCount})。");
+                string stepKey = RequireText(target.StepKey, path + ".stepKey");
+                mapKey = BuildOperationKeyForStepKey(stepKey, operationKey);
+                stepDisplay = stepKey;
             }
-            return $"{_procIndex}-{stepIndex}-{operationIndex}";
+            else if (_currentStepId != Guid.Empty)
+            {
+                mapKey = BuildOperationKeyForStepId(_currentStepId, operationKey);
+                stepDisplay = _currentStepId.ToString("D");
+            }
+            else if (!string.IsNullOrWhiteSpace(_currentStepKey))
+            {
+                mapKey = BuildOperationKeyForStepKey(_currentStepKey, operationKey);
+                stepDisplay = _currentStepKey;
+            }
+            else
+            {
+                throw new InvalidOperationException($"{path} 无法确定 operationKey 所在步骤。");
+            }
+            if (!_operationKeyLocations.TryGetValue(mapKey, out OperationReferenceLocation keyLocation))
+            {
+                return ProcessDefinitionService.BuildPendingGoto(mapKey);
+            }
+            return $"{_procIndex}-{keyLocation.StepIndex}-{keyLocation.OperationIndex}";
         }
 
-        public static string BuildOperationKey(string stepKey, string operationKey)
+        public static string BuildOperationKeyForStepKey(string stepKey, string operationKey)
         {
-            return stepKey + "\0" + operationKey;
+            return "key:" + stepKey + "\0" + operationKey;
+        }
+
+        public static string BuildOperationKeyForStepId(Guid stepId, string operationKey)
+        {
+            return "id:" + stepId.ToString("D") + "\0" + operationKey;
         }
 
         public static string RequireText(string value, string path)
@@ -207,11 +237,15 @@ namespace Automation
             {
                 new VariableSetCompiler(),
                 new VariableAddCompiler(),
+                new VariableComputeCompiler(),
                 new WaitCompiler(),
                 new FlowGotoCompiler(),
+                new FlowEndCompiler(),
+                new NumberCompareBranchCompiler(),
                 new NumberRangeBranchCompiler(),
                 new PopupMessageCompiler(),
                 new PopupVariableCompiler(),
+                new ConfigurationPlaceholderCompiler(),
                 new IoWriteCompiler(),
                 new IoWaitCompiler(),
                 new ProcessControlCompiler(),
@@ -235,7 +269,7 @@ namespace Automation
             return new JObject
             {
                 ["protocol"] = "change-set-v2",
-                ["processActions"] = new JArray("create", "replace"),
+                ["changeActions"] = new JArray(ChangeSetActionTypes.SupportedTypes.Split('、')),
                 ["processDeletion"] = new JObject
                 {
                     ["modes"] = new JArray("all", "selected"),
@@ -256,15 +290,17 @@ namespace Automation
                 ["nativeOperation"] = new JObject
                 {
                     ["kind"] = "native.operation",
-                    ["contractTool"] = "get_native_operation_contract",
+                    ["contractTool"] = "get_native_operation_schemas",
                     ["rule"] = "高层 kind 不覆盖目标指令时，按一个精确原生 operaType 读取递归契约"
                 },
                 ["workflow"] = new JArray(
-                    "一次性构造包含全部步骤和指令的完整 changeSet",
-                    "preview_change_set(changeSet)",
+                    "按依赖和验证边界划分一个可独立审查的原子阶段",
+                    "用稳定ID和阶段内key构造actions",
+                    "preview_change_set(actions)",
                     "等待 Automation 前台确认",
-                    "apply_change_set(previewId)"),
-                ["rule"] = "根据既有配置或精确规范重建时使用preserveOperationTypes=true并按原operaType追加native.operation；仅业务目标创建才使用高层语义kind。"
+                    "apply_change_set(previewId)",
+                    "需要时根据真实提交结果继续下一原子阶段"),
+                ["rule"] = "局部编辑使用动作和稳定ID；普通业务目标优先使用语义kind，精确原生类型使用native.operation。"
             };
         }
 
@@ -305,9 +341,9 @@ namespace Automation
             public JObject BuildContract()
             {
                 return Contract("按精确 operaType 和递归字段契约编译任意平台注册指令",
-                    new[] { "kind", "operaType", "fields" }, new[] { "name" },
-                    new JProperty("contractTool", "get_native_operation_contract"),
-                    new JProperty("rule", "先按精确 operaType 读取契约；fields 禁止使用扁平化 PropertyGrid 键"));
+                    new[] { "kind", "operaType", "fields" }, new[] { "name", "clearFields" },
+                    new JProperty("contractTool", "get_native_operation_schemas"),
+                    new JProperty("rule", "先按精确 operaType 读取契约；fields 禁止使用扁平化 PropertyGrid 键；clearFields 仅用于 update 显式清空旧字符串字段"));
             }
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
@@ -392,6 +428,91 @@ namespace Automation
             public override string DefaultName => "变量累加";
         }
 
+        private sealed class VariableComputeCompiler : IAiOperationCompiler
+        {
+            private static readonly HashSet<string> Operators = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "add", "subtract", "multiply", "divide", "modulo", "absolute"
+            };
+
+            public string Kind => "variable.compute";
+
+            public string DefaultName => "变量计算";
+
+            public JObject BuildContract() => Contract(
+                "用 double 变量和固定数值或另一个 double 变量计算，并把结果写入指定变量",
+                new[] { "kind", "sourceVariable", "operator", "outputVariable" },
+                new[] { "name", "operandValue", "operandVariable" },
+                new JProperty("operators", new JArray(Operators.OrderBy(value => value, StringComparer.Ordinal))),
+                new JProperty("operandRule", "除 absolute 外，operandValue 与 operandVariable 必须且只能提供一个；absolute 两者都不提供"));
+
+            public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
+            {
+                string source = AiOperationCompileContext.RequireText(
+                    definition.SourceVariable, "variable.compute.sourceVariable");
+                string output = AiOperationCompileContext.RequireText(
+                    definition.OutputVariable, "variable.compute.outputVariable");
+                context.RequireVariable(source, "variable.compute.sourceVariable", "double");
+                context.RequireVariable(output, "variable.compute.outputVariable", "double");
+
+                string semanticOperator = AiOperationCompileContext.RequireText(
+                    definition.Operator, "variable.compute.operator");
+                if (!Operators.Contains(semanticOperator))
+                {
+                    throw new InvalidOperationException(
+                        "variable.compute.operator 只能是 add/subtract/multiply/divide/modulo/absolute。");
+                }
+
+                bool hasLiteral = definition.OperandValue.HasValue;
+                bool hasVariable = !string.IsNullOrWhiteSpace(definition.OperandVariable);
+                if (semanticOperator == "absolute")
+                {
+                    if (hasLiteral || hasVariable)
+                        throw new InvalidOperationException("variable.compute.operator=absolute 时不得提供操作数。");
+                }
+                else if (hasLiteral == hasVariable)
+                {
+                    throw new InvalidOperationException(
+                        "variable.compute 必须且只能提供 operandValue 或 operandVariable。");
+                }
+
+                if (hasVariable)
+                {
+                    context.RequireVariable(definition.OperandVariable,
+                        "variable.compute.operandVariable", "double");
+                }
+                if ((semanticOperator == "divide" || semanticOperator == "modulo")
+                    && hasLiteral && definition.OperandValue.Value == 0d)
+                {
+                    throw new InvalidOperationException("variable.compute 的除数或求余操作数不能为0。");
+                }
+
+                string modifyType;
+                bool reverseOperand = false;
+                switch (semanticOperator)
+                {
+                    case "add": modifyType = "叠加"; break;
+                    case "subtract": modifyType = "叠加"; reverseOperand = true; break;
+                    case "multiply": modifyType = "乘法"; break;
+                    case "divide": modifyType = "除法"; break;
+                    case "modulo": modifyType = "求余"; break;
+                    default: modifyType = "绝对值"; break;
+                }
+
+                return new ModifyValue
+                {
+                    ModifyType = modifyType,
+                    ValueSourceName = source.Trim(),
+                    ChangeR = reverseOperand,
+                    ChangeValue = semanticOperator == "absolute" || hasLiteral
+                        ? (semanticOperator == "absolute" ? "0" : definition.OperandValue.Value.ToString(CultureInfo.InvariantCulture))
+                        : null,
+                    ChangeValueName = hasVariable ? definition.OperandVariable.Trim() : null,
+                    OutputValueName = output.Trim()
+                };
+            }
+        }
+
         private sealed class WaitCompiler : IAiOperationCompiler
         {
             public string Kind => "wait";
@@ -420,7 +541,7 @@ namespace Automation
             public string DefaultName => "跳转";
 
             public JObject BuildContract() => Contract("无条件跳转到当前定义流程内的符号位置",
-                new[] { "kind", "target" }, new[] { "name" },
+                new[] { "kind" }, new[] { "name", "target" },
                 new JProperty("target", new JObject { ["step"] = "步骤key", ["operation"] = "步骤内从0开始的指令索引" }));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
@@ -434,14 +555,30 @@ namespace Automation
             }
         }
 
+        private sealed class FlowEndCompiler : IAiOperationCompiler
+        {
+            public string Kind => "flow.end";
+            public string DefaultName => "结束流程";
+
+            public JObject BuildContract() => Contract(
+                "在执行到当前位置时正常结束当前流程",
+                new[] { "kind" }, new[] { "name" },
+                new JProperty("terminationReason", "Completed"));
+
+            public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
+            {
+                return new EndProcess();
+            }
+        }
+
         private sealed class NumberRangeBranchCompiler : IAiOperationCompiler
         {
             public string Kind => "branch.number_range";
             public string DefaultName => "数值区间判断";
 
             public JObject BuildContract() => Contract("按 double 变量是否位于数值区间进行双分支跳转",
-                new[] { "kind", "variable", "min", "max", "whenTrue", "whenFalse" },
-                new[] { "name", "includeBounds" });
+                new[] { "kind", "variable", "min", "max" },
+                new[] { "name", "includeBounds", "whenTrue", "whenFalse" });
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
@@ -466,6 +603,78 @@ namespace Automation
                             Down = definition.Min.Value,
                             Up = definition.Max.Value,
                             equal = definition.IncludeBounds ?? true,
+                            Operator = "且"
+                        }
+                    }
+                };
+            }
+        }
+
+        private sealed class NumberCompareBranchCompiler : IAiOperationCompiler
+        {
+            private static readonly HashSet<string> Comparisons = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "gt", "gte", "lt", "lte", "eq", "ne"
+            };
+
+            public string Kind => "branch.number_compare";
+
+            public string DefaultName => "数值比较";
+
+            public JObject BuildContract() => Contract(
+                "把 double 变量与固定数值比较，并按结果跳转",
+                new[] { "kind", "variable", "comparison", "compareValue" },
+                new[] { "name", "whenTrue", "whenFalse" },
+                new JProperty("comparisons", new JArray("gt", "gte", "lt", "lte", "eq", "ne")));
+
+            public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
+            {
+                context.RequireVariable(definition.Variable, "branch.number_compare.variable", "double");
+                string comparison = AiOperationCompileContext.RequireText(
+                    definition.Comparison, "branch.number_compare.comparison");
+                if (!Comparisons.Contains(comparison))
+                    throw new InvalidOperationException(
+                        "branch.number_compare.comparison 只能是 gt/gte/lt/lte/eq/ne。");
+                if (!definition.CompareValue.HasValue)
+                    throw new InvalidOperationException("branch.number_compare.compareValue 必填。");
+
+                string judgeMode;
+                bool includeBoundary;
+                double up = 0;
+                switch (comparison)
+                {
+                    case "gt": judgeMode = "值在区间右"; includeBoundary = false; break;
+                    case "gte": judgeMode = "值在区间右"; includeBoundary = true; break;
+                    case "lt": judgeMode = "值在区间左"; includeBoundary = false; break;
+                    case "lte": judgeMode = "值在区间左"; includeBoundary = true; break;
+                    default:
+                        judgeMode = "值在区间内";
+                        includeBoundary = true;
+                        up = definition.CompareValue.Value;
+                        break;
+                }
+
+                string trueGoto = context.ResolveTarget(
+                    comparison == "ne" ? definition.WhenFalse : definition.WhenTrue,
+                    comparison == "ne" ? "branch.number_compare.whenFalse" : "branch.number_compare.whenTrue");
+                string falseGoto = context.ResolveTarget(
+                    comparison == "ne" ? definition.WhenTrue : definition.WhenFalse,
+                    comparison == "ne" ? "branch.number_compare.whenTrue" : "branch.number_compare.whenFalse");
+                return new ParamGoto
+                {
+                    Count = "1",
+                    failDelay = "10",
+                    goto1 = trueGoto,
+                    goto2 = falseGoto,
+                    Params = new CustomList<ParamGotoParam>
+                    {
+                        new ParamGotoParam
+                        {
+                            ValueName = definition.Variable.Trim(),
+                            JudgeMode = judgeMode,
+                            Down = definition.CompareValue.Value,
+                            Up = up,
+                            equal = includeBoundary,
                             Operator = "且"
                         }
                     }
@@ -561,6 +770,34 @@ namespace Automation
             }
         }
 
+        private sealed class ConfigurationPlaceholderCompiler : IAiOperationCompiler
+        {
+            public string Kind => "config.placeholder";
+
+            public string DefaultName => "待完善配置";
+
+            public JObject BuildContract() => Contract(
+                "在目标、资源或业务参数暂时无法确定时保留一个显式占位，后续可继续更新；占位存在时平台允许保存但禁止启动流程",
+                new[] { "kind", "message" }, new[] { "name" },
+                new JProperty("readiness", "incomplete-until-replaced"),
+                new JProperty("runBehavior", "blocked-before-start"));
+
+            public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
+            {
+                string reason = AiOperationCompileContext.RequireText(
+                    definition.Message, "config.placeholder.message");
+                return new PopupDialog
+                {
+                    PopupType = "弹是",
+                    InfoType = "自定义提示信息",
+                    PopupMessage = "此处配置尚未完成：" + reason,
+                    Btn1Text = "知道了",
+                    AlarmLightEnable = "禁用",
+                    Note = ProcessReadinessService.PlaceholderNotePrefix + reason
+                };
+            }
+        }
+
         private static bool ContainsPlaceholderSyntax(string value)
         {
             if (string.IsNullOrEmpty(value))
@@ -641,17 +878,18 @@ namespace Automation
             public string Kind => "process.control";
             public string DefaultName => "控制流程";
             public JObject BuildContract() => Contract("启动或停止一个现有或同一变更集内定义的流程",
-                new[] { "kind", "process", "action" }, new[] { "name", "afterMs" },
+                new[] { "kind" }, new[] { "name", "process", "action", "afterMs" },
                 new JProperty("actions", new JArray("start", "stop")));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
-                string process = AiOperationCompileContext.RequireText(definition.Process, "process.control.process");
-                string action = AiOperationCompileContext.RequireText(definition.Action, "process.control.action");
-                string platformAction;
+                string process = definition.Process?.Trim() ?? string.Empty;
+                string action = definition.Action?.Trim() ?? string.Empty;
+                string platformAction = string.Empty;
                 if (action == "start") platformAction = "运行";
                 else if (action == "stop") platformAction = "停止";
-                else throw new InvalidOperationException("process.control.action 只能是 start 或 stop。");
+                else if (action.Length > 0)
+                    throw new InvalidOperationException("process.control.action 只能是 start 或 stop。");
                 int after = definition.AfterMs ?? 0;
                 if (after < 0 || after > 3600000)
                 {
@@ -673,19 +911,20 @@ namespace Automation
             public string Kind => "process.wait";
             public string DefaultName => "等待流程状态";
             public JObject BuildContract() => Contract("等待一个流程进入运行或停止状态，超时报警",
-                new[] { "kind", "process", "expectedState", "timeoutMs" }, new[] { "name", "afterMs" },
+                new[] { "kind" }, new[] { "name", "process", "expectedState", "timeoutMs", "afterMs" },
                 new JProperty("states", new JArray("running", "stopped")));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
-                string process = AiOperationCompileContext.RequireText(definition.Process, "process.wait.process");
-                string state = AiOperationCompileContext.RequireText(definition.ExpectedState, "process.wait.expectedState");
-                string platformState;
+                string process = definition.Process?.Trim() ?? string.Empty;
+                string state = definition.ExpectedState?.Trim() ?? string.Empty;
+                string platformState = string.Empty;
                 if (state == "running") platformState = "运行";
                 else if (state == "stopped") platformState = "停止";
-                else throw new InvalidOperationException("process.wait.expectedState 只能是 running 或 stopped。");
-                if (!definition.TimeoutMs.HasValue || definition.TimeoutMs.Value < 1
-                    || definition.TimeoutMs.Value > 86400000)
+                else if (state.Length > 0)
+                    throw new InvalidOperationException("process.wait.expectedState 只能是 running 或 stopped。");
+                if (definition.TimeoutMs.HasValue && (definition.TimeoutMs.Value < 1
+                    || definition.TimeoutMs.Value > 86400000))
                 {
                     throw new InvalidOperationException("process.wait.timeoutMs 必须在 1..86400000 之间。");
                 }
@@ -698,7 +937,7 @@ namespace Automation
                 {
                     ProcCount = "1",
                     delayAfter = after,
-                    timeOutC = new TimeOutC { TimeOut = definition.TimeoutMs.Value },
+                    timeOutC = new TimeOutC { TimeOut = definition.TimeoutMs ?? 0 },
                     Params = new CustomList<WaitProcParam>
                     {
                         new WaitProcParam { ProcName = process, value = platformState }

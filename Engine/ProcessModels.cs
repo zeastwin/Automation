@@ -150,6 +150,10 @@ namespace Automation
         [Browsable(false)]
         public Guid Id { get; set; }
 
+        [Browsable(false)]
+        [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        public string AiKey { get; set; }
+
         [DisplayName("步骤名称"), Category("步骤信息"), Description(""), ReadOnly(false)]
         public string Name { get; set; }
 

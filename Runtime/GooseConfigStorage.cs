@@ -23,6 +23,8 @@ namespace Automation
 
         public int MaxTurns { get; set; }
 
+        public int MaxOutputTokens { get; set; }
+
         public bool FullPermissionMode { get; set; }
 
         public string ToolProfile { get; set; }
@@ -51,10 +53,12 @@ namespace Automation
         public const string ProviderKey = "Provider";
         public const string ModelKey = "Model";
         public const string MaxTurnsKey = "MaxTurns";
+        public const string MaxOutputTokensKey = "MaxOutputTokens";
         public const string FullPermissionModeKey = "FullPermissionMode";
         public const string ToolProfileKey = "ToolProfile";
         public const string DefaultToolProfile = "Diagnostic";
         public const int DefaultMaxTurns = 100;
+        public const int DefaultMaxOutputTokens = 8192;
         public const string DefaultProvider = "deepseek";
         public const string DefaultModel = "deepseek-v4-pro";
 
@@ -99,6 +103,7 @@ namespace Automation
                     Provider = ReadRequiredString(obj, ProviderKey),
                     Model = ReadRequiredString(obj, ModelKey),
                     MaxTurns = ReadRequiredInt(obj, MaxTurnsKey),
+                    MaxOutputTokens = ReadOptionalInt(obj, MaxOutputTokensKey, DefaultMaxOutputTokens),
                     FullPermissionMode = ReadOptionalBool(obj, FullPermissionModeKey, false),
                     ToolProfile = ReadToolProfile(obj)
                 };
@@ -109,7 +114,8 @@ namespace Automation
                     return false;
                 }
 
-                bool configMigrated = false;
+                bool configMigrated = !obj.TryGetValue(
+                    MaxOutputTokensKey, StringComparison.Ordinal, out _);
                 // DeepSeek 已发布 V4-Pro/V4-Flash，并将在 2026-07-24 停用旧模型标识。
                 // 项目原先默认使用旧标识，统一迁移到面向复杂代理任务的 V4-Pro。
                 if (string.Equals(config.Provider, "deepseek", StringComparison.OrdinalIgnoreCase)
@@ -180,6 +186,7 @@ namespace Automation
                 [ProviderKey] = config.Provider,
                 [ModelKey] = config.Model,
                 [MaxTurnsKey] = config.MaxTurns,
+                [MaxOutputTokensKey] = config.MaxOutputTokens,
                 [FullPermissionModeKey] = config.FullPermissionMode,
                 [ToolProfileKey] = config.ToolProfile
             };
@@ -231,6 +238,7 @@ namespace Automation
                 Provider = DefaultProvider,
                 Model = DefaultModel,
                 MaxTurns = DefaultMaxTurns,
+                MaxOutputTokens = DefaultMaxOutputTokens,
                 FullPermissionMode = false,
                 ToolProfile = DefaultToolProfile
             };
@@ -316,6 +324,11 @@ namespace Automation
                 error = $"EW-AI MaxTurns 必须大于 0:{config.MaxTurns}";
                 return false;
             }
+            if (config.MaxOutputTokens < 1024 || config.MaxOutputTokens > 65536)
+            {
+                error = $"EW-AI MaxOutputTokens 必须在 1024..65536 之间:{config.MaxOutputTokens}";
+                return false;
+            }
             if (!string.Equals(config.ToolProfile, "Diagnostic", StringComparison.Ordinal)
                 && !string.Equals(config.ToolProfile, "Editor", StringComparison.Ordinal))
             {
@@ -370,6 +383,19 @@ namespace Automation
             return token.Value<int>();
         }
 
+        private static int ReadOptionalInt(JObject obj, string key, int defaultValue)
+        {
+            if (!obj.TryGetValue(key, StringComparison.Ordinal, out JToken token))
+            {
+                return defaultValue;
+            }
+            if (token.Type != JTokenType.Integer)
+            {
+                throw new InvalidOperationException($"EW-AI 配置字段类型无效:{key}");
+            }
+            return token.Value<int>();
+        }
+
         // 可选布尔字段读取：旧配置文件可能缺少该字段，缺失时返回 defaultValue，兼容向前版本。
         private static bool ReadOptionalBool(JObject obj, string key, bool defaultValue)
         {
@@ -412,6 +438,7 @@ namespace Automation
                 Provider = config.Provider,
                 Model = config.Model,
                 MaxTurns = config.MaxTurns,
+                MaxOutputTokens = config.MaxOutputTokens,
                 FullPermissionMode = config.FullPermissionMode,
                 ToolProfile = config.ToolProfile
             };

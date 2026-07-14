@@ -287,7 +287,7 @@ namespace Automation
                 return;
             }
 
-            // 不清空、不选择附近指令。保留原地址并标记为不可提交，强制调用方明确修复跳转。
+            // 不清空、不选择附近指令。保留原地址并标记为草稿，后续阶段再明确修复跳转。
             property.SetValue(currentObject, ProcessDefinitionService.DeletedGotoPrefix + currentValue);
             result.InvalidatedCount++;
         }

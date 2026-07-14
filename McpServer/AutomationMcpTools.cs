@@ -9,8 +9,8 @@ namespace Automation.McpServer
     [McpServerToolType]
     public static class AutomationMcpTools
     {
-        [McpServerTool(Name = "get_operation_schemas"), Description(
-            "一次读取1..12个精确原生operaType的递归字段Schema。已知目标类型时直接读取所需类型；字段、嵌套数组、资源引用和符号跳转均按返回Schema填写。")]
+        [McpServerTool(Name = "get_native_operation_schemas"), Description(
+            "一次读取1..12个精确原生operaType的紧凑递归字段Schema。动态变量、IO和通讯候选不重复注入Schema，已知资源直接填写，不确定时再调用对应查询工具。")]
         public static async Task<string> GetOperationSchemas(
             [Description("精确原生指令类型数组，去重后最多12项，例如 跳转、延时、修改变量")] string[] operaTypes)
         {
@@ -23,27 +23,51 @@ namespace Automation.McpServer
                 action: client => client.GetNativeOperationContractsAsync(operaTypes)).ConfigureAwait(false);
         }
 
+        [McpServerTool(Name = "get_semantic_operation_schemas"), Description(
+            "按需读取1..6个已知语义kind的强约束契约。仅在preview_change_set中的语义指令字段不明确时读取；原生operaType使用get_native_operation_schemas。")]
+        public static async Task<string> GetSemanticOperationSchemas(
+            [Description("精确语义kind数组，取值来自preview_change_set参数Schema中的支持列表")] string[] kinds)
+        {
+            if (kinds == null || kinds.Length < 1 || kinds.Length > 6
+                || kinds.Any(string.IsNullOrWhiteSpace))
+                throw new ArgumentException("kinds 必须包含1..6个非空精确语义kind。", nameof(kinds));
+            return await ExecuteAsync(
+                toolName: nameof(GetSemanticOperationSchemas),
+                args: new { kinds },
+                action: client => client.GetSemanticOperationContractsAsync(kinds)).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "preview_change_set"), Description(
-            "一次提交完整的ChangeSet V2进行预演，不分批、不保存渐进草稿。可删除流程、声明变量并创建或完整替换流程；所有步骤必须同时提供完整原生指令列表。"
-            + "替换既有流程时用stepId/opId保留原对象；仅调整既有指令顺序时operations项只传opId，新指令提供key/operaType/fields。"
-            + "跳转优先使用目标operationId，或用{step,operationKey}引用同一变更中新指令；Bridge在最终结构上统一重算物理索引。"
-            + "普通新建省略expectedOperaTypes；精确复刻时按原顺序提供expectedOperaTypes，服务端逐条核对。"
+            "预演一个可独立保存、原子提交的ChangeSet V2阶段。一个任务可以自然地分多轮推进，不要求一次完成；允许先创建空流程或空步骤，提交后再用真实ID继续添加和检查。"
+            + "编辑现有对象使用读取结果中的procId/stepId/opId；同一阶段新建对象使用局部key。insert/move使用beforeId/afterId或beforeKey/afterKey定位，不使用易漂移索引。"
+            + "新增或更新指令使用语义kind；平台语义未覆盖时使用native.operation并严格按get_native_operation_schemas返回的递归字段契约填写。"
+            + "变量间计算使用variable.compute，数值阈值分支使用branch.number_compare；参数Schema会按action.type和operation.kind给出对应必填字段。"
+            + "operation.update使用native.operation时fields只包含要修改的字段，clearFields清空不再使用的旧字符串字段，其余字段和指令ID由Bridge保留；targetOperation.opId可直接反查所属步骤。"
+            + "未完成配置允许保存，也可用config.placeholder记录明确待办；返回的readinessStatus/runnable/runBlockers用于区分结构可保存与流程可运行。"
+            + "跳转到现有指令使用{operationId}；当前步骤内按key定位使用{operationKey}；跨步骤时附加stepId或stepKey。暂未创建的key目标会保留为待解析引用并在后续阶段自动解析。"
             + "成功后严格按nextAction执行：confirmed时立即仅用previewId调用apply_change_set，await_confirmation时等待前台确认。")]
         public static async Task<string> PreviewChangeSet(
-            [Description("一次性完整变更定义")] CompleteChangeSetDefinition changeSet)
+            [Description("当前原子阶段；actions按依赖顺序执行并整体预演")] AtomicChangeSetDefinition changeSet)
         {
-            AiChangeSet compiledInput = BuildCompleteChangeSet(changeSet);
+            if (changeSet == null) throw new ArgumentNullException(nameof(changeSet));
+            if ((changeSet.Actions?.Count ?? 0) == 0)
+                throw new ArgumentException("changeSet.actions 至少包含一个动作。", nameof(changeSet));
+            var compiledInput = new AiChangeSet
+            {
+                Version = 2,
+                Title = changeSet.Title,
+                Actions = changeSet.Actions
+            };
             return await ExecuteAsync(
                 toolName: nameof(PreviewChangeSet),
                 args: new { changeSet },
-                action: client => client.PreviewChangeSetAsync(compiledInput),
-                throwIfBridgeFailed: false).ConfigureAwait(false);
+                action: client => client.PreviewChangeSetAsync(compiledInput)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "apply_change_set"), Description(
             "提交已由 Automation 前台确认的冻结 V2 预演。只传 previewId，不得重发 changeSet。"
-            + "提交时平台会校验流程和变量版本，并以同一事务保存；版本变化会拒绝旧草稿。正式提交要求所有流程处于Stopped。"
-            + "成功结果直接返回 affectedProcesses 的 procIndex/procId；后续启动或验证直接使用它，禁止再搜索流程目录。")]
+            + "提交时平台会校验流程和变量版本，并以同一事务保存；版本变化会拒绝过期预演。正式提交要求所有流程处于Stopped。"
+            + "成功结果返回 affectedProcesses 以及 createdObjects 的局部key到稳定ID映射；后续阶段、启动或验证直接使用返回值，禁止为获取ID重新搜索流程目录。")]
         public static async Task<string> ApplyChangeSet(
             [Description("preview_change_set 返回且已由前台确认的32位 previewId")] string previewId)
         {
@@ -221,6 +245,23 @@ namespace Automation.McpServer
                 action: client => client.TraceResourceAsync(name, resourceKind, procOffset, procLimit, resultLimit)).ConfigureAwait(false);
         }
 
+        [McpServerTool(Name = "get_communication"), Description(
+            "按精确名称读取一个 TCP 或串口通讯对象的配置和当前状态。已知通讯名时直接调用，不需要先列出全部通讯；同名跨类型时再指定kind。")]
+        public static async Task<string> GetCommunication(
+            [Description("通讯对象精确名称")] string name,
+            [Description("可选 tcp 或 serial；名称唯一时省略")] string? kind = null,
+            [Description("是否包含当前运行状态，默认true")] bool? includeStatus = null)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("name 不能为空。", nameof(name));
+            if (kind != null && kind != "tcp" && kind != "serial")
+                throw new ArgumentException("kind 只能是 tcp 或 serial。", nameof(kind));
+            return await ExecuteAsync(
+                toolName: nameof(GetCommunication),
+                args: new { name, kind, includeStatus },
+                action: client => client.GetCommunicationAsync(name, kind, includeStatus)).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "search_operation_fields"), Description(
             "在指令的全部可见字段中分页搜索文本或精确值，适合查自定义字符串、表达式、备注及未声明为资源引用的历史字段。可按字段名和指令类型收窄，返回精确位置，不返回流程全文。")]
         public static async Task<string> SearchOperationFields(
@@ -338,7 +379,7 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "wait_for_proc_state"), Description(
             "在 Bridge 内长轮询等待单个有限流程到达目标状态。流程存在可达控制流环且等待Stopped时会立即拒绝，避免把人工停止误判为自然完成。"
-            + "必须用本工具替代连续 get_snapshot；等待期间不要调用 get_info_log_tail，只有到达 Alarming 或超时后才按需诊断。")]
+            + "需要等待状态变化时一次调用本工具即可；到达 Alarming 或超时后可按需读取诊断信息。")]
         public static async Task<string> WaitForProcState(
             [Description("流程索引；优先使用 apply_change_set.affectedProcesses 返回值")] int procIndex,
             [Description("目标状态，默认 Stopped/Alarming；可选 Stopped/Running/Paused/Alarming/Stopping")] string[]? states = null,
@@ -351,10 +392,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "run_proc_test"), Description(
-            "独立执行一次有边界的流程测试：本工具会自行启动Stopped流程，调用前禁止先调用start_proc；已经运行的流程不会被接管。启动并观察500..15000ms，自然结束则直接返回，仍在运行或报警则由测试运行器安全停止。"
-            + "返回potentiallyUnbounded、真实terminationReason和outcome，不会把测试窗口结束或外部停止报告为自然完成。")]
+            "独立执行一次有边界的流程测试：直接传入Stopped流程，本工具负责启动、观察和安全停止；已经运行的流程不会被接管。观察窗口500..15000ms，自然结束则直接返回。"
+            + "返回containsReachableCycle、真实terminationReason和outcome；存在可达循环不等于无限循环，实际是否结束以terminationReason和outcome为准。")]
         public static async Task<string> RunProcTest(
-            [Description("必须处于Stopped的流程索引；优先使用 apply_change_set.affectedProcesses 返回值；不得预先start_proc")] int procIndex,
+            [Description("处于Stopped的流程索引；优先使用 apply_change_set.affectedProcesses 返回值")] int procIndex,
             [Description("观察窗口500..15000ms，默认5000ms")] int? durationMs = null)
         {
             return await ExecuteAsync(
@@ -364,7 +405,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "list_operation_types"), Description(
-            "列出平台实际注册的指令类型和名称。仅在用户或源数据未给出精确指令类型、需要发现可用类型时调用；已知operaType时直接调用get_operation_schemas。")]
+            "列出平台实际注册的指令类型和名称。仅在用户或源数据未给出精确指令类型、需要发现可用类型时调用；已知operaType时直接调用get_native_operation_schemas。")]
         public static async Task<string> ListOperationTypes()
         {
             return await ExecuteAsync(
@@ -455,6 +496,7 @@ namespace Automation.McpServer
                 case "IO逻辑跳转":
                 case "跳转":
                 case "弹框":
+                case "修改变量":
                     return true;
                 default:
                     return false;
@@ -476,15 +518,15 @@ namespace Automation.McpServer
     "commonMistakes": "常见错误：把\"3号流程\"理解为第3个流程(procIndex=2)，实际应是 procIndex=3；定位时务必以 list_procs 返回的 procIndex 为准，与用户口中的流程号一一对应"
   },
   "_流程级操作": {
-    "purpose": "对整个流程的增删复制重排，区别于 patch 级操作（preview_patch/apply_patch 只能修改已有流程的步骤和指令，不能新增/删除整个流程）",
+    "purpose": "通过ChangeSet V2原子动作创建、修改或删除流程",
     "keyFields": {
-      "create_proc": "新增空流程。工具：create_proc（不传 previewId 预演）→ create_proc（传 previewId 提交）。典型场景：新建流程来唤醒/启动其他流程、创建独立控制流程。新增后可通过 preview_patch 添加步骤和指令",
-      "copy_proc": "复制现有流程为新流程（含全部步骤和指令）。工具：copy_proc（不传 previewId 预演）→ copy_proc（传 previewId 提交）。适合基于现有流程改造",
-      "delete_procs": "批量删除流程。工具：delete_procs（不传 previewId 预演）→ delete_procs（传 previewId 提交）。提交要求全部流程Stopped，AI不得调用stop_proc",
-      "reorder_proc": "重排流程位置。工具：reorder_proc（不传 previewId 预演）→ reorder_proc（传 previewId 提交）。提交要求全部流程Stopped，AI不得调用stop_proc"
+      "process.create": "创建流程，并用同阶段局部key供后续步骤和指令动作引用",
+      "process.update": "使用procId或精确名称定位现有流程并修改流程字段",
+      "process.delete/process.delete_all": "删除指定流程或全部流程",
+      "step/operation动作": "在同一阶段继续追加、插入、更新、删除或移动步骤和指令"
     },
-    "constraints": "四类流程级操作都需要 预演→确认 previewId→提交 三步；删除和重排要求全部流程Stopped，AI不得为提交而调用stop_proc；流程名不能与现有流程重复",
-    "commonMistakes": "最常见错误：需要新增流程时误用 preview_patch——preview_patch 的 actions 只支持 update_proc_head_fields/update_step_fields/update_operation_fields/append_step/insert_step/delete_step/move_step/append_operation/insert_operation/delete_operation/move_operation，不支持新增整个流程。新增流程必须用 create_proc；若需基于现有流程改造，用 copy_proc 复制后再 preview_patch 修改"
+    "constraints": "所有写入统一使用preview_change_set预演，前台确认后仅携带previewId调用apply_change_set；提交要求受影响流程Stopped",
+    "commonMistakes": "不要调用旧intent/patch/create工具；后续阶段直接使用apply_change_set返回的affectedProcesses和createdObjects稳定ID"
   },
   "_通用字段说明": {
     "purpose": "所有指令继承自 OperationType 基类，以下字段对全部指令通用",
@@ -493,23 +535,23 @@ namespace Automation.McpServer
       "OperaType": "指令类型标识（只读），决定引擎执行分支，创建时由构造函数自动设置",
       "AlarmType": "异常处理策略，取值：报警停止/报警忽略/自动处理/弹框确定/弹框确定与否/弹框确定与否与取消",
       "AlarmInfoID": "报警信息库编号，仅 AlarmType 为弹框类时生效；字段类型是 string，必须按 JSON 字符串传，例如 \"0\"，不能传数字 0",
-      "Goto1/Goto2/Goto3": "报警分支跳转目标，格式为 procIndex-stepIndex-opIndex（见_跳转编码说明）；AlarmType=自动处理仅用 Goto1；弹框确定与否用 Goto1/Goto2；弹框确定与否与取消用全部三个",
+      "Goto1/Goto2/Goto3": "报警分支符号目标；AlarmType=自动处理仅用Goto1，弹框确定与否用Goto1/Goto2，弹框确定与否与取消用全部三个",
       "Disable": "true 时该指令被跳过执行",
       "isStopPoint": "true 时运行到该指令进入断点"
     },
     "constraints": "AlarmType 与 Goto1/2/3 联动：报警停止/报警忽略时不显示任何 Goto；自动处理仅 Goto1；弹框类按按钮数量显示。指令默认按 opIndex 顺序往下执行：执行完当前指令后自动执行下一条（opIndex+1），除非遇到跳转类指令（逻辑判断/IO逻辑跳转/跳转）改变了执行流。不写跳转指令就会默认往下执行。",
-    "commonMistakes": "AlarmType 选了弹框类但未填 AlarmInfoID 或对应 Goto 会导致跳转失败；AlarmInfoID 看起来像编号但仍是 string 字段，写 0 会被 Bridge 拒绝，必须写 \"0\"；Goto 格式必须是 procIndex-stepIndex-opIndex 三段式；忽略默认顺序执行会导致旁路 bug——相邻的非跳转类指令会依次执行，分析流程时务必检查跳转目标执行完后是否会被后续指令旁路；通过 Patch 删除、插入或移动步骤/指令时 Bridge 会按目标指令 ID 自动重写同流程跳转，预演结果会报告重写数量；目标已被删除时必须根据预演提示明确修复"
+    "commonMistakes": "AlarmType选了弹框类但未填AlarmInfoID或对应Goto会导致校验失败；AlarmInfoID看起来像编号但仍是string字段，必须写成JSON字符串；忽略默认顺序执行会导致旁路；插入、移动或删除指令后Bridge会按稳定ID重算同流程跳转"
   },
   "_跳转编码说明": {
-    "purpose": "所有跳转类字段（Goto1/Goto2/Goto3、goto1/goto2、TrueGoto/FalseGoto、Goto、DefaultGoto、PopupGoto1/2/3）的统一编码格式",
+    "purpose": "所有跳转类字段在ChangeSet V2中的统一符号目标格式",
     "keyFields": {
-      "格式": "procIndex-stepIndex-opIndex，三段用连字符-分隔，全部必填",
-      "示例": "3-0-1 表示流程索引3、步骤0、指令1",
-      "procIndex约束": "必须等于当前流程索引，不支持跨流程跳转；不一致会报\"流程索引不一致\"",
+      "既有指令": "使用{operationId}",
+      "当前步骤内按key定位": "使用{operationKey}",
+      "跨步骤按key定位": "使用{stepId,operationKey}或{stepKey,operationKey}",
       "空值行为": "跳转类指令（逻辑判断/IO逻辑跳转）的 goto 字段为空时报\"跳转位置为空\"并报警，不会自动跳到下一条"
     },
-    "constraints": "编辑器通过下拉框选择有效目标，值由系统自动生成为 procIndex-stepIndex-opIndex 格式；AI 填写时必须包含三段，不可省略 procIndex",
-    "commonMistakes": "常见错误：写成 stepIndex-opIndex（两段，缺 procIndex）会导致解析失败；把空 goto2 当作\"不跳转/正常结束\"会导致报警；跨流程填 procIndex 会导致\"流程索引不一致\""
+    "constraints": "目标暂未创建时会保留为待解析引用，后续阶段创建匹配key后Bridge自动解析；Bridge统一编译物理索引",
+    "commonMistakes": "跨步骤时遗漏步骤定位会按当前步骤解析；已有稳定opId时优先直接使用operationId"
   },
   "自定义方法": {
     "purpose": "调用预先在自定义函数库中注册的方法",
@@ -537,9 +579,9 @@ namespace Automation.McpServer
   },
   "IO逻辑跳转": {
     "purpose": "根据多个IO状态逻辑组合结果跳转",
-    "keyFields": {"IOCount": "IO条件数量", "InvalidDelayMs": "首次判断失败后的重试延时(ms)", "IoParams": "条件项列表，每项含 IOName、Target(目标bool)、Logic(与/或)", "TrueGoto": "逻辑为真时跳转目标(procIndex-stepIndex-opIndex)", "FalseGoto": "逻辑为假时跳转目标(procIndex-stepIndex-opIndex)"},
-    "constraints": "IOName 必填；Logic 仅\"与\"/\"或\"；InvalidDelayMs<0 报错；第一项的 Logic 不生效(默认 isFirst)；失败且 InvalidDelayMs>0 时延时后重试一次；TrueGoto 和 FalseGoto 均必填，格式 procIndex-stepIndex-opIndex",
-    "commonMistakes": "Logic 不能填\"且\"/\"或\"以外的值；第一项 Logic 字段会被忽略；TrueGoto/FalseGoto 留空会报\"跳转位置为空\"并报警，不是\"不跳转\"；格式必须是三段式 procIndex-stepIndex-opIndex"
+    "keyFields": {"IOCount": "IO条件数量", "InvalidDelayMs": "首次判断失败后的重试延时(ms)", "IoParams": "条件项列表，每项含 IOName、Target(目标bool)、Logic(与/或)", "TrueGoto": "逻辑为真时的符号目标", "FalseGoto": "逻辑为假时的符号目标"},
+    "constraints": "IOName必填；Logic仅\"与\"/\"或\"；InvalidDelayMs<0报错；第一项Logic不参与组合；TrueGoto和FalseGoto均必填并使用符号目标",
+    "commonMistakes": "TrueGoto/FalseGoto留空会报警，不表示不跳转；跳转对象必须按_跳转编码说明填写"
   },
   "流程操作": {
     "purpose": "启动或停止其他流程",
@@ -555,15 +597,15 @@ namespace Automation.McpServer
   },
   "跳转": {
     "purpose": "根据变量值匹配跳转目标(类似 switch)",
-    "keyFields": {"ValueIndex/ValueName": "待匹配变量(必填)", "Count": "匹配分支数量", "Params": "分支列表，每项含 MatchValue/MatchValueIndex/MatchValueV(匹配值)、Goto(跳转目标，格式 procIndex-stepIndex-opIndex)", "DefaultGoto": "未匹配时的默认跳转(格式 procIndex-stepIndex-opIndex)"},
+    "keyFields": {"ValueIndex/ValueName": "待匹配变量(必填)", "Count": "匹配分支数量", "Params": "分支列表，每项含匹配值和符号Goto目标", "DefaultGoto": "未匹配时的默认符号目标"},
     "constraints": "MatchValue(固定值)与 MatchValueIndex/MatchValueV(变量)互斥，同时填报\"匹配值配置冲突\"；待匹配变量值为空报错；命中即跳转；全未命中用 DefaultGoto；DefaultGoto 为空时不跳转（继续执行下一条指令）",
-    "commonMistakes": "匹配值固定值和变量只能填一个；Goto 和 DefaultGoto 格式必须是 procIndex-stepIndex-opIndex 三段式；DefaultGoto 为空是合法的（表示不跳转，继续下一条）"
+    "commonMistakes": "匹配值固定值和变量只能填一个；Goto使用符号目标；DefaultGoto为空表示未命中时继续下一条"
   },
   "逻辑判断": {
     "purpose": "多条件数值/字符判断后跳转",
-    "keyFields": {"goto1": "条件成立跳转目标(格式 procIndex-stepIndex-opIndex，必填)", "goto2": "条件不成立跳转目标(格式 procIndex-stepIndex-opIndex，必填)", "failDelay": "失败时重试延时(ms，字符串)", "Count": "条件分支数量", "Params": "条件项列表，含 ValueIndex/ValueName(判断变量)、JudgeMode、Up/Down、keyString、equal、Operator"},
+    "keyFields": {"goto1": "条件成立时的符号目标，必填", "goto2": "条件不成立时的符号目标，必填", "failDelay": "失败时重试延时(ms，字符串)", "Count": "条件分支数量", "Params": "条件项列表，含 ValueIndex/ValueName(判断变量)、JudgeMode、Up/Down、keyString、equal、Operator"},
     "constraints": "JudgeMode 仅\"值在区间左\"/\"值在区间右\"/\"值在区间内\"/\"等于特征字符\"；前三种按数值解析(用 Up/Down)，第四种按字符(用 keyString)；Operator 仅\"且\"/\"或\"；第一项 Operator 忽略；goto1 和 goto2 均必填，为空会报\"跳转位置为空\"",
-    "commonMistakes": "JudgeMode 选\"等于特征字符\"时 Up/Down 不生效；数值模式变量不能解析为 double 会报错；goto2 为空不是\"不跳转/正常结束\"而是报警——若条件不成立时需继续执行下一条，应将 goto2 指向下一条指令的位置；格式必须三段式 procIndex-stepIndex-opIndex，不可省略 procIndex"
+    "commonMistakes": "goto2为空不是不跳转或正常结束；若条件不成立时需继续执行下一条，应显式指向下一条指令的符号目标"
   },
   "延时": {
     "purpose": "流程暂停指定时长",
@@ -573,21 +615,15 @@ namespace Automation.McpServer
   },
   "弹框": {
     "purpose": "弹出对话框供用户选择，支持报警灯/蜂鸣器联动和延时自动关闭",
-    "keyFields": {"PopupType": "弹框样式：弹是/弹是与否/弹是与否与取消", "InfoType": "提示信息来源：自定义提示信息/变量类型/报警信息库", "PopupMessage": "固定提示文本", "PopupMessageValue": "提示变量名", "PopupAlarmInfoID": "报警信息编号；字段类型是 string，必须按 JSON 字符串传，例如 \"0\"", "Btn1Text/Btn2Text/Btn3Text": "按钮文本", "PopupGoto1/2/3": "跳转目标(格式 procIndex-stepIndex-opIndex)", "DelayClose/DelayCloseTimeMs": "延时自动关闭", "AlarmLightEnable": "启用报警灯", "BuzzerIo/RedLightIo/YellowLightIo/GreenLightIo": "报警灯IO"},
-    "constraints": "PopupType 决定按钮数量；InfoType 决定提示文本来源；DelayClose=true 时 DelayCloseTimeMs 必须>0；AlarmLightEnable=启用 时蜂鸣器/灯IO才生效；PopupGoto 格式 procIndex-stepIndex-opIndex",
-    "commonMistakes": "InfoType=自定义提示信息时 PopupMessage 原样显示，不解析 {变量名}；要显示变量当前值必须使用 InfoType=变量类型并填写 PopupMessageValue。InfoType=报警信息库时按钮文本从报警信息读取；PopupGoto 格式必须三段式"
+    "keyFields": {"PopupType": "弹框样式：弹是/弹是与否/弹是与否与取消", "InfoType": "提示信息来源：自定义提示信息/变量类型/报警信息库", "PopupMessage": "固定提示文本", "PopupMessageValue": "提示变量名", "PopupAlarmInfoID": "报警信息编号；字段类型是 string，必须按 JSON 字符串传，例如 \"0\"", "Btn1Text/Btn2Text/Btn3Text": "按钮文本", "PopupGoto1/2/3": "按钮对应的可选符号目标", "DelayClose/DelayCloseTimeMs": "延时自动关闭", "AlarmLightEnable": "启用报警灯", "BuzzerIo/RedLightIo/YellowLightIo/GreenLightIo": "报警灯IO"},
+    "constraints": "PopupType决定按钮数量；InfoType决定提示文本来源；DelayClose=true时DelayCloseTimeMs必须>0；非空PopupGoto使用符号目标",
+    "commonMistakes": "InfoType=自定义提示信息时PopupMessage原样显示，不解析{变量名}；显示变量当前值必须使用InfoType=变量类型并填写PopupMessageValue"
   },
   "获取变量": {
     "purpose": "批量复制变量值(源→存储)，支持二级索引嵌套",
     "keyFields": {"Count": "子项数量", "Params": "复制项列表，每项含 ValueSourceIndex/ValueSourceName(源) 和 ValueSaveIndex/ValueSaveName(存储)"},
     "constraints": "源变量和存储变量都必须能解析；按项逐一复制 Value 字段",
     "commonMistakes": "源/存储变量任一不存在都会报错；索引和名称二选一"
-  },
-  "修改变量": {
-    "purpose": "对源变量进行运算后保存到结果变量",
-    "keyFields": {"ModifyType": "修改模式：替换/叠加/乘法/除法/求余/绝对值", "ValueSourceIndex/ValueSourceName": "源变量", "ChangeValue/ChangeValueIndex/ChangeValueName": "修改值(固定值或变量二选一)", "OutputValueIndex/OutputValueName": "结果保存变量"},
-    "constraints": "ChangeValue(固定)与 ChangeValueIndex/Name(变量)互斥；除\"替换\"和\"绝对值\"外变量必须是 double；\"绝对值\"模式不需要修改值",
-    "commonMistakes": "运算类模式变量类型不是 double 会报\"变量类型不匹配\"；修改值固定值和变量不能同时填"
   },
   "数据拼接": {
     "purpose": "按 string.Format 模板拼接多个变量值",
@@ -932,7 +968,6 @@ namespace Automation.McpServer
             "使用结构化中间意图对象直接预演（内部先把意图转标准 Patch 再 preview，不需要模型自行组装patchJson）。"
             + "只需提供procIndex，baseProcId由Bridge读取当前流程自动补齐。"
             + "返回 previewId 和 patchHash，提交前需由 Automation 前台确认 previewId。"
-            + "禁止用本工具逐条新增多条指令；同一步骤需要新增两条及以上指令时，必须将全部 append_operation 放入一个 preview_patch.actions 中，只生成一个预演。"
             + "当前存在待审核预演时禁止继续创建新预演，必须等待用户确认或拒绝。"
             + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_intent 提交即可。")]
         public static async Task<string> PreviewIntent(
@@ -965,7 +1000,6 @@ namespace Automation.McpServer
             + "patchJson 必须是完整 JSON 对象，至少含 procIndex/baseProcId/actions。"
             + "update_proc_head_fields/update_step_fields/update_operation_fields 使用fieldChanges；append/insert_operation使用fieldValues。"
             + "fieldValues/fieldChanges 必须严格保持 get_operation_schema 返回的 JSON 类型：number 必须传数值且禁止加引号，boolean 必须传 true/false，禁止把字符串数字当作数值。"
-            + "同一步骤的多条新指令必须放在同一个actions数组中，禁止拆成逐条预演；Bridge会在全部动作完成后统一校验跳转。"
             + "提交前必须先调用本工具。返回 previewId 和 patchHash，需由 Automation 前台确认 previewId。"
             + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_patch 提交即可。")]
         public static async Task<string> PreviewPatch(
@@ -1005,7 +1039,6 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "create_proc"), Description(
             "新增空流程。两阶段操作：预演阶段省略 previewId；提交阶段传入预演返回的 previewId。禁止传字符串 null/undefined。"
-            + "本工具只允许用于用户明确要求创建空流程的场景。只要需要步骤或指令，必须直接使用 create_proc_batch，禁止先创建空流程再逐步追加。"
             + "新增流程含一个默认步骤，后续用 preview_patch 添加步骤指令。流程名不能重复。"
             + "预演返回的 targetIndex 只是预计位置，流程尚不存在；提交成功后必须调用 list_procs 获取真实 procIndex，禁止据此直接读取流程详情。"
             + "典型场景：新建流程来唤醒/启动其他流程、创建独立控制流程。"
@@ -1026,7 +1059,6 @@ namespace Automation.McpServer
             "一次构建完整新流程（流程+步骤+全部指令），仅做一次预演和前台确认。"
             + "definition 必须直接传JSON对象，禁止传包含JSON文本的字符串；必须包含name/steps，steps包含name/operations，operations包含operaType和可选fieldValues。"
             + "预演阶段省略 previewId；确认后使用完全相同的 definition 和 previewId 再调用一次提交。"
-            + "适用于新建完整流程，禁止拆成 create_proc/append_step/逐条指令多次确认。"
             + "Bridge会分配ID、严格校验并原子保存。")]
         public static async Task<string> CreateProcBatch(
             [Description("完整流程定义对象，必须直接传对象而不是JSON字符串")] CreateProcBatchDefinition definition,
@@ -1097,7 +1129,7 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "start_proc"), Description(
             "启动流程并让它按自身生命周期持续运行。不需要预演确认，要求流程处于Stopped状态。"
-            + "如果用户要求有边界运行、运行一次并验证、观察后停止或报告真实终止原因，不要调用本工具，直接调用run_proc_test。")]
+            + "有边界的试运行、观察后停止和终止原因验证由run_proc_test一次完成。")]
         public static async Task<string> StartProc(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
         {
@@ -1693,125 +1725,14 @@ namespace Automation.McpServer
             }
         }
 
-        private static AiChangeSet BuildCompleteChangeSet(CompleteChangeSetDefinition definition)
-        {
-            if (definition == null) throw new ArgumentNullException(nameof(definition));
-
-            var processes = new List<ProcessDefinition>();
-            foreach (CompleteProcessDefinition sourceProcess in definition.Processes ?? new List<CompleteProcessDefinition>())
-            {
-                if (sourceProcess == null) throw new ArgumentException("processes 不能包含 null。", nameof(definition));
-                var steps = new List<StepDefinition>();
-                foreach (CompleteStepDefinition sourceStep in sourceProcess.Steps ?? new List<CompleteStepDefinition>())
-                {
-                    if (sourceStep == null) throw new ArgumentException("steps 不能包含 null。", nameof(definition));
-                    List<string>? exactTypes = sourceStep.ExpectedOperaTypes?.ToList();
-                    List<NativeOperationDefinition> sourceOperations = sourceStep.Operations
-                        ?? new List<NativeOperationDefinition>();
-                    if (exactTypes != null && exactTypes.Count != sourceOperations.Count)
-                        throw new ArgumentException(
-                            $"流程[{sourceProcess.Name}]步骤[{sourceStep.Key}]的expectedOperaTypes必须与operations数量一致。",
-                            nameof(definition));
-                    var operations = new List<SemanticOperation>();
-                    for (int index = 0; index < sourceOperations.Count; index++)
-                    {
-                        NativeOperationDefinition operation = sourceOperations[index];
-                        bool reuseExisting = operation != null
-                            && !string.IsNullOrWhiteSpace(operation.OpId)
-                            && string.IsNullOrWhiteSpace(operation.OperaType)
-                            && operation.Fields == null
-                            && string.IsNullOrWhiteSpace(operation.Name);
-                        if (operation == null
-                            || !reuseExisting && string.IsNullOrWhiteSpace(operation.OperaType))
-                            throw new ArgumentException(
-                                $"流程[{sourceProcess.Name}]步骤[{sourceStep.Key}]第{index}条指令必须提供opId复用现有指令，或提供operaType和fields定义新指令。",
-                                nameof(definition));
-                        if (!reuseExisting && operation.Fields == null)
-                            throw new ArgumentException(
-                                $"流程[{sourceProcess.Name}]步骤[{sourceStep.Key}]第{index}条指令fields必须是对象。",
-                                nameof(definition));
-                        if (exactTypes != null
-                            && !reuseExisting
-                            && !string.Equals(exactTypes[index], operation.OperaType, StringComparison.Ordinal))
-                            throw new ArgumentException(
-                                $"流程[{sourceProcess.Name}]步骤[{sourceStep.Key}]第{index}条指令类型必须为[{exactTypes[index]}]。",
-                                nameof(definition));
-                        operations.Add(new SemanticOperation
-                        {
-                            Kind = reuseExisting ? null : "native.operation",
-                            OpId = operation.OpId,
-                            Key = operation.Key,
-                            OperaType = operation.OperaType,
-                            Name = operation.Name,
-                            Fields = operation.Fields
-                        });
-                    }
-                    steps.Add(new StepDefinition
-                    {
-                        StepId = sourceStep.StepId,
-                        Key = sourceStep.Key,
-                        Name = sourceStep.Name,
-                        Disable = sourceStep.Disable,
-                        ExpectedOperaTypes = exactTypes,
-                        Operations = operations
-                    });
-                }
-                processes.Add(new ProcessDefinition
-                {
-                    Action = sourceProcess.Action,
-                    TargetProcId = sourceProcess.TargetProcId,
-                    TargetName = sourceProcess.TargetName,
-                    Name = sourceProcess.Name,
-                    AutoStart = sourceProcess.AutoStart,
-                    Disable = sourceProcess.Disable,
-                    Steps = steps
-                });
-            }
-            if (definition.DeleteProcesses == null && (definition.Variables?.Count ?? 0) == 0
-                && processes.Count == 0)
-                throw new ArgumentException("definition 至少包含删除、变量或流程变更之一。", nameof(definition));
-            return new AiChangeSet
-            {
-                Version = 2,
-                Title = definition.Title,
-                DeleteProcesses = definition.DeleteProcesses,
-                Variables = definition.Variables,
-                Processes = processes
-            };
-        }
-
-        private static void ThrowIfBridgeFailed(string result)
-        {
-            JsonObject? root;
-            try
-            {
-                root = JsonNode.Parse(result) as JsonObject;
-            }
-            catch (JsonException)
-            {
-                return;
-            }
-            if (root?["ok"]?.GetValue<bool>() != false) return;
-            string code = root["errorCode"]?.GetValue<string>() ?? "BRIDGE_ERROR";
-            string message = root["message"]?.GetValue<string>() ?? "Bridge 调用失败。";
-            string? details = root["details"]?.GetValue<string>();
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(details)
-                ? $"{code}: {message}"
-                : $"{code}: {message}（{details}）");
-        }
-
         private static async Task<string> ExecuteAsync(string toolName, object args,
-            Func<AutomationBridgeClient, Task<string>> action, bool throwIfBridgeFailed = true)
+            Func<AutomationBridgeClient, Task<string>> action)
         {
             string callId = ToolCallLogger.Begin(toolName, args);
             System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 string result = await action(AutomationMcpRuntime.GetBridgeClient()).ConfigureAwait(false);
-                if (throwIfBridgeFailed)
-                {
-                    ThrowIfBridgeFailed(result);
-                }
                 stopwatch.Stop();
                 ToolCallLogger.Complete(callId, toolName, args, result, durationMs: stopwatch.ElapsedMilliseconds);
                 return result;

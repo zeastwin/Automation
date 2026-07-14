@@ -120,6 +120,10 @@ namespace Automation
         [Browsable(false)]
         public Guid Id { get; set; }
 
+        [Browsable(false)]
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string AiKey { get; set; }
+
         [Browsable(true)]
         [DisplayName("编号"), Category(GeneralCategory), Description("步骤内指令顺序号，用于定位与跳转校验，通常由系统维护。"), ReadOnly(true)]
         public int Num { get; set; }
@@ -894,6 +898,15 @@ namespace Automation
         [DisplayName("延时时间变量"), Category("参数"), Description("延时时间变量名；用于运行时动态延时。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string timeMiniSecondV { get; set; }
 
+    }
+    [Serializable]
+    public class EndProcess : OperationType
+    {
+        public EndProcess()
+        {
+            OperaType = "流程结束";
+            Name = "结束流程";
+        }
     }
     [Serializable]
     public class PopupDialog : OperationType

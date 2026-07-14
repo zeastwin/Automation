@@ -31,6 +31,7 @@ namespace Automation
             () => new Goto(),
             () => new ParamGoto(),
             () => new Delay(),
+            () => new EndProcess(),
             () => new PopupDialog(),
             () => new GetValue(),
             () => new ModifyValue(),

@@ -266,6 +266,13 @@ namespace Automation
                 error = $"流程已禁用:{procIndex}";
                 return false;
             }
+            ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
+                procIndex, procs[procIndex], procs);
+            if (!readiness.Runnable)
+            {
+                error = "流程配置尚不可运行：" + string.Join("；", readiness.RunBlockers);
+                return false;
+            }
             if (!SF.procStore.StartProc(procIndex))
             {
                 error = $"流程启动失败:{procIndex}";

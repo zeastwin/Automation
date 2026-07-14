@@ -52,6 +52,29 @@ namespace Automation
                     contract["failureModes"] = new JArray("待匹配变量为空或不存在时报警", "匹配值配置冲突时报警", "未命中且 DefaultGoto 为空时报警");
                     break;
 
+                case "修改变量":
+                    contract = CreateContract(
+                        "读取源变量，用固定值或另一个变量执行运算，并写入结果变量。",
+                        new[] { "读取 ValueSource* 指定的源变量", "从 ChangeValue 固定值或 ChangeValue* 变量中二选一取得操作数", "按 ModifyType 计算", "写入 OutputValue* 指定的结果变量" },
+                        true);
+                    contract["constraints"] = new JArray(
+                        "ValueSourceIndex/ValueSourceName 等源引用必须且只能形成一个有效引用",
+                        "ChangeValue 固定值与 ChangeValueIndex/ChangeValueName 等变量引用必须且只能选择一种",
+                        "OutputValueIndex/OutputValueName 等结果引用必须且只能形成一个有效引用",
+                        "叠加、乘法、除法、求余和绝对值要求源变量与结果变量为 double；非绝对值操作数也必须为 double",
+                        "除法和求余的固定操作数不能为0");
+                    contract["semanticKinds"] = new JObject
+                    {
+                        ["fixedSet"] = "variable.set",
+                        ["fixedAdd"] = "variable.add",
+                        ["variableOrNumericCompute"] = "variable.compute"
+                    };
+                    contract["failureModes"] = new JArray(
+                        "源变量、修改值或结果变量缺失时报警",
+                        "固定修改值与修改值变量同时配置时报警",
+                        "数值模式的变量类型或固定数值无效时报警");
+                    break;
+
                 case "弹框":
                     contract = CreateContract(
                         "显示交互弹框，根据按钮结果跳转。",
@@ -93,12 +116,12 @@ namespace Automation
             {
                 return false;
             }
-            if (rule["required"]?.Value<bool>() == true)
+            if (rule["requiredForRun"]?.Value<bool>() == true)
             {
                 return true;
             }
 
-            JObject requiredWhen = rule["requiredWhen"] as JObject;
+            JObject requiredWhen = rule["requiredWhenForRun"] as JObject;
             if (requiredWhen == null)
             {
                 return false;
@@ -155,9 +178,9 @@ namespace Automation
         {
             ((JObject)contract["fieldRules"])[fieldName] = new JObject
             {
-                ["required"] = required,
+                ["requiredForRun"] = required,
                 ["referenceType"] = "proc.goto",
-                ["format"] = "procIndex-stepIndex-opIndex",
+                ["format"] = "{operationId} | {operationKey} | {stepId,operationKey} | {stepKey,operationKey}",
                 ["allowDisplayText"] = false,
                 ["description"] = description
             };
@@ -175,7 +198,7 @@ namespace Automation
             ((JObject)contract["fieldRules"])[fieldName] = new JObject
             {
                 ["visibleWhen"] = new JObject { [dependsOn] = new JArray(values) },
-                ["requiredWhen"] = new JObject { [dependsOn] = new JArray(values) },
+                ["requiredWhenForRun"] = new JObject { [dependsOn] = new JArray(values) },
                 ["description"] = description
             };
         }
@@ -199,7 +222,7 @@ namespace Automation
             rules[fieldName] = new JObject
             {
                 ["visibleWhen"] = new JObject { [dependsOn] = new JArray(values) },
-                ["requiredWhen"] = new JObject { [dependsOn] = new JArray(values) },
+                ["requiredWhenForRun"] = new JObject { [dependsOn] = new JArray(values) },
                 ["description"] = description
             };
         }
@@ -209,7 +232,7 @@ namespace Automation
             AddConditionalRule(rules, fieldName, dependsOn, values, description);
             JObject rule = (JObject)rules[fieldName];
             rule["referenceType"] = "proc.goto";
-            rule["format"] = "procIndex-stepIndex-opIndex";
+            rule["format"] = "{operationId} | {operationKey} | {stepId,operationKey} | {stepKey,operationKey}";
             rule["allowDisplayText"] = false;
         }
     }
