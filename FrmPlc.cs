@@ -3,1509 +3,885 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Automation
 {
-    public class FrmPlc : Form
+    public sealed class FrmPlc : Form
     {
-        private GroupBox groupDevices;
-        private GroupBox groupMaps;
-        private DataGridView dgvDevices;
-        private DataGridView dgvMaps;
-        private ContextMenuStrip menuDevices;
-        private ContextMenuStrip menuMaps;
-        private ToolStripMenuItem menuDeviceAdd;
-        private ToolStripMenuItem menuDeviceModify;
-        private ToolStripMenuItem menuDeviceDelete;
-        private ToolStripMenuItem menuDeviceSave;
-        private ToolStripMenuItem menuMapAdd;
-        private ToolStripMenuItem menuMapModify;
-        private ToolStripMenuItem menuMapDelete;
-        private ToolStripMenuItem menuMapReconnect;
-        private ToolStripMenuItem menuMapStart;
-        private ToolStripMenuItem menuMapStop;
-        private ToolStripMenuItem menuMapSave;
-        private Label lblStatus;
-        private TableLayoutPanel mainLayout;
-        private Panel headerPanel;
-        private Label lblTitle;
-        private Label lblSubtitle;
-        private FlowLayoutPanel headerActions;
-        private Button btnSaveAll;
-        private Button btnReconnectAll;
-        private Button btnStartMapping;
-        private Button btnStopMapping;
-        private NumericUpDown numMappingInterval;
-        private TabControl mainTabs;
-        private TabPage tabDevices;
-        private TabPage tabMaps;
-        private TabPage tabDebug;
-        private ComboBox cmbDebugDevice;
-        private ComboBox cmbDebugDataType;
-        private TextBox txtDebugAddress;
-        private NumericUpDown numDebugQuantity;
-        private TextBox txtDebugWriteValue;
-        private NumericUpDown numDebugInterval;
-        private Button btnDebugRead;
-        private Button btnDebugWrite;
-        private Button btnDebugWatch;
-        private Button btnDebugStop;
-        private DataGridView dgvDebugHistory;
-        private Label lblDebugStatus;
-        private System.Windows.Forms.Timer uiStatusTimer;
-        private CancellationTokenSource debugWatchCts;
-        private Task debugWatchTask;
-        private int debugOperationBusy;
-        private const int MaxDebugHistoryRows = 500;
-
-        private readonly BindingList<PlcDevice> deviceBinding = new BindingList<PlcDevice>();
-        private readonly BindingList<PlcMapItem> mapBinding = new BindingList<PlcMapItem>();
-
-        private CancellationTokenSource mappingCts;
-        private Task mappingTask;
-        private readonly object mappingLifecycleLock = new object();
-        private volatile bool mappingRunning;
-        private int mappingIntervalMs = 200;
-        private long mappingCycleCount;
-        private long lastMappingCycleElapsedMs;
-        private long lastMappingReadCount;
+        private readonly ListBox deviceList = new ListBox();
+        private readonly PropertyGrid deviceProperties = new PropertyGrid();
+        private readonly DataGridView mapGrid = new DataGridView();
+        private readonly DataGridView historyGrid = new DataGridView();
+        private readonly BindingList<DebugHistoryItem> history = new BindingList<DebugHistoryItem>();
+        private readonly Label stateLabel = new Label();
+        private readonly Label summaryLabel = new Label();
+        private readonly Label monitorLabel = new Label();
+        private readonly ComboBox variableSelector = new ComboBox();
+        private readonly ComboBox debugArea = new ComboBox();
+        private readonly ComboBox debugType = new ComboBox();
+        private readonly NumericUpDown debugAddress = new NumericUpDown();
+        private readonly NumericUpDown debugCount = new NumericUpDown();
+        private readonly NumericUpDown debugStringLength = new NumericUpDown();
+        private readonly TextBox debugValue = new TextBox();
+        private readonly Timer refreshTimer = new Timer();
+        private readonly Timer monitorTimer = new Timer();
+        private PlcConfiguration draft = new PlcConfiguration();
+        private PlcDeviceConfig currentDevice;
+        private bool loading;
+        private bool monitorBusy;
 
         public FrmPlc()
         {
-            InitializeComponent();
-            FormClosing += FrmPlc_FormClosing;
-            Load += FrmPlc_Load;
-            Disposed += FrmPlc_Disposed;
-            VisibleChanged += FrmPlc_VisibleChanged;
-        }
-
-        private void InitializeComponent()
-        {
-            groupDevices = new GroupBox();
-            groupMaps = new GroupBox();
-            dgvDevices = new DataGridView();
-            dgvMaps = new DataGridView();
-            menuDevices = new ContextMenuStrip();
-            menuMaps = new ContextMenuStrip();
-            menuDeviceAdd = new ToolStripMenuItem();
-            menuDeviceModify = new ToolStripMenuItem();
-            menuDeviceDelete = new ToolStripMenuItem();
-            menuDeviceSave = new ToolStripMenuItem();
-            menuMapAdd = new ToolStripMenuItem();
-            menuMapModify = new ToolStripMenuItem();
-            menuMapDelete = new ToolStripMenuItem();
-            menuMapReconnect = new ToolStripMenuItem();
-            menuMapStart = new ToolStripMenuItem();
-            menuMapStop = new ToolStripMenuItem();
-            menuMapSave = new ToolStripMenuItem();
-            lblStatus = new Label();
-            mainLayout = new TableLayoutPanel();
-            headerPanel = new Panel();
-            lblTitle = new Label();
-            lblSubtitle = new Label();
-            headerActions = new FlowLayoutPanel();
-            btnSaveAll = CreateToolbarButton("保存配置", true);
-            btnReconnectAll = CreateToolbarButton("连接测试", false);
-            btnStartMapping = CreateToolbarButton("启动映射", true);
-            btnStopMapping = CreateToolbarButton("停止映射", false);
-            numMappingInterval = new NumericUpDown();
-            mainTabs = new TabControl();
-            tabDevices = new TabPage("PLC设备");
-            tabMaps = new TabPage("变量映射");
-            tabDebug = new TabPage("在线调试");
-
-            SuspendLayout();
-
-            groupDevices.Text = "PLC设备";
-            groupDevices.Dock = DockStyle.Fill;
-            groupDevices.Padding = new Padding(8, 20, 8, 8);
-            groupDevices.BackColor = Color.White;
-
-            groupMaps.Text = "PLC映射";
-            groupMaps.Dock = DockStyle.Fill;
-            groupMaps.Padding = new Padding(8, 20, 8, 8);
-            groupMaps.BackColor = Color.White;
-
-            dgvDevices.Dock = DockStyle.Fill;
-            dgvDevices.AutoGenerateColumns = false;
-            dgvDevices.RowHeadersVisible = false;
-            dgvDevices.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            dgvDevices.AllowUserToAddRows = false;
-            dgvDevices.AllowUserToDeleteRows = false;
-            dgvDevices.MultiSelect = false;
-            dgvDevices.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-            dgvDevices.ContextMenuStrip = menuDevices;
-            dgvDevices.CellEndEdit += DgvDevices_CellEndEdit;
-            dgvDevices.DataError += Dgv_DataError;
-            InitGridStyle(dgvDevices);
-
-            dgvMaps.Dock = DockStyle.Fill;
-            dgvMaps.AutoGenerateColumns = false;
-            dgvMaps.RowHeadersVisible = false;
-            dgvMaps.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            dgvMaps.AllowUserToAddRows = false;
-            dgvMaps.AllowUserToDeleteRows = false;
-            dgvMaps.MultiSelect = false;
-            dgvMaps.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-            dgvMaps.ContextMenuStrip = menuMaps;
-            dgvMaps.CellEndEdit += DgvMaps_CellEndEdit;
-            dgvMaps.DataError += Dgv_DataError;
-            InitGridStyle(dgvMaps);
-
-            menuDeviceAdd.Text = "添加";
-            menuDeviceAdd.Click += MenuDeviceAdd_Click;
-            menuDeviceModify.Text = "修改";
-            menuDeviceModify.Click += MenuDeviceModify_Click;
-            menuDeviceDelete.Text = "删除";
-            menuDeviceDelete.Click += MenuDeviceDelete_Click;
-            menuDeviceSave.Text = "保存";
-            menuDeviceSave.Click += MenuSave_Click;
-            menuDevices.Items.AddRange(new ToolStripItem[] { menuDeviceAdd, menuDeviceModify, menuDeviceDelete, new ToolStripSeparator(), menuDeviceSave });
-
-            menuMapAdd.Text = "添加";
-            menuMapAdd.Click += MenuMapAdd_Click;
-            menuMapModify.Text = "修改";
-            menuMapModify.Click += MenuMapModify_Click;
-            menuMapDelete.Text = "删除";
-            menuMapDelete.Click += MenuMapDelete_Click;
-            menuMapReconnect.Text = "重新初始化";
-            menuMapReconnect.Click += MenuMapReconnect_Click;
-            menuMapStart.Text = "开始映射";
-            menuMapStart.Click += MenuMapStart_Click;
-            menuMapStop.Text = "停止映射";
-            menuMapStop.Click += MenuMapStop_Click;
-            menuMapSave.Text = "保存";
-            menuMapSave.ShortcutKeys = Keys.Control | Keys.S;
-            menuMapSave.Click += MenuSave_Click;
-            menuMaps.Items.AddRange(new ToolStripItem[]
-            {
-                menuMapAdd,
-                menuMapModify,
-                menuMapDelete,
-                new ToolStripSeparator(),
-                menuMapReconnect,
-                menuMapStart,
-                menuMapStop,
-                new ToolStripSeparator(),
-                menuMapSave
-            });
-
-            lblStatus.Dock = DockStyle.Fill;
-            lblStatus.Height = 30;
-            lblStatus.TextAlign = ContentAlignment.MiddleLeft;
-            lblStatus.Text = "映射状态：停止";
-            lblStatus.BackColor = Color.FromArgb(237, 242, 247);
-            lblStatus.BorderStyle = BorderStyle.FixedSingle;
-            lblStatus.Padding = new Padding(8, 0, 0, 0);
-
-            groupDevices.Controls.Add(dgvDevices);
-            groupMaps.Controls.Add(dgvMaps);
-            tabDevices.BackColor = Color.White;
-            tabDevices.Padding = new Padding(8);
-            tabDevices.Controls.Add(groupDevices);
-            tabMaps.BackColor = Color.White;
-            tabMaps.Padding = new Padding(8);
-            tabMaps.Controls.Add(groupMaps);
-            InitializeDebugPage();
-            mainTabs.Dock = DockStyle.Fill;
-            mainTabs.Font = new Font("Microsoft YaHei UI", 10F);
-            mainTabs.Controls.Add(tabDevices);
-            mainTabs.Controls.Add(tabMaps);
-            mainTabs.Controls.Add(tabDebug);
-
-            lblTitle.AutoSize = true;
-            lblTitle.Font = new Font("Microsoft YaHei UI", 17F, FontStyle.Bold);
-            lblTitle.ForeColor = Color.FromArgb(27, 43, 59);
-            lblTitle.Location = new Point(20, 12);
-            lblTitle.Text = "PLC 通讯中心";
-            lblSubtitle.AutoSize = true;
-            lblSubtitle.Font = new Font("Microsoft YaHei UI", 9F);
-            lblSubtitle.ForeColor = Color.FromArgb(102, 116, 132);
-            lblSubtitle.Location = new Point(22, 46);
-            lblSubtitle.Text = "设备连接、变量映射、批量采集与在线读写调试";
-
-            headerActions.Dock = DockStyle.Right;
-            headerActions.FlowDirection = FlowDirection.LeftToRight;
-            headerActions.WrapContents = false;
-            headerActions.AutoSize = true;
-            headerActions.Padding = new Padding(0, 14, 14, 0);
-            numMappingInterval.Minimum = 50;
-            numMappingInterval.Maximum = 5000;
-            numMappingInterval.Value = mappingIntervalMs;
-            numMappingInterval.Width = 72;
-            numMappingInterval.Margin = new Padding(6, 7, 10, 0);
-            numMappingInterval.ValueChanged += (sender, args) =>
-                Interlocked.Exchange(ref mappingIntervalMs, (int)numMappingInterval.Value);
-            Label intervalLabel = new Label
-            {
-                AutoSize = true,
-                Text = "周期(ms)",
-                ForeColor = Color.FromArgb(80, 94, 108),
-                Margin = new Padding(8, 11, 0, 0)
-            };
-            btnSaveAll.Click += MenuSave_Click;
-            btnReconnectAll.Click += MenuMapReconnect_Click;
-            btnStartMapping.Click += MenuMapStart_Click;
-            btnStopMapping.Click += MenuMapStop_Click;
-            headerActions.Controls.Add(intervalLabel);
-            headerActions.Controls.Add(numMappingInterval);
-            headerActions.Controls.Add(btnSaveAll);
-            headerActions.Controls.Add(btnReconnectAll);
-            headerActions.Controls.Add(btnStartMapping);
-            headerActions.Controls.Add(btnStopMapping);
-            headerPanel.Dock = DockStyle.Fill;
-            headerPanel.BackColor = Color.White;
-            headerPanel.Controls.Add(headerActions);
-            headerPanel.Controls.Add(lblSubtitle);
-            headerPanel.Controls.Add(lblTitle);
-
-            mainLayout.Dock = DockStyle.Fill;
-            mainLayout.ColumnCount = 1;
-            mainLayout.RowCount = 3;
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 76F));
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
-            mainLayout.Controls.Add(headerPanel, 0, 0);
-            mainLayout.Controls.Add(mainTabs, 0, 1);
-            mainLayout.Controls.Add(lblStatus, 0, 2);
-            Controls.Add(mainLayout);
-
-            Text = "PLC";
-            StartPosition = FormStartPosition.CenterScreen;
-            Width = 1100;
-            Height = 650;
+            Text = "PLC 通讯中心";
             BackColor = Color.FromArgb(245, 247, 250);
-            Font = new Font("微软雅黑", 9F);
-
-            ResumeLayout(false);
-
-            InitDeviceColumns();
-            InitMapColumns();
+            Font = new Font("Microsoft YaHei UI", 9F);
+            FormBorderStyle = FormBorderStyle.Sizable;
+            StartPosition = FormStartPosition.CenterScreen;
+            MinimumSize = new Size(1000, 650);
+            Size = new Size(1280, 800);
+            BuildUi();
+            Load += FrmPlc_Load;
+            VisibleChanged += FrmPlc_VisibleChanged;
+            FormClosing += (sender, args) =>
+            {
+                if (args.CloseReason == CloseReason.UserClosing)
+                {
+                    args.Cancel = true;
+                    Hide();
+                }
+            };
+            refreshTimer.Interval = 500;
+            refreshTimer.Tick += (sender, args) => RefreshRuntimeState();
+            monitorTimer.Interval = 500;
+            monitorTimer.Tick += async (sender, args) => await MonitorOnceAsync();
         }
 
-        private static Button CreateToolbarButton(string text, bool primary)
+        private void BuildUi()
         {
-            var button = new Button
+            var header = new Panel { Dock = DockStyle.Top, Height = 72, BackColor = Color.White, Padding = new Padding(18, 10, 18, 8) };
+            header.Controls.Add(new Label
             {
+                Text = "PLC 通讯中心",
                 AutoSize = true,
-                MinimumSize = new Size(96, 36),
-                Text = text,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Microsoft YaHei UI", 9F, primary ? FontStyle.Bold : FontStyle.Regular),
-                BackColor = primary ? Color.FromArgb(36, 112, 184) : Color.White,
-                ForeColor = primary ? Color.White : Color.FromArgb(49, 63, 77),
-                Margin = new Padding(6, 4, 0, 0),
-                Padding = new Padding(10, 0, 10, 0)
-            };
-            button.FlatAppearance.BorderSize = primary ? 0 : 1;
-            button.FlatAppearance.BorderColor = Color.FromArgb(190, 201, 213);
-            button.FlatAppearance.MouseOverBackColor = primary
-                ? Color.FromArgb(48, 128, 201)
-                : Color.FromArgb(239, 243, 247);
-            return button;
-        }
-
-        private void InitializeDebugPage()
-        {
-            tabDebug.BackColor = Color.FromArgb(247, 249, 252);
-            tabDebug.Padding = new Padding(12);
-            var debugLayout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 3
-            };
-            debugLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 104F));
-            debugLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            debugLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30F));
-
-            var commandPanel = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Color.White,
-                Padding = new Padding(14, 14, 14, 8),
-                WrapContents = true
-            };
-            cmbDebugDevice = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 130 };
-            cmbDebugDataType = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 92 };
-            cmbDebugDataType.Items.AddRange(PlcConstants.DataTypes.Cast<object>().ToArray());
-            cmbDebugDataType.SelectedItem = "Float";
-            cmbDebugDataType.SelectedIndexChanged += DebugDataType_SelectedIndexChanged;
-            txtDebugAddress = new TextBox { Width = 150 };
-            numDebugQuantity = new NumericUpDown { Minimum = 1, Maximum = 2000, Value = 1, Width = 64 };
-            txtDebugWriteValue = new TextBox { Width = 150 };
-            numDebugInterval = new NumericUpDown { Minimum = 100, Maximum = 10000, Value = 500, Increment = 100, Width = 72 };
-            btnDebugRead = CreateToolbarButton("读取一次", true);
-            btnDebugWrite = CreateToolbarButton("写入一次", false);
-            btnDebugWatch = CreateToolbarButton("连续监视", true);
-            btnDebugStop = CreateToolbarButton("停止监视", false);
-            btnDebugStop.Enabled = false;
-            btnDebugRead.Click += DebugRead_Click;
-            btnDebugWrite.Click += DebugWrite_Click;
-            btnDebugWatch.Click += DebugWatch_Click;
-            btnDebugStop.Click += DebugStop_Click;
-            AddDebugField(commandPanel, "PLC", cmbDebugDevice);
-            AddDebugField(commandPanel, "类型", cmbDebugDataType);
-            AddDebugField(commandPanel, "地址", txtDebugAddress);
-            AddDebugField(commandPanel, "数量/长度", numDebugQuantity);
-            AddDebugField(commandPanel, "写入值", txtDebugWriteValue);
-            AddDebugField(commandPanel, "监视周期(ms)", numDebugInterval);
-            commandPanel.Controls.Add(btnDebugRead);
-            commandPanel.Controls.Add(btnDebugWrite);
-            commandPanel.Controls.Add(btnDebugWatch);
-            commandPanel.Controls.Add(btnDebugStop);
-
-            dgvDebugHistory = new DataGridView
-            {
-                Dock = DockStyle.Fill,
-                ReadOnly = true,
-                AllowUserToAddRows = false,
-                AllowUserToDeleteRows = false,
-                RowHeadersVisible = false,
-                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
-            };
-            InitGridStyle(dgvDebugHistory);
-            dgvDebugHistory.Columns.Add(BuildTextColumn("Time", "时间", 125));
-            dgvDebugHistory.Columns.Add(BuildTextColumn("Operation", "操作", 60));
-            dgvDebugHistory.Columns.Add(BuildTextColumn("Device", "PLC", 90));
-            dgvDebugHistory.Columns.Add(BuildTextColumn("Address", "地址", 110));
-            dgvDebugHistory.Columns.Add(BuildTextColumn("DataType", "类型", 70));
-            dgvDebugHistory.Columns.Add(BuildTextColumn("Value", "结果/写入值", 220));
-            dgvDebugHistory.Columns.Add(BuildTextColumn("Elapsed", "耗时", 70));
-            dgvDebugHistory.Columns.Add(BuildTextColumn("Status", "状态", 80));
-            lblDebugStatus = new Label
-            {
-                Dock = DockStyle.Fill,
-                Text = "调试状态：就绪",
-                TextAlign = ContentAlignment.MiddleLeft,
-                ForeColor = Color.FromArgb(80, 94, 108),
-                Padding = new Padding(8, 0, 0, 0)
-            };
-            debugLayout.Controls.Add(commandPanel, 0, 0);
-            debugLayout.Controls.Add(dgvDebugHistory, 0, 1);
-            debugLayout.Controls.Add(lblDebugStatus, 0, 2);
-            UpdateDebugQuantityState();
-            tabDebug.Controls.Add(debugLayout);
-        }
-
-        private static void AddDebugField(FlowLayoutPanel panel, string title, Control control)
-        {
-            var container = new FlowLayoutPanel
-            {
-                AutoSize = true,
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                Margin = new Padding(0, 0, 12, 0)
-            };
-            container.Controls.Add(new Label
-            {
-                AutoSize = true,
-                Text = title,
-                ForeColor = Color.FromArgb(92, 105, 119),
-                Margin = new Padding(0, 0, 0, 4)
+                Font = new Font("Microsoft YaHei UI", 16F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(31, 41, 55),
+                Location = new Point(18, 10)
             });
-            container.Controls.Add(control);
-            panel.Controls.Add(container);
+            summaryLabel.AutoSize = true;
+            summaryLabel.ForeColor = Color.FromArgb(100, 116, 139);
+            summaryLabel.Location = new Point(20, 43);
+            header.Controls.Add(summaryLabel);
+            Controls.Add(header);
+
+            var commandBar = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 45,
+                BackColor = Color.White,
+                Padding = new Padding(14, 5, 8, 5),
+                WrapContents = false
+            };
+            commandBar.Controls.AddRange(new Control[]
+            {
+                CommandButton("新增设备", AddDevice),
+                CommandButton("删除设备", DeleteDevice),
+                CommandButton("保存配置", SaveConfiguration, true),
+                CommandButton("重新初始化", ReinitializeDevice),
+                CommandButton("启动映射", StartMapping, true),
+                CommandButton("停止映射", StopMapping)
+            });
+            Controls.Add(commandBar);
+
+            var split = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                SplitterDistance = 225,
+                FixedPanel = FixedPanel.Panel1,
+                BackColor = Color.FromArgb(226, 232, 240)
+            };
+            split.Panel1.Padding = new Padding(12);
+            split.Panel1.BackColor = Color.FromArgb(248, 250, 252);
+            split.Panel2.Padding = new Padding(12);
+            split.Panel2.BackColor = BackColor;
+            Controls.Add(split);
+            split.BringToFront();
+
+            var deviceTitle = new Label
+            {
+                Text = "设备",
+                Dock = DockStyle.Top,
+                Height = 30,
+                Font = new Font(Font, FontStyle.Bold),
+                ForeColor = Color.FromArgb(51, 65, 85)
+            };
+            deviceList.Dock = DockStyle.Fill;
+            deviceList.BorderStyle = BorderStyle.None;
+            deviceList.DisplayMember = "Name";
+            deviceList.Font = new Font(Font.FontFamily, 10F);
+            deviceList.SelectedIndexChanged += DeviceList_SelectedIndexChanged;
+            stateLabel.Dock = DockStyle.Bottom;
+            stateLabel.Height = 138;
+            stateLabel.Padding = new Padding(8);
+            stateLabel.BackColor = Color.White;
+            stateLabel.ForeColor = Color.FromArgb(71, 85, 105);
+            split.Panel1.Controls.Add(deviceList);
+            split.Panel1.Controls.Add(stateLabel);
+            split.Panel1.Controls.Add(deviceTitle);
+
+            var tabs = new TabControl { Dock = DockStyle.Fill };
+            tabs.TabPages.Add(BuildOverviewTab());
+            tabs.TabPages.Add(BuildMappingTab());
+            tabs.TabPages.Add(BuildDebugTab());
+            split.Panel2.Controls.Add(tabs);
         }
 
-        private sealed class DebugRequest
+        private TabPage BuildOverviewTab()
         {
-            public PlcDevice Device { get; set; }
-            public string DataType { get; set; }
-            public string Address { get; set; }
-            public int Quantity { get; set; }
-            public string WriteValue { get; set; }
+            var tab = new TabPage("设备概览") { BackColor = Color.White, Padding = new Padding(8) };
+            var help = new Label
+            {
+                Dock = DockStyle.Bottom,
+                Height = 108,
+                Padding = new Padding(10, 8, 10, 8),
+                BackColor = Color.FromArgb(239, 246, 255),
+                ForeColor = Color.FromArgb(30, 64, 175),
+                Text = "参数提示：\r\n"
+                    + "• 字节序只影响 UInt、Int、Float、Double 等跨多个寄存器的数值；Coil、Boolean、UShort、Short 不受影响。\r\n"
+                    + "• 扫描周期是映射运行时相邻两轮通讯的最短间隔；最低 50ms，避免通讯尚未完成就堆积下一轮请求。\r\n"
+                    + "• 汇川旧项目若已验证为 CDAB，请在此明确设置为 CDAB；字符串反转由“字符串反转”参数控制。"
+            };
+            deviceProperties.Dock = DockStyle.Fill;
+            deviceProperties.HelpVisible = true;
+            deviceProperties.ToolbarVisible = false;
+            deviceProperties.PropertySort = PropertySort.Categorized;
+            deviceProperties.PropertyValueChanged += (sender, args) =>
+            {
+                deviceList.DisplayMember = string.Empty;
+                deviceList.DisplayMember = "Name";
+                RefreshSummary();
+            };
+            tab.Controls.Add(deviceProperties);
+            tab.Controls.Add(help);
+            return tab;
         }
 
-        private sealed class DebugResult
+        private TabPage BuildMappingTab()
         {
-            public DebugRequest Request { get; set; }
-            public string Operation { get; set; }
-            public object Value { get; set; }
-            public long ElapsedMilliseconds { get; set; }
-            public bool Success { get; set; }
-            public string Error { get; set; }
+            var tab = new TabPage("变量映射") { BackColor = Color.White, Padding = new Padding(8) };
+            var actions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 42, WrapContents = false };
+            variableSelector.DropDownStyle = ComboBoxStyle.DropDownList;
+            variableSelector.Width = 190;
+            variableSelector.Margin = new Padding(12, 5, 2, 4);
+            actions.Controls.AddRange(new Control[]
+            {
+                CommandButton("新增映射", AddMap),
+                CommandButton("删除映射", DeleteMap),
+                new Label { Text = "首变量：", AutoSize = true, Padding = new Padding(5, 9, 0, 0) },
+                variableSelector,
+                CommandButton("按数量填入变量", ApplySelectedVariable),
+                CommandButton("以PLC为准解除冲突", (s,e) => ResolveConflict(PlcConflictResolution.UsePlcValue)),
+                CommandButton("以本地为准解除冲突", (s,e) => ResolveConflict(PlcConflictResolution.UseLocalValue))
+            });
+            ConfigureMapGrid();
+            tab.Controls.Add(mapGrid);
+            tab.Controls.Add(actions);
+            return tab;
+        }
+
+        private TabPage BuildDebugTab()
+        {
+            var tab = new TabPage("在线调试") { BackColor = Color.White, Padding = new Padding(8) };
+            var fields = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 78,
+                AutoScroll = true,
+                WrapContents = false,
+                Padding = new Padding(0, 3, 0, 3)
+            };
+            debugArea.DropDownStyle = ComboBoxStyle.DropDownList;
+            debugArea.DataSource = Enum.GetValues(typeof(PlcArea));
+            debugType.DropDownStyle = ComboBoxStyle.DropDownList;
+            debugType.DataSource = Enum.GetValues(typeof(PlcDataType));
+            debugType.SelectedItem = PlcDataType.Float;
+            debugAddress.Maximum = 65535;
+            debugCount.Minimum = 1;
+            debugCount.Maximum = 1000;
+            debugCount.Value = 1;
+            debugStringLength.Maximum = 2000;
+            debugValue.Width = 190;
+            fields.Controls.AddRange(new Control[]
+            {
+                DebugField("地址区", debugArea), DebugField("起始地址", debugAddress),
+                DebugField("数据类型", debugType), DebugField("元素数", debugCount),
+                DebugField("字符串字节数", debugStringLength), DebugField("写入值（逗号分隔）", debugValue)
+            });
+
+            var actions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 42, WrapContents = false };
+            actions.Controls.AddRange(new Control[]
+            {
+                CommandButton("读取一次", async (s,e) => await DebugReadAsync("单次读取"), true),
+                CommandButton("写入一次", async (s,e) => await DebugWriteAsync(), false),
+                CommandButton("连续监视", ToggleMonitor),
+                CommandButton("100次性能测试", async (s,e) => await PerformanceTestAsync())
+            });
+            monitorLabel.AutoSize = true;
+            monitorLabel.Padding = new Padding(8, 9, 0, 0);
+            monitorLabel.ForeColor = Color.FromArgb(71, 85, 105);
+            actions.Controls.Add(monitorLabel);
+
+            historyGrid.Dock = DockStyle.Fill;
+            historyGrid.AutoGenerateColumns = true;
+            historyGrid.DataSource = history;
+            historyGrid.ReadOnly = true;
+            historyGrid.AllowUserToAddRows = false;
+            historyGrid.AllowUserToDeleteRows = false;
+            historyGrid.BackgroundColor = Color.White;
+            historyGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            tab.Controls.Add(historyGrid);
+            tab.Controls.Add(actions);
+            tab.Controls.Add(fields);
+            return tab;
+        }
+
+        private void ConfigureMapGrid()
+        {
+            mapGrid.Dock = DockStyle.Fill;
+            mapGrid.AllowUserToAddRows = false;
+            mapGrid.AllowUserToDeleteRows = false;
+            mapGrid.BackgroundColor = Color.White;
+            mapGrid.RowHeadersVisible = false;
+            mapGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Id", Visible = false });
+            mapGrid.Columns.Add(new DataGridViewCheckBoxColumn { Name = "Enabled", HeaderText = "启用", Width = 50 });
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "MapName", HeaderText = "名称", Width = 120 });
+            mapGrid.Columns.Add(EnumColumn<PlcArea>("Area", "地址区"));
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "StartAddress", HeaderText = "起始地址" });
+            mapGrid.Columns.Add(EnumColumn<PlcDataType>("DataType", "数据类型"));
+            mapGrid.Columns.Add(EnumColumn<PlcMapDirection>("Direction", "方向"));
+            mapGrid.Columns.Add(EnumColumn<PlcMapPriority>("Priority", "优先级"));
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "ElementCount", HeaderText = "元素数" });
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "StringByteLength", HeaderText = "字符串字节数" });
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "VariableNames",
+                HeaderText = "变量列表（下拉选择或逗号分隔）",
+                Width = 240
+            });
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "ChangeTolerance", HeaderText = "变化容差" });
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "RuntimeState", HeaderText = "运行状态", ReadOnly = true });
+            mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "RuntimeMessage", HeaderText = "状态信息", ReadOnly = true, Width = 240 });
         }
 
         private void FrmPlc_Load(object sender, EventArgs e)
         {
-            LoadConfig();
-            RefreshDebugDeviceList();
-            UpdateMappingStatus();
-            uiStatusTimer = new System.Windows.Forms.Timer { Interval = 500 };
-            uiStatusTimer.Tick += UiStatusTimer_Tick;
-            uiStatusTimer.Start();
-        }
-
-        private void RefreshDebugDeviceList()
-        {
-            if (cmbDebugDevice == null)
-            {
-                return;
-            }
-            string selected = cmbDebugDevice.SelectedItem?.ToString();
-            cmbDebugDevice.BeginUpdate();
-            try
-            {
-                cmbDebugDevice.Items.Clear();
-                foreach (PlcDevice device in deviceBinding)
-                {
-                    if (device != null && !string.IsNullOrWhiteSpace(device.Name))
-                    {
-                        cmbDebugDevice.Items.Add(device.Name);
-                    }
-                }
-                if (!string.IsNullOrWhiteSpace(selected) && cmbDebugDevice.Items.Contains(selected))
-                {
-                    cmbDebugDevice.SelectedItem = selected;
-                }
-                else if (cmbDebugDevice.Items.Count > 0)
-                {
-                    cmbDebugDevice.SelectedIndex = 0;
-                }
-            }
-            finally
-            {
-                cmbDebugDevice.EndUpdate();
-            }
-        }
-
-        private bool TryBuildDebugRequest(out DebugRequest request, out string error)
-        {
-            request = null;
-            error = null;
-            string deviceName = cmbDebugDevice.SelectedItem?.ToString();
-            PlcDevice source = deviceBinding.FirstOrDefault(device => device != null
-                && string.Equals(device.Name, deviceName, StringComparison.OrdinalIgnoreCase));
-            if (source == null)
-            {
-                error = "请选择有效PLC设备。";
-                return false;
-            }
-            PlcDevice device = new PlcDevice
-            {
-                Name = source.Name,
-                Protocol = source.Protocol,
-                CpuType = source.CpuType,
-                Ip = source.Ip,
-                Port = source.Port,
-                Rack = source.Rack,
-                Slot = source.Slot,
-                TimeoutMs = source.TimeoutMs,
-                UnitId = source.UnitId
-            };
-            if (!PlcConfigStore.ValidateDevices(new List<PlcDevice> { device }, out error))
-            {
-                return false;
-            }
-            string dataType = cmbDebugDataType.SelectedItem?.ToString();
-            string address = txtDebugAddress.Text?.Trim();
-            if (string.IsNullOrWhiteSpace(dataType) || string.IsNullOrWhiteSpace(address))
-            {
-                error = "数据类型和PLC地址不能为空。";
-                return false;
-            }
-            request = new DebugRequest
-            {
-                Device = device,
-                DataType = dataType,
-                Address = address,
-                Quantity = (int)numDebugQuantity.Value,
-                WriteValue = txtDebugWriteValue.Text
-            };
-            return true;
-        }
-
-        private async void DebugRead_Click(object sender, EventArgs e)
-        {
-            if (!TryBuildDebugRequest(out DebugRequest request, out string error))
-            {
-                MessageBox.Show(error, "PLC调试", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            await ExecuteDebugOperationAsync(request, false);
-        }
-
-        private async void DebugWrite_Click(object sender, EventArgs e)
-        {
-            if (!TryBuildDebugRequest(out DebugRequest request, out string error))
-            {
-                MessageBox.Show(error, "PLC调试", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(request.WriteValue))
-            {
-                MessageBox.Show("写入值不能为空。", "PLC调试", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            if (MessageBox.Show($"确认写入PLC？\r\n设备：{request.Device.Name}\r\n地址：{request.Address}\r\n值：{request.WriteValue}",
-                "PLC写入确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
-            {
-                return;
-            }
-            await ExecuteDebugOperationAsync(request, true);
-        }
-
-        private async Task ExecuteDebugOperationAsync(DebugRequest request, bool write)
-        {
-            if (Interlocked.Exchange(ref debugOperationBusy, 1) != 0)
-            {
-                return;
-            }
-            SetDebugControlsEnabled(false);
-            try
-            {
-                DebugResult result = await Task.Run(() => ExecuteDebugOperation(request, write));
-                AppendDebugResult(result);
-            }
-            catch (Exception ex)
-            {
-                AppendDebugResult(new DebugResult
-                {
-                    Request = request,
-                    Operation = write ? "写入" : "读取",
-                    Success = false,
-                    Error = ex.Message
-                });
-            }
-            finally
-            {
-                Interlocked.Exchange(ref debugOperationBusy, 0);
-                SetDebugControlsEnabled(debugWatchCts == null);
-            }
-        }
-
-        private DebugResult ExecuteDebugOperation(DebugRequest request, bool write)
-        {
-            Stopwatch watch = Stopwatch.StartNew();
-            var map = new PlcMapItem
-            {
-                PlcName = request.Device.Name,
-                DataType = request.DataType,
-                PlcAddress = request.Address,
-                Quantity = request.Quantity,
-                Direction = write ? "写PLC" : "读PLC",
-                WriteConst = write ? request.WriteValue : string.Empty,
-                ValueName = write ? string.Empty : "调试读取"
-            };
-            bool success = false;
-            object value = null;
-            string error = null;
-            if (SF.plcStore == null)
-            {
-                error = "PLC通讯未初始化";
-            }
-            else if (write)
-            {
-                success = SF.plcStore.TryWriteValue(request.Device, map, request.WriteValue, out error);
-                value = request.WriteValue;
-            }
-            else
-            {
-                success = SF.plcStore.TryReadValue(request.Device, map, out value, out error);
-            }
-            watch.Stop();
-            return new DebugResult
-            {
-                Request = request,
-                Operation = write ? "写入" : "读取",
-                Value = value,
-                ElapsedMilliseconds = watch.ElapsedMilliseconds,
-                Success = success,
-                Error = error
-            };
-        }
-
-        private void DebugWatch_Click(object sender, EventArgs e)
-        {
-            if (!TryBuildDebugRequest(out DebugRequest request, out string error))
-            {
-                MessageBox.Show(error, "PLC调试", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            if (debugWatchTask != null && !debugWatchTask.IsCompleted)
-            {
-                return;
-            }
-            debugWatchCts?.Dispose();
-            debugWatchCts = new CancellationTokenSource();
-            CancellationTokenSource cts = debugWatchCts;
-            int interval = (int)numDebugInterval.Value;
-            SetDebugControlsEnabled(false);
-            btnDebugStop.Enabled = true;
-            lblDebugStatus.Text = "调试状态：连续监视中";
-            debugWatchTask = Task.Run(async () =>
-            {
-                while (!cts.IsCancellationRequested)
-                {
-                    DebugResult result = ExecuteDebugOperation(request, false);
-                    TryBeginInvoke(() => AppendDebugResult(result));
-                    await Task.Delay(interval, cts.Token).ConfigureAwait(false);
-                }
-            }, cts.Token);
-            debugWatchTask.ContinueWith(task =>
-            {
-                _ = task.Exception;
-                cts.Dispose();
-                TryBeginInvoke(() =>
-                {
-                    if (ReferenceEquals(debugWatchCts, cts))
-                    {
-                        debugWatchCts = null;
-                        debugWatchTask = null;
-                    }
-                    SetDebugControlsEnabled(true);
-                    btnDebugStop.Enabled = false;
-                    lblDebugStatus.Text = "调试状态：已停止";
-                });
-            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        }
-
-        private void DebugStop_Click(object sender, EventArgs e)
-        {
-            StopDebugWatch();
-        }
-
-        private void StopDebugWatch()
-        {
-            debugWatchCts?.Cancel();
-        }
-
-        private void SetDebugControlsEnabled(bool enabled)
-        {
-            cmbDebugDevice.Enabled = enabled;
-            cmbDebugDataType.Enabled = enabled;
-            txtDebugAddress.Enabled = enabled;
-            numDebugQuantity.Enabled = enabled
-                && string.Equals(cmbDebugDataType.SelectedItem?.ToString(), "String", StringComparison.Ordinal);
-            txtDebugWriteValue.Enabled = enabled;
-            numDebugInterval.Enabled = enabled;
-            btnDebugRead.Enabled = enabled;
-            btnDebugWrite.Enabled = enabled;
-            btnDebugWatch.Enabled = enabled;
-        }
-
-        private void DebugDataType_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            UpdateDebugQuantityState();
-        }
-
-        private void UpdateDebugQuantityState()
-        {
-            bool isString = string.Equals(cmbDebugDataType.SelectedItem?.ToString(), "String",
-                StringComparison.Ordinal);
-            if (!isString)
-            {
-                numDebugQuantity.Value = 1;
-            }
-            numDebugQuantity.Enabled = isString && (debugWatchCts == null || debugWatchCts.IsCancellationRequested);
-        }
-
-        private void AppendDebugResult(DebugResult result)
-        {
-            if (result?.Request == null || dgvDebugHistory.IsDisposed)
-            {
-                return;
-            }
-            string valueText = FormatDebugValue(result.Value);
-            int rowIndex = dgvDebugHistory.Rows.Add(DateTime.Now.ToString("HH:mm:ss.fff"), result.Operation,
-                result.Request.Device.Name, result.Request.Address, result.Request.DataType,
-                result.Success ? valueText : result.Error, result.ElapsedMilliseconds + " ms",
-                result.Success ? "成功" : "失败");
-            DataGridViewRow row = dgvDebugHistory.Rows[rowIndex];
-            row.DefaultCellStyle.ForeColor = result.Success ? Color.FromArgb(34, 92, 54) : Color.Firebrick;
-            if (dgvDebugHistory.Rows.Count > MaxDebugHistoryRows)
-            {
-                dgvDebugHistory.Rows.RemoveAt(0);
-            }
-            if (dgvDebugHistory.Rows.Count > 0)
-            {
-                dgvDebugHistory.FirstDisplayedScrollingRowIndex = dgvDebugHistory.Rows.Count - 1;
-            }
-            lblDebugStatus.Text = result.Success
-                ? $"调试状态：{result.Operation}成功，耗时 {result.ElapsedMilliseconds} ms"
-                : $"调试状态：{result.Operation}失败 - {result.Error}";
-        }
-
-        private static string FormatDebugValue(object value)
-        {
-            if (value == null)
-            {
-                return string.Empty;
-            }
-            if (value is Array array)
-            {
-                return string.Join(", ", array.Cast<object>().Select(item => item?.ToString() ?? string.Empty));
-            }
-            return value.ToString();
-        }
-
-        private void FrmPlc_FormClosing(object sender, FormClosingEventArgs e)
-        {
-            if (e.CloseReason == CloseReason.UserClosing)
-            {
-                StopDebugWatch();
-                uiStatusTimer?.Stop();
-                e.Cancel = true;
-                Hide();
-                return;
-            }
-            StopMappingInternal();
-            StopDebugWatch();
+            ReloadDraft();
+            refreshTimer.Start();
         }
 
         private void FrmPlc_VisibleChanged(object sender, EventArgs e)
         {
-            if (Visible && uiStatusTimer != null && !uiStatusTimer.Enabled)
+            if (Visible)
             {
-                uiStatusTimer.Start();
-            }
-            else if (!Visible)
-            {
-                uiStatusTimer?.Stop();
-            }
-        }
-
-        private void InitDeviceColumns()
-        {
-            dgvDevices.Columns.Clear();
-
-            dgvDevices.Columns.Add(BuildTextColumn("Name", "名称", 120));
-            dgvDevices.Columns.Add(BuildComboColumn("Protocol", "协议", PlcConstants.Protocols, 90));
-            dgvDevices.Columns.Add(BuildComboColumn("CpuType", "CPU类型", PlcConstants.CpuTypes, 90));
-            dgvDevices.Columns.Add(BuildTextColumn("Ip", "IP", 120));
-            dgvDevices.Columns.Add(BuildTextColumn("Port", "端口", 70));
-            dgvDevices.Columns.Add(BuildTextColumn("Rack", "机架", 60));
-            dgvDevices.Columns.Add(BuildTextColumn("Slot", "槽位", 60));
-            dgvDevices.Columns.Add(BuildTextColumn("TimeoutMs", "超时ms", 80));
-            dgvDevices.Columns.Add(BuildTextColumn("UnitId", "站号", 60));
-            dgvDevices.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "ConnectionState",
-                HeaderText = "连接状态",
-                ReadOnly = true,
-                MinimumWidth = 80,
-                FillWeight = 80,
-                SortMode = DataGridViewColumnSortMode.NotSortable
-            });
-
-            dgvDevices.DataSource = deviceBinding;
-        }
-
-        private void InitMapColumns()
-        {
-            dgvMaps.Columns.Clear();
-
-            dgvMaps.Columns.Add(BuildTextColumn("PlcName", "PLC名称", 120));
-            dgvMaps.Columns.Add(BuildComboColumn("DataType", "数据类型", PlcConstants.DataTypes, 90));
-            dgvMaps.Columns.Add(BuildComboColumn("Direction", "读写", PlcConstants.Directions, 80));
-            dgvMaps.Columns.Add(BuildTextColumn("PlcAddress", "PLC首地址", 150));
-            dgvMaps.Columns.Add(BuildTextColumn("WriteConst", "写入常量", 120));
-            dgvMaps.Columns.Add(BuildTextColumn("ValueName", "变量名称", 120));
-            dgvMaps.Columns.Add(BuildTextColumn("Quantity", "数据数量", 80));
-
-            dgvMaps.DataSource = mapBinding;
-        }
-
-        private static DataGridViewTextBoxColumn BuildTextColumn(string dataProperty, string headerText, int width)
-        {
-            return new DataGridViewTextBoxColumn
-            {
-                DataPropertyName = dataProperty,
-                HeaderText = headerText,
-                MinimumWidth = width,
-                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-                FillWeight = width,
-                SortMode = DataGridViewColumnSortMode.NotSortable
-            };
-        }
-
-        private static DataGridViewComboBoxColumn BuildComboColumn(string dataProperty, string headerText, IEnumerable<string> items, int width)
-        {
-            DataGridViewComboBoxColumn column = new DataGridViewComboBoxColumn
-            {
-                DataPropertyName = dataProperty,
-                HeaderText = headerText,
-                MinimumWidth = width,
-                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-                FillWeight = width,
-                SortMode = DataGridViewColumnSortMode.NotSortable,
-                FlatStyle = FlatStyle.Popup
-            };
-            foreach (string item in items)
-            {
-                column.Items.Add(item);
-            }
-            return column;
-        }
-
-        private void LoadConfig()
-        {
-            if (SF.plcStore == null)
-            {
-                return;
-            }
-            SF.plcStore.Load(SF.ConfigPath);
-            deviceBinding.Clear();
-            foreach (PlcDevice device in SF.plcStore.Devices)
-            {
-                deviceBinding.Add(device);
-            }
-            mapBinding.Clear();
-            foreach (PlcMapItem map in SF.plcStore.Maps)
-            {
-                mapBinding.Add(map);
-            }
-        }
-
-        private void MenuDeviceAdd_Click(object sender, EventArgs e)
-        {
-            PlcDevice device = new PlcDevice
-            {
-                Name = BuildNextDeviceName()
-            };
-            deviceBinding.Add(device);
-        }
-
-        private void MenuDeviceModify_Click(object sender, EventArgs e)
-        {
-            BeginEditSelected(dgvDevices);
-        }
-
-        private void MenuDeviceDelete_Click(object sender, EventArgs e)
-        {
-            int row = dgvDevices.CurrentCell?.RowIndex ?? -1;
-            if (row < 0 || row >= deviceBinding.Count)
-            {
-                return;
-            }
-            if (MessageBox.Show("确认删除选中的PLC设备？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
-            {
-                return;
-            }
-            deviceBinding.RemoveAt(row);
-        }
-
-        private void MenuMapAdd_Click(object sender, EventArgs e)
-        {
-            PlcMapItem map = new PlcMapItem
-            {
-                PlcName = deviceBinding.FirstOrDefault()?.Name ?? string.Empty
-            };
-            mapBinding.Add(map);
-        }
-
-        private void MenuMapModify_Click(object sender, EventArgs e)
-        {
-            BeginEditSelected(dgvMaps);
-        }
-
-        private void MenuMapDelete_Click(object sender, EventArgs e)
-        {
-            int row = dgvMaps.CurrentCell?.RowIndex ?? -1;
-            if (row < 0 || row >= mapBinding.Count)
-            {
-                return;
-            }
-            if (MessageBox.Show("确认删除选中的PLC映射？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
-            {
-                return;
-            }
-            mapBinding.RemoveAt(row);
-        }
-
-        private async void MenuMapReconnect_Click(object sender, EventArgs e)
-        {
-            StopMappingInternal();
-            if (SF.plcStore == null)
-            {
-                MessageBox.Show("PLC通讯未初始化");
-                return;
-            }
-            if (!TryBuildDeviceSnapshot(out List<PlcDevice> devices, out string error))
-            {
-                MessageBox.Show(error);
-                return;
-            }
-            btnReconnectAll.Enabled = false;
-            try
-            {
-                string reconnectError = await Task.Run(() =>
-                {
-                    foreach (PlcDevice device in devices)
-                    {
-                        if (!SF.plcStore.TryReconnect(device, out string deviceError))
-                        {
-                            return $"PLC重连失败:{device.Name} - {deviceError}";
-                        }
-                    }
-                    return null;
-                });
-                if (!string.IsNullOrWhiteSpace(reconnectError))
-                {
-                    ReportMappingError(reconnectError);
-                    return;
-                }
-                ReportNormal("PLC重连完成");
-            }
-            catch (Exception ex)
-            {
-                ReportMappingError($"PLC连接测试异常:{ex.Message}");
-            }
-            finally
-            {
-                btnReconnectAll.Enabled = true;
-            }
-        }
-
-        private void MenuMapStart_Click(object sender, EventArgs e)
-        {
-            StartMapping();
-        }
-
-        private void MenuMapStop_Click(object sender, EventArgs e)
-        {
-            StopMappingInternal();
-        }
-
-        private void MenuSave_Click(object sender, EventArgs e)
-        {
-            if (mappingRunning || (debugWatchTask != null && !debugWatchTask.IsCompleted))
-            {
-                MessageBox.Show("请先停止PLC映射和连续监视，再保存配置。", "PLC配置",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            if (SF.plcStore == null)
-            {
-                MessageBox.Show("PLC配置未初始化");
-                return;
-            }
-            if (!TryBuildDeviceSnapshot(out List<PlcDevice> devices, out string deviceError))
-            {
-                MessageBox.Show(deviceError);
-                return;
-            }
-            if (!TryBuildMapSnapshot(out List<PlcMapItem> maps, out string mapError))
-            {
-                MessageBox.Show(mapError);
-                return;
-            }
-            HashSet<string> deviceNames = new HashSet<string>(devices.Select(d => d.Name), StringComparer.OrdinalIgnoreCase);
-            Dictionary<string, PlcDevice> deviceMap = devices.ToDictionary(device => device.Name,
-                StringComparer.OrdinalIgnoreCase);
-            foreach (PlcMapItem map in maps)
-            {
-                if (map == null)
-                {
-                    continue;
-                }
-                if (!deviceNames.Contains(map.PlcName ?? string.Empty))
-                {
-                    MessageBox.Show($"PLC名称不存在:{map.PlcName}");
-                    return;
-                }
-                if (!PlcHub.TryValidateAccess(deviceMap[map.PlcName], map, out string accessError))
-                {
-                    MessageBox.Show($"PLC映射参数无效:{map.PlcName}/{map.PlcAddress} - {accessError}");
-                    return;
-                }
-            }
-
-            SF.plcStore.ReplaceDevices(devices);
-            SF.plcStore.ReplaceMaps(maps);
-            SF.plcStore.SaveDevices(SF.ConfigPath);
-            SF.plcStore.SaveMaps(SF.ConfigPath);
-            RefreshDebugDeviceList();
-            ReportNormal("PLC配置已保存");
-        }
-
-        private void StartMapping()
-        {
-            lock (mappingLifecycleLock)
-            {
-                if (mappingRunning || (mappingTask != null && !mappingTask.IsCompleted))
-                {
-                    return;
-                }
-            }
-            if (SF.plcStore == null)
-            {
-                MessageBox.Show("PLC通讯未初始化");
-                return;
-            }
-            if (!TryBuildDeviceSnapshot(out List<PlcDevice> devices, out string deviceError))
-            {
-                MessageBox.Show(deviceError);
-                return;
-            }
-            if (!TryBuildMapSnapshot(out List<PlcMapItem> maps, out string mapError))
-            {
-                MessageBox.Show(mapError);
-                return;
-            }
-            if (maps.Count == 0)
-            {
-                MessageBox.Show("PLC映射为空");
-                return;
-            }
-            if (!TryValidateRuntimeMaps(maps, out string runtimeMapError))
-            {
-                MessageBox.Show(runtimeMapError, "PLC映射", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            HashSet<string> deviceNames = new HashSet<string>(devices.Select(d => d.Name), StringComparer.OrdinalIgnoreCase);
-            Dictionary<string, PlcDevice> startDeviceMap = devices.ToDictionary(device => device.Name,
-                StringComparer.OrdinalIgnoreCase);
-            foreach (PlcMapItem map in maps)
-            {
-                if (map == null)
-                {
-                    continue;
-                }
-                if (!deviceNames.Contains(map.PlcName ?? string.Empty))
-                {
-                    MessageBox.Show($"PLC名称不存在:{map.PlcName}");
-                    return;
-                }
-                if (!PlcHub.TryValidateAccess(startDeviceMap[map.PlcName], map, out string accessError))
-                {
-                    MessageBox.Show($"PLC映射参数无效:{map.PlcName}/{map.PlcAddress} - {accessError}");
-                    return;
-                }
-            }
-            CancellationTokenSource cts = new CancellationTokenSource();
-            Task task;
-            lock (mappingLifecycleLock)
-            {
-                mappingRunning = true;
-                mappingCts = cts;
-                task = Task.Run(() => MappingLoop(devices, maps, cts.Token), cts.Token);
-                mappingTask = task;
-            }
-            task.ContinueWith(completedTask => CompleteMappingTask(completedTask, cts),
-                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-            UpdateMappingStatus();
-        }
-
-        private void StopMappingInternal()
-        {
-            CancellationTokenSource cts;
-            lock (mappingLifecycleLock)
-            {
-                cts = mappingCts;
-                mappingRunning = false;
-            }
-            cts?.Cancel();
-            UpdateMappingStatus();
-        }
-
-        private void CompleteMappingTask(Task completedTask, CancellationTokenSource cts)
-        {
-            _ = completedTask.Exception;
-            lock (mappingLifecycleLock)
-            {
-                if (ReferenceEquals(mappingTask, completedTask))
-                {
-                    mappingTask = null;
-                    mappingCts = null;
-                    mappingRunning = false;
-                }
-            }
-            cts.Dispose();
-            UpdateMappingStatus();
-        }
-
-        private void MappingLoop(List<PlcDevice> devices, List<PlcMapItem> maps, CancellationToken token)
-        {
-            try
-            {
-                Dictionary<string, PlcDevice> deviceMap = devices.ToDictionary(d => d.Name, StringComparer.OrdinalIgnoreCase);
-                while (!token.IsCancellationRequested)
-                {
-                    Stopwatch cycleWatch = Stopwatch.StartNew();
-                    if (!HandleMappingCycle(deviceMap, maps, token, out int readCount))
-                    {
-                        return;
-                    }
-                    cycleWatch.Stop();
-                    Interlocked.Increment(ref mappingCycleCount);
-                    Interlocked.Exchange(ref lastMappingCycleElapsedMs, cycleWatch.ElapsedMilliseconds);
-                    Interlocked.Exchange(ref lastMappingReadCount, readCount);
-
-                    int remainingDelay = Math.Max(0,
-                        Volatile.Read(ref mappingIntervalMs) - (int)Math.Min(int.MaxValue, cycleWatch.ElapsedMilliseconds));
-                    if (token.WaitHandle.WaitOne(remainingDelay))
-                    {
-                        break;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                StopMappingWithError(ex.Message);
-            }
-        }
-
-        private bool HandleMappingCycle(Dictionary<string, PlcDevice> deviceMap, List<PlcMapItem> maps,
-            CancellationToken token, out int readCount)
-        {
-            readCount = 0;
-            var readMapsByDevice = new Dictionary<string, List<PlcMapItem>>(StringComparer.OrdinalIgnoreCase);
-            foreach (PlcMapItem map in maps)
-            {
-                if (token.IsCancellationRequested)
-                {
-                    return false;
-                }
-                if (map == null)
-                {
-                    continue;
-                }
-                if (!deviceMap.TryGetValue(map.PlcName ?? string.Empty, out PlcDevice device))
-                {
-                    StopMappingWithError($"PLC名称不存在:{map.PlcName}");
-                    return false;
-                }
-                if (!TryParseMapDirection(map.Direction, out bool doRead, out bool doWrite, out string error))
-                {
-                    StopMappingWithError(error);
-                    return false;
-                }
-                if (doWrite && !TryWriteMapValue(device, map))
-                {
-                    return false;
-                }
-                if (doRead)
-                {
-                    if (!readMapsByDevice.TryGetValue(device.Name, out List<PlcMapItem> deviceMaps))
-                    {
-                        deviceMaps = new List<PlcMapItem>();
-                        readMapsByDevice[device.Name] = deviceMaps;
-                    }
-                    deviceMaps.Add(map);
-                }
-            }
-
-            foreach (KeyValuePair<string, List<PlcMapItem>> pair in readMapsByDevice)
-            {
-                if (token.IsCancellationRequested)
-                {
-                    return false;
-                }
-                PlcDevice device = deviceMap[pair.Key];
-                if (!SF.plcStore.TryReadBatch(device, pair.Value,
-                    out IReadOnlyList<PlcBatchReadResult> results, out string readError))
-                {
-                    StopMappingWithError($"PLC批量读取失败:{device.Name} {readError}");
-                    return false;
-                }
-                foreach (PlcBatchReadResult result in results)
-                {
-                    if (result?.Map == null || string.IsNullOrWhiteSpace(result.Map.ValueName)
-                        || SF.valueStore == null
-                        || !SF.valueStore.setValueByName(result.Map.ValueName, result.Value, "PLC映射"))
-                    {
-                        StopMappingWithError($"变量写入失败:{result?.Map?.ValueName}");
-                        return false;
-                    }
-                    readCount++;
-                }
-            }
-            return true;
-        }
-
-        private bool TryWriteMapValue(PlcDevice device, PlcMapItem map)
-        {
-            object writeValue;
-            if (!string.IsNullOrWhiteSpace(map.WriteConst))
-            {
-                writeValue = map.WriteConst;
+                ReloadDraft();
+                refreshTimer.Start();
             }
             else
             {
-                if (SF.valueStore == null || string.IsNullOrWhiteSpace(map.ValueName)
-                    || !SF.valueStore.TryGetValueByName(map.ValueName, out DicValue value))
-                {
-                    StopMappingWithError($"PLC写映射变量不存在:{map.ValueName}");
-                    return false;
-                }
-                writeValue = value.Value;
-            }
-            if (!SF.plcStore.TryWriteValue(device, map, writeValue, out string writeError))
-            {
-                StopMappingWithError($"PLC写入失败:{device.Name} {writeError}");
-                return false;
-            }
-            return true;
-        }
-
-        private static bool TryParseMapDirection(string text, out bool doRead, out bool doWrite, out string error)
-        {
-            doRead = false;
-            doWrite = false;
-            error = null;
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                error = "读写方向不能为空";
-                return false;
-            }
-            switch (text.Trim())
-            {
-                case "读PLC":
-                    doRead = true;
-                    return true;
-                case "写PLC":
-                    doWrite = true;
-                    return true;
-                case "读写":
-                    doRead = true;
-                    doWrite = true;
-                    return true;
-                default:
-                    error = $"读写方向无效:{text}";
-                    return false;
+                refreshTimer.Stop();
+                monitorTimer.Stop();
             }
         }
 
-        private void StopMappingWithError(string message)
+        private void ReloadDraft()
         {
-            CancellationTokenSource cts;
-            lock (mappingLifecycleLock)
-            {
-                mappingRunning = false;
-                cts = mappingCts;
-            }
-            cts?.Cancel();
-            UpdateMappingStatus();
-            ReportMappingError(message);
-        }
-
-        private void UpdateMappingStatus()
-        {
-            if (IsDisposed || Disposing || !IsHandleCreated)
-            {
-                return;
-            }
-            if (InvokeRequired)
-            {
-                TryBeginInvoke(UpdateMappingStatus);
-                return;
-            }
-            long cycles = Interlocked.Read(ref mappingCycleCount);
-            long elapsed = Interlocked.Read(ref lastMappingCycleElapsedMs);
-            long reads = Interlocked.Read(ref lastMappingReadCount);
-            lblStatus.Text = mappingRunning
-                ? $"映射运行中  |  周期 {Volatile.Read(ref mappingIntervalMs)} ms  |  最近采集 {reads} 点/{elapsed} ms  |  总周期 {cycles}"
-                : $"映射已停止  |  已完成周期 {cycles}";
-            lblStatus.BackColor = mappingRunning ? Color.LightGreen : Color.Gainsboro;
-            menuMapStart.Enabled = !mappingRunning;
-            menuMapStop.Enabled = mappingRunning;
-            btnStartMapping.Enabled = !mappingRunning;
-            btnStopMapping.Enabled = mappingRunning;
-        }
-
-        private void UiStatusTimer_Tick(object sender, EventArgs e)
-        {
-            UpdateMappingStatus();
-            if (SF.plcStore == null || dgvDevices.IsDisposed)
-            {
-                return;
-            }
-            int count = Math.Min(dgvDevices.Rows.Count, deviceBinding.Count);
-            for (int i = 0; i < count; i++)
-            {
-                PlcDevice device = deviceBinding[i];
-                DataGridViewCell cell = dgvDevices.Rows[i].Cells["ConnectionState"];
-                bool connected = device != null && SF.plcStore.IsConnected(device.Name);
-                string text = connected ? "已连接" : "未连接";
-                if (!string.Equals(Convert.ToString(cell.Value), text, StringComparison.Ordinal))
-                {
-                    cell.Value = text;
-                    cell.Style.ForeColor = connected ? Color.ForestGreen : Color.Gray;
-                }
-            }
-        }
-
-        private void ReportMappingError(string message)
-        {
-            if (IsDisposed || Disposing || !IsHandleCreated)
-            {
-                return;
-            }
-            if (InvokeRequired)
-            {
-                TryBeginInvoke(() => ReportMappingError(message));
-                return;
-            }
-            SF.frmInfo?.PrintInfo(message, FrmInfo.Level.Error);
-            MessageBox.Show(message, "PLC映射异常", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-
-        private void ReportNormal(string message)
-        {
-            if (IsDisposed || Disposing || !IsHandleCreated)
-            {
-                return;
-            }
-            if (InvokeRequired)
-            {
-                TryBeginInvoke(() => ReportNormal(message));
-                return;
-            }
-            SF.frmInfo?.PrintInfo(message, FrmInfo.Level.Normal);
-        }
-
-        private void TryBeginInvoke(Action action)
-        {
+            if (SF.plcStore == null) return;
+            loading = true;
             try
             {
-                BeginInvoke(action);
+                draft = SF.plcStore.GetSnapshot();
+                currentDevice = null;
+                deviceList.DataSource = null;
+                deviceList.DataSource = draft.Devices;
+                deviceList.DisplayMember = "Name";
+                if (draft.Devices.Count > 0)
+                {
+                    deviceList.SelectedIndex = 0;
+                    ShowDevice(draft.Devices[0]);
+                }
+                else ShowDevice(null);
+                RefreshSummary();
             }
-            catch (InvalidOperationException)
-            {
-            }
+            finally { loading = false; }
         }
 
-        private void FrmPlc_Disposed(object sender, EventArgs e)
+        private void DeviceList_SelectedIndexChanged(object sender, EventArgs e)
         {
-            StopMappingInternal();
-            StopDebugWatch();
-            if (uiStatusTimer != null)
+            if (loading) return;
+            if (!CommitMaps(currentDevice, out string error))
             {
-                uiStatusTimer.Stop();
-                uiStatusTimer.Tick -= UiStatusTimer_Tick;
-                uiStatusTimer.Dispose();
-                uiStatusTimer = null;
-            }
-        }
-
-        private string BuildNextDeviceName()
-        {
-            int index = 1;
-            HashSet<string> names = new HashSet<string>(deviceBinding.Where(d => d != null).Select(d => d.Name), StringComparer.OrdinalIgnoreCase);
-            while (names.Contains($"PLC{index}"))
-            {
-                index++;
-            }
-            return $"PLC{index}";
-        }
-
-        private static void BeginEditSelected(DataGridView grid)
-        {
-            if (grid.CurrentCell == null)
-            {
+                MessageBox.Show(error, "PLC映射", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            grid.BeginEdit(true);
+            ShowDevice(deviceList.SelectedItem as PlcDeviceConfig);
         }
 
-        private bool TryBuildDeviceSnapshot(out List<PlcDevice> devices, out string error)
+        private void ShowDevice(PlcDeviceConfig device)
         {
-            devices = deviceBinding.Select(device => device == null ? null : new PlcDevice
-            {
-                Name = device.Name,
-                Protocol = device.Protocol,
-                CpuType = device.CpuType,
-                Ip = device.Ip,
-                Port = device.Port,
-                Rack = device.Rack,
-                Slot = device.Slot,
-                TimeoutMs = device.TimeoutMs,
-                UnitId = device.UnitId
-            }).ToList();
-
-            if (!PlcConfigStore.ValidateDevices(devices, out error))
-            {
-                return false;
-            }
-            return true;
+            currentDevice = device;
+            deviceProperties.SelectedObject = device == null ? null : new DevicePropertyView(device);
+            RefreshVariableSelector();
+            LoadMaps(device);
+            RefreshRuntimeState();
         }
 
-        private bool TryBuildMapSnapshot(out List<PlcMapItem> maps, out string error)
+        private void AddDevice(object sender, EventArgs e)
         {
-            maps = mapBinding.Select(map => map == null ? null : new PlcMapItem
-            {
-                PlcName = map.PlcName,
-                DataType = map.DataType,
-                Direction = map.Direction,
-                PlcAddress = map.PlcAddress,
-                ValueName = map.ValueName,
-                Quantity = map.Quantity,
-                WriteConst = map.WriteConst
-            }).ToList();
-
-            if (!PlcConfigStore.ValidateMaps(maps, out error))
-            {
-                return false;
-            }
-            return true;
+            if (!CommitMaps(currentDevice, out string error)) { ShowError(error); return; }
+            string name = NextDeviceName();
+            PlcDeviceConfig device = PlcDeviceConfig.Create(PlcDeviceProfile.GenericModbusTcp);
+            device.Name = name;
+            device.IpAddress = "127.0.0.1";
+            draft.Devices.Add(device);
+            deviceList.DataSource = null;
+            deviceList.DataSource = draft.Devices;
+            deviceList.DisplayMember = "Name";
+            deviceList.SelectedItem = device;
+            ShowDevice(device);
+            RefreshSummary();
         }
 
-        private static bool TryValidateRuntimeMaps(IEnumerable<PlcMapItem> maps, out string error)
+        private void DeleteDevice(object sender, EventArgs e)
+        {
+            if (currentDevice == null) return;
+            PlcDeviceRuntimeSnapshot runtime = GetCurrentRuntime();
+            if (runtime?.State == PlcRuntimeState.Mapping) { ShowError("请先停止该设备映射。" ); return; }
+            if (MessageBox.Show($"确认删除PLC设备[{currentDevice.Name}]及其全部映射？", "删除确认",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            draft.Devices.Remove(currentDevice);
+            currentDevice = null;
+            deviceList.DataSource = null;
+            deviceList.DataSource = draft.Devices;
+            deviceList.DisplayMember = "Name";
+            if (draft.Devices.Count > 0) deviceList.SelectedIndex = 0;
+            else ShowDevice(null);
+            RefreshSummary();
+        }
+
+        private void SaveConfiguration(object sender, EventArgs e)
+        {
+            if (!CommitMaps(currentDevice, out string error)) { ShowError(error); return; }
+            if ((SF.plcRuntime?.GetSnapshots() ?? new List<PlcDeviceRuntimeSnapshot>())
+                .Any(item => item.State == PlcRuntimeState.Mapping))
+            { ShowError("保存配置前必须停止全部PLC设备映射。" ); return; }
+            if (!SF.plcStore.Save(SF.ConfigPath, draft, SF.valueStore, out error)) { ShowError(error); return; }
+            if (!SF.plcRuntime.ReloadConfiguration(true, out error)) { ShowError(error); return; }
+            MessageBox.Show("PLC配置已原子保存，设备正在重新初始化。", "PLC配置",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            ReloadDraft();
+        }
+
+        private void ReinitializeDevice(object sender, EventArgs e)
+        {
+            ExecuteDeviceAction("重新初始化", (string name, out string error) =>
+            {
+                if (SF.plcRuntime == null) { error = "PLC运行时未初始化。"; return false; }
+                return SF.plcRuntime.TryReinitialize(name, out error);
+            });
+        }
+
+        private void StartMapping(object sender, EventArgs e)
+        {
+            ExecuteDeviceAction("启动映射", (string name, out string error) =>
+            {
+                if (SF.plcRuntime == null) { error = "PLC运行时未初始化。"; return false; }
+                return SF.plcRuntime.TryStartMapping(name, out error);
+            });
+        }
+
+        private void StopMapping(object sender, EventArgs e)
+        {
+            ExecuteDeviceAction("停止映射", (string name, out string error) =>
+            {
+                if (SF.plcRuntime == null) { error = "PLC运行时未初始化。"; return false; }
+                return SF.plcRuntime.TryStopMapping(name, out error);
+            });
+        }
+
+        private void ExecuteDeviceAction(string title, DeviceAction action)
+        {
+            if (currentDevice == null) { ShowError("请先选择PLC设备。" ); return; }
+            if (action == null) { ShowError(title + "失败：PLC运行时未初始化。" ); return; }
+            if (!action(currentDevice.Name, out string error)) { ShowError(error ?? title + "失败。" ); return; }
+            RefreshRuntimeState();
+        }
+
+        private void AddMap(object sender, EventArgs e)
+        {
+            if (currentDevice == null) { ShowError("请先新增或选择PLC设备。" ); return; }
+            int index = currentDevice.Mappings.Count + 1;
+            var map = new PlcMapConfig { Name = "映射" + index };
+            currentDevice.Mappings.Add(map);
+            AddMapRow(map);
+        }
+
+        private void DeleteMap(object sender, EventArgs e)
+        {
+            if (mapGrid.CurrentRow == null) return;
+            mapGrid.Rows.Remove(mapGrid.CurrentRow);
+        }
+
+        private void ApplySelectedVariable(object sender, EventArgs e)
+        {
+            if (mapGrid.CurrentRow == null) { ShowError("请先选择需要绑定变量的映射项。" ); return; }
+            if (!(variableSelector.SelectedItem is VariableChoice first))
+            { ShowError("变量表中没有可选择的变量。" ); return; }
+            try
+            {
+                DataGridViewRow row = mapGrid.CurrentRow;
+                PlcDataType dataType = RequireEnum<PlcDataType>(row, "DataType");
+                int count = RequireInt(row, "ElementCount");
+                if (dataType == PlcDataType.String && count != 1)
+                { ShowError("String映射只能绑定一个变量，请先将元素数设为1。" ); return; }
+                string requiredType = dataType == PlcDataType.String ? "string" : "double";
+                var names = new List<string>();
+                for (int offset = 0; offset < count; offset++)
+                {
+                    if (!SF.valueStore.TryGetValueByIndex(first.Index + offset, out DicValue value) || value == null)
+                    { ShowError($"变量表中不存在连续第{offset + 1}个变量，无法按数量展开。" ); return; }
+                    if (!string.Equals(value.Type, requiredType, StringComparison.OrdinalIgnoreCase))
+                    { ShowError($"变量[{value.Name}]类型为{value.Type}，当前{dataType}映射要求{requiredType}变量。" ); return; }
+                    names.Add(value.Name);
+                }
+                row.Cells["VariableNames"].Value = string.Join(",", names);
+            }
+            catch (Exception ex)
+            {
+                ShowError("填入变量失败：" + ex.Message);
+            }
+        }
+
+        private void ResolveConflict(PlcConflictResolution resolution)
+        {
+            if (currentDevice == null || mapGrid.CurrentRow == null) { ShowError("请选择冲突映射项。" ); return; }
+            string mapId = Convert.ToString(mapGrid.CurrentRow.Cells["Id"].Value);
+            PlcMapRuntimeSnapshot mapRuntime = GetCurrentRuntime()?.Mappings?.FirstOrDefault(item => item.MapId == mapId);
+            if (mapRuntime?.State != PlcMapRuntimeState.Conflict) { ShowError("所选映射项当前不是冲突状态。" ); return; }
+            string side = resolution == PlcConflictResolution.UsePlcValue ? "PLC" : "本地";
+            string message = $"确认以{side}值为准解除冲突？\r\nPLC：{FormatValues(mapRuntime.PlcValues)}\r\n本地：{FormatValues(mapRuntime.LocalValues)}\r\n此操作会覆盖另一侧。";
+            if (MessageBox.Show(message, "PLC冲突处理", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            if (!SF.plcRuntime.TryResolveConflict(currentDevice.Name, mapId, resolution, out string error)) ShowError(error);
+            RefreshRuntimeState();
+        }
+
+        private void LoadMaps(PlcDeviceConfig device)
+        {
+            mapGrid.Rows.Clear();
+            if (device == null) return;
+            foreach (PlcMapConfig map in device.Mappings) AddMapRow(map);
+        }
+
+        private void AddMapRow(PlcMapConfig map)
+        {
+            mapGrid.Rows.Add(map.Id, map.Enabled, map.Name, map.Area, map.StartAddress, map.DataType,
+                map.Direction, map.Priority, map.ElementCount, map.StringByteLength,
+                string.Join(",", map.VariableNames ?? new List<string>()),
+                map.ChangeTolerance.ToString("G17", CultureInfo.InvariantCulture), string.Empty, string.Empty);
+        }
+
+        private bool CommitMaps(PlcDeviceConfig device, out string error)
         {
             error = null;
-            if (SF.valueStore == null)
+            if (device == null) return true;
+            try
             {
-                error = "变量库未初始化。";
+                mapGrid.EndEdit();
+                var maps = new List<PlcMapConfig>();
+                foreach (DataGridViewRow row in mapGrid.Rows)
+                {
+                    var map = new PlcMapConfig
+                    {
+                        Id = RequireText(row, "Id"),
+                        Enabled = Convert.ToBoolean(row.Cells["Enabled"].Value ?? false),
+                        Name = RequireText(row, "MapName"),
+                        Area = RequireEnum<PlcArea>(row, "Area"),
+                        StartAddress = RequireInt(row, "StartAddress"),
+                        DataType = RequireEnum<PlcDataType>(row, "DataType"),
+                        Direction = RequireEnum<PlcMapDirection>(row, "Direction"),
+                        Priority = RequireEnum<PlcMapPriority>(row, "Priority"),
+                        ElementCount = RequireInt(row, "ElementCount"),
+                        StringByteLength = RequireInt(row, "StringByteLength"),
+                        VariableNames = SplitVariables(Convert.ToString(row.Cells["VariableNames"].Value)),
+                        ChangeTolerance = RequireDouble(row, "ChangeTolerance")
+                    };
+                    maps.Add(map);
+                }
+                device.Mappings = maps;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "映射表存在无效值:" + ex.Message;
                 return false;
             }
-            foreach (PlcMapItem map in maps)
+        }
+
+        private async Task DebugReadAsync(string action)
+        {
+            if (!TryBuildDebugRequest(out string deviceName, out PlcMapConfig request, out string error)) { ShowError(error); return; }
+            Stopwatch watch = Stopwatch.StartNew();
+            var result = await Task.Run(() =>
             {
-                if (map == null || !TryParseMapDirection(map.Direction, out bool doRead, out bool doWrite, out error))
+                bool ok = SF.plcRuntime.TryRead(deviceName, request, out object[] values, out string readError);
+                return new DebugResult { Success = ok, Values = values, Error = readError };
+            });
+            watch.Stop();
+            AddHistory(action, result.Success, result.Success ? FormatValues(result.Values) : result.Error, watch.ElapsedMilliseconds);
+        }
+
+        private async Task DebugWriteAsync()
+        {
+            if (!TryBuildDebugRequest(out string deviceName, out PlcMapConfig request, out string error)) { ShowError(error); return; }
+            object[] values = request.DataType == PlcDataType.String
+                ? new object[] { debugValue.Text }
+                : debugValue.Text.Split(new[] { ',' }, StringSplitOptions.None).Select(item => (object)item.Trim()).ToArray();
+            if (values.Length != request.ElementCount) { ShowError("写入值数量必须与元素数一致。" ); return; }
+            if (!HslModbusAdapter.TryNormalizeValues(request.DataType, values, out _, out error)) { ShowError(error); return; }
+            if (MessageBox.Show($"确认写入PLC？\r\n设备：{deviceName}\r\n地址：{request.Area}/{request.StartAddress}\r\n值：{FormatValues(values)}",
+                "PLC写入确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            Stopwatch watch = Stopwatch.StartNew();
+            bool success = await Task.Run(() => SF.plcRuntime.TryWrite(deviceName, request, values, out error));
+            watch.Stop();
+            AddHistory("单次写入", success, success ? FormatValues(values) : error, watch.ElapsedMilliseconds);
+        }
+
+        private void ToggleMonitor(object sender, EventArgs e)
+        {
+            monitorTimer.Enabled = !monitorTimer.Enabled;
+            monitorLabel.Text = monitorTimer.Enabled ? "监视中" : "监视已停止";
+        }
+
+        private async Task MonitorOnceAsync()
+        {
+            if (monitorBusy) return;
+            monitorBusy = true;
+            try { await DebugReadAsync("连续监视"); }
+            finally { monitorBusy = false; }
+        }
+
+        private async Task PerformanceTestAsync()
+        {
+            if (!TryBuildDebugRequest(out string deviceName, out PlcMapConfig request, out string error)) { ShowError(error); return; }
+            monitorTimer.Stop();
+            monitorLabel.Text = "性能测试中";
+            var result = await Task.Run(() =>
+            {
+                var samples = new List<long>();
+                int success = 0;
+                string lastError = string.Empty;
+                for (int i = 0; i < 100; i++)
                 {
-                    return false;
+                    Stopwatch watch = Stopwatch.StartNew();
+                    bool ok = SF.plcRuntime.TryRead(deviceName, request, out _, out string readError);
+                    watch.Stop();
+                    if (ok) { success++; samples.Add(watch.ElapsedMilliseconds); }
+                    else lastError = readError;
                 }
-                bool needsVariable = doRead || (doWrite && string.IsNullOrWhiteSpace(map.WriteConst));
-                if (needsVariable && (string.IsNullOrWhiteSpace(map.ValueName)
-                    || !SF.valueStore.TryGetValueByName(map.ValueName, out _)))
+                samples.Sort();
+                return new PerformanceResult
                 {
-                    error = $"PLC映射变量不存在:{map.ValueName}";
-                    return false;
-                }
-            }
+                    SuccessCount = success,
+                    Minimum = samples.Count == 0 ? 0 : samples[0],
+                    Average = samples.Count == 0 ? 0 : samples.Average(),
+                    P95 = samples.Count == 0 ? 0 : samples[(int)Math.Ceiling(samples.Count * 0.95) - 1],
+                    Maximum = samples.Count == 0 ? 0 : samples[samples.Count - 1],
+                    Error = lastError
+                };
+            });
+            monitorLabel.Text = "性能测试完成";
+            string text = $"成功 {result.SuccessCount}/100，min={result.Minimum}ms，avg={result.Average:F1}ms，P95={result.P95}ms，max={result.Maximum}ms";
+            AddHistory("100次性能测试", result.SuccessCount == 100, result.SuccessCount == 100 ? text : text + "；" + result.Error, 0);
+        }
+
+        private bool TryBuildDebugRequest(out string deviceName, out PlcMapConfig request, out string error)
+        {
+            deviceName = currentDevice?.Name;
+            request = null;
+            error = null;
+            if (string.IsNullOrWhiteSpace(deviceName)) { error = "请先选择PLC设备。"; return false; }
+            PlcArea area = (PlcArea)debugArea.SelectedItem;
+            PlcDataType type = (PlcDataType)debugType.SelectedItem;
+            int count = (int)debugCount.Value;
+            int stringLength = (int)debugStringLength.Value;
+            if ((area == PlcArea.Coil || area == PlcArea.DiscreteInput) != (type == PlcDataType.Boolean))
+            { error = "Boolean只允许线圈区，其他类型只允许寄存器区。"; return false; }
+            if (type == PlcDataType.String && (count != 1 || stringLength < 1))
+            { error = "String要求元素数为1且字符串字节数大于0。"; return false; }
+            if (type != PlcDataType.String && stringLength != 0)
+            { error = "非String类型的字符串字节数必须为0。"; return false; }
+            request = new PlcMapConfig
+            {
+                Name = "在线调试",
+                Area = area,
+                StartAddress = (int)debugAddress.Value,
+                DataType = type,
+                Direction = PlcMapDirection.ReadFromPlc,
+                ElementCount = count,
+                StringByteLength = stringLength,
+                VariableNames = Enumerable.Repeat("调试", count).ToList()
+            };
+            if ((long)request.StartAddress + PlcConfigStore.GetAddressSpan(request) - 1 > 65535)
+            { error = "调试访问范围超过65535。"; request = null; return false; }
             return true;
         }
 
-        private void DgvDevices_CellEndEdit(object sender, DataGridViewCellEventArgs e)
+        private void RefreshRuntimeState()
         {
-            dgvDevices.EndEdit();
+            PlcDeviceRuntimeSnapshot runtime = GetCurrentRuntime();
+            stateLabel.Text = currentDevice == null
+                ? "未选择设备"
+                : runtime == null
+                    ? "状态：0（未初始化）"
+                    : $"状态：{FormatRuntimeState(runtime.State)}\r\n最后通讯：{FormatUtc(runtime.LastCommunicationUtc)}\r\n扫描耗时：{runtime.LastScanElapsedMs}ms\r\n{runtime.LastError}";
+            stateLabel.Text += "\r\n\r\n状态码：0 未初始化/已释放；1 连接就绪或映射已停止；2 映射运行中；-1 通讯故障，需重新初始化。";
+            if (currentDevice == null || runtime?.Mappings == null) return;
+            foreach (DataGridViewRow row in mapGrid.Rows)
+            {
+                string id = Convert.ToString(row.Cells["Id"].Value);
+                PlcMapRuntimeSnapshot map = runtime.Mappings.FirstOrDefault(item => item.MapId == id);
+                row.Cells["RuntimeState"].Value = map?.State.ToString() ?? string.Empty;
+                row.Cells["RuntimeMessage"].Value = map?.Message ?? string.Empty;
+                row.DefaultCellStyle.BackColor = map?.State == PlcMapRuntimeState.Conflict
+                    ? Color.FromArgb(254, 226, 226)
+                    : map?.State == PlcMapRuntimeState.Faulted
+                        ? Color.FromArgb(255, 237, 213)
+                        : Color.White;
+            }
+            RefreshSummary();
         }
 
-        private void DgvMaps_CellEndEdit(object sender, DataGridViewCellEventArgs e)
+        private PlcDeviceRuntimeSnapshot GetCurrentRuntime()
         {
-            dgvMaps.EndEdit();
+            if (currentDevice == null || SF.plcRuntime == null) return null;
+            return SF.plcRuntime.GetSnapshots().FirstOrDefault(item =>
+                string.Equals(item.DeviceName, currentDevice.Name, StringComparison.OrdinalIgnoreCase));
         }
 
-        private static void InitGridStyle(DataGridView grid)
+        private void RefreshSummary()
         {
-            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-            grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
-            grid.BackgroundColor = Color.White;
-            grid.BorderStyle = BorderStyle.None;
-            grid.GridColor = Color.FromArgb(224, 224, 224);
-            grid.RowTemplate.Height = 28;
-            grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
-            grid.EnableHeadersVisualStyles = false;
-            grid.ColumnHeadersHeight = 32;
-            grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
-            grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(46, 105, 179);
-            grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
-            grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-            grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(217, 234, 249);
-            grid.DefaultCellStyle.SelectionForeColor = Color.Black;
-            grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(248, 249, 251);
+            IReadOnlyList<PlcDeviceRuntimeSnapshot> states = SF.plcRuntime?.GetSnapshots() ?? new List<PlcDeviceRuntimeSnapshot>();
+            summaryLabel.Text = $"设备 {draft.Devices.Count} 台 · 映射 {draft.Devices.Sum(item => item.Mappings?.Count ?? 0)} 项 · 在线 {states.Count(item => item.State == PlcRuntimeState.Ready || item.State == PlcRuntimeState.Mapping || item.State == PlcRuntimeState.Stopped)} 台 · 故障 {states.Count(item => item.State == PlcRuntimeState.Faulted)} 台";
         }
 
-        private void Dgv_DataError(object sender, DataGridViewDataErrorEventArgs e)
+        private void RefreshVariableSelector()
         {
-            e.ThrowException = false;
-            MessageBox.Show("PLC配置值无效，请检查下拉选项。");
+            List<VariableChoice> choices = new List<VariableChoice>();
+            if (SF.valueStore != null)
+            {
+                foreach (string name in SF.valueStore.GetValueNames())
+                {
+                    if (SF.valueStore.TryGetValueByName(name, out DicValue value) && value != null)
+                    {
+                        choices.Add(new VariableChoice { Index = value.Index, Name = value.Name, Type = value.Type });
+                    }
+                }
+            }
+            variableSelector.DataSource = choices.OrderBy(item => item.Index).ToList();
+        }
+
+        private static string FormatRuntimeState(PlcRuntimeState state)
+        {
+            switch (state)
+            {
+                case PlcRuntimeState.Ready:
+                case PlcRuntimeState.Stopped: return "1（连接就绪/映射已停止）";
+                case PlcRuntimeState.Mapping: return "2（映射运行中）";
+                case PlcRuntimeState.Faulted: return "-1（通讯故障）";
+                default: return "0（未初始化/已释放）";
+            }
+        }
+
+        private void AddHistory(string action, bool success, string result, long elapsedMs)
+        {
+            history.Insert(0, new DebugHistoryItem
+            {
+                Time = DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture),
+                Action = action,
+                Device = currentDevice?.Name ?? string.Empty,
+                Address = $"{debugArea.SelectedItem}/{debugAddress.Value}",
+                Success = success ? "成功" : "失败",
+                Result = result ?? string.Empty,
+                ElapsedMs = elapsedMs
+            });
+            while (history.Count > 200) history.RemoveAt(history.Count - 1);
+        }
+
+        private string NextDeviceName()
+        {
+            for (int index = 1; ; index++)
+            {
+                string name = "PLC" + index;
+                if (!draft.Devices.Any(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase))) return name;
+            }
+        }
+
+        private static Button CommandButton(string text, EventHandler click, bool primary = false)
+        {
+            var button = new Button
+            {
+                Text = text,
+                AutoSize = true,
+                Height = 31,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = primary ? Color.FromArgb(37, 99, 235) : Color.White,
+                ForeColor = primary ? Color.White : Color.FromArgb(51, 65, 85),
+                Margin = new Padding(4, 1, 4, 1),
+                Padding = new Padding(8, 0, 8, 0)
+            };
+            button.FlatAppearance.BorderColor = primary ? Color.FromArgb(37, 99, 235) : Color.FromArgb(203, 213, 225);
+            button.Click += click;
+            return button;
+        }
+
+        private static Control DebugField(string label, Control control)
+        {
+            control.Width = Math.Max(control.Width, 105);
+            var panel = new Panel { Width = label.Contains("写入") ? 210 : 125, Height = 66, Margin = new Padding(3) };
+            panel.Controls.Add(new Label { Text = label, Dock = DockStyle.Top, Height = 22, ForeColor = Color.FromArgb(71, 85, 105) });
+            control.Dock = DockStyle.Bottom;
+            control.Height = 28;
+            panel.Controls.Add(control);
+            return panel;
+        }
+
+        private static DataGridViewComboBoxColumn EnumColumn<T>(string name, string header) where T : struct
+        {
+            return new DataGridViewComboBoxColumn
+            {
+                Name = name,
+                HeaderText = header,
+                DataSource = Enum.GetValues(typeof(T))
+            };
+        }
+
+        private static string RequireText(DataGridViewRow row, string column)
+        {
+            string value = Convert.ToString(row.Cells[column].Value)?.Trim();
+            if (string.IsNullOrEmpty(value)) throw new FormatException($"{column}为空");
+            return value;
+        }
+
+        private static int RequireInt(DataGridViewRow row, string column)
+        {
+            if (!int.TryParse(Convert.ToString(row.Cells[column].Value), NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out int value)) throw new FormatException($"{column}不是整数");
+            return value;
+        }
+
+        private static double RequireDouble(DataGridViewRow row, string column)
+        {
+            if (!double.TryParse(Convert.ToString(row.Cells[column].Value), NumberStyles.Float,
+                CultureInfo.InvariantCulture, out double value) || double.IsNaN(value) || double.IsInfinity(value))
+                throw new FormatException($"{column}不是有限数");
+            return value;
+        }
+
+        private static T RequireEnum<T>(DataGridViewRow row, string column) where T : struct
+        {
+            if (!Enum.TryParse(Convert.ToString(row.Cells[column].Value), false, out T value)
+                || !Enum.IsDefined(typeof(T), value)) throw new FormatException($"{column}无效");
+            return value;
+        }
+
+        private static List<string> SplitVariables(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return new List<string>();
+            return text.Split(new[] { ',' }, StringSplitOptions.None).Select(item => item.Trim()).ToList();
+        }
+
+        private static string FormatValues(IEnumerable<object> values)
+        {
+            return values == null ? string.Empty : string.Join(", ", values.Select(value => Convert.ToString(value, CultureInfo.InvariantCulture)));
+        }
+
+        private static string FormatUtc(DateTime? utc)
+        {
+            return utc.HasValue ? utc.Value.ToLocalTime().ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture) : "无";
+        }
+
+        private static void ShowError(string error)
+        {
+            MessageBox.Show(error ?? "操作失败。", "PLC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        private delegate bool DeviceAction(string deviceName, out string error);
+
+        private sealed class DebugResult { public bool Success; public object[] Values; public string Error; }
+        private sealed class PerformanceResult { public int SuccessCount; public long Minimum; public double Average; public long P95; public long Maximum; public string Error; }
+        private sealed class DebugHistoryItem
+        {
+            public string Time { get; set; }
+            public string Action { get; set; }
+            public string Device { get; set; }
+            public string Address { get; set; }
+            public string Success { get; set; }
+            public string Result { get; set; }
+            public long ElapsedMs { get; set; }
+        }
+
+        private sealed class VariableChoice
+        {
+            public int Index { get; set; }
+            public string Name { get; set; }
+            public string Type { get; set; }
+
+            public override string ToString()
+            {
+                return $"{Index}: {Name} ({Type})";
+            }
+        }
+
+        private sealed class DevicePropertyView
+        {
+            private readonly PlcDeviceConfig device;
+            public DevicePropertyView(PlcDeviceConfig device) { this.device = device; }
+
+            [Category("身份"), DisplayName("名称")]
+            public string Name { get => device.Name; set => device.Name = value; }
+            [Category("身份"), DisplayName("设备类型")]
+            public PlcDeviceProfile Profile
+            {
+                get => device.Profile;
+                set
+                {
+                    if (device.Profile != value) device.IsStringReverse = value == PlcDeviceProfile.InovanceModbusTcp;
+                    device.Profile = value;
+                }
+            }
+            [Category("网络"), DisplayName("IPv4地址")]
+            public string IpAddress { get => device.IpAddress; set => device.IpAddress = value; }
+            [Category("网络"), DisplayName("端口")]
+            public int Port { get => device.Port; set => device.Port = value; }
+            [Category("网络"), DisplayName("站号")]
+            public int UnitId { get => device.UnitId; set => device.UnitId = value; }
+            [Category("网络"), DisplayName("连接超时(ms)")]
+            public int ConnectTimeoutMs { get => device.ConnectTimeoutMs; set => device.ConnectTimeoutMs = value; }
+            [Category("网络"), DisplayName("接收超时(ms)")]
+            public int ReceiveTimeoutMs { get => device.ReceiveTimeoutMs; set => device.ReceiveTimeoutMs = value; }
+            [Category("映射"), DisplayName("扫描周期(ms)")]
+            public int ScanIntervalMs { get => device.ScanIntervalMs; set => device.ScanIntervalMs = value; }
+            [Category("数据格式"), DisplayName("字节序")]
+            public string DataFormat { get => device.DataFormat; set => device.DataFormat = value; }
+            [Category("数据格式"), DisplayName("字符串反转")]
+            public bool IsStringReverse { get => device.IsStringReverse; set => device.IsStringReverse = value; }
+            [Category("数据格式"), DisplayName("地址从0开始")]
+            public bool AddressStartWithZero { get => device.AddressStartWithZero; set => device.AddressStartWithZero = value; }
+            [Category("映射"), DisplayName("状态变量")]
+            public string StatusVariableName { get => device.StatusVariableName; set => device.StatusVariableName = value; }
         }
     }
 }

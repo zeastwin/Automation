@@ -97,6 +97,20 @@ namespace Automation
         {
             string text = value?.ToString();
             if (string.IsNullOrWhiteSpace(referenceType) || string.IsNullOrWhiteSpace(text)) return;
+            if (string.Equals(referenceType, "alarm.infoId", StringComparison.Ordinal))
+            {
+                if (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int alarmIndex)
+                    || alarmIndex < 0
+                    || alarmIndex >= AlarmInfoStore.AlarmCapacity)
+                {
+                    throw new InvalidOperationException(
+                        $"{path} 必须是 [0, {AlarmInfoStore.AlarmCapacity}) 范围内的报警信息编号。");
+                }
+
+                // 报警资源允许晚于流程定义补齐。资源是否存在属于运行就绪条件，
+                // 由 ProcessReadinessService 在启动闸门统一拦截，不阻止配置保存。
+                return;
+            }
             if (string.Equals(referenceType, "value", StringComparison.Ordinal))
             {
                 RequireVariable(text, path);
@@ -232,6 +246,9 @@ namespace Automation
     /// </summary>
     public static class AiOperationCompilerRegistry
     {
+        public const string SaveRequiredContractField = "saveRequired";
+        public const string OptionalContractField = "optional";
+
         private static readonly IReadOnlyDictionary<string, IAiOperationCompiler> Compilers
             = new IAiOperationCompiler[]
             {
@@ -262,6 +279,25 @@ namespace Automation
                 throw new InvalidOperationException($"不支持的语义指令：{kind}");
             }
             return compiler;
+        }
+
+        public static IReadOnlyCollection<string> GetDefinitionFields(string kind)
+        {
+            JObject contract = Get(kind).BuildContract();
+            if (!(contract[SaveRequiredContractField] is JArray saveRequired)
+                || !(contract[OptionalContractField] is JArray optional))
+            {
+                throw new InvalidOperationException($"语义指令契约缺少字段集合：{kind}");
+            }
+            string[] fields = saveRequired.Values<string>()
+                .Concat(optional.Values<string>())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (!fields.Contains("kind", StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException($"语义指令契约未声明 kind：{kind}");
+            }
+            return fields;
         }
 
         public static JObject BuildCapabilities()
@@ -297,39 +333,68 @@ namespace Automation
                     "按依赖和验证边界划分一个可独立审查的原子阶段",
                     "用稳定ID和阶段内key构造actions",
                     "preview_change_set(actions)",
-                    "等待 Automation 前台确认",
-                    "apply_change_set(previewId)",
+                    "内容符合目标时等待前台确认并apply_change_set(previewId)",
+                    "内容需要改写时discard_change_set_preview(previewId)",
                     "需要时根据真实提交结果继续下一原子阶段"),
-                ["rule"] = "局部编辑使用动作和稳定ID；普通业务目标优先使用语义kind，精确原生类型使用native.operation。"
+                ["rule"] = "局部key只在当前阶段有效；后续阶段使用提交返回的稳定ID。普通业务目标优先使用语义kind，精确原生类型使用native.operation。"
             };
         }
 
         public static JObject BuildContracts(IEnumerable<string> kinds)
         {
-            string[] requested = (kinds ?? Enumerable.Empty<string>()).ToArray();
-            if (requested.Length < 1 || requested.Length > 6)
+            string[] requested = (kinds ?? Enumerable.Empty<string>())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (requested.Length < 1)
             {
-                throw new InvalidOperationException("kinds 数量必须在 1..6 之间。");
+                throw new InvalidOperationException("kinds 至少包含一个语义指令类型。");
             }
             var contracts = new JObject();
-            foreach (string kind in requested.Distinct(StringComparer.Ordinal))
+            foreach (string kind in requested)
             {
                 IAiOperationCompiler compiler = Get(kind ?? string.Empty);
+                GetDefinitionFields(kind);
                 contracts[kind] = compiler.BuildContract();
             }
-            return new JObject { ["contracts"] = contracts };
+            return new JObject
+            {
+                ["schemaRoute"] = new JObject
+                {
+                    ["representation"] = "semantic",
+                    ["writeField"] = "operation.kind",
+                    ["nextTool"] = "preview_change_set",
+                    ["fieldMeaning"] = "saveRequired决定配置能否保存；runRequired决定流程能否启动；optional可省略",
+                    ["rule"] = "按返回契约填写语义kind；native.operation使用原生Schema"
+                },
+                ["contracts"] = contracts
+            };
         }
 
-        private static JObject Contract(string purpose, string[] required, string[] optional, params JProperty[] extras)
+        private static JObject Contract(string purpose, string[] saveRequired, string[] optional, params JProperty[] extras)
         {
             var result = new JObject
             {
                 ["purpose"] = purpose,
-                ["required"] = new JArray(required),
-                ["optional"] = new JArray(optional)
+                [SaveRequiredContractField] = new JArray(saveRequired),
+                [OptionalContractField] = new JArray(optional)
             };
             foreach (JProperty extra in extras ?? Array.Empty<JProperty>()) result.Add(extra);
             return result;
+        }
+
+        private static JObject SymbolicTargetContract()
+        {
+            return new JObject
+            {
+                ["selectorRule"] = "operationId与operationKey二选一",
+                ["currentStep"] = new JObject { ["operationKey"] = "当前ChangeSet内的指令key" },
+                ["crossStep"] = new JArray(
+                    new JObject { ["stepId"] = "现有步骤Guid", ["operationKey"] = "目标指令key" },
+                    new JObject { ["stepKey"] = "当前ChangeSet内的步骤key", ["operationKey"] = "目标指令key" }),
+                ["existingOperation"] = new JObject { ["operationId"] = "现有指令Guid" },
+                ["unresolvedReference"] = "未定义的operationKey可先保存为未就绪引用；后续创建同标签指令后由Bridge解析",
+                ["physicalIndexAllowed"] = false
+            };
         }
 
         private sealed class NativeOperationCompiler : IAiOperationCompiler
@@ -343,7 +408,7 @@ namespace Automation
                 return Contract("按精确 operaType 和递归字段契约编译任意平台注册指令",
                     new[] { "kind", "operaType", "fields" }, new[] { "name", "clearFields" },
                     new JProperty("contractTool", "get_native_operation_schemas"),
-                    new JProperty("rule", "先按精确 operaType 读取契约；fields 禁止使用扁平化 PropertyGrid 键；clearFields 仅用于 update 显式清空旧字符串字段"));
+                    new JProperty("rule", "fields使用原生递归契约；clearFields仅用于update清空旧字符串字段"));
             }
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
@@ -368,8 +433,10 @@ namespace Automation
             public JObject BuildContract()
             {
                 return _add
-                    ? Contract("对 double 变量累加固定数值", new[] { "kind", "variable", "amount" }, new[] { "name" })
-                    : Contract("把变量设置为固定值", new[] { "kind", "variable", "value" }, new[] { "name" });
+                    ? Contract("对 double 变量累加固定数值", new[] { "kind", "variable", "amount" }, new[] { "name" },
+                        new JProperty("valueRule", "amount是JSON数值；变量参与运算改用variable.compute"))
+                    : Contract("把变量设置为固定字面量", new[] { "kind", "variable", "value" }, new[] { "name" },
+                        new JProperty("valueRule", "value不解析算式、模板或变量引用；double变量填写数字文本，变量运算改用variable.compute"));
             }
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
@@ -401,7 +468,8 @@ namespace Automation
                         && !double.TryParse(changeValue, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
                         && !double.TryParse(changeValue, out _))
                     {
-                        throw new InvalidOperationException($"变量[{variableName}]是 double，variable.set.value 必须是有效数字文本。");
+                        throw new InvalidOperationException(
+                            $"变量[{variableName}]是 double，variable.set.value 必须是有效数字文本；这里不解析算式或模板，变量运算请改用 variable.add/variable.compute。");
                     }
                 }
                 return new ModifyValue
@@ -542,7 +610,8 @@ namespace Automation
 
             public JObject BuildContract() => Contract("无条件跳转到当前定义流程内的符号位置",
                 new[] { "kind" }, new[] { "name", "target" },
-                new JProperty("target", new JObject { ["step"] = "步骤key", ["operation"] = "步骤内从0开始的指令索引" }));
+                new JProperty("targetShape", SymbolicTargetContract()),
+                new JProperty("runRequired", new JArray("target")));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
@@ -578,7 +647,9 @@ namespace Automation
 
             public JObject BuildContract() => Contract("按 double 变量是否位于数值区间进行双分支跳转",
                 new[] { "kind", "variable", "min", "max" },
-                new[] { "name", "includeBounds", "whenTrue", "whenFalse" });
+                new[] { "name", "includeBounds", "whenTrue", "whenFalse" },
+                new JProperty("targetShape", SymbolicTargetContract()),
+                new JProperty("runRequired", new JArray("whenTrue", "whenFalse")));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
@@ -625,7 +696,9 @@ namespace Automation
                 "把 double 变量与固定数值比较，并按结果跳转",
                 new[] { "kind", "variable", "comparison", "compareValue" },
                 new[] { "name", "whenTrue", "whenFalse" },
-                new JProperty("comparisons", new JArray("gt", "gte", "lt", "lte", "eq", "ne")));
+                new JProperty("comparisons", new JArray("gt", "gte", "lt", "lte", "eq", "ne")),
+                new JProperty("targetShape", SymbolicTargetContract()),
+                new JProperty("runRequired", new JArray("whenTrue", "whenFalse")));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
@@ -691,7 +764,9 @@ namespace Automation
                 new[] { "kind", "message" }, new[] { "name", "buttonText", "autoCloseMs", "target" },
                 new JProperty("messageSource", "literal"),
                 new JProperty("interpolation", "unsupported"),
+                new JProperty("autoCloseMs", "省略表示不自动关闭；提供时范围1..3600000，不能用0表示关闭"),
                 new JProperty("runtimeBehavior", "message 会原样显示；{变量名}不是模板语法"),
+                new JProperty("targetShape", SymbolicTargetContract()),
                 new JProperty("targetBehavior", "只有用户点击确定才跳转 target；自动关闭时顺序执行下一条"));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
@@ -705,7 +780,8 @@ namespace Automation
                 if (definition.AutoCloseMs.HasValue
                     && (definition.AutoCloseMs.Value < 1 || definition.AutoCloseMs.Value > 3600000))
                 {
-                    throw new InvalidOperationException("popup.message.autoCloseMs 必须在 1..3600000 之间。");
+                    throw new InvalidOperationException(
+                        "popup.message.autoCloseMs 必须在 1..3600000 之间；不需要自动关闭时请省略该字段，不能填0。");
                 }
                 var operation = new PopupDialog
                 {
@@ -735,7 +811,9 @@ namespace Automation
                 new JProperty("messageSource", "variable.currentValue"),
                 new JProperty("supportedVariableTypes", new JArray("double", "string")),
                 new JProperty("prefix", "unsupported"),
+                new JProperty("autoCloseMs", "省略表示不自动关闭；提供时范围1..3600000，不能用0表示关闭"),
                 new JProperty("runtimeBehavior", "弹框正文只显示变量当前值；name 是弹框标题"),
+                new JProperty("targetShape", SymbolicTargetContract()),
                 new JProperty("targetBehavior", "只有用户点击确定才跳转 target；自动关闭时顺序执行下一条"));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
@@ -750,7 +828,8 @@ namespace Automation
                 if (definition.AutoCloseMs.HasValue
                     && (definition.AutoCloseMs.Value < 1 || definition.AutoCloseMs.Value > 3600000))
                 {
-                    throw new InvalidOperationException("popup.variable.autoCloseMs 必须在 1..3600000 之间。");
+                    throw new InvalidOperationException(
+                        "popup.variable.autoCloseMs 必须在 1..3600000 之间；不需要自动关闭时请省略该字段，不能填0。");
                 }
                 var operation = new PopupDialog
                 {
@@ -879,7 +958,8 @@ namespace Automation
             public string DefaultName => "控制流程";
             public JObject BuildContract() => Contract("启动或停止一个现有或同一变更集内定义的流程",
                 new[] { "kind" }, new[] { "name", "process", "action", "afterMs" },
-                new JProperty("actions", new JArray("start", "stop")));
+                new JProperty("actions", new JArray("start", "stop")),
+                new JProperty("runRequired", new JArray("process", "action")));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
@@ -912,7 +992,8 @@ namespace Automation
             public string DefaultName => "等待流程状态";
             public JObject BuildContract() => Contract("等待一个流程进入运行或停止状态，超时报警",
                 new[] { "kind" }, new[] { "name", "process", "expectedState", "timeoutMs", "afterMs" },
-                new JProperty("states", new JArray("running", "stopped")));
+                new JProperty("states", new JArray("running", "stopped")),
+                new JProperty("runRequired", new JArray("process", "expectedState", "timeoutMs")));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {

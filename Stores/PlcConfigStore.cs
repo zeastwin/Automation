@@ -4,509 +4,311 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Serialization;
 
 namespace Automation
 {
-    public class PlcConfigStore
+    public sealed class PlcConfigStore
     {
-        private readonly PlcHub hub;
-        private readonly object dataLock = new object();
-        private readonly List<PlcDevice> devices = new List<PlcDevice>();
-        private readonly List<PlcMapItem> maps = new List<PlcMapItem>();
-        private readonly Dictionary<string, PlcDevice> deviceByName = new Dictionary<string, PlcDevice>(StringComparer.OrdinalIgnoreCase);
+        public const string ConfigFileName = "PlcConfig.json";
+        private readonly object syncRoot = new object();
+        private PlcConfiguration configuration = new PlcConfiguration();
 
-        public PlcConfigStore()
-        {
-            hub = new PlcHub();
-        }
+        public bool Faulted { get; private set; }
+        public string FaultReason { get; private set; } = string.Empty;
 
-        public IReadOnlyList<PlcDevice> Devices
+        public PlcConfiguration GetSnapshot()
         {
-            get
+            lock (syncRoot)
             {
-                lock (dataLock)
-                {
-                    return devices.ToList();
-                }
+                return PlcModelClone.Clone(configuration);
             }
         }
 
-        public IReadOnlyList<PlcMapItem> Maps
+        public bool Load(string configRoot, ValueConfigStore valueStore, out string error)
         {
-            get
-            {
-                lock (dataLock)
-                {
-                    return maps.ToList();
-                }
-            }
-        }
-
-        public bool Load(string configPath)
-        {
-            if (!Directory.Exists(configPath))
-            {
-                Directory.CreateDirectory(configPath);
-            }
-
-            bool loadedDevices = LoadDevices(configPath);
-            bool loadedMaps = LoadMaps(configPath);
-            return loadedDevices || loadedMaps;
-        }
-
-        public bool LoadDevices(string configPath)
-        {
-            string filePath = Path.Combine(configPath, "PlcDevice.json");
-            if (!File.Exists(filePath))
-            {
-                ReplaceDevices(new List<PlcDevice>());
-                SaveDevices(configPath);
-                return false;
-            }
-
+            error = null;
             try
             {
-                string json = File.ReadAllText(filePath);
-                var settings = new JsonSerializerSettings
+                Directory.CreateDirectory(configRoot);
+                string path = Path.Combine(configRoot, ConfigFileName);
+                if (!File.Exists(path))
                 {
-                    TypeNameHandling = TypeNameHandling.None,
-                    ObjectCreationHandling = ObjectCreationHandling.Replace
-                };
-                List<PlcDevice> temp = JsonConvert.DeserializeObject<List<PlcDevice>>(json, settings) ?? new List<PlcDevice>();
-                if (!ValidateDevices(temp, out string error))
+                    var empty = new PlcConfiguration();
+                    if (!Save(configRoot, empty, valueStore, out error))
+                    {
+                        SetFault(error);
+                        return false;
+                    }
+                    ClearFault();
+                    return true;
+                }
+
+                JsonSerializerSettings settings = CreateJsonSettings();
+                PlcConfiguration loaded = JsonConvert.DeserializeObject<PlcConfiguration>(
+                    File.ReadAllText(path), settings);
+                if (!Validate(loaded, valueStore, out error))
                 {
-                    ReplaceDevices(new List<PlcDevice>());
-                    SF.SetSecurityLock($"PLC设备配置校验失败:{error}");
+                    SetFault(error);
                     return false;
                 }
-                ReplaceDevices(temp);
+                lock (syncRoot)
+                {
+                    configuration = PlcModelClone.Clone(loaded);
+                }
+                ClearFault();
                 return true;
             }
             catch (Exception ex)
             {
-                ReplaceDevices(new List<PlcDevice>());
-                SF.SetSecurityLock($"PLC设备配置加载失败:{ex.Message}");
+                error = $"PLC配置加载失败:{ex.Message}";
+                SetFault(error);
                 return false;
             }
         }
 
-        public bool LoadMaps(string configPath)
+        public bool Save(string configRoot, PlcConfiguration candidate, ValueConfigStore valueStore, out string error)
         {
-            string filePath = Path.Combine(configPath, "PlcMap.json");
-            if (!File.Exists(filePath))
+            error = null;
+            if (!Validate(candidate, valueStore, out error))
             {
-                ReplaceMaps(new List<PlcMapItem>());
-                SaveMaps(configPath);
                 return false;
             }
 
             try
             {
-                string json = File.ReadAllText(filePath);
-                var settings = new JsonSerializerSettings
+                Directory.CreateDirectory(configRoot);
+                string path = Path.Combine(configRoot, ConfigFileName);
+                string json = JsonConvert.SerializeObject(candidate, Formatting.Indented, CreateJsonSettings());
+                WriteAtomic(path, json);
+                lock (syncRoot)
                 {
-                    TypeNameHandling = TypeNameHandling.None,
-                    ObjectCreationHandling = ObjectCreationHandling.Replace
-                };
-                List<PlcMapItem> temp = JsonConvert.DeserializeObject<List<PlcMapItem>>(json, settings) ?? new List<PlcMapItem>();
-                if (!ValidateMaps(temp, out string error))
-                {
-                    ReplaceMaps(new List<PlcMapItem>());
-                    SF.SetSecurityLock($"PLC映射配置校验失败:{error}");
-                    return false;
+                    configuration = PlcModelClone.Clone(candidate);
                 }
-                ReplaceMaps(temp);
+                ClearFault();
                 return true;
             }
             catch (Exception ex)
             {
-                ReplaceMaps(new List<PlcMapItem>());
-                SF.SetSecurityLock($"PLC映射配置加载失败:{ex.Message}");
+                error = $"PLC配置保存失败:{ex.Message}";
                 return false;
             }
         }
 
-        public bool SaveDevices(string configPath)
+        public static bool Validate(PlcConfiguration candidate, ValueConfigStore valueStore, out string error)
         {
-            if (!Directory.Exists(configPath))
+            error = null;
+            if (candidate == null)
             {
-                Directory.CreateDirectory(configPath);
+                error = "PLC配置为空。";
+                return false;
             }
-            string filePath = Path.Combine(configPath, "PlcDevice.json");
-            var settings = new JsonSerializerSettings
+            if (candidate.SchemaVersion != 1)
             {
-                TypeNameHandling = TypeNameHandling.None
-            };
-            List<PlcDevice> snapshot;
-            lock (dataLock)
-            {
-                snapshot = devices.Select(device => CloneDevice(device)).ToList();
+                error = $"PLC配置版本无效:{candidate.SchemaVersion}";
+                return false;
             }
-            string output = JsonConvert.SerializeObject(snapshot, settings);
-            WriteAllTextAtomic(filePath, output);
+            if (candidate.Devices == null)
+            {
+                error = "PLC设备列表为空引用。";
+                return false;
+            }
+
+            var deviceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var localWriters = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (int deviceIndex = 0; deviceIndex < candidate.Devices.Count; deviceIndex++)
+            {
+                PlcDeviceConfig device = candidate.Devices[deviceIndex];
+                string prefix = $"PLC设备第{deviceIndex + 1}项";
+                if (!ValidateDevice(device, prefix, deviceNames, valueStore, out error)) return false;
+
+                var plcWriteRanges = new List<Tuple<int, int, PlcArea, string>>();
+                for (int mapIndex = 0; mapIndex < device.Mappings.Count; mapIndex++)
+                {
+                    PlcMapConfig map = device.Mappings[mapIndex];
+                    string mapPrefix = $"{prefix}映射第{mapIndex + 1}项";
+                    if (!ValidateMap(map, mapPrefix, valueStore, out error)) return false;
+
+                    if (map.Direction == PlcMapDirection.ReadFromPlc
+                        || map.Direction == PlcMapDirection.Bidirectional)
+                    {
+                        foreach (string variableName in map.VariableNames)
+                        {
+                            if (localWriters.TryGetValue(variableName, out string existing))
+                            {
+                                error = $"变量[{variableName}]存在多个PLC写入来源:{existing}、{device.Name}/{map.Name}";
+                                return false;
+                            }
+                            localWriters.Add(variableName, $"{device.Name}/{map.Name}");
+                        }
+                    }
+
+                    if (map.Direction == PlcMapDirection.WriteToPlc
+                        || map.Direction == PlcMapDirection.Bidirectional)
+                    {
+                        int span = GetAddressSpan(map);
+                        int end = checked(map.StartAddress + span - 1);
+                        foreach (Tuple<int, int, PlcArea, string> range in plcWriteRanges)
+                        {
+                            if (range.Item3 == map.Area && map.StartAddress <= range.Item2 && end >= range.Item1)
+                            {
+                                error = $"设备[{device.Name}]映射[{map.Name}]与[{range.Item4}]写入地址重叠。";
+                                return false;
+                            }
+                        }
+                        plcWriteRanges.Add(Tuple.Create(map.StartAddress, end, map.Area, map.Name));
+                    }
+                }
+            }
             return true;
         }
 
-        public bool SaveMaps(string configPath)
+        private static bool ValidateDevice(PlcDeviceConfig device, string prefix, HashSet<string> names,
+            ValueConfigStore valueStore, out string error)
         {
-            if (!Directory.Exists(configPath))
+            error = null;
+            if (device == null) { error = prefix + "为空。"; return false; }
+            if (string.IsNullOrWhiteSpace(device.Name)) { error = prefix + "名称为空。"; return false; }
+            if (!names.Add(device.Name)) { error = $"PLC名称重复:{device.Name}"; return false; }
+            if (!Enum.IsDefined(typeof(PlcDeviceProfile), device.Profile)) { error = prefix + "类型无效。"; return false; }
+            if (!IPAddress.TryParse(device.IpAddress, out IPAddress ip) || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            { error = prefix + "IPv4地址无效。"; return false; }
+            if (device.Port < 1 || device.Port > 65535) { error = prefix + "端口超出范围。"; return false; }
+            if (device.UnitId < 0 || device.UnitId > 255) { error = prefix + "站号超出范围。"; return false; }
+            if (device.ConnectTimeoutMs < 100 || device.ConnectTimeoutMs > 60000) { error = prefix + "连接超时必须为100..60000ms。"; return false; }
+            if (device.ReceiveTimeoutMs < 100 || device.ReceiveTimeoutMs > 60000) { error = prefix + "接收超时必须为100..60000ms。"; return false; }
+            if (device.ScanIntervalMs < 50 || device.ScanIntervalMs > 60000) { error = prefix + "扫描周期必须为50..60000ms。"; return false; }
+            if (!new[] { "ABCD", "BADC", "CDAB", "DCBA" }.Contains(device.DataFormat, StringComparer.Ordinal))
+            { error = prefix + "字节序无效。"; return false; }
+            if (device.Mappings == null) { error = prefix + "映射列表为空引用。"; return false; }
+            if (!string.IsNullOrWhiteSpace(device.StatusVariableName))
             {
-                Directory.CreateDirectory(configPath);
+                if (valueStore == null || !valueStore.TryGetValueByName(device.StatusVariableName, out DicValue status)
+                    || !string.Equals(status?.Type, "double", StringComparison.OrdinalIgnoreCase))
+                { error = $"{prefix}状态变量必须是已存在的double变量:{device.StatusVariableName}"; return false; }
             }
-            string filePath = Path.Combine(configPath, "PlcMap.json");
-            var settings = new JsonSerializerSettings
+            var mapIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (PlcMapConfig map in device.Mappings)
             {
-                TypeNameHandling = TypeNameHandling.None
-            };
-            List<PlcMapItem> snapshot;
-            lock (dataLock)
-            {
-                snapshot = maps.Select(map => CloneMap(map)).ToList();
+                if (map != null && !string.IsNullOrWhiteSpace(map.Id) && !mapIds.Add(map.Id))
+                { error = $"{prefix}映射ID重复:{map.Id}"; return false; }
             }
-            string output = JsonConvert.SerializeObject(snapshot, settings);
-            WriteAllTextAtomic(filePath, output);
             return true;
         }
 
-        private static void WriteAllTextAtomic(string filePath, string content)
+        private static bool ValidateMap(PlcMapConfig map, string prefix, ValueConfigStore valueStore, out string error)
         {
-            string directory = Path.GetDirectoryName(filePath);
-            string tempPath = Path.Combine(directory,
-                Path.GetFileName(filePath) + ".tmp." + Guid.NewGuid().ToString("N"));
+            error = null;
+            if (map == null) { error = prefix + "为空。"; return false; }
+            if (string.IsNullOrWhiteSpace(map.Id) || !Guid.TryParseExact(map.Id, "N", out _)) { error = prefix + "ID无效。"; return false; }
+            if (string.IsNullOrWhiteSpace(map.Name)) { error = prefix + "名称为空。"; return false; }
+            if (!Enum.IsDefined(typeof(PlcArea), map.Area)
+                || !Enum.IsDefined(typeof(PlcDataType), map.DataType)
+                || !Enum.IsDefined(typeof(PlcMapDirection), map.Direction)
+                || !Enum.IsDefined(typeof(PlcMapPriority), map.Priority))
+            { error = prefix + "枚举字段无效。"; return false; }
+            if (map.StartAddress < 0 || map.StartAddress > 65535) { error = prefix + "起始地址超出范围。"; return false; }
+            if (map.ElementCount < 1 || map.ElementCount > 1000) { error = prefix + "元素数量必须为1..1000。"; return false; }
+            if (double.IsNaN(map.ChangeTolerance) || double.IsInfinity(map.ChangeTolerance) || map.ChangeTolerance < 0)
+            { error = prefix + "变化容差必须是非负有限数。"; return false; }
+            if (map.ChangeTolerance != 0d && map.DataType != PlcDataType.Float && map.DataType != PlcDataType.Double)
+            { error = prefix + "只有Float和Double允许配置变化容差。"; return false; }
+            if ((map.Area == PlcArea.DiscreteInput || map.Area == PlcArea.InputRegister)
+                && map.Direction != PlcMapDirection.ReadFromPlc)
+            { error = prefix + "只读地址区禁止写入或双向映射。"; return false; }
+            if ((map.Area == PlcArea.Coil || map.Area == PlcArea.DiscreteInput) && map.DataType != PlcDataType.Boolean)
+            { error = prefix + "线圈地址区只允许Boolean。"; return false; }
+            if ((map.Area == PlcArea.HoldingRegister || map.Area == PlcArea.InputRegister) && map.DataType == PlcDataType.Boolean)
+            { error = prefix + "Boolean只允许映射到线圈地址区。"; return false; }
+            if (map.DataType == PlcDataType.String)
+            {
+                if (map.ElementCount != 1 || map.StringByteLength < 1 || map.StringByteLength > 2000)
+                { error = prefix + "字符串必须为单元素且字节长度为1..2000。"; return false; }
+            }
+            else if (map.StringByteLength != 0)
+            { error = prefix + "非字符串映射的字符串字节长度必须为0。"; return false; }
+            if (map.VariableNames == null || map.VariableNames.Count != map.ElementCount)
+            { error = prefix + "变量数量必须等于元素数量。"; return false; }
+
+            var uniqueVariables = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string variableName in map.VariableNames)
+            {
+                if (string.IsNullOrWhiteSpace(variableName) || !uniqueVariables.Add(variableName))
+                { error = prefix + "变量名称为空或重复。"; return false; }
+                if (valueStore == null || !valueStore.TryGetValueByName(variableName, out DicValue value))
+                { error = $"{prefix}变量不存在:{variableName}"; return false; }
+                string expected = map.DataType == PlcDataType.String ? "string" : "double";
+                if (!string.Equals(value?.Type, expected, StringComparison.OrdinalIgnoreCase))
+                { error = $"{prefix}变量[{variableName}]必须是{expected}类型。"; return false; }
+            }
+            int span = GetAddressSpan(map);
+            if ((long)map.StartAddress + span - 1 > 65535)
+            { error = prefix + "映射范围超过65535。"; return false; }
+            return true;
+        }
+
+        public static int GetAddressSpan(PlcMapConfig map)
+        {
+            if (map.Area == PlcArea.Coil || map.Area == PlcArea.DiscreteInput) return map.ElementCount;
+            if (map.DataType == PlcDataType.String) return (map.StringByteLength + 1) / 2;
+            int registersPerElement;
+            switch (map.DataType)
+            {
+                case PlcDataType.Byte: return (map.ElementCount + 1) / 2;
+                case PlcDataType.UShort:
+                case PlcDataType.Short: registersPerElement = 1; break;
+                case PlcDataType.UInt:
+                case PlcDataType.Int:
+                case PlcDataType.Float: registersPerElement = 2; break;
+                case PlcDataType.Double: registersPerElement = 4; break;
+                default: throw new InvalidOperationException($"不支持的数据类型:{map.DataType}");
+            }
+            return checked(registersPerElement * map.ElementCount);
+        }
+
+        private static JsonSerializerSettings CreateJsonSettings()
+        {
+            var settings = new JsonSerializerSettings
+            {
+                MissingMemberHandling = MissingMemberHandling.Error,
+                NullValueHandling = NullValueHandling.Include,
+                TypeNameHandling = TypeNameHandling.None,
+                ContractResolver = new CamelCasePropertyNamesContractResolver()
+            };
+            settings.Converters.Add(new StringEnumConverter());
+            return settings;
+        }
+
+        private static void WriteAtomic(string path, string content)
+        {
+            string temp = path + ".tmp." + Guid.NewGuid().ToString("N");
             try
             {
-                File.WriteAllText(tempPath, content);
-                if (File.Exists(filePath))
-                {
-                    File.Replace(tempPath, filePath, null);
-                }
-                else
-                {
-                    File.Move(tempPath, filePath);
-                }
+                File.WriteAllText(temp, content);
+                if (File.Exists(path)) File.Replace(temp, path, null);
+                else File.Move(temp, path);
             }
             finally
             {
-                if (File.Exists(tempPath))
-                {
-                    File.Delete(tempPath);
-                }
+                if (File.Exists(temp)) File.Delete(temp);
             }
         }
 
-        public void ReplaceDevices(List<PlcDevice> newDevices)
+        private void SetFault(string reason)
         {
-            hub.DisconnectAll();
-            lock (dataLock)
+            lock (syncRoot)
             {
-                devices.Clear();
-                deviceByName.Clear();
-                if (newDevices == null)
-                {
-                    return;
-                }
-                foreach (PlcDevice device in newDevices)
-                {
-                    if (device == null)
-                    {
-                        continue;
-                    }
-                    devices.Add(device);
-                    if (!string.IsNullOrWhiteSpace(device.Name))
-                    {
-                        deviceByName[device.Name] = device;
-                    }
-                }
+                configuration = new PlcConfiguration();
+                Faulted = true;
+                FaultReason = reason ?? "PLC配置异常。";
             }
         }
 
-        public void ReplaceMaps(List<PlcMapItem> newMaps)
+        private void ClearFault()
         {
-            lock (dataLock)
-            {
-                maps.Clear();
-                if (newMaps == null)
-                {
-                    return;
-                }
-                foreach (PlcMapItem map in newMaps)
-                {
-                    if (map == null)
-                    {
-                        continue;
-                    }
-                    maps.Add(map);
-                }
-            }
-        }
-
-        public bool TryGetDevice(string name, out PlcDevice device)
-        {
-            device = null;
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return false;
-            }
-            lock (dataLock)
-            {
-                if (!deviceByName.TryGetValue(name, out PlcDevice found))
-                {
-                    return false;
-                }
-                device = CloneDevice(found);
-                return true;
-            }
-        }
-
-        public bool TryReconnect(PlcDevice device, out string error)
-        {
-            return hub.Reconnect(device, out error);
-        }
-
-        public void DisconnectAll()
-        {
-            hub.DisconnectAll();
-        }
-
-        public bool IsConnected(string name)
-        {
-            return hub.IsConnected(name);
-        }
-
-        public bool TryReadValue(PlcDevice device, PlcMapItem map, out object value, out string error)
-        {
-            return hub.TryReadValue(device, map, out value, out error);
-        }
-
-        public bool TryReadBatch(PlcDevice device, IReadOnlyList<PlcMapItem> maps,
-            out IReadOnlyList<PlcBatchReadResult> results, out string error)
-        {
-            return hub.TryReadBatch(device, maps, out results, out error);
-        }
-
-        public bool TryWriteValue(PlcDevice device, PlcMapItem map, object inputValue, out string error)
-        {
-            return hub.TryWriteValue(device, map, inputValue, out error);
-        }
-
-        public bool TryReadValue(string plcName, string dataType, string address, int quantity, out object value, out string error)
-        {
-            value = null;
-            error = null;
-            if (!TryGetDevice(plcName, out PlcDevice device))
-            {
-                error = $"PLC设备不存在:{plcName}";
-                return false;
-            }
-            return hub.TryReadValue(device, dataType, address, quantity, out value, out error);
-        }
-
-        public bool TryWriteValue(string plcName, string dataType, string address, int quantity, object inputValue, out string error)
-        {
-            error = null;
-            if (!TryGetDevice(plcName, out PlcDevice device))
-            {
-                error = $"PLC设备不存在:{plcName}";
-                return false;
-            }
-            return hub.TryWriteValue(device, dataType, address, quantity, inputValue, out error);
-        }
-
-        public bool HasDevice(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return false;
-            }
-            lock (dataLock)
-            {
-                return deviceByName.ContainsKey(name);
-            }
-        }
-
-        private static PlcDevice CloneDevice(PlcDevice device)
-        {
-            if (device == null)
-            {
-                return null;
-            }
-            return new PlcDevice
-            {
-                Name = device.Name,
-                Protocol = device.Protocol,
-                CpuType = device.CpuType,
-                Ip = device.Ip,
-                Port = device.Port,
-                Rack = device.Rack,
-                Slot = device.Slot,
-                TimeoutMs = device.TimeoutMs,
-                UnitId = device.UnitId
-            };
-        }
-
-        private static PlcMapItem CloneMap(PlcMapItem map)
-        {
-            if (map == null)
-            {
-                return null;
-            }
-            return new PlcMapItem
-            {
-                PlcName = map.PlcName,
-                DataType = map.DataType,
-                Direction = map.Direction,
-                PlcAddress = map.PlcAddress,
-                ValueName = map.ValueName,
-                Quantity = map.Quantity,
-                WriteConst = map.WriteConst
-            };
-        }
-
-        public static bool ValidateDevices(List<PlcDevice> source, out string error)
-        {
-            error = null;
-            if (source == null)
-            {
-                error = "PLC设备列表为空";
-                return false;
-            }
-
-            HashSet<string> names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (PlcDevice device in source)
-            {
-                if (device == null)
-                {
-                    error = "PLC设备项为空";
-                    return false;
-                }
-                if (string.IsNullOrWhiteSpace(device.Name))
-                {
-                    error = "PLC设备名称不能为空";
-                    return false;
-                }
-                if (!names.Add(device.Name))
-                {
-                    error = $"PLC设备名称重复:{device.Name}";
-                    return false;
-                }
-                if (string.IsNullOrWhiteSpace(device.Protocol))
-                {
-                    error = $"PLC协议不能为空:{device.Name}";
-                    return false;
-                }
-                if (!PlcConstants.Protocols.Contains(device.Protocol))
-                {
-                    error = $"PLC协议不支持:{device.Protocol}";
-                    return false;
-                }
-                if (string.IsNullOrWhiteSpace(device.Ip))
-                {
-                    error = $"PLC IP不能为空:{device.Name}";
-                    return false;
-                }
-                if (!IPAddress.TryParse(device.Ip, out _))
-                {
-                    error = $"PLC IP格式无效:{device.Name}";
-                    return false;
-                }
-                if (device.Port <= 0 || device.Port > 65535)
-                {
-                    error = $"PLC端口非法:{device.Name}";
-                    return false;
-                }
-                if (device.TimeoutMs <= 0)
-                {
-                    error = $"PLC超时配置无效:{device.Name}";
-                    return false;
-                }
-                if (string.Equals(device.Protocol, "S7", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (string.IsNullOrWhiteSpace(device.CpuType))
-                    {
-                        error = $"PLC CPU类型不能为空:{device.Name}";
-                        return false;
-                    }
-                    if (!PlcConstants.CpuTypes.Contains(device.CpuType))
-                    {
-                        error = $"PLC CPU类型不支持:{device.CpuType}";
-                        return false;
-                    }
-                    if (device.Rack < 0 || device.Slot < 0)
-                    {
-                        error = $"PLC机架或槽位无效:{device.Name}";
-                        return false;
-                    }
-                }
-                else
-                {
-                    if (device.UnitId < 0 || device.UnitId > 255)
-                    {
-                        error = $"PLC站号无效:{device.Name}";
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }
-
-        public static bool ValidateMaps(List<PlcMapItem> source, out string error)
-        {
-            error = null;
-            if (source == null)
-            {
-                error = "PLC映射列表为空";
-                return false;
-            }
-
-            for (int i = 0; i < source.Count; i++)
-            {
-                PlcMapItem map = source[i];
-                if (map == null)
-                {
-                    error = $"PLC映射项为空: 行{i + 1}";
-                    return false;
-                }
-                if (string.IsNullOrWhiteSpace(map.PlcName))
-                {
-                    error = $"PLC名称不能为空: 行{i + 1}";
-                    return false;
-                }
-                if (string.IsNullOrWhiteSpace(map.DataType) || !PlcConstants.DataTypes.Contains(map.DataType))
-                {
-                    error = $"PLC数据类型无效: 行{i + 1}";
-                    return false;
-                }
-                if (string.IsNullOrWhiteSpace(map.Direction) || !PlcConstants.Directions.Contains(map.Direction))
-                {
-                    error = $"PLC读写方向无效: 行{i + 1}";
-                    return false;
-                }
-                if (string.IsNullOrWhiteSpace(map.PlcAddress))
-                {
-                    error = $"PLC地址不能为空: 行{i + 1}";
-                    return false;
-                }
-                if (map.Quantity <= 0)
-                {
-                    error = $"PLC数据数量无效: 行{i + 1}";
-                    return false;
-                }
-                bool needValueName = map.Direction == "读PLC" || map.Direction == "读写";
-                if (needValueName && string.IsNullOrWhiteSpace(map.ValueName))
-                {
-                    error = $"PLC读操作变量不能为空: 行{i + 1}";
-                    return false;
-                }
-                if (map.Direction == "写PLC" || map.Direction == "读写")
-                {
-                    if (string.IsNullOrWhiteSpace(map.WriteConst) && string.IsNullOrWhiteSpace(map.ValueName))
-                    {
-                        error = $"PLC写操作需配置变量或常量: 行{i + 1}";
-                        return false;
-                    }
-                }
-            }
-            return true;
+            Faulted = false;
+            FaultReason = string.Empty;
         }
     }
 }

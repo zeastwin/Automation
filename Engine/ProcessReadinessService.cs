@@ -122,6 +122,11 @@ namespace Automation
                         {
                             incomplete = true;
                         }
+                        if (AddAlarmReferenceBlockers(
+                            operation, validationContext, location, blockers))
+                        {
+                            incomplete = true;
+                        }
                         IReadOnlyList<string> runtimeErrors =
                             ProcessDefinitionService.ValidateOperationRuntimeConfiguration(
                                 operation, location, validationContext);
@@ -288,6 +293,60 @@ namespace Automation
             return incomplete;
         }
 
+        private static bool AddAlarmReferenceBlockers(
+            OperationType operation, ProcessDefinitionValidationContext validationContext,
+            string location, List<string> blockers)
+        {
+            var references = new List<KeyValuePair<string, string>>();
+            if (OperationBehaviorCatalog.IsFieldRequired(operation, nameof(OperationType.AlarmInfoID))
+                && !string.IsNullOrWhiteSpace(operation.AlarmInfoID))
+            {
+                references.Add(new KeyValuePair<string, string>(
+                    nameof(OperationType.AlarmInfoID), operation.AlarmInfoID));
+            }
+            if (operation is PopupDialog popup
+                && OperationBehaviorCatalog.IsFieldRequired(operation, nameof(PopupDialog.PopupAlarmInfoID))
+                && !string.IsNullOrWhiteSpace(popup.PopupAlarmInfoID))
+            {
+                references.Add(new KeyValuePair<string, string>(
+                    nameof(PopupDialog.PopupAlarmInfoID), popup.PopupAlarmInfoID));
+            }
+
+            bool incomplete = false;
+            foreach (KeyValuePair<string, string> reference in references)
+            {
+                string alarmInfoId = reference.Value.Trim();
+                if (!int.TryParse(alarmInfoId, System.Globalization.NumberStyles.None,
+                        System.Globalization.CultureInfo.InvariantCulture, out int alarmIndex)
+                    || alarmIndex < 0
+                    || alarmIndex >= AlarmInfoStore.AlarmCapacity)
+                {
+                    blockers.Add(
+                        $"{location} 的 {reference.Key} 必须是 [0, {AlarmInfoStore.AlarmCapacity}) 范围内的报警信息编号。");
+                    incomplete = true;
+                    continue;
+                }
+
+                bool exists;
+                if (validationContext?.HasAlarmInfoCatalog == true)
+                {
+                    exists = validationContext.AlarmInfoIds.Contains(alarmInfoId);
+                }
+                else
+                {
+                    exists = SF.alarmInfoStore != null
+                        && SF.alarmInfoStore.TryGetByIndex(alarmIndex, out AlarmInfo alarm)
+                        && alarm != null
+                        && !string.IsNullOrWhiteSpace(alarm.Name);
+                }
+
+                if (exists) continue;
+                blockers.Add($"{location} 的 {reference.Key} 引用的报警信息尚未配置：{alarmInfoId}。");
+                incomplete = true;
+            }
+            return incomplete;
+        }
+
         private static int CountPendingGotos(object obj)
         {
             if (obj == null) return 0;
@@ -316,9 +375,10 @@ namespace Automation
             Proc current, OperationType operation, IList<Proc> allProcesses,
             string location, List<string> blockers)
         {
-            var names = new HashSet<string>((allProcesses ?? Array.Empty<Proc>())
+            var processesByName = (allProcesses ?? Array.Empty<Proc>())
                 .Where(item => item?.head != null && !string.IsNullOrWhiteSpace(item.head.Name))
-                .Select(item => item.head.Name), StringComparer.Ordinal);
+                .GroupBy(item => item.head.Name, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
             bool incomplete = false;
             if (operation is ProcOps controls)
             {
@@ -333,15 +393,31 @@ namespace Automation
                     {
                         if (string.IsNullOrWhiteSpace(item?.ProcValue))
                         {
-                            blockers.Add($"{location} 尚未配置目标流程。");
+                            blockers.Add($"{location} 尚未配置目标流程字段 ProcName 或 ProcValue；value 仅表示运行/停止动作。");
                             incomplete = true;
                         }
                         continue;
                     }
-                    if (allProcesses != null && !names.Contains(item.ProcName))
+                    if (!processesByName.TryGetValue(item.ProcName, out Proc targetProcess))
                     {
                         blockers.Add($"{location} 引用的目标流程不存在：{item.ProcName}。");
                         incomplete = true;
+                    }
+                    else if (targetProcess != null
+                        && string.Equals(item.value, "运行", StringComparison.Ordinal))
+                    {
+                        bool targetHasExecutableOperation = targetProcess.head?.Disable != true
+                            && (targetProcess.steps ?? new List<Step>()).Any(step => step != null
+                                && !step.Disable
+                                && (step.Ops ?? new List<OperationType>()).Any(targetOperation =>
+                                    targetOperation != null
+                                    && !targetOperation.Disable
+                                    && !IsPlaceholder(targetOperation)));
+                        if (!targetHasExecutableOperation)
+                        {
+                            blockers.Add($"{location} 引用的目标流程没有启用的可执行指令：{item.ProcName}。");
+                            incomplete = true;
+                        }
                     }
                     if (string.Equals(item.ProcName, current?.head?.Name, StringComparison.Ordinal)
                         && string.Equals(item.value, "运行", StringComparison.Ordinal))
@@ -376,7 +452,7 @@ namespace Automation
                         }
                         continue;
                     }
-                    if (allProcesses != null && !names.Contains(item.ProcName))
+                    if (allProcesses != null && !processesByName.ContainsKey(item.ProcName))
                     {
                         blockers.Add($"{location} 等待的目标流程不存在：{item.ProcName}。");
                         incomplete = true;

@@ -147,19 +147,23 @@ namespace Automation.McpServer
                 .ToArray();
             string[] required =
             {
-                "list_operation_types", "get_native_operation_schemas", "get_semantic_operation_schemas", "preview_change_set",
-                "get_operation_guide", "apply_change_set", "validate_proc",
-                "wait_for_proc_state", "run_proc_test", "get_communication"
+                "list_operation_types", "get_native_operation_schemas", "get_semantic_operation_schema", "preview_change_set",
+                "get_operation_guide", "apply_change_set", "discard_change_set_preview", "validate_proc",
+                "wait_for_proc_state", "run_proc_test", "get_communication", "set_alarm", "delete_alarm"
             };
             string[] retired =
             {
                 "preview_intent", "apply_intent", "preview_patch", "apply_patch",
                 "create_proc", "create_proc_batch",
+                "list_intent_templates", "get_intent_template", "build_patch_from_intent",
+                "patch_contract", "get_patch_action_schema",
+                "delete_procs", "reorder_proc", "copy_proc",
                 "get_operation_schema",
                 "add_station", "update_station", "delete_station", "set_point",
-                "delete_point", "set_data_struct_field", "set_alarm", "delete_alarm",
+                "delete_point", "set_data_struct_field",
                 "get_change_capabilities", "get_operation_contracts", "get_native_operation_contract",
                 "get_operation_schemas",
+                "get_semantic_operation_schemas",
                 "begin_change_set_draft", "append_change_set_draft", "get_change_set_draft",
                 "stage_changes", "get_staged_changes", "preview_staged_changes", "discard_staged_changes"
             };
@@ -167,38 +171,104 @@ namespace Automation.McpServer
             if (missing != null) throw new InvalidOperationException($"Editor Profile 缺少工具：{missing}");
             string? exposed = retired.FirstOrDefault(name => names.Contains(name, StringComparer.Ordinal));
             if (exposed != null) throw new InvalidOperationException($"Editor Profile 意外暴露旧写入工具：{exposed}");
+            string[] retiredRoutingTerms =
+            {
+                "preview_intent", "apply_intent", "preview_patch", "apply_patch", "create_proc", "create_proc_batch"
+            };
+            string[] ambiguousRoutingTerms =
+            {
+                "AI不得", "请告知用户", "fix_change_set_and_retry", "后续阶段可继续使用"
+            };
+            string[] pollutedDescriptions = editorTools
+                .Where(tool => retiredRoutingTerms.Concat(ambiguousRoutingTerms).Any(term =>
+                    (tool.ProtocolTool.Description ?? string.Empty).Contains(term, StringComparison.Ordinal)))
+                .Select(tool => tool.ProtocolTool.Name)
+                .ToArray();
+            if (pollutedDescriptions.Length > 0)
+            {
+                throw new InvalidOperationException("Editor Profile 工具描述含旧链或歧义表达："
+                    + string.Join(", ", pollutedDescriptions));
+            }
+            string[] pollutedSchemas = editorTools
+                .Where(tool => retiredRoutingTerms.Concat(ambiguousRoutingTerms).Any(term =>
+                    tool.ProtocolTool.InputSchema.ToString().Contains(term, StringComparison.Ordinal)))
+                .Select(tool => tool.ProtocolTool.Name)
+                .ToArray();
+            if (pollutedSchemas.Length > 0)
+            {
+                throw new InvalidOperationException("Editor Profile 参数Schema含旧链或歧义表达："
+                    + string.Join(", ", pollutedSchemas));
+            }
             if (names.Contains("audit_proc_batch", StringComparer.Ordinal))
                 throw new InvalidOperationException("Editor Profile 不应固定暴露细粒度审计工具。");
             McpServerTool previewTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "preview_change_set", StringComparison.Ordinal));
             string previewSchema = previewTool.ProtocolTool.InputSchema.ToString();
-            if (!previewSchema.Contains("actions", StringComparison.Ordinal)
-                || !previewSchema.Contains("targetProcess", StringComparison.Ordinal)
-                || !previewSchema.Contains("targetOperation", StringComparison.Ordinal)
-                || !previewSchema.Contains("position", StringComparison.Ordinal)
-                || !previewSchema.Contains("oneOf", StringComparison.Ordinal)
-                || !previewSchema.Contains("variable.compute", StringComparison.Ordinal)
-                || !previewSchema.Contains("branch.number_compare", StringComparison.Ordinal)
-                || previewSchema.Contains("draftId", StringComparison.Ordinal)
-                || previewSchema.Contains("expectedOperationCount", StringComparison.Ordinal)
-                || !previewSchema.Contains("kind", StringComparison.Ordinal))
+            var schemaIssues = new List<string>();
+            string[] requiredSchemaTerms =
             {
-                throw new InvalidOperationException("原子动作Schema缺少稳定目标、位置或语义指令定义。");
+                "actions", "targetProcess", "targetOperation", "position", "oneOf",
+                "variable.compute", "branch.number_compare", "minimum", "maximum", "kind"
+            };
+            schemaIssues.AddRange(requiredSchemaTerms
+                .Where(term => !previewSchema.Contains(term, StringComparison.Ordinal))
+                .Select(term => "缺少 " + term));
+            string[] retiredSchemaTerms =
+            {
+                "draftId", "expectedOperationCount", "后续阶段可继续使用"
+            };
+            schemaIssues.AddRange(retiredSchemaTerms
+                .Where(term => previewSchema.Contains(term, StringComparison.Ordinal))
+                .Select(term => "仍包含 " + term));
+            if (!previewSchema.Contains("current_change_set", StringComparison.Ordinal)
+                || !previewSchema.Contains("operation_id_or_change_set_key", StringComparison.Ordinal))
+            {
+                schemaIssues.Add("局部key或符号目标作用域未结构化声明");
+            }
+            if (schemaIssues.Count > 0)
+            {
+                throw new InvalidOperationException("原子动作Schema契约不完整："
+                    + string.Join("；", schemaIssues));
             }
             McpServerTool runTestTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "run_proc_test", StringComparison.Ordinal));
             McpServerTool startTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "start_proc", StringComparison.Ordinal));
+            McpServerTool discardPreviewTool = editorTools.First(tool =>
+                string.Equals(tool.ProtocolTool.Name, "discard_change_set_preview", StringComparison.Ordinal));
+            McpServerTool nativeSchemaTool = editorTools.First(tool =>
+                string.Equals(tool.ProtocolTool.Name, "get_native_operation_schemas", StringComparison.Ordinal));
+            McpServerTool semanticSchemaTool = editorTools.First(tool =>
+                string.Equals(tool.ProtocolTool.Name, "get_semantic_operation_schema", StringComparison.Ordinal));
             if (!(runTestTool.ProtocolTool.Description ?? string.Empty).Contains("负责启动、观察和安全停止", StringComparison.Ordinal)
-                || !(startTool.ProtocolTool.Description ?? string.Empty).Contains("由run_proc_test一次完成", StringComparison.Ordinal))
+                || !(startTool.ProtocolTool.Description ?? string.Empty).Contains("由run_proc_test一次完成", StringComparison.Ordinal)
+                || !(discardPreviewTool.ProtocolTool.Description ?? string.Empty).Contains("不修改配置", StringComparison.Ordinal)
+                || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("preview_only", StringComparison.Ordinal)
+                || !(nativeSchemaTool.ProtocolTool.Description ?? string.Empty).Contains("native.operation", StringComparison.Ordinal)
+                || !(semanticSchemaTool.ProtocolTool.Description ?? string.Empty).Contains("保存必填项", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("流程启动与有边界测试的工具职责未双向公开。");
+                throw new InvalidOperationException("预演生命周期或流程验证工具职责未完整公开。");
+            }
+            string semanticSchema = semanticSchemaTool.ProtocolTool.InputSchema.GetRawText();
+            string nativeSchema = nativeSchemaTool.ProtocolTool.InputSchema.GetRawText();
+            string[] semanticKinds = SemanticOperationKinds.SupportedKinds.Split('、');
+            if (semanticSchema.Contains("\"minItems\"", StringComparison.Ordinal)
+                || semanticSchema.Contains("\"maxItems\"", StringComparison.Ordinal)
+                || semanticKinds.Any(kind => !semanticSchema.Contains(kind, StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException("单语义Schema参数未完整公开支持类型，或仍暴露批量数组约束。");
+            }
+            if (!nativeSchema.Contains("\"minItems\":1", StringComparison.Ordinal)
+                || !nativeSchema.Contains("\"uniqueItems\":true", StringComparison.Ordinal)
+                || nativeSchema.Contains("\"maxItems\"", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("原生Schema参数仍含无依据的数量上限或缺少基础数组约束。");
             }
             string[] diagnosticNames = McpToolProfile.CreateTools("Diagnostic")
                 .Select(tool => tool.ProtocolTool.Name).ToArray();
             string[] editorWriteNames =
             {
-                "preview_change_set", "apply_change_set"
+                "preview_change_set", "apply_change_set", "discard_change_set_preview"
             };
             if (!diagnosticNames.Contains("audit_proc_batch", StringComparer.Ordinal)
                 || !diagnosticNames.Contains("get_native_operation_schemas", StringComparer.Ordinal)

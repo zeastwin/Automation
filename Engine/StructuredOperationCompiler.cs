@@ -32,7 +32,7 @@ namespace Automation
                 ["operaType"] = operation.OperaType,
                 ["purpose"] = "严格配置一个平台注册的原生指令；fields 只允许本契约列出的精确字段",
                 ["behavior"] = OperationBehaviorCatalog.BuildContract(operation),
-                ["required"] = new JArray("operaType", "fields"),
+                ["saveRequired"] = new JArray("operaType", "fields"),
                 ["optional"] = new JArray("name"),
                 ["fields"] = BuildObjectFields(operation.GetType(), 0),
                 ["rules"] = new JArray(

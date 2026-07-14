@@ -8,12 +8,14 @@ namespace Automation
 {
     public static class GooseRuntimeProvisioner
     {
-        public const int SystemPromptVersion = 15;
-        public const int IntegrationContextVersion = 17;
+        public const int SystemPromptVersion = 16;
+        public const int IntegrationContextVersion = 22;
         private const string PromptResourceName = "Automation.Assets.Goose.system.md";
         private const string IntegrationContextResourceName = "Automation.Assets.Goose.automation.md";
         private const string VersionFileName = ".automation-system-prompt-version";
         private const string IntegrationContextVersionFileName = ".automation-context-version";
+
+        public static bool IsManagedContextAvailable { get; private set; }
 
         public static string PromptPath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -27,9 +29,10 @@ namespace Automation
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "Automation", "Goose", "automation.md");
 
-        public static bool TryEnsureSystemPrompt(out string message)
+        public static bool TryEnsureManagedContext(out string message)
         {
             message = null;
+            IsManagedContextAvailable = false;
             try
             {
                 var messages = new System.Collections.Generic.List<string>();
@@ -76,12 +79,14 @@ namespace Automation
                     messages.Add($"Automation 专用上下文已更新到版本 {IntegrationContextVersion}。");
                 }
 
+                ValidateManagedPromptFiles(installedVersion <= SystemPromptVersion);
+                IsManagedContextAvailable = true;
                 message = messages.Count == 0 ? null : string.Join(Environment.NewLine, messages);
                 return true;
             }
             catch (Exception ex)
             {
-                message = "System Prompt 部署失败，已禁止启动 EW-AI：" + ex.Message;
+                message = "EW-AI 受管上下文部署或校验失败，本次已禁用 EW-AI：" + ex.Message;
                 return false;
             }
         }
@@ -103,6 +108,58 @@ namespace Automation
             string path = Path.Combine(BackupDirectory,
                 $"system_{DateTime.Now:yyyyMMdd_HHmmss_fff}_v{version}.md");
             File.Copy(PromptPath, path, false);
+        }
+
+        private static void ValidateManagedPromptFiles(bool requireCurrentOfficialIdentity)
+        {
+            string systemPrompt = File.ReadAllText(PromptPath, Encoding.UTF8);
+            string[] systemAnchors =
+            {
+                "{% if moim_system_prompt_block is defined %}",
+                "# Extensions",
+                "extension_tool_limits",
+                "# Response Guidelines",
+                "# EW-AI Customization"
+            };
+            string missingSystemAnchor = Array.Find(systemAnchors,
+                anchor => systemPrompt.IndexOf(anchor, StringComparison.Ordinal) < 0);
+            if (missingSystemAnchor != null)
+            {
+                throw new InvalidDataException("System Prompt 缺少官方基底或 EW-AI 区块：" + missingSystemAnchor);
+            }
+            if (requireCurrentOfficialIdentity
+                && systemPrompt.IndexOf("You are a general-purpose AI agent called goose", StringComparison.Ordinal) < 0)
+            {
+                throw new InvalidDataException("System Prompt 缺少当前 Goose 官方身份基底。");
+            }
+
+            string integrationContext = File.ReadAllText(IntegrationContextPath, Encoding.UTF8);
+            string[] contextAnchors =
+            {
+                "get_semantic_operation_schema",
+                "get_native_operation_schemas",
+                "preview_change_set",
+                "apply_change_set",
+                "preview_only",
+                "run_proc_test"
+            };
+            string missingContextAnchor = Array.Find(contextAnchors,
+                anchor => integrationContext.IndexOf(anchor, StringComparison.Ordinal) < 0);
+            if (missingContextAnchor != null)
+            {
+                throw new InvalidDataException("Automation 专用上下文缺少当前链路入口：" + missingContextAnchor);
+            }
+
+            string[] retiredRoutes =
+            {
+                "preview_intent", "apply_intent", "preview_patch", "apply_patch", "create_proc_batch"
+            };
+            string retiredRoute = Array.Find(retiredRoutes,
+                route => integrationContext.IndexOf(route, StringComparison.Ordinal) >= 0);
+            if (retiredRoute != null)
+            {
+                throw new InvalidDataException("Automation 专用上下文仍引用旧写入链：" + retiredRoute);
+            }
         }
 
         private static void WriteEmbeddedResource(string resourceName, string destination)

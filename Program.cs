@@ -29,10 +29,10 @@ namespace Automation
                 // MCP 和 AI 页面只能回退到诊断模式、完全权限关闭。
                 MessageBox.Show(aiSafetyError, "AI安全默认值应用失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
-            if (!GooseRuntimeProvisioner.TryEnsureSystemPrompt(out string promptMessage))
+            if (!GooseRuntimeProvisioner.TryEnsureManagedContext(out string promptMessage))
             {
                 // Goose 属于辅助能力，部署异常只能禁用 EW-AI，不能阻断 HMI/平台初始化。
-                MessageBox.Show(promptMessage, "EW-AI System Prompt 部署失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(promptMessage, "EW-AI 受管上下文不可用", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);

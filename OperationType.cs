@@ -2190,31 +2190,58 @@ namespace Automation
         public PlcReadWrite()
         {
             OperaType = "PLC读写";
-            DataType = "Float";
-            DataOps = "读PLC";
-            Quantity = 1;
+            Action = PlcAccessAction.Read;
+            Area = PlcArea.HoldingRegister;
+            DataType = PlcDataType.Float;
+            ElementCount = 1;
+            VariableNames = new List<string>();
         }
 
-        [DisplayName("PLC名字"), Category("参数"), Description("PLC设备名称；运行时按名称选择目标PLC连接。"), ReadOnly(false), TypeConverter(typeof(PlcItem))]
-        public string PlcName { get; set; }
+        [DisplayName("PLC设备"), Category("参数"), Description("PLC设备名称；运行时按名称选择目标连接。"), ReadOnly(false), TypeConverter(typeof(PlcItem))]
+        public string DeviceName { get; set; }
 
-        [DisplayName("数据类型"), Category("参数"), Description("数据项类型；决定变量取值与写入方式。"), ReadOnly(false), TypeConverter(typeof(PlcDataTypeItem))]
-        public string DataType { get; set; }
+        [DisplayName("操作"), Category("参数"), Description("只允许Read或Write。"), ReadOnly(false)]
+        public PlcAccessAction Action { get; set; }
 
-        [DisplayName("数据读写"), Category("参数"), Description("PLC访问方向（读/写），决定指令执行行为。"), ReadOnly(false), TypeConverter(typeof(PlcDirectionItem))]
-        public string DataOps { get; set; }
+        [DisplayName("地址区"), Category("参数"), Description("Coil、DiscreteInput、HoldingRegister或InputRegister。"), ReadOnly(false)]
+        public PlcArea Area { get; set; }
 
-        [DisplayName("PLC首地址"), Category("参数"), Description("PLC起始地址，作为本次读写的起点。"), ReadOnly(false)]
-        public string PlcAddress { get; set; }
+        [DisplayName("起始地址"), Category("参数"), Description("Modbus零基或一基地址由设备配置决定。"), ReadOnly(false)]
+        public int StartAddress { get; set; }
 
-        [DisplayName("写入常量"), Category("参数"), Description("写PLC时使用的固定常量值。"), ReadOnly(false)]
-        public string WriteConst { get; set; }
+        [DisplayName("数据类型"), Category("参数"), Description("PLC数据类型。"), ReadOnly(false)]
+        public PlcDataType DataType { get; set; }
 
-        [DisplayName("变量首地址"), Category("参数"), Description("本地变量起始位置，用于映射PLC读写结果。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string ValueName { get; set; }
+        [DisplayName("元素数量"), Category("参数"), Description("连续读写元素数量。"), ReadOnly(false)]
+        public int ElementCount { get; set; }
 
-        [DisplayName("数据数量"), Category("参数"), Description("连续读写的数据数量。"), ReadOnly(false)]
-        public int Quantity { get; set; }
+        [DisplayName("字符串字节数"), Category("参数"), Description("String类型固定字节长度；其他类型必须为0。"), ReadOnly(false)]
+        public int StringByteLength { get; set; }
+
+        [DisplayName("变量列表"), Category("参数"), Description("按PLC元素顺序绑定的完整变量名列表。"), ReadOnly(false)]
+        public List<string> VariableNames { get; set; }
+
+        [DisplayName("写入来源"), Category("写入"), Description("Variables读取变量列表；Constant使用固定常量。"), ReadOnly(false)]
+        public PlcWriteSource WriteSource { get; set; }
+
+        [DisplayName("固定常量"), Category("写入"), Description("仅单元素Write+Constant有效，按目标类型严格解析。"), ReadOnly(false)]
+        public string ConstantValue { get; set; }
+    }
+
+    [Serializable]
+    public class PlcMappingControl : OperationType
+    {
+        public PlcMappingControl()
+        {
+            OperaType = "PLC映射控制";
+            Action = PlcMappingAction.Start;
+        }
+
+        [DisplayName("PLC设备"), Category("参数"), Description("按设备独立控制映射。"), ReadOnly(false), TypeConverter(typeof(PlcItem))]
+        public string DeviceName { get; set; }
+
+        [DisplayName("控制动作"), Category("参数"), Description("Reinitialize、Start或Stop。"), ReadOnly(false)]
+        public PlcMappingAction Action { get; set; }
     }
 
     [Serializable]

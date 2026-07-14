@@ -2892,9 +2892,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 AppendConversation("系统", item.Text, Color.DarkRed);
             }
 
-            // 预演确认：在工具返回结果（tool_result）时检查是否包含 previewId。
-            // previewId 由 Bridge 在 preview_intent/preview_patch 执行后生成并返回，
-            // tool_call 事件只有工具参数，还没有 previewId。
+            // ChangeSet 预演确认：tool_result 才包含 Bridge 生成的 previewId，
+            // tool_call 事件只有输入参数。
             if (string.Equals(item.Kind, "tool_result", StringComparison.Ordinal))
             {
                 TryPromptPreviewConfirmation(item.Raw);
@@ -3096,7 +3095,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             bool isCall = string.Equals(marker, "call", StringComparison.Ordinal);
             string normalizedText = string.IsNullOrWhiteSpace(text) ? "无摘要" : LocalizeAutomationToolText(text.Trim());
-            bool isError = false;
+            bool isError = !isCall && (normalizedText.StartsWith("×", StringComparison.Ordinal)
+                || string.Equals(
+                    raw?["params"]?["update"]?["status"]?.Value<string>(),
+                    "failed",
+                    StringComparison.OrdinalIgnoreCase));
             if (!isCall)
             {
                 try
@@ -3143,10 +3146,20 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         {
             return (value ?? string.Empty)
                 .Replace("get_native_operation_schemas", "获取原生指令结构")
+                .Replace("get_semantic_operation_schema", "获取语义指令结构")
                 .Replace("preview_change_set", "预演变更阶段")
-                .Replace("apply_change_set", "提交业务变更")
+                .Replace("apply_change_set", "提交配置阶段")
+                .Replace("discard_change_set_preview", "结束变更预演")
+                .Replace("get_proc_overview", "获取流程概览")
+                .Replace("get_proc_detail", "获取流程详情")
+                .Replace("list_procs", "列出流程")
+                .Replace("get_variable", "获取变量")
+                .Replace("search_variables", "搜索变量")
+                .Replace("get_snapshot", "获取运行快照")
                 .Replace("run_proc_test", "限时测试流程")
-                .Replace("wait_for_proc_state", "等待流程状态");
+                .Replace("wait_for_proc_state", "等待流程状态")
+                .Replace("start_proc", "启动流程")
+                .Replace("stop_proc", "停止流程");
         }
 
         private static string BuildAutomationFlowCardsHtml(string visualizationJson)
@@ -3949,9 +3962,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private async void TryPromptPreviewConfirmation(JObject raw)
         {
-            // 从工具返回结果中提取 previewId。
-            // previewId 只在 preview_intent / preview_patch 的返回值中存在，
-            // 且嵌套在 JSON 字符串里（MCP 工具返回 string），不能用 FindFirstString 深度搜索。
+            // 从预演工具的字符串结果中提取 previewId；普通工具结果没有该字段。
             string resultText = ExtractToolResultText(raw);
             if (string.IsNullOrWhiteSpace(resultText))
             {
@@ -3994,11 +4005,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             promptedPreviewIds.Add(previewId);
 
-            // 完全权限模式：预演记录已在 Bridge 服务端直接标记为已确认（BuildRegisteredPatchPreview），
-            // 此处只需提示用户，不需要通过 HTTP 回调确认（避免 UI 线程死锁）。
+            // 完全权限模式下，预演记录已由 Bridge 直接标记为确认；无需弹窗或追加聊天消息。
             if (fullPermissionMode)
             {
-                AppendConversation("系统", $"✅ 自动确认预演，previewId={previewId}", Color.FromArgb(35, 92, 48));
                 return;
             }
 

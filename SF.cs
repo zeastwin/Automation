@@ -106,6 +106,7 @@ namespace Automation
         public static CommunicationHub comm;
         public static CommunicationConfigStore communicationStore;
         public static PlcConfigStore plcStore;
+        public static PlcRuntimeService plcRuntime;
         public static FrmVersionManager frmVersionManager;
         public static ConfigurationVersionService versionService;
         public static IEditSession ActiveEditSession { get; private set; }

@@ -18,7 +18,7 @@ namespace Automation.Protocol
 
         public string Title { get; set; }
 
-        [Description("当前公开写入协议使用的原子动作列表；不得与旧的 deleteProcesses/variables/processes 混用。")]
+        [Description("ChangeSet V2 原子动作列表。公开写入链只使用该字段。")]
         public List<ChangeSetAction> Actions { get; set; }
 
         [Description("删除流程选择；mode=all 删除全部，mode=selected 时通过 names/procIds 精确选择。")]
@@ -59,7 +59,7 @@ namespace Automation.Protocol
         [Description("除 variable.change、process.create、process.delete_all 外的流程目标。")]
         public ProcessSelector TargetProcess { get; set; }
 
-        [Description("步骤和指令动作的步骤目标；现有步骤用 stepId，本阶段新步骤用 key。operation.update/delete/move 使用 targetOperation.opId 时可省略，由Bridge反查所属步骤。")]
+        [Description("步骤动作的目标；现有步骤用stepId，当前阶段新步骤用key。指令update/delete/move按targetOperation.opId定位时可省略。")]
         public StepSelector TargetStep { get; set; }
 
         [Description("operation.update/delete/move 的指令目标。")]
@@ -71,10 +71,10 @@ namespace Automation.Protocol
         [Description("variable.change 的变量定义及 reuse/create/update/replace/require 策略。")]
         public VariableChange Variable { get; set; }
 
-        [Description("process.create/update 的流程字段；update 只提供要修改的字段。")]
+        [Description("process.create/update 的流程字段；update 中出现的字段表示需要修改，省略字段保持原值。")]
         public ProcessActionValue Process { get; set; }
 
-        [Description("step.append/insert/update 的步骤字段；update 只提供要修改的字段。")]
+        [Description("step.append/insert/update 的步骤字段；update 中出现的字段表示需要修改，省略字段保持原值。")]
         public StepActionValue Step { get; set; }
 
         [Description("operation.append/insert/update 的指令定义；update 使用 native.operation 时 fields 是局部字段补丁，clearFields 显式清空旧字符串字段。")]
@@ -86,7 +86,7 @@ namespace Automation.Protocol
         [Description("现有流程稳定 Guid；与 name/key 互斥。")]
         public string ProcId { get; set; }
 
-        [Description("现有流程精确名称；与 procId/key 互斥。")]
+        [Description("现有流程精确名称；与procId/key互斥。同名流程存在歧义时改用procId。")]
         public string Name { get; set; }
 
         [Description("同一阶段新建流程的局部 key；与 procId/name 互斥。")]
@@ -98,7 +98,7 @@ namespace Automation.Protocol
         [Description("现有步骤稳定 Guid；与 key 互斥。")]
         public string StepId { get; set; }
 
-        [Description("步骤局部 key；与 stepId 互斥。AI 创建的步骤会保留该 key，后续阶段可继续使用。")]
+        [Description("当前ChangeSet中新步骤的局部key；与stepId互斥。提交后的阶段改用createdObjects返回的stepId。")]
         public string Key { get; set; }
     }
 
@@ -107,7 +107,7 @@ namespace Automation.Protocol
         [Description("现有指令稳定 Guid；与 key 互斥。")]
         public string OpId { get; set; }
 
-        [Description("指令局部 key；与 opId 互斥。AI 创建的指令会保留该 key，后续阶段可继续使用。")]
+        [Description("当前ChangeSet中新指令的局部key；与opId互斥。提交后的阶段改用createdObjects返回的opId。")]
         public string Key { get; set; }
     }
 
@@ -162,14 +162,19 @@ namespace Automation.Protocol
 
     public sealed class VariableChange
     {
+        [Description("变量精确名称。")]
         public string Name { get; set; }
 
+        [Description("变量类型：double 或 string。复用现有变量时需与现有类型一致。")]
         public string Type { get; set; }
 
+        [Description("变量配置初始值，按type解析；不是运行时当前值。")]
         public string InitialValue { get; set; }
 
+        [Description("变量说明，可省略。")]
         public string Note { get; set; }
 
+        [Description("策略：reuse/create/update/replace/require。reuse可复用或创建；require只接受已存在变量。")]
         public string Policy { get; set; }
     }
 
@@ -224,18 +229,20 @@ namespace Automation.Protocol
         [Description("内部完整结构保留既有指令身份；原子动作的 operation 载荷省略，改用 targetOperation.opId 定位。")]
         public string OpId { get; set; }
 
-        [Description("步骤内局部稳定 key；需要作为位置或跳转目标时提供，否则可省略由Bridge生成；operation.update 时继承原key。")]
+        [Description("当前ChangeSet内的指令局部key；作为位置或跳转目标时提供，否则可省略由Bridge生成。operation.update继承现有key。")]
         public string Key { get; set; }
 
-        [Description("严格枚举：" + SemanticOperationKinds.SupportedKinds + "。固定文本弹框用 popup.message；显示变量当前值用 popup.variable；不得自行创造 kind。")]
+        [Description("严格枚举：" + SemanticOperationKinds.SupportedKinds + "。固定文本弹框用popup.message，显示变量当前值用popup.variable。")]
         public string Kind { get; set; }
 
         public string Name { get; set; }
 
         public string Variable { get; set; }
 
+        [Description("variable.set 的固定字面量；double 变量填写数字文本。这里不解析变量引用、算式或模板，变量运算使用 variable.add/variable.compute。")]
         public string Value { get; set; }
 
+        [Description("variable.add 对 double 变量累加的固定数值。")]
         public double? Amount { get; set; }
 
         [Description("variable.compute 的源 double 变量。")]
@@ -253,12 +260,16 @@ namespace Automation.Protocol
         [Description("variable.compute 的结果 double 变量；可与源变量或操作数变量相同。")]
         public string OutputVariable { get; set; }
 
+        [Description("wait 的固定等待时间，范围 0..86400000 毫秒。")]
         public int? Milliseconds { get; set; }
 
+        [Description("flow.goto或弹框按钮的符号目标；具体运行要求由对应kind契约说明。")]
         public OperationTarget Target { get; set; }
 
+        [Description("branch.number_range 的区间下界。")]
         public double? Min { get; set; }
 
+        [Description("branch.number_range 的区间上界。")]
         public double? Max { get; set; }
 
         [Description("branch.number_compare 的比较符：gt/gte/lt/lte/eq/ne。")]
@@ -267,32 +278,46 @@ namespace Automation.Protocol
         [Description("branch.number_compare 与变量比较的固定数值。")]
         public double? CompareValue { get; set; }
 
+        [Description("branch.number_range 是否包含边界，省略时为true。")]
         public bool? IncludeBounds { get; set; }
 
+        [Description("分支成立时的符号目标；需要可运行时应提供，暂缺可先保存为 incomplete。")]
         public OperationTarget WhenTrue { get; set; }
 
+        [Description("分支不成立时的符号目标；需要可运行时应提供，暂缺可先保存为 incomplete。")]
         public OperationTarget WhenFalse { get; set; }
 
+        [Description("popup.message 或 config.placeholder 的固定文本；popup.message 不支持变量插值。")]
         public string Message { get; set; }
 
+        [Description("弹框按钮文本，省略时为“确定”。")]
         public string ButtonText { get; set; }
 
+        [Description("弹框自动关闭时间，范围 1..3600000 毫秒；不需要自动关闭时省略，不能填0。")]
         public int? AutoCloseMs { get; set; }
 
+        [Description("IO精确名称；io.write要求输出IO，io.wait读取IO状态。")]
         public string Io { get; set; }
 
+        [Description("IO目标状态。")]
         public bool? State { get; set; }
 
+        [Description("动作前延时，范围 0..3600000 毫秒；不需要时省略。")]
         public int? BeforeMs { get; set; }
 
+        [Description("动作后延时，范围 0..3600000 毫秒；不需要时省略。")]
         public int? AfterMs { get; set; }
 
+        [Description("等待超时，提供时范围 1..86400000 毫秒。")]
         public int? TimeoutMs { get; set; }
 
+        [Description("process.control/process.wait 的目标流程精确名称；运行就绪时必填。")]
         public string Process { get; set; }
 
+        [Description("process.control 动作：start 或 stop；运行就绪时必填。")]
         public string Action { get; set; }
 
+        [Description("process.wait 目标状态：running 或 stopped；运行就绪时必填。")]
         public string ExpectedState { get; set; }
 
         [Description("native.operation 使用的原生指令类型，必须是平台注册的精确 operaType。")]
@@ -313,10 +338,10 @@ namespace Automation.Protocol
         [Description("跨步骤定位时可提供目标步骤稳定 Guid；当前步骤内定位无需提供。")]
         public string StepId { get; set; }
 
-        [Description("跨步骤定位时可提供目标步骤局部 key；当前步骤内定位无需提供。")]
+        [Description("当前ChangeSet内跨步骤定位时可提供目标步骤局部key；当前步骤内定位无需提供。")]
         public string StepKey { get; set; }
 
-        [Description("按指令局部 key 定位；当前步骤只需 operationKey，跨步骤时附加 stepId 或 stepKey。目标尚未创建时保留为待解析引用，后续补齐后自动解析。")]
+        [Description("按指令key形成符号目标；当前步骤只需operationKey，跨步骤时附加stepId或stepKey。未定义目标可先保存为未就绪引用，并在后续创建同标签指令时解析；该标签不用于读取已提交对象。")]
         public string OperationKey { get; set; }
     }
 }

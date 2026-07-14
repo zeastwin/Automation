@@ -12,11 +12,14 @@ namespace Automation
         public ProcessDefinitionValidationContext(
             IEnumerable<string> variableNames,
             IEnumerable<string> tcpNames,
-            IEnumerable<string> serialNames)
+            IEnumerable<string> serialNames,
+            IEnumerable<string> alarmInfoIds = null)
         {
             VariableNames = new HashSet<string>(variableNames ?? Array.Empty<string>(), StringComparer.Ordinal);
             TcpNames = new HashSet<string>(tcpNames ?? Array.Empty<string>(), StringComparer.Ordinal);
             SerialNames = new HashSet<string>(serialNames ?? Array.Empty<string>(), StringComparer.Ordinal);
+            AlarmInfoIds = new HashSet<string>(alarmInfoIds ?? Array.Empty<string>(), StringComparer.Ordinal);
+            HasAlarmInfoCatalog = alarmInfoIds != null;
         }
 
         public IReadOnlyCollection<string> VariableNames { get; }
@@ -24,6 +27,10 @@ namespace Automation
         public IReadOnlyCollection<string> TcpNames { get; }
 
         public IReadOnlyCollection<string> SerialNames { get; }
+
+        public IReadOnlyCollection<string> AlarmInfoIds { get; }
+
+        public bool HasAlarmInfoCatalog { get; }
     }
 
     public static class ProcessDefinitionService

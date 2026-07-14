@@ -108,8 +108,9 @@ namespace Automation
 
             IReadOnlyCollection<string> tcpNames = GetReferenceValues(resources, "comm.tcp");
             IReadOnlyCollection<string> serialNames = GetReferenceValues(resources, "comm.serial");
+            IReadOnlyCollection<string> alarmInfoIds = GetReferenceValues(resources, "alarm.infoId");
             var validationContext = new ProcessDefinitionValidationContext(
-                variables.Keys, tcpNames, serialNames);
+                variables.Keys, tcpNames, serialNames, alarmInfoIds);
             for (int procIndex = 0; procIndex < processes.Count; procIndex++)
             {
                 var errors = new List<string>();

@@ -385,8 +385,7 @@ namespace Automation.Bridge
                 ["ok"] = false,
                 ["type"] = "bridge.error",
                 ["errorCode"] = code ?? string.Empty,
-                ["message"] = message ?? string.Empty,
-                ["details"] = string.IsNullOrWhiteSpace(details) ? null : details
+                ["message"] = message ?? string.Empty
             };
             if (!string.IsNullOrWhiteSpace(details))
             {
@@ -397,9 +396,14 @@ namespace Automation.Bridge
                     {
                         error["recovery"] = recovery;
                     }
+                    else
+                    {
+                        error["details"] = details;
+                    }
                 }
                 catch (JsonReaderException)
                 {
+                    error["details"] = details;
                 }
             }
             return error.ToString(Formatting.None);
@@ -646,6 +650,8 @@ namespace Automation.Bridge
             JObject behavior = OperationBehaviorCatalog.BuildContract(operation);
             return new JObject
             {
+                ["representation"] = "native",
+                ["schemaTool"] = "get_native_operation_schemas",
                 ["operaType"] = operation.OperaType ?? string.Empty,
                 ["guide"] = behavior
             };
@@ -711,7 +717,7 @@ namespace Automation.Bridge
                     ["tcp"] = new JArray(commNames.Tcp),
                     ["serial"] = new JArray(commNames.Serial)
                 },
-                ["plcDevices"] = new JArray((SF.plcStore?.Devices ?? Array.Empty<PlcDevice>())
+                ["plcDevices"] = new JArray((SF.plcStore?.GetSnapshot().Devices ?? new List<PlcDeviceConfig>())
                     .Where(device => device != null && !string.IsNullOrWhiteSpace(device.Name))
                     .Select(device => device.Name)),
                 ["stations"] = stations,
@@ -1393,20 +1399,34 @@ namespace Automation.Bridge
         {
             EnsureOnlyProperties(request, "nativeOperationContracts", "operaTypes");
             JArray operaTypes = ReadRequiredArray(request, "operaTypes");
-            if (operaTypes.Count < 1 || operaTypes.Count > 12
+            if (operaTypes.Count < 1
                 || operaTypes.Any(token => token.Type != JTokenType.String
                     || string.IsNullOrWhiteSpace(token.Value<string>())))
             {
                 throw new BridgeRequestException(400, "INVALID_ARGUMENT",
-                    "operaTypes 必须包含 1..12 个非空字符串。");
+                    "operaTypes 至少包含一个非空字符串。");
             }
             string[] distinct = operaTypes.Values<string>()
                 .Select(value => value.Trim()).Distinct(StringComparer.Ordinal).ToArray();
             try
             {
+                var contracts = new JObject();
+                foreach (string operaType in distinct)
+                {
+                    contracts[operaType] = StructuredOperationCompiler.BuildContract(operaType);
+                }
                 return new JObject
                 {
-                    ["contracts"] = new JArray(distinct.Select(StructuredOperationCompiler.BuildContract))
+                    ["schemaRoute"] = new JObject
+                    {
+                        ["representation"] = "native",
+                        ["writeKind"] = "native.operation",
+                        ["writeFields"] = "operation.operaType + operation.fields",
+                        ["nextTool"] = "preview_change_set",
+                        ["fieldMeaning"] = "saveRequired决定配置能否保存；behavior.fieldRules.requiredForRun决定流程能否启动",
+                        ["rule"] = "按所请求的精确operaType填写递归字段；语义kind使用语义Schema"
+                    },
+                    ["contracts"] = contracts
                 };
             }
             catch (Exception ex) when (ex is InvalidOperationException
@@ -1503,17 +1523,25 @@ namespace Automation.Bridge
                 throw new BridgeRequestException(400, "CHANGE_SET_INVALID",
                     "语义指令 kind 必须是字符串且不能为空。");
             }
-            JObject contract;
             try
             {
-                contract = AiOperationCompilerRegistry.Get(kind).BuildContract();
+                AiOperationCompilerRegistry.Get(kind);
             }
             catch (InvalidOperationException ex)
             {
                 throw new BridgeRequestException(400, "CHANGE_SET_INVALID", ex.Message);
             }
-            string[] allowed = (contract["required"]?.Values<string>() ?? Enumerable.Empty<string>())
-                .Concat(contract["optional"]?.Values<string>() ?? Enumerable.Empty<string>())
+            IReadOnlyCollection<string> contractFields;
+            try
+            {
+                contractFields = AiOperationCompilerRegistry.GetDefinitionFields(kind);
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new BridgeRequestException(
+                    500, "SEMANTIC_CONTRACT_INVALID", "平台内部语义指令契约无效。", ex.Message);
+            }
+            string[] allowed = contractFields
                 .Concat(new[] { "opId", "key" })
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
@@ -1604,7 +1632,8 @@ namespace Automation.Bridge
                     "语义变更集编译失败。", new JObject
                     {
                         ["validationError"] = ex.Message,
-                        ["nextAction"] = "fix_change_set_and_retry",
+                        ["nextAction"] = "preview_change_set",
+                        ["reason"] = "fix_validation_error",
                         ["sideEffects"] = "none"
                     }.ToString(Formatting.None));
             }
@@ -1618,11 +1647,18 @@ namespace Automation.Bridge
                 record.AiChangeSetPreview = draft;
                 record.BaseStateHash = AiChangeSetCompiler.ComputeStateHash(SF.frmProc.procsList, variables);
             }
+            var createdPreviewProcIds = new HashSet<string>(draft.Changes.OfType<JObject>()
+                .Where(change => string.Equals(
+                    change["type"]?.Value<string>(), "process.create", StringComparison.Ordinal))
+                .Select(change => change["procId"]?.Value<string>())
+                .Where(procId => !string.IsNullOrWhiteSpace(procId)), StringComparer.OrdinalIgnoreCase);
             return new JObject
             {
                 ["previewId"] = previewId,
                 ["confirmed"] = record.Confirmed,
                 ["committed"] = false,
+                ["objectState"] = "preview_only",
+                ["readAfterApplyFrom"] = "apply_change_set.createdObjects/affectedProcesses",
                 ["status"] = record.Confirmed ? "confirmed" : "awaiting_confirmation",
                 ["nextAction"] = record.Confirmed ? "apply_change_set" : "await_foreground_confirmation",
                 ["nextToolArgs"] = record.Confirmed
@@ -1639,16 +1675,34 @@ namespace Automation.Bridge
                     ["atomicActions"] = draft.AtomicActionCount,
                     ["operationsInAffectedProcesses"] = draft.OperationCount
                 },
-                ["changes"] = draft.Changes.DeepClone(),
-                ["processAnalyses"] = draft.ProcessAnalyses?.DeepClone() ?? new JArray(),
+                ["changes"] = BuildPreviewOnlyView(draft.Changes, createdPreviewProcIds),
+                ["processAnalyses"] = BuildPreviewOnlyView(draft.ProcessAnalyses, createdPreviewProcIds),
                 ["readinessStatus"] = draft.ReadinessStatus,
                 ["runnable"] = draft.Runnable,
-                ["warnings"] = draft.ConfigurationWarnings?.DeepClone() ?? new JArray(),
-                ["runBlockers"] = draft.RunBlockers?.DeepClone() ?? new JArray(),
+                ["warnings"] = BuildPreviewOnlyView(draft.ConfigurationWarnings, createdPreviewProcIds),
+                ["runBlockers"] = BuildPreviewOnlyView(draft.RunBlockers, createdPreviewProcIds),
                 ["messages"] = new JArray(draft.AtomicActionCount > 0
                     ? $"本阶段包含 {draft.AtomicActionCount} 个原子动作；将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、修改 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量。受影响流程修改后共 {draft.OperationCount} 条指令。"
                     : $"本次将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、替换 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量，共 {draft.OperationCount} 条指令。")
             };
+        }
+
+        private static JArray BuildPreviewOnlyView(JArray source, HashSet<string> createdPreviewProcIds)
+        {
+            var result = source?.DeepClone() as JArray ?? new JArray();
+            foreach (JObject item in result.OfType<JObject>())
+            {
+                string procId = item["procId"]?.Value<string>();
+                if (!string.IsNullOrWhiteSpace(procId)
+                    && createdPreviewProcIds.Contains(procId)
+                    && item["procIndex"] != null)
+                {
+                    item["plannedProcIndex"] = item["procIndex"];
+                    item.Remove("procIndex");
+                    item["objectState"] = "preview_only";
+                }
+            }
+            return result;
         }
 
         private static AiResourceSnapshot BuildAiResourceSnapshot()
@@ -1712,7 +1766,13 @@ namespace Automation.Bridge
             if (!string.Equals(expectedStateHash, currentStateHash, StringComparison.Ordinal))
             {
                 throw new BridgeRequestException(409, "CHANGE_SET_VERSION_MISMATCH",
-                    "预演后流程或变量配置已发生变化，禁止提交过期预演。请重新预演。");
+                    "预演后的流程或变量配置已经变化，本次提交未执行。",
+                    new JObject
+                    {
+                        ["nextAction"] = "preview_change_set",
+                        ["reason"] = "base_state_changed",
+                        ["sideEffects"] = "none"
+                    }.ToString(Formatting.None));
             }
 
             CommitChangeSet(draft);
@@ -1752,7 +1812,9 @@ namespace Automation.Bridge
                 ["previewId"] = previewId,
                 ["committed"] = true,
                 ["status"] = "committed",
-                ["nextAction"] = "complete",
+                ["stageComplete"] = true,
+                ["taskCompletion"] = "not_evaluated",
+                ["nextAction"] = "evaluate_task_completion",
                 ["procCount"] = draft.Processes.Count,
                 ["variableCount"] = draft.Variables.Count,
                 ["createdProcesses"] = createdProcesses,
@@ -1808,8 +1870,14 @@ namespace Automation.Bridge
                     throw new BridgeRequestException(
                         409,
                         "PROC_MAY_NOT_STOP_NATURALLY",
-                        $"流程 {procIndex} 存在可达控制流环，不能把等待 Stopped 当作自然完成验证。",
-                        $"cycleLocations={string.Join(",", flow.CycleLocations)}; actionRequired=use_run_proc_test");
+                        $"流程 {procIndex} 存在可达控制流环，等待Stopped不适合作为自然完成验证。",
+                        new JObject
+                        {
+                            ["cycleLocations"] = new JArray(flow.CycleLocations),
+                            ["nextAction"] = "run_proc_test",
+                            ["nextToolArgs"] = new JObject { ["procIndex"] = procIndex },
+                            ["sideEffects"] = "none"
+                        }.ToString(Formatting.None));
                 }
             }
 
@@ -1986,6 +2054,21 @@ namespace Automation.Bridge
                     outcome = "ExternallyStopped";
                     break;
             }
+            bool containsReachableCycle = flow?.ContainsReachableCycle ?? false;
+            bool verificationSatisfied = outcome == "NaturallyCompleted"
+                || outcome == "ObservationWindowCompleted"
+                    && observedRunning
+                    && positionChanges > 0;
+            string verificationStatus = outcome == "Alarmed"
+                ? "alarmed"
+                : outcome == "ExternallyStopped"
+                    ? "interrupted"
+                    : verificationSatisfied ? "passed" : "inconclusive";
+            string recommendedNextAction = verificationStatus == "alarmed"
+                ? "report_alarm"
+                : verificationStatus == "interrupted"
+                    ? "report_test_interrupted"
+                    : verificationSatisfied ? "report_test_result" : "report_test_inconclusive";
             return new JObject
             {
                 ["procIndex"] = procIndex,
@@ -1994,9 +2077,15 @@ namespace Automation.Bridge
                 ["outcome"] = outcome,
                 ["observedRunning"] = observedRunning,
                 ["positionChanges"] = positionChanges,
-                ["containsReachableCycle"] = flow?.ContainsReachableCycle ?? false,
+                ["containsReachableCycle"] = containsReachableCycle,
                 ["cycleLocations"] = new JArray(flow?.CycleLocations ?? Array.Empty<string>()),
                 ["stoppedByTestRunner"] = stoppedByTestRunner,
+                ["verificationStatus"] = verificationStatus,
+                ["verificationSatisfied"] = verificationSatisfied,
+                ["waitForStoppedSupported"] = !containsReachableCycle,
+                ["recommendedNextAction"] = recommendedNextAction,
+                ["continuationAuthorized"] = false,
+                ["startRequiresExplicitUserRequest"] = true,
                 ["elapsedMs"] = (long)(DateTime.UtcNow - startedAt).TotalMilliseconds,
                 ["snapshot"] = BuildEngineSnapshot(snapshot, procIndex)
             };
@@ -2264,8 +2353,16 @@ namespace Automation.Bridge
                     throw new BridgeRequestException(
                         409,
                         "PROC_STRUCTURE_NOT_STOPPED",
-                        $"本次提交已拒绝：流程{procIndex}当前状态为{snapshot.State}，禁止AI{actionName}。Automation没有停止任何流程、没有保存文件、没有重建流程索引。AI不得调用stop_proc，不要在运行状态未改变时重复提交；请告知用户并等待操作员停止全部流程。查询和预演不受影响。",
-                        $"retryableNow=false; blockingProcIndex={procIndex}; currentState={snapshot.State}; sideEffects=none; actionRequired=wait_for_operator_stop_all; forbiddenAction=stop_proc");
+                        $"流程 {procIndex} 当前为 {snapshot.State}，{actionName}尚未执行。",
+                        new JObject
+                        {
+                            ["blockingProcIndex"] = procIndex,
+                            ["currentState"] = snapshot.State.ToString(),
+                            ["retryableNow"] = false,
+                            ["nextAction"] = "wait_for_operator_stop_all",
+                            ["retryableWhen"] = "all_processes_stopped",
+                            ["sideEffects"] = "none"
+                        }.ToString(Formatting.None));
                 }
             }
         }
@@ -2377,7 +2474,16 @@ namespace Automation.Bridge
                 }
                 if (!record.Confirmed)
                 {
-                    throw new BridgeRequestException(403, "PREVIEW_NOT_CONFIRMED", "预演结果尚未由 Automation 前台确认，禁止提交。");
+                    throw new BridgeRequestException(
+                        403,
+                        "PREVIEW_NOT_CONFIRMED",
+                        "预演仍在等待前台确认，本次提交未执行。",
+                        new JObject
+                        {
+                            ["previewId"] = previewId,
+                            ["nextAction"] = "await_foreground_confirmation",
+                            ["sideEffects"] = "none"
+                        }.ToString(Formatting.None));
                 }
             }
         }
@@ -2791,7 +2897,7 @@ namespace Automation.Bridge
                     resolvedTypes.Add("comm.serial");
                 if ((SF.frmCard?.dataStation ?? new List<DataStation>()).Any(item => item?.Name == name))
                     resolvedTypes.Add("station");
-                if ((SF.plcStore?.Devices ?? Array.Empty<PlcDevice>()).Any(item => item?.Name == name))
+                if ((SF.plcStore?.GetSnapshot().Devices ?? new List<PlcDeviceConfig>()).Any(item => item?.Name == name))
                     resolvedTypes.Add("plc.device");
                 if ((SF.dataStructStore?.GetStructNames() ?? new List<string>()).Contains(name, StringComparer.Ordinal))
                     resolvedTypes.Add("dataStruct");
@@ -5241,6 +5347,7 @@ namespace Automation.Bridge
         private JObject HandleSetAlarm(JObject request)
         {
             EnsureRuntimeReady();
+            EnsureAllProcsStoppedForAiStructureCommit("修改报警信息");
             int index = ReadRequiredInt(request, "index");
             string name = ReadRequiredString(request, "name");
             string note = ReadRequiredString(request, "note");
@@ -5279,6 +5386,7 @@ namespace Automation.Bridge
         private JObject HandleDeleteAlarm(JObject request)
         {
             EnsureRuntimeReady();
+            EnsureAllProcsStoppedForAiStructureCommit("删除报警信息");
             int index = ReadRequiredInt(request, "index");
             AlarmInfo alarm = ResolveAlarm(index);
             if (string.IsNullOrEmpty(alarm.Name) && string.IsNullOrEmpty(alarm.Note))
@@ -5320,40 +5428,54 @@ namespace Automation.Bridge
                 return BridgeError(500, "STORE_UNAVAILABLE", "PLC 存储未初始化。");
             }
             bool includeMaps = request["includeMaps"]?.Value<bool>() ?? false;
-            var devices = store.Devices;
+            PlcConfiguration configuration = store.GetSnapshot();
+            var devices = configuration.Devices;
+            IReadOnlyDictionary<string, PlcDeviceRuntimeSnapshot> runtimeByName =
+                (SF.plcRuntime?.GetSnapshots() ?? new List<PlcDeviceRuntimeSnapshot>())
+                .ToDictionary(item => item.DeviceName, StringComparer.OrdinalIgnoreCase);
             var items = new List<JObject>();
-            foreach (PlcDevice dev in devices)
+            foreach (PlcDeviceConfig dev in devices)
             {
                 if (dev == null) continue;
+                runtimeByName.TryGetValue(dev.Name ?? string.Empty, out PlcDeviceRuntimeSnapshot runtime);
                 JObject obj = new JObject
                 {
                     ["name"] = dev.Name ?? string.Empty,
-                    ["protocol"] = dev.Protocol ?? string.Empty,
-                    ["cpuType"] = dev.CpuType ?? string.Empty,
-                    ["ip"] = dev.Ip ?? string.Empty,
+                    ["protocol"] = "ModbusTcp",
+                    ["profile"] = dev.Profile.ToString(),
+                    ["ip"] = dev.IpAddress ?? string.Empty,
                     ["port"] = dev.Port,
-                    ["rack"] = dev.Rack,
-                    ["slot"] = dev.Slot,
-                    ["timeoutMs"] = dev.TimeoutMs,
-                    ["unitId"] = dev.UnitId
+                    ["unitId"] = dev.UnitId,
+                    ["connectTimeoutMs"] = dev.ConnectTimeoutMs,
+                    ["receiveTimeoutMs"] = dev.ReceiveTimeoutMs,
+                    ["scanIntervalMs"] = dev.ScanIntervalMs,
+                    ["dataFormat"] = dev.DataFormat,
+                    ["isStringReverse"] = dev.IsStringReverse,
+                    ["addressStartWithZero"] = dev.AddressStartWithZero,
+                    ["statusVariableName"] = dev.StatusVariableName ?? string.Empty,
+                    ["runtimeState"] = runtime?.State.ToString() ?? PlcRuntimeState.Uninitialized.ToString(),
+                    ["lastError"] = runtime?.LastError ?? string.Empty
                 };
                 if (includeMaps)
                 {
-                    var maps = store.Maps;
                     var deviceMaps = new JArray();
-                    foreach (PlcMapItem map in maps)
+                    foreach (PlcMapConfig map in dev.Mappings)
                     {
                         if (map == null) continue;
-                        if (!string.Equals(map.PlcName, dev.Name, StringComparison.OrdinalIgnoreCase)) continue;
                         deviceMaps.Add(new JObject
                         {
-                            ["plcName"] = map.PlcName ?? string.Empty,
-                            ["dataType"] = map.DataType ?? string.Empty,
-                            ["direction"] = map.Direction ?? string.Empty,
-                            ["plcAddress"] = map.PlcAddress ?? string.Empty,
-                            ["valueName"] = map.ValueName ?? string.Empty,
-                            ["quantity"] = map.Quantity,
-                            ["writeConst"] = map.WriteConst ?? string.Empty
+                            ["id"] = map.Id ?? string.Empty,
+                            ["name"] = map.Name ?? string.Empty,
+                            ["enabled"] = map.Enabled,
+                            ["area"] = map.Area.ToString(),
+                            ["startAddress"] = map.StartAddress,
+                            ["dataType"] = map.DataType.ToString(),
+                            ["direction"] = map.Direction.ToString(),
+                            ["priority"] = map.Priority.ToString(),
+                            ["elementCount"] = map.ElementCount,
+                            ["stringByteLength"] = map.StringByteLength,
+                            ["variableNames"] = new JArray(map.VariableNames ?? new List<string>()),
+                            ["changeTolerance"] = map.ChangeTolerance
                         });
                     }
                     obj["maps"] = deviceMaps;
@@ -5685,8 +5807,16 @@ namespace Automation.Bridge
                 throw new BridgeRequestException(
                     409,
                     "PROC_NOT_STOPPED",
-                    $"本次提交已拒绝：流程{procIndex}当前状态为{snapshot.State}。Automation没有停止流程、没有保存文件、没有发布热更新。AI不得调用stop_proc，不要在状态未改变时重复提交；请告知用户并等待操作员将流程停止后，再使用原previewId重试。查询和预演不受影响。",
-                    $"retryableNow=false; currentState={snapshot.State}; sideEffects=none; actionRequired=wait_for_operator_stop; forbiddenAction=stop_proc");
+                    $"流程 {procIndex} 当前为 {snapshot.State}，本次提交尚未执行。",
+                    new JObject
+                    {
+                        ["procIndex"] = procIndex,
+                        ["currentState"] = snapshot.State.ToString(),
+                        ["retryableNow"] = false,
+                        ["nextAction"] = "wait_for_operator_stop",
+                        ["retryableWhen"] = "process_stopped",
+                        ["sideEffects"] = "none"
+                    }.ToString(Formatting.None));
             }
 
             ValidateHmiCustomFunctionSource();
@@ -6375,7 +6505,7 @@ namespace Automation.Bridge
                 throw new BridgeRequestException(
                     409,
                     "PREVIEW_IN_FLIGHT",
-                    "当前预演尚未完成提交或拒绝，禁止并行创建第二个预演。",
+                    "已有一个尚未结束的预演，本次新预演未创建。",
                     new JObject
                     {
                         ["activePreviewId"] = active.PreviewId,
@@ -6407,7 +6537,16 @@ namespace Automation.Bridge
 
                 if (!record.Confirmed)
                 {
-                    throw new BridgeRequestException(403, "PREVIEW_NOT_CONFIRMED", "预演结果尚未由 Automation 前台确认，禁止提交。");
+                    throw new BridgeRequestException(
+                        403,
+                        "PREVIEW_NOT_CONFIRMED",
+                        "预演仍在等待前台确认，本次提交未执行。",
+                        new JObject
+                        {
+                            ["previewId"] = previewId,
+                            ["nextAction"] = "await_foreground_confirmation",
+                            ["sideEffects"] = "none"
+                        }.ToString(Formatting.None));
                 }
 
                 EnsurePreviewProcVersion(record);
@@ -6431,12 +6570,12 @@ namespace Automation.Bridge
         {
             if (string.IsNullOrWhiteSpace(previewId))
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "字段 previewId 不能为空；预演阶段请不要传 previewId，提交阶段必须传预演返回的 previewId。");
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "previewId 需要使用预演工具返回的32位编号。");
             }
 
             if (!Guid.TryParseExact(previewId, "N", out _))
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"字段 previewId 不是合法预演编号；预演阶段请不要传 previewId，提交阶段必须传 preview 返回的 32 位 previewId。当前值：{previewId}");
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"previewId 不是合法的32位预演编号：{previewId}");
             }
         }
 
@@ -7259,8 +7398,13 @@ namespace Automation.Bridge
                 error = BridgeError(
                     404,
                     "PROC_NOT_FOUND",
-                    $"流程索引无效：{procIndex}。当前流程数：{SF.frmProc.procsList.Count}。请先调用 list_procs，并且只能使用返回项中的 procIndex；创建流程预演返回的 targetIndex 不是已提交流程。",
-                    "sideEffects=none; actionRequired=list_procs; doNotAssumePreviewTargetIndex=true");
+                    $"已提交的流程中不存在索引 {procIndex}；当前流程数为 {SF.frmProc.procsList.Count}。",
+                    new JObject
+                    {
+                        ["nextAction"] = "list_procs",
+                        ["reason"] = "committed_process_not_found",
+                        ["sideEffects"] = "none"
+                    }.ToString(Formatting.None));
                 return false;
             }
             proc = SF.frmProc.procsList[procIndex];

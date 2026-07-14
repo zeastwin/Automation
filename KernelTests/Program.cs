@@ -12,6 +12,7 @@ using System.Net.Sockets;
 using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
+using System.Windows.Forms;
 using Newtonsoft.Json.Linq;
 using Automation.Protocol;
 using static Automation.OperationTypePartial;
@@ -36,7 +37,10 @@ namespace Automation.KernelTests
             Run("通讯帧拆包与有界缓存", TestCommunicationReceiveDispatcher);
             Run("通讯配置独立存储与严格校验", TestCommunicationConfigStore);
             Run("TCP请求响应事务与生命周期", TestTcpRequestResponse);
-            Run("PLC连续地址批量读取合并", TestPlcBatchRead);
+            Run("PLC配置与地址契约严格校验", TestPlcConfigurationValidation);
+            Run("PLC HSL授权与Modbus TCP实报文", TestPlcHslTransport);
+            Run("PLC映射调度冲突与设备故障隔离", TestPlcRuntimeMappingStateMachine);
+            Run("PLC管理窗体可独立显示", TestPlcManagementFormCanShow);
             Run("报警配置严格校验与原子保存", TestAlarmInfoStore);
             Run("运行中参数与后续指令安全热更新", TestRunningSafeHotUpdate);
             Run("运行中删除后续指令安全结束", TestRunningFutureOperationDeletion);
@@ -508,13 +512,85 @@ namespace Automation.KernelTests
             }
         }
 
-        private static void TestPlcBatchRead()
+        private static void TestPlcConfigurationValidation()
         {
+            ValueConfigStore values = CreateValueStore(ResetStatus.ResetCompleted);
+            Assert(values.TrySetValue(1, "温度", "double", "0", "PLC测试"), "创建温度变量失败");
+            Assert(values.TrySetValue(2, "状态文本", "string", string.Empty, "PLC测试"), "创建字符串变量失败");
+            Assert(values.TrySetValue(3, "写入值", "double", "1", "PLC测试"), "创建写入变量失败");
+            var device = PlcDeviceConfig.Create(PlcDeviceProfile.InovanceModbusTcp);
+            device.Name = "测试PLC";
+            device.IpAddress = "127.0.0.1";
+            device.Mappings.Add(new PlcMapConfig
+            {
+                Name = "读取温度",
+                Area = PlcArea.HoldingRegister,
+                StartAddress = 0,
+                DataType = PlcDataType.Float,
+                Direction = PlcMapDirection.ReadFromPlc,
+                ElementCount = 1,
+                VariableNames = new List<string> { "温度" }
+            });
+            device.Mappings.Add(new PlcMapConfig
+            {
+                Name = "读取文本",
+                Area = PlcArea.HoldingRegister,
+                StartAddress = 10,
+                DataType = PlcDataType.String,
+                Direction = PlcMapDirection.ReadFromPlc,
+                ElementCount = 1,
+                StringByteLength = 16,
+                VariableNames = new List<string> { "状态文本" }
+            });
+            device.Mappings.Add(new PlcMapConfig
+            {
+                Name = "写入参数",
+                Area = PlcArea.HoldingRegister,
+                StartAddress = 30,
+                DataType = PlcDataType.UShort,
+                Direction = PlcMapDirection.WriteToPlc,
+                ElementCount = 1,
+                VariableNames = new List<string> { "写入值" }
+            });
+            var configuration = new PlcConfiguration { Devices = new List<PlcDeviceConfig> { device } };
+            Assert(PlcConfigStore.Validate(configuration, values, out string error), "有效PLC配置被拒绝:" + error);
+            Assert(device.IsStringReverse, "汇川设备默认未启用字符串反转");
+            Assert(PlcConfigStore.GetAddressSpan(device.Mappings[0]) == 2, "Float寄存器跨度错误");
+            Assert(PlcConfigStore.GetAddressSpan(device.Mappings[1]) == 8, "String寄存器跨度错误");
+
+            PlcConfiguration invalid = PlcModelCloneForTest(configuration);
+            invalid.Devices[0].Mappings.Add(new PlcMapConfig
+            {
+                Name = "重复写本地",
+                Area = PlcArea.HoldingRegister,
+                StartAddress = 50,
+                DataType = PlcDataType.Float,
+                Direction = PlcMapDirection.ReadFromPlc,
+                ElementCount = 1,
+                VariableNames = new List<string> { "温度" }
+            });
+            Assert(!PlcConfigStore.Validate(invalid, values, out error) && error.Contains("多个PLC写入来源"),
+                "多PLC来源写同一变量未被拒绝");
+
+            invalid = PlcModelCloneForTest(configuration);
+            invalid.Devices[0].Mappings[2].Area = PlcArea.InputRegister;
+            Assert(!PlcConfigStore.Validate(invalid, values, out error) && error.Contains("只读地址区"),
+                "输入寄存器写入未被拒绝");
+        }
+
+        private static PlcConfiguration PlcModelCloneForTest(PlcConfiguration source)
+        {
+            string json = Newtonsoft.Json.JsonConvert.SerializeObject(source);
+            return Newtonsoft.Json.JsonConvert.DeserializeObject<PlcConfiguration>(json);
+        }
+
+        private static void TestPlcHslTransport()
+        {
+            string tempPath = Path.Combine(Path.GetTempPath(), "AutomationPlcTest_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempPath);
             var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            int requestCount = 0;
-            int requestedRegisters = 0;
             Task serverTask = Task.Run(() =>
             {
                 using (TcpClient client = listener.AcceptTcpClient())
@@ -523,13 +599,10 @@ namespace Automation.KernelTests
                     byte[] header = ReadExact(stream, 7);
                     int remaining = (header[4] << 8 | header[5]) - 1;
                     byte[] pdu = ReadExact(stream, remaining);
-                    Interlocked.Increment(ref requestCount);
-                    if (pdu.Length < 5 || pdu[0] != 3)
-                    {
-                        throw new InvalidOperationException("PLC批量测试收到非保持寄存器读取请求");
-                    }
-                    requestedRegisters = pdu[3] << 8 | pdu[4];
-                    int byteCount = requestedRegisters * 2;
+                    if (pdu.Length < 5 || pdu[0] != 3) throw new InvalidOperationException("收到非保持寄存器读取请求");
+                    int registerCount = pdu[3] << 8 | pdu[4];
+                    if (registerCount != 2) throw new InvalidOperationException("Float读取寄存器数量错误:" + registerCount);
+                    int byteCount = registerCount * 2;
                     byte[] response = new byte[9 + byteCount];
                     response[0] = header[0];
                     response[1] = header[1];
@@ -538,40 +611,330 @@ namespace Automation.KernelTests
                     response[6] = header[6];
                     response[7] = 3;
                     response[8] = (byte)byteCount;
+                    // 返回ABCD格式的12.5f。
+                    byte[] value = { 0x41, 0x48, 0x00, 0x00 };
+                    Buffer.BlockCopy(value, 0, response, 9, value.Length);
                     stream.Write(response, 0, response.Length);
                 }
             });
 
             try
             {
-                var device = new PlcDevice
+                ValueConfigStore values = CreateValueStore(ResetStatus.ResetCompleted);
+                var store = new PlcConfigStore();
+                var device = PlcDeviceConfig.Create(PlcDeviceProfile.GenericModbusTcp);
+                device.Name = "HSL测试PLC";
+                device.IpAddress = "127.0.0.1";
+                device.Port = port;
+                device.ConnectTimeoutMs = 2000;
+                device.ReceiveTimeoutMs = 2000;
+                var configuration = new PlcConfiguration { Devices = new List<PlcDeviceConfig> { device } };
+                Assert(store.Save(tempPath, configuration, values, out string saveError), "保存PLC测试配置失败:" + saveError);
+                using (var runtime = new PlcRuntimeService(store, values))
                 {
-                    Name = "BatchPlc",
-                    Protocol = "ModbusTcp",
-                    Ip = "127.0.0.1",
-                    Port = port,
-                    UnitId = 1,
-                    TimeoutMs = 2000
-                };
-                var maps = new List<PlcMapItem>
-                {
-                    new PlcMapItem { PlcName = device.Name, Direction = "读PLC", DataType = "Float", PlcAddress = "HR:0", Quantity = 1, ValueName = "V1" },
-                    new PlcMapItem { PlcName = device.Name, Direction = "读PLC", DataType = "Float", PlcAddress = "HR:2", Quantity = 1, ValueName = "V2" },
-                    new PlcMapItem { PlcName = device.Name, Direction = "读PLC", DataType = "UShort", PlcAddress = "HR:10", Quantity = 1, ValueName = "V3" }
-                };
-                using (var hub = new PlcHub())
-                {
-                    Assert(hub.TryReadBatch(device, maps, out IReadOnlyList<PlcBatchReadResult> results, out string error),
-                        "PLC批量读取失败:" + error);
-                    Assert(results.Count == 3, "PLC批量读取结果数量错误");
+                    Assert(runtime.Initialize(out string initError), "PLC运行时授权或初始化失败:" + initError);
+                    WaitUntil(() => runtime.GetSnapshots().Any(item => item.DeviceName == device.Name
+                        && (item.State == PlcRuntimeState.Ready || item.State == PlcRuntimeState.Faulted)),
+                        3000, "PLC测试连接未完成");
+                    PlcDeviceRuntimeSnapshot state = runtime.GetSnapshots().Single(item => item.DeviceName == device.Name);
+                    Assert(state.State == PlcRuntimeState.Ready, "PLC测试连接失败:" + state.LastError);
+                    var request = new PlcMapConfig
+                    {
+                        Name = "读取Float",
+                        Area = PlcArea.HoldingRegister,
+                        StartAddress = 0,
+                        DataType = PlcDataType.Float,
+                        ElementCount = 1,
+                        VariableNames = new List<string> { "测试" }
+                    };
+                    Assert(runtime.TryRead(device.Name, request, out object[] result, out string readError),
+                        "HSL Modbus读取失败:" + readError);
+                    Assert(result.Length == 1 && Math.Abs(Convert.ToDouble(result[0]) - 12.5d) < 0.0001d,
+                        "HSL Float读取结果错误");
                 }
-                Assert(serverTask.Wait(3000), "PLC批量读取测试服务未结束");
-                Assert(requestCount == 1, "连续地址未合并为单个Modbus请求");
-                Assert(requestedRegisters == 11, "Modbus合并读取区间错误");
+                Assert(serverTask.Wait(3000), "PLC实报文测试服务未结束");
             }
             finally
             {
                 listener.Stop();
+                Directory.Delete(tempPath, true);
+            }
+        }
+
+        private static void TestPlcRuntimeMappingStateMachine()
+        {
+            const string highId = "00000000000000000000000000000001";
+            const string mediumId = "00000000000000000000000000000002";
+            const string lowId = "00000000000000000000000000000003";
+            const string bidirectionalId = "00000000000000000000000000000004";
+            const string secondaryId = "00000000000000000000000000000005";
+            ValueConfigStore values = CreateValueStore(ResetStatus.ResetCompleted);
+            Assert(values.TrySetValue(10, "高频变量", "double", "0", "PLC状态机测试"), "创建高频变量失败");
+            Assert(values.TrySetValue(11, "中频变量", "double", "0", "PLC状态机测试"), "创建中频变量失败");
+            Assert(values.TrySetValue(12, "低频变量", "double", "0", "PLC状态机测试"), "创建低频变量失败");
+            Assert(values.TrySetValue(13, "双向变量", "double", "1", "PLC状态机测试"), "创建双向变量失败");
+            Assert(values.TrySetValue(14, "独立设备变量", "double", "0", "PLC状态机测试"), "创建独立设备变量失败");
+
+            PlcDeviceConfig primary = PlcDeviceConfig.Create(PlcDeviceProfile.GenericModbusTcp);
+            primary.Name = "主设备";
+            primary.IpAddress = "127.0.0.1";
+            primary.ScanIntervalMs = 50;
+            primary.Mappings.Add(CreateRuntimeTestMap(highId, "高频", 0, "高频变量",
+                PlcMapDirection.ReadFromPlc, PlcMapPriority.High));
+            primary.Mappings.Add(CreateRuntimeTestMap(mediumId, "中频", 2, "中频变量",
+                PlcMapDirection.ReadFromPlc, PlcMapPriority.Medium));
+            primary.Mappings.Add(CreateRuntimeTestMap(lowId, "低频", 4, "低频变量",
+                PlcMapDirection.ReadFromPlc, PlcMapPriority.Low));
+            primary.Mappings.Add(CreateRuntimeTestMap(bidirectionalId, "双向", 6, "双向变量",
+                PlcMapDirection.Bidirectional, PlcMapPriority.High));
+
+            PlcDeviceConfig secondary = PlcDeviceConfig.Create(PlcDeviceProfile.GenericModbusTcp);
+            secondary.Name = "独立设备";
+            secondary.IpAddress = "127.0.0.1";
+            secondary.ScanIntervalMs = 50;
+            secondary.Mappings.Add(CreateRuntimeTestMap(secondaryId, "独立读取", 0, "独立设备变量",
+                PlcMapDirection.ReadFromPlc, PlcMapPriority.High));
+
+            var primaryAdapter = new FakePlcAdapter();
+            primaryAdapter.SetValue(highId, 10d);
+            primaryAdapter.SetValue(mediumId, 20d);
+            primaryAdapter.SetValue(lowId, 30d);
+            primaryAdapter.SetValue(bidirectionalId, 2d);
+            var secondaryAdapter = new FakePlcAdapter();
+            secondaryAdapter.SetValue(secondaryId, 40d);
+            var adapters = new Dictionary<string, FakePlcAdapter>(StringComparer.OrdinalIgnoreCase)
+            {
+                [primary.Name] = primaryAdapter,
+                [secondary.Name] = secondaryAdapter
+            };
+            var configuration = new PlcConfiguration
+            {
+                Devices = new List<PlcDeviceConfig> { primary, secondary }
+            };
+            Assert(PlcConfigStore.Validate(configuration, values, out string validationError),
+                "状态机测试配置无效:" + validationError);
+
+            using (var runtime = new PlcRuntimeService(new PlcConfigStore(), values,
+                config => adapters[config.Name]))
+            {
+                Assert(runtime.ReloadConfiguration(configuration, false, out string reloadError),
+                    "载入假PLC配置失败:" + reloadError);
+                Assert(runtime.TryReinitialize(primary.Name, out string primaryError),
+                    "主设备初始化失败:" + primaryError);
+                Assert(runtime.TryReinitialize(secondary.Name, out string secondaryError),
+                    "独立设备初始化失败:" + secondaryError);
+                Assert(runtime.TryStartMapping(primary.Name, out primaryError),
+                    "主设备映射启动失败:" + primaryError);
+                Assert(runtime.TryStartMapping(secondary.Name, out secondaryError),
+                    "独立设备映射启动失败:" + secondaryError);
+
+                WaitUntil(() => primaryAdapter.GetBatchCount(highId) >= 42, 4000,
+                    "三级扫描调度未达到验证轮数");
+                Dictionary<string, int> counts = primaryAdapter.GetBatchCounts();
+                int highCount = counts[highId];
+                Assert(counts[mediumId] == (highCount - 1) / 10 + 1,
+                    $"中优先级不是每10轮执行:{highCount}/{counts[mediumId]}");
+                Assert(counts[lowId] == (highCount - 1) / 40 + 1,
+                    $"低优先级不是每40轮执行:{highCount}/{counts[lowId]}");
+
+                PlcDeviceRuntimeSnapshot primaryState = runtime.GetSnapshots()
+                    .Single(item => item.DeviceName == primary.Name);
+                PlcMapRuntimeSnapshot conflict = primaryState.Mappings
+                    .Single(item => item.MapId == bidirectionalId);
+                Assert(conflict.State == PlcMapRuntimeState.Conflict,
+                    "初始值不一致的双向映射未被隔离");
+                Assert(runtime.TryResolveConflict(primary.Name, bidirectionalId,
+                    PlcConflictResolution.UsePlcValue, out string resolveError),
+                    "以PLC为准解除冲突失败:" + resolveError);
+                Assert(ReadDoubleValue(values, "双向变量") == 2d, "PLC值未同步到本地变量");
+
+                primaryAdapter.SetValue(bidirectionalId, 3d);
+                Assert(values.setValueByName("双向变量", 4d, "PLC状态机测试"), "修改双向本地变量失败");
+                WaitUntil(() => runtime.GetSnapshots().Single(item => item.DeviceName == primary.Name)
+                    .Mappings.Single(item => item.MapId == bidirectionalId).State == PlcMapRuntimeState.Conflict,
+                    2000, "两侧同时变化未产生双向冲突");
+                Assert(runtime.TryResolveConflict(primary.Name, bidirectionalId,
+                    PlcConflictResolution.UseLocalValue, out resolveError),
+                    "以本地为准解除冲突失败:" + resolveError);
+                Assert(Convert.ToDouble(primaryAdapter.GetValue(bidirectionalId)[0]) == 4d,
+                    "本地值未写入PLC适配器");
+
+                PlcMapConfig overlappingWrite = CreateRuntimeTestMap(highId, "重叠直写", 0, "高频变量",
+                    PlcMapDirection.WriteToPlc, PlcMapPriority.High);
+                Assert(!runtime.TryWrite(primary.Name, overlappingWrite, new object[] { 1d }, out string writeError)
+                    && writeError.Contains("重叠"), "映射期间重叠直接写入未被拒绝");
+                Assert(runtime.TryRead(primary.Name, overlappingWrite, out object[] directValues,
+                    out string readError) && Convert.ToDouble(directValues[0]) == 10d,
+                    "映射期间直接读取未与扫描串行执行:" + readError);
+
+                primaryAdapter.FailNextBatch();
+                WaitUntil(() => runtime.GetSnapshots().Single(item => item.DeviceName == primary.Name)
+                    .State == PlcRuntimeState.Faulted, 2000, "通讯故障未停止主设备映射");
+                PlcDeviceRuntimeSnapshot secondaryState = runtime.GetSnapshots()
+                    .Single(item => item.DeviceName == secondary.Name);
+                Assert(secondaryState.State == PlcRuntimeState.Mapping,
+                    "单设备通讯故障影响了其他设备映射");
+                Assert(runtime.TryStopMapping(secondary.Name, out secondaryError),
+                    "独立设备停止映射失败:" + secondaryError);
+            }
+        }
+
+        private static void TestPlcManagementFormCanShow()
+        {
+            Exception threadError = null;
+            bool shown = false;
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    using (var form = new FrmPlc())
+                    {
+                        Assert(form.TopLevel, "PLC管理窗体被错误配置为嵌入式子窗体");
+                        Assert(form.FormBorderStyle == FormBorderStyle.Sizable,
+                            "PLC管理窗体缺少独立窗口边框");
+                        form.Show();
+                        Application.DoEvents();
+                        shown = form.Visible && form.IsHandleCreated;
+                        form.Hide();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    threadError = ex;
+                }
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            Assert(thread.Join(3000), "PLC管理窗体显示测试超时");
+            if (threadError != null) throw new InvalidOperationException("PLC管理窗体显示失败", threadError);
+            Assert(shown, "PLC管理窗体调用Show后不可见");
+        }
+
+        private static PlcMapConfig CreateRuntimeTestMap(string id, string name, int address,
+            string variableName, PlcMapDirection direction, PlcMapPriority priority)
+        {
+            return new PlcMapConfig
+            {
+                Id = id,
+                Name = name,
+                Area = PlcArea.HoldingRegister,
+                StartAddress = address,
+                DataType = PlcDataType.UShort,
+                Direction = direction,
+                Priority = priority,
+                ElementCount = 1,
+                VariableNames = new List<string> { variableName }
+            };
+        }
+
+        private static double ReadDoubleValue(ValueConfigStore values, string name)
+        {
+            Assert(values.TryGetValueByName(name, out DicValue value) && value != null,
+                "PLC测试变量不存在:" + name);
+            return double.Parse(value.Value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private sealed class FakePlcAdapter : IPlcAdapter
+        {
+            private readonly object syncRoot = new object();
+            private readonly Dictionary<string, object[]> values = new Dictionary<string, object[]>(StringComparer.Ordinal);
+            private readonly Dictionary<string, int> batchCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            private bool failNextBatch;
+
+            public bool Connect(out string error)
+            {
+                error = null;
+                return true;
+            }
+
+            public void Close()
+            {
+            }
+
+            public bool Read(PlcMapConfig map, out object[] result, out string error)
+            {
+                lock (syncRoot)
+                {
+                    error = null;
+                    if (!values.TryGetValue(map.Id, out object[] stored))
+                    {
+                        result = null;
+                        error = "假PLC不存在映射值:" + map.Id;
+                        return false;
+                    }
+                    result = stored.ToArray();
+                    return true;
+                }
+            }
+
+            public bool ReadBatch(IReadOnlyList<PlcMapConfig> maps,
+                out IReadOnlyDictionary<string, object[]> result, out string error)
+            {
+                lock (syncRoot)
+                {
+                    if (failNextBatch)
+                    {
+                        failNextBatch = false;
+                        result = null;
+                        error = "模拟通讯故障";
+                        return false;
+                    }
+                    var output = new Dictionary<string, object[]>(StringComparer.Ordinal);
+                    foreach (PlcMapConfig map in maps)
+                    {
+                        if (!values.TryGetValue(map.Id, out object[] stored))
+                        {
+                            result = null;
+                            error = "假PLC不存在映射值:" + map.Id;
+                            return false;
+                        }
+                        output[map.Id] = stored.ToArray();
+                        batchCounts[map.Id] = batchCounts.TryGetValue(map.Id, out int count) ? count + 1 : 1;
+                    }
+                    result = output;
+                    error = null;
+                    return true;
+                }
+            }
+
+            public bool Write(PlcMapConfig map, IReadOnlyList<object> input, out string error)
+            {
+                lock (syncRoot)
+                {
+                    values[map.Id] = input.ToArray();
+                    error = null;
+                    return true;
+                }
+            }
+
+            public void SetValue(string mapId, params object[] input)
+            {
+                lock (syncRoot) values[mapId] = input.ToArray();
+            }
+
+            public object[] GetValue(string mapId)
+            {
+                lock (syncRoot) return values[mapId].ToArray();
+            }
+
+            public int GetBatchCount(string mapId)
+            {
+                lock (syncRoot) return batchCounts.TryGetValue(mapId, out int count) ? count : 0;
+            }
+
+            public Dictionary<string, int> GetBatchCounts()
+            {
+                lock (syncRoot) return batchCounts.ToDictionary(item => item.Key, item => item.Value,
+                    StringComparer.Ordinal);
+            }
+
+            public void FailNextBatch()
+            {
+                lock (syncRoot) failNextBatch = true;
+            }
+
+            public void Dispose()
+            {
             }
         }
 
@@ -1014,7 +1377,7 @@ namespace Automation.KernelTests
         private static void TestStructuredNativeOperationCompilation()
         {
             List<OperationType> registered = OperationDefinitionRegistry.CreateAll().ToList();
-            Assert(registered.Count == 44, $"原生指令注册数量异常：{registered.Count}");
+            Assert(registered.Count == 45, $"原生指令注册数量异常：{registered.Count}");
 
             var context = new AiOperationCompileContext(
                 0,
@@ -1736,12 +2099,14 @@ namespace Automation.KernelTests
         {
             IReadOnlyList<OperationType> first = OperationDefinitionRegistry.CreateAll();
             IReadOnlyList<OperationType> second = OperationDefinitionRegistry.CreateAll();
-            Assert(first.Count == 44, $"指令注册数量错误：{first.Count}");
+            Assert(first.Count == 45, $"指令注册数量错误：{first.Count}");
             Assert(first.Select(item => item.OperaType).Distinct(StringComparer.Ordinal).Count() == first.Count,
                 "指令注册表包含重复OperaType");
             Assert(!ReferenceEquals(first[0], second[0]), "指令注册表返回了共享可变模板实例");
             OperationType delay = OperationDefinitionRegistry.Create(first.OfType<Delay>().Single().OperaType);
             Assert(delay is Delay, "按OperaType创建指令类型错误");
+            Assert(first.OfType<PlcReadWrite>().Count() == 1 && first.OfType<PlcMappingControl>().Count() == 1,
+                "PLC读写或映射控制指令未唯一注册");
             JObject capabilities = AiOperationCompilerRegistry.BuildCapabilities();
             Assert(capabilities["operationKinds"] is JArray kinds && kinds.Count == 16
                 && kinds.Values<string>().Contains("native.operation", StringComparer.Ordinal)
@@ -1757,7 +2122,7 @@ namespace Automation.KernelTests
                 && capabilities["processDeletion"]?["selected"]?["minimumSelectors"]?.Value<int>() == 1,
                 "变更能力目录没有完整发布流程删除模式及选择规则");
             JObject contracts = AiOperationCompilerRegistry.BuildContracts(new[] { "wait", "flow.goto", "flow.end", "popup.message", "popup.variable" });
-            Assert(contracts["contracts"]?["wait"]?["required"] is JArray,
+            Assert(contracts["contracts"]?["wait"]?["saveRequired"] is JArray,
                 "语义指令契约未由编译适配器发布");
             Assert(contracts["contracts"]?["popup.message"]?["interpolation"]?.Value<string>() == "unsupported"
                 && contracts["contracts"]?["popup.variable"]?["messageSource"]?.Value<string>() == "variable.currentValue",
@@ -1782,6 +2147,9 @@ namespace Automation.KernelTests
                     && content.Contains("get_native_operation_schemas")
                     && content.Contains("run_proc_test") && content.Contains("operationKey")
                     && content.Contains("分多轮完成") && content.Contains("readinessStatus")
+                    && content.Contains("资源依赖、控制流、输出与结束条件")
+                    && content.Contains("discard_change_set_preview")
+                    && content.Contains("结构有效、可运行、测试中已观察运行和自然完成")
                     && !content.Contains("保存为草稿"),
                     "内嵌Automation上下文不是当前V2版本");
             }

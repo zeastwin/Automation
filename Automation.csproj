@@ -85,8 +85,9 @@
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>packages\Newtonsoft.Json.13.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
-    <Reference Include="S7.Net, Version=0.20.0.0, Culture=neutral, PublicKeyToken=d5812d469e84c693, processorArchitecture=MSIL">
-      <HintPath>packages\S7netplus.0.20.0\lib\net462\S7.Net.dll</HintPath>
+    <Reference Include="HslCommunication, Version=7.0.1.0, Culture=neutral, PublicKeyToken=null, processorArchitecture=MSIL">
+      <HintPath>ThirdParty\HslCommunication\7.0.1\HslCommunication.dll</HintPath>
+      <Private>True</Private>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Buffers, Version=4.0.5.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
@@ -157,9 +158,9 @@
     <Compile Include="Engine\\ProcessEngine.Operations.cs" />
     <Compile Include="Engine\\ProcessEngine.Models.cs" />
     <Compile Include="PLC\\PlcModels.cs" />
+    <Compile Include="PLC\\HslModbusAdapter.cs" />
+    <Compile Include="PLC\\PlcRuntimeService.cs" />
     <Compile Include="Stores\\PlcConfigStore.cs" />
-    <Compile Include="PLC\\PlcHub.cs" />
-    <Compile Include="PLC\\ModbusTcpClient.cs" />
     <Compile Include="Stores\\DataStructModels.cs" />
     <Compile Include="Stores\\DataStructStore.cs" />
     <Compile Include="Stores\\ProcessEngineLogger.cs" />

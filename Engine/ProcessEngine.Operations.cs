@@ -156,6 +156,9 @@ namespace Automation
                     case PlcReadWrite plcReadWrite:
                         return RunPlcReadWrite(evt, plcReadWrite);
 
+                    case PlcMappingControl plcMappingControl:
+                        return RunPlcMappingControl(evt, plcMappingControl);
+
                     case SerialPortOps serialPortOps:
                         return RunSerialPortOps(evt, serialPortOps);
 

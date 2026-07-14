@@ -90,6 +90,32 @@ namespace Automation
                     contract["failureModes"] = new JArray("提示内容或可见按钮文本为空时报警", "提示变量或报警信息不存在时报警", "非空跳转地址无效时报警");
                     break;
 
+                case "PLC读写":
+                    contract = CreateContract(
+                        "按强类型Modbus地址执行一次PLC读取或写入。",
+                        new[] { "校验设备、地址区、数据类型和变量契约", "通过设备运行时串行读写", "失败时报警且不执行宽松转换" },
+                        true);
+                    contract["constraints"] = new JArray(
+                        "Action只能是Read或Write",
+                        "Boolean只允许Coil或DiscreteInput，其他类型只允许寄存器区",
+                        "DiscreteInput和InputRegister禁止Write",
+                        "数组必须显式提供与ElementCount等长的VariableNames",
+                        "Constant仅允许单元素Write");
+                    contract["failureModes"] = new JArray("设备未初始化时报警", "参数或变量类型不匹配时报警", "通讯失败时设备进入故障状态");
+                    break;
+
+                case "PLC映射控制":
+                    contract = CreateContract(
+                        "按设备重新初始化、启动或停止PLC变量映射。",
+                        new[] { "按DeviceName定位设备", "执行Reinitialize、Start或Stop", "失败时报警" },
+                        true);
+                    contract["constraints"] = new JArray(
+                        "Reinitialize只重建连接，不自动启动映射",
+                        "Start要求设备处于Ready或Stopped",
+                        "Stop幂等");
+                    contract["failureModes"] = new JArray("设备不存在或状态不允许时报警", "重新初始化失败时保持Faulted");
+                    break;
+
                 default:
                     contract = CreateContract(
                         "执行该类型指令定义的自动化动作。",
@@ -213,7 +239,9 @@ namespace Automation
             contract["alarmPolicy"] = new JObject
             {
                 ["description"] = "AlarmType 决定异常后的停止、忽略、自动处理或弹框分支行为",
-                ["safeDefault"] = "报警停止"
+                ["safeDefault"] = "报警停止",
+                ["gotoScope"] = "Goto1/Goto2/Goto3 是异常处理分支，与指令自身的业务跳转字段相互独立",
+                ["missingResourceBehavior"] = "报警信息编号可以先保存；对应资源未配置时流程状态为 incomplete，启动闸门会拒绝运行"
             };
         }
 

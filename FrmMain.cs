@@ -105,6 +105,7 @@ namespace Automation
             SF.communicationStore = new CommunicationConfigStore();
             SF.comm = new CommunicationHub();
             SF.plcStore = new PlcConfigStore();
+            SF.plcRuntime = new PlcRuntimeService(SF.plcStore, SF.valueStore);
             SF.mainfrm = this;
             SF.versionService = new ConfigurationVersionService(SF.ConfigPath);
             EngineContext engineContext = new EngineContext
@@ -118,7 +119,7 @@ namespace Automation
                 Io = io,
                 Comm = SF.comm,
                 CommunicationStore = SF.communicationStore,
-                PlcStore = SF.plcStore,
+                PlcRuntime = SF.plcRuntime,
                 AlarmInfoStore = SF.alarmInfoStore,
                 IoMap = frmIO.DicIO,
                 Stations = frmCard.dataStation,
@@ -135,6 +136,7 @@ namespace Automation
             dataRun.AlarmHandler = new WinFormsAlarmHandler(this);
             dataRun.UiInvoker = this;
             dataRun.SnapshotChanged += CacheSnapshot;
+            SF.plcRuntime.RuntimeEvent += HandlePlcRuntimeEvent;
             SF.procStore = new ProcessEngineStore(dataRun);
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;
@@ -253,14 +255,21 @@ namespace Automation
                 SF.frmComunication.RefreshSerialPortInfo();
                 SF.frmAlarmConfig.RefreshAlarmInfo();
                 SF.frmIODebug.RefleshIODebug();
-                SF.plcStore.Load(SF.ConfigPath);
+                if (!SF.plcStore.Load(SF.ConfigPath, SF.valueStore, out string plcConfigError))
+                {
+                    SF.DR?.Logger?.Log(plcConfigError, LogLevel.Error);
+                }
+                if (!SF.plcRuntime.Initialize(out string plcRuntimeError))
+                {
+                    SF.DR?.Logger?.Log(plcRuntimeError, LogLevel.Error);
+                }
                 if (SF.DR?.Context != null)
                 {
                     SF.DR.Context.Stations = SF.frmCard.dataStation;
                     SF.DR.Context.SocketInfos = SF.communicationStore.GetSocketSnapshot().ToList();
                     SF.DR.Context.SerialPortInfos = SF.communicationStore.GetSerialSnapshot().ToList();
                     SF.DR.Context.IoMap = SF.frmIO.DicIO;
-                    SF.DR.Context.PlcStore = SF.plcStore;
+                    SF.DR.Context.PlcRuntime = SF.plcRuntime;
                 }
                 SF.frmProc.RefreshProcList();
                 if (AutomationRuntimeOptions.Current.IsSimulation)
@@ -1355,6 +1364,18 @@ namespace Automation
 
             try
             {
+                if (SF.plcRuntime != null)
+                {
+                    SF.plcRuntime.RuntimeEvent -= HandlePlcRuntimeEvent;
+                    SF.plcRuntime.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                dataRun?.Logger?.Log($"关闭PLC运行时失败:{ex.Message}", LogLevel.Error);
+            }
+            try
+            {
                 // comm.Dispose 内部使用 GetAwaiter().GetResult() 同步等待通道关闭，
                 // 可能因 TCP 连接未响应而阻塞 UI 线程。放到线程池并加 3 秒超时保护。
                 if (SF.comm != null)
@@ -1398,6 +1419,17 @@ namespace Automation
             axisMonitorCts?.Dispose();
             axisMonitorCts = null;
             platformInitialized = false;
+        }
+
+        private void HandlePlcRuntimeEvent(object sender, PlcRuntimeEventArgs e)
+        {
+            if (e == null) return;
+            void Report()
+            {
+                dataRun?.Logger?.Log($"PLC[{e.DeviceName}] {e.Message}", e.IsAlarm ? LogLevel.Error : LogLevel.Normal);
+            }
+            if (IsHandleCreated && InvokeRequired) BeginInvoke((Action)Report);
+            else Report();
         }
     }
 

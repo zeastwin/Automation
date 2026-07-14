@@ -1,4 +1,5 @@
 using System.Reflection;
+using Automation.Protocol;
 using ModelContextProtocol.Server;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -15,7 +16,7 @@ namespace Automation.McpServer
             "get_op_detail", "get_op_details",
             "get_operation_references", "get_proc_references", "trace_resource",
             "list_operation_types", "get_native_operation_schemas",
-            "get_semantic_operation_schemas", "get_operation_guide",
+            "get_semantic_operation_schema", "get_operation_guide",
             "get_snapshot", "validate_proc",
             "wait_for_proc_state",
             "search_variables", "get_variable",
@@ -37,10 +38,10 @@ namespace Automation.McpServer
 
         private static readonly HashSet<string> EditorMutationTools = new HashSet<string>(StringComparer.Ordinal)
         {
-            "preview_change_set", "apply_change_set",
+            "preview_change_set", "apply_change_set", "discard_change_set_preview",
             "run_proc_test",
             "start_proc", "stop_proc", "pause_proc", "resume_proc",
-            "set_variable"
+            "set_variable", "set_alarm", "delete_alarm"
         };
 
         public static IReadOnlyList<McpServerTool> CreateTools(string profile)
@@ -73,6 +74,14 @@ namespace Automation.McpServer
                 {
                     ApplyChangeActionDiscriminator(tool);
                 }
+                else if (string.Equals(toolName, "get_semantic_operation_schema", StringComparison.Ordinal))
+                {
+                    ApplySemanticKindSchema(tool);
+                }
+                else if (string.Equals(toolName, "get_native_operation_schemas", StringComparison.Ordinal))
+                {
+                    ApplyStringArraySchema(tool, "operaTypes", null);
+                }
                 tools.Add(tool);
             }
             if (tools.Count == 0)
@@ -80,6 +89,44 @@ namespace Automation.McpServer
                 throw new InvalidOperationException($"MCP工具Profile未注册任何工具:{profile}");
             }
             return tools.OrderBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal).ToList();
+        }
+
+        private static void ApplySemanticKindSchema(McpServerTool tool)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            if (root?["properties"] is not JsonObject properties
+                || properties["kind"] is not JsonObject kindSchema)
+            {
+                throw new InvalidOperationException($"{tool.ProtocolTool.Name} 参数Schema缺少字段：kind");
+            }
+            kindSchema["enum"] = new JsonArray(
+                SemanticOperationKinds.SupportedKinds.Split('、')
+                    .Select(value => JsonValue.Create(value)).ToArray());
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void ApplyStringArraySchema(
+            McpServerTool tool, string propertyName, IEnumerable<string>? allowedValues)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            if (root?["properties"] is not JsonObject properties
+                || properties[propertyName] is not JsonObject arraySchema)
+            {
+                throw new InvalidOperationException($"{tool.ProtocolTool.Name} 参数Schema缺少字段：{propertyName}");
+            }
+            arraySchema["minItems"] = 1;
+            arraySchema["uniqueItems"] = true;
+            if (allowedValues != null)
+            {
+                if (arraySchema["items"] is not JsonObject itemSchema)
+                {
+                    itemSchema = new JsonObject { ["type"] = "string" };
+                    arraySchema["items"] = itemSchema;
+                }
+                itemSchema["enum"] = new JsonArray(
+                    allowedValues.Select(value => JsonValue.Create(value)).ToArray());
+            }
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
         }
 
         private static void ApplyChangeActionDiscriminator(McpServerTool tool)
@@ -108,6 +155,7 @@ namespace Automation.McpServer
                 ActionShape("operation.delete", "targetProcess", "targetOperation"),
                 ActionShape("operation.move", "targetProcess", "targetOperation", "position")
             };
+            actionSchema["x-localKeyScope"] = "current_change_set";
             operationSchema["oneOf"] = new JsonArray
             {
                 SemanticShape("variable.set", "variable", "value"),
@@ -127,7 +175,25 @@ namespace Automation.McpServer
                 SemanticShape("process.wait"),
                 SemanticShape("native.operation", "operaType", "fields")
             };
+            operationSchema["x-symbolicTargetScope"] = "operation_id_or_change_set_key";
+            ApplyNumericRange(operationSchema, "milliseconds", 0, 86400000);
+            ApplyNumericRange(operationSchema, "autoCloseMs", 1, 3600000);
+            ApplyNumericRange(operationSchema, "beforeMs", 0, 3600000);
+            ApplyNumericRange(operationSchema, "afterMs", 0, 3600000);
+            ApplyNumericRange(operationSchema, "timeoutMs", 1, 86400000);
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void ApplyNumericRange(
+            JsonObject operationSchema, string fieldName, int minimum, int maximum)
+        {
+            if (operationSchema["properties"] is not JsonObject properties
+                || properties[fieldName] is not JsonObject fieldSchema)
+            {
+                throw new InvalidOperationException($"preview_change_set 参数Schema缺少字段：{fieldName}");
+            }
+            fieldSchema["minimum"] = minimum;
+            fieldSchema["maximum"] = maximum;
         }
 
         private static JsonObject? FindChangeActionSchema(JsonNode? node)

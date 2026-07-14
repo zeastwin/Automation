@@ -452,6 +452,10 @@ namespace Automation
             {
                 return;
             }
+            if (!GooseRuntimeProvisioner.IsManagedContextAvailable)
+            {
+                throw new InvalidOperationException("EW-AI 受管上下文未通过启动校验，当前会话不可用。");
+            }
 
             var startInfo = new ProcessStartInfo
             {
@@ -917,9 +921,9 @@ namespace Automation
                     string status = FindFirstString(parameters, "status");
                     if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase))
                     {
-                        string detail = FindFirstString(parameters, "message", "error");
+                        string detail = FindFirstString(parameters, "message", "error", "text");
                         string failureSummary = string.IsNullOrWhiteSpace(detail)
-                            ? "× 工具请求未形成有效调用，未到达 MCP"
+                            ? "× 工具调用失败，未返回错误详情"
                             : "× " + detail;
                         AppendReasoningTraceEvent("tool_error", failureSummary, message);
                         LogFile("ACP<- 工具调用失败", parameters, LogLevel.Error);

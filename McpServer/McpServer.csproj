@@ -39,7 +39,7 @@
   -->
   <Target Name="CopyMcpServerToAutomationOutput" AfterTargets="Build" DependsOnTargets="ComputeFilesToPublish">
     <PropertyGroup>
-      <AutomationMcpOutputDir>$(MSBuildProjectDirectory)\..\bin\$(Configuration)\McpServer\</AutomationMcpOutputDir>
+      <AutomationMcpOutputDir Condition="'$(AutomationMcpOutputDir)' == ''">$(MSBuildProjectDirectory)\..\bin\$(Configuration)\McpServer\</AutomationMcpOutputDir>
     </PropertyGroup>
     <ItemGroup>
       <McpServerRuntimeFile Include="@(ResolvedFileToPublish)" />

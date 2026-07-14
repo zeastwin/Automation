@@ -100,19 +100,19 @@ namespace Automation.Simulation
         public void ApplyEndpointMappings(EngineContext context)
         {
             if (!IsCardInitialized) throw new InvalidOperationException("仿真网关尚未就绪");
-            if (context?.PlcStore != null)
+            if (context?.PlcRuntime != null && SF.plcStore != null)
             {
-                List<PlcDevice> devices = context.PlcStore.Devices.Select(CloneDevice).ToList();
+                PlcConfiguration plcConfiguration = SF.plcStore.GetSnapshot();
                 foreach (SimulationModbusMapping mapping in ModbusMappings)
                 {
-                    PlcDevice device = devices.FirstOrDefault(item => string.Equals(item.Name, mapping.Name, StringComparison.Ordinal));
+                    PlcDeviceConfig device = plcConfiguration.Devices.FirstOrDefault(item => string.Equals(item.Name, mapping.Name, StringComparison.Ordinal));
                     if (device == null) throw new InvalidOperationException($"PLC端点映射指向未知设备:{mapping.Name}");
-                    if (!string.Equals(device.Protocol, "ModbusTcp", StringComparison.Ordinal)) throw new InvalidOperationException($"仿真端点仅支持ModbusTcp:{mapping.Name}");
-                    device.Ip = mapping.Address;
+                    device.IpAddress = mapping.Address;
                     device.Port = mapping.Port;
                     device.UnitId = mapping.UnitId;
                 }
-                context.PlcStore.ReplaceDevices(devices);
+                if (!context.PlcRuntime.ReloadConfiguration(plcConfiguration, true, out string plcError))
+                    throw new InvalidOperationException(plcError);
             }
             if (context?.SocketInfos != null)
             {
@@ -543,11 +543,6 @@ namespace Automation.Simulation
         private static JObject AxisPayload(ushort card, ushort axis) => new JObject { ["card"] = (int)card, ["axis"] = (int)axis };
         private static string AxisKey(ushort card, ushort axis) => card + "-" + axis;
 
-        private static PlcDevice CloneDevice(PlcDevice source)
-        {
-            return new PlcDevice { Name = source.Name, Protocol = source.Protocol, CpuType = source.CpuType, Ip = source.Ip, Port = source.Port, Rack = source.Rack, Slot = source.Slot, TimeoutMs = source.TimeoutMs, UnitId = source.UnitId };
-        }
-
         private static GatewayEnvelope ParseEnvelope(JObject root)
         {
             string[] fields = { "protocolVersion", "messageType", "sessionId", "requestId", "sequence", "payload" };
@@ -623,7 +618,14 @@ namespace Automation.Simulation
                     }
                 }
             }
-            var plc = new JArray((context.PlcStore?.Devices ?? Array.Empty<PlcDevice>()).Select(item => new JObject { ["name"] = item.Name, ["protocol"] = item.Protocol, ["unitId"] = item.UnitId }));
+            IReadOnlyList<PlcDeviceConfig> plcDevices = SF.plcStore?.GetSnapshot().Devices ?? new List<PlcDeviceConfig>();
+            var plc = new JArray(plcDevices.Select(item => new JObject
+            {
+                ["name"] = item.Name,
+                ["protocol"] = "ModbusTcp",
+                ["profile"] = item.Profile.ToString(),
+                ["unitId"] = item.UnitId
+            }));
             var tcp = new JArray((context.SocketInfos ?? new List<SocketInfo>()).Where(item => item != null).Select(item => new JObject { ["name"] = item.Name, ["type"] = item.Type, ["frameMode"] = item.FrameMode, ["encodingName"] = item.EncodingName }));
             var serial = new JArray((context.SerialPortInfos ?? new List<SerialPortInfo>()).Where(item => item != null).Select(item => new JObject { ["name"] = item.Name, ["bitRate"] = item.BitRate, ["dataBit"] = item.DataBit, ["checkBit"] = item.CheckBit, ["stopBit"] = item.StopBit }));
             return new JObject

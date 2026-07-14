@@ -48,6 +48,7 @@ namespace Automation
             () => new ReceoveSerialPortMsg(),
             () => new SendReceoveCommMsg(),
             () => new PlcReadWrite(),
+            () => new PlcMappingControl(),
             () => new GetDataStructCount(),
             () => new SetDataStructItem(),
             () => new GetDataStructItem(),

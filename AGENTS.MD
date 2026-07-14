@@ -18,6 +18,8 @@
 - Automation 源码开发知识通过 MCP 的 `get_platform_development_context` 按主题加载；常驻描述只负责让 AI 知道该入口及适用场景，具体 HMI 边界、平台 API 入口、自定义函数规则仅在调用结果中返回。已知目标直接读取 `hmi`、`platform-api` 或 `custom-function`，仅目标不明确时读取 `catalog`。
 - Goose 的编译/重启结论必须由本轮实际文件改动和运行机制推导，不能把某模块的部署限制固定注入所有任务；纯流程或运行配置变更不得提示编译、重启，也不得输出“需要重启”和“已热发布生效”之类互相矛盾的结论。
 - MCP 工具采用“短而完整的自描述 + 强类型参数 Schema + 按需模块知识 + Bridge 强校验”分层。禁止设置每工具首次必读、进程级已读缓存或 `TOOL_GUIDE_REQUIRED` 错误驱动协议；基础调用契约直接写入工具描述和参数类型，业务知识通过指令 Schema/Guide、Patch Action Schema、开发 Context 按目标读取。
+- AI 公开契约统一使用以下语义：`saveRequired` 表示配置保存必填，`runRequired` 表示流程启动必填；`preview_only/plannedProcIndex` 只表示预演对象，提交后的对象身份以 `createdObjects/affectedProcesses` 为准；一次 `apply_change_set` 只证明当前阶段已提交，任务是否完成仍需按用户目标评估。
+- Bridge 错误的 `message` 只陈述已验证事实，恢复方式放在结构化 `recovery.nextAction/nextToolArgs/retryableWhen/sideEffects` 中；禁止在错误文本中夹带“AI 不得、请告知用户”等提示词式训话，也禁止返回不存在的工具名。对象编辑在提交后使用稳定 ID，未解析的跳转 `operationKey` 可以跨阶段等待同标签目标，但不得作为已提交对象的读取身份。
 - 能用结构化 DTO 表达的 MCP 参数禁止使用无约束 `JsonElement` 或 JSON 字符串；基础对象类型、必填字段、数量、长度和大小校验必须在 MCP 或 Bridge 工作线程完成，不得切换 UI 线程后才发现基础参数错误。
 
 ## 安全准则
@@ -61,7 +63,7 @@
 - `Work/*.json` — 流程（从 `0.json` 起连续索引）。
 - `value.json` — 变量表（固定 0..999，强制保留 `复位状态`、`系统状态`）。
 - `DataStruct.json`、`AlarmInfo.json`、`card.json`、`IOMap.json`、`DataStation.json`。
-- `SocketInfo.json`、`SerialPortInfo.json`、`PlcDevice.json`、`PlcMap.json`。
+- `SocketInfo.json`、`SerialPortInfo.json`、`PlcConfig.json`。
 - `Account.json` — `ENC:` 前缀密文（AES-CBC + HMAC-SHA256 + PBKDF2）。
 - `AppConfig.json` — 启动强校验，当前键 `CommMaxMessageQueueSize`（默认 1000）。
 - `GooseConfig.json` — AI 助手配置，键：`GooseExecutablePath/WorkingDirectory/McpUri/SessionName/Provider/Model/MaxTurns/MaxOutputTokens`。

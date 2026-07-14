@@ -254,6 +254,15 @@ namespace Automation.McpServer
             });
         }
 
+        public Task<string> DiscardChangeSetPreviewAsync(string previewId)
+        {
+            ValidatePreviewId(previewId);
+            return PostAsync("/bridge/previews/reject", new JsonObject
+            {
+                ["previewId"] = previewId
+            });
+        }
+
         // ---------- proc_manage 拆分（4 个，previewId 为空预演，非空提交） ----------
 
         public Task<string> CreateProcAsync(string name, bool? autoStart, bool? disable, string? previewId)
@@ -727,12 +736,12 @@ namespace Automation.McpServer
         {
             if (string.IsNullOrWhiteSpace(previewId))
             {
-                throw new ArgumentException("字段 previewId 不能为空；预演阶段请不要传 previewId，提交阶段必须传预演返回的 previewId。", nameof(previewId));
+                throw new ArgumentException("previewId 需要使用 preview_change_set 返回的32位编号。", nameof(previewId));
             }
 
             if (!Guid.TryParseExact(previewId, "N", out _))
             {
-                throw new ArgumentException($"字段 previewId 不是合法预演编号；预演阶段请不要传 previewId，提交阶段必须传 preview 返回的 32 位 previewId。当前值：{previewId}", nameof(previewId));
+                throw new ArgumentException($"previewId 不是 preview_change_set 返回的32位编号：{previewId}", nameof(previewId));
             }
         }
 
