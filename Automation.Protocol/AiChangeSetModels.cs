@@ -232,7 +232,7 @@ namespace Automation.Protocol
         [Description("当前ChangeSet内的指令局部key；作为位置或跳转目标时提供，否则可省略由Bridge生成。operation.update继承现有key。")]
         public string Key { get; set; }
 
-        [Description("严格枚举：" + SemanticOperationKinds.SupportedKinds + "。固定文本弹框用popup.message，显示变量当前值用popup.variable。")]
+        [Description("严格枚举：" + SemanticOperationKinds.SupportedKinds + "。每条指令独立选择表达层：能精确表达目标时使用语义kind；精确复刻原生字段或语义kind无法表达时使用native.operation。固定文本弹框用popup.message，显示变量当前值用popup.variable。")]
         public string Kind { get; set; }
 
         public string Name { get; set; }
@@ -281,10 +281,10 @@ namespace Automation.Protocol
         [Description("branch.number_range 是否包含边界，省略时为true。")]
         public bool? IncludeBounds { get; set; }
 
-        [Description("分支成立时的符号目标；需要可运行时应提供，暂缺可先保存为 incomplete。")]
+        [Description("分支成立时的符号目标；继续下一条也要显式填写下一条指令的operationKey，不使用空对象表示顺序执行。暂缺可省略并先保存为incomplete。")]
         public OperationTarget WhenTrue { get; set; }
 
-        [Description("分支不成立时的符号目标；需要可运行时应提供，暂缺可先保存为 incomplete。")]
+        [Description("分支不成立时的符号目标；继续下一条也要显式填写下一条指令的operationKey，不使用空对象表示顺序执行。暂缺可省略并先保存为incomplete。")]
         public OperationTarget WhenFalse { get; set; }
 
         [Description("popup.message 或 config.placeholder 的固定文本；popup.message 不支持变量插值。")]
@@ -341,7 +341,7 @@ namespace Automation.Protocol
         [Description("当前ChangeSet内跨步骤定位时可提供目标步骤局部key；当前步骤内定位无需提供。")]
         public string StepKey { get; set; }
 
-        [Description("按指令key形成符号目标；当前步骤只需operationKey，跨步骤时附加stepId或stepKey。未定义目标可先保存为未就绪引用，并在后续创建同标签指令时解析；该标签不用于读取已提交对象。")]
+        [Description("按指令key形成符号目标；当前步骤只需operationKey，跨步骤时附加stepId或stepKey。空对象不是顺序执行；需要继续下一条时填写下一条指令的operationKey。未定义目标可先保存为未就绪引用，并在后续创建同标签指令时解析；该标签不用于读取已提交对象。")]
         public string OperationKey { get; set; }
     }
 }

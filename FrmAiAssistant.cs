@@ -303,7 +303,8 @@ body{
     background:#ffffff;
     border:1px solid #dfe6ef;
     border-radius:8px;
-    padding:2px 6px;
+    padding:6px 9px;
+    line-height:1.55;
     box-shadow:0 2px 8px rgba(31,45,61,.05);
 }
 .msg.error .content{
@@ -318,6 +319,11 @@ body{
 p{margin:1px 0;}
 ul,ol{margin:1px 0;padding-left:19px;}
 li{margin:1px 0;}
+.msg.assistant .content p{margin:5px 0;}
+.msg.assistant .content ul,.msg.assistant .content ol{margin:4px 0 7px;padding-left:21px;}
+.msg.assistant .content li{margin:2px 0;}
+.msg.assistant .content li + li{margin-top:4px;}
+.msg.assistant .content li>p{margin:2px 0;}
 .merged-part + .merged-part{margin-top:2px;}
 .automation-flow-visual{
     margin:8px 0 4px;
@@ -415,7 +421,7 @@ h2{font-size:18px;padding-bottom:4px;border-bottom:1px solid #e5ebf3;}
 h3{font-size:16px;}
 table{
     width:100%;
-    margin:6px 0;
+    margin:7px 0 10px;
     border-collapse:collapse;
     table-layout:auto;
     border:1px solid #d5deea;
@@ -3706,6 +3712,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         {
             string normalizedMarkdown = (markdown ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n");
             normalizedMarkdown = Regex.Replace(normalizedMarkdown, @"(?m)(?<!^)(```|~~~)", "\n$1");
+            normalizedMarkdown = Regex.Replace(normalizedMarkdown, @"(?m)(?<=\S)---\s*$", "\n\n---");
+            normalizedMarkdown = Regex.Replace(normalizedMarkdown, @"(?<=\S)(?=- \*\*)", "\n");
+            normalizedMarkdown = Regex.Replace(normalizedMarkdown, @"(?<=\S)(?=\*\*[0-9](?:\uFE0F?\u20E3)?)", "\n\n");
             normalizedMarkdown = UnwrapBareMarkdownFence(normalizedMarkdown);
             string[] lines = normalizedMarkdown.Split('\n');
             var output = new List<string>();
@@ -3857,8 +3866,15 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 yield break;
             }
 
-            int bodyIndex = line.IndexOf("- **", StringComparison.Ordinal);
+            Match headingMatch = Regex.Match(line ?? string.Empty, @"^\s*#{2,6}\s+");
+            int headingEnd = headingMatch.Success ? headingMatch.Length : 0;
+            int bodyIndex = line.IndexOf("- **", headingEnd, StringComparison.Ordinal);
             int pipeIndex = line.IndexOf('|');
+            int strongIndex = line.IndexOf("**", headingEnd, StringComparison.Ordinal);
+            if (strongIndex > headingEnd && char.IsWhiteSpace(line[strongIndex - 1]))
+            {
+                strongIndex = -1;
+            }
             if (pipeIndex >= 0 && line.IndexOf('|', pipeIndex + 1) < 0)
             {
                 pipeIndex = -1;
@@ -3866,6 +3882,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             if (bodyIndex < 0 || (pipeIndex >= 0 && pipeIndex < bodyIndex))
             {
                 bodyIndex = pipeIndex;
+            }
+            if (bodyIndex < 0 || (strongIndex >= 0 && strongIndex < bodyIndex))
+            {
+                bodyIndex = strongIndex;
             }
             if (bodyIndex <= 0)
             {

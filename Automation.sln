@@ -4,6 +4,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 VisualStudioVersion = 18.2.11415.280
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Automation", "Automation.csproj", "{A51BCDAB-5B3B-493A-8048-D4CD963BA84A}"
+	ProjectSection(ProjectDependencies) = postProject
+		{8B3A187B-DF59-EFF4-34F3-CA37CC868C80} = {8B3A187B-DF59-EFF4-34F3-CA37CC868C80}
+	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpServer", "McpServer\McpServer.csproj", "{8B3A187B-DF59-EFF4-34F3-CA37CC868C80}"
 EndProject
@@ -28,9 +31,7 @@ Global
 		{8B3A187B-DF59-EFF4-34F3-CA37CC868C80}.Release|x64.ActiveCfg = Release|Any CPU
 		{8B3A187B-DF59-EFF4-34F3-CA37CC868C80}.Release|x64.Build.0 = Release|Any CPU
 		{B1C5F06B-7696-40D2-AD74-C73C831403D3}.Debug|x64.ActiveCfg = Debug|x64
-		{B1C5F06B-7696-40D2-AD74-C73C831403D3}.Debug|x64.Build.0 = Debug|x64
 		{B1C5F06B-7696-40D2-AD74-C73C831403D3}.Release|x64.ActiveCfg = Release|x64
-		{B1C5F06B-7696-40D2-AD74-C73C831403D3}.Release|x64.Build.0 = Release|x64
 		{9B777468-5118-4A4B-AB0E-6D02861C6B5F}.Debug|x64.ActiveCfg = Debug|Any CPU
 		{9B777468-5118-4A4B-AB0E-6D02861C6B5F}.Debug|x64.Build.0 = Debug|Any CPU
 		{9B777468-5118-4A4B-AB0E-6D02861C6B5F}.Release|x64.ActiveCfg = Release|Any CPU

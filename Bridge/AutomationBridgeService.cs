@@ -214,8 +214,9 @@ namespace Automation.Bridge
                     // ---------- AI 语义变更集 V2 ----------
                     case "/bridge/change-set/preview":
                         AiChangeSet changeSet = ParseChangeSet(request);
+                        string replacePreviewId = ReadOptionalString(request, "replacePreviewId");
                         return WrapResponse("change_set.preview",
-                            ExecuteOnUiThread(() => HandlePreviewChangeSet(changeSet)));
+                            ExecuteOnUiThread(() => HandlePreviewChangeSet(changeSet, replacePreviewId)));
                     case "/bridge/change-set/apply":
                         WaitForPreviewConfirmation(request);
                         return WrapResponse("change_set.apply", ExecuteOnUiThread(() => HandleApplyChangeSet(request)));
@@ -955,6 +956,10 @@ namespace Automation.Bridge
                 {
                     return BridgeError(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
                 }
+                if (record.Rejected)
+                {
+                    return BridgeError(409, "PREVIEW_REJECTED", $"预演已结束，不能再次确认：{previewId}");
+                }
 
                 EnsurePreviewProcVersion(record);
                 record.Confirmed = true;
@@ -1013,13 +1018,13 @@ namespace Automation.Bridge
                     {
                         throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
                     }
+                    if (record.Rejected)
+                    {
+                        throw new BridgeRequestException(409, "PREVIEW_REJECTED", "预演已结束或被替换，本次提交未执行。");
+                    }
                     if (record.Confirmed)
                     {
                         return;
-                    }
-                    if (record.Rejected)
-                    {
-                        throw new BridgeRequestException(409, "PREVIEW_REJECTED", "用户已拒绝本次预演，未执行提交。");
                     }
                     TimeSpan remaining = deadline - DateTime.UtcNow;
                     if (remaining <= TimeSpan.Zero)
@@ -1615,7 +1620,7 @@ namespace Automation.Bridge
             }
         }
 
-        private JObject HandlePreviewChangeSet(AiChangeSet changeSet)
+        private JObject HandlePreviewChangeSet(AiChangeSet changeSet, string replacePreviewId)
         {
             EnsureRuntimeReady();
             Dictionary<string, DicValue> variables = SF.valueStore?.BuildSaveData()
@@ -1639,7 +1644,7 @@ namespace Automation.Bridge
             }
 
             JObject normalized = JObject.FromObject(changeSet);
-            string previewId = RegisterManagePreview(normalized);
+            string previewId = RegisterManagePreview(normalized, replacePreviewId, true);
             PreviewApprovalRecord record;
             lock (previewLock)
             {
@@ -1664,6 +1669,10 @@ namespace Automation.Bridge
                 ["nextToolArgs"] = record.Confirmed
                     ? new JObject { ["previewId"] = previewId }
                     : null,
+                ["revisionAction"] = "preview_change_set",
+                ["revisionToolArgs"] = new JObject { ["replacePreviewId"] = previewId },
+                ["revisionMode"] = "full_stage_replacement",
+                ["replacedPreviewId"] = record.ReplacedPreviewId,
                 ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 ["title"] = changeSet.Title ?? string.Empty,
                 ["summary"] = new JObject
@@ -2431,7 +2440,10 @@ namespace Automation.Bridge
         }
 
         // 流程结构操作的预演记录，复用 previewLock 保证线程安全。
-        private string RegisterManagePreview(JObject previewData)
+        private string RegisterManagePreview(
+            JObject previewData,
+            string replacePreviewId = null,
+            bool supportsExplicitReplacement = false)
         {
             string previewId = Guid.NewGuid().ToString("N");
             // 完全权限模式：直接标记预演为已确认，避免 FrmAiAssistant 通过 HTTP 回调确认导致 UI 线程死锁。
@@ -2439,7 +2451,36 @@ namespace Automation.Bridge
             lock (previewLock)
             {
                 CleanupExpiredPreviewsLocked();
-                EnsureNoActivePreviewLocked();
+                string replacedPreviewId = null;
+                if (!string.IsNullOrWhiteSpace(replacePreviewId))
+                {
+                    ValidatePreviewIdFormat(replacePreviewId);
+                    if (!previewRecords.TryGetValue(replacePreviewId, out PreviewApprovalRecord replaced)
+                        || replaced.Rejected
+                        || !replaced.IsChangeSetPreview)
+                    {
+                        throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND",
+                            $"要替换的 ChangeSet 预演不存在、已结束或已过期：{replacePreviewId}");
+                    }
+                    replaced.Rejected = true;
+                    replacedPreviewId = replaced.PreviewId;
+                    Monitor.PulseAll(previewLock);
+                }
+                else if (supportsExplicitReplacement)
+                {
+                    PreviewApprovalRecord activeChangeSet = previewRecords.Values.FirstOrDefault(item =>
+                        item != null
+                        && item.IsChangeSetPreview
+                        && !item.Rejected
+                        && item.ExpiresAtUtc > DateTime.UtcNow);
+                    if (activeChangeSet != null)
+                    {
+                        activeChangeSet.Rejected = true;
+                        replacedPreviewId = activeChangeSet.PreviewId;
+                        Monitor.PulseAll(previewLock);
+                    }
+                }
+                EnsureNoActivePreviewLocked(supportsExplicitReplacement);
                 // 复用 PreviewApprovalRecord，patch 字段存 previewData
                 var record = new PreviewApprovalRecord
                 {
@@ -2450,7 +2491,9 @@ namespace Automation.Bridge
                     BaseProcId = string.Empty,
                     CreatedAtUtc = DateTime.UtcNow,
                     ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
-                    Confirmed = autoConfirmed
+                    Confirmed = autoConfirmed,
+                    IsChangeSetPreview = supportsExplicitReplacement,
+                    ReplacedPreviewId = replacedPreviewId
                 };
                 if (autoConfirmed)
                 {
@@ -2471,6 +2514,10 @@ namespace Automation.Bridge
                 if (!previewRecords.TryGetValue(previewId, out PreviewApprovalRecord record))
                 {
                     throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
+                }
+                if (record.Rejected)
+                {
+                    throw new BridgeRequestException(409, "PREVIEW_REJECTED", $"预演已结束，不能提交：{previewId}");
                 }
                 if (!record.Confirmed)
                 {
@@ -6503,12 +6550,13 @@ namespace Automation.Bridge
             }
         }
 
-        private void EnsureNoActivePreviewLocked()
+        private void EnsureNoActivePreviewLocked(bool supportsExplicitReplacement = false)
         {
             PreviewApprovalRecord active = previewRecords.Values.FirstOrDefault(item =>
                 item != null && !item.Rejected && item.ExpiresAtUtc > DateTime.UtcNow);
             if (active != null)
             {
+                bool canReplace = supportsExplicitReplacement && active.IsChangeSetPreview;
                 throw new BridgeRequestException(
                     409,
                     "PREVIEW_IN_FLIGHT",
@@ -6517,10 +6565,23 @@ namespace Automation.Bridge
                     {
                         ["activePreviewId"] = active.PreviewId,
                         ["confirmed"] = active.Confirmed,
-                        ["nextAction"] = active.Confirmed
+                        ["nextAction"] = canReplace
+                            ? "preview_change_set"
+                            : active.IsChangeSetPreview && active.Confirmed
+                                ? "apply_change_set"
+                                : active.Confirmed ? null : "await_foreground_confirmation",
+                        ["nextToolArgs"] = canReplace
+                            ? new JObject { ["replacePreviewId"] = active.PreviewId }
+                            : active.IsChangeSetPreview && active.Confirmed
+                                ? new JObject { ["previewId"] = active.PreviewId }
+                                : null,
+                        ["retryableWhen"] = canReplace
+                            ? "在原新预演参数中补充 replacePreviewId 后重试"
+                            : "活动预演已提交、结束或过期",
+                        ["activePreviewAction"] = active.IsChangeSetPreview && active.Confirmed
                             ? "apply_change_set"
-                            : "await_foreground_confirmation",
-                        ["nextToolArgs"] = active.Confirmed
+                            : active.Confirmed ? null : "await_foreground_confirmation",
+                        ["activePreviewToolArgs"] = active.IsChangeSetPreview && active.Confirmed
                             ? new JObject { ["previewId"] = active.PreviewId }
                             : null,
                         ["sideEffects"] = "none"
@@ -6542,6 +6603,10 @@ namespace Automation.Bridge
                     throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
                 }
 
+                if (record.Rejected)
+                {
+                    throw new BridgeRequestException(409, "PREVIEW_REJECTED", $"预演已结束，不能提交：{previewId}");
+                }
                 if (!record.Confirmed)
                 {
                     throw new BridgeRequestException(
@@ -8209,6 +8274,10 @@ namespace Automation.Bridge
             public bool Confirmed { get; set; }
 
             public bool Rejected { get; set; }
+
+            public bool IsChangeSetPreview { get; set; }
+
+            public string ReplacedPreviewId { get; set; }
 
             public Proc DraftProc { get; set; }
 

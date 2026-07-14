@@ -34,9 +34,11 @@ namespace Automation.McpServer
         [McpServerTool(Name = "preview_change_set"), Description(
             "预演一个可独立保存、原子提交的ChangeSet V2配置阶段；空流程、空步骤以及只缺runRequired或运行资源的配置可作为阶段结果。"
             + "现有对象使用稳定ID，当前阶段的新对象使用局部key；插入和移动使用锚点定位。指令字段遵循所选语义或原生Schema。"
-            + "返回预演状态、配置就绪状态及精确nextAction。新对象在提交前标记为preview_only，仅有plannedProcIndex。")]
+            + "返回预演状态、配置就绪状态及精确nextAction。新对象在提交前标记为preview_only，仅有plannedProcIndex。"
+            + "修正预演时，changeSet必须是基于当前已保存配置的完整修正版阶段，不能用旧预演中的局部key做增量更新。新预演会替换当前活动的ChangeSet预演；replacePreviewId用于显式指定被替换项。")]
         public static async Task<string> PreviewChangeSet(
-            [Description("当前原子阶段；actions按依赖顺序执行并整体预演")] AtomicChangeSetDefinition changeSet)
+            [Description("当前原子阶段；actions按依赖顺序执行并整体预演")] AtomicChangeSetDefinition changeSet,
+            [Description("可选；显式指定要被完整修正版替换的未提交previewId。省略时若已有活动ChangeSet预演则自动替换")] string? replacePreviewId = null)
         {
             if (changeSet == null) throw new ArgumentNullException(nameof(changeSet));
             if ((changeSet.Actions?.Count ?? 0) == 0)
@@ -47,10 +49,16 @@ namespace Automation.McpServer
                 Title = changeSet.Title,
                 Actions = changeSet.Actions
             };
+            string validationError = AiChangeSetCatalog.Validate(compiledInput);
             return await ExecuteAsync(
                 toolName: nameof(PreviewChangeSet),
-                args: new { changeSet },
-                action: client => client.PreviewChangeSetAsync(compiledInput)).ConfigureAwait(false);
+                args: new { changeSet, replacePreviewId },
+                action: client =>
+                {
+                    if (validationError != null)
+                        throw new ArgumentException(validationError, nameof(changeSet));
+                    return client.PreviewChangeSetAsync(compiledInput, replacePreviewId);
+                }).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "apply_change_set"), Description(
@@ -387,7 +395,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "run_proc_test"), Description(
-            "独立执行一次有边界的流程测试：直接传入Stopped流程，本工具负责启动、观察和安全停止；已经运行的流程不会被接管。观察窗口500..15000ms，自然结束则直接返回。"
+            "仅用于用户本轮明确要求测试或试运行的场景；只要求创建或修改配置时，以预演和validate_proc作为完成证据。独立执行一次有边界的流程测试：直接传入Stopped流程，本工具负责启动、观察和安全停止；已经运行的流程不会被接管。观察窗口500..15000ms，自然结束则直接返回。"
             + "返回containsReachableCycle、真实terminationReason和outcome；存在可达循环不等于无限循环，实际是否结束以terminationReason和outcome为准。"
             + "同时返回verificationStatus、verificationSatisfied和recommendedNextAction。本次测试结果不授权再次启动；start_proc只用于用户明确要求持续运行的场景。")]
         public static async Task<string> RunProcTest(

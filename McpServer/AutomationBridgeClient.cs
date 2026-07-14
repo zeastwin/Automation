@@ -219,14 +219,20 @@ namespace Automation.McpServer
             return PostAsync("/bridge/patch/apply_patch", payload);
         }
 
-        public Task<string> PreviewChangeSetAsync(AiChangeSet changeSet)
+        public Task<string> PreviewChangeSetAsync(AiChangeSet changeSet, string? replacePreviewId)
         {
             JsonNode changeSetNode = JsonSerializer.SerializeToNode(changeSet, jsonOptions)
                 ?? throw new ArgumentException("语义变更集不能为 null。", nameof(changeSet));
-            return PostAsync("/bridge/change-set/preview", new JsonObject
+            var payload = new JsonObject
             {
                 ["changeSet"] = changeSetNode
-            });
+            };
+            if (!string.IsNullOrWhiteSpace(replacePreviewId))
+            {
+                ValidatePreviewId(replacePreviewId);
+                payload["replacePreviewId"] = replacePreviewId;
+            }
+            return PostAsync("/bridge/change-set/preview", payload);
         }
 
         public Task<string> GetNativeOperationContractsAsync(string[] operaTypes)

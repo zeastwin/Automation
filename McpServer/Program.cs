@@ -223,7 +223,8 @@ namespace Automation.McpServer
             string[] requiredSchemaTerms =
             {
                 "actions", "targetProcess", "targetOperation", "position", "oneOf",
-                "variable.compute", "branch.number_compare", "minimum", "maximum", "kind"
+                "variable.compute", "branch.number_compare", "minimum", "maximum", "kind",
+                "replacePreviewId"
             };
             schemaIssues.AddRange(requiredSchemaTerms
                 .Where(term => !previewSchema.Contains(term, StringComparison.Ordinal))
@@ -255,10 +256,12 @@ namespace Automation.McpServer
                 string.Equals(tool.ProtocolTool.Name, "get_native_operation_schemas", StringComparison.Ordinal));
             McpServerTool semanticSchemaTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "get_semantic_operation_schema", StringComparison.Ordinal));
-            if (!(runTestTool.ProtocolTool.Description ?? string.Empty).Contains("负责启动、观察和安全停止", StringComparison.Ordinal)
+            if (!(runTestTool.ProtocolTool.Description ?? string.Empty).Contains("明确要求测试或试运行", StringComparison.Ordinal)
+                || !(runTestTool.ProtocolTool.Description ?? string.Empty).Contains("负责启动、观察和安全停止", StringComparison.Ordinal)
                 || !(startTool.ProtocolTool.Description ?? string.Empty).Contains("由run_proc_test一次完成", StringComparison.Ordinal)
                 || !(discardPreviewTool.ProtocolTool.Description ?? string.Empty).Contains("不修改配置", StringComparison.Ordinal)
                 || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("preview_only", StringComparison.Ordinal)
+                || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("replacePreviewId", StringComparison.Ordinal)
                 || !(nativeSchemaTool.ProtocolTool.Description ?? string.Empty).Contains("native.operation", StringComparison.Ordinal)
                 || !(semanticSchemaTool.ProtocolTool.Description ?? string.Empty).Contains("保存必填项", StringComparison.Ordinal))
             {
