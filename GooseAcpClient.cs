@@ -69,6 +69,7 @@ namespace Automation
         private const long MaxLogFileBytes = 5L * 1024L * 1024L;
 
         private static readonly string executionLogRoot = Path.Combine(@"D:\AutomationLogs", "AIExecution");
+        private static readonly string structuredExecutionLogRoot = Path.Combine(executionLogRoot, "Structured");
         private static readonly Mutex executionLogMutex = new Mutex(false, "AutomationAIExecutionAuditLog");
 
         private readonly GooseConfig config;
@@ -92,6 +93,9 @@ namespace Automation
         private StreamWriter stdin;
         private string sessionId;
         private string currentPromptId;
+        private DateTime currentPromptStartedUtc;
+        private int currentPromptToolCallCount;
+        private int currentPromptToolErrorCount;
         private bool supportsImagePrompt;
         private bool disposed;
 
@@ -291,6 +295,9 @@ namespace Automation
             lock (executionLock)
             {
                 currentPromptId = Guid.NewGuid().ToString("N");
+                currentPromptStartedUtc = DateTime.UtcNow;
+                currentPromptToolCallCount = 0;
+                currentPromptToolErrorCount = 0;
                 assistantResponse.Clear();
                 assistantThought.Clear();
                 currentAssistantTraceSegment.Clear();
@@ -348,6 +355,22 @@ namespace Automation
                 {
                     LogExecution("assistant_thought", thought, null);
                 }
+
+                long totalDurationMs;
+                int toolCallCount;
+                int toolErrorCount;
+                lock (executionLock)
+                {
+                    totalDurationMs = Math.Max(0L, (long)(DateTime.UtcNow - currentPromptStartedUtc).TotalMilliseconds);
+                    toolCallCount = currentPromptToolCallCount;
+                    toolErrorCount = currentPromptToolErrorCount;
+                }
+                LogExecution("turn.summary", "本轮执行摘要。", new JObject
+                {
+                    ["totalDurationMs"] = totalDurationMs,
+                    ["toolCallCount"] = toolCallCount,
+                    ["toolErrorCount"] = toolErrorCount
+                });
             }
         }
 
@@ -907,6 +930,10 @@ namespace Automation
                 // tool_call：工具调用发起，显示中文工具名；完整 rawInput 进日志。
                 if (string.Equals(updateKind, "tool_call", StringComparison.Ordinal))
                 {
+                    lock (executionLock)
+                    {
+                        currentPromptToolCallCount++;
+                    }
                     string title = FindFirstString(parameters, "title", "name") ?? "调用工具";
                     bool parameterGenerationFailed =
                         string.Equals(title, "error", StringComparison.OrdinalIgnoreCase);
@@ -930,6 +957,10 @@ namespace Automation
                     string status = FindFirstString(parameters, "status");
                     if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase))
                     {
+                        lock (executionLock)
+                        {
+                            currentPromptToolErrorCount++;
+                        }
                         string callId = FindFirstString(parameters, "toolCallId");
                         bool parameterGenerationFailed = !string.IsNullOrWhiteSpace(callId)
                             && parameterGenerationFailureCalls.TryRemove(callId, out _);
@@ -1224,8 +1255,8 @@ namespace Automation
         }
 
         /// <summary>
-        /// 构建当前用户选中流程/步骤的背景信息，附加到 prompt 中，
-        /// 让 AI 知道用户正在关注哪个流程，避免反复询问或定位偏差。
+        /// 构建当前用户选中流程/步骤/指令的背景信息，附加到 prompt 中。
+        /// 只展开到用户实际选中的最深层级，避免把未选中的下级对象误传给 AI。
         /// </summary>
         private static string BuildSelectionContext()
         {
@@ -1242,23 +1273,47 @@ namespace Automation
                 }
 
                 Proc proc = SF.frmProc.procsList[procIndex];
-                string procName = proc.head?.Name ?? "(未命名)";
                 int stepCount = proc.steps?.Count ?? 0;
-
-                StringBuilder sb = new StringBuilder();
-                sb.Append("\n\n当前用户选中的流程背景信息（仅供参考定位，用户可能只是浏览该流程，不一定是要改动它；用户未明确指定时不要假设目标流程）：\n");
-                sb.Append($"- procIndex={procIndex}，流程名称=\"{procName}\"，共 {stepCount} 个步骤\n");
+                var selection = new JObject
+                {
+                    ["process"] = new JObject
+                    {
+                        ["procIndex"] = procIndex,
+                        ["procId"] = proc.head?.Id.ToString("D"),
+                        ["name"] = proc.head?.Name ?? string.Empty,
+                        ["stepCount"] = stepCount
+                    }
+                };
 
                 int stepIndex = SF.frmProc.SelectedStepNum;
                 if (stepIndex >= 0 && stepIndex < stepCount)
                 {
                     Step step = proc.steps[stepIndex];
-                    string stepName = step?.Name ?? "(未命名)";
                     int opCount = step?.Ops?.Count ?? 0;
-                    sb.Append($"- 选中步骤索引={stepIndex}，步骤名称=\"{stepName}\"，共 {opCount} 条指令\n");
+                    selection["step"] = new JObject
+                    {
+                        ["stepIndex"] = stepIndex,
+                        ["stepId"] = step?.Id.ToString("D"),
+                        ["name"] = step?.Name ?? string.Empty,
+                        ["operationCount"] = opCount
+                    };
+
+                    int opIndex = SF.frmDataGrid?.iSelectedRow ?? -1;
+                    if (opIndex >= 0 && opIndex < opCount)
+                    {
+                        OperationType operation = step.Ops[opIndex];
+                        selection["operation"] = new JObject
+                        {
+                            ["opIndex"] = opIndex,
+                            ["opId"] = operation?.Id.ToString("D"),
+                            ["name"] = operation?.Name ?? string.Empty,
+                            ["operaType"] = operation?.OperaType ?? string.Empty
+                        };
+                    }
                 }
-                sb.Append("注意：用户口语中的\"N号流程\"即 procIndex=N。选中状态仅表示用户正在浏览该流程，不等于用户要求改动它；实际改动目标以用户明确指定的为准。");
-                return sb.ToString();
+                return "\n\n当前用户在流程编辑器中的选中对象（仅用于定位，不等于用户要求改动；实际目标仍以用户请求为准）：\n"
+                    + selection.ToString(Formatting.None)
+                    + "\n用户口语中的\"N号流程\"即 procIndex=N。";
             }
             catch
             {
@@ -1596,6 +1651,28 @@ namespace Automation
                 {
                     writer.Write(content);
                 }
+
+                JObject structuredRecord = CreateStructuredExecutionRecord(record);
+                string structuredContent = structuredRecord.ToString(Formatting.None) + Environment.NewLine;
+                Directory.CreateDirectory(structuredExecutionLogRoot);
+                int structuredIndex = 0;
+                string structuredPath;
+                while (true)
+                {
+                    structuredPath = Path.Combine(
+                        structuredExecutionLogRoot,
+                        $"{datePrefix}_{structuredIndex:000}.jsonl");
+                    if (!File.Exists(structuredPath)
+                        || new FileInfo(structuredPath).Length + Encoding.UTF8.GetByteCount(structuredContent) <= MaxLogFileBytes)
+                    {
+                        break;
+                    }
+                    structuredIndex++;
+                }
+                using (StreamWriter writer = new StreamWriter(structuredPath, true, new UTF8Encoding(false)))
+                {
+                    writer.Write(structuredContent);
+                }
             }
             catch (AbandonedMutexException)
             {
@@ -1616,6 +1693,100 @@ namespace Automation
                     {
                     }
                 }
+            }
+        }
+
+        private static JObject CreateStructuredExecutionRecord(JObject record)
+        {
+            string kind = record["kind"]?.Value<string>() ?? string.Empty;
+            DateTime timeUtc;
+            if (!DateTime.TryParse(
+                record["time"]?.Value<string>(),
+                null,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out timeUtc))
+            {
+                timeUtc = DateTime.UtcNow;
+            }
+            else
+            {
+                timeUtc = timeUtc.ToUniversalTime();
+            }
+
+            JToken raw = record["raw"];
+            string toolCallId = record["toolCallId"]?.Value<string>()
+                ?? record["callId"]?.Value<string>()
+                ?? FindFirstString(raw, "toolCallId");
+            string toolName = record["toolName"]?.Value<string>()
+                ?? FindFirstString(raw, "toolName");
+            string status = record["status"]?.Value<string>()
+                ?? FindFirstString(raw, "status");
+
+            var structured = new JObject
+            {
+                ["schemaVersion"] = 1,
+                ["eventId"] = Guid.NewGuid().ToString("N"),
+                ["timeUtc"] = timeUtc.ToString("O"),
+                ["source"] = record["source"]?.Value<string>() ?? string.Empty,
+                ["eventName"] = kind,
+                ["auditSessionId"] = record["auditSessionId"]?.Value<string>() ?? string.Empty,
+                ["gooseSessionId"] = record["gooseSessionId"]?.Value<string>() ?? string.Empty,
+                ["promptId"] = record["promptId"]?.Value<string>() ?? string.Empty
+            };
+            AddStructuredString(structured, "toolCallId", toolCallId);
+            AddStructuredString(structured, "toolName", toolName);
+            AddStructuredString(structured, "status", status);
+            AddStructuredString(structured, "text", record["text"]?.Value<string>());
+
+            if (record["durationMs"] != null)
+            {
+                structured["durationMs"] = record["durationMs"].DeepClone();
+            }
+            if (record["args"] != null)
+            {
+                structured["args"] = record["args"].DeepClone();
+            }
+            if (record["result"] != null)
+            {
+                structured["result"] = record["result"].DeepClone();
+            }
+            if (record["error"] != null)
+            {
+                structured["error"] = record["error"].DeepClone();
+            }
+
+            if (string.Equals(kind, "reasoning_trace", StringComparison.Ordinal))
+            {
+                structured["eventCount"] = raw?["events"] is JArray events ? events.Count : 0;
+            }
+            else if (string.Equals(kind, "turn.summary", StringComparison.Ordinal))
+            {
+                CopyStructuredMetric(raw, structured, "totalDurationMs");
+                CopyStructuredMetric(raw, structured, "toolCallCount");
+                CopyStructuredMetric(raw, structured, "toolErrorCount");
+            }
+            else if (raw != null)
+            {
+                structured["raw"] = raw.DeepClone();
+            }
+
+            return structured;
+        }
+
+        private static void AddStructuredString(JObject target, string name, string value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                target[name] = value;
+            }
+        }
+
+        private static void CopyStructuredMetric(JToken source, JObject target, string name)
+        {
+            JToken value = source?[name];
+            if (value != null && value.Type != JTokenType.Null)
+            {
+                target[name] = value.DeepClone();
             }
         }
 

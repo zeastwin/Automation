@@ -83,11 +83,12 @@
 - 正常 HMI 启动不启动 Bridge/MCP；首次显示平台编辑器或打开 AI 页面时启动一次，最终退出时统一关闭。
 - Bridge 管道名固定 `AutomationBridgePipe`，协议为 `4字节长度前缀 + UTF-8 JSON`。
 - 写入推荐路径：模板 -> 中间意图 -> `preview_intent` -> 前台确认 -> `apply_intent`（携带 `previewId`）。
-- GooseAcpClient 本地日志：`<exe>/Logs/GooseAcp/yyyy-MM-dd/log_NNN.txt`（按天滚动、5MB 分卷）。
-- MCP Server 调用日志：`<exe>/Logs/McpServer/`。
+- Goose/ACP 与 MCP 人工审计日志：`D:\AutomationLogs\AIExecution\`（按天滚动、5MB 分卷）。
+- Goose/ACP 结构化事件：`D:\AutomationLogs\AIExecution\Structured\`；MCP 结构化事件位于 AIExecution 下对应的结构化子目录。
 
 ## 日志
 - 所有运行日志统一放在 `D:\AutomationLogs\`，禁止写入程序执行目录。
 - 流程引擎日志：`D:\AutomationLogs\ProcessLog\`（`LocalFileLogger`，按天 + 5MB 分卷）。
 - Bridge 异常日志：`D:\AutomationLogs\Bridge\`，记录请求路径、请求体摘要和完整异常堆栈。
+- 统一结构化旁路：`D:\AutomationLogs\Structured\`，使用单行 JSONL，包含 Bridge、流程指令轨迹和运行时异常；原 TXT/CSV 日志保留兼容。
 - 运行信息页：`FrmInfo`，`lvInfoLog` 虚拟模式，环形缓冲 200 条。

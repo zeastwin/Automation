@@ -43,9 +43,9 @@ namespace Automation.Protocol
     public static class ChangeSetActionTypes
     {
         public const string SupportedTypes =
-            "variable.change、process.create、process.update、process.delete、process.delete_all、"
+            "process.create、process.update、process.delete、process.delete_all、"
             + "step.append、step.insert、step.update、step.delete、step.move、"
-            + "operation.append、operation.insert、operation.update、operation.delete、operation.move";
+            + "operation.append、operation.insert、operation.update、operation.replace、operation.delete、operation.move";
     }
 
     /// <summary>
@@ -56,20 +56,17 @@ namespace Automation.Protocol
         [Description("严格枚举：" + ChangeSetActionTypes.SupportedTypes)]
         public string Type { get; set; }
 
-        [Description("除 variable.change、process.create、process.delete_all 外的流程目标。")]
+        [Description("除 process.create、process.delete_all 外的流程目标。")]
         public ProcessSelector TargetProcess { get; set; }
 
         [Description("步骤动作的目标；现有步骤用stepId，当前阶段新步骤用key。指令update/delete/move按targetOperation.opId定位时可省略。")]
         public StepSelector TargetStep { get; set; }
 
-        [Description("operation.update/delete/move 的指令目标。")]
+        [Description("operation.update/replace/delete/move 的指令目标。replace 必须使用已提交对象的 opId。")]
         public OperationSelector TargetOperation { get; set; }
 
         [Description("insert/move 必填的位置锚点；append 不提供。")]
         public ChangePosition Position { get; set; }
-
-        [Description("variable.change 的变量定义及 reuse/create/update/replace/require 策略。")]
-        public VariableChange Variable { get; set; }
 
         [Description("process.create/update 的流程字段；update 中出现的字段表示需要修改，省略字段保持原值。")]
         public ProcessActionValue Process { get; set; }
@@ -77,7 +74,7 @@ namespace Automation.Protocol
         [Description("step.append/insert/update 的步骤字段；update 中出现的字段表示需要修改，省略字段保持原值。")]
         public StepActionValue Step { get; set; }
 
-        [Description("operation.append/insert/update 的指令定义；update 使用 native.operation 时 fields 是局部字段补丁，clearFields 显式清空旧字符串字段。")]
+        [Description("operation.append/insert/update/replace 的指令定义；update 是同类型局部修改，replace 是保留原opId和入站跳转的完整类型替换。update 使用 native.operation 时 fields 是局部字段补丁，clearFields 显式清空旧字符串字段。")]
         public SemanticOperation Operation { get; set; }
     }
 
@@ -218,6 +215,9 @@ namespace Automation.Protocol
         [Description("按既有配置或精确规范重建时提供原生指令类型序列；完整预演会逐项核对，禁止静默替换相近指令。")]
         public List<string> ExpectedOperaTypes { get; set; }
 
+        /// <summary>内部编译标记：这些稳定指令ID按新定义完整替换，但保留原ID和入站跳转。</summary>
+        public List<string> ReplaceOperationIds { get; set; }
+
         public List<SemanticOperation> Operations { get; set; }
     }
 
@@ -229,10 +229,10 @@ namespace Automation.Protocol
         [Description("内部完整结构保留既有指令身份；原子动作的 operation 载荷省略，改用 targetOperation.opId 定位。")]
         public string OpId { get; set; }
 
-        [Description("当前ChangeSet内的指令局部key；作为位置或跳转目标时提供，否则可省略由Bridge生成。operation.update继承现有key。")]
+        [Description("当前ChangeSet内的指令局部key；作为位置或跳转目标时提供，否则可省略由Bridge生成。operation.update/replace继承现有key。")]
         public string Key { get; set; }
 
-        [Description("严格枚举：" + SemanticOperationKinds.SupportedKinds + "。每条指令独立选择表达层：能精确表达目标时使用语义kind；精确复刻原生字段或语义kind无法表达时使用native.operation。固定文本弹框用popup.message，显示变量当前值用popup.variable。")]
+        [Description("严格枚举：" + SemanticOperationKinds.SupportedKinds + "。会话中已确认的资源、当前Schema/Guide和验证经验可以复用，但表达层按当前指令重新判断：能精确表达目标时使用语义kind；精确复刻当前原生字段或语义kind无法表达时使用native.operation，不因上一请求的选择而惯性沿用。固定文本弹框用popup.message，显示变量当前值用popup.variable。")]
         public string Kind { get; set; }
 
         public string Name { get; set; }
@@ -320,7 +320,7 @@ namespace Automation.Protocol
         [Description("process.wait 目标状态：running 或 stopped；运行就绪时必填。")]
         public string ExpectedState { get; set; }
 
-        [Description("native.operation 使用的原生指令类型，必须是平台注册的精确 operaType。")]
+        [Description("native.operation 使用的原生指令类型，必须是平台注册的精确 operaType。operation.update 必须保持原类型；改变类型使用 operation.replace。")]
         public string OperaType { get; set; }
 
         [Description("native.operation 的严格结构化字段；嵌套对象和数组必须遵循 get_native_operation_schemas 返回的契约。")]

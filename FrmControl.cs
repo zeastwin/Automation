@@ -802,7 +802,20 @@ namespace Automation
         {
             try
             {
-                await HomeStationByseq(comboBox1.SelectedIndex);
+                int stationIndex = comboBox1.SelectedIndex;
+                bool hasHomeSequence = stationIndex >= 0
+                    && SF.frmCard?.dataStation != null
+                    && stationIndex < SF.frmCard.dataStation.Count
+                    && SF.frmCard.dataStation[stationIndex].homeSeq?.axisSeq?.Any(item => item?.Name != "-1") == true;
+
+                if (hasHomeSequence)
+                {
+                    await HomeStationByseq(stationIndex);
+                }
+                else
+                {
+                    await HomeStationByAll(stationIndex);
+                }
             }
             catch (Exception ex)
             {

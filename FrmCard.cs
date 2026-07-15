@@ -448,18 +448,8 @@ namespace Automation
                             SF.cardStore.ReplaceAxis(cardIndex, axisIndex, sourceAxis);
                             throw new InvalidOperationException("轴配置保存失败。");
                         }
-                        if (SF.cardStore.TryValidateAllAxes(out _))
-                        {
-                            try
-                            {
-                                SF.motion.SetAllAxisEquiv();
-                            }
-                            catch
-                            {
-                                SF.mainfrm.RequireRestartAfterMotionConfigurationChange();
-                                throw;
-                            }
-                        }
+                        // 编辑阶段只保存配置，不调用实体运动卡；参数在下次启动时统一加载并生效。
+                        SF.mainfrm.RequireRestartAfterMotionConfigurationChange();
                         FinishDraftEdit();
                         RefreshCardTree();
                         SF.mainfrm.ResetAxisRuntimeState();

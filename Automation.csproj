@@ -170,6 +170,8 @@
     <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="Runtime\\AppConfigStorage.cs" />
     <Compile Include="Runtime\\RuntimeExceptionLogger.cs" />
+    <Compile Include="Runtime\\StructuredAuditLogger.cs" />
+    <Compile Include="Runtime\\ProcessTraceAuditSink.cs" />
     <Compile Include="Runtime\\ObjectGraphCloner.cs" />
     <Compile Include="Runtime\\AutomationConfigSerializationBinder.cs" />
     <Compile Include="Runtime\\OperationClipboardService.cs" />

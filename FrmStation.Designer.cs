@@ -84,9 +84,9 @@
             this.panel2.Controls.Add(this.dataGridView1);
             this.panel2.Controls.Add(this.panelPointTools);
             this.panel2.Dock = System.Windows.Forms.DockStyle.Right;
-            this.panel2.Location = new System.Drawing.Point(614, 0);
+            this.panel2.Location = new System.Drawing.Point(856, 0);
             this.panel2.Name = "panel2";
-            this.panel2.Size = new System.Drawing.Size(736, 689);
+            this.panel2.Size = new System.Drawing.Size(494, 689);
             this.panel2.TabIndex = 57;
             // 
             // dataGridView1
@@ -283,7 +283,7 @@
             this.panel1.Dock = System.Windows.Forms.DockStyle.Top;
             this.panel1.Location = new System.Drawing.Point(0, 0);
             this.panel1.Name = "panel1";
-            this.panel1.Size = new System.Drawing.Size(614, 621);
+            this.panel1.Size = new System.Drawing.Size(856, 621);
             this.panel1.TabIndex = 58;
             // 
             // panel3
@@ -292,7 +292,7 @@
             this.panel3.Dock = System.Windows.Forms.DockStyle.Top;
             this.panel3.Location = new System.Drawing.Point(0, 621);
             this.panel3.Name = "panel3";
-            this.panel3.Size = new System.Drawing.Size(614, 365);
+            this.panel3.Size = new System.Drawing.Size(856, 365);
             this.panel3.TabIndex = 59;
             // 
             // dataGridView2

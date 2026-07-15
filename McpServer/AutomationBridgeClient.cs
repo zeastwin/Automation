@@ -344,7 +344,7 @@ namespace Automation.McpServer
             return PostAsync("/bridge/proc/resume", payload);
         }
 
-        // ---------- variable 拆分（5 个） ----------
+        // ---------- variable 单对象读写 ----------
 
         public Task<string> ListVariablesAsync(string? type, string? nameLike, int? offset, int? limit)
         {
@@ -364,16 +364,6 @@ namespace Automation.McpServer
             return PostAsync("/bridge/variable/get", payload);
         }
 
-        public Task<string> SearchVariablesAsync(string? keyword, string? type, string? valueLike, int? limit)
-        {
-            JsonObject payload = new JsonObject();
-            if (keyword != null) payload["keyword"] = keyword;
-            if (!string.IsNullOrEmpty(type)) payload["type"] = type;
-            if (!string.IsNullOrEmpty(valueLike)) payload["valueLike"] = valueLike;
-            if (limit.HasValue) payload["limit"] = limit.Value;
-            return PostAsync("/bridge/variable/search", payload);
-        }
-
         public Task<string> SetVariableAsync(string value, string? name, int? index)
         {
             JsonObject payload = new JsonObject { ["value"] = value };
@@ -382,19 +372,35 @@ namespace Automation.McpServer
             return PostAsync("/bridge/variable/set", payload);
         }
 
-        public Task<string> DeleteVariableAsync(int index)
+        public Task<string> DeleteVariableAsync(string name)
         {
-            JsonObject payload = new JsonObject { ["index"] = index };
+            JsonObject payload = new JsonObject { ["name"] = name };
             return PostAsync("/bridge/variable/delete", payload);
         }
 
-        public Task<string> AddVariableAsync(string name, string type, string? value, string? note, int? index)
+        public Task<string> AddVariableAsync(
+            string name, string type, string? initialValue, string? note, int? index)
         {
             JsonObject payload = new JsonObject { ["name"] = name, ["type"] = type };
-            if (value != null) payload["value"] = value;
+            if (initialValue != null) payload["initialValue"] = initialValue;
             if (note != null) payload["note"] = note;
             if (index.HasValue) payload["index"] = index.Value;
             return PostAsync("/bridge/variable/add", payload);
+        }
+
+        public Task<string> UpdateVariableAsync(
+            string name,
+            string? newName,
+            string? type,
+            string? initialValue,
+            string? note)
+        {
+            JsonObject payload = new JsonObject { ["name"] = name };
+            if (newName != null) payload["newName"] = newName;
+            if (type != null) payload["type"] = type;
+            if (initialValue != null) payload["initialValue"] = initialValue;
+            if (note != null) payload["note"] = note;
+            return PostAsync("/bridge/variable/update", payload);
         }
 
         // ---------- station 拆分（5 个） ----------
@@ -758,6 +764,7 @@ namespace Automation.McpServer
             using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(options.BridgeTimeoutMs));
             string stage = "connect";
             string requestId = Guid.NewGuid().ToString("N");
+            ToolCallLogger.LogBridgeDispatch(requestId, method, path);
             try
             {
                 using var pipe = new NamedPipeClientStream(

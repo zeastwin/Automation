@@ -117,7 +117,7 @@ namespace Automation.Hmi
             }
             try
             {
-                platformHost.ShowPlatformEditor(this);
+                platformHost.ShowPlatformEditor();
             }
             catch (InvalidOperationException ex)
             {

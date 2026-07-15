@@ -10,7 +10,7 @@ namespace Automation.McpServer
     public static class AutomationMcpTools
     {
         [McpServerTool(Name = "get_native_operation_schemas"), Description(
-            "按精确原生operaType读取递归字段契约，供operation.kind=native.operation使用。适用于精确复刻或语义kind无法表达的指令；资源候选按字段需要另行查询。")]
+            "按精确原生operaType读取递归字段契约，供operation.kind=native.operation使用。适用于精确复刻或语义kind无法表达的指令；已知多个精确类型时一次传入数组读取，资源候选按字段需要另行查询。")]
         public static async Task<string> GetOperationSchemas(
             [Description("精确原生指令类型数组，例如 跳转、延时、修改变量")] string[] operaTypes)
         {
@@ -33,8 +33,9 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "preview_change_set"), Description(
             "预演一个可独立保存、原子提交的ChangeSet V2配置阶段；空流程、空步骤以及只缺runRequired或运行资源的配置可作为阶段结果。"
+            + "来源已包含精确operaType和原生字段时，先批量读取这些类型的Schema并按native.operation保真；同类型字段修改用operation.update，类型替换用operation.replace。"
             + "现有对象使用稳定ID，当前阶段的新对象使用局部key；插入和移动使用锚点定位。指令字段遵循所选语义或原生Schema。"
-            + "返回预演状态、配置就绪状态及精确nextAction。新对象在提交前标记为preview_only，仅有plannedProcIndex。"
+            + "返回预演状态、配置就绪状态及recommendedAction；本阶段破坏既有引用时建议先修正，只有外部运行资源暂缺时可直接保存未完成配置。新对象在提交前标记为preview_only，仅有plannedProcIndex。"
             + "修正预演时，changeSet必须是基于当前已保存配置的完整修正版阶段，不能用旧预演中的局部key做增量更新。新预演会替换当前活动的ChangeSet预演；replacePreviewId用于显式指定被替换项。")]
         public static async Task<string> PreviewChangeSet(
             [Description("当前原子阶段；actions按依赖顺序执行并整体预演")] AtomicChangeSetDefinition changeSet,
@@ -151,6 +152,8 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "get_op_detail"), Description(
             "读取单条指令详情（字段值/执行流向 flow/跳转有效性 gotoIssues）。"
+            + "fields严格使用native.operation可写结构，可按需取其中字段直接用于operation.update；"
+            + "displayFields只用于查看PropertyGrid展示值，不得写入。"
             + "仅用于细粒度检查一条已知指令；解释完整流程应改用 get_proc_detail，避免手工组合多组索引。")]
         public static async Task<string> GetOpDetail(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
@@ -166,7 +169,7 @@ namespace Automation.McpServer
         [McpServerTool(Name = "get_op_details"), Description(
             "按明确的 opId 有限批量读取指令详情，单次最多25条。"
             + "适合从同一流程摘要中选择若干唯一opId后一次读取。"
-            + "返回每条指令当前实际的 stepIndex、stepId、opIndex、字段和执行流向。")]
+            + "返回每条指令当前实际的 stepIndex、stepId、opIndex、可写fields和执行流向。")]
         public static async Task<string> GetOpDetails(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
             [Description("1到25个唯一指令Guid；必须来自该流程的 get_proc_overview、get_proc_detail 或 get_step_detail 返回值")] string[] opIds)
@@ -1214,78 +1217,99 @@ namespace Automation.McpServer
                 action: client => client.ListVariablesAsync(type, nameLike, offset, limit)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "get_variable"), Description(
-            "读取单个变量完整信息。必须提供 name 或 index 之一。")]
-        public static async Task<string> GetVariable(
-            [Description("变量名")] string? name = null,
-            [Description("变量索引")] int? index = null)
+        [McpServerTool(Name = "get_variable_by_name"), Description(
+            "按精确名称读取一个变量，返回索引、类型、运行值、配置初始值、备注和变更历史。")]
+        public static async Task<string> GetVariableByName(
+            [Description("变量精确名称")] string name)
         {
             return await ExecuteAsync(
-                toolName: nameof(GetVariable),
-                args: new { name, index },
-                action: client => client.GetVariableAsync(name, index)).ConfigureAwait(false);
+                toolName: nameof(GetVariableByName),
+                args: new { name },
+                action: client => client.GetVariableAsync(name, null)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "search_variables"), Description(
-            "按名称关键词/类型/运行时值内容搜索变量。"
-            + "keyword 按普通文本匹配变量名；省略、空字符串或*返回全部变量。")]
-        public static async Task<string> SearchVariables(
-            [Description("名称关键词；省略、空字符串或*表示全部")] string? keyword = null,
-            [Description("类型过滤：double 或 string")] string? type = null,
-            [Description("运行时值内容模糊匹配")] string? valueLike = null,
-            [Description("返回上限")] int? limit = null)
+        [McpServerTool(Name = "get_variable_by_index"), Description(
+            "按固定槽位索引读取一个变量，返回名称、类型、运行值、配置初始值、备注和变更历史。")]
+        public static async Task<string> GetVariableByIndex(
+            [Description("变量槽位索引，范围0..999")] int index)
         {
             return await ExecuteAsync(
-                toolName: nameof(SearchVariables),
-                args: new { keyword, type, valueLike, limit },
-                action: client => client.SearchVariablesAsync(keyword, type, valueLike, limit)).ConfigureAwait(false);
+                toolName: nameof(GetVariableByIndex),
+                args: new { index },
+                action: client => client.GetVariableAsync(null, index)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "set_variable"), Description(
-            "修改变量运行时值（不写入配置文件，重启后恢复配置值）。"
-            + "double 类型校验数字格式；修改触发 ValueChanged 事件，运行中流程能感知。"
-            + "必须提供 name 或 index 之一。")]
-        public static async Task<string> SetVariable(
-            [Description("新值（始终传字符串，double 类型会校验数字格式）")] string value,
-            [Description("变量名")] string? name = null,
-            [Description("变量索引")] int? index = null)
+        [McpServerTool(Name = "set_variable_by_name"), Description(
+            "按精确名称修改一个变量的运行时值，不写配置文件；double 类型会校验数字格式。")]
+        public static async Task<string> SetVariableByName(
+            [Description("变量精确名称")] string name,
+            [Description("新运行值；double 类型填写数字文本")] string value)
         {
             return await ExecuteAsync(
-                toolName: nameof(SetVariable),
-                args: new { value, name, index },
-                action: client => client.SetVariableAsync(value, name, index)).ConfigureAwait(false);
+                toolName: nameof(SetVariableByName),
+                args: new { name, value },
+                action: client => client.SetVariableAsync(value, name, null)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "set_variable_by_index"), Description(
+            "按固定槽位索引修改一个变量的运行时值，不写配置文件；double 类型会校验数字格式。")]
+        public static async Task<string> SetVariableByIndex(
+            [Description("变量槽位索引，范围0..999")] int index,
+            [Description("新运行值；double 类型填写数字文本")] string value)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(SetVariableByIndex),
+                args: new { index, value },
+                action: client => client.SetVariableAsync(value, null, index)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "delete_variable"), Description(
-            "清空指定索引变量槽位（Name/Value/Note 全部重置，保留槽位，不移动其他变量索引）。"
-            + "需 ProcessEdit 权限。")]
+            "按精确名称删除一个变量，其他变量索引不移动。系统保留变量不能删除，且要求所有流程已停止。")]
         public static async Task<string> DeleteVariable(
-            [Description("变量索引")] int index)
+            [Description("要删除的变量精确名称")] string name)
         {
             return await ExecuteAsync(
                 toolName: nameof(DeleteVariable),
-                args: new { index },
-                action: client => client.DeleteVariableAsync(index)).ConfigureAwait(false);
+                args: new { name },
+                action: client => client.DeleteVariableAsync(name)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "add_variable"), Description(
-            "在变量表中创建新变量。需 ProcessEdit 权限。"
+            "创建一个新变量，要求所有流程已停止。"
             + "参数：name（必填，变量名，全局唯一）；type（可选，\"double\"或\"string\"，默认double）；"
-            + "value（可选，初始值，double类型必须是数字，默认\"0\"）；note（可选，备注）；"
+            + "initialValue（可选，配置初始值，double类型必须是数字，默认\"0\"）；note（可选，备注）；"
             + "index（可选，指定槽位位置[0,1000)，默认自动找第一个空槽位）。"
             + "名称重复或槽位被占用时返回错误。创建后自动持久化并刷新界面。"
-            + "批量创建时请多次调用（如生成 IO1~IO10 需调用 10 次）。")]
+            + "每次只创建一个变量；需要多个变量时逐个调用。")]
         public static async Task<string> AddVariable(
             [Description("变量名（全局唯一）")] string name,
             [Description("类型：double 或 string，默认 double")] string? type = "double",
-            [Description("初始值（double 类型必须是数字）")] string? value = null,
+            [Description("配置初始值（double 类型必须是数字）")] string? initialValue = null,
             [Description("备注")] string? note = null,
             [Description("指定槽位索引，不填则自动分配")] int? index = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(AddVariable),
-                args: new { name, type, value, note, index },
-                action: client => client.AddVariableAsync(name, type ?? "double", value, note, index)).ConfigureAwait(false);
+                args: new { name, type, initialValue, note, index },
+                action: client => client.AddVariableAsync(name, type ?? "double", initialValue, note, index)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "update_variable"), Description(
+            "修改一个现有变量的配置，要求所有流程已停止。"
+            + "按当前精确名称定位；只提供需要变更的字段。initialValue只修改配置初始值，不改变当前运行值。"
+            + "系统保留变量不能修改。")]
+        public static async Task<string> UpdateVariable(
+            [Description("当前变量精确名称")] string name,
+            [Description("新名称；不修改则省略")] string? newName = null,
+            [Description("新类型：double 或 string；不修改则省略")] string? type = null,
+            [Description("新配置初始值；不修改则省略")] string? initialValue = null,
+            [Description("新备注；传空字符串可清空，不修改则省略")] string? note = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(UpdateVariable),
+                args: new { name, newName, type, initialValue, note },
+                action: client => client.UpdateVariableAsync(
+                    name, newName, type, initialValue, note)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "list_stations"), Description(
@@ -1483,7 +1507,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_io"), Description(
-            "读取单个 IO 配置信息。")]
+            "按精确名称读取单个 IO 配置信息；名称已知时直接使用本工具。")]
         public static async Task<string> GetIo(
             [Description("IO 名称")] string name)
         {
@@ -1494,7 +1518,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "search_io"), Description(
-            "按名称关键词/类型/卡号搜索 IO。"
+            "目标名称未知时按名称关键词/类型/卡号发现 IO；名称已经确定时使用 get_io。"
             + "keyword 按普通文本匹配 IO 名称；省略、空字符串或*返回全部 IO。")]
         public static async Task<string> SearchIo(
             [Description("名称关键词；省略、空字符串或*表示全部")] string? keyword = null,

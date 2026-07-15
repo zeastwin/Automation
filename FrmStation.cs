@@ -19,6 +19,9 @@ namespace Automation
 {
     public partial class FrmStation : Form
     {
+        private const int StationControlPreferredWidth = 856;
+        private const int PointTableMinimumWidth = 300;
+
         //鼠标选定的行数
         public int iSelectedRow = -1;
         private readonly Timer stateTimer = new Timer();
@@ -60,8 +63,22 @@ namespace Automation
             FormClosing += FrmStation_FormClosing;
             VisibleChanged += FrmStation_VisibleChanged;
             ParentChanged += FrmStation_ParentChanged;
+            Resize += FrmStation_Resize;
 
             SetPointEditMode(false);
+            UpdateResponsiveLayout();
+        }
+
+        private void FrmStation_Resize(object sender, EventArgs e)
+        {
+            UpdateResponsiveLayout();
+        }
+
+        private void UpdateResponsiveLayout()
+        {
+            int pointTableWidth = Math.Max(PointTableMinimumWidth,
+                ClientSize.Width - StationControlPreferredWidth);
+            panel2.Width = Math.Min(pointTableWidth, ClientSize.Width);
         }
 
         private void FrmStation_Load(object sender, EventArgs e)

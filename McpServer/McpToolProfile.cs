@@ -19,7 +19,7 @@ namespace Automation.McpServer
             "get_semantic_operation_schema", "get_operation_guide",
             "get_snapshot", "validate_proc",
             "wait_for_proc_state",
-            "search_variables", "get_variable",
+            "list_variables", "get_variable_by_name", "get_variable_by_index",
             "list_stations", "get_station", "list_points", "get_point",
             "get_data_struct", "search_data_structs",
             "get_io", "search_io", "get_io_state",
@@ -33,7 +33,7 @@ namespace Automation.McpServer
             "search_operation_fields", "find_references", "find_variable_usages",
             "get_operation_context", "audit_proc_batch",
             "analyze_flow_graph", "get_info_log_tail", "diagnose_proc",
-            "list_variables", "list_data_structs", "list_io"
+            "list_data_structs", "list_io"
         };
 
         private static readonly HashSet<string> EditorMutationTools = new HashSet<string>(StringComparer.Ordinal)
@@ -41,7 +41,9 @@ namespace Automation.McpServer
             "preview_change_set", "apply_change_set", "discard_change_set_preview",
             "run_proc_test",
             "start_proc", "stop_proc", "pause_proc", "resume_proc",
-            "set_variable", "set_alarm", "delete_alarm"
+            "set_variable_by_name", "set_variable_by_index",
+            "add_variable", "update_variable", "delete_variable",
+            "set_alarm", "delete_alarm"
         };
 
         public static IReadOnlyList<McpServerTool> CreateTools(string profile)
@@ -134,12 +136,12 @@ namespace Automation.McpServer
             JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
             JsonObject? actionSchema = FindChangeActionSchema(root);
             JsonObject? operationSchema = FindSemanticOperationSchema(root);
-            if (root == null || actionSchema == null || operationSchema == null)
+            JsonObject? positionSchema = FindPositionSchema(root);
+            if (root == null || actionSchema == null || operationSchema == null || positionSchema == null)
                 throw new InvalidOperationException("preview_change_set 生成Schema缺少动作或语义指令定义。");
 
             actionSchema["oneOf"] = new JsonArray
             {
-                ActionShape("variable.change", "variable"),
                 ActionShape("process.create", "process"),
                 ActionShape("process.update", "targetProcess", "process"),
                 ActionShape("process.delete", "targetProcess"),
@@ -152,6 +154,7 @@ namespace Automation.McpServer
                 ActionShape("operation.append", "targetProcess", "targetStep", "operation"),
                 ActionShape("operation.insert", "targetProcess", "targetStep", "position", "operation"),
                 ActionShape("operation.update", "targetProcess", "targetOperation", "operation"),
+                ActionShape("operation.replace", "targetProcess", "targetOperation", "operation"),
                 ActionShape("operation.delete", "targetProcess", "targetOperation"),
                 ActionShape("operation.move", "targetProcess", "targetOperation", "position")
             };
@@ -176,6 +179,7 @@ namespace Automation.McpServer
                 SemanticShape("native.operation", "operaType", "fields")
             };
             operationSchema["x-symbolicTargetScope"] = "operation_id_or_change_set_key";
+            ApplyPositionSchema(positionSchema);
             ApplyNumericRange(operationSchema, "milliseconds", 0, 86400000);
             ApplyNumericRange(operationSchema, "autoCloseMs", 1, 3600000);
             ApplyNumericRange(operationSchema, "beforeMs", 0, 3600000);
@@ -246,6 +250,70 @@ namespace Automation.McpServer
                 }
             }
             return null;
+        }
+
+        private static JsonObject? FindPositionSchema(JsonNode? node)
+        {
+            if (node is JsonObject obj)
+            {
+                if (obj["properties"] is JsonObject properties
+                    && properties.ContainsKey("beforeId")
+                    && properties.ContainsKey("beforeKey")
+                    && properties.ContainsKey("afterId")
+                    && properties.ContainsKey("afterKey"))
+                    return obj;
+                foreach (KeyValuePair<string, JsonNode?> property in obj)
+                {
+                    JsonObject? found = FindPositionSchema(property.Value);
+                    if (found != null) return found;
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (JsonNode? item in array)
+                {
+                    JsonObject? found = FindPositionSchema(item);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
+        private static void ApplyPositionSchema(JsonObject positionSchema)
+        {
+            positionSchema["oneOf"] = new JsonArray
+            {
+                RequiredFieldShape("beforeId", "现有对象Guid"),
+                RequiredFieldShape("beforeKey", "当前ChangeSet局部key"),
+                RequiredFieldShape("afterId", "现有对象Guid"),
+                RequiredFieldShape("afterKey", "当前ChangeSet局部key")
+            };
+            if (positionSchema["properties"] is not JsonObject properties) return;
+            foreach (string field in new[] { "beforeId", "afterId" })
+            {
+                if (properties[field] is JsonObject schema)
+                {
+                    schema["format"] = "uuid";
+                    schema["minLength"] = 36;
+                    schema["maxLength"] = 36;
+                }
+            }
+            foreach (string field in new[] { "beforeKey", "afterKey" })
+            {
+                if (properties[field] is JsonObject schema)
+                {
+                    schema["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
+                }
+            }
+        }
+
+        private static JsonObject RequiredFieldShape(string field, string title)
+        {
+            return new JsonObject
+            {
+                ["title"] = title,
+                ["required"] = new JsonArray(field)
+            };
         }
 
         private static JsonObject ActionShape(string type, params string[] requiredPayload)

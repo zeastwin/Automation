@@ -493,8 +493,14 @@ namespace Automation
                 .Any(item => item.State == PlcRuntimeState.Mapping))
             { ShowError("保存配置前必须停止全部PLC设备映射。" ); return; }
             if (!SF.plcStore.Save(SF.ConfigPath, draft, SF.valueStore, out error)) { ShowError(error); return; }
-            if (!SF.plcRuntime.ReloadConfiguration(true, out error)) { ShowError(error); return; }
-            MessageBox.Show("PLC配置已原子保存，设备正在重新初始化。", "PLC配置",
+            if (SF.plcRuntime == null || !SF.plcRuntime.ReloadConfiguration(false, out error))
+            {
+                ShowError(error ?? "PLC运行时未初始化，配置已保存但未加载。");
+                return;
+            }
+            const string message = "PLC配置已保存并加载；未自动连接设备，可按需重新初始化或启动映射。";
+            SF.frmInfo?.PrintInfo(message, FrmInfo.Level.Normal);
+            MessageBox.Show(message, "PLC配置",
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
             ReloadDraft();
         }

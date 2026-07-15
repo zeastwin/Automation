@@ -39,8 +39,22 @@ namespace Automation
                     "字段名区分大小写，未知字段直接拒绝",
                     "数组数量字段由编译器计算，禁止手工填写 Count/IOCount/ProcCount",
                     "operation.update 可通过 clearFields 显式清空顶层字符串字段；同一字段不得同时出现在 fields",
+                    "operation.update 只修改同一原生类型；改变类型使用 operation.replace 原位替换",
                     "现有目标使用 {operationId}；当前步骤内按 key 定位使用 {operationKey}；跨步骤时再附加 stepId 或 stepKey；禁止填写物理索引字符串")
             };
+        }
+
+        /// <summary>
+        /// 按 native.operation 的真实写入契约导出当前字段。
+        /// 受管字段不会混入 fields；嵌套对象保持递归结构；跳转转换为稳定符号目标。
+        /// </summary>
+        public static JObject BuildWritableFields(
+            OperationType operation,
+            Func<string, JToken> resolveGotoTarget)
+        {
+            if (operation == null) throw new ArgumentNullException(nameof(operation));
+            if (resolveGotoTarget == null) throw new ArgumentNullException(nameof(resolveGotoTarget));
+            return BuildWritableObject(operation, operation.GetType(), resolveGotoTarget, 0);
         }
 
         public static OperationType Compile(string operaType, IDictionary<string, object> fields,
@@ -138,6 +152,76 @@ namespace Automation
                 fields[property.Name] = schema;
             }
             return fields;
+        }
+
+        private static JObject BuildWritableObject(
+            object source,
+            Type type,
+            Func<string, JToken> resolveGotoTarget,
+            int depth)
+        {
+            if (depth > MaxDepth) throw new InvalidOperationException($"指令结构嵌套超过 {MaxDepth} 层：{type.Name}");
+            var fields = new JObject();
+            foreach (PropertyInfo property in GetConfigurableProperties(type))
+            {
+                object value = property.GetValue(source);
+                if (property.GetCustomAttribute<MarkedGotoAttribute>() != null)
+                {
+                    if (value == null)
+                    {
+                        fields[property.Name] = JValue.CreateNull();
+                    }
+                    else
+                    {
+                        JToken target = resolveGotoTarget(value.ToString());
+                        if (target != null) fields[property.Name] = target;
+                    }
+                    continue;
+                }
+                if (property.GetCustomAttribute<InlineListAttribute>() != null)
+                {
+                    var items = new JArray();
+                    if (value is IEnumerable values)
+                    {
+                        Type itemType = GetListItemType(property.PropertyType);
+                        foreach (object item in values)
+                        {
+                            if (item != null)
+                            {
+                                items.Add(BuildWritableObject(item, itemType, resolveGotoTarget, depth + 1));
+                            }
+                        }
+                    }
+                    fields[property.Name] = items;
+                    continue;
+                }
+                if (property.GetCustomAttribute<InlineGroupAttribute>() != null)
+                {
+                    if (value != null)
+                    {
+                        fields[property.Name] = BuildWritableObject(
+                            value, property.PropertyType, resolveGotoTarget, depth + 1);
+                    }
+                    continue;
+                }
+                fields[property.Name] = ConvertWritableScalar(value);
+            }
+            return fields;
+        }
+
+        private static JToken ConvertWritableScalar(object value)
+        {
+            if (value == null) return JValue.CreateNull();
+            if (value is Color color)
+            {
+                return new JValue($"#{color.R:X2}{color.G:X2}{color.B:X2}");
+            }
+            Type type = value.GetType();
+            if (type.IsEnum || value is char || value is Guid)
+            {
+                return new JValue(value.ToString());
+            }
+            return JToken.FromObject(value);
         }
 
         private static JObject BuildFieldSchema(PropertyInfo property, int depth)

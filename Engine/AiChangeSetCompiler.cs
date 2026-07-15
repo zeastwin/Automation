@@ -42,6 +42,8 @@ namespace Automation
         public JArray ConfigurationWarnings { get; internal set; }
 
         public JArray RunBlockers { get; internal set; }
+
+        public JArray StageIssues { get; internal set; }
     }
 
     /// <summary>
@@ -131,6 +133,7 @@ namespace Automation
             JArray previewChanges = atomicActionCount == 0
                 ? changes
                 : BuildAtomicPreviewChanges(changes);
+            JArray stageIssues = BuildStageIssues(previewChanges);
             string readinessStatus = processAnalyses.OfType<JObject>().Any(item =>
                     string.Equals(item["readinessStatus"]?.Value<string>(), "invalid", StringComparison.Ordinal))
                 ? "invalid"
@@ -155,8 +158,30 @@ namespace Automation
                 ReadinessStatus = readinessStatus,
                 Runnable = processAnalyses.OfType<JObject>().All(item => item["runnable"]?.Value<bool>() == true),
                 ConfigurationWarnings = configurationWarnings,
-                RunBlockers = runBlockers
+                RunBlockers = runBlockers,
+                StageIssues = stageIssues
             };
+        }
+
+        private static JArray BuildStageIssues(JArray changes)
+        {
+            var result = new JArray();
+            foreach (JObject change in changes?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+            {
+                int invalidatedGotoCount = change["invalidatedGotoCount"]?.Value<int>() ?? 0;
+                if (invalidatedGotoCount <= 0) continue;
+                result.Add(new JObject
+                {
+                    ["category"] = "current_stage_invalidated_reference",
+                    ["procId"] = change["procId"]?.DeepClone(),
+                    ["procIndex"] = change["procIndex"]?.DeepClone(),
+                    ["name"] = change["name"]?.DeepClone(),
+                    ["count"] = invalidatedGotoCount,
+                    ["message"] = $"本阶段使 {invalidatedGotoCount} 个既有跳转目标失效。",
+                    ["recommendedAction"] = "revise_change_set"
+                });
+            }
+            return result;
         }
 
         private static JArray BuildAtomicPreviewChanges(JArray compiledChanges)
@@ -185,7 +210,6 @@ namespace Automation
 
             var states = (currentProcesses ?? Array.Empty<Proc>())
                 .Select(proc => new AtomicProcessState(proc)).ToList();
-            var variables = new List<VariableChange>();
             var deletedIds = new HashSet<Guid>();
             for (int actionIndex = 0; actionIndex < source.Actions.Count; actionIndex++)
             {
@@ -195,11 +219,6 @@ namespace Automation
                 string path = $"actions[{actionIndex}]({type})";
                 switch (type)
                 {
-                    case "variable.change":
-                        EnsureActionShape(action, path, allowVariable: true);
-                        variables.Add(action.Variable
-                            ?? throw new InvalidOperationException($"{path}.variable 必填。"));
-                        break;
                     case "process.create":
                         EnsureActionShape(action, path, allowProcess: true);
                         AddProcessState(states, action.Process, path);
@@ -258,6 +277,12 @@ namespace Automation
                         UpdateOperation(ResolveProcessState(states, action.TargetProcess, path),
                             action.TargetStep, action.TargetOperation, action.Operation, path);
                         break;
+                    case "operation.replace":
+                        EnsureActionShape(action, path, allowTargetProcess: true, allowTargetStep: true,
+                            allowTargetOperation: true, allowOperation: true);
+                        ReplaceOperation(ResolveProcessState(states, action.TargetProcess, path),
+                            action.TargetStep, action.TargetOperation, action.Operation, path);
+                        break;
                     case "operation.delete":
                         EnsureActionShape(action, path, allowTargetProcess: true, allowTargetStep: true,
                             allowTargetOperation: true);
@@ -279,7 +304,7 @@ namespace Automation
             List<ProcessDefinition> processDefinitions = states
                 .Where(state => state.Touched && !state.Deleted)
                 .Select(state => state.Definition).ToList();
-            if (variables.Count == 0 && processDefinitions.Count == 0 && deletedIds.Count == 0)
+            if (processDefinitions.Count == 0 && deletedIds.Count == 0)
             {
                 throw new InvalidOperationException("changeSet.actions 未产生有效变更。");
             }
@@ -292,7 +317,6 @@ namespace Automation
                     Mode = "selected",
                     ProcIds = deletedIds.Select(id => id.ToString("D")).ToList()
                 },
-                Variables = variables,
                 Processes = processDefinitions
             };
         }
@@ -300,14 +324,13 @@ namespace Automation
         private static void EnsureActionShape(ChangeSetAction action, string path,
             bool allowTargetProcess = false, bool allowTargetStep = false,
             bool allowTargetOperation = false, bool allowPosition = false,
-            bool allowVariable = false, bool allowProcess = false,
+            bool allowProcess = false,
             bool allowStep = false, bool allowOperation = false)
         {
             if (!allowTargetProcess && action.TargetProcess != null) throw UnexpectedActionField(path, "targetProcess");
             if (!allowTargetStep && action.TargetStep != null) throw UnexpectedActionField(path, "targetStep");
             if (!allowTargetOperation && action.TargetOperation != null) throw UnexpectedActionField(path, "targetOperation");
             if (!allowPosition && action.Position != null) throw UnexpectedActionField(path, "position");
-            if (!allowVariable && action.Variable != null) throw UnexpectedActionField(path, "variable");
             if (!allowProcess && action.Process != null) throw UnexpectedActionField(path, "process");
             if (!allowStep && action.Step != null) throw UnexpectedActionField(path, "step");
             if (!allowOperation && action.Operation != null) throw UnexpectedActionField(path, "operation");
@@ -568,6 +591,35 @@ namespace Automation
         {
             StepDefinition step = ResolveOperationStep(state, stepSelector, operationSelector, path);
             step.Operations.Remove(ResolveOperation(step, operationSelector, path));
+        }
+
+        private static void ReplaceOperation(AtomicProcessState state, StepSelector stepSelector,
+            OperationSelector operationSelector, SemanticOperation replacement, string path)
+        {
+            if (operationSelector == null || string.IsNullOrWhiteSpace(operationSelector.OpId)
+                || !string.IsNullOrWhiteSpace(operationSelector.Key))
+            {
+                throw new InvalidOperationException(
+                    $"{path}.targetOperation 必须使用已提交指令的稳定 opId。当前阶段新指令直接修改其定义。");
+            }
+            StepDefinition step = ResolveOperationStep(state, stepSelector, operationSelector, path);
+            SemanticOperation current = ResolveOperation(step, operationSelector, path);
+            if (replacement == null || string.IsNullOrWhiteSpace(replacement.Kind))
+                throw new InvalidOperationException($"{path}.operation.kind 必填。");
+            if (!string.IsNullOrWhiteSpace(replacement.OpId))
+                throw new InvalidOperationException($"{path}.operation.opId 由 targetOperation 决定，不得重复提供。");
+            if (!string.IsNullOrWhiteSpace(replacement.Key))
+                throw new InvalidOperationException($"{path}.operation.key 由原指令继承，不得重新指定。");
+            if ((replacement.ClearFields?.Count ?? 0) > 0)
+                throw new InvalidOperationException($"{path}.operation.clearFields 只用于同类型 operation.update。");
+            replacement.OpId = current.OpId;
+            replacement.Key = current.Key;
+            step.Operations[step.Operations.IndexOf(current)] = replacement;
+            step.ReplaceOperationIds ??= new List<string>();
+            if (!step.ReplaceOperationIds.Contains(current.OpId, StringComparer.OrdinalIgnoreCase))
+            {
+                step.ReplaceOperationIds.Add(current.OpId);
+            }
         }
 
         private static void MoveOperation(AtomicProcessState state, StepSelector stepSelector,
@@ -1066,6 +1118,9 @@ namespace Automation
                             existingOperation = existingOperations[operationId];
                         }
                         bool reuseExisting = existingOperation != null && IsExistingOperationReference(semantic);
+                        bool replaceExisting = existingOperation != null
+                            && (stepDefinition.ReplaceOperationIds ?? new List<string>())
+                                .Contains(semantic.OpId, StringComparer.OrdinalIgnoreCase);
                         string actualOperaType = reuseExisting
                             ? existingOperation.OperaType
                             : semantic?.OperaType;
@@ -1094,7 +1149,7 @@ namespace Automation
                             OperationType compiled = CompileOperation(
                                 semantic, processName, procIndex,
                                 variables, resources, operationIdLocations, operationKeyLocations,
-                                step.Id, stepDefinition.Key, existingOperation);
+                                step.Id, stepDefinition.Key, existingOperation, replaceExisting);
                             if (existingOperation != null)
                             {
                                 compiled.Id = existingOperation.Id;
@@ -1333,7 +1388,8 @@ namespace Automation
             IReadOnlyDictionary<string, OperationReferenceLocation> operationKeyLocations,
             Guid currentStepId,
             string currentStepKey,
-            OperationType existingOperation = null)
+            OperationType existingOperation = null,
+            bool replaceExisting = false)
         {
             if (semantic == null) throw new InvalidOperationException($"流程[{processName}]包含 null 指令。");
             string kind = RequiredText(semantic.Kind, $"流程[{processName}]指令 kind");
@@ -1348,12 +1404,19 @@ namespace Automation
                 procIndex, variables, resources,
                 operationIdLocations, operationKeyLocations,
                 currentStepId, currentStepKey);
-            OperationType operation = existingOperation != null
+            OperationType operation = existingOperation != null && !replaceExisting
                 && string.Equals(kind, "native.operation", StringComparison.Ordinal)
                 ? StructuredOperationCompiler.CompilePatch(
                     existingOperation, semantic.OperaType, semantic.Fields,
                     semantic.ClearFields, context)
                 : compiler.Compile(semantic, context);
+            if (existingOperation != null && !replaceExisting
+                && !string.Equals(operation.OperaType, existingOperation.OperaType, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"operation.update 必须保持原指令类型[{existingOperation.OperaType}]，"
+                    + $"当前定义会生成[{operation.OperaType}]；改变类型请使用 operation.replace。");
+            }
 
             operation.Id = Guid.NewGuid();
             operation.AiKey = string.IsNullOrWhiteSpace(semantic.Key)

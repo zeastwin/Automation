@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.IO;
 using System.IO.Pipes;
@@ -160,6 +161,8 @@ namespace Automation.Bridge
                 PipeResponseMessage response;
                 string requestPath = string.Empty;
                 string requestMethod = string.Empty;
+                string requestId = string.Empty;
+                string requestBody = string.Empty;
                 Stopwatch stopwatch = Stopwatch.StartNew();
                 try
                 {
@@ -181,14 +184,16 @@ namespace Automation.Bridge
                         }
                         else
                         {
+                            requestId = request.RequestId ?? string.Empty;
                             requestMethod = request.Method ?? string.Empty;
-                        requestPath = request.Path ?? string.Empty;
-                        // 不向 FrmInfo 转发每请求的 INFO 日志，避免 AI 助手一跑就刷屏；异常仍由 ReportError 上报。
-                        AutomationBridgeResponse bridgeResponse = service.Handle(
-                            request.Method,
-                            request.Path,
-                            request.BodyJson);
-                        response = PipeResponseMessage.FromBridgeResponse(request.RequestId, bridgeResponse);
+                            requestPath = request.Path ?? string.Empty;
+                            requestBody = request.BodyJson ?? string.Empty;
+                            // 不向 FrmInfo 转发每请求的 INFO 日志，避免 AI 助手一跑就刷屏；异常仍由 ReportError 上报。
+                            AutomationBridgeResponse bridgeResponse = service.Handle(
+                                request.Method,
+                                request.Path,
+                                request.BodyJson);
+                            response = PipeResponseMessage.FromBridgeResponse(request.RequestId, bridgeResponse);
                         }
                     }
                 }
@@ -206,6 +211,10 @@ namespace Automation.Bridge
                     ReportError($"Automation Bridge 请求处理异常：{requestMethod} {requestPath}，{ex.Message}");
                 }
 
+                stopwatch.Stop();
+                WriteStructuredRequestEvent(requestId, requestMethod, requestPath, requestBody, response,
+                    stopwatch.ElapsedMilliseconds);
+
                 try
                 {
                     string responseText = JsonConvert.SerializeObject(response);
@@ -215,6 +224,81 @@ namespace Automation.Bridge
                 {
                     ReportError($"Automation Bridge 响应发送失败：{requestMethod} {requestPath}，{ex.Message}");
                 }
+            }
+        }
+
+        private static void WriteStructuredRequestEvent(string requestId, string method, string path,
+            string requestBody, PipeResponseMessage response, long durationMs)
+        {
+            try
+            {
+                int statusCode = response?.StatusCode ?? 500;
+                JObject responseObject = TryParseObject(response?.BodyJson);
+                bool? ok = responseObject?["ok"]?.Value<bool?>();
+                string errorCode = responseObject?["errorCode"]?.Value<string>()
+                    ?? responseObject?["error"]?["code"]?.Value<string>()
+                    ?? string.Empty;
+                string previewId = responseObject?["data"]?["previewId"]?.Value<string>()
+                    ?? responseObject?["previewId"]?.Value<string>()
+                    ?? string.Empty;
+                string transportStatus = statusCode >= 200 && statusCode < 500 ? "success" : "failed";
+                string businessStatus = statusCode >= 400 || ok == false ? "failed" : "success";
+
+                StructuredAuditLogger.Write("Bridge", new JObject
+                {
+                    ["source"] = "bridge",
+                    ["eventName"] = businessStatus == "success" ? "bridge.request.completed" : "bridge.request.failed",
+                    ["correlationId"] = requestId ?? string.Empty,
+                    ["bridgeRequestId"] = requestId ?? string.Empty,
+                    ["method"] = method ?? string.Empty,
+                    ["path"] = path ?? string.Empty,
+                    ["durationMs"] = durationMs,
+                    ["statusCode"] = statusCode,
+                    ["transportStatus"] = transportStatus,
+                    ["businessStatus"] = businessStatus,
+                    ["errorCode"] = errorCode,
+                    ["previewId"] = previewId,
+                    ["payload"] = new JObject
+                    {
+                        ["request"] = TryParseToken(requestBody),
+                        ["response"] = responseObject ?? TryParseToken(response?.BodyJson)
+                    }
+                });
+            }
+            catch
+            {
+            }
+        }
+
+        private static JObject TryParseObject(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+            try
+            {
+                return JObject.Parse(value);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static JToken TryParseToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return JValue.CreateNull();
+            }
+            try
+            {
+                return JToken.Parse(value);
+            }
+            catch
+            {
+                return value;
             }
         }
 

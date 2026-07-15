@@ -200,7 +200,7 @@ namespace Automation.Hmi
             this.MinimumSize = new System.Drawing.Size(1000, 680);
             this.Name = "FrmHmiMain";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "Automation";
+            this.Text = "Automation - HMI";
             this.WindowState = System.Windows.Forms.FormWindowState.Maximized;
             this.headerPanel.ResumeLayout(false);
             this.headerPanel.PerformLayout();

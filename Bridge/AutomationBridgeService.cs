@@ -267,6 +267,8 @@ namespace Automation.Bridge
                         return WrapResponse("variable.delete", ExecuteOnUiThread(() => HandleDeleteVariable(request)));
                     case "/bridge/variable/add":
                         return WrapResponse("variable.add", ExecuteOnUiThread(() => HandleAddVariable(request)));
+                    case "/bridge/variable/update":
+                        return WrapResponse("variable.update", ExecuteOnUiThread(() => HandleUpdateVariable(request)));
                     // ---------- station 拆分端点 ----------
                     case "/bridge/station/list":
                         return WrapResponse("station.list", ExecuteOnUiThread(() => HandleListStations(request)));
@@ -1477,7 +1479,7 @@ namespace Automation.Bridge
         private static void ValidateAtomicActionShape(JObject action)
         {
             EnsureOnlyProperties(action, "changeSet.actions[]", "type", "targetProcess", "targetStep",
-                "targetOperation", "position", "variable", "process", "step", "operation");
+                "targetOperation", "position", "process", "step", "operation");
             if (action["type"]?.Type != JTokenType.String
                 || string.IsNullOrWhiteSpace(action["type"]?.Value<string>()))
             {
@@ -1493,9 +1495,6 @@ namespace Automation.Bridge
             ValidateOptionalObject(action["position"], "changeSet.actions[].position", value =>
                 EnsureOnlyProperties(value, "changeSet.actions[].position",
                     "beforeId", "beforeKey", "afterId", "afterKey"));
-            ValidateOptionalObject(action["variable"], "changeSet.actions[].variable", value =>
-                EnsureOnlyProperties(value, "changeSet.actions[].variable",
-                    "name", "type", "initialValue", "note", "policy"));
             ValidateOptionalObject(action["process"], "changeSet.actions[].process", value =>
                 EnsureOnlyProperties(value, "changeSet.actions[].process",
                     "key", "name", "autoStart", "disable"));
@@ -1657,6 +1656,7 @@ namespace Automation.Bridge
                     change["type"]?.Value<string>(), "process.create", StringComparison.Ordinal))
                 .Select(change => change["procId"]?.Value<string>())
                 .Where(procId => !string.IsNullOrWhiteSpace(procId)), StringComparer.OrdinalIgnoreCase);
+            bool hasCurrentStageIssues = (draft.StageIssues?.Count ?? 0) > 0;
             return new JObject
             {
                 ["previewId"] = previewId,
@@ -1669,6 +1669,10 @@ namespace Automation.Bridge
                 ["nextToolArgs"] = record.Confirmed
                     ? new JObject { ["previewId"] = previewId }
                     : null,
+                ["recommendedAction"] = hasCurrentStageIssues
+                    ? "revise_change_set"
+                    : record.Confirmed ? "apply_change_set" : "await_foreground_confirmation",
+                ["draftSaveAllowed"] = true,
                 ["revisionAction"] = "preview_change_set",
                 ["revisionToolArgs"] = new JObject { ["replacePreviewId"] = previewId },
                 ["revisionMode"] = "full_stage_replacement",
@@ -1690,6 +1694,7 @@ namespace Automation.Bridge
                 ["runnable"] = draft.Runnable,
                 ["warnings"] = BuildPreviewOnlyView(draft.ConfigurationWarnings, createdPreviewProcIds),
                 ["runBlockers"] = BuildPreviewOnlyView(draft.RunBlockers, createdPreviewProcIds),
+                ["stageIssues"] = BuildPreviewOnlyView(draft.StageIssues, createdPreviewProcIds),
                 ["messages"] = new JArray(draft.AtomicActionCount > 0
                     ? $"本阶段包含 {draft.AtomicActionCount} 个原子动作；将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、修改 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量。受影响流程修改后共 {draft.OperationCount} 条指令。"
                     : $"本次将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、替换 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量，共 {draft.OperationCount} 条指令。")
@@ -3308,7 +3313,7 @@ namespace Automation.Bridge
                     ["disable"] = op?.Disable ?? false,
                     ["isJump"] = IsJumpOperation(op?.OperaType),
                     ["summary"] = op == null ? string.Empty : BuildOperationSummary(op),
-                    ["fields"] = oi == opIndex && op != null ? BuildOperationFields(op) : null
+                    ["fields"] = oi == opIndex && op != null ? BuildWritableOperationFields(op) : null
                 });
             }
             return new JObject
@@ -3631,7 +3636,7 @@ namespace Automation.Bridge
                 return BridgeError(400, "OP_NOT_FOUND", $"指令索引越界：{opIndex}");
             }
             IReadOnlyList<string> gotoErrors = ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc);
-            return BuildOperationDetail(procIndex, stepIndex, opIndex, step, step.Ops[opIndex], gotoErrors);
+            return BuildOperationDetail(proc, procIndex, stepIndex, opIndex, step, step.Ops[opIndex], gotoErrors);
         }
 
         // 按稳定 opId 有限批量读取指令，避免调用方维护容易漂移的 stepIndex/opIndex 组合。
@@ -3715,6 +3720,7 @@ namespace Automation.Bridge
             {
                 Tuple<int, int, Step, OperationType> location = locations[opId];
                 items.Add(BuildOperationDetail(
+                    proc,
                     procIndex,
                     location.Item1,
                     location.Item2,
@@ -3747,6 +3753,7 @@ namespace Automation.Bridge
         }
 
         private JObject BuildOperationDetail(
+            Proc proc,
             int procIndex,
             int stepIndex,
             int opIndex,
@@ -3771,9 +3778,11 @@ namespace Automation.Bridge
                 }
             }
 
+            JObject fields = op == null ? new JObject() : BuildWritableOperationFields(op);
             return new JObject
             {
                 ["procIndex"] = procIndex,
+                ["procId"] = proc?.head?.Id.ToString("D"),
                 ["stepIndex"] = stepIndex,
                 ["stepId"] = step?.Id.ToString("D"),
                 ["stepName"] = step?.Name ?? string.Empty,
@@ -3786,9 +3795,58 @@ namespace Automation.Bridge
                 ["isJump"] = isJump,
                 ["flow"] = flow,
                 ["summary"] = op == null ? string.Empty : BuildOperationSummary(op),
-                ["fields"] = op == null ? new JObject() : BuildOperationFields(op),
+                ["fields"] = fields,
+                ["displayFields"] = op == null ? new JObject() : BuildOperationFields(op),
                 ["gotoIssues"] = gotoIssues
             };
+        }
+
+        private JObject BuildWritableOperationFields(OperationType operation)
+        {
+            return WithOperationReadContext(operation, () =>
+            {
+                RefreshOperationContext(operation);
+                return StructuredOperationCompiler.BuildWritableFields(
+                    operation,
+                    address => TryResolvePhysicalGotoTarget(address, out JObject target) ? target : null);
+            });
+        }
+
+        private bool TryResolvePhysicalGotoTarget(string address, out JObject target)
+        {
+            target = null;
+            string[] parts = (address ?? string.Empty).Split('-');
+            if (parts.Length != 3
+                || !int.TryParse(parts[0], out int procIndex)
+                || !int.TryParse(parts[1], out int stepIndex)
+                || !int.TryParse(parts[2], out int opIndex)
+                || procIndex < 0
+                || stepIndex < 0
+                || opIndex < 0
+                || SF.frmProc == null
+                || procIndex >= SF.frmProc.procsList.Count)
+            {
+                return false;
+            }
+
+            Proc proc = SF.frmProc.procsList[procIndex];
+            if (proc?.steps == null || stepIndex >= proc.steps.Count)
+            {
+                return false;
+            }
+            Step step = proc.steps[stepIndex];
+            if (step?.Ops == null || opIndex >= step.Ops.Count)
+            {
+                return false;
+            }
+            OperationType operation = step.Ops[opIndex];
+            if (operation == null || operation.Id == Guid.Empty)
+            {
+                return false;
+            }
+
+            target = new JObject { ["operationId"] = operation.Id.ToString("D") };
+            return true;
         }
 
         private static bool IsMatchingReferenceType(string expected, string actual)
@@ -3853,7 +3911,7 @@ namespace Automation.Bridge
                         ["isJump"] = isJump,
                         ["flow"] = flow,
                         ["summary"] = op == null ? string.Empty : BuildOperationSummary(op),
-                        ["fields"] = op == null ? new JObject() : BuildOperationFields(op)
+                        ["fields"] = op == null ? new JObject() : BuildWritableOperationFields(op)
                     });
                 }
             }
@@ -4327,24 +4385,36 @@ namespace Automation.Bridge
         private JObject HandleDeleteVariable(JObject request)
         {
             EnsureRuntimeReady();
+            EnsureAllProcsStoppedForAiStructureCommit("删除变量");
             ValueConfigStore store = SF.valueStore;
             if (store == null)
             {
                 return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
             }
-            int index = ReadRequiredInt(request, "index");
-            if (index < 0 || index >= ValueConfigStore.ValueCapacity)
+            DicValue target = ResolveVariable(request, store);
+            if (ValueConfigStore.IsProtectedValueName(target.Name))
             {
-                return BridgeError(400, "INVALID_ARGUMENT", $"index 超出范围 [0, {ValueConfigStore.ValueCapacity})。");
+                return BridgeError(409, "PROTECTED_VARIABLE", $"系统保留变量不能删除：{target.Name}");
             }
-            store.ClearValueByIndex(index);
-            store.TryGetValueByIndex(index, out DicValue cleared);
+            Dictionary<string, DicValue> draft = store.BuildSaveData();
+            if (!draft.Remove(target.Name))
+            {
+                return BridgeError(404, "VARIABLE_NOT_FOUND", $"未找到变量：{target.Name}");
+            }
+            if (!store.TryCommitConfiguration(SF.ConfigPath, draft, out string commitError))
+            {
+                return BridgeError(500, "VARIABLE_COMMIT_FAILED", commitError);
+            }
+            SF.frmValue?.FreshFrmValue();
             return new JObject
             {
                 ["ok"] = true,
-                ["index"] = index,
-                ["variable"] = BuildVariableJObject(cleared),
-                ["message"] = $"变量槽位 {index} 已清空（Name/Value/Note 重置）。"
+                ["deleted"] = new JObject
+                {
+                    ["index"] = target.Index,
+                    ["name"] = target.Name
+                },
+                ["message"] = $"变量[{target.Name}]已删除，原槽位 index={target.Index} 保持为空。"
             };
         }
 
@@ -4352,30 +4422,35 @@ namespace Automation.Bridge
         private JObject HandleAddVariable(JObject request)
         {
             EnsureRuntimeReady();
+            EnsureAllProcsStoppedForAiStructureCommit("新增变量");
             ValueConfigStore store = SF.valueStore;
             if (store == null)
             {
                 return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
             }
-            string name = request["name"]?.Value<string>();
+            string name = request["name"]?.Value<string>()?.Trim();
             if (string.IsNullOrWhiteSpace(name))
             {
                 return BridgeError(400, "INVALID_ARGUMENT", "缺少 name 字段或 name 为空。");
             }
-            string type = request["type"]?.Value<string>() ?? "double";
+            if (ValueConfigStore.IsProtectedValueName(name))
+            {
+                return BridgeError(409, "PROTECTED_VARIABLE", $"系统保留变量不能通过此工具创建：{name}");
+            }
+            string type = (request["type"]?.Value<string>() ?? "double").ToLowerInvariant();
             if (!string.Equals(type, "double", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(type, "string", StringComparison.OrdinalIgnoreCase))
             {
                 return BridgeError(400, "INVALID_ARGUMENT", $"type 只能是 double 或 string，当前：{type}");
             }
-            string value = request["value"]?.Value<string>();
+            string value = request["initialValue"]?.Value<string>();
             if (value == null)
             {
                 value = string.Equals(type, "double", StringComparison.OrdinalIgnoreCase) ? "0" : "";
             }
             if (string.Equals(type, "double", StringComparison.OrdinalIgnoreCase) && !double.TryParse(value, out _))
             {
-                return BridgeError(400, "INVALID_ARGUMENT", $"type=double 时 value 必须是有效数字，当前：{value}");
+                return BridgeError(400, "INVALID_ARGUMENT", $"type=double 时 initialValue 必须是有效数字，当前：{value}");
             }
             string note = request["note"]?.Value<string>() ?? string.Empty;
             int? requestedIndex = request["index"]?.Value<int>();
@@ -4416,11 +4491,20 @@ namespace Automation.Bridge
                 }
             }
 
-            if (!store.TrySetValue(targetIndex, name, type, value, note, "EW-AI"))
+            Dictionary<string, DicValue> draft = store.BuildSaveData();
+            draft[name] = new DicValue
             {
-                return BridgeError(500, "SET_FAILED", $"变量 [{name}] 写入 index={targetIndex} 失败。");
+                Index = targetIndex,
+                Name = name,
+                Type = type,
+                ConfigValue = value,
+                Value = value,
+                Note = note
+            };
+            if (!store.TryCommitConfiguration(SF.ConfigPath, draft, out string commitError))
+            {
+                return BridgeError(500, "VARIABLE_COMMIT_FAILED", commitError);
             }
-            store.Save(SF.ConfigPath);
             SF.frmValue?.FreshFrmValue();
             store.TryGetValueByIndex(targetIndex, out DicValue created);
             return new JObject
@@ -4428,6 +4512,82 @@ namespace Automation.Bridge
                 ["ok"] = true,
                 ["variable"] = BuildVariableJObject(created),
                 ["message"] = $"变量 [{name}] 已创建于 index={targetIndex}。"
+            };
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleUpdateVariable(JObject request)
+        {
+            EnsureRuntimeReady();
+            EnsureAllProcsStoppedForAiStructureCommit("修改变量配置");
+            ValueConfigStore store = SF.valueStore;
+            if (store == null)
+            {
+                return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+            }
+            DicValue target = ResolveVariable(request, store);
+            if (ValueConfigStore.IsProtectedValueName(target.Name))
+            {
+                return BridgeError(409, "PROTECTED_VARIABLE", $"系统保留变量不能修改配置：{target.Name}");
+            }
+
+            bool hasNewName = request.Property("newName", StringComparison.Ordinal) != null;
+            bool hasType = request.Property("type", StringComparison.Ordinal) != null;
+            bool hasInitialValue = request.Property("initialValue", StringComparison.Ordinal) != null;
+            bool hasNote = request.Property("note", StringComparison.Ordinal) != null;
+            if (!hasNewName && !hasType && !hasInitialValue && !hasNote)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "至少提供 newName、type、initialValue 或 note 之一。");
+            }
+
+            string newName = hasNewName ? request["newName"]?.Value<string>()?.Trim() : target.Name;
+            if (string.IsNullOrWhiteSpace(newName))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "newName 不能为空。");
+            }
+            string type = hasType ? request["type"]?.Value<string>() : target.Type;
+            if (!string.Equals(type, "double", StringComparison.Ordinal)
+                && !string.Equals(type, "string", StringComparison.Ordinal))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", $"type 只能是 double 或 string，当前：{type}");
+            }
+            string initialValue = hasInitialValue
+                ? request["initialValue"]?.Value<string>()
+                : target.ConfigValue;
+            if (initialValue == null)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "initialValue 不能为 null。");
+            }
+            if (string.Equals(type, "double", StringComparison.Ordinal) && !double.TryParse(initialValue, out _))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", $"type=double 时 initialValue 必须是有效数字，当前：{initialValue}");
+            }
+            string note = hasNote ? request["note"]?.Value<string>() ?? string.Empty : target.Note ?? string.Empty;
+
+            Dictionary<string, DicValue> draft = store.BuildSaveData();
+            if (!string.Equals(newName, target.Name, StringComparison.Ordinal)
+                && draft.ContainsKey(newName))
+            {
+                return BridgeError(409, "DUPLICATE_NAME", $"变量名已存在：{newName}");
+            }
+            draft.Remove(target.Name);
+            DicValue updated = ObjectGraphCloner.Clone(target);
+            updated.Name = newName;
+            updated.Type = type;
+            updated.ConfigValue = initialValue;
+            updated.Note = note;
+            draft[newName] = updated;
+            if (!store.TryCommitConfiguration(SF.ConfigPath, draft, out string commitError))
+            {
+                return BridgeError(500, "VARIABLE_COMMIT_FAILED", commitError);
+            }
+            SF.frmValue?.FreshFrmValue();
+            store.TryGetValueByName(newName, out DicValue committed);
+            return new JObject
+            {
+                ["ok"] = true,
+                ["variable"] = BuildVariableJObject(committed),
+                ["message"] = $"变量[{target.Name}]配置已更新。"
             };
         }
 
@@ -6844,7 +7004,7 @@ namespace Automation.Bridge
                                 ["isJump"] = isJump,
                                 ["flow"] = flow,
                                 ["summary"] = op == null ? string.Empty : BuildOperationSummary(op),
-                                ["fields"] = op == null ? new JObject() : BuildOperationFields(op)
+                                ["fields"] = op == null ? new JObject() : BuildWritableOperationFields(op)
                             });
                         }
                     }

@@ -39,6 +39,8 @@ namespace Automation
             new Dictionary<string, JObject>(StringComparer.Ordinal);
         private readonly Dictionary<string, JObject> changeSetsByPreviewId =
             new Dictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> flowVisualizationCallIds =
+            new HashSet<string>(StringComparer.Ordinal);
         private readonly JArray flowVisualizationProcesses = new JArray();
         private DateTime promptStartedAt;
         private bool streamingThought;
@@ -567,7 +569,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .text-button:hover{background:#f3f7fb;}
 .primary-button{border:1px solid #246fb5;background:#246fb5;color:#fff;}
 .primary-button:hover{background:#1f63a3;}
-.toast{position:fixed;right:20px;bottom:20px;max-width:420px;background:#172033;color:#fff;border-radius:11px;padding:10px 13px;box-shadow:0 12px 30px rgba(15,23,42,.24);display:none;z-index:40;font-size:13px;}
+.toast{position:fixed;right:20px;top:60px;max-width:420px;background:#172033;color:#fff;border-radius:11px;padding:10px 13px;box-shadow:0 12px 30px rgba(15,23,42,.24);display:none;z-index:40;font-size:13px;}
 .toast.show{display:block;}
 @media (max-width:720px){.settings-grid{grid-template-columns:1fr}.composer-wrap{padding:10px}.topbar{padding:0 12px}.brand-subtitle{display:none}}
 </style>
@@ -857,6 +859,19 @@ function copyMessage(button){
     if(!content){return;}
     post('copyText',{text:content.innerText||content.textContent||''});
 }
+function copySelectedText(event){
+    var selected='';
+    var active=document.activeElement;
+    if(active&&(active.tagName==='TEXTAREA'||active.tagName==='INPUT')
+        &&typeof active.selectionStart==='number'&&typeof active.selectionEnd==='number'){
+        selected=active.value.substring(active.selectionStart,active.selectionEnd);
+    }else if(window.getSelection){
+        selected=window.getSelection().toString();
+    }
+    if(!selected){return;}
+    event.preventDefault();
+    post('copyText',{text:selected});
+}
 function sendPrompt(){
     if(appState.sending){post('stop');return;}
     if(dropReadCount>0){showToast('文件仍在读取，请稍候。');return;}
@@ -901,7 +916,10 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('sessionTrigger').addEventListener('click',function(e){e.stopPropagation();toggleSessionMenu();});
     byId('sessionMenu').addEventListener('click',function(e){e.stopPropagation();});
     document.addEventListener('click',closeSessionMenu);
-    document.addEventListener('keydown',function(e){if(e.key==='Escape'){closeSessionMenu();}});
+    document.addEventListener('keydown',function(e){
+        if(e.key==='Escape'){closeSessionMenu();return;}
+        if((e.ctrlKey||e.metaKey)&&String(e.key||'').toLowerCase()==='c'){copySelectedText(e);}
+    },true);
     byId('attachButton').addEventListener('click',function(){post('chooseFile');});
     byId('sendButton').addEventListener('click',sendPrompt);
     byId('promptInput').addEventListener('input',autoGrowPrompt);
@@ -1858,6 +1876,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             latestAssistantSegmentDivId = null;
             previewChangeSetsByCallId.Clear();
             changeSetsByPreviewId.Clear();
+            flowVisualizationCallIds.Clear();
             flowVisualizationProcesses.RemoveAll();
             promptStartedAt = DateTime.Now;
             promptCts?.Dispose();
@@ -2079,6 +2098,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             latestAssistantSegmentDivId = null;
             previewChangeSetsByCallId.Clear();
             changeSetsByPreviewId.Clear();
+            flowVisualizationCallIds.Clear();
             flowVisualizationProcesses.RemoveAll();
             promptStartedAt = default(DateTime);
             streamingThought = false;
@@ -2914,14 +2934,36 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             string callId = update?["toolCallId"]?.Value<string>();
             if (string.Equals(item?.Kind, "tool_call", StringComparison.Ordinal))
             {
+                JObject toolCall = update?["_meta"]?["goose"]?["toolCall"] as JObject;
+                string extensionName = toolCall?["extensionName"]?.Value<string>();
+                string toolName = toolCall?["toolName"]?.Value<string>();
+                int toolPrefixSeparator = toolName?.LastIndexOf("__", StringComparison.Ordinal) ?? -1;
+                if (toolPrefixSeparator >= 0)
+                {
+                    toolName = toolName.Substring(toolPrefixSeparator + 2);
+                }
+                bool capturesFlow = string.Equals(extensionName, "automation", StringComparison.OrdinalIgnoreCase)
+                    && (string.Equals(toolName, "get_proc_overview", StringComparison.Ordinal)
+                        || string.Equals(toolName, "get_proc_detail", StringComparison.Ordinal)
+                        || string.Equals(toolName, "preview_change_set", StringComparison.Ordinal)
+                        || string.Equals(toolName, "apply_change_set", StringComparison.Ordinal));
+                if (string.IsNullOrWhiteSpace(callId) || !capturesFlow)
+                {
+                    return;
+                }
+                flowVisualizationCallIds.Add(callId);
                 JObject changeSet = update?["rawInput"]?["changeSet"] as JObject;
-                if (!string.IsNullOrWhiteSpace(callId) && changeSet != null)
+                if (changeSet != null)
                 {
                     previewChangeSetsByCallId[callId] = (JObject)changeSet.DeepClone();
                 }
                 return;
             }
             if (!string.Equals(item?.Kind, "tool_result", StringComparison.Ordinal))
+            {
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(callId) || !flowVisualizationCallIds.Remove(callId))
             {
                 return;
             }
@@ -2973,9 +3015,14 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 }
                 changeSetsByPreviewId.Remove(previewId);
             }
-            catch (JsonException)
+            catch (Exception ex)
             {
-                // 可视化是辅助呈现，异常结果或非JSON工具结果不影响主链路。
+                // 只有 Automation 的流程工具进入这里；其返回形状异常需要记录，但不得中断工具主链路。
+                SF.DR?.Logger?.Log($"AI流程可视化解析失败:{ex}", LogLevel.Error);
+            }
+            finally
+            {
+                previewChangeSetsByCallId.Remove(callId);
             }
         }
 
@@ -3008,6 +3055,24 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private static JObject BuildReadFlowVisualization(JObject data)
         {
+            var targetsByOperationId = new Dictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
+            foreach (JObject sourceStep in (data["steps"] as JArray ?? new JArray()).OfType<JObject>())
+            {
+                int sourceStepIndex = sourceStep["stepIndex"]?.Value<int?>() ?? 0;
+                foreach (JObject sourceOperation in (sourceStep["ops"] as JArray ?? new JArray()).OfType<JObject>())
+                {
+                    string opId = sourceOperation["opId"]?.Value<string>();
+                    int sourceOperationIndex = sourceOperation["opIndex"]?.Value<int?>() ?? 0;
+                    if (!string.IsNullOrWhiteSpace(opId))
+                    {
+                        targetsByOperationId[opId] = new JObject
+                        {
+                            ["step"] = "步骤" + sourceStepIndex,
+                            ["operation"] = sourceOperationIndex
+                        };
+                    }
+                }
+            }
             var process = new JObject
             {
                 ["action"] = "inspect",
@@ -3033,8 +3098,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     };
                     JObject fields = operation["fields"] as JObject;
                     if (string.Equals(operaType, "逻辑判断", StringComparison.Ordinal)
-                        && TryBuildReadFlowTarget(fields?["goto1"]?.Value<string>(), out JObject whenTrue)
-                        && TryBuildReadFlowTarget(fields?["goto2"]?.Value<string>(), out JObject whenFalse))
+                        && TryBuildReadFlowTarget(fields?["goto1"], targetsByOperationId, out JObject whenTrue)
+                        && TryBuildReadFlowTarget(fields?["goto2"], targetsByOperationId, out JObject whenFalse))
                     {
                         visualOperation["kind"] = "branch.platform";
                         visualOperation["whenTrue"] = whenTrue;
@@ -3046,13 +3111,13 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     }
                     else
                     {
-                        string targetAddress = fields?["DefaultGoto"]?.Value<string>();
-                        if (string.IsNullOrWhiteSpace(targetAddress))
+                        JToken targetValue = fields?["DefaultGoto"];
+                        if (targetValue == null || targetValue.Type == JTokenType.Null)
                         {
                             Match match = Regex.Match(summary, @"默认跳转[=：]\s*(\d+-\d+-\d+)");
-                            targetAddress = match.Success ? match.Groups[1].Value : null;
+                            targetValue = match.Success ? new JValue(match.Groups[1].Value) : null;
                         }
-                        if (TryBuildReadFlowTarget(targetAddress, out JObject target))
+                        if (TryBuildReadFlowTarget(targetValue, targetsByOperationId, out JObject target))
                         {
                             visualOperation["kind"] = "flow.goto";
                             visualOperation["target"] = target;
@@ -3090,6 +3155,28 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 ["operation"] = operationIndex
             };
             return true;
+        }
+
+        private static bool TryBuildReadFlowTarget(
+            JToken value,
+            IReadOnlyDictionary<string, JObject> targetsByOperationId,
+            out JObject target)
+        {
+            target = null;
+            if (value is JObject selector)
+            {
+                string operationId = selector["operationId"]?.Value<string>();
+                if (!string.IsNullOrWhiteSpace(operationId)
+                    && targetsByOperationId != null
+                    && targetsByOperationId.TryGetValue(operationId, out JObject resolved))
+                {
+                    target = (JObject)resolved.DeepClone();
+                    return true;
+                }
+                return false;
+            }
+            return value?.Type == JTokenType.String
+                && TryBuildReadFlowTarget(value.Value<string>(), out target);
         }
 
         // 工具调用/结果紧凑单行显示；连续相同项合并计数，避免重复占用纵向空间。
@@ -3159,6 +3246,14 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 .Replace("get_proc_overview", "获取流程概览")
                 .Replace("get_proc_detail", "获取流程详情")
                 .Replace("list_procs", "列出流程")
+                .Replace("get_variable_by_name", "按名称获取变量")
+                .Replace("get_variable_by_index", "按索引获取变量")
+                .Replace("set_variable_by_name", "按名称设置变量")
+                .Replace("set_variable_by_index", "按索引设置变量")
+                .Replace("list_variables", "读取变量表")
+                .Replace("add_variable", "新增变量")
+                .Replace("update_variable", "修改变量")
+                .Replace("delete_variable", "删除变量")
                 .Replace("get_variable", "获取变量")
                 .Replace("search_variables", "搜索变量")
                 .Replace("get_snapshot", "获取运行快照")
@@ -3712,9 +3807,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         {
             string normalizedMarkdown = (markdown ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n");
             normalizedMarkdown = Regex.Replace(normalizedMarkdown, @"(?m)(?<!^)(```|~~~)", "\n$1");
-            normalizedMarkdown = Regex.Replace(normalizedMarkdown, @"(?m)(?<=\S)---\s*$", "\n\n---");
-            normalizedMarkdown = Regex.Replace(normalizedMarkdown, @"(?<=\S)(?=- \*\*)", "\n");
-            normalizedMarkdown = Regex.Replace(normalizedMarkdown, @"(?<=\S)(?=\*\*[0-9](?:\uFE0F?\u20E3)?)", "\n\n");
             normalizedMarkdown = UnwrapBareMarkdownFence(normalizedMarkdown);
             string[] lines = normalizedMarkdown.Split('\n');
             var output = new List<string>();
@@ -3736,7 +3828,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     continue;
                 }
 
-                string normalizedLine = NormalizeHeadingMarkers(line);
+                string normalizedLine = NormalizeMarkdownBlockMarkers(line);
+                normalizedLine = NormalizeHeadingMarkers(normalizedLine);
                 foreach (string logicalLine in normalizedLine.Split('\n'))
                 {
                     foreach (string expandedLine in ExpandMalformedHeadingBody(logicalLine))
@@ -3756,6 +3849,23 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
 
             return string.Join("\n", output);
+        }
+
+        // 只修复能够判定为块标记的粘连：行尾粗体标题、列表标记和水平分隔线。
+        // 普通句子中的行内粗体保持原样，代码围栏内容在调用本方法前已经排除。
+        private static string NormalizeMarkdownBlockMarkers(string line)
+        {
+            string normalized = line ?? string.Empty;
+            normalized = Regex.Replace(normalized, @"(?m)(?<=\S)---\s*$", "\n\n---");
+            normalized = Regex.Replace(normalized, @"(?<=\S)(?=- \*\*)", "\n");
+            normalized = Regex.Replace(normalized, @"(?<=\S)(?=\d+[\.、]\s+\S)", "\n");
+            normalized = Regex.Replace(
+                normalized,
+                @"(?<=\S)(?=\*\*[^*\n]{1,80}\*\*(?:\s*$|\s+[—–]\s*))",
+                "\n\n");
+            normalized = Regex.Replace(normalized, @"(?m)^(\s*\d+[\.、])(?=[^\s\d])", "$1 ");
+            normalized = Regex.Replace(normalized, @"(?m)^(\s*)-(?=[\p{L}])", "$1- ");
+            return normalized;
         }
 
         private static string UnwrapBareMarkdownFence(string markdown)

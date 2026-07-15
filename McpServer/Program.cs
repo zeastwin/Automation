@@ -164,7 +164,10 @@ namespace Automation.McpServer
             {
                 "list_operation_types", "get_native_operation_schemas", "get_semantic_operation_schema", "preview_change_set",
                 "get_operation_guide", "apply_change_set", "discard_change_set_preview", "validate_proc",
-                "wait_for_proc_state", "run_proc_test", "get_communication", "set_alarm", "delete_alarm"
+                "wait_for_proc_state", "run_proc_test", "get_communication", "set_alarm", "delete_alarm",
+                "list_variables", "get_variable_by_name", "get_variable_by_index",
+                "set_variable_by_name", "set_variable_by_index",
+                "add_variable", "update_variable", "delete_variable"
             };
             string[] retired =
             {
@@ -179,6 +182,7 @@ namespace Automation.McpServer
                 "get_change_capabilities", "get_operation_contracts", "get_native_operation_contract",
                 "get_operation_schemas",
                 "get_semantic_operation_schemas",
+                "get_variable", "set_variable", "search_variables",
                 "begin_change_set_draft", "append_change_set_draft", "get_change_set_draft",
                 "stage_changes", "get_staged_changes", "preview_staged_changes", "discard_staged_changes"
             };
@@ -219,12 +223,17 @@ namespace Automation.McpServer
             McpServerTool previewTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "preview_change_set", StringComparison.Ordinal));
             string previewSchema = previewTool.ProtocolTool.InputSchema.ToString();
+            if (previewSchema.Contains("variable.change", StringComparison.Ordinal)
+                || previewSchema.Contains("reuse/create/update/replace/require", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("preview_change_set 不应暴露整表事务的 variable.change 字段。");
+            }
             var schemaIssues = new List<string>();
             string[] requiredSchemaTerms =
             {
                 "actions", "targetProcess", "targetOperation", "position", "oneOf",
                 "variable.compute", "branch.number_compare", "minimum", "maximum", "kind",
-                "replacePreviewId"
+                "replacePreviewId", "operation.replace", "afterKey", "current_change_set"
             };
             schemaIssues.AddRange(requiredSchemaTerms
                 .Where(term => !previewSchema.Contains(term, StringComparison.Ordinal))

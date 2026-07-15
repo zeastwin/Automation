@@ -58,6 +58,7 @@ namespace Automation
         private readonly object popupLock = new object();
         private readonly Dictionary<int, List<ProcPopupItem>> procPopups = new Dictionary<int, List<ProcPopupItem>>();
         private readonly AutomationBridgeHost automationBridgeHost;
+        private readonly ProcessTraceAuditSink processTraceAuditSink;
         private readonly AutomationMcpServerManager automationMcpServerManager = new AutomationMcpServerManager();
         private bool platformInitializationStarted;
         private bool platformInitialized;
@@ -136,6 +137,7 @@ namespace Automation
             dataRun.AlarmHandler = new WinFormsAlarmHandler(this);
             dataRun.UiInvoker = this;
             dataRun.SnapshotChanged += CacheSnapshot;
+            processTraceAuditSink = new ProcessTraceAuditSink(dataRun);
             SF.plcRuntime.RuntimeEvent += HandlePlcRuntimeEvent;
             SF.procStore = new ProcessEngineStore(dataRun);
             SF.frmMenu = frmMenu;
@@ -189,7 +191,7 @@ namespace Automation
             frmAiAssistant.Show();
 
             StartSnapshotTimer();
-            Text = "Automation";
+            Text = "Automation - 平台";
             Shown += FrmMain_Shown;
         }
 
@@ -1160,11 +1162,11 @@ namespace Automation
         public void RequireRestartAfterMotionConfigurationChange()
         {
             SF.MotionConfigRestartRequired = true;
-            const string message = "运动设备配置已变更；重启前禁止轴运动，MES、通讯及其他非运动流程可继续运行。";
-            dataRun?.Logger?.Log(message, LogLevel.Error);
+            const string message = "运动设备配置已保存，重启程序后生效；重启前轴运动不可用，MES、通讯及其他非运动流程可继续运行。";
+            dataRun?.Logger?.Log(message, LogLevel.Normal);
             if (frmInfo != null && !frmInfo.IsDisposed)
             {
-                frmInfo.PrintInfo(message, FrmInfo.Level.Error);
+                frmInfo.PrintInfo(message, FrmInfo.Level.Normal);
             }
         }
 
@@ -1398,6 +1400,7 @@ namespace Automation
             TryStopMotion();
             try
             {
+                processTraceAuditSink?.Dispose();
                 if (dataRun != null)
                 {
                     dataRun.SnapshotChanged -= CacheSnapshot;

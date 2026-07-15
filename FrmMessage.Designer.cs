@@ -53,9 +53,9 @@ namespace Automation
             //
             // flowButtons
             //
-            this.flowButtons.Controls.Add(this.btn1);
-            this.flowButtons.Controls.Add(this.btn2);
             this.flowButtons.Controls.Add(this.btn3);
+            this.flowButtons.Controls.Add(this.btn2);
+            this.flowButtons.Controls.Add(this.btn1);
             this.flowButtons.Dock = System.Windows.Forms.DockStyle.Fill;
             this.flowButtons.FlowDirection = System.Windows.Forms.FlowDirection.RightToLeft;
             this.flowButtons.Location = new System.Drawing.Point(24, 14);

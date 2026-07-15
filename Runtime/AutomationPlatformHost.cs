@@ -177,7 +177,7 @@ namespace Automation
             }
         }
 
-        public void ShowPlatformEditor(IWin32Window owner)
+        public void ShowPlatformEditor()
         {
             EnsureUiThread();
             EnsureReadyOrFaulted();
@@ -189,16 +189,11 @@ namespace Automation
             {
                 platformEditor.HideOnUserClose = true;
                 platformEditor.EnsureAiInfrastructureStarted();
+                platformEditor.Owner = null;
+                platformEditor.ShowInTaskbar = true;
                 if (!platformEditor.Visible)
                 {
-                    if (owner == null)
-                    {
-                        platformEditor.Show();
-                    }
-                    else
-                    {
-                        platformEditor.Show(owner);
-                    }
+                    platformEditor.Show();
                 }
                 if (platformEditor.WindowState == FormWindowState.Minimized)
                 {

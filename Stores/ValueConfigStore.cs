@@ -26,11 +26,25 @@ namespace Automation
         private readonly bool[] monitorFlags = new bool[ValueCapacity];
         private volatile bool monitorEnabled;
 
+        private sealed class RuntimeValueState
+        {
+            public string Value { get; set; }
+            public DateTime LastChangedAt { get; set; }
+            public string LastChangedBy { get; set; }
+            public string LastChangedOldValue { get; set; }
+            public string LastChangedNewValue { get; set; }
+        }
+
         public event EventHandler<ValueChangedEventArgs> ValueChanged;
 
         public ValueConfigStore()
         {
             ResetValues();
+        }
+
+        public static bool IsProtectedValueName(string name)
+        {
+            return !string.IsNullOrEmpty(name) && ProtectedValueNames.Contains(name);
         }
 
         public void SetMonitorFlag(int index, bool isMonitored)
@@ -128,7 +142,9 @@ namespace Automation
             nameIndexSnapshot = new Dictionary<string, int>();
         }
 
-        private void LoadFromDictionary(Dictionary<string, DicValue> source)
+        private void LoadFromDictionary(
+            Dictionary<string, DicValue> source,
+            IReadOnlyDictionary<string, RuntimeValueState> preservedRuntimeValues = null)
         {
             lock (valueLock)
             {
@@ -162,6 +178,15 @@ namespace Automation
                         item.Value.Type = "string";
                     }
                     item.Value.ResetRuntimeFromConfig();
+                    if (preservedRuntimeValues != null
+                        && preservedRuntimeValues.TryGetValue(item.Key, out RuntimeValueState runtimeState))
+                    {
+                        item.Value.Value = runtimeState.Value;
+                        item.Value.LastChangedAt = runtimeState.LastChangedAt;
+                        item.Value.LastChangedBy = runtimeState.LastChangedBy;
+                        item.Value.LastChangedOldValue = runtimeState.LastChangedOldValue;
+                        item.Value.LastChangedNewValue = runtimeState.LastChangedNewValue;
+                    }
                     values[index] = item.Value;
                     nameIndex[item.Key] = index;
                 }
@@ -254,15 +279,103 @@ namespace Automation
 
         /// <summary>
         /// 在配置事务已经落盘后，用同一份已校验快照替换内存变量表。
+        /// 同一变量保留当前运行值，防止配置编辑把整张变量表重置到配置值。
+        /// initialValue 只属于配置；新建、改名、改类型或改索引的变量才从新配置初始化运行值。
         /// 不在此方法内保存文件，避免把事务拆成第二次独立写入。
         /// </summary>
         public void ReplaceConfiguration(IDictionary<string, DicValue> source)
         {
-            if (source == null)
+            Dictionary<string, DicValue> snapshot = CreateValidatedConfigurationSnapshot(source);
+            lock (valueLock)
             {
-                throw new ArgumentNullException(nameof(source));
+                var preservedRuntimeValues = new Dictionary<string, RuntimeValueState>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, DicValue> item in snapshot)
+                {
+                    if (!nameIndex.TryGetValue(item.Key, out int currentIndex))
+                    {
+                        continue;
+                    }
+                    DicValue current = values[currentIndex];
+                    DicValue incoming = item.Value;
+                    if (current == null
+                        || current.Index != incoming.Index
+                        || !string.Equals(current.Name, item.Key, StringComparison.Ordinal)
+                        || !string.Equals(current.Type, incoming.Type, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    preservedRuntimeValues[item.Key] = new RuntimeValueState
+                    {
+                        Value = current.Value,
+                        LastChangedAt = current.LastChangedAt,
+                        LastChangedBy = current.LastChangedBy,
+                        LastChangedOldValue = current.LastChangedOldValue,
+                        LastChangedNewValue = current.LastChangedNewValue
+                    };
+                }
+                LoadFromDictionary(snapshot, preservedRuntimeValues);
             }
+        }
+
+        /// <summary>
+        /// 原子保存一份已修改的变量配置并刷新内存。公开调用方仍只修改单个变量；
+        /// 整份字典只用于 value.json 的文件级原子替换和失败回滚。
+        /// </summary>
+        public bool TryCommitConfiguration(
+            string configPath,
+            IDictionary<string, DicValue> source,
+            out string error)
+        {
+            error = null;
+            Dictionary<string, DicValue> snapshot;
+            try
+            {
+                snapshot = CreateValidatedConfigurationSnapshot(source);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+
+            Dictionary<string, DicValue> oldConfiguration = BuildSaveData();
+            if (!AtomicJsonFileStore.Save(configPath, "value", snapshot))
+            {
+                error = "变量配置写入磁盘失败。";
+                return false;
+            }
+            try
+            {
+                ReplaceConfiguration(snapshot);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                bool diskRestored = AtomicJsonFileStore.Save(configPath, "value", oldConfiguration);
+                bool memoryRestored = true;
+                try
+                {
+                    ReplaceConfiguration(oldConfiguration);
+                }
+                catch
+                {
+                    memoryRestored = false;
+                }
+                error = $"变量配置刷新失败：{ex.Message}；diskRestored={diskRestored}，memoryRestored={memoryRestored}";
+                if (!diskRestored || !memoryRestored)
+                {
+                    SF.SetSecurityLock(error);
+                }
+                return false;
+            }
+        }
+
+        private static Dictionary<string, DicValue> CreateValidatedConfigurationSnapshot(
+            IDictionary<string, DicValue> source)
+        {
+            if (source == null) throw new ArgumentNullException(nameof(source));
             var snapshot = new Dictionary<string, DicValue>(StringComparer.Ordinal);
+            var indexes = new HashSet<int>();
             foreach (KeyValuePair<string, DicValue> item in source)
             {
                 if (string.IsNullOrWhiteSpace(item.Key) || item.Value == null)
@@ -273,14 +386,25 @@ namespace Automation
                 {
                     throw new InvalidDataException($"变量[{item.Key}]索引超出范围：{item.Value.Index}");
                 }
+                if (!indexes.Add(item.Value.Index))
+                {
+                    throw new InvalidDataException($"变量配置包含重复索引：{item.Value.Index}");
+                }
                 if (!string.Equals(item.Value.Type, "double", StringComparison.Ordinal)
                     && !string.Equals(item.Value.Type, "string", StringComparison.Ordinal))
                 {
                     throw new InvalidDataException($"变量[{item.Key}]类型无效：{item.Value.Type}");
                 }
-                snapshot[item.Key] = ObjectGraphCloner.Clone(item.Value);
+                if (string.Equals(item.Value.Type, "double", StringComparison.Ordinal)
+                    && !double.TryParse(item.Value.ConfigValue, out _))
+                {
+                    throw new InvalidDataException($"变量[{item.Key}]配置值不是有效数字：{item.Value.ConfigValue}");
+                }
+                DicValue clone = ObjectGraphCloner.Clone(item.Value);
+                clone.Name = item.Key;
+                snapshot[item.Key] = clone;
             }
-            LoadFromDictionary(snapshot);
+            return snapshot;
         }
 
         public bool TrySetValue(int index, string name, string type, string value, string note, string source = null)

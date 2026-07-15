@@ -11,11 +11,19 @@ namespace Automation.McpServer
     internal static class ToolCallLogger
     {
         private const long MaxLogFileBytes = 5L * 1024L * 1024L;
+        private const int MaxPayloadBytes = 64 * 1024;
+        private const int StructuredSchemaVersion = 1;
         private static readonly object SyncRoot = new object();
+        private static readonly AsyncLocal<string?> CurrentCallId = new AsyncLocal<string?>();
         private static readonly Mutex ExecutionLogMutex = new Mutex(false, "AutomationAIExecutionAuditLog");
         private static readonly JsonSerializerOptions PrettyJsonOptions = new JsonSerializerOptions
         {
             WriteIndented = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+        private static readonly JsonSerializerOptions CompactJsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = false,
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
         private static string logRoot = Path.Combine(@"D:\AutomationLogs", "AIExecution");
@@ -36,14 +44,33 @@ namespace Automation.McpServer
         public static string Begin(string toolName, object? args)
         {
             string callId = Guid.NewGuid().ToString("N");
+            CurrentCallId.Value = callId;
+            PayloadSnapshot argsSnapshot = CreatePayloadSnapshot(args);
+            DateTime now = DateTime.UtcNow;
             WriteRecord(new
             {
-                time = DateTime.Now.ToString("O"),
+                time = now.ToLocalTime().ToString("O"),
                 source = "mcp",
                 kind = "tool_call",
                 callId,
                 toolName = toolName ?? string.Empty,
-                args = FormatJson(args)
+                args = argsSnapshot.Text
+            }, new
+            {
+                schemaVersion = StructuredSchemaVersion,
+                timeUtc = now.ToString("O"),
+                source = "mcp",
+                eventName = "tool.started",
+                eventId = Guid.NewGuid().ToString("N"),
+                mcpCallId = callId,
+                toolName = toolName ?? string.Empty,
+                durationMs = 0L,
+                transportStatus = "started",
+                businessStatus = "pending",
+                errorCode = string.Empty,
+                payloadBytes = argsSnapshot.OriginalBytes,
+                payloadTruncated = argsSnapshot.Truncated,
+                args = argsSnapshot.Value
             });
             return callId;
         }
@@ -51,17 +78,78 @@ namespace Automation.McpServer
         public static void Complete(string callId, string toolName, object? args, string result,
             string? error = null, long durationMs = 0)
         {
+            PayloadSnapshot argsSnapshot = CreatePayloadSnapshot(args);
+            PayloadSnapshot resultSnapshot = CreatePayloadSnapshot(result);
+            PayloadSnapshot errorSnapshot = CreatePayloadSnapshot(error);
+            bool transportSucceeded = string.IsNullOrWhiteSpace(error);
+            (bool BusinessFailed, string ErrorCode) business = InspectBusinessResult(result);
+            string businessStatus = transportSucceeded
+                ? (business.BusinessFailed ? "failed" : "success")
+                : "failed";
+            PayloadSnapshot completedPayload = transportSucceeded ? resultSnapshot : errorSnapshot;
+            DateTime now = DateTime.UtcNow;
             WriteRecord(new
             {
-                time = DateTime.Now.ToString("O"),
+                time = now.ToLocalTime().ToString("O"),
                 source = "mcp",
                 kind = string.IsNullOrWhiteSpace(error) ? "tool_completed" : "tool_failed",
                 callId = callId ?? string.Empty,
                 toolName = toolName ?? string.Empty,
                 durationMs,
-                args = FormatJson(args),
-                result = string.IsNullOrWhiteSpace(error) ? FormatJson(result) : string.Empty,
-                error = error ?? string.Empty
+                args = argsSnapshot.Text,
+                result = transportSucceeded ? resultSnapshot.Text : string.Empty,
+                error = transportSucceeded ? string.Empty : errorSnapshot.Text
+            }, new
+            {
+                schemaVersion = StructuredSchemaVersion,
+                timeUtc = now.ToString("O"),
+                source = "mcp",
+                eventName = !transportSucceeded
+                    ? "tool.failed"
+                    : business.BusinessFailed ? "tool.business_failed" : "tool.completed",
+                eventId = Guid.NewGuid().ToString("N"),
+                mcpCallId = callId ?? string.Empty,
+                toolName = toolName ?? string.Empty,
+                durationMs,
+                transportStatus = transportSucceeded ? "success" : "failed",
+                businessStatus,
+                errorCode = business.ErrorCode,
+                payloadBytes = completedPayload.OriginalBytes,
+                payloadTruncated = completedPayload.Truncated,
+                result = transportSucceeded ? resultSnapshot.Value : null,
+                error = transportSucceeded ? null : errorSnapshot.Value
+            });
+            if (string.Equals(CurrentCallId.Value, callId, StringComparison.Ordinal))
+            {
+                CurrentCallId.Value = null;
+            }
+        }
+
+        public static void LogBridgeDispatch(string bridgeRequestId, string method, string path)
+        {
+            string mcpCallId = CurrentCallId.Value ?? string.Empty;
+            DateTime now = DateTime.UtcNow;
+            WriteRecord(new
+            {
+                time = now.ToLocalTime().ToString("O"),
+                source = "mcp",
+                kind = "bridge_dispatch",
+                callId = mcpCallId,
+                toolName = path ?? string.Empty
+            }, new
+            {
+                schemaVersion = StructuredSchemaVersion,
+                timeUtc = now.ToString("O"),
+                source = "mcp",
+                eventName = "bridge.dispatched",
+                eventId = Guid.NewGuid().ToString("N"),
+                correlationId = string.IsNullOrWhiteSpace(mcpCallId) ? bridgeRequestId : mcpCallId,
+                mcpCallId,
+                bridgeRequestId = bridgeRequestId ?? string.Empty,
+                method = method ?? string.Empty,
+                path = path ?? string.Empty,
+                transportStatus = "started",
+                businessStatus = "pending"
             });
         }
 
@@ -81,23 +169,48 @@ namespace Automation.McpServer
                 // 工具方法已经进入统一执行边界，异常已由 ExecuteAsync 记录。
                 return;
             }
+            PayloadSnapshot argsSnapshot = CreatePayloadSnapshot(args);
+            PayloadSnapshot errorSnapshot = CreatePayloadSnapshot(exception?.Message);
+            PayloadSnapshot stackSnapshot = CreatePayloadSnapshot(stackTrace);
+            DateTime now = DateTime.UtcNow;
+            string callId = Guid.NewGuid().ToString("N");
             WriteRecord(new
             {
-                time = DateTime.Now.ToString("O"),
+                time = now.ToLocalTime().ToString("O"),
                 source = "mcp",
                 kind = "tool_invocation_failed",
-                callId = Guid.NewGuid().ToString("N"),
+                callId,
                 toolName = toolName ?? string.Empty,
                 durationMs,
                 stage = "dispatch_or_parameter_binding",
-                args = FormatJson(args),
+                args = argsSnapshot.Text,
                 exceptionType = exception?.GetType().FullName ?? string.Empty,
-                error = exception?.Message ?? string.Empty,
-                stackTrace
+                error = errorSnapshot.Text,
+                stackTrace = stackSnapshot.Text
+            }, new
+            {
+                schemaVersion = StructuredSchemaVersion,
+                timeUtc = now.ToString("O"),
+                source = "mcp",
+                eventName = "tool.invocation_failed",
+                eventId = Guid.NewGuid().ToString("N"),
+                mcpCallId = callId,
+                toolName = toolName ?? string.Empty,
+                durationMs,
+                transportStatus = "failed",
+                businessStatus = "failed",
+                errorCode = "TOOL_INVOCATION_FAILED",
+                payloadBytes = errorSnapshot.OriginalBytes,
+                payloadTruncated = errorSnapshot.Truncated,
+                stage = "dispatch_or_parameter_binding",
+                exceptionType = exception?.GetType().FullName ?? string.Empty,
+                args = argsSnapshot.Value,
+                error = errorSnapshot.Value,
+                stackTrace = stackSnapshot.Value
             });
         }
 
-        private static void WriteRecord(object record)
+        private static void WriteRecord(object record, object? structuredRecord = null)
         {
             try
             {
@@ -119,21 +232,19 @@ namespace Automation.McpServer
 
                     Directory.CreateDirectory(root);
                     string datePrefix = DateTime.Now.ToString("yyyy-MM-dd");
-                    int index = 0;
-                    string path;
-                    while (true)
-                    {
-                        string suffix = index == 0 ? string.Empty : $"_{index:000}";
-                        path = Path.Combine(root, datePrefix + suffix + ".log");
-                        if (!File.Exists(path)
-                            || new FileInfo(path).Length + Encoding.UTF8.GetByteCount(content) <= MaxLogFileBytes)
-                        {
-                            break;
-                        }
-                        index++;
-                    }
-
+                    string path = FindRollingPath(root, datePrefix, ".log", content, false);
                     File.AppendAllText(path, content, new UTF8Encoding(false));
+
+                    if (structuredRecord != null)
+                    {
+                        string structuredContent = JsonSerializer.Serialize(
+                            structuredRecord, CompactJsonOptions) + Environment.NewLine;
+                        string structuredRoot = Path.Combine(root, "structured");
+                        Directory.CreateDirectory(structuredRoot);
+                        string structuredPath = FindRollingPath(
+                            structuredRoot, datePrefix, ".jsonl", structuredContent, true);
+                        File.AppendAllText(structuredPath, structuredContent, new UTF8Encoding(false));
+                    }
                 }
                 catch (AbandonedMutexException)
                 {
@@ -150,6 +261,24 @@ namespace Automation.McpServer
             catch
             {
                 // 日志失败不影响主流程。
+            }
+        }
+
+        private static string FindRollingPath(string root, string datePrefix, string extension,
+            string content, bool alwaysUseIndex)
+        {
+            int contentBytes = Encoding.UTF8.GetByteCount(content);
+            int index = 0;
+            while (true)
+            {
+                string suffix = !alwaysUseIndex && index == 0 ? string.Empty : $"_{index:000}";
+                string path = Path.Combine(root, datePrefix + suffix + extension);
+                if (!File.Exists(path)
+                    || new FileInfo(path).Length + contentBytes <= MaxLogFileBytes)
+                {
+                    return path;
+                }
+                index++;
             }
         }
 
@@ -210,30 +339,83 @@ namespace Automation.McpServer
             }
         }
 
-        private static string FormatJson(object? value)
+        private static PayloadSnapshot CreatePayloadSnapshot(object? value)
         {
             if (value == null)
             {
-                return string.Empty;
+                return new PayloadSnapshot(string.Empty, null, 0, false);
+            }
+
+            string text;
+            JsonNode? structuredValue = null;
+            try
+            {
+                text = value is string stringValue
+                    ? stringValue
+                    : JsonSerializer.Serialize(value, PrettyJsonOptions);
+                JsonNode? node = JsonNode.Parse(text);
+                if (node != null)
+                {
+                    RedactSensitiveValues(node);
+                    text = node.ToJsonString(PrettyJsonOptions);
+                    structuredValue = node;
+                }
+            }
+            catch
+            {
+                text = value.ToString() ?? string.Empty;
+            }
+
+            int originalBytes = Encoding.UTF8.GetByteCount(text);
+            if (originalBytes <= MaxPayloadBytes)
+            {
+                return new PayloadSnapshot(text, structuredValue ?? text, originalBytes, false);
+            }
+
+            string truncatedText = TruncateUtf8(text, MaxPayloadBytes);
+            return new PayloadSnapshot(truncatedText, truncatedText, originalBytes, true);
+        }
+
+        private static string TruncateUtf8(string text, int maxBytes)
+        {
+            const string marker = "\n...[truncated]";
+            int markerBytes = Encoding.UTF8.GetByteCount(marker);
+            int textBudget = Math.Max(0, maxBytes - markerBytes);
+            byte[] buffer = new byte[textBudget];
+            Encoder encoder = Encoding.UTF8.GetEncoder();
+            encoder.Convert(text.AsSpan(), buffer.AsSpan(), false,
+                out _, out int bytesUsed, out _);
+            return Encoding.UTF8.GetString(buffer, 0, bytesUsed) + marker;
+        }
+
+        private static (bool BusinessFailed, string ErrorCode) InspectBusinessResult(string result)
+        {
+            if (string.IsNullOrWhiteSpace(result))
+            {
+                return (false, string.Empty);
             }
 
             try
             {
-                string text = value is string stringValue
-                    ? stringValue
-                    : JsonSerializer.Serialize(value, PrettyJsonOptions);
-                JsonNode? node = JsonNode.Parse(text);
-                if (node == null)
+                using JsonDocument document = JsonDocument.Parse(result);
+                JsonElement root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object
+                    || !root.TryGetProperty("ok", out JsonElement ok)
+                    || ok.ValueKind != JsonValueKind.False)
                 {
-                    return text;
+                    return (false, string.Empty);
                 }
 
-                RedactSensitiveValues(node);
-                return node.ToJsonString(PrettyJsonOptions);
+                string errorCode = root.TryGetProperty("errorCode", out JsonElement code)
+                    && code.ValueKind == JsonValueKind.String
+                    ? code.GetString() ?? string.Empty
+                    : string.Empty;
+                return (true, errorCode);
             }
             catch
             {
-                return value.ToString() ?? string.Empty;
+                // 非 JSON 结果仍属于有效工具结果，不能据此判定业务失败。
+                return (false, string.Empty);
             }
         }
 
@@ -268,6 +450,25 @@ namespace Automation.McpServer
                     }
                 }
             }
+        }
+
+        private sealed class PayloadSnapshot
+        {
+            public PayloadSnapshot(string text, object? value, int originalBytes, bool truncated)
+            {
+                Text = text;
+                Value = value;
+                OriginalBytes = originalBytes;
+                Truncated = truncated;
+            }
+
+            public string Text { get; }
+
+            public object? Value { get; }
+
+            public int OriginalBytes { get; }
+
+            public bool Truncated { get; }
         }
     }
 }

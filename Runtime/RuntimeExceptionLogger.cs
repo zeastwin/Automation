@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Newtonsoft.Json.Linq;
 
 namespace Automation
 {
@@ -17,6 +18,7 @@ namespace Automation
         private static bool isWriting;
 
         private static int initialized;
+        private static int uiExitStarted;
 
         public static void Initialize()
         {
@@ -58,6 +60,11 @@ namespace Automation
 
         private static void Application_ThreadException(object sender, ThreadExceptionEventArgs e)
         {
+            if (Interlocked.Exchange(ref uiExitStarted, 1) != 0)
+            {
+                Write("退出期间的UI线程异常", e?.Exception, "已在执行停机退出，不重复枚举窗体。");
+                return;
+            }
             Write("未处理（UI 线程）", e?.Exception, "将退出程序并执行停机流程。");
             try
             {
@@ -67,7 +74,21 @@ namespace Automation
             catch
             {
             }
-            Application.Exit();
+            try
+            {
+                Application.Exit();
+            }
+            catch (Exception exitException)
+            {
+                Write("UI线程退出异常", exitException, "Application.Exit失败，改为结束当前消息循环。");
+                try
+                {
+                    Application.ExitThread();
+                }
+                catch
+                {
+                }
+            }
         }
 
         private static void Write(string category, Exception exception, string detail)
@@ -93,6 +114,20 @@ namespace Automation
                 }
                 message.AppendLine().Append(exception);
                 logger.Log(message.ToString(), LogLevel.Error);
+                StructuredAuditLogger.Write("RuntimeExceptions", new JObject
+                {
+                    ["source"] = "runtime",
+                    ["eventName"] = "runtime.exception",
+                    ["level"] = "error",
+                    ["category"] = category ?? "异常",
+                    ["threadId"] = Thread.CurrentThread.ManagedThreadId,
+                    ["threadName"] = Thread.CurrentThread.Name ?? string.Empty,
+                    ["outcome"] = "failed",
+                    ["errorCode"] = exception.GetType().FullName ?? exception.GetType().Name,
+                    ["errorMessage"] = exception.Message ?? string.Empty,
+                    ["detail"] = detail ?? string.Empty,
+                    ["stackTrace"] = exception.ToString()
+                });
             }
             catch
             {

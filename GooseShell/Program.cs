@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace Automation.GooseShell
@@ -30,7 +31,7 @@ namespace Automation.GooseShell
                 return 3;
             }
 
-            string command = args[commandIndex + 1];
+            string command = UnwrapNestedPowerShellCommand(args[commandIndex + 1]);
             const string utf8Bootstrap =
                 "$utf8NoBom=[System.Text.UTF8Encoding]::new($false);"
                 + "[Console]::InputEncoding=$utf8NoBom;"
@@ -67,6 +68,26 @@ namespace Automation.GooseShell
                 await Task.WhenAll(stdoutTask, stderrTask, exitTask).ConfigureAwait(false);
                 return process.ExitCode;
             }
+        }
+
+        private static string UnwrapNestedPowerShellCommand(string command)
+        {
+            Match match = Regex.Match(command ?? string.Empty,
+                @"^\s*(?:powershell|pwsh)(?:\.exe)?\s+(?:(?:-NoLogo|-NoProfile|-NonInteractive)\s+)*(?:-Command|-c)\s+(?<script>[\s\S]+?)\s*$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (!match.Success)
+            {
+                return command;
+            }
+
+            string script = match.Groups["script"].Value.Trim();
+            if (script.Length >= 2
+                && ((script[0] == '"' && script[script.Length - 1] == '"')
+                    || (script[0] == '\'' && script[script.Length - 1] == '\'')))
+            {
+                script = script.Substring(1, script.Length - 2);
+            }
+            return script;
         }
 
         private static string ResolvePowerShellPath()
