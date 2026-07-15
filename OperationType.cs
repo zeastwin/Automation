@@ -70,6 +70,11 @@ namespace Automation
         public string Category { get; }
     }
 
+    public interface IPropertyVisibilityProvider
+    {
+        bool IsPropertyVisible(string propertyName, bool defaultVisibility);
+    }
+
 
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
@@ -2204,37 +2209,61 @@ namespace Automation
     }
 
     [Serializable]
-    public class PlcReadWrite : OperationType
+    public class PlcReadWrite : OperationType, IPropertyVisibilityProvider
     {
-        private int itemCount = 1;
+        public const int CurrentModelVersion = 2;
+        private PlcAccessAction action;
+        private PlcAccessMode mode;
+        private int readItemCount = 1;
+        private int writeItemCount = 1;
 
         public PlcReadWrite()
         {
             OperaType = "PLC读写";
-            Action = PlcAccessAction.Read;
-            ReadMode = PlcReadMode.DiscreteItems;
-            Area = PlcArea.HoldingRegister;
-            DataType = PlcDataType.Float;
-            ElementCount = 1;
+            ModelVersion = CurrentModelVersion;
+            action = PlcAccessAction.Read;
+            mode = PlcAccessMode.Items;
             ReadItems = new CustomList<PlcReadItem> { new PlcReadItem() };
+            WriteItems = new CustomList<PlcWriteItem> { new PlcWriteItem() };
+            ReadBatch = new PlcReadBatch();
+            WriteBatch = new PlcWriteBatch();
         }
 
-        [DisplayName("PLC设备"), Category("参数"), Description("PLC设备名称；运行时按名称选择目标连接。"), ReadOnly(false), TypeConverter(typeof(PlcItem))]
+        [Browsable(false)]
+        [JsonProperty(Required = Required.Always)]
+        public int ModelVersion { get; set; }
+
+        [DisplayName("PLC设备"), Category("B.PLC参数"), Description("PLC设备名称；运行时按名称选择目标连接。"), ReadOnly(false), TypeConverter(typeof(PlcItem))]
         public string DeviceName { get; set; }
 
-        [DisplayName("操作"), Category("参数"), Description("读取或写入。"), ReadOnly(false), TypeConverter(typeof(PlcAccessActionItem))]
-        public PlcAccessAction Action { get; set; }
-
-        [DisplayName("读取模式"), Category("读取"), Description("按项读取可配置多个离散地址；连续批量读取从起始地址一次读取多个连续元素。"), ReadOnly(false), TypeConverter(typeof(PlcReadModeItem))]
-        public PlcReadMode ReadMode { get; set; }
-
-        [DisplayName("读取项数量"), Category("按项读取"), Description("离散地址读取项数量，范围1..100。修改后会生成对应数量的配置项。"), ReadOnly(false), RefreshProperties(RefreshProperties.All)]
-        public int ItemCount
+        [DisplayName("操作"), Category("B.PLC参数"), Description("选择读取或写入；界面仅显示当前操作相关的配置。"), ReadOnly(false), RefreshProperties(RefreshProperties.All), TypeConverter(typeof(PlcAccessActionItem))]
+        public PlcAccessAction Action
         {
-            get => itemCount;
+            get => action;
             set
             {
-                itemCount = value;
+                action = value;
+            }
+        }
+
+        [DisplayName("方式"), Category("C.访问方式"), Description("按项模式支持多个独立地址；连续批量模式通过一次请求访问连续地址。"), ReadOnly(false), RefreshProperties(RefreshProperties.All), TypeConverter(typeof(PlcAccessModeItem))]
+        public PlcAccessMode Mode
+        {
+            get => mode;
+            set
+            {
+                mode = value;
+            }
+        }
+
+        [Browsable(true)]
+        [DisplayName("读取项数量"), Category("D.按项读取"), Description("独立地址读取项数量，范围1..100。"), ReadOnly(false), RefreshProperties(RefreshProperties.All)]
+        public int ReadItemCount
+        {
+            get => readItemCount;
+            set
+            {
+                readItemCount = value;
                 if (value < 1 || value > 100) return;
                 if (ReadItems == null) ReadItems = new CustomList<PlcReadItem>();
                 while (ReadItems.Count < value) ReadItems.Add(new PlcReadItem());
@@ -2242,35 +2271,70 @@ namespace Automation
             }
         }
 
-        [DisplayName("读取项设置"), Category("按项读取"), Description("每项分别配置PLC地址、数据类型和保存变量。"), ReadOnly(false)]
-        [InlineList("读取项", "按项读取")]
+        [Browsable(true)]
+        [DisplayName("读取项设置"), Category("D.按项读取"), Description("每项分别配置PLC地址、数据类型和保存变量。"), ReadOnly(false)]
+        [InlineList("读取项", "D.按项读取")]
         [TypeConverter(typeof(ParamListConverter<PlcReadItem>))]
         public CustomList<PlcReadItem> ReadItems { get; set; }
 
-        [DisplayName("地址区"), Category("连续批量/写入"), Description("连续批量读取或写入使用的数据区。"), ReadOnly(false)]
-        [TypeConverter(typeof(PlcAreaItem))]
-        public PlcArea Area { get; set; }
+        [Browsable(false)]
+        [DisplayName("连续读取"), Category("D.连续批量读取"), Description("一次读取同一区域内的连续地址，并写入连续变量。"), ReadOnly(false)]
+        [InlineGroup("连续读取", "D.连续批量读取")]
+        [TypeConverter(typeof(SerializableExpandableObjectConverter))]
+        public PlcReadBatch ReadBatch { get; set; }
 
-        [DisplayName("起始地址"), Category("连续批量/写入"), Description("连续批量读取或写入的起始地址。"), ReadOnly(false)]
-        public int StartAddress { get; set; }
+        [Browsable(false)]
+        [DisplayName("写入项数量"), Category("D.按项写入"), Description("独立地址写入项数量，范围1..100。"), ReadOnly(false), RefreshProperties(RefreshProperties.All)]
+        public int WriteItemCount
+        {
+            get => writeItemCount;
+            set
+            {
+                writeItemCount = value;
+                if (value < 1 || value > 100) return;
+                if (WriteItems == null) WriteItems = new CustomList<PlcWriteItem>();
+                while (WriteItems.Count < value) WriteItems.Add(new PlcWriteItem());
+                while (WriteItems.Count > value) WriteItems.RemoveAt(WriteItems.Count - 1);
+            }
+        }
 
-        [DisplayName("数据类型"), Category("连续批量/写入"), Description("连续批量读取或写入的数据类型。"), ReadOnly(false)]
-        public PlcDataType DataType { get; set; }
+        [Browsable(false)]
+        [DisplayName("写入项设置"), Category("D.按项写入"), Description("每项分别配置PLC地址、数据类型和写入来源。"), ReadOnly(false)]
+        [InlineList("写入项", "D.按项写入")]
+        [TypeConverter(typeof(ParamListConverter<PlcWriteItem>))]
+        public CustomList<PlcWriteItem> WriteItems { get; set; }
 
-        [DisplayName("元素数量"), Category("连续批量/写入"), Description("连续数据元素数量；不是字节数。"), ReadOnly(false)]
-        public int ElementCount { get; set; }
+        [Browsable(false)]
+        [DisplayName("连续写入"), Category("D.连续批量写入"), Description("一次写入同一区域内的连续地址。"), ReadOnly(false)]
+        [InlineGroup("连续写入", "D.连续批量写入")]
+        [TypeConverter(typeof(PlcWriteBatchConverter))]
+        public PlcWriteBatch WriteBatch { get; set; }
 
-        [DisplayName("字符串字节数"), Category("连续批量/写入"), Description("String类型固定字节长度；其他类型必须为0。"), ReadOnly(false)]
-        public int StringByteLength { get; set; }
+        public bool IsPropertyVisible(string propertyName, bool defaultVisibility)
+        {
+            bool read = action == PlcAccessAction.Read;
+            bool items = mode == PlcAccessMode.Items;
+            switch (propertyName)
+            {
+                case nameof(ReadItemCount):
+                case nameof(ReadItems):
+                    return read && items;
+                case nameof(ReadBatch):
+                    return read && !items;
+                case nameof(WriteItemCount):
+                case nameof(WriteItems):
+                    return !read && items;
+                case nameof(WriteBatch):
+                    return !read && !items;
+                default:
+                    return defaultVisibility;
+            }
+        }
 
-        [DisplayName("首保存变量"), Category("连续批量/写入"), Description("选择变量表中的首变量，后续元素按变量索引连续展开。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string FirstVariableName { get; set; }
-
-        [DisplayName("写入来源"), Category("写入"), Description("使用连续变量或固定常量。"), ReadOnly(false), TypeConverter(typeof(PlcWriteSourceItem))]
-        public PlcWriteSource WriteSource { get; set; }
-
-        [DisplayName("固定常量"), Category("写入"), Description("仅单元素Write+Constant有效，按目标类型严格解析。"), ReadOnly(false)]
-        public string ConstantValue { get; set; }
+        public bool ShouldSerializeReadItems() => action == PlcAccessAction.Read && mode == PlcAccessMode.Items;
+        public bool ShouldSerializeReadBatch() => action == PlcAccessAction.Read && mode == PlcAccessMode.ContinuousBatch;
+        public bool ShouldSerializeWriteItems() => action == PlcAccessAction.Write && mode == PlcAccessMode.Items;
+        public bool ShouldSerializeWriteBatch() => action == PlcAccessAction.Write && mode == PlcAccessMode.ContinuousBatch;
     }
 
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
@@ -2297,6 +2361,79 @@ namespace Automation
         {
             return $"{Area}/{StartAddress} → {VariableName}";
         }
+    }
+
+    [TypeConverter(typeof(PlcWriteItemConverter))]
+    [Serializable]
+    public class PlcWriteItem
+    {
+        [DisplayName("地址区"), Category("PLC地址"), Description("写入仅支持线圈或保持寄存器。"), ReadOnly(false), TypeConverter(typeof(PlcAreaItem))]
+        public PlcArea Area { get; set; } = PlcArea.HoldingRegister;
+
+        [DisplayName("地址"), Category("PLC地址"), Description("本项要写入的PLC地址。"), ReadOnly(false)]
+        public int StartAddress { get; set; }
+
+        [DisplayName("数据类型"), Category("PLC地址"), Description("本项PLC数据类型。"), ReadOnly(false)]
+        public PlcDataType DataType { get; set; } = PlcDataType.Float;
+
+        [DisplayName("字符串字节数"), Category("PLC地址"), Description("String填写1..2000，其他类型必须为0。"), ReadOnly(false)]
+        public int StringByteLength { get; set; }
+
+        [DisplayName("数据来源"), Category("写入值"), Description("从变量取值或使用固定值。"), ReadOnly(false), TypeConverter(typeof(PlcValueSourceItem))]
+        public PlcValueSource Source { get; set; }
+
+        [DisplayName("来源变量"), Category("写入值"), Description("数据来源为变量时使用。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string VariableName { get; set; }
+
+        [DisplayName("固定值"), Category("写入值"), Description("数据来源为固定值时使用，按数据类型严格解析。"), ReadOnly(false)]
+        public string ConstantValue { get; set; }
+
+        public override string ToString()
+        {
+            return $"{Area}/{StartAddress} ← {(Source == PlcValueSource.Variable ? VariableName : ConstantValue)}";
+        }
+    }
+
+    [TypeConverter(typeof(SerializableExpandableObjectConverter))]
+    [Serializable]
+    public class PlcReadBatch
+    {
+        [DisplayName("地址区"), Category("连续读取"), ReadOnly(false), TypeConverter(typeof(PlcAreaItem))]
+        public PlcArea Area { get; set; } = PlcArea.HoldingRegister;
+        [DisplayName("起始地址"), Category("连续读取"), ReadOnly(false)]
+        public int StartAddress { get; set; }
+        [DisplayName("数据类型"), Category("连续读取"), ReadOnly(false)]
+        public PlcDataType DataType { get; set; } = PlcDataType.Float;
+        [DisplayName("元素数量"), Category("连续读取"), Description("连续元素数量，不是字节数。"), ReadOnly(false)]
+        public int ElementCount { get; set; } = 1;
+        [DisplayName("字符串字节数"), Category("连续读取"), ReadOnly(false)]
+        public int StringByteLength { get; set; }
+        [DisplayName("首保存变量"), Category("连续读取"), Description("后续元素按变量索引连续展开。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string FirstVariableName { get; set; }
+        public override string ToString() => string.Empty;
+    }
+
+    [TypeConverter(typeof(PlcWriteBatchConverter))]
+    [Serializable]
+    public class PlcWriteBatch
+    {
+        [DisplayName("地址区"), Category("连续写入"), ReadOnly(false), TypeConverter(typeof(PlcAreaItem))]
+        public PlcArea Area { get; set; } = PlcArea.HoldingRegister;
+        [DisplayName("起始地址"), Category("连续写入"), ReadOnly(false)]
+        public int StartAddress { get; set; }
+        [DisplayName("数据类型"), Category("连续写入"), ReadOnly(false)]
+        public PlcDataType DataType { get; set; } = PlcDataType.Float;
+        [DisplayName("元素数量"), Category("连续写入"), Description("连续元素数量，不是字节数。"), ReadOnly(false)]
+        public int ElementCount { get; set; } = 1;
+        [DisplayName("字符串字节数"), Category("连续写入"), ReadOnly(false)]
+        public int StringByteLength { get; set; }
+        [DisplayName("数据来源"), Category("连续写入"), Description("连续变量，或将一个固定值明确重复写入全部元素。"), ReadOnly(false), TypeConverter(typeof(PlcValueSourceItem))]
+        public PlcValueSource Source { get; set; }
+        [DisplayName("首来源变量"), Category("连续写入"), Description("后续元素按变量索引连续展开。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string FirstVariableName { get; set; }
+        [DisplayName("重复固定值"), Category("连续写入"), Description("固定值来源时，将该值写入全部连续元素。"), ReadOnly(false)]
+        public string ConstantValue { get; set; }
+        public override string ToString() => string.Empty;
     }
 
     [Serializable]

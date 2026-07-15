@@ -100,60 +100,59 @@ namespace Automation
 
                 case "PLC读写":
                     contract = CreateContract(
-                        "按强类型Modbus地址执行离散多项读取、连续批量读取或连续写入。",
-                        new[] { "按项读取时一次配置多个独立地址", "连续批量读取时从首变量按索引展开", "同一HSL客户端在库内部逐次完成请求响应", "失败时报警且不执行宽松转换" },
+                        "按强类型Modbus地址执行按项或连续批量读取/写入。",
+                        new[] { "按项模式处理多个独立地址", "连续批量模式通过一次请求处理连续地址", "读取写入变量、写入固定值均严格匹配PLC数据类型", "任一项失败时报警且不执行宽松转换" },
                         true);
                     AddRequiredField(contract, "DeviceName", "PLC设备精确名称；可通过 get_plc_device 或 list_plc_devices 获取");
                     AddMultiConditionalField(contract, "ReadItems", new JObject
                     {
                         ["Action"] = new JArray("Read"),
-                        ["ReadMode"] = new JArray("DiscreteItems")
-                    }, "离散读取项；ItemCount 由数组长度自动计算，每项读取一个地址并写入一个变量");
-                    AddAnyConditionalField(contract, "FirstVariableName", new JArray(
-                        new JObject
-                        {
-                            ["Action"] = new JArray("Read"),
-                            ["ReadMode"] = new JArray("ContinuousBatch")
-                        },
-                        new JObject
-                        {
-                            ["Action"] = new JArray("Write"),
-                            ["WriteSource"] = new JArray("Variables")
-                        }), "连续读或变量写入的首变量；后续元素按变量索引连续展开");
-                    AddMultiConditionalField(contract, "ConstantValue", new JObject
+                        ["Mode"] = new JArray("Items")
+                    }, "按项读取配置；ReadItemCount 由数组长度自动计算");
+                    AddMultiConditionalField(contract, "ReadBatch", new JObject
+                    {
+                        ["Action"] = new JArray("Read"),
+                        ["Mode"] = new JArray("ContinuousBatch")
+                    }, "连续批量读取配置；结果从首保存变量开始按变量索引写入");
+                    AddMultiConditionalField(contract, "WriteItems", new JObject
                     {
                         ["Action"] = new JArray("Write"),
-                        ["WriteSource"] = new JArray("Constant")
-                    }, "单元素写入的固定常量，按 DataType 严格解析");
+                        ["Mode"] = new JArray("Items")
+                    }, "按项写入配置；WriteItemCount 由数组长度自动计算，每项独立选择变量或固定值");
+                    AddMultiConditionalField(contract, "WriteBatch", new JObject
+                    {
+                        ["Action"] = new JArray("Write"),
+                        ["Mode"] = new JArray("ContinuousBatch")
+                    }, "连续批量写入配置；使用连续变量或明确重复固定值");
                     contract["modeMatrix"] = new JArray(
                         new JObject
                         {
-                            ["when"] = new JObject { ["Action"] = "Read", ["ReadMode"] = "DiscreteItems" },
+                            ["when"] = new JObject { ["Action"] = "Read", ["Mode"] = "Items" },
                             ["use"] = new JArray("DeviceName", "ReadItems"),
-                            ["ignore"] = new JArray("Area", "StartAddress", "DataType", "ElementCount", "StringByteLength", "FirstVariableName", "WriteSource", "ConstantValue")
+                            ["reject"] = new JArray("ReadBatch", "WriteItems", "WriteBatch")
                         },
                         new JObject
                         {
-                            ["when"] = new JObject { ["Action"] = "Read", ["ReadMode"] = "ContinuousBatch" },
-                            ["use"] = new JArray("DeviceName", "Area", "StartAddress", "DataType", "ElementCount", "StringByteLength", "FirstVariableName"),
-                            ["ignore"] = new JArray("ReadItems", "WriteSource", "ConstantValue")
+                            ["when"] = new JObject { ["Action"] = "Read", ["Mode"] = "ContinuousBatch" },
+                            ["use"] = new JArray("DeviceName", "ReadBatch"),
+                            ["reject"] = new JArray("ReadItems", "WriteItems", "WriteBatch")
                         },
                         new JObject
                         {
-                            ["when"] = new JObject { ["Action"] = "Write", ["WriteSource"] = "Variables" },
-                            ["use"] = new JArray("DeviceName", "Area", "StartAddress", "DataType", "ElementCount", "StringByteLength", "FirstVariableName", "WriteSource"),
-                            ["ignore"] = new JArray("ReadMode", "ReadItems", "ConstantValue")
+                            ["when"] = new JObject { ["Action"] = "Write", ["Mode"] = "Items" },
+                            ["use"] = new JArray("DeviceName", "WriteItems"),
+                            ["reject"] = new JArray("ReadItems", "ReadBatch", "WriteBatch")
                         },
                         new JObject
                         {
-                            ["when"] = new JObject { ["Action"] = "Write", ["WriteSource"] = "Constant" },
-                            ["use"] = new JArray("DeviceName", "Area", "StartAddress", "DataType", "ElementCount", "StringByteLength", "WriteSource", "ConstantValue"),
-                            ["ignore"] = new JArray("ReadMode", "ReadItems", "FirstVariableName")
+                            ["when"] = new JObject { ["Action"] = "Write", ["Mode"] = "ContinuousBatch" },
+                            ["use"] = new JArray("DeviceName", "WriteBatch"),
+                            ["reject"] = new JArray("ReadItems", "ReadBatch", "WriteItems")
                         });
                     contract["dataRules"] = new JObject
                     {
                         ["address"] = "StartAddress 0..65535，且按数据宽度计算后的访问末地址不得超过65535",
-                        ["elementCount"] = "1..1000；String 固定为1；Constant 写入固定为1",
+                        ["elementCount"] = "连续批量1..1000；String固定为1；重复固定值允许明确写入全部元素",
                         ["stringByteLength"] = "String 为1..2000，其他 DataType 必须为0",
                         ["areaAndType"] = "Coil/DiscreteInput 仅 Boolean；HoldingRegister/InputRegister 不允许 Boolean",
                         ["writeArea"] = "Write 仅允许 Coil 或 HoldingRegister",
@@ -161,11 +160,13 @@ namespace Automation
                     };
                     contract["constraints"] = new JArray(
                         "Action只能是Read或Write",
-                        "ReadMode=DiscreteItems时ItemCount由ReadItems数组长度计算，范围1..100，每项绑定不同变量",
-                        "ReadMode=ContinuousBatch时使用连续参数，并从FirstVariableName按变量索引展开",
+                        "Mode只能是Items或ContinuousBatch，且只允许当前Action/Mode分支字段",
+                        "ReadItems与WriteItems数量范围1..100，数量字段由编译器计算",
+                        "连续批量读取从ReadBatch.FirstVariableName开始写入连续变量",
+                        "连续批量写入从WriteBatch.FirstVariableName读取连续变量，或将WriteBatch.ConstantValue明确重复到全部元素",
                         "Boolean只允许Coil或DiscreteInput，其他类型只允许寄存器区",
                         "DiscreteInput和InputRegister禁止Write",
-                        "Constant仅允许单元素Write");
+                        "固定值按目标DataType严格解析");
                     contract["failureModes"] = new JArray("设备未初始化时报警", "参数或变量类型不匹配时报警", "通讯失败时设备进入故障状态");
                     break;
 
@@ -353,17 +354,6 @@ namespace Automation
             {
                 ["visibleWhen"] = conditions.DeepClone(),
                 ["requiredWhenForRun"] = conditions.DeepClone(),
-                ["description"] = description
-            };
-        }
-
-        private static void AddAnyConditionalField(
-            JObject contract, string fieldName, JArray alternatives, string description)
-        {
-            ((JObject)contract["fieldRules"])[fieldName] = new JObject
-            {
-                ["visibleWhenAny"] = alternatives.DeepClone(),
-                ["requiredWhenAnyForRun"] = alternatives.DeepClone(),
                 ["description"] = description
             };
         }

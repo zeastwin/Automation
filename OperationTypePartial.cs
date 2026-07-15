@@ -644,31 +644,13 @@ namespace Automation
             }
         }
 
-        public sealed class PlcReadModeItem : EnumConverter
+        public sealed class PlcAccessModeItem : PlcChineseEnumItem<PlcAccessMode>
         {
-            public PlcReadModeItem() : base(typeof(PlcReadMode))
+            public PlcAccessModeItem() : base(new Dictionary<PlcAccessMode, string>
             {
-            }
-
-            public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
-            {
-                switch (value as string)
-                {
-                    case "按项读取": return PlcReadMode.DiscreteItems;
-                    case "连续批量读取": return PlcReadMode.ContinuousBatch;
-                    default: return base.ConvertFrom(context, culture, value);
-                }
-            }
-
-            public override object ConvertTo(ITypeDescriptorContext context, CultureInfo culture, object value,
-                Type destinationType)
-            {
-                if (destinationType == typeof(string) && value is PlcReadMode mode)
-                {
-                    return mode == PlcReadMode.DiscreteItems ? "按项读取" : "连续批量读取";
-                }
-                return base.ConvertTo(context, culture, value, destinationType);
-            }
+                [PlcAccessMode.Items] = "按项",
+                [PlcAccessMode.ContinuousBatch] = "连续批量"
+            }) { }
         }
 
         public abstract class PlcChineseEnumItem<T> : EnumConverter where T : struct
@@ -721,13 +703,51 @@ namespace Automation
             }) { }
         }
 
-        public sealed class PlcWriteSourceItem : PlcChineseEnumItem<PlcWriteSource>
+        public sealed class PlcValueSourceItem : PlcChineseEnumItem<PlcValueSource>
         {
-            public PlcWriteSourceItem() : base(new Dictionary<PlcWriteSource, string>
+            public PlcValueSourceItem() : base(new Dictionary<PlcValueSource, string>
             {
-                [PlcWriteSource.Variables] = "变量",
-                [PlcWriteSource.Constant] = "固定常量"
+                [PlcValueSource.Variable] = "变量",
+                [PlcValueSource.Constant] = "固定值"
             }) { }
+        }
+
+        public sealed class PlcWriteItemConverter : SerializableExpandableObjectConverter
+        {
+            public override bool GetPropertiesSupported(ITypeDescriptorContext context) => true;
+
+            public override PropertyDescriptorCollection GetProperties(
+                ITypeDescriptorContext context, object value, Attribute[] attributes)
+            {
+                PropertyDescriptorCollection properties = TypeDescriptor.GetProperties(
+                    typeof(PlcWriteItem), attributes);
+                if (!(value is PlcWriteItem item)) return properties;
+                string hidden = item.Source == PlcValueSource.Variable
+                    ? nameof(PlcWriteItem.ConstantValue)
+                    : nameof(PlcWriteItem.VariableName);
+                return new PropertyDescriptorCollection(properties.Cast<PropertyDescriptor>()
+                    .Where(property => !string.Equals(property.Name, hidden, StringComparison.Ordinal))
+                    .ToArray(), true);
+            }
+        }
+
+        public sealed class PlcWriteBatchConverter : SerializableExpandableObjectConverter
+        {
+            public override bool GetPropertiesSupported(ITypeDescriptorContext context) => true;
+
+            public override PropertyDescriptorCollection GetProperties(
+                ITypeDescriptorContext context, object value, Attribute[] attributes)
+            {
+                PropertyDescriptorCollection properties = TypeDescriptor.GetProperties(
+                    typeof(PlcWriteBatch), attributes);
+                if (!(value is PlcWriteBatch batch)) return properties;
+                string hidden = batch.Source == PlcValueSource.Variable
+                    ? nameof(PlcWriteBatch.ConstantValue)
+                    : nameof(PlcWriteBatch.FirstVariableName);
+                return new PropertyDescriptorCollection(properties.Cast<PropertyDescriptor>()
+                    .Where(property => !string.Equals(property.Name, hidden, StringComparison.Ordinal))
+                    .ToArray(), true);
+            }
         }
 
         public class PointModifyType : StringConverter

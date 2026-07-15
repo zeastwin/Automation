@@ -77,6 +77,8 @@ namespace Automation
         private GooseAcpClient gooseClient;
         private CancellationTokenSource promptCts;
         private bool sending;
+        private bool standardTestRunning;
+        private bool standardTestStopRequested;
         private bool fullPermissionMode = false;
         private const int MaxFileAttachmentCount = 4;
         private const long MaxFileAttachmentBytes = 10L * 1024L * 1024L;
@@ -100,15 +102,16 @@ namespace Automation
 
         public void ApplyPermissions()
         {
+            bool busy = sending || standardTestRunning;
             txtPrompt.Enabled = true;
-            txtPrompt.ReadOnly = sending;
-            txtGooseExecutable.ReadOnly = sending;
-            txtWorkingDirectory.ReadOnly = sending;
-            txtMcpUri.ReadOnly = sending;
-            txtSessionName.ReadOnly = sending;
-            cboProvider.Enabled = !sending;
-            cboModel.Enabled = !sending;
-            nudMaxTurns.Enabled = !sending;
+            txtPrompt.ReadOnly = busy;
+            txtGooseExecutable.ReadOnly = busy;
+            txtWorkingDirectory.ReadOnly = busy;
+            txtMcpUri.ReadOnly = busy;
+            txtSessionName.ReadOnly = busy;
+            cboProvider.Enabled = !busy;
+            cboModel.Enabled = !busy;
+            nudMaxTurns.Enabled = !busy;
             PushWebAppState();
         }
 
@@ -559,6 +562,14 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .field input,.field select{height:36px;border:1px solid #d8e0ea;border-radius:9px;background:#fff;color:#172033;padding:0 10px;font:13px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;outline:none;}
 .field input:focus,.field select:focus{border-color:#75a7da;box-shadow:0 0 0 3px rgba(117,167,218,.18);}
 .field-wide{grid-column:1 / -1;}
+.test-list{display:flex;flex-direction:column;gap:9px;}
+.test-item{display:grid;grid-template-columns:22px 1fr;gap:9px;align-items:start;padding:11px 12px;border:1px solid #dde5ef;border-radius:10px;background:#fff;cursor:pointer;}
+.test-item:hover{border-color:#a8c4e1;background:#f8fbff;}
+.test-item input{margin-top:3px;}
+.test-name{font-size:13px;font-weight:650;color:#25354a;}
+.test-desc{margin-top:3px;font-size:12px;line-height:1.5;color:#748195;}
+.test-options{margin-top:13px;padding:11px 12px;border-radius:9px;background:#fff6e8;color:#76501d;font-size:12px;line-height:1.55;}
+.test-options label{display:flex;align-items:center;gap:7px;margin-bottom:4px;color:#35445a;}
 .modal-foot{display:flex;justify-content:space-between;gap:10px;padding:14px 20px;border-top:1px solid #edf1f6;background:#fff;}
 .foot-left,.foot-right{display:flex;gap:10px;}
 .text-button,.primary-button{height:36px;border-radius:9px;padding:0 14px;font:13px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;cursor:pointer;}
@@ -739,6 +750,7 @@ function automationSetState(state){
     refreshSendButton();
     byId('attachButton').disabled=!appState.canAccess||appState.sending;
     byId('resetButton').disabled=!appState.canAccess||appState.sending;
+    byId('standardTestButton').disabled=!appState.canAccess||appState.sending;
     refreshSessionPicker();
     byId('newSessionButton').disabled=appState.sending;
     byId('deleteSessionButton').disabled=appState.sending||!appState.activeConversationId;
@@ -849,6 +861,25 @@ function refreshAttachments(){
 }
 function openConfig(){fillConfig();byId('configOverlay').classList.add('open');}
 function closeConfig(){byId('configOverlay').classList.remove('open');}
+function openStandardTests(){renderStandardTests();byId('testOverlay').classList.add('open');}
+function closeStandardTests(){byId('testOverlay').classList.remove('open');}
+function renderStandardTests(){
+    var host=byId('testList');host.innerHTML='';
+    (appState.testScenarios||[]).forEach(function(item,index){
+        var label=document.createElement('label');label.className='test-item';
+        var input=document.createElement('input');input.type='checkbox';input.value=item.id;input.checked=index<2;
+        var body=document.createElement('div');
+        var name=document.createElement('div');name.className='test-name';name.textContent=item.name+(item.turnCount>1?'（'+item.turnCount+'轮）':'');
+        var desc=document.createElement('div');desc.className='test-desc';desc.textContent=item.description;
+        body.appendChild(name);body.appendChild(desc);label.appendChild(input);label.appendChild(body);host.appendChild(label);
+    });
+}
+function runStandardTests(){
+    var ids=Array.prototype.map.call(byId('testList').querySelectorAll('input:checked'),function(item){return item.value;});
+    if(!ids.length){showToast('请至少选择一个测试场景。');return;}
+    closeStandardTests();
+    post('runStandardTests',{ids:ids,separateConversations:byId('separateTestConversations').checked});
+}
 function showToast(text){var t=byId('toast');t.textContent=text;t.classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(function(){t.classList.remove('show');},3200);}
 function copyMessage(button){
     var msg=button.closest('.msg');
@@ -901,6 +932,7 @@ document.addEventListener('DOMContentLoaded',function(){
     });
     composer.addEventListener('drop',handleComposerDrop);
     byId('configButton').addEventListener('click',openConfig);
+    byId('standardTestButton').addEventListener('click',openStandardTests);
     byId('toolDiagnostic').addEventListener('click',function(){setToolProfile('Diagnostic');});
     byId('toolEditor').addEventListener('click',function(){setToolProfile('Editor');});
     byId('fullPermissionButton').addEventListener('click',toggleFullPermission);
@@ -929,6 +961,10 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('clearApiKey').addEventListener('click',function(){post('clearApiKey',{provider:byId('cfgProvider').value});});
     byId('cfgProvider').addEventListener('change',function(){post('providerChanged',{provider:this.value,config:collectConfig()});});
     byId('configOverlay').addEventListener('click',function(e){if(e.target===this){closeConfig();}});
+    byId('closeTests').addEventListener('click',closeStandardTests);
+    byId('cancelTests').addEventListener('click',closeStandardTests);
+    byId('runTests').addEventListener('click',runStandardTests);
+    byId('testOverlay').addEventListener('click',function(e){if(e.target===this){closeStandardTests();}});
     post('ready');
 });
 window.addEventListener('resize',function(){document.querySelectorAll('.thinking-box:not(.collapsed)').forEach(resizeThinkingBox);});
@@ -944,6 +980,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         <div class=""session-menu scrollable"" id=""sessionMenu"" role=""listbox"" aria-label=""历史会话""></div>
       </div>
       <button class=""toolbar-option"" id=""newSessionButton"" title=""新建会话"">新对话</button>
+      <button class=""toolbar-option"" id=""standardTestButton"" title=""选择并连续运行标准测试场景"">标准测试</button>
       <button class=""icon-button"" id=""deleteSessionButton"" title=""删除当前对话"" aria-label=""删除当前对话""><svg viewBox=""0 0 24 24""><path d=""M4 7h16""/><path d=""M9 7V4h6v3""/><path d=""M7 7l1 13h8l1-13""/><path d=""M10 11v5""/><path d=""M14 11v5""/></svg></button>
       <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""读取、诊断、配置编辑和运行控制"">编辑</button></div>
       <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演；代码访问范围仍限制为 Hmi 目录"">完全权限</button>
@@ -953,6 +990,13 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
   </header>
   <main class=""chat-area scrollable"" id=""messagesScroll""><div id=""messages""></div></main>
   <footer class=""composer-wrap""><div id=""composer"" class=""composer""><div id=""attachmentList"" class=""attachment-list"" aria-label=""待发送文件""></div><textarea id=""promptInput"" class=""prompt-input"" placeholder=""要求后续变更""></textarea><button id=""attachButton"" class=""attach-button"" type=""button"" title=""添加文件"" aria-label=""添加文件"">+</button><button id=""sendButton"" class=""send-button"" title=""发送"" aria-label=""发送""><span class=""circle""><svg class=""arrow-icon"" viewBox=""0 0 24 24""><path d=""M12 5 5.5 11.5l1.6 1.6 3.8-3.8V20h2.2V9.3l3.8 3.8 1.6-1.6L12 5Z""/></svg><span class=""stop-icon""></span></span></button></div></footer>
+</div>
+<div class=""modal-backdrop"" id=""testOverlay"">
+  <section class=""config-modal"" style=""width:min(680px,96vw)"">
+    <div class=""modal-head""><div><div class=""modal-title"">标准测试</div><div class=""modal-desc"">选择场景后将按真实聊天链路逐轮发送，仍遵守当前权限与预演确认。</div></div><button class=""icon-button"" id=""closeTests"" title=""关闭""><svg viewBox=""0 0 24 24""><path d=""M18 6 6 18""/><path d=""M6 6l12 12""/></svg></button></div>
+    <div class=""modal-body scrollable""><div class=""test-list"" id=""testList""></div><div class=""test-options""><label><input type=""checkbox"" id=""separateTestConversations"" checked> 每个场景使用独立新对话</label>这些测试可能创建或修改流程配置。未开启完全权限时，仍需人工确认每次预演。</div></div>
+    <div class=""modal-foot""><div></div><div class=""foot-right""><button class=""text-button"" id=""cancelTests"">取消</button><button class=""primary-button"" id=""runTests"">开始测试</button></div></div>
+  </section>
 </div>
 <div class=""modal-backdrop"" id=""configOverlay"">
   <section class=""config-modal"">
@@ -1394,6 +1438,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     txtPrompt.Text = message["prompt"]?.Value<string>() ?? string.Empty;
                     BtnSend_Click(sender, EventArgs.Empty);
                     break;
+                case "runStandardTests":
+                    await RunStandardTestsAsync(
+                        (message["ids"] as JArray)?.Values<string>() ?? Enumerable.Empty<string>(),
+                        message["separateConversations"]?.Value<bool?>() ?? true).ConfigureAwait(true);
+                    break;
                 case "chooseFile":
                     ChooseFileAttachments();
                     break;
@@ -1404,7 +1453,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     RemoveFileAttachment(message["id"]?.Value<string>());
                     break;
                 case "stop":
-                    if (sending)
+                    if (sending || standardTestRunning)
                     {
                         StopCurrentPrompt();
                     }
@@ -1521,7 +1570,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             string normalizedProvider = NormalizeGooseOverride(providerText);
             return new JObject
             {
-                ["sending"] = sending,
+                ["sending"] = sending || standardTestRunning,
                 ["canAccess"] = true,
                 ["canEditConfig"] = true,
                 ["config"] = new JObject
@@ -1542,6 +1591,13 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 ["providerOptions"] = BuildComboOptions(cboProvider, providerText),
                 ["modelOptions"] = BuildComboOptions(cboModel, modelText),
                 ["attachments"] = new JArray(pendingFileAttachments.Select(BuildAttachmentWebState)),
+                ["testScenarios"] = new JArray(AiStandardTestSuite.Scenarios.Select(item => new JObject
+                {
+                    ["id"] = item.Id,
+                    ["name"] = item.Name,
+                    ["description"] = item.Description,
+                    ["turnCount"] = item.Prompts.Count
+                })),
                 ["activeConversationId"] = activeConversation?.Id ?? string.Empty,
                 ["conversations"] = new JArray(conversations
                     .OrderByDescending(item => item.UpdatedAt)
@@ -1821,18 +1877,26 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private async void BtnSend_Click(object sender, EventArgs e)
         {
-            if (sending)
+            if (sending || standardTestRunning)
             {
                 StopCurrentPrompt();
                 return;
             }
 
-            string enteredPrompt = txtPrompt.Text;
-            string prompt = enteredPrompt.Trim();
-            List<GooseFileAttachment> fileAttachments = pendingFileAttachments.ToList();
+            await SendPromptAsync(txtPrompt.Text, pendingFileAttachments.ToList(), true).ConfigureAwait(true);
+        }
+
+        private async Task<bool> SendPromptAsync(
+            string enteredPrompt,
+            List<GooseFileAttachment> fileAttachments,
+            bool restoreComposerOnFailure)
+        {
+            string prompt = (enteredPrompt ?? string.Empty).Trim();
+            fileAttachments = fileAttachments ?? new List<GooseFileAttachment>();
+
             if (string.IsNullOrWhiteSpace(prompt) && fileAttachments.Count == 0)
             {
-                return;
+                return false;
             }
             if (string.IsNullOrWhiteSpace(prompt))
             {
@@ -1842,7 +1906,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 ShowWebToast("配置无效：" + error);
                 PushWebAppState();
-                return;
+                return false;
             }
 
             GooseFileAttachment invalidAttachment = fileAttachments.FirstOrDefault(item =>
@@ -1857,7 +1921,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 }
                 ShowWebToast(invalidAttachment.FileName + "：" + attachmentError);
                 PushWebAppState();
-                return;
+                return false;
             }
 
             string conversationText = prompt;
@@ -1921,16 +1985,25 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 }
                 activeConversation.UpdatedAt = DateTime.Now;
                 SaveConversationHistory();
+                return true;
             }
             catch (OperationCanceledException)
             {
                 AppendConversation("系统", "已停止本轮生成。", Color.DarkOrange);
-                RestoreComposerAfterFailedSend(enteredPrompt);
+                if (restoreComposerOnFailure)
+                {
+                    RestoreComposerAfterFailedSend(enteredPrompt);
+                }
+                return false;
             }
             catch (Exception ex)
             {
                 AppendConversation("错误", ex.Message, Color.Red);
-                RestoreComposerAfterFailedSend(enteredPrompt);
+                if (restoreComposerOnFailure)
+                {
+                    RestoreComposerAfterFailedSend(enteredPrompt);
+                }
+                return false;
             }
             finally
             {
@@ -1946,10 +2019,93 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private void StopCurrentPrompt()
         {
+            if (standardTestRunning)
+            {
+                standardTestStopRequested = true;
+            }
             promptCts?.Cancel();
             lock (clientLock)
             {
                 gooseClient?.Cancel();
+            }
+        }
+
+        private async Task RunStandardTestsAsync(IEnumerable<string> scenarioIds, bool separateConversations)
+        {
+            if (sending || standardTestRunning)
+            {
+                return;
+            }
+
+            List<AiStandardTestScenario> selectedScenarios = AiStandardTestSuite.Select(scenarioIds);
+            if (selectedScenarios.Count == 0)
+            {
+                ShowWebToast("没有选择测试场景。");
+                return;
+            }
+            if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
+            {
+                ShowWebToast("这些标准测试包含配置变更，请先切换到编辑模式。");
+                return;
+            }
+
+            standardTestRunning = true;
+            standardTestStopRequested = false;
+            ApplyPermissions();
+            int completedTurns = 0;
+            int totalTurns = selectedScenarios.Sum(item => item.Prompts.Count);
+            try
+            {
+                for (int scenarioIndex = 0; scenarioIndex < selectedScenarios.Count; scenarioIndex++)
+                {
+                    if (standardTestStopRequested)
+                    {
+                        break;
+                    }
+
+                    AiStandardTestScenario scenario = selectedScenarios[scenarioIndex];
+                    if (separateConversations)
+                    {
+                        StartNewConversation();
+                    }
+                    AppendConversation("系统", "标准测试：" + scenario.Name, Color.FromArgb(86, 102, 122));
+
+                    foreach (string prompt in scenario.Prompts)
+                    {
+                        if (standardTestStopRequested)
+                        {
+                            break;
+                        }
+                        bool completed = await SendPromptAsync(
+                            prompt,
+                            new List<GooseFileAttachment>(),
+                            false).ConfigureAwait(true);
+                        if (!completed)
+                        {
+                            standardTestStopRequested = true;
+                            break;
+                        }
+                        completedTurns++;
+                    }
+
+                    if (separateConversations && activeConversation != null)
+                    {
+                        activeConversation.Title = "标准测试 · " + scenario.Name;
+                        activeConversation.UpdatedAt = DateTime.Now;
+                        SaveConversationHistory();
+                        PushWebAppState();
+                    }
+                }
+            }
+            finally
+            {
+                bool stopped = standardTestStopRequested;
+                standardTestRunning = false;
+                standardTestStopRequested = false;
+                ApplyPermissions();
+                ShowWebToast(stopped
+                    ? $"标准测试已停止，完成 {completedTurns}/{totalTurns} 轮。"
+                    : $"标准测试已完成，共 {completedTurns} 轮。");
             }
         }
 
@@ -4082,10 +4238,13 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             // previewId + confirmed=false 判定“待前台确认的预演”，避免每新增一种类型就漏弹审核窗口。
             JObject resultData = resultObj["data"] as JObject;
             string previewId = resultData?["previewId"]?.Value<string>();
+            string resultType = resultObj["type"]?.Value<string>() ?? string.Empty;
             bool confirmed = resultData?["confirmed"]?.Value<bool?>()
                 ?? resultData?["preview"]?["confirmed"]?.Value<bool?>()
                 ?? false;
             bool committed = resultData?["committed"]?.Value<bool?>() == true;
+            bool rejected = resultData?["rejected"]?.Value<bool?>() == true
+                || string.Equals(resultType, "preview.reject", StringComparison.Ordinal);
             string mode = resultData?["mode"]?.Value<string>()
                 ?? resultData?["apply"]?["mode"]?.Value<string>()
                 ?? string.Empty;
@@ -4099,7 +4258,17 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 gooseClient?.LogFrontendAnalysisEvent("preview.applied", new JObject
                 {
                     ["previewId"] = previewId,
-                    ["resultType"] = resultObj["type"]?.Value<string>() ?? string.Empty
+                    ["resultType"] = resultType
+                });
+                return;
+            }
+            if (rejected)
+            {
+                gooseClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
+                {
+                    ["previewId"] = previewId,
+                    ["decision"] = "rejected",
+                    ["source"] = "bridge"
                 });
                 return;
             }

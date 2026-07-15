@@ -168,7 +168,10 @@ namespace Automation
                     if (!OperationBehaviorCatalog.IsFieldRequired(operation, rule.Name)) continue;
                     PropertyInfo property = operation.GetType().GetProperty(rule.Name);
                     object value = property?.GetValue(operation);
-                    if (value != null && !string.IsNullOrWhiteSpace(value.ToString())) continue;
+                    bool configured = value != null;
+                    if (value is string text) configured = !string.IsNullOrWhiteSpace(text);
+                    else if (value is System.Collections.ICollection collection) configured = collection.Count > 0;
+                    if (configured) continue;
                     blockers.Add($"{location} 的运行必填字段 {rule.Name} 尚未配置。");
                     incomplete = true;
                 }

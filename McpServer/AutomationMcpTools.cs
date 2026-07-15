@@ -152,7 +152,6 @@ namespace Automation.McpServer
         [McpServerTool(Name = "get_op_detail"), Description(
             "读取单条指令详情（字段值/执行流向 flow/跳转有效性 gotoIssues）。"
             + "fields严格使用native.operation可写结构，可按需取其中字段直接用于operation.update；"
-            + "displayFields只用于查看PropertyGrid展示值，不得写入。"
             + "仅用于细粒度检查一条已知指令；解释完整流程应改用 get_proc_detail，避免手工组合多组索引。")]
         public static async Task<string> GetOpDetail(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,

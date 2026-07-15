@@ -306,19 +306,22 @@ namespace Automation
             deviceName = readWrite.DeviceName;
             if (!string.IsNullOrWhiteSpace(deviceName) && !HasPlc(deviceName))
                 errors.Add($"{location} 引用的PLC设备尚未配置：{deviceName ?? string.Empty}。");
+            if (readWrite.ModelVersion != PlcReadWrite.CurrentModelVersion)
+            {
+                errors.Add($"{location} 的PLC读写模型版本无效，必须为{PlcReadWrite.CurrentModelVersion}。");
+                return;
+            }
             if (!Enum.IsDefined(typeof(PlcAccessAction), readWrite.Action)
-                || !Enum.IsDefined(typeof(PlcReadMode), readWrite.ReadMode)
-                || !Enum.IsDefined(typeof(PlcWriteSource), readWrite.WriteSource))
+                || !Enum.IsDefined(typeof(PlcAccessMode), readWrite.Mode))
             {
                 errors.Add($"{location} 的PLC读写枚举参数无效。");
                 return;
             }
 
-            if (readWrite.Action == PlcAccessAction.Read
-                && readWrite.ReadMode == PlcReadMode.DiscreteItems)
+            if (readWrite.Action == PlcAccessAction.Read && readWrite.Mode == PlcAccessMode.Items)
             {
-                if (readWrite.ItemCount < 1 || readWrite.ItemCount > 100
-                    || readWrite.ReadItems == null || readWrite.ReadItems.Count != readWrite.ItemCount)
+                if (readWrite.ReadItemCount < 1 || readWrite.ReadItemCount > 100
+                    || readWrite.ReadItems == null || readWrite.ReadItems.Count != readWrite.ReadItemCount)
                 {
                     errors.Add($"{location} 的PLC按项读取数量必须为1..100，并与读取项数量一致。");
                     return;
@@ -343,56 +346,135 @@ namespace Automation
                 return;
             }
 
-            bool isWrite = readWrite.Action == PlcAccessAction.Write;
-            if (!PlcDirectOperationValidator.TryValidateAddress(
-                readWrite.Area, readWrite.StartAddress, readWrite.DataType,
-                readWrite.ElementCount, readWrite.StringByteLength, isWrite, out string addressError))
+            if (readWrite.Action == PlcAccessAction.Write && readWrite.Mode == PlcAccessMode.Items)
             {
-                errors.Add($"{location} 的PLC连续读写参数无效：{addressError}");
-                return;
-            }
-            if (isWrite && readWrite.WriteSource == PlcWriteSource.Constant)
-            {
-                if (readWrite.ElementCount != 1)
+                if (readWrite.WriteItemCount < 1 || readWrite.WriteItemCount > 100
+                    || readWrite.WriteItems == null || readWrite.WriteItems.Count != readWrite.WriteItemCount)
                 {
-                    errors.Add($"{location} 的PLC固定常量只支持单元素写入。");
+                    errors.Add($"{location} 的PLC按项写入数量必须为1..100，并与写入项数量一致。");
                     return;
                 }
-                string constantError = null;
-                if (readWrite.ConstantValue == null
-                    || !HslModbusAdapter.TryNormalizeValues(
-                        readWrite.DataType, new object[] { readWrite.ConstantValue }, out _, out constantError))
+                for (int index = 0; index < readWrite.WriteItems.Count; index++)
                 {
-                    errors.Add($"{location} 的PLC写入常量无效：{constantError ?? "常量为空。"}");
+                    PlcWriteItem item = readWrite.WriteItems[index];
+                    if (item == null)
+                    {
+                        errors.Add($"{location} 的PLC写入项{index + 1}为空。");
+                        continue;
+                    }
+                    if (!Enum.IsDefined(typeof(PlcValueSource), item.Source))
+                    {
+                        errors.Add($"{location} 的PLC写入项{index + 1}数据来源无效。");
+                        continue;
+                    }
+                    if (!PlcDirectOperationValidator.TryValidateAddress(
+                        item.Area, item.StartAddress, item.DataType, 1,
+                        item.StringByteLength, true, out string itemError))
+                    {
+                        errors.Add($"{location} 的PLC写入项{index + 1}：{itemError}");
+                    }
+                    if (item.Source == PlcValueSource.Variable)
+                    {
+                        ValidateVariable(item.VariableName, item.DataType,
+                            new HashSet<string>(StringComparer.Ordinal), $"WriteItems[{index}].VariableName");
+                    }
+                    else
+                    {
+                        string constantError = null;
+                        if (item.ConstantValue == null
+                            || !HslModbusAdapter.TryNormalizeValues(item.DataType,
+                                new object[] { item.ConstantValue }, out _, out constantError))
+                        {
+                            errors.Add($"{location} 的PLC写入项{index + 1}固定值无效：{constantError ?? "固定值为空。"}");
+                        }
+                    }
                 }
                 return;
             }
 
-            if (!TryGetVariable(readWrite.FirstVariableName, out DicValue firstVariable))
+            if (readWrite.Action == PlcAccessAction.Read)
             {
-                errors.Add($"{location} 的PLC首变量不存在：{readWrite.FirstVariableName ?? string.Empty}。");
+                PlcReadBatch batch = readWrite.ReadBatch;
+                if (batch == null)
+                {
+                    errors.Add($"{location} 尚未配置连续批量读取参数。");
+                    return;
+                }
+                if (!PlcDirectOperationValidator.TryValidateAddress(
+                    batch.Area, batch.StartAddress, batch.DataType, batch.ElementCount,
+                    batch.StringByteLength, false, out string addressError))
+                {
+                    errors.Add($"{location} 的PLC连续读取参数无效：{addressError}");
+                    return;
+                }
+                ValidateConsecutiveVariables(batch.FirstVariableName, batch.ElementCount,
+                    batch.DataType, "首保存变量");
                 return;
             }
-            var continuousVariables = new HashSet<string>(StringComparer.Ordinal);
-            for (int offset = 0; offset < readWrite.ElementCount; offset++)
+
+            PlcWriteBatch writeBatch = readWrite.WriteBatch;
+            if (writeBatch == null)
             {
-                DicValue variable = null;
-                if (validationContext != null && validationContext.VariableDefinitions.Count > 0)
+                errors.Add($"{location} 尚未配置连续批量写入参数。");
+                return;
+            }
+            if (!Enum.IsDefined(typeof(PlcValueSource), writeBatch.Source))
+            {
+                errors.Add($"{location} 的PLC连续写入数据来源无效。");
+                return;
+            }
+            if (!PlcDirectOperationValidator.TryValidateAddress(
+                writeBatch.Area, writeBatch.StartAddress, writeBatch.DataType,
+                writeBatch.ElementCount, writeBatch.StringByteLength, true, out string writeAddressError))
+            {
+                errors.Add($"{location} 的PLC连续写入参数无效：{writeAddressError}");
+                return;
+            }
+            if (writeBatch.Source == PlcValueSource.Variable)
+            {
+                ValidateConsecutiveVariables(writeBatch.FirstVariableName, writeBatch.ElementCount,
+                    writeBatch.DataType, "首来源变量");
+            }
+            else
+            {
+                string batchConstantError = null;
+                if (writeBatch.ConstantValue == null
+                    || !HslModbusAdapter.TryNormalizeValues(writeBatch.DataType,
+                        Enumerable.Repeat<object>(writeBatch.ConstantValue, writeBatch.ElementCount).ToArray(),
+                        out _, out batchConstantError))
                 {
-                    variable = validationContext.VariableDefinitions.Values.FirstOrDefault(
-                        item => item != null && item.Index == firstVariable.Index + offset);
+                    errors.Add($"{location} 的PLC连续写入固定值无效：{batchConstantError ?? "固定值为空。"}");
                 }
-                else
+            }
+
+            void ValidateConsecutiveVariables(
+                string firstVariableName, int count, PlcDataType dataType, string fieldName)
+            {
+                if (!TryGetVariable(firstVariableName, out DicValue firstVariable))
                 {
-                    SF.valueStore?.TryGetValueByIndex(firstVariable.Index + offset, out variable);
+                    errors.Add($"{location} 的PLC{fieldName}不存在：{firstVariableName ?? string.Empty}。");
+                    return;
                 }
-                if (variable == null)
+                var continuousVariables = new HashSet<string>(StringComparer.Ordinal);
+                for (int offset = 0; offset < count; offset++)
                 {
-                    errors.Add($"{location} 从变量[{readWrite.FirstVariableName}]开始的第{offset + 1}个连续变量不存在。");
-                    continue;
+                    DicValue variable = null;
+                    if (validationContext != null && validationContext.VariableDefinitions.Count > 0)
+                    {
+                        variable = validationContext.VariableDefinitions.Values.FirstOrDefault(
+                            item => item != null && item.Index == firstVariable.Index + offset);
+                    }
+                    else
+                    {
+                        SF.valueStore?.TryGetValueByIndex(firstVariable.Index + offset, out variable);
+                    }
+                    if (variable == null)
+                    {
+                        errors.Add($"{location} 从变量[{firstVariableName}]开始的第{offset + 1}个连续变量不存在。");
+                        continue;
+                    }
+                    ValidateVariable(variable.Name, dataType, continuousVariables, $"连续变量[{offset}]");
                 }
-                ValidateVariable(variable.Name, readWrite.DataType, continuousVariables,
-                    $"连续变量[{offset}]");
             }
         }
 

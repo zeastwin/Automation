@@ -22,7 +22,7 @@ namespace Automation
         {
             nameof(OperationType.Id), nameof(OperationType.AiKey), nameof(OperationType.Num), nameof(OperationType.Name),
             nameof(OperationType.OperaType), "Count", "IOCount", "OutIOCount", "CheckIOCount", "ProcCount",
-            nameof(PlcReadWrite.ItemCount)
+            nameof(PlcReadWrite.ModelVersion), nameof(PlcReadWrite.ReadItemCount), nameof(PlcReadWrite.WriteItemCount)
         };
 
         public static JObject BuildContract(string operaType)
@@ -38,7 +38,7 @@ namespace Automation
                 ["fields"] = BuildObjectFields(operation.GetType(), 0),
                 ["rules"] = new JArray(
                     "字段名区分大小写，未知字段直接拒绝",
-                    "数组数量字段由编译器计算，禁止手工填写 Count/IOCount/ProcCount/ItemCount",
+                    "数组数量字段由编译器计算，禁止手工填写 Count/IOCount/ProcCount/ReadItemCount/WriteItemCount",
                     "operation.update 可通过 clearFields 显式清空顶层字符串字段；同一字段不得同时出现在 fields",
                     "operation.update 只修改同一原生类型；改变类型使用 operation.replace 原位替换",
                     "现有目标使用 {operationId}；当前步骤内按 key 定位使用 {operationKey}；跨步骤时再附加 stepId 或 stepKey；禁止填写物理索引字符串")
@@ -369,6 +369,32 @@ namespace Automation
         private static void NormalizeAndValidateOperation(
             OperationType operation, JObject fields, bool preserveUnspecified)
         {
+            if (operation is PlcReadWrite plc)
+            {
+                plc.ModelVersion = PlcReadWrite.CurrentModelVersion;
+                string activeField = plc.Action == PlcAccessAction.Read
+                    ? plc.Mode == PlcAccessMode.Items ? nameof(PlcReadWrite.ReadItems) : nameof(PlcReadWrite.ReadBatch)
+                    : plc.Mode == PlcAccessMode.Items ? nameof(PlcReadWrite.WriteItems) : nameof(PlcReadWrite.WriteBatch);
+                string[] branchFields =
+                {
+                    nameof(PlcReadWrite.ReadItems), nameof(PlcReadWrite.ReadBatch),
+                    nameof(PlcReadWrite.WriteItems), nameof(PlcReadWrite.WriteBatch)
+                };
+                JProperty inactive = fields.Properties().FirstOrDefault(property =>
+                    branchFields.Contains(property.Name, StringComparer.Ordinal)
+                    && !string.Equals(property.Name, activeField, StringComparison.Ordinal));
+                if (inactive != null)
+                {
+                    throw new InvalidOperationException(
+                        $"native.operation.fields.{inactive.Name} 不属于当前 {plc.Action}/{plc.Mode} 分支；只允许 {activeField}。");
+                }
+                if (!preserveUnspecified && fields.Property(activeField, StringComparison.Ordinal) == null)
+                {
+                    throw new InvalidOperationException(
+                        $"native.operation.fields 在 {plc.Action}/{plc.Mode} 分支必须提供 {activeField}。");
+                }
+            }
+
             if (!(operation is Goto jump)) return;
 
             // Goto 构造函数为 PropertyGrid 预放了一个空分支；结构化输入未提供 Params 时不能把该占位项带入运行时。
@@ -417,6 +443,10 @@ namespace Automation
             var fields = new JObject();
             foreach (PropertyInfo property in GetConfigurableProperties(type))
             {
+                if (source is PlcReadWrite plc && IsInactivePlcBranch(plc, property.Name))
+                {
+                    continue;
+                }
                 object value = property.GetValue(source);
                 if (property.GetCustomAttribute<MarkedGotoAttribute>() != null)
                 {
@@ -460,6 +490,18 @@ namespace Automation
                 fields[property.Name] = ConvertWritableScalar(value);
             }
             return fields;
+        }
+
+        private static bool IsInactivePlcBranch(PlcReadWrite operation, string propertyName)
+        {
+            string activeField = operation.Action == PlcAccessAction.Read
+                ? operation.Mode == PlcAccessMode.Items ? nameof(PlcReadWrite.ReadItems) : nameof(PlcReadWrite.ReadBatch)
+                : operation.Mode == PlcAccessMode.Items ? nameof(PlcReadWrite.WriteItems) : nameof(PlcReadWrite.WriteBatch);
+            return (propertyName == nameof(PlcReadWrite.ReadItems)
+                    || propertyName == nameof(PlcReadWrite.ReadBatch)
+                    || propertyName == nameof(PlcReadWrite.WriteItems)
+                    || propertyName == nameof(PlcReadWrite.WriteBatch))
+                && !string.Equals(propertyName, activeField, StringComparison.Ordinal);
         }
 
         private static JToken ConvertWritableScalar(object value)
@@ -726,7 +768,9 @@ namespace Automation
             if (listName == "CheckIoParams") return "CheckIOCount";
             if (listName == "procParams" || ownerType == typeof(WaitProc)) return "ProcCount";
             if (ownerType == typeof(PlcReadWrite) && listName == nameof(PlcReadWrite.ReadItems))
-                return nameof(PlcReadWrite.ItemCount);
+                return nameof(PlcReadWrite.ReadItemCount);
+            if (ownerType == typeof(PlcReadWrite) && listName == nameof(PlcReadWrite.WriteItems))
+                return nameof(PlcReadWrite.WriteItemCount);
             return "Count";
         }
 

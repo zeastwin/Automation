@@ -324,14 +324,25 @@ namespace Automation
             List<PropertyDescriptor> list = new List<PropertyDescriptor>(props.Count);
             foreach (PropertyDescriptor prop in props)
             {
+                object propertyOwner = GetPropertyOwner(prop);
+                bool visible = prop.IsBrowsable;
+                if (propertyOwner is IPropertyVisibilityProvider visibilityProvider)
+                {
+                    visible = visibilityProvider.IsPropertyVisible(prop.Name, visible);
+                }
+                if (!visible)
+                {
+                    continue;
+                }
+
                 InlineGroupAttribute inlineGroup = prop.Attributes[typeof(InlineGroupAttribute)] as InlineGroupAttribute;
                 if (inlineGroup != null)
                 {
-                    object groupValue = prop.GetValue(GetPropertyOwner(prop));
+                    object groupValue = prop.GetValue(propertyOwner);
                     if (groupValue != null)
                     {
                         string groupLabel = string.IsNullOrWhiteSpace(inlineGroup.DisplayName) ? prop.DisplayName : inlineGroup.DisplayName;
-                        PropertyDescriptorCollection groupProps = TypeDescriptor.GetProperties(groupValue);
+                        PropertyDescriptorCollection groupProps = GetExpandableProperties(groupValue);
                         foreach (PropertyDescriptor child in groupProps)
                         {
                             list.Add(new InlineGroupMemberDescriptor(prop, child, groupLabel));
@@ -347,7 +358,7 @@ namespace Automation
                     continue;
                 }
 
-                IList items = prop.GetValue(GetPropertyOwner(prop)) as IList;
+                IList items = prop.GetValue(propertyOwner) as IList;
                 if (items == null)
                 {
                     continue;
@@ -362,7 +373,7 @@ namespace Automation
                         continue;
                     }
                     string groupLabel = $"{displayName}：{i + 1}";
-                    PropertyDescriptorCollection itemProps = TypeDescriptor.GetProperties(item);
+                    PropertyDescriptorCollection itemProps = GetExpandableProperties(item);
                     foreach (PropertyDescriptor child in itemProps)
                     {
                         list.Add(new InlineListItemMemberDescriptor(prop, i, child, groupLabel));
@@ -371,6 +382,20 @@ namespace Automation
             }
             list = ValueRefPropertyMerger.Merge(list);
             return new PropertyDescriptorCollection(list.ToArray(), true);
+        }
+
+        private static PropertyDescriptorCollection GetExpandableProperties(object value)
+        {
+            TypeConverter converter = TypeDescriptor.GetConverter(value);
+            if (converter != null && converter.GetPropertiesSupported(null))
+            {
+                PropertyDescriptorCollection properties = converter.GetProperties(null, value, null);
+                if (properties != null)
+                {
+                    return properties;
+                }
+            }
+            return TypeDescriptor.GetProperties(value);
         }
     }
 

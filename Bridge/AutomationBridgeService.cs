@@ -2091,7 +2091,17 @@ namespace Automation.Bridge
                 throw new BridgeRequestException(
                     rollbackFailed ? 500 : 409,
                     rollbackFailed ? "CHANGE_SET_ROLLBACK_FAILED" : "CHANGE_SET_COMMIT_FAILED",
-                    commitError);
+                    commitError,
+                    new JObject
+                    {
+                        ["nextAction"] = rollbackFailed
+                            ? "停止受影响功能并报告配置回滚失败"
+                            : "报告配置事务失败并等待服务端修复",
+                        ["retryableWhen"] = rollbackFailed
+                            ? "security_lock_cleared_after_configuration_recovery"
+                            : "server_configuration_transaction_fixed",
+                        ["sideEffects"] = rollbackFailed ? "unknown" : "none"
+                    }.ToString(Formatting.None));
             }
             try
             {
@@ -3651,7 +3661,6 @@ namespace Automation.Bridge
                 ["flow"] = flow,
                 ["summary"] = op == null ? string.Empty : BuildOperationSummary(op),
                 ["fields"] = fields,
-                ["displayFields"] = op == null ? new JObject() : BuildOperationFields(op),
                 ["gotoIssues"] = gotoIssues
             };
         }

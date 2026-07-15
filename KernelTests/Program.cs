@@ -52,6 +52,8 @@ namespace Automation.KernelTests
             Run("逻辑判断跳转地址严格校验", TestParamGotoStrictValidation);
             Run("指令行为契约与跳转标记一致", TestOperationBehaviorContracts);
             Run("JSON原子替换与备份恢复", TestAtomicJsonRecovery);
+            Run("配置对象类型转换器保持JSON对象形态", TestConfigurationTypeConvertersPreserveObjectShape);
+            Run("属性面板嵌套分支按当前模式显示", TestPropertyGridInlineBranchVisibility);
             Run("流程目录事务中断恢复", TestProcessDirectoryRecovery);
             Run("流程目录并发事务串行化", TestConcurrentProcessDirectoryRebuild);
             Run("多文件配置批量提交", TestConfigurationBatchWriter);
@@ -1343,6 +1345,90 @@ namespace Automation.KernelTests
                 "报警策略的条件必填规则错误");
         }
 
+        private static void TestConfigurationTypeConvertersPreserveObjectShape()
+        {
+            Type[] configuredTypes = typeof(OperationType).Assembly.GetTypes()
+                .Where(type => type.GetCustomAttribute<TypeConverterAttribute>(false) != null)
+                .ToArray();
+            foreach (Type type in configuredTypes)
+            {
+                TypeConverter converter = TypeDescriptor.GetConverter(type);
+                Assert(!converter.CanConvertTo(typeof(string)),
+                    $"{type.FullName} 的类型转换器会把配置对象降级为字符串，破坏JSON往返序列化");
+            }
+
+            var variableItem = new PlcWriteItem { Source = PlcValueSource.Variable };
+            PropertyDescriptorCollection variableProperties = TypeDescriptor.GetConverter(variableItem)
+                .GetProperties(null, variableItem, null);
+            Assert(variableProperties[nameof(PlcWriteItem.VariableName)] != null
+                && variableProperties[nameof(PlcWriteItem.ConstantValue)] == null,
+                "PLC按项写入的变量来源字段显隐错误");
+
+            var constantBatch = new PlcWriteBatch { Source = PlcValueSource.Constant };
+            PropertyDescriptorCollection constantProperties = TypeDescriptor.GetConverter(constantBatch)
+                .GetProperties(null, constantBatch, null);
+            Assert(constantProperties[nameof(PlcWriteBatch.FirstVariableName)] == null
+                && constantProperties[nameof(PlcWriteBatch.ConstantValue)] != null,
+                "PLC连续写入的固定值来源字段显隐错误");
+        }
+
+        private static void TestPropertyGridInlineBranchVisibility()
+        {
+            InlineListTypeDescriptionProvider.Register();
+            var operation = new PlcReadWrite
+            {
+                Action = PlcAccessAction.Read,
+                Mode = PlcAccessMode.Items
+            };
+            HashSet<string> propertyNames = TypeDescriptor.GetProperties(operation)
+                .Cast<PropertyDescriptor>()
+                .Select(property => property.Name)
+                .ToHashSet(StringComparer.Ordinal);
+            Assert(propertyNames.Contains("ReadItems_0_VariableName")
+                && !propertyNames.Any(name => name.StartsWith("ReadBatch_", StringComparison.Ordinal))
+                && !propertyNames.Any(name => name.StartsWith("WriteItems_", StringComparison.Ordinal))
+                && !propertyNames.Any(name => name.StartsWith("WriteBatch_", StringComparison.Ordinal)),
+                "PLC按项读取模式仍显示了其他读写分支");
+
+            operation.Mode = PlcAccessMode.ContinuousBatch;
+            propertyNames = TypeDescriptor.GetProperties(operation)
+                .Cast<PropertyDescriptor>()
+                .Select(property => property.Name)
+                .ToHashSet(StringComparer.Ordinal);
+            Assert(propertyNames.Contains("ReadBatch_Area")
+                && !propertyNames.Any(name => name.StartsWith("ReadItems_", StringComparison.Ordinal))
+                && !propertyNames.Any(name => name.StartsWith("WriteItems_", StringComparison.Ordinal))
+                && !propertyNames.Any(name => name.StartsWith("WriteBatch_", StringComparison.Ordinal)),
+                "PLC连续读取模式仍显示了其他读写分支");
+
+            operation.Action = PlcAccessAction.Write;
+            operation.Mode = PlcAccessMode.Items;
+            operation.WriteItems[0].Source = PlcValueSource.Variable;
+            propertyNames = TypeDescriptor.GetProperties(operation)
+                .Cast<PropertyDescriptor>()
+                .Select(property => property.Name)
+                .ToHashSet(StringComparer.Ordinal);
+            Assert(propertyNames.Contains("WriteItems_0_VariableName")
+                && !propertyNames.Contains("WriteItems_0_ConstantValue")
+                && !propertyNames.Any(name => name.StartsWith("ReadItems_", StringComparison.Ordinal))
+                && !propertyNames.Any(name => name.StartsWith("ReadBatch_", StringComparison.Ordinal))
+                && !propertyNames.Any(name => name.StartsWith("WriteBatch_", StringComparison.Ordinal)),
+                "PLC按项写入的分支或变量来源字段显隐错误");
+
+            operation.Mode = PlcAccessMode.ContinuousBatch;
+            operation.WriteBatch.Source = PlcValueSource.Constant;
+            propertyNames = TypeDescriptor.GetProperties(operation)
+                .Cast<PropertyDescriptor>()
+                .Select(property => property.Name)
+                .ToHashSet(StringComparer.Ordinal);
+            Assert(propertyNames.Contains("WriteBatch_ConstantValue")
+                && !propertyNames.Contains("WriteBatch_FirstVariableName")
+                && !propertyNames.Any(name => name.StartsWith("ReadItems_", StringComparison.Ordinal))
+                && !propertyNames.Any(name => name.StartsWith("ReadBatch_", StringComparison.Ordinal))
+                && !propertyNames.Any(name => name.StartsWith("WriteItems_", StringComparison.Ordinal)),
+                "PLC连续写入模式仍显示了其他分支或错误的数据来源字段");
+        }
+
         private static void TestAtomicJsonRecovery()
         {
             string path = Path.Combine(Path.GetTempPath(), "AutomationAtomicJson-" + Guid.NewGuid().ToString("N"));
@@ -1444,6 +1530,10 @@ namespace Automation.KernelTests
             {
                 JObject contract = StructuredOperationCompiler.BuildContract(definition.OperaType);
                 Assert(contract["fields"] is JObject, $"{definition.OperaType} 未生成递归字段契约");
+                if (definition is PlcReadWrite)
+                {
+                    continue;
+                }
                 IDictionary<string, object> minimumFields = definition is Goto
                     ? new Dictionary<string, object>
                     {
@@ -1490,10 +1580,12 @@ namespace Automation.KernelTests
                 "通讯嵌套参数未编译或数量未自动同步");
 
             JObject plcReadWriteContract = StructuredOperationCompiler.BuildContract("PLC读写");
-            Assert(plcReadWriteContract["fields"]?["ItemCount"] == null
+            Assert(plcReadWriteContract["fields"]?["ReadItemCount"] == null
+                && plcReadWriteContract["fields"]?["WriteItemCount"] == null
                 && plcReadWriteContract["fields"]?["ReadItems"]?["jsonType"]?.Value<string>() == "array"
+                && plcReadWriteContract["fields"]?["WriteItems"]?["jsonType"]?.Value<string>() == "array"
                 && plcReadWriteContract["fields"]?["ReadItems"]?["items"]?["fields"]?["VariableName"]?["referenceType"]?.Value<string>() == "value",
-                "PLC按项读取没有生成可写嵌套契约，或仍要求AI手填ItemCount");
+                "PLC按项读写没有生成可写嵌套契约，或仍要求AI手填数量字段");
             Assert(plcReadWriteContract["behavior"]?["modeMatrix"] is JArray plcModes
                 && plcModes.Count == 4
                 && plcReadWriteContract["behavior"]?["dataRules"]?["variableType"] != null,
@@ -1514,7 +1606,7 @@ namespace Automation.KernelTests
                 {
                     ["DeviceName"] = "PLC_1",
                     ["Action"] = "Read",
-                    ["ReadMode"] = "DiscreteItems",
+                    ["Mode"] = "Items",
                     ["ReadItems"] = new JArray(
                         new JObject
                         {
@@ -1529,9 +1621,86 @@ namespace Automation.KernelTests
                             ["VariableName"] = "压力"
                         })
                 }, plcContext);
-            Assert(plcRead.ItemCount == 2 && plcRead.ReadItems.Count == 2
+            Assert(plcRead.ReadItemCount == 2 && plcRead.ReadItems.Count == 2
                 && plcRead.ReadItems[1].VariableName == "压力",
-                "PLC读取项未递归编译或ItemCount未按数组长度同步");
+                "PLC读取项未递归编译或ReadItemCount未按数组长度同步");
+            JObject plcWritableFields = StructuredOperationCompiler.BuildWritableFields(plcRead, _ => null);
+            Assert(plcWritableFields["ReadItems"] != null
+                && plcWritableFields["ReadBatch"] == null
+                && plcWritableFields["WriteItems"] == null
+                && plcWritableFields["WriteBatch"] == null,
+                "PLC读取详情仍混入非当前分支字段");
+            var plcWrite = (PlcReadWrite)StructuredOperationCompiler.Compile("PLC读写",
+                new Dictionary<string, object>
+                {
+                    ["DeviceName"] = "PLC_1",
+                    ["Action"] = "Write",
+                    ["Mode"] = "Items",
+                    ["WriteItems"] = new JArray(
+                        new JObject
+                        {
+                            ["Area"] = "HoldingRegister", ["StartAddress"] = 100,
+                            ["DataType"] = "Short", ["StringByteLength"] = 0,
+                            ["Source"] = "Variable", ["VariableName"] = "温度"
+                        },
+                        new JObject
+                        {
+                            ["Area"] = "HoldingRegister", ["StartAddress"] = 305,
+                            ["DataType"] = "Short", ["StringByteLength"] = 0,
+                            ["Source"] = "Constant", ["ConstantValue"] = "12"
+                        })
+                }, plcContext);
+            Assert(plcWrite.WriteItemCount == 2 && plcWrite.WriteItems.Count == 2
+                && plcWrite.WriteItems[1].Source == PlcValueSource.Constant,
+                "PLC写入项未递归编译或WriteItemCount未按数组长度同步");
+            var plcReadBatch = (PlcReadWrite)StructuredOperationCompiler.Compile("PLC读写",
+                new Dictionary<string, object>
+                {
+                    ["DeviceName"] = "PLC_1",
+                    ["Action"] = "Read",
+                    ["Mode"] = "ContinuousBatch",
+                    ["ReadBatch"] = new JObject
+                    {
+                        ["Area"] = "HoldingRegister", ["StartAddress"] = 200,
+                        ["DataType"] = "Short", ["ElementCount"] = 2,
+                        ["StringByteLength"] = 0, ["FirstVariableName"] = "温度"
+                    }
+                }, plcContext);
+            var plcWriteBatch = (PlcReadWrite)StructuredOperationCompiler.Compile("PLC读写",
+                new Dictionary<string, object>
+                {
+                    ["DeviceName"] = "PLC_1",
+                    ["Action"] = "Write",
+                    ["Mode"] = "ContinuousBatch",
+                    ["WriteBatch"] = new JObject
+                    {
+                        ["Area"] = "HoldingRegister", ["StartAddress"] = 300,
+                        ["DataType"] = "Short", ["ElementCount"] = 2,
+                        ["StringByteLength"] = 0, ["Source"] = "Variable",
+                        ["FirstVariableName"] = "温度"
+                    }
+                }, plcContext);
+            Proc plcWriteRoundTrip = ObjectGraphCloner.Clone(CreateProc(plcWrite, plcWriteBatch));
+            var clonedWriteItems = (PlcReadWrite)plcWriteRoundTrip.steps[0].Ops[0];
+            var clonedWriteBatch = (PlcReadWrite)plcWriteRoundTrip.steps[0].Ops[1];
+            Assert(clonedWriteItems.WriteItems.Count == 2
+                && clonedWriteItems.WriteItems[0].StartAddress == 100
+                && clonedWriteItems.WriteItems[0].VariableName == "温度"
+                && clonedWriteItems.WriteItems[1].ConstantValue == "12",
+                "PLC按项写入经过配置对象深复制后丢失对象结构");
+            Assert(clonedWriteBatch.WriteBatch != null
+                && clonedWriteBatch.WriteBatch.StartAddress == 300
+                && clonedWriteBatch.WriteBatch.FirstVariableName == "温度",
+                "PLC连续批量写入经过配置对象深复制后丢失对象结构");
+            AssertThrows<InvalidOperationException>(() => StructuredOperationCompiler.Compile("PLC读写",
+                new Dictionary<string, object>
+                {
+                    ["DeviceName"] = "PLC_1",
+                    ["Action"] = "Read",
+                    ["Mode"] = "Items",
+                    ["ReadItems"] = new JArray(),
+                    ["WriteItems"] = new JArray()
+                }, plcContext), "PLC编译器接受了非当前Action/Mode分支字段");
             var plcMapping = (PlcMappingControl)StructuredOperationCompiler.Compile("PLC映射控制",
                 new Dictionary<string, object>
                 {
@@ -1543,7 +1712,7 @@ namespace Automation.KernelTests
             var plcValidationContext = new ProcessDefinitionValidationContext(
                 plcVariables.Keys, Array.Empty<string>(), Array.Empty<string>(),
                 Array.Empty<string>(), new[] { "PLC_1" }, plcVariables);
-            Proc plcProc = CreateProc(plcRead, plcMapping);
+            Proc plcProc = CreateProc(plcRead, plcWrite, plcReadBatch, plcWriteBatch, plcMapping);
             ProcessReadinessAnalysis plcReadiness = ProcessReadinessService.Analyze(
                 0, plcProc, new[] { plcProc }, plcValidationContext);
             Assert(plcReadiness.Runnable,

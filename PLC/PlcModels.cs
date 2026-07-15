@@ -93,15 +93,15 @@ namespace Automation
         Write = 1
     }
 
-    public enum PlcReadMode
+    public enum PlcAccessMode
     {
-        DiscreteItems = 0,
+        Items = 0,
         ContinuousBatch = 1
     }
 
-    public enum PlcWriteSource
+    public enum PlcValueSource
     {
-        Variables = 0,
+        Variable = 0,
         Constant = 1
     }
 
