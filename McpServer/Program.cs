@@ -79,17 +79,19 @@ namespace Automation.McpServer
                 transport = "streamable-http",
                 stateless = true,
                 toolProfile = toolRegistry.Profile,
+                migrationEnabled = toolRegistry.MigrationEnabled,
                 toolCount = toolRegistry.GetTools().Count
             }));
             app.MapPost("/tool-profile", (ToolProfileRequest request) =>
             {
                 try
                 {
-                    toolRegistry.SetProfile(request.Profile);
+                    toolRegistry.SetConfiguration(request.Profile, request.MigrationEnabled);
                     return Results.Json(new
                     {
                         ok = true,
                         toolProfile = toolRegistry.Profile,
+                        migrationEnabled = toolRegistry.MigrationEnabled,
                         toolCount = toolRegistry.GetTools().Count
                     });
                 }
@@ -167,7 +169,8 @@ namespace Automation.McpServer
                 "get_operation_guide", "apply_change_set", "discard_change_set_preview", "validate_proc",
                 "wait_for_proc_state", "run_proc_test", "get_communication",
                 "list_plc_devices", "get_plc_device", "set_alarm", "delete_alarm",
-                "search_data_struct_items", "get_operation_context", "get_info_log_tail",
+                "list_data_structs", "get_data_struct", "search_data_struct_items",
+                "upsert_data_struct", "delete_data_struct", "get_operation_context", "get_info_log_tail",
                 "list_variables", "get_variable_by_name", "get_variable_by_index",
                 "set_variable_by_name", "set_variable_by_index",
                 "add_variable", "update_variable", "delete_variable"
@@ -226,7 +229,7 @@ namespace Automation.McpServer
             {
                 "search_ops", "diagnose_issue", "get_operation_schema",
                 "search_operation_fields", "find_references", "find_variable_usages",
-                "audit_proc_batch", "diagnose_proc", "list_data_structs", "list_io"
+                "audit_proc_batch", "diagnose_proc", "list_io"
             };
             string? exposedDiagnostic = editorOnlyDiagnosticTools.FirstOrDefault(name =>
                 names.Contains(name, StringComparer.Ordinal));
@@ -319,6 +322,51 @@ namespace Automation.McpServer
                 || editorWriteNames.Any(name => diagnosticNames.Contains(name, StringComparer.Ordinal)))
             {
                 throw new InvalidOperationException("Diagnostic Profile 工具边界错误。");
+            }
+            string[] migrationNames = McpToolProfile.CreateTools("Editor", true)
+                .Select(tool => tool.ProtocolTool.Name).ToArray();
+            string[] expectedMigrationTools =
+            {
+                "get_migration_configuration",
+                "preview_motion_io_configuration", "preview_io_debug_configuration",
+                "preview_plc_configuration", "preview_communication_configuration",
+                "apply_migration_configuration", "discard_migration_configuration",
+                "validate_platform_configuration"
+            };
+            string? migrationExposedByDefault = expectedMigrationTools.FirstOrDefault(name =>
+                names.Contains(name, StringComparer.Ordinal));
+            if (migrationExposedByDefault != null)
+            {
+                throw new InvalidOperationException($"Editor默认模式意外暴露迁移工具：{migrationExposedByDefault}");
+            }
+            string? migrationMissing = expectedMigrationTools.FirstOrDefault(name =>
+                !migrationNames.Contains(name, StringComparer.Ordinal));
+            if (migrationMissing != null)
+            {
+                throw new InvalidOperationException($"Editor迁移能力包缺少工具：{migrationMissing}");
+            }
+            var migrationSchemaTerms = new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["preview_motion_io_configuration"] = new[]
+                    { "definition", "controlCards", "axes", "ioMappings", "cardIndex" },
+                ["preview_io_debug_configuration"] = new[]
+                    { "definition", "inputNames", "outputNames", "group1", "group3" },
+                ["preview_plc_configuration"] = new[]
+                    { "definition", "devices", "mappings", "direction", "variableNames" },
+                ["preview_communication_configuration"] = new[]
+                    { "definition", "tcp", "serial", "frameMode", "encodingName" }
+            };
+            foreach (KeyValuePair<string, string[]> contract in migrationSchemaTerms)
+            {
+                McpServerTool migrationTool = McpToolProfile.CreateTools("Editor", true).First(tool =>
+                    string.Equals(tool.ProtocolTool.Name, contract.Key, StringComparison.Ordinal));
+                string schema = migrationTool.ProtocolTool.InputSchema.GetRawText();
+                string? missingTerm = contract.Value.FirstOrDefault(term =>
+                    !schema.Contains(term, StringComparison.Ordinal));
+                if (missingTerm != null)
+                {
+                    throw new InvalidOperationException($"迁移工具{contract.Key}缺少强类型字段：{missingTerm}");
+                }
             }
             string invalidDeletion = AiChangeSetCatalog.Validate(new AiChangeSet
             {
@@ -518,6 +566,8 @@ namespace Automation.McpServer
     internal sealed class ToolProfileRequest
     {
         public string Profile { get; set; } = string.Empty;
+
+        public bool MigrationEnabled { get; set; }
     }
 
     internal sealed class McpTrayContext : ApplicationContext

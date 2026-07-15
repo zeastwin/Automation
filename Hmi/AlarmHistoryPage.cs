@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Text;
 using System.Windows.Forms;
@@ -49,12 +50,19 @@ namespace Automation.Hmi
 
         private sealed class AlarmHistoryRecord
         {
+            [DisplayName("报警代码")]
             public string AlarmCode { get; set; }
+            [DisplayName("报警内容")]
             public string AlarmContent { get; set; }
+            [DisplayName("报警类别")]
             public string AlarmCategory { get; set; }
+            [DisplayName("开始时间")]
             public string StartTime { get; set; }
+            [DisplayName("结束时间")]
             public string EndTime { get; set; }
+            [DisplayName("报警时间(s)")]
             public string Duration { get; set; }
+            [DisplayName("报警位置")]
             public string Location { get; set; }
         }
 

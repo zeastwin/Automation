@@ -62,6 +62,12 @@
     <StartupObject />
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Hmi\AnalogClock.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\ProductionStatusCard.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="Runtime\AiConversationStorage.cs" />
     <Compile Include="Runtime\AiStandardTestSuite.cs" />
     <Compile Include="Runtime\AttachmentTextExtractor.cs" />
@@ -560,8 +566,7 @@
     <Error Condition="!Exists('packages\Microsoft.Web.WebView2.1.0.4078.44\build\Microsoft.Web.WebView2.targets')" Text="$(ErrorText)" />
   </Target>
   <Target Name="EnsureApplicationIconExists" BeforeTargets="PrepareForBuild">
-    <Error Condition="!Exists('$(MSBuildProjectDirectory)\Resources\AutomationChick.ico')"
-           Text="应用程序图标缺失：Resources\AutomationChick.ico。请确认已完整拉取 Git 仓库。" />
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)\Resources\AutomationChick.ico')" Text="应用程序图标缺失：Resources\AutomationChick.ico。请确认已完整拉取 Git 仓库。" />
   </Target>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>

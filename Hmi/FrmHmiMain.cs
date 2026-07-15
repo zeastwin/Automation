@@ -71,6 +71,7 @@ namespace Automation.Hmi
         {
             refreshTimer.Start();
             RefreshRuntimeView();
+            BeginInvoke((Action)(() => platformHost?.NotifyInteractionUiReady()));
         }
 
         private void RefreshTimer_Tick(object sender, EventArgs e)

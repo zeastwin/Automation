@@ -86,6 +86,78 @@ namespace Automation
             return saved;
         }
 
+        public bool TryUpsertAndSave(
+            DataStruct candidate,
+            string configPath,
+            out bool created,
+            out string error)
+        {
+            created = false;
+            error = string.Empty;
+            if (candidate == null || string.IsNullOrWhiteSpace(candidate.Name))
+            {
+                error = "数据结构名称不能为空。";
+                return false;
+            }
+
+            List<DataStruct> snapshot = BuildSaveData();
+            int index = snapshot.FindIndex(item => item != null
+                && string.Equals(item.Name, candidate.Name.Trim(), StringComparison.Ordinal));
+            DataStruct replacement = (DataStruct)candidate.Clone();
+            replacement.Name = candidate.Name.Trim();
+            NormalizeStruct(replacement);
+            if (index < 0)
+            {
+                snapshot.Add(replacement);
+                created = true;
+            }
+            else
+            {
+                snapshot[index] = replacement;
+            }
+            if (!ValidateLoadedData(snapshot, out error))
+            {
+                return false;
+            }
+            if (!AtomicJsonFileStore.Save(configPath, "DataStruct", snapshot))
+            {
+                error = "数据结构配置保存失败。";
+                return false;
+            }
+            LoadFromList(snapshot);
+            return true;
+        }
+
+        public bool TryDeleteAndSave(string name, string configPath, out string error)
+        {
+            error = string.Empty;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                error = "数据结构名称不能为空。";
+                return false;
+            }
+
+            List<DataStruct> snapshot = BuildSaveData();
+            int removed = snapshot.RemoveAll(item => item != null
+                && string.Equals(item.Name, name.Trim(), StringComparison.Ordinal));
+            if (removed == 0)
+            {
+                error = $"未找到数据结构：{name}";
+                return false;
+            }
+            if (!ValidateLoadedData(snapshot, out error))
+            {
+                return false;
+            }
+            if (!AtomicJsonFileStore.Save(configPath, "DataStruct", snapshot))
+            {
+                error = "数据结构配置保存失败。";
+                return false;
+            }
+            LoadFromList(snapshot);
+            return true;
+        }
+
         private void Reset()
         {
             lock (dataLock)

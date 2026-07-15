@@ -91,6 +91,7 @@ namespace Automation
         private bool standardTestRunning;
         private bool standardTestStopRequested;
         private bool fullPermissionMode = false;
+        private bool migrationToolsEnabled;
         private const int MaxFileAttachmentCount = 4;
         private const long MaxFileAttachmentBytes = 10L * 1024L * 1024L;
         private readonly List<GooseFileAttachment> pendingFileAttachments = new List<GooseFileAttachment>();
@@ -250,10 +251,15 @@ body{
 .icon-button svg{width:17px;height:17px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;}
 .icon-button:hover{background:#eef3f9;color:#1f5f99;}
 .icon-button:disabled{opacity:.42;cursor:default;}
+.home-button{width:34px;height:34px;border:1px solid #dbe5ef;border-radius:11px;background:linear-gradient(145deg,#fff,#edf4fb);color:#49647e;box-shadow:0 2px 7px rgba(42,78,112,.10);}
+.home-button svg{width:18px;height:18px;}
+.home-button:hover{border-color:#b9cee1;background:linear-gradient(145deg,#fff,#e3f0fb);color:#22679f;box-shadow:0 3px 9px rgba(42,100,150,.15);}
+.home-button.active{border-color:#9fc3df;background:linear-gradient(145deg,#eaf6ff,#dcefff);color:#175f97;box-shadow:inset 0 0 0 1px rgba(255,255,255,.75),0 2px 8px rgba(42,105,155,.16);}
 .topbar-button{height:30px;border:1px solid #d6e0eb;background:#fff;box-shadow:0 1px 2px rgba(30,64,100,.06);}
 .toolbar-option.topbar-button:hover,.icon-button.topbar-button:hover{border-color:#b9cbe0;background:#f4f8fc;color:#195e9d;}
 .topbar-icon-button{width:32px;padding:0;}
 #deleteSessionButton.topbar-button:hover{border-color:#e9beb9;background:#fff4f3;color:#b13b32;}
+#migrationToolsButton.active{border-color:#df9b46;background:#fff4e6;color:#9a4f00;box-shadow:0 0 0 2px rgba(223,155,70,.12);}
 .chat-area{flex:1;min-height:0;overflow-y:auto;}
 #messages{
     max-width:1120px;
@@ -764,14 +770,22 @@ function refreshToolbar(){
     var profile=c.toolProfile||'Diagnostic';
     byId('toolDiagnostic').classList.toggle('active',profile==='Diagnostic');
     byId('toolEditor').classList.toggle('active',profile==='Editor');
+    byId('migrationToolsButton').classList.toggle('active',!!c.migrationToolsEnabled);
+    byId('migrationToolsButton').setAttribute('aria-pressed',c.migrationToolsEnabled?'true':'false');
     byId('fullPermissionButton').classList.toggle('active',!!c.fullPermissionMode);
     byId('fullPermissionButton').setAttribute('aria-pressed',c.fullPermissionMode?'true':'false');
     var lock=!appState.canEditConfig||appState.sending||quickSettingPending;
     ['toolDiagnostic','toolEditor','fullPermissionButton'].forEach(function(id){byId(id).disabled=lock;});
+    byId('migrationToolsButton').disabled=lock||profile!=='Editor';
 }
 function setToolProfile(profile){
     if(quickSettingPending||appState.sending||(appState.config||{}).toolProfile===profile){return;}
     quickSettingPending=true;appState.config.toolProfile=profile;refreshToolbar();post('setToolProfile',{profile:profile});
+}
+function toggleMigrationTools(){
+    var c=appState.config||{};
+    if(quickSettingPending||appState.sending||(c.toolProfile||'Diagnostic')!=='Editor'){return;}
+    quickSettingPending=true;c.migrationToolsEnabled=!c.migrationToolsEnabled;refreshToolbar();post('setMigrationTools',{enabled:!!c.migrationToolsEnabled});
 }
 function toggleFullPermission(){
     if(quickSettingPending||appState.sending){return;}
@@ -791,6 +805,8 @@ function automationSetState(state){
     byId('standardTestButton').disabled=!appState.canAccess||appState.sending;
     renderTaskHome();
     byId('newSessionButton').disabled=false;
+    byId('newSessionButton').classList.toggle('active',!!appState.taskHomeVisible);
+    byId('newSessionButton').setAttribute('aria-pressed',appState.taskHomeVisible?'true':'false');
     byId('deleteSessionButton').disabled=appState.sending||!appState.activeConversationId;
     byId('configButton').disabled=false;
     fillConfig();
@@ -976,6 +992,7 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('standardTestButton').addEventListener('click',openStandardTests);
     byId('toolDiagnostic').addEventListener('click',function(){setToolProfile('Diagnostic');});
     byId('toolEditor').addEventListener('click',function(){setToolProfile('Editor');});
+    byId('migrationToolsButton').addEventListener('click',toggleMigrationTools);
     byId('fullPermissionButton').addEventListener('click',toggleFullPermission);
     byId('resetButton').addEventListener('click',function(){post('reset');});
     byId('newSessionButton').addEventListener('click',function(){post('showTaskHome');});
@@ -1019,8 +1036,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
   <header class=""topbar"">
     <div class=""brand""><div class=""brand-mark"">EW</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div>
     <div class=""top-actions"">
-      <button class=""toolbar-option topbar-button"" id=""newSessionButton"" title=""返回任务列表"">任务列表</button>
+      <button class=""icon-button home-button"" id=""newSessionButton"" title=""任务主页"" aria-label=""任务主页"" aria-pressed=""false""><svg viewBox=""0 0 24 24"" aria-hidden=""true""><path d=""M3 11.5 12 4l9 7.5""/><path d=""M5.5 10.5V20h13v-9.5""/><path d=""M9.5 20v-6h5v6""/></svg></button>
       <button class=""toolbar-option topbar-button"" id=""standardTestButton"" title=""选择并连续运行标准测试场景"">标准测试</button>
+      <button class=""toolbar-option topbar-button"" id=""migrationToolsButton"" aria-pressed=""false"" title=""按需加载平台迁移配置工具"">迁移</button>
       <button class=""icon-button topbar-button topbar-icon-button"" id=""deleteSessionButton"" title=""删除当前对话"" aria-label=""删除当前对话""><svg viewBox=""0 0 24 24""><path d=""M4 7h16""/><path d=""M9 7V4h6v3""/><path d=""M7 7l1 13h8l1-13""/><path d=""M10 11v5""/><path d=""M14 11v5""/></svg></button>
       <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""读取、诊断、配置编辑和运行控制"">编辑</button></div>
       <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演；代码访问范围仍限制为 Hmi 目录"">完全权限</button>
@@ -1550,7 +1568,20 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         break;
                     }
                     toolProfile = requestedProfile;
+                    if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
+                    {
+                        migrationToolsEnabled = false;
+                    }
                     SaveWebConfig(requestedProfile == "Diagnostic" ? "已切换到诊断模式。" : "已切换到编辑模式。", false);
+                    break;
+                case "setMigrationTools":
+                    if (sending)
+                    {
+                        PushWebAppState();
+                        break;
+                    }
+                    await SetMigrationToolsAsync(message["enabled"]?.Value<bool?>() == true)
+                        .ConfigureAwait(true);
                     break;
                 case "setFullPermission":
                     if (sending)
@@ -1633,6 +1664,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     ["maxTurns"] = (int)nudMaxTurns.Value,
                     ["maxOutputTokens"] = (int)nudMaxOutputTokens.Value,
                     ["toolProfile"] = toolProfile,
+                    ["migrationToolsEnabled"] = migrationToolsEnabled,
                     ["fullPermissionMode"] = fullPermissionMode
                 },
                 ["providerOptions"] = BuildComboOptions(cboProvider, providerText),
@@ -1771,10 +1803,17 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     {
                         await SF.mainfrm.McpServerManager.EnsureStartedAsync(config.McpUri, config.ToolProfile)
                             .ConfigureAwait(true);
+                        await AutomationMcpServerManager.SetToolProfileAsync(
+                            config.McpUri, config.ToolProfile,
+                            migrationToolsEnabled && string.Equals(
+                                config.ToolProfile, "Editor", StringComparison.Ordinal)).ConfigureAwait(true);
                     }
                     else
                     {
-                        await AutomationMcpServerManager.SetToolProfileAsync(config.McpUri, config.ToolProfile)
+                        await AutomationMcpServerManager.SetToolProfileAsync(
+                            config.McpUri, config.ToolProfile,
+                            migrationToolsEnabled && string.Equals(
+                                config.ToolProfile, "Editor", StringComparison.Ordinal))
                             .ConfigureAwait(true);
                     }
 
@@ -1848,6 +1887,65 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             ShowWebToast(sessionToolsReloaded
                 ? "工具模式切换成功，当前对话已保留。"
                 : successMessage ?? "配置保存成功。");
+        }
+
+        private async Task SetMigrationToolsAsync(bool enabled)
+        {
+            if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
+            {
+                migrationToolsEnabled = false;
+                ShowWebToast("请先切换到编辑模式。迁移工具未加载。");
+                PushWebAppState();
+                return;
+            }
+            if (migrationToolsEnabled == enabled)
+            {
+                PushWebAppState();
+                return;
+            }
+
+            bool previous = migrationToolsEnabled;
+            GooseAcpClient activeClient;
+            lock (clientLock)
+            {
+                activeClient = gooseClient;
+            }
+            try
+            {
+                if (SF.mainfrm?.McpServerManager == null)
+                {
+                    throw new InvalidOperationException("MCP Server管理器未初始化");
+                }
+                string mcpUri = txtMcpUri.Text.Trim();
+                await AutomationMcpServerManager.SetToolProfileAsync(mcpUri, toolProfile, enabled)
+                    .ConfigureAwait(true);
+                bool reloaded = activeClient != null
+                    && await activeClient.ReloadAutomationExtensionAsync(mcpUri, CancellationToken.None)
+                        .ConfigureAwait(true);
+                migrationToolsEnabled = enabled;
+                ShowWebToast(enabled
+                    ? reloaded ? "迁移工具已加载，当前对话已保留。" : "迁移工具已加载。"
+                    : reloaded ? "迁移工具已卸载，当前对话已保留。" : "迁移工具已卸载。");
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    await AutomationMcpServerManager.SetToolProfileAsync(
+                        txtMcpUri.Text.Trim(), toolProfile, previous).ConfigureAwait(true);
+                    if (activeClient != null)
+                    {
+                        await activeClient.ReloadAutomationExtensionAsync(
+                            txtMcpUri.Text.Trim(), CancellationToken.None).ConfigureAwait(true);
+                    }
+                }
+                catch
+                {
+                }
+                migrationToolsEnabled = previous;
+                ShowWebToast("迁移工具切换失败：" + ex.Message);
+            }
+            PushWebAppState();
         }
 
         private async Task CheckWebConfigAsync()

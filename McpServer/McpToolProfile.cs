@@ -21,7 +21,7 @@ namespace Automation.McpServer
             "wait_for_proc_state",
             "list_variables", "get_variable_by_name", "get_variable_by_index",
             "list_stations", "get_station", "list_points", "get_point",
-            "get_data_struct", "search_data_struct_items",
+            "list_data_structs", "get_data_struct", "search_data_struct_items",
             "get_io", "search_io", "get_io_state",
             "get_communication",
             "list_plc_devices", "get_plc_device",
@@ -34,7 +34,7 @@ namespace Automation.McpServer
             "search_operation_fields", "find_references", "find_variable_usages",
             "get_operation_context", "audit_proc_batch",
             "get_info_log_tail", "diagnose_proc",
-            "list_data_structs", "list_io"
+            "list_io"
         };
 
         private static readonly HashSet<string> EditorMutationTools = new HashSet<string>(StringComparer.Ordinal)
@@ -44,6 +44,7 @@ namespace Automation.McpServer
             "start_proc", "stop_proc", "pause_proc", "resume_proc",
             "set_variable_by_name", "set_variable_by_index",
             "add_variable", "update_variable", "delete_variable",
+            "upsert_data_struct", "delete_data_struct",
             "set_alarm", "delete_alarm"
         };
 
@@ -52,7 +53,16 @@ namespace Automation.McpServer
             "get_operation_context", "get_info_log_tail"
         };
 
-        public static IReadOnlyList<McpServerTool> CreateTools(string profile)
+        private static readonly HashSet<string> MigrationTools = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "get_migration_configuration",
+            "preview_motion_io_configuration", "preview_io_debug_configuration",
+            "preview_plc_configuration", "preview_communication_configuration",
+            "apply_migration_configuration", "discard_migration_configuration",
+            "validate_platform_configuration"
+        };
+
+        public static IReadOnlyList<McpServerTool> CreateTools(string profile, bool migrationEnabled = false)
         {
             bool diagnostic;
             if (string.Equals(profile, "Diagnostic", StringComparison.OrdinalIgnoreCase)) diagnostic = true;
@@ -67,6 +77,10 @@ namespace Automation.McpServer
             {
                 enabled.UnionWith(EditorDiagnosticTools);
                 enabled.UnionWith(EditorMutationTools);
+                if (migrationEnabled)
+                {
+                    enabled.UnionWith(MigrationTools);
+                }
             }
             var tools = new List<McpServerTool>();
             foreach (MethodInfo method in typeof(AutomationMcpTools).GetMethods(
@@ -418,19 +432,25 @@ namespace Automation.McpServer
         private readonly IReadOnlyDictionary<string, McpServerTool> allTools;
         private readonly HashSet<string> editorToolNames;
         private readonly HashSet<string> diagnosticToolNames;
+        private readonly HashSet<string> migrationToolNames;
         private string profile = string.Empty;
+        private bool migrationEnabled;
 
         public DynamicMcpToolRegistry(string initialProfile)
         {
             IReadOnlyList<McpServerTool> editorTools = McpToolProfile.CreateEditorTools();
             IReadOnlyList<McpServerTool> diagnosticTools = McpToolProfile.CreateTools("Diagnostic");
-            allTools = editorTools.Concat(diagnosticTools)
+            IReadOnlyList<McpServerTool> migrationEditorTools = McpToolProfile.CreateTools("Editor", true);
+            allTools = editorTools.Concat(diagnosticTools).Concat(migrationEditorTools)
                 .GroupBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
             editorToolNames = editorTools
                 .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
             diagnosticToolNames = diagnosticTools
                 .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
+            migrationToolNames = migrationEditorTools.Select(tool => tool.ProtocolTool.Name)
+                .Where(name => !editorToolNames.Contains(name))
+                .ToHashSet(StringComparer.Ordinal);
             SetProfile(initialProfile);
         }
 
@@ -439,13 +459,22 @@ namespace Automation.McpServer
             get { lock (syncRoot) return profile; }
         }
 
+        public bool MigrationEnabled
+        {
+            get { lock (syncRoot) return migrationEnabled; }
+        }
+
         public IReadOnlyList<McpServerTool> GetTools()
         {
             lock (syncRoot)
             {
                 HashSet<string> enabledNames = string.Equals(profile, "Editor", StringComparison.Ordinal)
-                    ? editorToolNames
-                    : diagnosticToolNames;
+                    ? new HashSet<string>(editorToolNames, StringComparer.Ordinal)
+                    : new HashSet<string>(diagnosticToolNames, StringComparer.Ordinal);
+                if (migrationEnabled)
+                {
+                    enabledNames.UnionWith(migrationToolNames);
+                }
                 return allTools.Values.Where(tool => enabledNames.Contains(tool.ProtocolTool.Name))
                     .OrderBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal).ToList();
             }
@@ -453,11 +482,24 @@ namespace Automation.McpServer
 
         public void SetProfile(string value)
         {
+            SetConfiguration(value, false);
+        }
+
+        public void SetConfiguration(string value, bool enableMigration)
+        {
             string normalized;
             if (string.Equals(value, "Diagnostic", StringComparison.Ordinal)) normalized = "Diagnostic";
             else if (string.Equals(value, "Editor", StringComparison.Ordinal)) normalized = "Editor";
             else throw new InvalidDataException($"MCP工具模式不支持:{value}");
-            lock (syncRoot) profile = normalized;
+            if (enableMigration && !string.Equals(normalized, "Editor", StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("迁移能力包只能在Editor模式下开启。");
+            }
+            lock (syncRoot)
+            {
+                profile = normalized;
+                migrationEnabled = enableMigration;
+            }
         }
 
         public McpServerTool GetEnabledTool(string name)

@@ -667,6 +667,60 @@ namespace Automation.McpServer
             return PostAsync("/bridge/data_struct/set_field", payload);
         }
 
+        public Task<string> UpsertDataStructAsync(DataStructDefinition definition)
+        {
+            return PostAsync("/bridge/data_struct/upsert", new { definition });
+        }
+
+        public Task<string> DeleteDataStructAsync(string name)
+        {
+            return PostAsync("/bridge/data_struct/delete", new { name });
+        }
+
+        // ---------- migration configuration ----------
+
+        public Task<string> GetMigrationConfigurationAsync(string domain)
+        {
+            return PostAsync("/bridge/migration/get", new { domain });
+        }
+
+        public Task<string> PreviewMotionIoConfigurationAsync(MotionIoMigrationDefinition definition)
+        {
+            return PostAsync("/bridge/migration/motion-io/preview", new { definition });
+        }
+
+        public Task<string> PreviewIoDebugConfigurationAsync(IoDebugMigrationDefinition definition)
+        {
+            return PostAsync("/bridge/migration/io-debug/preview", new { definition });
+        }
+
+        public Task<string> PreviewPlcConfigurationAsync(PlcMigrationDefinition definition)
+        {
+            return PostAsync("/bridge/migration/plc/preview", new { definition });
+        }
+
+        public Task<string> PreviewCommunicationConfigurationAsync(CommunicationMigrationDefinition definition)
+        {
+            return PostAsync("/bridge/migration/communication/preview", new { definition });
+        }
+
+        public Task<string> ApplyMigrationConfigurationAsync(string previewId)
+        {
+            ValidatePreviewId(previewId);
+            return PostAsync("/bridge/migration/apply", new { previewId });
+        }
+
+        public Task<string> DiscardMigrationConfigurationAsync(string previewId)
+        {
+            ValidatePreviewId(previewId);
+            return PostAsync("/bridge/previews/reject", new { previewId });
+        }
+
+        public Task<string> ValidatePlatformConfigurationAsync()
+        {
+            return PostAsync("/bridge/migration/validate", new { });
+        }
+
         // ---------- io 拆分（4 个） ----------
 
         public Task<string> ListIoAsync(string? type, string? nameLike, int? limit)

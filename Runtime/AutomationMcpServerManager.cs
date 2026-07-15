@@ -136,7 +136,10 @@ namespace Automation
             return (baseUri ?? string.Empty).Trim().TrimEnd('/');
         }
 
-        public static async Task<string> SetToolProfileAsync(string baseUri, string toolProfile)
+        public static async Task<string> SetToolProfileAsync(
+            string baseUri,
+            string toolProfile,
+            bool migrationEnabled = false)
         {
             string normalizedBaseUri = NormalizeBaseUri(baseUri);
             if (!string.Equals(toolProfile, "Diagnostic", StringComparison.Ordinal)
@@ -144,12 +147,20 @@ namespace Automation
             {
                 throw new InvalidOperationException($"MCP工具模式不支持:{toolProfile}");
             }
+            if (migrationEnabled && !string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("迁移能力包只能在编辑模式下开启。");
+            }
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(normalizedBaseUri + "/tool-profile");
             request.Method = "POST";
             request.ContentType = "application/json; charset=utf-8";
             request.Timeout = 5000;
             request.ReadWriteTimeout = 5000;
-            byte[] body = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new { profile = toolProfile }));
+            byte[] body = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new
+            {
+                profile = toolProfile,
+                migrationEnabled
+            }));
             request.ContentLength = body.Length;
             using (Stream stream = await request.GetRequestStreamAsync().ConfigureAwait(false))
             {

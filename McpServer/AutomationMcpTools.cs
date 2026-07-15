@@ -1113,6 +1113,120 @@ namespace Automation.McpServer
                 action: client => client.SetDataStructFieldAsync(name, itemIndex, fieldIndex, value)).ConfigureAwait(false);
         }
 
+        [McpServerTool(Name = "upsert_data_struct"), Description(
+            "新增或完整更新一个数据结构。只替换同名数据结构，不替换整张数据结构表；字段索引在该数据项内必须唯一，type为Text或Number。")]
+        public static async Task<string> UpsertDataStruct(
+            [Description("一个完整的数据结构定义；同名存在时更新，不存在时新增")] DataStructDefinition definition)
+        {
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+            return await ExecuteAsync(
+                toolName: nameof(UpsertDataStruct),
+                args: definition,
+                action: client => client.UpsertDataStructAsync(definition)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "delete_data_struct"), Description(
+            "删除一个精确名称的数据结构；只影响该对象，不替换整张数据结构表。")]
+        public static async Task<string> DeleteDataStruct(
+            [Description("数据结构精确名称")] string name)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(DeleteDataStruct),
+                args: new { name },
+                action: client => client.DeleteDataStructAsync(name)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "get_migration_configuration"), Description(
+            "迁移能力包的配置快照读取入口。domain为motion_io、io_debug、plc或communication；返回definition，结构与对应preview工具的definition参数一致，可直接修改后预演。")]
+        public static async Task<string> GetMigrationConfiguration(
+            [Description("配置领域：motion_io/io_debug/plc/communication")] string domain)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetMigrationConfiguration),
+                args: new { domain },
+                action: client => client.GetMigrationConfigurationAsync(domain)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "preview_motion_io_configuration"), Description(
+            "预演控制卡、轴与IO映射的完整目标配置。这些对象存在索引耦合，因此同一事务保存；仅迁移能力包开放。")]
+        public static async Task<string> PreviewMotionIoConfiguration(
+            [Description("控制卡和IO映射的完整目标配置")] MotionIoMigrationDefinition definition)
+        {
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+            return await ExecuteAsync(
+                toolName: nameof(PreviewMotionIoConfiguration),
+                args: definition,
+                action: client => client.PreviewMotionIoConfigurationAsync(definition)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "preview_io_debug_configuration"), Description(
+            "预演IO调试界面的输入、输出和三组关联显示配置。所有名称必须引用现有IO；仅迁移能力包开放。")]
+        public static async Task<string> PreviewIoDebugConfiguration(
+            [Description("IO调试显示和关联配置")] IoDebugMigrationDefinition definition)
+        {
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+            return await ExecuteAsync(
+                toolName: nameof(PreviewIoDebugConfiguration),
+                args: definition,
+                action: client => client.PreviewIoDebugConfigurationAsync(definition)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "preview_plc_configuration"), Description(
+            "预演PLC设备及其映射的完整目标配置。映射变量必须已存在；仅迁移能力包开放。")]
+        public static async Task<string> PreviewPlcConfiguration(
+            [Description("PLC设备和地址映射配置")] PlcMigrationDefinition definition)
+        {
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+            return await ExecuteAsync(
+                toolName: nameof(PreviewPlcConfiguration),
+                args: definition,
+                action: client => client.PreviewPlcConfigurationAsync(definition)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "preview_communication_configuration"), Description(
+            "预演TCP与串口的完整目标配置，两份配置同一事务保存；仅迁移能力包开放。")]
+        public static async Task<string> PreviewCommunicationConfiguration(
+            [Description("TCP和串口配置")] CommunicationMigrationDefinition definition)
+        {
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+            return await ExecuteAsync(
+                toolName: nameof(PreviewCommunicationConfiguration),
+                args: definition,
+                action: client => client.PreviewCommunicationConfigurationAsync(definition)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "apply_migration_configuration"), Description(
+            "提交一个已由前台确认的冻结迁移配置预演，只接收previewId。迁移能力开关不等于自动确认。")]
+        public static async Task<string> ApplyMigrationConfiguration(
+            [Description("迁移配置预演返回的32位previewId")] string previewId)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ApplyMigrationConfiguration),
+                args: new { previewId },
+                action: client => client.ApplyMigrationConfigurationAsync(previewId)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "discard_migration_configuration"), Description(
+            "结束一个未提交的迁移配置预演，不修改配置。")]
+        public static async Task<string> DiscardMigrationConfiguration(
+            [Description("迁移配置预演返回的32位previewId")] string previewId)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(DiscardMigrationConfiguration),
+                args: new { previewId },
+                action: client => client.DiscardMigrationConfigurationAsync(previewId)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "validate_platform_configuration"), Description(
+            "对迁移涉及的控制卡、IO、IO调试、PLC和通讯配置执行确定性校验，返回各领域事实，不推测业务正确性。")]
+        public static async Task<string> ValidatePlatformConfiguration()
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ValidatePlatformConfiguration),
+                args: new { },
+                action: client => client.ValidatePlatformConfigurationAsync()).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "list_io"), Description(
             "列出全部 IO 配置（含名称/卡号/模块/索引/类型/电平/备注）。"
             + "IO 类型为\"通用输入\"或\"通用输出\"。")]

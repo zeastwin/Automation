@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Library</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>Automation.Hmi</RootNamespace>
+    <AssemblyName>Automation.HmiValidation</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- HMI 类型同时存在于当前可运行 Automation.exe 中，验证时以本次源码定义为准。 -->
+    <NoWarn>$(NoWarn);0436</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Automation">
+      <HintPath>..\..\bin\Debug\Automation.exe</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\Hmi\**\*.cs">
+      <Link>Hmi\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Compile>
+    <Compile Include="..\..\Runtime\UiBranding.cs">
+      <Link>Runtime\UiBranding.cs</Link>
+    </Compile>
+    <EmbeddedResource Include="..\..\Hmi\**\*.resx">
+      <Link>Hmi\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <LogicalName>Automation.Hmi.%(Filename).resources</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+</Project>

@@ -27,7 +27,8 @@ namespace Automation.McpServer
                     {
                         scope = "Hmi/ 是客户项目源码范围；平台内核源码仅用于理解公开接口，不作为客户 HMI 任务的默认修改目标。",
                         access = "Hmi 只能通过 AutomationPlatformHost 及实际公开接口访问平台能力，禁止直接引用 SF、平台窗体、Store、ProcessEngine 或原生运动对象。",
-                        workflow = new[] { "只读取当前页面及其直接依赖。", "修改前核对实际公开签名。", "实际修改 C# 后再根据构建结果说明是否需要编译部署。" }
+                        workflow = new[] { "只读取当前页面及其直接依赖。", "修改前核对实际公开签名。", "修改 Hmi 界面或 CustomFunc.cs 后运行 Scripts/Invoke-AiValidation.ps1；只编译 Hmi 窗体、Designer、resx、CustomFunc.cs 和直接样式依赖，不创建窗体、不实例化业务类、不执行候选代码，也不编译 Bridge、Engine 或 MCP、覆盖 bin/Debug。", "验证使用当前可运行 Debug 程序的公开平台 API；同时修改平台 API 不属于本验证入口的适用范围。", "验证产生的候选程序集和中间文件会在成功或失败后自动清理。", "验证通过只证明 Hmi 候选代码及自定义函数可编译，不代表已经部署或验证运行行为。" },
+                        validationCommand = "powershell -NoProfile -ExecutionPolicy Bypass -File Scripts/Invoke-AiValidation.ps1"
                     };
                     break;
                 case "platform-api":
@@ -45,7 +46,8 @@ namespace Automation.McpServer
                         source = "Hmi/CustomFunc.cs",
                         usage = "调用自定义函数指令的 Name 必须与 CustomFunc 注册的方法名完全一致。",
                         discovery = "修改前读取 CustomFunc.cs、其上下文类型和本次需要调用的公开接口实际签名，不预读无关模块。",
-                        deployment = "C# 自定义函数不支持运行时热加载；只有本轮实际修改 CustomFunc.cs 时才提示用户自行编译、重启后生效。纯流程配置不得提示编译或重启。",
+                        deployment = "修改 CustomFunc.cs 后运行 Scripts/Invoke-AiValidation.ps1 校验其能与当前平台公开 API 一起编译。C# 自定义函数不支持运行时热加载，校验不会替换当前程序；只有本轮实际修改 CustomFunc.cs 时才提示用户部署编译结果并重启后生效。纯流程配置不得提示编译或重启。",
+                        validationCommand = "powershell -NoProfile -ExecutionPolicy Bypass -File Scripts/Invoke-AiValidation.ps1",
                         validation = "以平台编译结果和 Bridge 对自定义函数源码/方法名的校验结果为准。"
                     };
                     break;
