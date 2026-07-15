@@ -18,7 +18,7 @@ namespace Automation
         private static bool isWriting;
 
         private static int initialized;
-        private static int uiExitStarted;
+        private static int uiExceptionHandling;
 
         public static void Initialize()
         {
@@ -60,19 +60,40 @@ namespace Automation
 
         private static void Application_ThreadException(object sender, ThreadExceptionEventArgs e)
         {
-            if (Interlocked.Exchange(ref uiExitStarted, 1) != 0)
+            Exception exception = e?.Exception;
+            bool fatal = IsFatalUiException(exception);
+            if (Interlocked.Exchange(ref uiExceptionHandling, 1) != 0)
             {
-                Write("退出期间的UI线程异常", e?.Exception, "已在执行停机退出，不重复枚举窗体。");
+                Write("UI异常处理期间再次异常", exception, "已忽略重复处理，安全锁定保持有效。");
                 return;
             }
-            Write("未处理（UI 线程）", e?.Exception, "将退出程序并执行停机流程。");
             try
             {
-                SF.SetSecurityLock($"UI线程发生未处理异常，已触发安全停止:{e?.Exception?.Message}");
-                MessageBox.Show("发生未处理异常，已写入本地日志，程序将安全退出。", "运行时异常", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Write("未处理（UI 线程）", exception, fatal
+                    ? "异常不可安全恢复，将执行停机退出。"
+                    : "已停止全部流程并进入安全锁定，HMI继续运行。");
+                SF.SetSecurityLock($"UI线程发生未处理异常，已触发安全停止:{exception?.Message}");
+                MessageBox.Show(
+                    fatal
+                        ? "发生不可恢复的运行时异常，已写入本地日志，程序将安全退出。"
+                        : "界面发生异常，已停止全部流程并进入安全锁定。HMI仍可用于查看状态和处理故障。",
+                    "运行时异常",
+                    MessageBoxButtons.OK,
+                    fatal ? MessageBoxIcon.Error : MessageBoxIcon.Warning);
             }
             catch
             {
+            }
+            finally
+            {
+                if (!fatal)
+                {
+                    Interlocked.Exchange(ref uiExceptionHandling, 0);
+                }
+            }
+            if (!fatal)
+            {
+                return;
             }
             try
             {
@@ -81,14 +102,25 @@ namespace Automation
             catch (Exception exitException)
             {
                 Write("UI线程退出异常", exitException, "Application.Exit失败，改为结束当前消息循环。");
-                try
-                {
-                    Application.ExitThread();
-                }
-                catch
-                {
-                }
+                try { Application.ExitThread(); }
+                catch { }
             }
+        }
+
+        private static bool IsFatalUiException(Exception exception)
+        {
+            Exception current = exception;
+            while (current != null)
+            {
+                if (current is OutOfMemoryException
+                    || current is AccessViolationException
+                    || current is System.Runtime.InteropServices.SEHException)
+                {
+                    return true;
+                }
+                current = current.InnerException;
+            }
+            return false;
         }
 
         private static void Write(string category, Exception exception, string detail)

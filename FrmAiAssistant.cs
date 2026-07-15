@@ -74,6 +74,17 @@ namespace Automation
         private readonly HashSet<string> promptedPreviewIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly object clientLock = new object();
 
+        private sealed class AiTaskRuntime
+        {
+            public AiConversation Conversation { get; set; }
+            public GooseAcpClient Client { get; set; }
+            public CancellationTokenSource Cancellation { get; set; }
+            public List<GooseAcpEvent> PendingEvents { get; } = new List<GooseAcpEvent>();
+            public bool Running { get; set; }
+            public string Status { get; set; } = "已完成";
+            public string RestoredContext { get; set; }
+        }
+
         private GooseAcpClient gooseClient;
         private CancellationTokenSource promptCts;
         private bool sending;
@@ -85,8 +96,17 @@ namespace Automation
         private readonly List<GooseFileAttachment> pendingFileAttachments = new List<GooseFileAttachment>();
         private readonly Dictionary<string, string> fileAttachmentPreviews = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly List<AiConversation> conversations = new List<AiConversation>();
+        private readonly Dictionary<string, AiTaskRuntime> taskRuntimes =
+            new Dictionary<string, AiTaskRuntime>(StringComparer.Ordinal);
         private AiConversation activeConversation;
         private string restoredConversationContext;
+        private bool taskHomeVisible = true;
+        private bool replayingTaskEvents;
+
+        private bool HasRunningTasks => taskRuntimes.Values.Any(item => item.Running) || standardTestRunning;
+        private AiTaskRuntime ActiveTaskRuntime => activeConversation != null
+            && taskRuntimes.TryGetValue(activeConversation.Id, out AiTaskRuntime runtime) ? runtime : null;
+        private bool IsActiveTaskRunning => !taskHomeVisible && ActiveTaskRuntime?.Running == true;
 
         // Bridge 服务在生成预演记录时读取此属性，若为 true 则直接标记预演为已确认，
         // 避免 TryPromptPreviewConfirmation 通过 HTTP 回调 Bridge 确认导致 UI 线程死锁。
@@ -102,9 +122,9 @@ namespace Automation
 
         public void ApplyPermissions()
         {
-            bool busy = sending || standardTestRunning;
+            bool busy = HasRunningTasks;
             txtPrompt.Enabled = true;
-            txtPrompt.ReadOnly = busy;
+            txtPrompt.ReadOnly = IsActiveTaskRunning || standardTestRunning;
             txtGooseExecutable.ReadOnly = busy;
             txtWorkingDirectory.ReadOnly = busy;
             txtMcpUri.ReadOnly = busy;
@@ -155,7 +175,7 @@ namespace Automation
                     webViewConversation.CoreWebView2.NavigationCompleted += (s, e) =>
                     {
                         webDocumentReady = true;
-                        RenderActiveConversation();
+                        RenderActiveTaskView();
                         PushWebAppState();
                     };
                     webViewEventsAttached = true;
@@ -219,30 +239,6 @@ body{
 .brand-title{font-weight:650;color:#172033;line-height:1.1;}
 .brand-subtitle{font-size:12px;color:#7b8798;margin-top:1px;}
 .top-actions{display:flex;align-items:center;gap:8px;min-width:0;}
-.session-picker{position:relative;width:clamp(170px,24vw,280px);min-width:0;}
-.session-trigger{
-    width:100%;height:30px;display:flex;align-items:center;gap:8px;
-    border:1px solid #d8e0ea;border-radius:8px;background:#fff;color:#35445a;
-    padding:0 8px 0 10px;font:12px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;
-    cursor:pointer;text-align:left;
-}
-.session-trigger:hover,.session-trigger[aria-expanded=""true""]{border-color:#a9bfd7;background:#f9fbfd;}
-.session-trigger:focus-visible{outline:0;border-color:#75a7da;box-shadow:0 0 0 3px rgba(117,167,218,.18);}
-.session-trigger:disabled{opacity:.52;cursor:default;}
-.session-trigger-text{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.session-trigger-icon{width:14px;height:14px;flex:0 0 14px;stroke:#6c7a8d;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;transition:transform .14s ease;}
-.session-trigger[aria-expanded=""true""] .session-trigger-icon{transform:rotate(180deg);}
-.session-menu{
-    position:absolute;right:0;top:35px;z-index:25;width:min(360px,calc(100vw - 24px));
-    max-height:320px;overflow-y:auto;padding:6px;border:1px solid #dce4ee;border-radius:10px;
-    background:#fff;box-shadow:0 14px 38px rgba(15,23,42,.18);display:none;
-}
-.session-menu.open{display:block;}
-.session-item{width:100%;display:block;border:0;border-radius:7px;background:transparent;padding:7px 9px;color:#35445a;cursor:pointer;text-align:left;}
-.session-item:hover{background:#f0f5fa;}
-.session-item.active{background:#e8f1fa;color:#174f83;}
-.session-item-title{display:block;font-size:12px;line-height:1.4;white-space:normal;overflow-wrap:anywhere;}
-.session-item-time{display:block;margin-top:2px;color:#8a96a6;font-size:10px;line-height:1.25;}
 .tool-mode{display:flex;align-items:center;padding:2px;border:1px solid #dbe3ed;border-radius:9px;background:#f5f7fa;}
 .toolbar-option,.permission-toggle{height:28px;border:0;border-radius:7px;padding:0 10px;background:transparent;color:#526071;font:12px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;cursor:pointer;white-space:nowrap;}
 .toolbar-option:hover,.permission-toggle:hover{background:#e9f0f7;color:#1f5f99;}
@@ -254,12 +250,30 @@ body{
 .icon-button svg{width:17px;height:17px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;}
 .icon-button:hover{background:#eef3f9;color:#1f5f99;}
 .icon-button:disabled{opacity:.42;cursor:default;}
+.topbar-button{height:30px;border:1px solid #d6e0eb;background:#fff;box-shadow:0 1px 2px rgba(30,64,100,.06);}
+.toolbar-option.topbar-button:hover,.icon-button.topbar-button:hover{border-color:#b9cbe0;background:#f4f8fc;color:#195e9d;}
+.topbar-icon-button{width:32px;padding:0;}
+#deleteSessionButton.topbar-button:hover{border-color:#e9beb9;background:#fff4f3;color:#b13b32;}
 .chat-area{flex:1;min-height:0;overflow-y:auto;}
 #messages{
     max-width:1120px;
     margin:0 auto;
     padding:5px 10px;
 }
+.task-home{position:relative;min-height:100%;max-width:1120px;margin:0 auto;padding:18px 18px 120px;}
+.task-home.hidden,#messages.hidden{display:none;}
+.task-home-title{font-size:14px;color:#667085;margin-bottom:8px;}
+.task-list{display:flex;flex-direction:column;gap:2px;}
+.task-item{width:100%;min-height:34px;border:0;border-radius:8px;background:transparent;padding:6px 8px;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer;color:#263448;font:14px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;}
+.task-item:hover{background:#eef3f9;}
+.task-item-title{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.task-item-status{flex:0 0 auto;font-size:12px;color:#8a96a7;}
+.task-item-status.running{color:#246fb5;}
+.task-item-status.failed{color:#b13b32;}
+.task-home-empty{padding:8px;color:#9aa4b2;font-size:13px;}
+.task-view-all{border:0;background:transparent;color:#8a96a7;padding:7px 8px;text-align:left;font:12px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;cursor:pointer;}
+.task-view-all:hover{color:#246fb5;}
+.task-home-watermark{position:absolute;width:48px;height:48px;left:50%;top:52%;transform:translate(-50%,-50%);opacity:.16;filter:grayscale(1);pointer-events:none;}
 .msg{
     display:flex;
     flex-direction:column;
@@ -272,6 +286,7 @@ body{
 .msg-head{display:flex;align-items:center;gap:5px;padding:0 2px;min-height:22px;}
 .msg.user .msg-head{justify-content:flex-end;}
 .msg-time{font-size:10px;color:#7b8798;line-height:1.2;}
+.msg-role{font-size:11px;color:#526071;line-height:1.2;font-weight:600;}
 .avatar{width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 22px;color:#fff;font-size:9px;font-weight:700;letter-spacing:.2px;}
 .avatar-image{display:block;object-fit:contain;background:transparent;}
 .system-avatar{background:#9a4f00;}
@@ -308,6 +323,7 @@ body{
     line-height:1.55;
     box-shadow:0 2px 8px rgba(31,45,61,.05);
 }
+.typing-glint{position:fixed;z-index:60;width:4px;height:17px;border-radius:4px;pointer-events:none;background:rgba(255,255,255,.9);box-shadow:0 0 4px 1px rgba(255,255,255,.85),0 0 3px rgba(109,174,235,.28);transform:translate(-1px,-1px);transition:opacity .16s ease;}
 .msg.error .content{
     color:#8f1d1d;
     background:#fff5f5;
@@ -465,6 +481,7 @@ pre code{background:transparent;border:0;padding:0;}
 img{max-width:100%;border-radius:8px;}
 hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .thinking-box{
+    width:100%;
     max-height:calc(100vh - 150px);
     overflow-y:auto;
     background:#ffffff;
@@ -502,6 +519,9 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
     gap:6px;
     font:12px/1.35 ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;
 }
+.analysis-segment{padding:7px 8px;color:#445269;font-size:13px;line-height:1.65;border-bottom:1px solid #edf1f6;}
+.analysis-segment>*:first-child{margin-top:0;}
+.analysis-segment>*:last-child{margin-bottom:0;}
 .tool-call{color:#69430f;background:#fffaf1;}
 .tool-result{color:#405069;background:#f7f9fc;}
 .tool-business-failure{color:#805b12;background:#fff9e8;}
@@ -514,9 +534,9 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
     color:#334155;
 }
 .composer-wrap{padding:8px 14px 10px;background:#f5f7fb;}
-.composer{max-width:1120px;margin:0 auto;background:#fff;border:1px solid #e2e7ef;border-radius:16px;min-height:76px;box-shadow:0 6px 16px rgba(16,24,40,.06);position:relative;padding:10px 50px 34px 12px;}
+.composer{max-width:1120px;margin:0 auto;background:#fff;border:1px solid #e2e7ef;border-radius:16px;min-height:92px;box-shadow:0 6px 16px rgba(16,24,40,.06);position:relative;padding:10px 50px 34px 12px;}
 .composer.drag-over{border-color:#5b9bd5;box-shadow:0 0 0 3px rgba(91,155,213,.16),0 6px 16px rgba(16,24,40,.06);}
-.prompt-input{width:100%;height:30px;max-height:100px;border:0;padding:0;outline:none;resize:none;overflow-y:auto;background:transparent;color:#172033;font:14px/1.45 ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;}
+.prompt-input{width:100%;height:48px;min-height:48px;max-height:140px;border:0;padding:0;outline:none;resize:none;overflow-y:hidden;background:transparent;color:#172033;font:14px/1.45 ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;transition:height .12s ease;}
 .prompt-input::placeholder{color:#b6bcc5;}
 .attachment-list{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 7px;max-height:138px;overflow-y:auto;}
 .attachment-list:empty{display:none;}
@@ -582,54 +602,44 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 @media (max-width:720px){.settings-grid{grid-template-columns:1fr}.composer-wrap{padding:10px}.topbar{padding:0 12px}.brand-subtitle{display:none}}
 </style>
 <script>
-var appState={sending:false,canAccess:false,canEditConfig:false,config:{},providerOptions:[],modelOptions:[],conversations:[],activeConversationId:'',attachments:[]};
+var appState={sending:false,taskHomeVisible:true,canAccess:false,canEditConfig:false,config:{},providerOptions:[],modelOptions:[],conversations:[],activeConversationId:'',attachments:[]};
 var quickSettingPending=false;
 var dropReadCount=0;
+var lastAiActivityAt=Date.now();
+var showAllTasks=false;
 function post(type,payload){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage(Object.assign({type:type},payload||{}));}}
 function byId(id){return document.getElementById(id);}
-function closeSessionMenu(){
-    var menu=byId('sessionMenu'),trigger=byId('sessionTrigger');
-    if(menu){menu.classList.remove('open');}
-    if(trigger){trigger.setAttribute('aria-expanded','false');}
-}
-function toggleSessionMenu(){
-    var trigger=byId('sessionTrigger'),menu=byId('sessionMenu');
-    if(!trigger||!menu||trigger.disabled){return;}
-    var open=!menu.classList.contains('open');
-    closeSessionMenu();
-    if(open){menu.classList.add('open');trigger.setAttribute('aria-expanded','true');}
-}
 function formatSessionTime(value){
     if(!value){return '';}
     var time=new Date(value);
     if(isNaN(time.getTime())){return '';}
     return time.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
 }
-function refreshSessionPicker(){
-    var trigger=byId('sessionTrigger'),text=byId('sessionTriggerText'),menu=byId('sessionMenu');
-    if(!trigger||!text||!menu){return;}
+function renderTaskHome(){
+    var home=byId('taskHome'),messages=byId('messages'),list=byId('taskList');
+    if(!home||!messages||!list){return;}
+    var visible=!!appState.taskHomeVisible;
+    home.classList.toggle('hidden',!visible);
+    messages.classList.toggle('hidden',visible);
+    if(!visible){return;}
+    list.innerHTML='';
     var items=appState.conversations||[];
-    var active=items.filter(function(item){return item.id===appState.activeConversationId;})[0];
-    var title=active&&active.title?active.title:'选择历史会话';
-    text.textContent=title;
-    trigger.title=title;
-    trigger.disabled=!!appState.sending||items.length===0;
-    menu.innerHTML='';
-    items.forEach(function(item){
-        var button=document.createElement('button');
-        button.type='button';button.className='session-item'+(item.id===appState.activeConversationId?' active':'');
-        button.setAttribute('role','option');button.setAttribute('aria-selected',item.id===appState.activeConversationId?'true':'false');
-        var itemTitle=document.createElement('span');itemTitle.className='session-item-title';itemTitle.textContent=item.title||'未命名会话';
-        button.appendChild(itemTitle);
-        var displayTime=formatSessionTime(item.updatedAt);
-        if(displayTime){var itemTime=document.createElement('span');itemTime.className='session-item-time';itemTime.textContent=displayTime;button.appendChild(itemTime);}
-        button.addEventListener('click',function(){
-            closeSessionMenu();
-            if(item.id!==appState.activeConversationId){post('switchSession',{id:item.id});}
-        });
-        menu.appendChild(button);
+    if(!items.length){var empty=document.createElement('div');empty.className='task-home-empty';empty.textContent='在下方输入需求即可创建新任务';list.appendChild(empty);return;}
+    var visibleItems=showAllTasks?items:items.slice(0,10);
+    visibleItems.forEach(function(item){
+        var button=document.createElement('button');button.type='button';button.className='task-item';
+        var title=document.createElement('span');title.className='task-item-title';title.textContent=item.title||'未命名任务';
+        var status=document.createElement('span');status.className='task-item-status '+(item.status||'completed');status.textContent=item.statusText||formatSessionTime(item.updatedAt);
+        button.appendChild(title);button.appendChild(status);
+        button.addEventListener('click',function(){post('openTask',{id:item.id});});
+        list.appendChild(button);
     });
-    if(trigger.disabled){closeSessionMenu();}
+    if(!showAllTasks&&items.length>10){
+        var viewAll=document.createElement('button');viewAll.type='button';viewAll.className='task-view-all';
+        viewAll.textContent='查看全部';
+        viewAll.addEventListener('click',function(){showAllTasks=true;renderTaskHome();});
+        list.appendChild(viewAll);
+    }
 }
 function toggleThinkingBox(id){
     var el=document.getElementById(id);
@@ -639,7 +649,7 @@ function resizeThinkingBox(box){
     if(!box||box.classList.contains('collapsed')){return;}
     var chat=byId('messagesScroll');
     if(!chat){return;}
-    var available=Math.max(120,chat.getBoundingClientRect().bottom-box.getBoundingClientRect().top-8);
+    var available=Math.max(120,Math.min(chat.clientHeight-16,Math.floor(chat.clientHeight*.68)));
     box.style.maxHeight=available+'px';
 }
 var messageScrollFrame=0;
@@ -650,6 +660,33 @@ function scrollMessagesToBottom(){
         var m=byId('messagesScroll');
         if(m){m.scrollTop=m.scrollHeight;}
     });
+}
+function revealFinalAnswer(message){
+    if(!message){return;}
+    var content=message.querySelector('.content');
+    if(!content){return;}
+    if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+        return;
+    }
+    var walker=document.createTreeWalker(content,NodeFilter.SHOW_TEXT);
+    var nodes=[],node,total=0;
+    while((node=walker.nextNode())){var value=node.nodeValue||'';if(value.length){nodes.push({node:node,text:value});total+=value.length;node.nodeValue='';}}
+    if(!total){return;}
+    var glint=document.createElement('span');glint.className='typing-glint';document.body.appendChild(glint);
+    function moveGlint(){
+        var last=null;for(var i=nodes.length-1;i>=0;i--){if((nodes[i].node.nodeValue||'').length){last=nodes[i].node;break;}}
+        if(!last){glint.style.opacity='0';return;}
+        var length=last.nodeValue.length,range=document.createRange();range.setStart(last,Math.max(0,length-1));range.setEnd(last,length);
+        var rect=range.getBoundingClientRect();if(rect.width||rect.height){glint.style.left=(rect.right-2)+'px';glint.style.top=rect.top+'px';glint.style.height=Math.max(14,rect.height)+'px';glint.style.opacity='1';}
+    }
+    var duration=Math.max(1200,Math.min(4500,total*15));
+    var started=performance.now(),shown=0;
+    function frame(now){
+        var target=Math.min(total,Math.floor(total*(now-started)/duration));
+        if(target>shown){var remaining=target;for(var i=0;i<nodes.length;i++){var item=nodes[i],length=item.text.length;if(remaining>=length){item.node.nodeValue=item.text;remaining-=length;}else{item.node.nodeValue=item.text.slice(0,Math.max(0,remaining));remaining=0;}if(!remaining){for(var j=i+1;j<nodes.length;j++){nodes[j].node.nodeValue='';}break;}}shown=target;moveGlint();scrollMessagesToBottom();}
+        if(target<total){window.requestAnimationFrame(frame);}else{nodes.forEach(function(item){item.node.nodeValue=item.text;});moveGlint();glint.style.opacity='0';window.setTimeout(function(){glint.remove();},180);scrollMessagesToBottom();}
+    }
+    window.requestAnimationFrame(frame);
 }
 function scrollThinkingBoxToBottom(boxId){
     var box=document.getElementById(boxId);
@@ -742,6 +779,7 @@ function toggleFullPermission(){
 }
 function automationSetState(state){
     appState=state||appState;
+    if(appState.sending){lastAiActivityAt=Date.now();}
     quickSettingPending=false;
     var status=byId('statusText');
     if(status){status.textContent=appState.sending?'生成中':'就绪';}
@@ -751,8 +789,8 @@ function automationSetState(state){
     byId('attachButton').disabled=!appState.canAccess||appState.sending;
     byId('resetButton').disabled=!appState.canAccess||appState.sending;
     byId('standardTestButton').disabled=!appState.canAccess||appState.sending;
-    refreshSessionPicker();
-    byId('newSessionButton').disabled=appState.sending;
+    renderTaskHome();
+    byId('newSessionButton').disabled=false;
     byId('deleteSessionButton').disabled=appState.sending||!appState.activeConversationId;
     byId('configButton').disabled=false;
     fillConfig();
@@ -912,8 +950,11 @@ function sendPrompt(){
 }
 function autoGrowPrompt(){
     var input=byId('promptInput');
-    input.style.height='38px';
-    input.style.height=Math.min(120,Math.max(38,input.scrollHeight))+'px';
+    var baseHeight=48,maxHeight=140;
+    input.style.height=baseHeight+'px';
+    var requiredHeight=input.scrollHeight;
+    input.style.height=(requiredHeight>baseHeight+4?Math.min(maxHeight,requiredHeight):baseHeight)+'px';
+    input.style.overflowY=requiredHeight>maxHeight?'auto':'hidden';
     refreshSendButton();
 }
 document.addEventListener('DOMContentLoaded',function(){
@@ -937,16 +978,12 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('toolEditor').addEventListener('click',function(){setToolProfile('Editor');});
     byId('fullPermissionButton').addEventListener('click',toggleFullPermission);
     byId('resetButton').addEventListener('click',function(){post('reset');});
-    byId('newSessionButton').addEventListener('click',function(){post('newSession');});
+    byId('newSessionButton').addEventListener('click',function(){post('showTaskHome');});
     byId('deleteSessionButton').addEventListener('click',function(){
         if(appState.sending||!appState.activeConversationId){return;}
         if(window.confirm('确定删除当前对话吗？删除后无法恢复。')){post('deleteSession');}
     });
-    byId('sessionTrigger').addEventListener('click',function(e){e.stopPropagation();toggleSessionMenu();});
-    byId('sessionMenu').addEventListener('click',function(e){e.stopPropagation();});
-    document.addEventListener('click',closeSessionMenu);
     document.addEventListener('keydown',function(e){
-        if(e.key==='Escape'){closeSessionMenu();return;}
         if((e.ctrlKey||e.metaKey)&&String(e.key||'').toLowerCase()==='c'){copySelectedText(e);}
     },true);
     byId('attachButton').addEventListener('click',function(){post('chooseFile');});
@@ -967,6 +1004,13 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('testOverlay').addEventListener('click',function(e){if(e.target===this){closeStandardTests();}});
     post('ready');
 });
+window.setInterval(function(){
+    if(!appState.sending){return;}
+    var status=byId('statusText');
+    if(!status){return;}
+    var seconds=Math.max(0,Math.floor((Date.now()-lastAiActivityAt)/1000));
+    status.textContent=seconds<10?'生成中':'模型处理中 · 已等待 '+seconds+' 秒';
+},1000);
 window.addEventListener('resize',function(){document.querySelectorAll('.thinking-box:not(.collapsed)').forEach(resizeThinkingBox);});
 </script>
 </head>
@@ -975,20 +1019,16 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
   <header class=""topbar"">
     <div class=""brand""><div class=""brand-mark"">EW</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div>
     <div class=""top-actions"">
-      <div class=""session-picker"" id=""sessionPicker"">
-        <button class=""session-trigger"" id=""sessionTrigger"" type=""button"" aria-haspopup=""listbox"" aria-expanded=""false""><span class=""session-trigger-text"" id=""sessionTriggerText"">选择历史会话</span><svg class=""session-trigger-icon"" viewBox=""0 0 24 24"" aria-hidden=""true""><path d=""m7 10 5 5 5-5""/></svg></button>
-        <div class=""session-menu scrollable"" id=""sessionMenu"" role=""listbox"" aria-label=""历史会话""></div>
-      </div>
-      <button class=""toolbar-option"" id=""newSessionButton"" title=""新建会话"">新对话</button>
-      <button class=""toolbar-option"" id=""standardTestButton"" title=""选择并连续运行标准测试场景"">标准测试</button>
-      <button class=""icon-button"" id=""deleteSessionButton"" title=""删除当前对话"" aria-label=""删除当前对话""><svg viewBox=""0 0 24 24""><path d=""M4 7h16""/><path d=""M9 7V4h6v3""/><path d=""M7 7l1 13h8l1-13""/><path d=""M10 11v5""/><path d=""M14 11v5""/></svg></button>
+      <button class=""toolbar-option topbar-button"" id=""newSessionButton"" title=""返回任务列表"">任务列表</button>
+      <button class=""toolbar-option topbar-button"" id=""standardTestButton"" title=""选择并连续运行标准测试场景"">标准测试</button>
+      <button class=""icon-button topbar-button topbar-icon-button"" id=""deleteSessionButton"" title=""删除当前对话"" aria-label=""删除当前对话""><svg viewBox=""0 0 24 24""><path d=""M4 7h16""/><path d=""M9 7V4h6v3""/><path d=""M7 7l1 13h8l1-13""/><path d=""M10 11v5""/><path d=""M14 11v5""/></svg></button>
       <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""读取、诊断、配置编辑和运行控制"">编辑</button></div>
       <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演；代码访问范围仍限制为 Hmi 目录"">完全权限</button>
       <button class=""icon-button"" id=""resetButton"" title=""重置会话"" aria-label=""重置会话""><svg viewBox=""0 0 24 24""><path d=""M3 12a9 9 0 1 0 3-6.7""/><path d=""M3 4v6h6""/></svg></button>
       <button class=""icon-button"" id=""configButton"" title=""配置"" aria-label=""配置""><svg viewBox=""0 0 24 24""><path d=""M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z""/><path d=""M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z""/></svg></button>
     </div>
   </header>
-  <main class=""chat-area scrollable"" id=""messagesScroll""><div id=""messages""></div></main>
+  <main class=""chat-area scrollable"" id=""messagesScroll""><section class=""task-home"" id=""taskHome""><div class=""task-home-title"">任务</div><div class=""task-list"" id=""taskList""></div><img class=""task-home-watermark"" src=""__CHICK_AVATAR__"" alt=""""></section><div class=""hidden"" id=""messages""></div></main>
   <footer class=""composer-wrap""><div id=""composer"" class=""composer""><div id=""attachmentList"" class=""attachment-list"" aria-label=""待发送文件""></div><textarea id=""promptInput"" class=""prompt-input"" placeholder=""要求后续变更""></textarea><button id=""attachButton"" class=""attach-button"" type=""button"" title=""添加文件"" aria-label=""添加文件"">+</button><button id=""sendButton"" class=""send-button"" title=""发送"" aria-label=""发送""><span class=""circle""><svg class=""arrow-icon"" viewBox=""0 0 24 24""><path d=""M12 5 5.5 11.5l1.6 1.6 3.8-3.8V20h2.2V9.3l3.8 3.8 1.6-1.6L12 5Z""/></svg><span class=""stop-icon""></span></span></button></div></footer>
 </div>
 <div class=""modal-backdrop"" id=""testOverlay"">
@@ -1453,10 +1493,16 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     RemoveFileAttachment(message["id"]?.Value<string>());
                     break;
                 case "stop":
-                    if (sending || standardTestRunning)
+                    if (IsActiveTaskRunning || standardTestRunning)
                     {
                         StopCurrentPrompt();
                     }
+                    break;
+                case "showTaskHome":
+                    ShowTaskHome();
+                    break;
+                case "openTask":
+                    SwitchConversation(message["id"]?.Value<string>());
                     break;
                 case "reset":
                     BtnResetSession_Click(sender, EventArgs.Empty);
@@ -1570,9 +1616,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             string normalizedProvider = NormalizeGooseOverride(providerText);
             return new JObject
             {
-                ["sending"] = sending || standardTestRunning,
+                ["sending"] = IsActiveTaskRunning || standardTestRunning,
+                ["taskHomeVisible"] = taskHomeVisible,
                 ["canAccess"] = true,
-                ["canEditConfig"] = true,
+                ["canEditConfig"] = !HasRunningTasks,
                 ["config"] = new JObject
                 {
                     ["gooseExecutablePath"] = txtGooseExecutable.Text,
@@ -1598,14 +1645,20 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     ["description"] = item.Description,
                     ["turnCount"] = item.Prompts.Count
                 })),
-                ["activeConversationId"] = activeConversation?.Id ?? string.Empty,
+                ["activeConversationId"] = taskHomeVisible ? string.Empty : activeConversation?.Id ?? string.Empty,
                 ["conversations"] = new JArray(conversations
                     .OrderByDescending(item => item.UpdatedAt)
                     .Select(item => new JObject
                     {
                         ["id"] = item.Id,
                         ["title"] = item.Title,
-                        ["updatedAt"] = item.UpdatedAt
+                        ["updatedAt"] = item.UpdatedAt,
+                        ["status"] = taskRuntimes.TryGetValue(item.Id, out AiTaskRuntime runtime)
+                            ? runtime.Running ? "running" : string.Equals(runtime.Status, "失败", StringComparison.Ordinal) ? "failed" : "completed"
+                            : "completed",
+                        ["statusText"] = taskRuntimes.TryGetValue(item.Id, out AiTaskRuntime taskRuntime) && taskRuntime.Running
+                            ? "进行中"
+                            : taskRuntime?.Status == "失败" ? "失败" : string.Empty
                     }))
             };
         }
@@ -1877,16 +1930,22 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private async void BtnSend_Click(object sender, EventArgs e)
         {
-            if (sending || standardTestRunning)
+            if (IsActiveTaskRunning || standardTestRunning)
             {
                 StopCurrentPrompt();
                 return;
             }
 
-            await SendPromptAsync(txtPrompt.Text, pendingFileAttachments.ToList(), true).ConfigureAwait(true);
+            if (taskHomeVisible || activeConversation == null)
+            {
+                StartNewConversation();
+            }
+
+            await SendPromptAsync(ActiveTaskRuntime, txtPrompt.Text, pendingFileAttachments.ToList(), true).ConfigureAwait(true);
         }
 
         private async Task<bool> SendPromptAsync(
+            AiTaskRuntime runtime,
             string enteredPrompt,
             List<GooseFileAttachment> fileAttachments,
             bool restoreComposerOnFailure)
@@ -1895,6 +1954,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             fileAttachments = fileAttachments ?? new List<GooseFileAttachment>();
 
             if (string.IsNullOrWhiteSpace(prompt) && fileAttachments.Count == 0)
+            {
+                return false;
+            }
+            if (runtime == null || runtime.Running)
             {
                 return false;
             }
@@ -1929,7 +1992,30 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 conversationText += "\n\n📎 附件：" + string.Join("、", fileAttachments.Select(item => item.FileName));
             }
-            AppendConversation("用户", conversationText, Color.FromArgb(22, 72, 130));
+            // 新建或切换任务时 WebView 正在重载，导航完成后会从任务历史统一渲染；
+            // 此时不能提前追加气泡，否则同一条用户消息会显示两次。
+            if (webDocumentReady)
+            {
+                AppendConversation("用户", conversationText, Color.FromArgb(22, 72, 130));
+            }
+            DateTime startedAt = DateTime.Now;
+            runtime.Conversation.Messages.Add(new AiConversationMessage
+            {
+                Role = "user",
+                Text = conversationText,
+                Time = startedAt
+            });
+            if (runtime.Conversation.Messages.Count == 1)
+            {
+                runtime.Conversation.Title = conversationText.Length > 24
+                    ? conversationText.Substring(0, 24) + "…"
+                    : conversationText;
+            }
+            runtime.Conversation.UpdatedAt = startedAt;
+            runtime.PendingEvents.Clear();
+            runtime.Running = true;
+            runtime.Status = "进行中";
+            SaveConversationHistory();
             // 生成期间持续强制跟随消息区与思考框底部，不允许增量脚本或用户上滑打断信息流。
             EnqueueScript("if(window.startForcedStreamScroll){startForcedStreamScroll();}");
             sending = true;
@@ -1938,81 +2024,93 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             flowVisualizationCallIds.Clear();
             flowVisualizationProcesses.RemoveAll();
             promptStartedAt = DateTime.Now;
-            promptCts?.Dispose();
-            promptCts = new CancellationTokenSource();
+            runtime.Cancellation?.Dispose();
+            runtime.Cancellation = new CancellationTokenSource();
+            promptCts = runtime.Cancellation;
             ApplyPermissions();
 
             try
             {
-                GooseAcpClient client = EnsureGooseClient(config);
-                await client.PromptAsync(prompt, fileAttachments, promptCts.Token).ConfigureAwait(true);
+                GooseAcpClient client = EnsureTaskClient(runtime, config);
+                await client.PromptAsync(prompt, fileAttachments, runtime.Cancellation.Token).ConfigureAwait(true);
                 DateTime completedAt = DateTime.Now;
-                activeConversation.Messages.Add(new AiConversationMessage
-                {
-                    Role = "user",
-                    Text = conversationText,
-                    Time = completedAt
-                });
-                if (activeConversation.Messages.Count == 1)
-                {
-                    activeConversation.Title = conversationText.Length > 24
-                        ? conversationText.Substring(0, 24) + "…"
-                        : conversationText;
-                }
                 HashSet<string> sentAttachmentIds = new HashSet<string>(fileAttachments.Select(item => item.Id), StringComparer.Ordinal);
                 pendingFileAttachments.RemoveAll(item => sentAttachmentIds.Contains(item.Id));
                 foreach (string attachmentId in sentAttachmentIds)
                 {
                     fileAttachmentPreviews.Remove(attachmentId);
                 }
-                txtPrompt.Clear();
-                FinishStreaming();
-                FinishThoughtStreaming();
+                bool isActive = !taskHomeVisible && ReferenceEquals(activeConversation, runtime.Conversation);
+                if (isActive)
+                {
+                    txtPrompt.Clear();
+                    FinishStreaming();
+                    FinishThoughtStreaming();
+                }
                 string visualizationJson = flowVisualizationProcesses.Count == 0
                     ? null
                     : flowVisualizationProcesses.ToString(Formatting.None);
-                string assistantText = PromoteLatestAssistantSegment(client.LastAssistantResponse, visualizationJson);
+                string assistantText = isActive
+                    ? PromoteLatestAssistantSegment(client.LastAssistantResponse, visualizationJson)
+                    : ExtractLatestAssistantText(runtime.PendingEvents, client.LastAssistantResponse);
                 if (!string.IsNullOrWhiteSpace(assistantText))
                 {
-                    activeConversation.Messages.Add(new AiConversationMessage
+                    runtime.Conversation.Messages.Add(new AiConversationMessage
                     {
                         Role = "assistant",
                         Text = assistantText,
                         Time = DateTime.Now,
                         VisualizationJson = visualizationJson
                     });
-                    activeConversation.UpdatedAt = DateTime.Now;
+                    runtime.Conversation.UpdatedAt = DateTime.Now;
                 }
-                activeConversation.UpdatedAt = DateTime.Now;
+                runtime.Conversation.UpdatedAt = DateTime.Now;
+                runtime.Status = "已完成";
+                runtime.PendingEvents.Clear();
                 SaveConversationHistory();
                 return true;
             }
             catch (OperationCanceledException)
             {
-                AppendConversation("系统", "已停止本轮生成。", Color.DarkOrange);
-                if (restoreComposerOnFailure)
+                runtime.Status = "已停止";
+                if (!taskHomeVisible && ReferenceEquals(activeConversation, runtime.Conversation))
                 {
-                    RestoreComposerAfterFailedSend(enteredPrompt);
+                    AppendConversation("系统", "已停止本轮生成。", Color.DarkOrange);
+                    if (restoreComposerOnFailure)
+                    {
+                        RestoreComposerAfterFailedSend(enteredPrompt);
+                    }
                 }
                 return false;
             }
             catch (Exception ex)
             {
-                AppendConversation("错误", ex.Message, Color.Red);
-                if (restoreComposerOnFailure)
+                runtime.Status = "失败";
+                if (!taskHomeVisible && ReferenceEquals(activeConversation, runtime.Conversation))
                 {
-                    RestoreComposerAfterFailedSend(enteredPrompt);
+                    AppendConversation("错误", ex.Message, Color.Red);
+                    if (restoreComposerOnFailure)
+                    {
+                        RestoreComposerAfterFailedSend(enteredPrompt);
+                    }
                 }
                 return false;
             }
             finally
             {
-                // AI 纯文字回复不调工具时，不会有后续非流式事件触发收尾，必须在此兜底。
-                FinishStreaming();
-                FinishThoughtStreaming();
-                CollapseThinkingBox();
-                EnqueueScript("if(window.stopForcedStreamScroll){stopForcedStreamScroll();}");
-                sending = false;
+                runtime.Running = false;
+                runtime.Cancellation?.Dispose();
+                runtime.Cancellation = null;
+                if (!taskHomeVisible && ReferenceEquals(activeConversation, runtime.Conversation))
+                {
+                    FinishStreaming();
+                    FinishThoughtStreaming();
+                    CollapseThinkingBox();
+                    EnqueueScript("if(window.stopForcedStreamScroll){stopForcedStreamScroll();}");
+                    promptCts = null;
+                    sending = false;
+                }
+                SaveConversationHistory();
                 ApplyPermissions();
             }
         }
@@ -2023,10 +2121,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 standardTestStopRequested = true;
             }
-            promptCts?.Cancel();
+            AiTaskRuntime runtime = ActiveTaskRuntime;
+            runtime?.Cancellation?.Cancel();
             lock (clientLock)
             {
-                gooseClient?.Cancel();
+                runtime?.Client?.Cancel();
             }
         }
 
@@ -2054,6 +2153,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             ApplyPermissions();
             int completedTurns = 0;
             int totalTurns = selectedScenarios.Sum(item => item.Prompts.Count);
+            int passedScenarios = 0;
+            int failedScenarios = 0;
             try
             {
                 for (int scenarioIndex = 0; scenarioIndex < selectedScenarios.Count; scenarioIndex++)
@@ -2070,6 +2171,29 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     }
                     AppendConversation("系统", "标准测试：" + scenario.Name, Color.FromArgb(86, 102, 122));
 
+                    if (!AiStandardTestSuite.Prepare(
+                        scenario, out AiStandardTestFixtureState fixture, out string prepareError))
+                    {
+                        failedScenarios++;
+                        AiAnalysisLogger.Write(new JObject
+                        {
+                            ["event"] = "standard_test.preparation_failed",
+                            ["conversationId"] = activeConversation?.Id ?? string.Empty,
+                            ["scenarioId"] = scenario.Id,
+                            ["message"] = prepareError ?? string.Empty
+                        });
+                        AppendConversation("系统",
+                            "### 未执行 · " + scenario.Name + "\n\n- ✗ 测试准备失败：" + prepareError,
+                            Color.FromArgb(178, 68, 68));
+                        continue;
+                    }
+                    AppendConversation("系统",
+                        string.IsNullOrWhiteSpace(fixture.SelectedProcessName)
+                            ? "测试环境已清理：仅移除名称以“标准测试_”开头的测试对象。"
+                            : "测试夹具已准备并选中流程：" + fixture.SelectedProcessName,
+                        Color.FromArgb(86, 102, 122));
+
+                    bool scenarioCompleted = true;
                     foreach (string prompt in scenario.Prompts)
                     {
                         if (standardTestStopRequested)
@@ -2077,15 +2201,36 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                             break;
                         }
                         bool completed = await SendPromptAsync(
+                            ActiveTaskRuntime,
                             prompt,
                             new List<GooseFileAttachment>(),
                             false).ConfigureAwait(true);
                         if (!completed)
                         {
+                            scenarioCompleted = false;
                             standardTestStopRequested = true;
                             break;
                         }
                         completedTurns++;
+                    }
+
+                    if (scenarioCompleted)
+                    {
+                        AiStandardTestEvaluation evaluation = AiStandardTestSuite.Evaluate(scenario, fixture);
+                        if (evaluation.Passed) passedScenarios++;
+                        else failedScenarios++;
+                        AiAnalysisLogger.Write(new JObject
+                        {
+                            ["event"] = "standard_test.evaluated",
+                            ["conversationId"] = activeConversation?.Id ?? string.Empty,
+                            ["scenarioId"] = scenario.Id,
+                            ["passed"] = evaluation.Passed,
+                            ["checks"] = new JArray(evaluation.Details)
+                        });
+                        AppendConversation("系统", evaluation.ToMarkdown(scenario.Name),
+                            evaluation.Passed
+                                ? Color.FromArgb(54, 128, 84)
+                                : Color.FromArgb(178, 68, 68));
                     }
 
                     if (separateConversations && activeConversation != null)
@@ -2104,8 +2249,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 standardTestStopRequested = false;
                 ApplyPermissions();
                 ShowWebToast(stopped
-                    ? $"标准测试已停止，完成 {completedTurns}/{totalTurns} 轮。"
-                    : $"标准测试已完成，共 {completedTurns} 轮。");
+                    ? $"标准测试已停止，完成 {completedTurns}/{totalTurns} 轮；通过 {passedScenarios}，未通过 {failedScenarios}。"
+                    : $"标准测试已完成，共 {completedTurns} 轮；通过 {passedScenarios}，未通过 {failedScenarios}。");
             }
         }
 
@@ -2136,17 +2281,19 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 MessageBox.Show("AI 会话历史读取失败，已用空历史继续启动：" + ex.Message,
                     "EW-AI 会话历史", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
-            activeConversation = conversations.OrderByDescending(item => item.UpdatedAt).FirstOrDefault();
-            if (activeConversation == null)
+            taskRuntimes.Clear();
+            foreach (AiConversation conversation in conversations)
             {
-                activeConversation = CreateConversation();
-                conversations.Add(activeConversation);
-                SaveConversationHistory();
+                taskRuntimes[conversation.Id] = new AiTaskRuntime
+                {
+                    Conversation = conversation,
+                    Status = "已完成",
+                    RestoredContext = BuildRestoredConversationContext(conversation)
+                };
             }
-            else
-            {
-                restoredConversationContext = BuildRestoredConversationContext(activeConversation);
-            }
+            activeConversation = null;
+            restoredConversationContext = null;
+            taskHomeVisible = true;
         }
 
         private static AiConversation CreateConversation()
@@ -2183,42 +2330,49 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private void StartNewConversation()
         {
-            if (sending)
-            {
-                return;
-            }
             activeConversation = CreateConversation();
             conversations.Insert(0, activeConversation);
+            taskRuntimes[activeConversation.Id] = new AiTaskRuntime
+            {
+                Conversation = activeConversation,
+                Status = "等待开始"
+            };
             while (conversations.Count > AiConversationStorage.MaxConversationCount)
             {
                 conversations.Remove(conversations.OrderBy(item => item.UpdatedAt).First());
             }
             SaveConversationHistory();
             restoredConversationContext = null;
-            ResetConversationSessionState();
+            taskHomeVisible = false;
+            ResetConversationViewState();
         }
 
         private void DeleteCurrentConversation()
         {
-            if (sending || activeConversation == null)
+            if (activeConversation == null || ActiveTaskRuntime?.Running == true)
             {
                 return;
             }
 
             string deletedId = activeConversation.Id;
+            if (taskRuntimes.TryGetValue(deletedId, out AiTaskRuntime runtime))
+            {
+                runtime.Client?.Dispose();
+                runtime.Cancellation?.Dispose();
+                taskRuntimes.Remove(deletedId);
+            }
             conversations.RemoveAll(item => string.Equals(item.Id, deletedId, StringComparison.Ordinal));
-            activeConversation = CreateConversation();
-            conversations.Insert(0, activeConversation);
+            activeConversation = null;
             restoredConversationContext = null;
-            ResetConversationSessionState();
+            taskHomeVisible = true;
+            ResetConversationViewState();
             SaveConversationHistory();
             ShowWebToast("当前对话已删除。");
         }
 
         private void SwitchConversation(string conversationId)
         {
-            if (sending || string.IsNullOrWhiteSpace(conversationId)
-                || string.Equals(activeConversation?.Id, conversationId, StringComparison.Ordinal))
+            if (string.IsNullOrWhiteSpace(conversationId))
             {
                 return;
             }
@@ -2231,13 +2385,43 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 return;
             }
             activeConversation = target;
-            restoredConversationContext = BuildRestoredConversationContext(target);
-            ResetConversationSessionState();
+            if (!taskRuntimes.TryGetValue(target.Id, out AiTaskRuntime runtime))
+            {
+                runtime = new AiTaskRuntime
+                {
+                    Conversation = target,
+                    Status = "已完成",
+                    RestoredContext = BuildRestoredConversationContext(target)
+                };
+                taskRuntimes[target.Id] = runtime;
+            }
+            gooseClient = runtime.Client;
+            promptCts = runtime.Cancellation;
+            restoredConversationContext = runtime.RestoredContext;
+            sending = runtime.Running;
+            taskHomeVisible = false;
+            ResetConversationViewState();
+        }
+
+        private void ShowTaskHome()
+        {
+            taskHomeVisible = true;
+            activeConversation = null;
+            gooseClient = null;
+            promptCts = null;
+            sending = false;
+            ResetConversationViewState();
         }
 
         private void ResetConversationSessionState()
         {
             DisposeGooseClient();
+            ResetConversationViewState();
+            txtSessionName.Text = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
+        }
+
+        private void ResetConversationViewState()
+        {
             pendingFileAttachments.Clear();
             fileAttachmentPreviews.Clear();
             promptedPreviewIds.Clear();
@@ -2256,7 +2440,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             streamingThoughtSegmentIndex = 0;
             currentThinkingBoxId = null;
             pendingScriptTask = Task.CompletedTask;
-            txtSessionName.Text = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
             ResetConversationHtml();
         }
 
@@ -2303,6 +2486,32 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
         }
 
+        private void RenderActiveTaskView()
+        {
+            if (taskHomeVisible || activeConversation == null)
+            {
+                return;
+            }
+            RenderActiveConversation();
+            if (!taskRuntimes.TryGetValue(activeConversation.Id, out AiTaskRuntime runtime)
+                || runtime.PendingEvents.Count == 0)
+            {
+                return;
+            }
+            replayingTaskEvents = true;
+            try
+            {
+                foreach (GooseAcpEvent item in runtime.PendingEvents.ToList())
+                {
+                    GooseClient_EventReceived(item);
+                }
+            }
+            finally
+            {
+                replayingTaskEvents = false;
+            }
+        }
+
         // 重置对话区：清空 #messages 容器内容（保留基础 HTML/CSS），等价于原 rtbConversation.Clear()。
         private void ResetConversationHtml()
         {
@@ -2314,21 +2523,86 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             webViewConversation.CoreWebView2.NavigateToString(BaseConversationHtml);
         }
 
-        private GooseAcpClient EnsureGooseClient(GooseConfig config)
+        private GooseAcpClient EnsureTaskClient(AiTaskRuntime runtime, GooseConfig config)
         {
             lock (clientLock)
             {
-                if (gooseClient != null)
+                if (runtime.Client != null)
                 {
-                    return gooseClient;
+                    return runtime.Client;
                 }
 
-                gooseClient = new GooseAcpClient(config, restoredConversationContext);
-                restoredConversationContext = null;
-                gooseClient.EventReceived += GooseClient_EventReceived;
-                gooseClient.PermissionRequestHandler = HandlePermissionRequest;
-                return gooseClient;
+                runtime.Client = new GooseAcpClient(config, runtime.RestoredContext);
+                runtime.RestoredContext = null;
+                runtime.Client.EventReceived += item => TaskClient_EventReceived(runtime, item);
+                runtime.Client.PermissionRequestHandler = HandlePermissionRequest;
+                if (ReferenceEquals(ActiveTaskRuntime, runtime))
+                {
+                    gooseClient = runtime.Client;
+                    restoredConversationContext = null;
+                }
+                return runtime.Client;
             }
+        }
+
+        private void TaskClient_EventReceived(AiTaskRuntime runtime, GooseAcpEvent item)
+        {
+            if (IsDisposed)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke(new Action<AiTaskRuntime, GooseAcpEvent>(TaskClient_EventReceived), runtime, item);
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                return;
+            }
+
+            runtime.PendingEvents.Add(item);
+            bool isActive = !taskHomeVisible && ReferenceEquals(activeConversation, runtime.Conversation);
+            if (isActive)
+            {
+                GooseClient_EventReceived(item);
+            }
+            else if (string.Equals(item.Kind, "tool_result", StringComparison.Ordinal))
+            {
+                TryPromptPreviewConfirmation(item.Raw);
+            }
+            PushWebAppState();
+        }
+
+        private static string ExtractLatestAssistantText(IEnumerable<GooseAcpEvent> events, string fallback)
+        {
+            var current = new StringBuilder();
+            string latest = null;
+            foreach (GooseAcpEvent item in events ?? Enumerable.Empty<GooseAcpEvent>())
+            {
+                if (string.Equals(item.Kind, "assistant_chunk", StringComparison.Ordinal))
+                {
+                    current.Append(item.Text);
+                    continue;
+                }
+                if (current.Length > 0)
+                {
+                    latest = current.ToString();
+                    current.Clear();
+                }
+                if (string.Equals(item.Kind, "assistant", StringComparison.Ordinal)
+                    && !string.IsNullOrWhiteSpace(item.Text))
+                {
+                    latest = item.Text;
+                }
+            }
+            if (current.Length > 0)
+            {
+                latest = current.ToString();
+            }
+            return string.IsNullOrWhiteSpace(latest) ? fallback : latest;
         }
 
         #region 自定义审核对话框
@@ -3044,6 +3318,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             else if (string.Equals(item.Kind, "tool_call", StringComparison.Ordinal))
             {
+                DemoteLatestAssistantSegmentToThinking();
                 AppendToolEntry("call", item.Text, item.Raw);
             }
             else if (string.Equals(item.Kind, "tool_result", StringComparison.Ordinal))
@@ -3063,7 +3338,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
             // ChangeSet 预演确认：tool_result 才包含 Bridge 生成的 previewId，
             // tool_call 事件只有输入参数。
-            if (string.Equals(item.Kind, "tool_result", StringComparison.Ordinal))
+            if (!replayingTaskEvents && string.Equals(item.Kind, "tool_result", StringComparison.Ordinal))
             {
                 TryPromptPreviewConfirmation(item.Raw);
             }
@@ -3634,7 +3909,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             currentThinkingBoxId = "thinking-box-" + thinkingBoxIndex;
             string boxId = currentThinkingBoxId;
             string html = "<div class=\"thinking-box\" id=\"" + boxId + "\">"
-                + "<div class=\"toggle-bar\" onclick=\"toggleThinkingBox('" + boxId + "')\">思维过程（点击折叠/展开）</div>"
+                + "<div class=\"toggle-bar\" onclick=\"toggleThinkingBox('" + boxId + "')\">思考过程（推理与工具，点击折叠/展开）</div>"
                 + "</div>";
             EnqueueAppendHtml(html);
             return boxId;
@@ -3660,13 +3935,14 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             string elapsedText = elapsed.TotalMinutes >= 1
                 ? $"{(int)elapsed.TotalMinutes}分{elapsed.Seconds}秒"
                 : $"{Math.Max(1, (int)Math.Ceiling(elapsed.TotalSeconds))}秒";
-            string js = "var box=document.getElementById('" + currentThinkingBoxId + "');if(box){box.style.maxHeight='32px';box.scrollTop=0;box.classList.add('collapsed');var bar=box.querySelector('.toggle-bar');if(bar){bar.textContent='已处理 "
+            string js = "var box=document.getElementById('" + currentThinkingBoxId + "');if(box){box.style.maxHeight='32px';box.scrollTop=0;box.classList.add('collapsed');var bar=box.querySelector('.toggle-bar');if(bar){bar.textContent='思考完成 · 已处理 "
                 + elapsedText + "';}}";
             EnqueueScript(js);
             currentThinkingBoxId = null;
         }
 
-        // 一轮生成期间先把助手流式片段放入 reasoning 卡片；结束后仅提升最后一段为最终回答。
+        // ACP 的 agent_message_chunk 未提前区分分析段和最终段，生成期间先放在稳定的思考窗口；
+        // 后续紧接工具调用时原地保留，轮次结束时才把最后一段转为最终回答。
         private void AppendStreamingText(string text)
         {
             if (webViewConversation == null || webViewConversation.IsDisposed || string.IsNullOrEmpty(text))
@@ -3681,8 +3957,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 streamingMarkdown.Append(text);
                 streamingAssistant = true;
                 lastStreamRender = DateTime.Now;
-                AppendToThinkingBox("<div class=\"reasoning-text streaming-segment\" id=\"" + streamingDivId + "\">"
-                    + StreamingTextToHtml(streamingMarkdown.ToString()) + "</div>");
+                AppendToThinkingBox("<div class=\"analysis-segment streaming-segment\" id=\""
+                    + streamingDivId + "\">" + StreamingTextToHtml(streamingMarkdown.ToString()) + "</div>");
             }
             else
             {
@@ -3716,6 +3992,16 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             streamingDivId = null;
         }
 
+        private void DemoteLatestAssistantSegmentToThinking()
+        {
+            if (string.IsNullOrWhiteSpace(latestAssistantSegmentText))
+            {
+                return;
+            }
+            latestAssistantSegmentText = null;
+            latestAssistantSegmentDivId = null;
+        }
+
         private string PromoteLatestAssistantSegment(string fallbackText, string visualizationJson)
         {
             string finalText = string.IsNullOrWhiteSpace(latestAssistantSegmentText)
@@ -3723,16 +4009,29 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 : latestAssistantSegmentText;
             if (!string.IsNullOrWhiteSpace(latestAssistantSegmentDivId))
             {
+                string time = DateTime.Now.ToString("HH:mm:ss");
+                string finalHtml = BuildAutomationFlowCardsHtml(visualizationJson) + MarkdownToHtml(finalText);
+                string messageHtml = "<div class=\"msg assistant\"><div class=\"msg-head\">"
+                    + "<img class=\"avatar avatar-image\" src=\"" + ChickAvatarDataUri
+                    + "\" alt=\"AI\" title=\"EW-AI " + HtmlEncode(time) + "\">"
+                    + "<span class=\"msg-role\">最终回答</span><span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
+                    + CopyButtonHtml + "</div><div class=\"content\">" + finalHtml + "</div></div>";
                 EnqueueScript("var el=document.getElementById("
                     + JsonConvert.SerializeObject(latestAssistantSegmentDivId)
-                    + ");if(el){var box=el.closest('.thinking-box');el.remove();if(box&&box.children.length<=1){box.remove();}}");
+                    + ");var box=el&&el.closest('.thinking-box');if(el){el.remove();}"
+                    + "var messages=document.getElementById('messages'),finalMessage=null;if(messages){messages.insertAdjacentHTML('beforeend',"
+                    + JsonConvert.SerializeObject(messageHtml) + ");finalMessage=messages.lastElementChild;}"
+                    + "if(box&&box.querySelectorAll(':scope > :not(.toggle-bar)').length===0){box.remove();}"
+                    + "if(window.revealFinalAnswer){revealFinalAnswer(finalMessage);}"
+                    + "if(window.scrollMessagesToBottom){scrollMessagesToBottom();}");
+            }
+            else if (!string.IsNullOrWhiteSpace(finalText))
+            {
+                AppendConversation("EW-AI", finalText, Color.FromArgb(30, 104, 74), null, visualizationJson);
+                EnqueueScript("var messages=document.getElementById('messages');if(window.revealFinalAnswer&&messages){revealFinalAnswer(messages.lastElementChild);}");
             }
             latestAssistantSegmentText = null;
             latestAssistantSegmentDivId = null;
-            if (!string.IsNullOrWhiteSpace(finalText))
-            {
-                AppendConversation("EW-AI", finalText, Color.FromArgb(30, 104, 74), null, visualizationJson);
-            }
             return finalText;
         }
 
@@ -3830,7 +4129,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 contentHtml = HtmlEncode(text);
                 avatarHtml = "<span class=\"avatar system-avatar\" title=\"" + HtmlEncode(role) + " " + HtmlEncode(time) + "\">!</span>";
             }
-            string html = "<div class=\"" + cls + "\"><div class=\"msg-head\">" + avatarHtml + "<span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
+            string roleHtml = role == "EW-AI" ? "<span class=\"msg-role\">最终回答</span>" : string.Empty;
+            string html = "<div class=\"" + cls + "\"><div class=\"msg-head\">" + avatarHtml + roleHtml + "<span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
                 + CopyButtonHtml + "</div>"
                 + "<div class=\"content\">" + contentHtml + "</div></div>";
             EnqueueAppendHtml(html);
@@ -3931,6 +4231,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         {
             string normalizedMarkdown = (markdown ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n");
             normalizedMarkdown = Regex.Replace(normalizedMarkdown, @"(?m)(?<!^)(```|~~~)", "\n$1");
+            normalizedMarkdown = SimplifySingleRowBoxDrawingBlocks(normalizedMarkdown);
             normalizedMarkdown = UnwrapBareMarkdownFence(normalizedMarkdown);
             string[] lines = normalizedMarkdown.Split('\n');
             var output = new List<string>();
@@ -3948,7 +4249,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
                 if (inCodeFence)
                 {
-                    output.Add(line);
+                    foreach (string codeLine in NormalizeFencedCodeLineBreaks(line))
+                    {
+                        output.Add(codeLine);
+                    }
                     continue;
                 }
 
@@ -3973,6 +4277,108 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
 
             return string.Join("\n", output);
+        }
+
+        // 单行内容的字符框图无法可靠按中英文混排宽度对齐，降级为普通箭头链，保留信息而不显示失真的边框。
+        private static string SimplifySingleRowBoxDrawingBlocks(string markdown)
+        {
+            string[] lines = (markdown ?? string.Empty).Split('\n');
+            var output = new List<string>();
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string opening = lines[i].Trim();
+                if (!opening.StartsWith("```", StringComparison.Ordinal)
+                    && !opening.StartsWith("~~~", StringComparison.Ordinal))
+                {
+                    output.Add(lines[i]);
+                    continue;
+                }
+
+                string marker = opening.Substring(0, 3);
+                int closingIndex = -1;
+                for (int j = i + 1; j < lines.Length; j++)
+                {
+                    if (string.Equals(lines[j].Trim(), marker, StringComparison.Ordinal))
+                    {
+                        closingIndex = j;
+                        break;
+                    }
+                }
+                if (closingIndex < 0)
+                {
+                    output.Add(lines[i]);
+                    continue;
+                }
+
+                var blockLines = new List<string>();
+                for (int j = i + 1; j < closingIndex; j++)
+                {
+                    blockLines.AddRange(NormalizeFencedCodeLineBreaks(lines[j]));
+                }
+                if (!TrySimplifySingleRowBoxDrawing(blockLines, out string simplified))
+                {
+                    output.Add(lines[i]);
+                    for (int j = i + 1; j <= closingIndex; j++)
+                    {
+                        output.Add(lines[j]);
+                    }
+                    i = closingIndex;
+                    continue;
+                }
+
+                output.Add(simplified);
+                i = closingIndex;
+            }
+            return string.Join("\n", output);
+        }
+
+        private static bool TrySimplifySingleRowBoxDrawing(
+            IReadOnlyCollection<string> blockLines,
+            out string simplified)
+        {
+            simplified = string.Empty;
+            var nonEmptyLines = (blockLines ?? Array.Empty<string>())
+                .Where(line => !string.IsNullOrWhiteSpace(line)).ToList();
+            if (nonEmptyLines.Count < 2 || nonEmptyLines.Count > 4)
+            {
+                return false;
+            }
+
+            string joined = string.Join("", nonEmptyLines);
+            if (joined.IndexOf('┌') < 0 || joined.IndexOf('┐') < 0
+                || joined.IndexOf('└') < 0 || joined.IndexOf('┘') < 0)
+            {
+                return false;
+            }
+
+            List<string> contentLines = nonEmptyLines
+                .Where(line => !Regex.IsMatch(line, @"^[\s┌┐└┘│┃║─━═]+$"))
+                .ToList();
+            if (contentLines.Count != 1)
+            {
+                return false;
+            }
+
+            string content = Regex.Replace(contentLines[0], @"^[\s┌┐└┘│┃║─━═]+", string.Empty);
+            content = Regex.Replace(content, @"[\s┌┐└┘│┃║─━═]+$", string.Empty);
+            content = Regex.Replace(content, @"[─━═]+\s*→", "→");
+            content = Regex.Replace(content, @"\s*→\s*", " → ").Trim();
+            if (content.Length == 0)
+            {
+                return false;
+            }
+
+            simplified = content;
+            return true;
+        }
+
+        // 字符流程图偶尔会把相邻框线行粘在一起。仅修复能够由框角方向确定的缺失换行，
+        // 不解析或重排图的业务内容，也不影响围栏外文本和普通代码。
+        private static IEnumerable<string> NormalizeFencedCodeLineBreaks(string line)
+        {
+            string normalized = Regex.Replace(line ?? string.Empty, @"┐[ \t]*(?=└)", "┐\n");
+            normalized = Regex.Replace(normalized, @"┘[ \t]*(?=┌)", "┘\n");
+            return normalized.Split('\n');
         }
 
         // 只修复能够判定为块标记的粘连：行尾粗体标题、列表标记和水平分隔线。
@@ -4686,14 +5092,23 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         {
             lock (clientLock)
             {
-                try
+                foreach (AiTaskRuntime runtime in taskRuntimes.Values)
                 {
-                    gooseClient?.Dispose();
-                }
-                catch
-                {
+                    try
+                    {
+                        runtime.Cancellation?.Cancel();
+                        runtime.Client?.Dispose();
+                    }
+                    catch
+                    {
+                    }
+                    runtime.Client = null;
+                    runtime.Cancellation?.Dispose();
+                    runtime.Cancellation = null;
+                    runtime.Running = false;
                 }
                 gooseClient = null;
+                promptCts = null;
             }
         }
     }

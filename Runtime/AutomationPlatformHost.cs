@@ -201,11 +201,19 @@ namespace Automation
                 }
                 platformEditor.BringToFront();
                 platformEditor.Activate();
+                platformEditor.NotifyProcessInteractionUiReady();
             }
             catch (ObjectDisposedException)
             {
                 HandleDisposedPlatformEditor();
             }
+        }
+
+        public void NotifyInteractionUiReady()
+        {
+            EnsureUiThread();
+            EnsureReadyOrFaulted();
+            platformEditor?.NotifyProcessInteractionUiReady();
         }
 
         public void HidePlatformEditor()

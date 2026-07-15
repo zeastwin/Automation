@@ -27,6 +27,8 @@ namespace Automation
 
         public int ChangedVariableCount { get; internal set; }
 
+        public JArray VariableResolutions { get; internal set; }
+
         public int OperationCount { get; internal set; }
 
         public JArray ProcessAnalyses { get; internal set; }
@@ -84,13 +86,15 @@ namespace Automation
                 .Select(ObjectGraphCloner.Clone).ToList();
             Dictionary<string, DicValue> variables = CloneVariables(currentVariables);
             var changes = new JArray();
+            var variableResolutions = new JArray();
 
             int deletedCount = ApplyProcessDeletion(changeSet.DeleteProcesses, processes, changes);
             if (deletedCount > 0)
             {
                 ProcessEditingService.AdaptGotoProcIndexes(processes, 0);
             }
-            int variableCount = ApplyVariableChanges(changeSet.Variables, variables, changes);
+            int variableCount = ApplyVariableChanges(
+                changeSet.Variables, variables, changes, variableResolutions);
             int operationCount = 0;
             int replacedCount;
             var createdObjects = new JObject
@@ -152,6 +156,7 @@ namespace Automation
                 CreatedProcessCount = createdCount,
                 ReplacedProcessCount = replacedCount,
                 ChangedVariableCount = variableCount,
+                VariableResolutions = variableResolutions,
                 OperationCount = operationCount,
                 ProcessAnalyses = processAnalyses,
                 AtomicActionCount = atomicActionCount,
@@ -201,11 +206,10 @@ namespace Automation
             {
                 return source;
             }
-            if (source.DeleteProcesses != null || (source.Variables?.Count ?? 0) > 0
-                || (source.Processes?.Count ?? 0) > 0)
+            if (source.DeleteProcesses != null || (source.Processes?.Count ?? 0) > 0)
             {
                 throw new InvalidOperationException(
-                    "changeSet.actions 不得与旧的 deleteProcesses、variables 或 processes 混用。");
+                    "changeSet.actions 不得与旧的 deleteProcesses 或 processes 混用。");
             }
 
             var states = (currentProcesses ?? Array.Empty<Proc>())
@@ -304,7 +308,8 @@ namespace Automation
             List<ProcessDefinition> processDefinitions = states
                 .Where(state => state.Touched && !state.Deleted)
                 .Select(state => state.Definition).ToList();
-            if (processDefinitions.Count == 0 && deletedIds.Count == 0)
+            if (processDefinitions.Count == 0 && deletedIds.Count == 0
+                && (source.Variables?.Count ?? 0) == 0)
             {
                 throw new InvalidOperationException("changeSet.actions 未产生有效变更。");
             }
@@ -312,6 +317,7 @@ namespace Automation
             {
                 Version = 2,
                 Title = source.Title,
+                Variables = source.Variables,
                 DeleteProcesses = deletedIds.Count == 0 ? null : new ProcessDeleteSelection
                 {
                     Mode = "selected",
@@ -853,7 +859,8 @@ namespace Automation
         private static int ApplyVariableChanges(
             IList<VariableChange> definitions,
             Dictionary<string, DicValue> variables,
-            JArray changes)
+            JArray changes,
+            JArray resolutions)
         {
             int changed = 0;
             var declaredNames = new HashSet<string>(StringComparer.Ordinal);
@@ -892,12 +899,14 @@ namespace Automation
                 if (string.Equals(policy, "require", StringComparison.Ordinal))
                 {
                     if (!exists) throw new InvalidOperationException($"要求复用的变量不存在：{name}");
+                    resolutions.Add(BuildVariableResolution(name, type, policy, "reused", false, existing));
                     continue;
                 }
                 if (string.Equals(policy, "reuse", StringComparison.Ordinal))
                 {
                     if (exists)
                     {
+                        resolutions.Add(BuildVariableResolution(name, type, policy, "reused", false, existing));
                         continue;
                     }
                 }
@@ -924,6 +933,11 @@ namespace Automation
                     Value = initialValue,
                     Note = definition.Note ?? string.Empty
                 };
+                string outcome = exists
+                    ? string.Equals(policy, "replace", StringComparison.Ordinal) ? "replaced" : "updated"
+                    : "created";
+                resolutions.Add(BuildVariableResolution(
+                    name, type, policy, outcome, true, variables[name]));
                 changed++;
                 changes.Add(new JObject
                 {
@@ -936,6 +950,26 @@ namespace Automation
                 });
             }
             return changed;
+        }
+
+        private static JObject BuildVariableResolution(
+            string name,
+            string type,
+            string policy,
+            string outcome,
+            bool changed,
+            DicValue variable)
+        {
+            return new JObject
+            {
+                ["name"] = name,
+                ["valueType"] = type,
+                ["policy"] = policy,
+                ["outcome"] = outcome,
+                ["changed"] = changed,
+                ["index"] = variable?.Index ?? -1,
+                ["configValue"] = variable?.ConfigValue ?? string.Empty
+            };
         }
 
         private static int ApplyProcessDefinitions(

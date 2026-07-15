@@ -10,7 +10,7 @@ namespace Automation.McpServer
     public static class AutomationMcpTools
     {
         [McpServerTool(Name = "get_native_operation_schemas"), Description(
-            "按精确原生operaType批量读取递归字段契约，供operation.kind=native.operation使用。返回common公共契约与各类型差量，合并后填写；critical优先列出运行必填及业务跳转。适用于精确复刻或语义kind无法表达的指令，资源候选按字段需要另行查询。")]
+            "按当前配置阶段实际使用的精确原生operaType批量读取递归字段契约，供operation.kind=native.operation使用。返回common公共契约与各类型差量，合并后填写；critical优先列出运行必填及业务跳转。已在会话中验证且契约未变化的类型可复用；后续阶段出现新类型时再读取。适用于精确复刻或语义kind无法表达的指令，资源候选按字段需要另行查询。")]
         public static async Task<string> GetOperationSchemas(
             [Description("精确原生指令类型数组，例如 跳转、延时、修改变量")] string[] operaTypes)
         {
@@ -33,20 +33,22 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "preview_change_set"), Description(
             "预演一个可独立保存、原子提交的ChangeSet V2配置阶段。现有对象使用稳定ID，当前阶段的新对象使用局部key；插入和移动使用锚点定位。"
-            + "指令字段遵循所选语义或精确原生Schema。返回对象状态、配置就绪事实、警告、启动阻塞和合法状态迁移；新对象在提交前标记为preview_only。"
-            + "replacePreviewId只标识被完整修正版替换的活动预演，不能代替changeSet参数。")]
+            + "当前流程阶段依赖的新变量通过variables逐项声明，与actions同事务预演；独立变量维护使用单变量工具。"
+            + "指令字段遵循所选语义或精确原生Schema。返回configurationSaved、objectState、localKeyScope、variableResolutions、配置就绪事实和合法状态迁移；提交前的新对象仍为preview_only。"
+            + "新预演不继承旧预演的动作或局部key；replacePreviewId只标识被完整修正版替换的活动预演，不能代替完整changeSet参数。")]
         public static async Task<string> PreviewChangeSet(
-            [Description("当前原子阶段；actions按依赖顺序执行并整体预演")] AtomicChangeSetDefinition changeSet,
-            [Description("可选；显式指定要被完整修正版替换的未提交previewId。省略时若已有活动ChangeSet预演则自动替换")] string? replacePreviewId = null)
+            [Description("当前原子阶段；actions按依赖顺序执行，variables逐项声明同阶段依赖变量，两者整体预演")] AtomicChangeSetDefinition changeSet,
+            [Description("可选；显式指定被完整修正版替换的未提交previewId。无论是否省略，新changeSet都必须自包含，不继承旧预演动作或局部key")] string? replacePreviewId = null)
         {
             if (changeSet == null) throw new ArgumentNullException(nameof(changeSet));
-            if ((changeSet.Actions?.Count ?? 0) == 0)
-                throw new ArgumentException("changeSet.actions 至少包含一个动作。", nameof(changeSet));
+            if ((changeSet.Actions?.Count ?? 0) == 0 && (changeSet.Variables?.Count ?? 0) == 0)
+                throw new ArgumentException("changeSet 至少包含一个动作或变量声明。", nameof(changeSet));
             var compiledInput = new AiChangeSet
             {
                 Version = 2,
                 Title = changeSet.Title,
-                Actions = changeSet.Actions
+                Actions = changeSet.Actions,
+                Variables = changeSet.Variables
             };
             string validationError = AiChangeSetCatalog.Validate(compiledInput);
             return await ExecuteAsync(
@@ -61,7 +63,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "apply_change_set"), Description(
-            "提交一个已由前台确认的冻结V2预演，只接收previewId。平台在事务内校验版本并保存，正式提交要求所有流程为Stopped；成功结果通过createdObjects和affectedProcesses返回后续阶段可用的稳定标识。")]
+            "提交一个已由前台确认的冻结V2预演，只接收previewId。平台在事务内校验版本并保存，正式提交要求所有流程为Stopped；成功结果以configurationSaved=true确认已保存，并通过createdObjects、affectedProcesses和variableResolutions返回稳定身份与变量处理事实。")]
         public static async Task<string> ApplyChangeSet(
             [Description("preview_change_set 返回且已由前台确认的32位 previewId")] string previewId)
         {
@@ -83,7 +85,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_platform_development_context"), Description(
-            "按需读取 Automation 源码开发上下文。修改 HMI、使用平台公开接口或编写自定义函数时调用；已知目标直接传对应 topic。")]
+            "Automation 源码开发任务的按需知识入口。仅当用户明确要求修改 HMI、调用平台公开 API 或编写自定义函数时使用；流程、变量、IO、通讯等平台配置任务不需要该上下文。已知开发目标直接传对应 topic。")]
         public static string GetPlatformDevelopmentContext(
             [Description("主题：hmi/platform-api/custom-function；仅目标不明确时使用 catalog")] string topic)
         {

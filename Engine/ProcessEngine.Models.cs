@@ -75,6 +75,8 @@ namespace Automation
         private int completionRequestedFlag;
         private string alarmMessage;
         private long appliedRevision;
+        private int cooperativeOperationCount;
+        private long cooperativeSliceStartTimestamp;
 
         public int procNum;
         public int stepNum;
@@ -137,6 +139,18 @@ namespace Automation
         }
 
         public ProcTerminationReason TerminationReason { get; internal set; }
+
+        internal int CooperativeOperationCount
+        {
+            get => cooperativeOperationCount;
+            set => cooperativeOperationCount = value;
+        }
+
+        internal long CooperativeSliceStartTimestamp
+        {
+            get => cooperativeSliceStartTimestamp;
+            set => cooperativeSliceStartTimestamp = value;
+        }
 
     }
     public enum EngineCommandType

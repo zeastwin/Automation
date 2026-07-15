@@ -53,6 +53,8 @@ namespace Automation
         private readonly object agentLock = new object();
         private readonly TimeSpan stopJoinTimeout = TimeSpan.FromSeconds(2);
         private static readonly double stopwatchTickToMilliseconds = 1000.0 / Stopwatch.Frequency;
+        private const int CooperativeYieldCheckInterval = 1024;
+        private const double CooperativeTimeSliceMilliseconds = 5.0;
         private int snapshotThrottleMilliseconds = 50;
         private readonly ConcurrentDictionary<int, EngineSnapshot> pendingSnapshots = new ConcurrentDictionary<int, EngineSnapshot>();
         private readonly ConcurrentDictionary<int, PendingProcUpdate> pendingProcUpdates = new ConcurrentDictionary<int, PendingProcUpdate>();
@@ -1917,6 +1919,10 @@ namespace Automation
                             return false;
                         }
                     }
+                    finally
+                    {
+                        CooperateWithScheduler(evt);
+                    }
                     if (singleStepExecution && evt.State == ProcRunState.Running)
                     {
                         evt.State = ProcRunState.SingleStep;
@@ -1931,6 +1937,31 @@ namespace Automation
             }
 
 
+        }
+
+        private static void CooperateWithScheduler(ProcHandle handle)
+        {
+            int completedCount = handle.CooperativeOperationCount + 1;
+            handle.CooperativeOperationCount = completedCount;
+            if ((completedCount & (CooperativeYieldCheckInterval - 1)) != 0)
+            {
+                return;
+            }
+
+            long now = Stopwatch.GetTimestamp();
+            long sliceStart = handle.CooperativeSliceStartTimestamp;
+            if (sliceStart == 0)
+            {
+                handle.CooperativeSliceStartTimestamp = now;
+                return;
+            }
+            if ((now - sliceStart) * stopwatchTickToMilliseconds < CooperativeTimeSliceMilliseconds)
+            {
+                return;
+            }
+
+            Thread.Yield();
+            handle.CooperativeSliceStartTimestamp = Stopwatch.GetTimestamp();
         }
 
         private void HandleAlarm(OperationType operation, ProcHandle evt)
@@ -2465,7 +2496,8 @@ namespace Automation
                 Proc = proc,
                 IsSingleOperation = command.Type == EngineCommandType.RunSingleOpOnce,
                 Control = control,
-                AppliedRevision = engine.GetSnapshot(procIndex)?.AppliedRevision ?? 0
+                AppliedRevision = engine.GetSnapshot(procIndex)?.AppliedRevision ?? 0,
+                CooperativeSliceStartTimestamp = Stopwatch.GetTimestamp()
             };
             handle.State = command.StartState;
             handle.isBreakpoint = false;

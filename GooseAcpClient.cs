@@ -1000,8 +1000,8 @@ namespace Automation
                         bool parameterGenerationFailed = !string.IsNullOrWhiteSpace(callId)
                             && parameterGenerationFailureCalls.TryRemove(callId, out _);
                         string detail = FindFirstString(parameters, "message", "error", "text");
-                        string failureSummary = parameterGenerationFailed
-                            ? "× 请求未到达 MCP，未产生任何变更"
+                    string failureSummary = parameterGenerationFailed
+                            ? "× 模型未形成可调度的工具名称或参数，请求未到达 MCP"
                             : string.IsNullOrWhiteSpace(detail)
                                 ? "× 工具调用失败，ACP 未提供错误内容"
                                 : "× " + detail;
@@ -1012,6 +1012,8 @@ namespace Automation
                             ? new JObject
                             {
                                 ["category"] = "provider_tool_arguments_not_formed",
+                                ["errorCode"] = "PROVIDER_TOOL_ARGUMENTS_NOT_FORMED",
+                                ["message"] = "模型未形成可调度的工具名称或参数。",
                                 ["requestReachedMcp"] = false,
                                 ["sideEffects"] = "none"
                             }
@@ -1328,6 +1330,13 @@ namespace Automation
             string stage = parameterGenerationFailed
                 ? "provider.arguments"
                 : transportFailed ? "acp" : businessFailed ? "business" : string.Empty;
+            string transportMessage = transportFailed
+                ? FindFirstString(parameters, "message", "error", "text")
+                : null;
+            string transportCode = transportFailed
+                && transportMessage?.IndexOf("未开放工具", StringComparison.Ordinal) >= 0
+                    ? "TOOL_NOT_AVAILABLE"
+                    : transportFailed ? "ACP_TOOL_CALL_FAILED" : string.Empty;
             int resultBudget = string.Equals(status, "ok", StringComparison.Ordinal) ? 4 * 1024 : 8 * 1024;
             var data = new JObject
             {
@@ -1344,7 +1353,9 @@ namespace Automation
                         : state.IsAutomationMcp && !transportFailed ? (bool?)true : null,
                     ["sideEffects"] = parameterGenerationFailed
                         ? "none"
-                        : resultObject?["recovery"]?["sideEffects"]?.Value<string>() ?? "unknown"
+                        : transportCode == "TOOL_NOT_AVAILABLE"
+                            ? "none"
+                            : resultObject?["recovery"]?["sideEffects"]?.Value<string>() ?? "unknown"
                 }
             };
             if (!string.IsNullOrWhiteSpace(stage))
@@ -1359,11 +1370,36 @@ namespace Automation
             {
                 data["error"] = new JObject
                 {
-                    ["code"] = resultObject?["errorCode"]?.Value<string>() ?? string.Empty,
-                    ["message"] = resultObject?["message"]?.Value<string>()
-                        ?? FindFirstString(parameters, "message", "error", "text")
-                        ?? string.Empty,
-                    ["recovery"] = resultObject?["recovery"]?.DeepClone()
+                    ["code"] = parameterGenerationFailed
+                        ? "PROVIDER_TOOL_ARGUMENTS_NOT_FORMED"
+                        : resultObject?["errorCode"]?.Value<string>() ?? transportCode,
+                    ["message"] = parameterGenerationFailed
+                        ? "模型未形成可调度的工具名称或参数。"
+                        : resultObject?["message"]?.Value<string>()
+                            ?? transportMessage
+                            ?? "ACP 未提供工具失败详情。",
+                    ["recovery"] = parameterGenerationFailed
+                        ? new JObject
+                        {
+                            ["reason"] = "provider_output_missing_tool_name_or_arguments",
+                            ["retryableWhen"] = "model_forms_a_valid_tool_call",
+                            ["sideEffects"] = "none"
+                        }
+                        : resultObject?["recovery"]?.DeepClone()
+                            ?? (transportFailed
+                                ? new JObject
+                                {
+                                    ["reason"] = transportCode == "TOOL_NOT_AVAILABLE"
+                                        ? "requested_tool_not_exposed_by_current_profile"
+                                        : "acp_tool_call_failed",
+                                    ["retryableWhen"] = transportCode == "TOOL_NOT_AVAILABLE"
+                                        ? "use_a_tool_published_by_the_current_profile"
+                                        : "acp_returns_a_dispatchable_tool_result",
+                                    ["sideEffects"] = transportCode == "TOOL_NOT_AVAILABLE"
+                                        ? "none"
+                                        : "unknown"
+                                }
+                                : null)
                 };
             }
             WriteAnalysisEvent("tool.finished", data, finishedUtc);

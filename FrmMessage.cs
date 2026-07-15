@@ -18,6 +18,12 @@ namespace Automation
         public bool isChoiced => Volatile.Read(ref completionState) != 0;
 
         public Message(string headText, string msg, EventHandler1 eventHandler1, string btnTxt1, bool isWait)
+            : this(headText, msg, eventHandler1, btnTxt1, isWait, true)
+        {
+        }
+
+        internal Message(string headText, string msg, EventHandler1 eventHandler1, string btnTxt1,
+            bool isWait, bool presentImmediately)
         {
             InitializeComponent();
             ConfigureContent(headText, msg);
@@ -28,11 +34,20 @@ namespace Automation
             btn2Action = eventHandler1;
             closeFallback = eventHandler1;
             AcceptButton = btn2;
-            Present(isWait);
+            if (presentImmediately)
+            {
+                Present(isWait);
+            }
         }
 
         public Message(string headText, string msg, EventHandler1 eventHandler1, EventHandler1 eventHandler2,
             string btnTxt1, string btnTxt2, bool isWait)
+            : this(headText, msg, eventHandler1, eventHandler2, btnTxt1, btnTxt2, isWait, true)
+        {
+        }
+
+        internal Message(string headText, string msg, EventHandler1 eventHandler1, EventHandler1 eventHandler2,
+            string btnTxt1, string btnTxt2, bool isWait, bool presentImmediately)
         {
             InitializeComponent();
             ConfigureContent(headText, msg);
@@ -46,11 +61,22 @@ namespace Automation
             closeFallback = eventHandler2;
             AcceptButton = btn1;
             ApplyPrimaryButtonStyle(btn1, btnTxt1);
-            Present(isWait);
+            if (presentImmediately)
+            {
+                Present(isWait);
+            }
         }
 
         public Message(string headText, string msg, EventHandler1 eventHandler1, EventHandler1 eventHandler2,
             EventHandler1 eventHandler3, string btnTxt1, string btnTxt2, string btnTxt3, bool isWait)
+            : this(headText, msg, eventHandler1, eventHandler2, eventHandler3,
+                btnTxt1, btnTxt2, btnTxt3, isWait, true)
+        {
+        }
+
+        internal Message(string headText, string msg, EventHandler1 eventHandler1, EventHandler1 eventHandler2,
+            EventHandler1 eventHandler3, string btnTxt1, string btnTxt2, string btnTxt3,
+            bool isWait, bool presentImmediately)
         {
             InitializeComponent();
             ConfigureContent(headText, msg);
@@ -67,7 +93,10 @@ namespace Automation
             AcceptButton = btn1;
             ApplyPrimaryButtonStyle(btn1, btnTxt1);
             ApplySecondaryButtonStyle(btn2);
-            Present(isWait);
+            if (presentImmediately)
+            {
+                Present(isWait);
+            }
         }
 
         public Message()
@@ -153,6 +182,11 @@ namespace Automation
                 Show(owner);
             }
             Activate();
+        }
+
+        internal void PresentDeferred(bool modal)
+        {
+            Present(modal);
         }
 
         private void AdjustDialogSize()

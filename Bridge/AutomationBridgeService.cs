@@ -1622,6 +1622,12 @@ namespace Automation.Bridge
             }
             catch (InvalidOperationException ex)
             {
+                if (TryBuildLocalKeyScopeRecovery(changeSet, ex.Message, out JObject scopeRecovery))
+                {
+                    throw new BridgeRequestException(409, "CHANGE_SET_LOCAL_KEY_OUT_OF_SCOPE",
+                        "当前 ChangeSet 引用了另一未提交预演中的局部 key。",
+                        scopeRecovery.ToString(Formatting.None));
+                }
                 throw new BridgeRequestException(400, "CHANGE_SET_COMPILE_FAILED",
                     "语义变更集编译失败。", new JObject
                     {
@@ -1646,42 +1652,15 @@ namespace Automation.Bridge
                     change["type"]?.Value<string>(), "process.create", StringComparison.Ordinal))
                 .Select(change => change["procId"]?.Value<string>())
                 .Where(procId => !string.IsNullOrWhiteSpace(procId)), StringComparer.OrdinalIgnoreCase);
-            var allowedTransitions = new JArray();
-            if (record.Confirmed)
-            {
-                allowedTransitions.Add(new JObject
-                {
-                    ["tool"] = "apply_change_set",
-                    ["arguments"] = new JObject { ["previewId"] = previewId }
-                });
-            }
-            else
-            {
-                allowedTransitions.Add(new JObject
-                {
-                    ["state"] = "awaiting_foreground_confirmation"
-                });
-            }
-            allowedTransitions.Add(new JObject
-            {
-                ["tool"] = "preview_change_set",
-                ["requiredArguments"] = new JArray("changeSet", "replacePreviewId"),
-                ["fixedArguments"] = new JObject { ["replacePreviewId"] = previewId },
-                ["changeSetMode"] = "complete_replacement",
-                ["previousPreviewActionsInherited"] = false,
-                ["previousPreviewLocalKeysInherited"] = false
-            });
-            allowedTransitions.Add(new JObject
-            {
-                ["tool"] = "discard_change_set_preview",
-                ["arguments"] = new JObject { ["previewId"] = previewId }
-            });
+            JArray allowedTransitions = BuildChangeSetAllowedTransitions(record);
             return new JObject
             {
                 ["previewId"] = previewId,
                 ["confirmed"] = record.Confirmed,
                 ["committed"] = false,
+                ["configurationSaved"] = false,
                 ["objectState"] = "preview_only",
+                ["localKeyScope"] = "current_change_set",
                 ["readAfterApplyFrom"] = "apply_change_set.createdObjects/affectedProcesses",
                 ["status"] = record.Confirmed ? "confirmed" : "awaiting_confirmation",
                 ["allowedTransitions"] = allowedTransitions,
@@ -1699,6 +1678,7 @@ namespace Automation.Bridge
                     ["atomicActions"] = draft.AtomicActionCount,
                     ["operationsInAffectedProcesses"] = draft.OperationCount
                 },
+                ["variableResolutions"] = draft.VariableResolutions?.DeepClone() ?? new JArray(),
                 ["changes"] = BuildPreviewOnlyView(draft.Changes, createdPreviewProcIds),
                 ["processAnalyses"] = BuildPreviewOnlyView(draft.ProcessAnalyses, createdPreviewProcIds),
                 ["readinessStatus"] = draft.ReadinessStatus,
@@ -1710,6 +1690,160 @@ namespace Automation.Bridge
                     ? $"本阶段包含 {draft.AtomicActionCount} 个原子动作；将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、修改 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量。受影响流程修改后共 {draft.OperationCount} 条指令。"
                     : $"本次将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、替换 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量，共 {draft.OperationCount} 条指令。")
             };
+        }
+
+        private static JArray BuildChangeSetAllowedTransitions(PreviewApprovalRecord record)
+        {
+            var allowedTransitions = new JArray();
+            if (record.Confirmed)
+            {
+                allowedTransitions.Add(new JObject
+                {
+                    ["tool"] = "apply_change_set",
+                    ["arguments"] = new JObject { ["previewId"] = record.PreviewId }
+                });
+            }
+            else
+            {
+                allowedTransitions.Add(new JObject
+                {
+                    ["state"] = "awaiting_foreground_confirmation"
+                });
+            }
+            allowedTransitions.Add(new JObject
+            {
+                ["tool"] = "preview_change_set",
+                ["requiredArguments"] = new JArray("changeSet", "replacePreviewId"),
+                ["fixedArguments"] = new JObject { ["replacePreviewId"] = record.PreviewId },
+                ["changeSetMode"] = "complete_replacement",
+                ["previousPreviewActionsInherited"] = false,
+                ["previousPreviewLocalKeysInherited"] = false
+            });
+            allowedTransitions.Add(new JObject
+            {
+                ["tool"] = "discard_change_set_preview",
+                ["arguments"] = new JObject { ["previewId"] = record.PreviewId }
+            });
+            return allowedTransitions;
+        }
+
+        private bool TryBuildLocalKeyScopeRecovery(
+            AiChangeSet incoming,
+            string validationError,
+            out JObject recovery)
+        {
+            recovery = null;
+            PreviewApprovalRecord active;
+            lock (previewLock)
+            {
+                CleanupExpiredPreviewsLocked();
+                active = previewRecords.Values.FirstOrDefault(item => item != null
+                    && item.IsChangeSetPreview
+                    && !item.Rejected
+                    && item.ExpiresAtUtc > DateTime.UtcNow);
+            }
+            if (active?.Patch == null)
+            {
+                return false;
+            }
+
+            AiChangeSet activeChangeSet;
+            try
+            {
+                activeChangeSet = active.Patch.ToObject<AiChangeSet>();
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+            var declaredKeys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (ChangeSetAction action in activeChangeSet?.Actions ?? new List<ChangeSetAction>())
+            {
+                AddLocalKey(declaredKeys, "process", action?.Process?.Key);
+                AddLocalKey(declaredKeys, "step", action?.Step?.Key);
+                AddLocalKey(declaredKeys, "operation", action?.Operation?.Key);
+            }
+
+            var references = new List<JObject>();
+            foreach (ChangeSetAction action in incoming?.Actions ?? new List<ChangeSetAction>())
+            {
+                if (action == null) continue;
+                AddLocalKeyReference(references, "process", action.TargetProcess?.Key, "targetProcess.key");
+                AddLocalKeyReference(references, "step", action.TargetStep?.Key, "targetStep.key");
+                AddLocalKeyReference(references, "operation", action.TargetOperation?.Key, "targetOperation.key");
+                string positionKind = action.Type != null && action.Type.StartsWith("step.", StringComparison.Ordinal)
+                    ? "step"
+                    : "operation";
+                AddLocalKeyReference(references, positionKind, action.Position?.BeforeKey, "position.beforeKey");
+                AddLocalKeyReference(references, positionKind, action.Position?.AfterKey, "position.afterKey");
+                AddOperationTargetReferences(references, action.Operation?.Target, "operation.target");
+                AddOperationTargetReferences(references, action.Operation?.WhenTrue, "operation.whenTrue");
+                AddOperationTargetReferences(references, action.Operation?.WhenFalse, "operation.whenFalse");
+            }
+            JObject matched = references.FirstOrDefault(item =>
+            {
+                string key = item["key"]?.Value<string>();
+                string kind = item["kind"]?.Value<string>();
+                return declaredKeys.Contains(kind + ":" + key)
+                    && !string.IsNullOrWhiteSpace(validationError)
+                    && validationError.IndexOf(key, StringComparison.Ordinal) >= 0;
+            });
+            if (matched == null)
+            {
+                return false;
+            }
+
+            recovery = new JObject
+            {
+                ["validationError"] = validationError ?? string.Empty,
+                ["reason"] = "local_key_belongs_to_uncommitted_preview",
+                ["retryableWhen"] = "configuration_saved_or_complete_replacement_previewed",
+                ["sideEffects"] = "none",
+                ["configurationSaved"] = false,
+                ["localKey"] = matched.DeepClone(),
+                ["activePreview"] = new JObject
+                {
+                    ["previewId"] = active.PreviewId,
+                    ["confirmed"] = active.Confirmed,
+                    ["status"] = active.Confirmed ? "confirmed" : "awaiting_confirmation",
+                    ["objectState"] = "preview_only",
+                    ["configurationSaved"] = false,
+                    ["localKeyScope"] = "current_change_set"
+                },
+                ["allowedTransitions"] = BuildChangeSetAllowedTransitions(active)
+            };
+            return true;
+        }
+
+        private static void AddLocalKey(HashSet<string> keys, string kind, string key)
+        {
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                keys.Add(kind + ":" + key.Trim());
+            }
+        }
+
+        private static void AddLocalKeyReference(List<JObject> references, string kind, string key, string path)
+        {
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                references.Add(new JObject
+                {
+                    ["kind"] = kind,
+                    ["key"] = key.Trim(),
+                    ["path"] = path
+                });
+            }
+        }
+
+        private static void AddOperationTargetReferences(
+            List<JObject> references,
+            OperationTarget target,
+            string path)
+        {
+            if (target == null) return;
+            AddLocalKeyReference(references, "step", target.StepKey, path + ".stepKey");
+            AddLocalKeyReference(references, "operation", target.OperationKey, path + ".operationKey");
         }
 
         private static JArray BuildPreviewOnlyView(JArray source, HashSet<string> createdPreviewProcIds)
@@ -1839,9 +1973,14 @@ namespace Automation.Bridge
             {
                 ["previewId"] = previewId,
                 ["committed"] = true,
+                ["configurationSaved"] = true,
                 ["status"] = "committed",
+                ["localKeyScope"] = "closed_after_apply",
                 ["procCount"] = draft.Processes.Count,
                 ["variableCount"] = draft.Variables.Count,
+                ["totalVariableCount"] = draft.Variables.Count,
+                ["changedVariableCount"] = draft.ChangedVariableCount,
+                ["variableResolutions"] = draft.VariableResolutions?.DeepClone() ?? new JArray(),
                 ["createdProcesses"] = createdProcesses,
                 ["affectedProcesses"] = affectedProcesses,
                 ["createdObjects"] = draft.CreatedObjects?.DeepClone() ?? new JObject
@@ -2094,9 +2233,9 @@ namespace Automation.Bridge
                     commitError,
                     new JObject
                     {
-                        ["nextAction"] = rollbackFailed
-                            ? "停止受影响功能并报告配置回滚失败"
-                            : "报告配置事务失败并等待服务端修复",
+                        ["reason"] = rollbackFailed
+                            ? "configuration_transaction_rollback_failed"
+                            : "configuration_transaction_commit_failed",
                         ["retryableWhen"] = rollbackFailed
                             ? "security_lock_cleared_after_configuration_recovery"
                             : "server_configuration_transaction_fixed",

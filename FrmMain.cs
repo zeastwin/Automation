@@ -53,10 +53,14 @@ namespace Automation
         private Task axisMonitorTask;
         private volatile bool systemStatusReady;
         private volatile bool systemStatusFaulted;
+        private bool processInteractionUiReady;
         private bool autoStartTriggeredForCurrentReset;
         private int popupAlarmCount;
         private readonly object popupLock = new object();
         private readonly Dictionary<int, List<ProcPopupItem>> procPopups = new Dictionary<int, List<ProcPopupItem>>();
+        private readonly Queue<ProcPopupRequest> pendingProcPopups = new Queue<ProcPopupRequest>();
+        private readonly int uiThreadId;
+        private readonly Control uiDispatcher;
         private readonly AutomationBridgeHost automationBridgeHost;
         private readonly ProcessTraceAuditSink processTraceAuditSink;
         private readonly AutomationMcpServerManager automationMcpServerManager = new AutomationMcpServerManager();
@@ -83,8 +87,11 @@ namespace Automation
 
         public FrmMain()
         {
+            uiThreadId = Thread.CurrentThread.ManagedThreadId;
             UiBranding.Apply(this);
             InitializeComponent();
+            uiDispatcher = new Control();
+            _ = uiDispatcher.Handle;
             if (AutomationRuntimeOptions.Current.IsSimulation)
             {
                 simulationGateway = new SimulationGatewayClient();
@@ -222,6 +229,10 @@ namespace Automation
             {
                 throw new InvalidOperationException("平台初始化已开始但尚未成功完成，禁止重复初始化。");
             }
+            if (Thread.CurrentThread.ManagedThreadId != uiThreadId)
+            {
+                throw new InvalidOperationException("平台必须在创建 FrmMain 的 UI 线程初始化。");
+            }
             platformInitializationStarted = true;
             try
             {
@@ -312,10 +323,6 @@ namespace Automation
                         ? "系统处于安全锁定模式，禁止自动启动流程。"
                         : $"系统处于安全锁定模式，禁止自动启动流程。锁定原因：{SF.SecurityLockReason}";
                     SF.StopAllProcs(lockReason);
-                }
-                else if (!SF.ProcConfigFaulted)
-                {
-                    TryStartAutoProcessesAfterReset();
                 }
             }
             catch (Exception ex)
@@ -616,9 +623,45 @@ namespace Automation
             TryStartAutoProcessesAfterReset();
         }
 
+        private sealed class ProcPopupRequest
+        {
+            public int ProcIndex { get; set; }
+            public Func<Message> CreateDialog { get; set; }
+            public Action<Exception> Failed { get; set; }
+            public Action Canceled { get; set; }
+            public Message Dialog { get; set; }
+        }
+
+        internal void NotifyProcessInteractionUiReady()
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            if (Thread.CurrentThread.ManagedThreadId != uiThreadId)
+            {
+                if (uiDispatcher == null || uiDispatcher.IsDisposed || !uiDispatcher.IsHandleCreated)
+                {
+                    return;
+                }
+                try
+                {
+                    uiDispatcher.BeginInvoke((Action)NotifyProcessInteractionUiReady);
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                return;
+            }
+            processInteractionUiReady = true;
+            ShowPendingProcPopups();
+            TryStartAutoProcessesAfterReset();
+        }
+
         private void TryStartAutoProcessesAfterReset()
         {
-            if (SF.DR == null || !SF.DR.TryValidateStartGate(out _))
+            if (!processInteractionUiReady || !platformInitialized
+                || SF.DR == null || !SF.DR.TryValidateStartGate(out _))
             {
                 autoStartTriggeredForCurrentReset = false;
                 return;
@@ -944,6 +987,179 @@ namespace Automation
             dialog.FormClosed += (sender, args) => UnregisterProcPopup(procIndex, item);
         }
 
+        internal void EnqueueProcPopup(
+            int procIndex,
+            Func<Message> createDialog,
+            Action<Exception> failed,
+            Action canceled)
+        {
+            if (procIndex < 0 || createDialog == null)
+            {
+                failed?.Invoke(new InvalidOperationException("流程弹框请求无效。"));
+                return;
+            }
+            var request = new ProcPopupRequest
+            {
+                ProcIndex = procIndex,
+                CreateDialog = createDialog,
+                Failed = failed,
+                Canceled = canceled
+            };
+            void EnqueueOnUiThread()
+            {
+                if (IsDisposed || Disposing || Volatile.Read(ref shutdownStarted) != 0)
+                {
+                    InvokePopupCallback(request.Canceled, "取消已关闭平台的流程弹框");
+                    return;
+                }
+                if (!processInteractionUiReady)
+                {
+                    lock (popupLock)
+                    {
+                        pendingProcPopups.Enqueue(request);
+                    }
+                    return;
+                }
+                ShowProcPopup(request);
+            }
+            if (Thread.CurrentThread.ManagedThreadId != uiThreadId)
+            {
+                if (uiDispatcher == null || uiDispatcher.IsDisposed || !uiDispatcher.IsHandleCreated)
+                {
+                    InvokePopupFailure(request, new InvalidOperationException("流程弹框 UI 调度句柄尚未创建。"));
+                    return;
+                }
+                try
+                {
+                    uiDispatcher.BeginInvoke((Action)EnqueueOnUiThread);
+                }
+                catch (Exception ex)
+                {
+                    InvokePopupFailure(request, ex);
+                }
+            }
+            else
+            {
+                EnqueueOnUiThread();
+            }
+        }
+
+        private void ShowPendingProcPopups()
+        {
+            if (!processInteractionUiReady || IsDisposed || Disposing
+                || Volatile.Read(ref shutdownStarted) != 0)
+            {
+                return;
+            }
+            if (Thread.CurrentThread.ManagedThreadId != uiThreadId)
+            {
+                if (uiDispatcher == null || uiDispatcher.IsDisposed || !uiDispatcher.IsHandleCreated)
+                {
+                    return;
+                }
+                try
+                {
+                    uiDispatcher.BeginInvoke((Action)ShowPendingProcPopups);
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                return;
+            }
+
+            List<ProcPopupRequest> requests;
+            lock (popupLock)
+            {
+                requests = pendingProcPopups.ToList();
+                pendingProcPopups.Clear();
+            }
+            foreach (ProcPopupRequest request in requests)
+            {
+                ShowProcPopup(request);
+            }
+        }
+
+        private void ShowProcPopup(ProcPopupRequest request)
+        {
+            try
+            {
+                Message dialog = request.CreateDialog();
+                if (dialog == null)
+                {
+                    throw new InvalidOperationException("流程弹框工厂未返回窗体。");
+                }
+                request.Dialog = dialog;
+                int visiblePopupCount;
+                lock (popupLock)
+                {
+                    visiblePopupCount = procPopups.Values.Sum(list => list.Count);
+                }
+                RegisterProcPopup(request.ProcIndex, dialog, () =>
+                {
+                    InvokePopupCallback(request.Canceled, "关闭流程弹框");
+                    if (!dialog.IsDisposed && !dialog.Disposing)
+                    {
+                        dialog.btnCanel();
+                    }
+                });
+                dialog.PresentDeferred(false);
+                if (visiblePopupCount > 0)
+                {
+                    Rectangle workingArea = Screen.FromControl(dialog).WorkingArea;
+                    int offset = (visiblePopupCount % 6) * 32;
+                    int left = Math.Min(workingArea.Right - dialog.Width,
+                        Math.Max(workingArea.Left, dialog.Left + offset));
+                    int top = Math.Min(workingArea.Bottom - dialog.Height,
+                        Math.Max(workingArea.Top, dialog.Top + offset));
+                    dialog.Location = new Point(left, top);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (request.Dialog != null && !request.Dialog.IsDisposed)
+                {
+                    try
+                    {
+                        request.Dialog.Close();
+                        request.Dialog.Dispose();
+                    }
+                    catch (Exception cleanupException)
+                    {
+                        dataRun?.Logger?.Log($"流程弹框清理失败:{cleanupException.Message}", LogLevel.Error);
+                    }
+                }
+                InvokePopupFailure(request, ex);
+            }
+        }
+
+        private void InvokePopupFailure(ProcPopupRequest request, Exception exception)
+        {
+            if (exception != null)
+            {
+                dataRun?.Logger?.Log($"流程弹框显示失败:{exception}", LogLevel.Error);
+            }
+            try
+            {
+                request?.Failed?.Invoke(exception ?? new InvalidOperationException("流程弹框失败。"));
+            }
+            catch (Exception callbackError)
+            {
+                dataRun?.Logger?.Log($"流程弹框失败回调异常:{callbackError.Message}", LogLevel.Error);
+            }
+        }
+
+        private void InvokePopupCallback(Action callback, string action)
+        {
+            try
+            {
+                callback?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                dataRun?.Logger?.Log($"{action}回调异常:{ex.Message}", LogLevel.Error);
+            }
+        }
+
         private void UnregisterProcPopup(int procIndex, ProcPopupItem item)
         {
             lock (popupLock)
@@ -963,20 +1179,33 @@ namespace Automation
         private void CloseProcPopups(int procIndex)
         {
             List<ProcPopupItem> items = null;
+            List<ProcPopupRequest> canceledRequests = null;
             lock (popupLock)
             {
                 if (procPopups.TryGetValue(procIndex, out List<ProcPopupItem> list))
                 {
                     items = new List<ProcPopupItem>(list);
                 }
+                if (pendingProcPopups.Count > 0)
+                {
+                    canceledRequests = new List<ProcPopupRequest>();
+                    var retained = new Queue<ProcPopupRequest>();
+                    while (pendingProcPopups.Count > 0)
+                    {
+                        ProcPopupRequest request = pendingProcPopups.Dequeue();
+                        if (request.ProcIndex == procIndex) canceledRequests.Add(request);
+                        else retained.Enqueue(request);
+                    }
+                    while (retained.Count > 0) pendingProcPopups.Enqueue(retained.Dequeue());
+                }
             }
-            if (items == null)
+            foreach (ProcPopupRequest request in canceledRequests ?? new List<ProcPopupRequest>())
             {
-                return;
+                InvokePopupCallback(request.Canceled, "取消排队中的流程弹框");
             }
-            foreach (ProcPopupItem item in items)
+            foreach (ProcPopupItem item in items ?? new List<ProcPopupItem>())
             {
-                item?.CloseAction?.Invoke();
+                InvokePopupCallback(item?.CloseAction, "关闭活动流程弹框");
             }
         }
 
@@ -990,6 +1219,16 @@ namespace Automation
             foreach (int procIndex in procIndexes)
             {
                 CloseProcPopups(procIndex);
+            }
+            List<ProcPopupRequest> remaining;
+            lock (popupLock)
+            {
+                remaining = pendingProcPopups.ToList();
+                pendingProcPopups.Clear();
+            }
+            foreach (ProcPopupRequest request in remaining)
+            {
+                InvokePopupCallback(request.Canceled, "取消全部排队流程弹框");
             }
         }
 
@@ -1302,6 +1541,7 @@ namespace Automation
                 return;
             }
 
+            processInteractionUiReady = false;
             StopAllProcsForSafety("系统关闭，停止所有流程。");
             // 必须先释放 Goose 客户端：Kill Goose 进程后，后台读取线程不再调用
             // HandlePermissionRequest 的同步 Invoke，避免与已阻塞的 UI 线程形成死锁导致程序关闭卡住。
@@ -1421,6 +1661,7 @@ namespace Automation
             }
             axisMonitorCts?.Dispose();
             axisMonitorCts = null;
+            uiDispatcher?.Dispose();
             platformInitialized = false;
         }
 
@@ -1439,12 +1680,10 @@ namespace Automation
     public sealed class WinFormsAlarmHandler : IAlarmHandler
     {
         private readonly FrmMain owner;
-        private readonly Control invoker;
 
         public WinFormsAlarmHandler(FrmMain owner)
         {
             this.owner = owner;
-            invoker = owner;
         }
 
         public Task<AlarmDecision> HandleAsync(AlarmContext context)
@@ -1456,57 +1695,36 @@ namespace Automation
                 return tcs.Task;
             }
 
-            void ShowDialog()
+            Message CreateDialog()
             {
                 string title = $"发生报警:{context.ProcIndex}---{context.StepIndex}---{context.OpIndex}";
                 Message dialog = null;
                 switch (context.AlarmType)
                 {
                     case "弹框确定":
-                        dialog = new Message(title, context.Note, () => tcs.TrySetResult(AlarmDecision.Goto1), context.Btn1, false);
+                        dialog = new Message(title, context.Note, () => tcs.TrySetResult(AlarmDecision.Goto1),
+                            context.Btn1, false, false);
                         break;
                     case "弹框确定与否":
                         dialog = new Message(title, context.Note,
                             () => tcs.TrySetResult(AlarmDecision.Goto1),
                             () => tcs.TrySetResult(AlarmDecision.Goto2),
-                            context.Btn1, context.Btn2, false);
+                            context.Btn1, context.Btn2, false, false);
                         break;
                     case "弹框确定与否与取消":
                         dialog = new Message(title, context.Note,
                             () => tcs.TrySetResult(AlarmDecision.Goto1),
                             () => tcs.TrySetResult(AlarmDecision.Goto2),
                             () => tcs.TrySetResult(AlarmDecision.Goto3),
-                            context.Btn1, context.Btn2, context.Btn3, false);
+                            context.Btn1, context.Btn2, context.Btn3, false, false);
                         break;
                     default:
-                        tcs.TrySetResult(AlarmDecision.Stop);
-                        break;
+                        throw new InvalidOperationException($"不支持的流程报警弹框类型:{context.AlarmType}");
                 }
-                if (dialog != null)
-                {
-                    owner?.RegisterProcPopup(context.ProcIndex, dialog, () =>
-                    {
-                        if (!tcs.Task.IsCompleted)
-                        {
-                            tcs.TrySetResult(AlarmDecision.Stop);
-                        }
-                        if (dialog.IsDisposed)
-                        {
-                            return;
-                        }
-                        if (dialog.InvokeRequired)
-                        {
-                            dialog.BeginInvoke((Action)(() => dialog.btnCanel()));
-                        }
-                        else
-                        {
-                            dialog.btnCanel();
-                        }
-                    });
-                }
+                return dialog;
             }
 
-            if (invoker == null || invoker.IsDisposed)
+            if (owner == null || owner.IsDisposed)
             {
                 tcs.TrySetResult(AlarmDecision.Stop);
                 return tcs.Task;
@@ -1517,14 +1735,11 @@ namespace Automation
                 owner?.OnPopupAlarmStarted();
                 tcs.Task.ContinueWith(_ => owner?.OnPopupAlarmCompleted(), TaskScheduler.Default);
             }
-            if (invoker.InvokeRequired)
-            {
-                invoker.BeginInvoke((Action)ShowDialog);
-            }
-            else
-            {
-                ShowDialog();
-            }
+            owner.EnqueueProcPopup(
+                context.ProcIndex,
+                CreateDialog,
+                ex => tcs.TrySetException(ex ?? new InvalidOperationException("流程报警弹框创建失败。")),
+                () => tcs.TrySetResult(AlarmDecision.Stop));
 
             return tcs.Task;
         }

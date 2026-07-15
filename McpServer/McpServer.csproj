@@ -61,11 +61,10 @@
       <ForbiddenMcpRuntimeArtifact Include="$(AutomationMcpOutputDir)Logs\**\*" />
       <ForbiddenMcpRuntimeArtifact Include="$(AutomationMcpOutputDir)Config\**\*" />
       <ForbiddenMcpRuntimeArtifact Include="$(AutomationMcpOutputDir)Automation.exe" Condition="Exists('$(AutomationMcpOutputDir)Automation.exe')" />
-      <ForbiddenMcpRuntimeArtifact Include="$(AutomationMcpOutputDir)Automation.KernelTests*" />
     </ItemGroup>
     <!-- ComputeFilesToPublish 在普通 Build 中可能留下空 publish 目录，不属于运行输出。 -->
     <RemoveDir Directories="$(TargetDir)publish" />
-    <Error Condition="'@(ForbiddenMcpRuntimeArtifact)' != ''" Text="MCP运行目录包含禁止复制的日志、配置、主程序或测试程序：@(ForbiddenMcpRuntimeArtifact)" />
+    <Error Condition="'@(ForbiddenMcpRuntimeArtifact)' != ''" Text="MCP运行目录包含禁止复制的日志、配置或主程序：@(ForbiddenMcpRuntimeArtifact)" />
   </Target>
 
 </Project>

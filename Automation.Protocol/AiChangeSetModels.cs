@@ -38,6 +38,9 @@ namespace Automation.Protocol
 
         [Description("当前已知且可独立保存的动作；同一阶段内全部成功或全部不生效，不要求一次完成整个流程。")]
         public List<ChangeSetAction> Actions { get; set; }
+
+        [Description("与当前流程阶段同事务提交的逐变量声明；每一项只描述一个变量。独立变量维护仍使用单变量工具。")]
+        public List<VariableChange> Variables { get; set; }
     }
 
     public static class ChangeSetActionTypes

@@ -11,9 +11,8 @@ namespace Automation.McpServer
             List<ChangeSetAction> actions = changeSet.Actions ?? new List<ChangeSetAction>();
             if (actions.Count > 0)
             {
-                if (changeSet.DeleteProcesses != null || (changeSet.Variables?.Count ?? 0) > 0
-                    || (changeSet.Processes?.Count ?? 0) > 0)
-                    return "changeSet.actions 不得与旧写入字段混用。";
+                if (changeSet.DeleteProcesses != null || (changeSet.Processes?.Count ?? 0) > 0)
+                    return "changeSet.actions 不得与旧流程写入字段混用。";
                 for (int index = 0; index < actions.Count; index++)
                 {
                     ChangeSetAction action = actions[index];
@@ -27,7 +26,7 @@ namespace Automation.McpServer
                         if (operationError != null) return $"actions[{index}].operation：{operationError}";
                     }
                 }
-                return null!;
+                return ValidateVariables(changeSet.Variables);
             }
             string deletionError = ValidateProcessDeletion(changeSet.DeleteProcesses);
             if (deletionError != null) return deletionError;
@@ -57,6 +56,26 @@ namespace Automation.McpServer
                         if (error != null) return $"流程[{process.Name}]步骤[{step.Key}]：{error}";
                     }
                 }
+            }
+            return ValidateVariables(changeSet.Variables);
+        }
+
+        private static string ValidateVariables(IEnumerable<VariableChange> variables)
+        {
+            int index = 0;
+            foreach (VariableChange variable in variables ?? Array.Empty<VariableChange>())
+            {
+                if (variable == null || string.IsNullOrWhiteSpace(variable.Name))
+                    return $"variables[{index}].name 不能为空。";
+                string type = string.IsNullOrWhiteSpace(variable.Type) ? "double" : variable.Type;
+                if (!string.Equals(type, "double", StringComparison.Ordinal)
+                    && !string.Equals(type, "string", StringComparison.Ordinal))
+                    return $"variables[{index}].type 只能是 double 或 string。";
+                string policy = string.IsNullOrWhiteSpace(variable.Policy) ? "reuse" : variable.Policy;
+                if (!new[] { "reuse", "create", "update", "replace", "require" }
+                    .Contains(policy, StringComparer.Ordinal))
+                    return $"variables[{index}].policy 只能是 reuse/create/update/replace/require。";
+                index++;
             }
             return null!;
         }

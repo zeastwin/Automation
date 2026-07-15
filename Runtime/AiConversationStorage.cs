@@ -27,7 +27,7 @@ namespace Automation
 
     public static class AiConversationStorage
     {
-        public const int MaxConversationCount = 10;
+        public const int MaxConversationCount = 20;
 
         public static string StoragePath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

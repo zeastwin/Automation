@@ -235,15 +235,15 @@ namespace Automation.McpServer
             McpServerTool previewTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "preview_change_set", StringComparison.Ordinal));
             string previewSchema = previewTool.ProtocolTool.InputSchema.ToString();
-            if (previewSchema.Contains("variable.change", StringComparison.Ordinal)
-                || previewSchema.Contains("reuse/create/update/replace/require", StringComparison.Ordinal))
+            if (previewSchema.Contains("variable.change", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("preview_change_set 不应暴露整表事务的 variable.change 字段。");
+                throw new InvalidOperationException("preview_change_set 不应把变量声明伪装成原子动作类型 variable.change。");
             }
             var schemaIssues = new List<string>();
             string[] requiredSchemaTerms =
             {
-                "actions", "targetProcess", "targetOperation", "position", "oneOf",
+                "actions", "variables", "reuse/create/update/replace/require",
+                "targetProcess", "targetOperation", "position", "oneOf",
                 "variable.compute", "branch.number_compare", "minimum", "maximum", "kind",
                 "replacePreviewId", "operation.replace", "afterKey", "current_change_set"
             };
@@ -283,6 +283,9 @@ namespace Automation.McpServer
                 || !(startTool.ProtocolTool.Description ?? string.Empty).Contains("由run_proc_test一次完成", StringComparison.Ordinal)
                 || !(discardPreviewTool.ProtocolTool.Description ?? string.Empty).Contains("不修改配置", StringComparison.Ordinal)
                 || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("preview_only", StringComparison.Ordinal)
+                || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("configurationSaved", StringComparison.Ordinal)
+                || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("localKeyScope", StringComparison.Ordinal)
+                || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("variableResolutions", StringComparison.Ordinal)
                 || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("replacePreviewId", StringComparison.Ordinal)
                 || !(nativeSchemaTool.ProtocolTool.Description ?? string.Empty).Contains("native.operation", StringComparison.Ordinal)
                 || !(semanticSchemaTool.ProtocolTool.Description ?? string.Empty).Contains("保存必填项", StringComparison.Ordinal))

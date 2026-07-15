@@ -288,7 +288,7 @@ namespace Automation
             var tcs = new TaskCompletionSource<AlarmDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
             Message dialog = null;
 
-            void ShowDialog()
+            Message CreateDialog()
             {
                 if (hasThirdButton)
                 {
@@ -296,45 +296,22 @@ namespace Automation
                         () => tcs.TrySetResult(AlarmDecision.Goto1),
                         () => tcs.TrySetResult(AlarmDecision.Goto2),
                         () => tcs.TrySetResult(AlarmDecision.Goto3),
-                        btn1Text, btn2Text, btn3Text, false);
+                        btn1Text, btn2Text, btn3Text, false, false);
                 }
                 else if (hasSecondButton)
                 {
                     dialog = new Message(title, messageText,
                         () => tcs.TrySetResult(AlarmDecision.Goto1),
                         () => tcs.TrySetResult(AlarmDecision.Goto2),
-                        btn1Text, btn2Text, false);
+                        btn1Text, btn2Text, false, false);
                 }
                 else
                 {
-                    dialog = new Message(title, messageText, () => tcs.TrySetResult(AlarmDecision.Goto1), btn1Text, false);
+                    dialog = new Message(title, messageText, () => tcs.TrySetResult(AlarmDecision.Goto1),
+                        btn1Text, false, false);
                 }
 
                 dialog.ApplyContentTheme(popup.PopupBackColor, popup.PopupFontColor);
-                if (UiInvoker is FrmMain main)
-                {
-                    int procIndex = evt?.procNum ?? -1;
-                    main.RegisterProcPopup(procIndex, dialog, () =>
-                    {
-                        if (!tcs.Task.IsCompleted)
-                        {
-                            tcs.TrySetResult(AlarmDecision.Ignore);
-                        }
-                        if (dialog.IsDisposed)
-                        {
-                            return;
-                        }
-                        if (dialog.InvokeRequired)
-                        {
-                            dialog.BeginInvoke((Action)(() => dialog.btnCanel()));
-                        }
-                        else
-                        {
-                            dialog.btnCanel();
-                        }
-                    });
-                }
-
                 if (popup.DelayClose)
                 {
                     System.Windows.Forms.Timer closeTimer = new System.Windows.Forms.Timer();
@@ -364,16 +341,50 @@ namespace Automation
                     };
                     closeTimer.Start();
                 }
+                return dialog;
             }
 
             DateTime alarmStartTime = DateTime.Now;
-            if (invoker.InvokeRequired)
+            void ReportPopupFailure(Exception exception)
             {
-                invoker.BeginInvoke((Action)ShowDialog);
+                tcs.TrySetException(exception ?? new InvalidOperationException("流程弹框创建失败。"));
+            }
+            void CancelPopup()
+            {
+                tcs.TrySetResult(AlarmDecision.Ignore);
+            }
+            if (invoker is FrmMain main)
+            {
+                main.EnqueueProcPopup(evt?.procNum ?? -1, CreateDialog, ReportPopupFailure, CancelPopup);
             }
             else
             {
-                ShowDialog();
+                void ShowSafely()
+                {
+                    try
+                    {
+                        CreateDialog();
+                    }
+                    catch (Exception ex)
+                    {
+                        ReportPopupFailure(ex);
+                    }
+                }
+                if (invoker.InvokeRequired)
+                {
+                    try
+                    {
+                        invoker.BeginInvoke((Action)ShowSafely);
+                    }
+                    catch (Exception ex)
+                    {
+                        ReportPopupFailure(ex);
+                    }
+                }
+                else
+                {
+                    ShowSafely();
+                }
             }
 
             AlarmDecision decision = AlarmDecision.Ignore;
@@ -394,13 +405,14 @@ namespace Automation
 
                 if (evt != null && evt.CancellationToken.CanBeCanceled)
                 {
-                    decisionTask.Wait(evt.CancellationToken);
+                    Task canceledTask = Task.Delay(Timeout.Infinite, evt.CancellationToken);
+                    Task completedTask = Task.WhenAny(decisionTask, canceledTask).GetAwaiter().GetResult();
+                    if (completedTask != decisionTask)
+                    {
+                        evt.CancellationToken.ThrowIfCancellationRequested();
+                    }
                 }
-                else
-                {
-                    decisionTask.Wait();
-                }
-                decision = decisionTask.Result;
+                decision = decisionTask.GetAwaiter().GetResult();
             }
             catch (OperationCanceledException)
             {

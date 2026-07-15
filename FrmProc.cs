@@ -1331,6 +1331,20 @@ namespace Automation
             }
         }
 
+        public void SelectAiContext(int procIndex, int stepIndex)
+        {
+            if (procIndex < 0)
+            {
+                proc_treeView.SelectedNode = null;
+                SelectedProcNum = -1;
+                SelectedStepNum = -1;
+                if (SF.frmDataGrid != null) SF.frmDataGrid.iSelectedRow = -1;
+                return;
+            }
+            SelectProcNode(procIndex, stepIndex);
+            if (SF.frmDataGrid != null) SF.frmDataGrid.iSelectedRow = -1;
+        }
+
         private void SelectProcNode(int procIndex, int stepIndex)
         {
             if (proc_treeView == null || proc_treeView.Nodes.Count == 0)

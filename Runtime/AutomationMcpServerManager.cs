@@ -16,6 +16,7 @@ namespace Automation
         private Process managedProcess;
         private string lastMessage = "MCP Server 尚未启动。";
         private string managedExecutablePath = string.Empty;
+        private string managedRuntimeDirectory = string.Empty;
         private bool disposed;
 
         public string GetLifecycleReport()
@@ -57,7 +58,8 @@ namespace Automation
             string exePath = ResolveMcpServerExecutablePath();
             if (string.IsNullOrWhiteSpace(exePath))
             {
-                throw new InvalidOperationException("未找到 Automation.McpServer.exe。请先编译 McpServer，或把它复制到主程序输出目录、McpServer\\ 或 Tools\\McpServer\\。");
+                throw new InvalidOperationException(
+                    "未找到完整的 Automation.McpServer 运行包，必须同时包含 exe、dll、deps.json 和 runtimeconfig.json。");
             }
 
             lock (processLock)
@@ -81,11 +83,14 @@ namespace Automation
                 {
                 }
                 managedProcess = null;
+                CleanupManagedRuntimeDirectory();
+
+                string runtimeExePath = PrepareRuntimeCopy(exePath);
 
                 ProcessStartInfo startInfo = new ProcessStartInfo
                 {
-                    FileName = exePath,
-                    WorkingDirectory = Path.GetDirectoryName(exePath) ?? AppDomain.CurrentDomain.BaseDirectory,
+                    FileName = runtimeExePath,
+                    WorkingDirectory = Path.GetDirectoryName(runtimeExePath) ?? AppDomain.CurrentDomain.BaseDirectory,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
@@ -95,10 +100,10 @@ namespace Automation
                 {
                     throw new InvalidOperationException("MCP Server 进程启动失败。");
                 }
-                managedExecutablePath = exePath;
+                managedExecutablePath = runtimeExePath;
                 lastMessage = killedCount > 0
-                    ? $"已清理 {killedCount} 个残留 MCP Server 进程，并启动新实例：{exePath}"
-                    : $"已由 Automation 启动 MCP Server：{exePath}";
+                    ? $"已清理 {killedCount} 个残留 MCP Server 进程，并启动独立运行副本：{runtimeExePath}"
+                    : $"已由 Automation 启动 MCP Server 独立运行副本：{runtimeExePath}";
             }
 
             for (int i = 0; i < 40; i++)
@@ -121,7 +126,7 @@ namespace Automation
                     : managedProcess.HasExited
                         ? $"进程已退出，ExitCode={managedProcess.ExitCode}。"
                         : $"进程仍在运行，PID={managedProcess.Id}。";
-                lastMessage = $"MCP Server 启动后未就绪：{normalizedBaseUri}/info。启动文件：{exePath}。{processState}";
+                lastMessage = $"MCP Server 启动后未就绪：{normalizedBaseUri}/info。启动文件：{managedExecutablePath}。{processState}";
                 throw new InvalidOperationException(lastMessage);
             }
         }
@@ -229,12 +234,112 @@ namespace Automation
 
             foreach (string candidate in candidates)
             {
-                if (File.Exists(candidate))
+                if (IsCompleteMcpRuntime(candidate))
                 {
                     return candidate;
                 }
             }
             return null;
+        }
+
+        private static bool IsCompleteMcpRuntime(string executablePath)
+        {
+            if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+            {
+                return false;
+            }
+
+            string directory = Path.GetDirectoryName(executablePath);
+            string assemblyName = Path.GetFileNameWithoutExtension(executablePath);
+            return !string.IsNullOrWhiteSpace(directory)
+                && File.Exists(Path.Combine(directory, assemblyName + ".dll"))
+                && File.Exists(Path.Combine(directory, assemblyName + ".deps.json"))
+                && File.Exists(Path.Combine(directory, assemblyName + ".runtimeconfig.json"));
+        }
+
+        private string PrepareRuntimeCopy(string sourceExecutablePath)
+        {
+            string sourceDirectory = Path.GetDirectoryName(sourceExecutablePath)
+                ?? throw new InvalidOperationException("MCP Server 源运行目录无效。");
+            string runtimeRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Automation", "McpRuntime");
+            Directory.CreateDirectory(runtimeRoot);
+            CleanupStaleRuntimeDirectories(runtimeRoot);
+
+            string runtimeDirectory = Path.Combine(runtimeRoot,
+                Process.GetCurrentProcess().Id + "_" + Guid.NewGuid().ToString("N"));
+            CopyRuntimeDirectory(sourceDirectory, runtimeDirectory);
+            string runtimeExecutablePath = Path.Combine(runtimeDirectory, Path.GetFileName(sourceExecutablePath));
+            if (!IsCompleteMcpRuntime(runtimeExecutablePath))
+            {
+                TryDeleteDirectory(runtimeDirectory);
+                throw new InvalidOperationException("MCP Server 独立运行副本不完整，未启动进程。");
+            }
+
+            managedRuntimeDirectory = runtimeDirectory;
+            return runtimeExecutablePath;
+        }
+
+        private static void CopyRuntimeDirectory(string sourceDirectory, string destinationDirectory)
+        {
+            Directory.CreateDirectory(destinationDirectory);
+            foreach (string file in Directory.GetFiles(sourceDirectory))
+            {
+                File.Copy(file, Path.Combine(destinationDirectory, Path.GetFileName(file)), true);
+            }
+            foreach (string directory in Directory.GetDirectories(sourceDirectory))
+            {
+                string name = Path.GetFileName(directory);
+                if (string.Equals(name, "Logs", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(name, "Config", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(name, "publish", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                CopyRuntimeDirectory(directory, Path.Combine(destinationDirectory, name));
+            }
+        }
+
+        private static void CleanupStaleRuntimeDirectories(string runtimeRoot)
+        {
+            foreach (string directory in Directory.GetDirectories(runtimeRoot))
+            {
+                try
+                {
+                    if (Directory.GetLastWriteTimeUtc(directory) < DateTime.UtcNow.AddDays(-1))
+                    {
+                        Directory.Delete(directory, true);
+                    }
+                }
+                catch
+                {
+                    // 仍被异常残留进程使用的目录留待下次启动清理。
+                }
+            }
+        }
+
+        private void CleanupManagedRuntimeDirectory()
+        {
+            string runtimeDirectory = managedRuntimeDirectory;
+            managedRuntimeDirectory = string.Empty;
+            TryDeleteDirectory(runtimeDirectory);
+        }
+
+        private static void TryDeleteDirectory(string directory)
+        {
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+            {
+                return;
+            }
+            try
+            {
+                Directory.Delete(directory, true);
+            }
+            catch
+            {
+                // 进程句柄刚释放时可能短暂占用，旧目录由下次启动的过期清理回收。
+            }
         }
 
         private static string ResolveProjectRoot(string baseDirectory)
@@ -286,6 +391,7 @@ namespace Automation
                 }
                 managedProcess = null;
                 managedExecutablePath = string.Empty;
+                CleanupManagedRuntimeDirectory();
                 lastMessage = $"Automation 关闭时已回收 {killedCount} 个 MCP Server 进程。";
             }
         }
