@@ -177,7 +177,6 @@ namespace Automation
             if (device.Port < 1 || device.Port > 65535) { error = prefix + "端口超出范围。"; return false; }
             if (device.UnitId < 0 || device.UnitId > 255) { error = prefix + "站号超出范围。"; return false; }
             if (device.ConnectTimeoutMs < 100 || device.ConnectTimeoutMs > 60000) { error = prefix + "连接超时必须为100..60000ms。"; return false; }
-            if (device.ReceiveTimeoutMs < 100 || device.ReceiveTimeoutMs > 60000) { error = prefix + "接收超时必须为100..60000ms。"; return false; }
             if (device.ScanIntervalMs < 50 || device.ScanIntervalMs > 60000) { error = prefix + "扫描周期必须为50..60000ms。"; return false; }
             if (!new[] { "ABCD", "BADC", "CDAB", "DCBA" }.Contains(device.DataFormat, StringComparer.Ordinal))
             { error = prefix + "字节序无效。"; return false; }

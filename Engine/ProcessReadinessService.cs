@@ -49,7 +49,7 @@ namespace Automation
 
             if (proc.steps == null || proc.steps.Count == 0)
             {
-                warnings.Add("流程尚未添加步骤，可以继续分阶段配置。");
+                warnings.Add("流程尚未添加步骤。");
                 blockers.Add("流程没有可执行步骤。");
                 return Build(warnings, blockers, invalid ? "invalid" : "incomplete");
             }
@@ -103,7 +103,7 @@ namespace Automation
                         warnings.Add($"步骤 {stepIndex} 指令 {operationIndex} [{operation.Name}] 是待完善占位：{reason}");
                         if (!step.Disable && !operation.Disable)
                         {
-                            blockers.Add($"步骤 {stepIndex} 指令 {operationIndex} 仍是配置占位，必须替换后才能运行。");
+                            blockers.Add($"步骤 {stepIndex} 指令 {operationIndex} 仍是配置占位。");
                         }
                     }
                     if (!step.Disable && !operation.Disable)

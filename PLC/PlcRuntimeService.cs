@@ -720,7 +720,8 @@ namespace Automation
                 }
                 if (task != null && Task.CurrentId != task.Id)
                 {
-                    try { task.Wait(Math.Max(1000, config.ReceiveTimeoutMs + 500)); } catch { }
+                    // HSL 7.0.1 默认接收超时为 10 秒；这里仅给映射任务留出一次通讯退出窗口。
+                    try { task.Wait(10500); } catch { }
                 }
                 cts?.Dispose();
                 if (changeState)

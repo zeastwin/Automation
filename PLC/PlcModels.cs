@@ -121,7 +121,6 @@ namespace Automation
         public int Port { get; set; } = 502;
         public int UnitId { get; set; } = 1;
         public int ConnectTimeoutMs { get; set; } = 1000;
-        public int ReceiveTimeoutMs { get; set; } = 3000;
         public bool AutoConnect { get; set; } = true;
         public int ScanIntervalMs { get; set; } = 50;
         public string DataFormat { get; set; } = "CDAB";
@@ -213,7 +212,6 @@ namespace Automation
                 Port = source.Port,
                 UnitId = source.UnitId,
                 ConnectTimeoutMs = source.ConnectTimeoutMs,
-                ReceiveTimeoutMs = source.ReceiveTimeoutMs,
                 AutoConnect = source.AutoConnect,
                 ScanIntervalMs = source.ScanIntervalMs,
                 DataFormat = source.DataFormat,

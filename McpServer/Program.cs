@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Drawing;
 using System.Text;
+using System.Text.Json.Nodes;
 using System.Windows.Forms;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -164,7 +165,9 @@ namespace Automation.McpServer
             {
                 "list_operation_types", "get_native_operation_schemas", "get_semantic_operation_schema", "preview_change_set",
                 "get_operation_guide", "apply_change_set", "discard_change_set_preview", "validate_proc",
-                "wait_for_proc_state", "run_proc_test", "get_communication", "set_alarm", "delete_alarm",
+                "wait_for_proc_state", "run_proc_test", "get_communication",
+                "list_plc_devices", "get_plc_device", "set_alarm", "delete_alarm",
+                "search_data_struct_items", "get_operation_context", "get_info_log_tail",
                 "list_variables", "get_variable_by_name", "get_variable_by_index",
                 "set_variable_by_name", "set_variable_by_index",
                 "add_variable", "update_variable", "delete_variable"
@@ -182,6 +185,7 @@ namespace Automation.McpServer
                 "get_change_capabilities", "get_operation_contracts", "get_native_operation_contract",
                 "get_operation_schemas",
                 "get_semantic_operation_schemas",
+                "search_data_structs",
                 "get_variable", "set_variable", "search_variables",
                 "begin_change_set_draft", "append_change_set_draft", "get_change_set_draft",
                 "stage_changes", "get_staged_changes", "preview_staged_changes", "discard_staged_changes"
@@ -218,8 +222,16 @@ namespace Automation.McpServer
                 throw new InvalidOperationException("Editor Profile 参数Schema含旧链或歧义表达："
                     + string.Join(", ", pollutedSchemas));
             }
-            if (names.Contains("audit_proc_batch", StringComparer.Ordinal))
-                throw new InvalidOperationException("Editor Profile 不应固定暴露细粒度审计工具。");
+            string[] editorOnlyDiagnosticTools =
+            {
+                "search_ops", "diagnose_issue", "get_operation_schema",
+                "search_operation_fields", "find_references", "find_variable_usages",
+                "audit_proc_batch", "diagnose_proc", "list_data_structs", "list_io"
+            };
+            string? exposedDiagnostic = editorOnlyDiagnosticTools.FirstOrDefault(name =>
+                names.Contains(name, StringComparer.Ordinal));
+            if (exposedDiagnostic != null)
+                throw new InvalidOperationException($"Editor Profile 意外暴露诊断工具：{exposedDiagnostic}");
             McpServerTool previewTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "preview_change_set", StringComparison.Ordinal));
             string previewSchema = previewTool.ProtocolTool.InputSchema.ToString();
@@ -255,6 +267,7 @@ namespace Automation.McpServer
                 throw new InvalidOperationException("原子动作Schema契约不完整："
                     + string.Join("；", schemaIssues));
             }
+            VerifyPreviewChangeSetDiscriminatedUnions(previewTool.ProtocolTool.InputSchema.GetRawText());
             McpServerTool runTestTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "run_proc_test", StringComparison.Ordinal));
             McpServerTool startTool = editorTools.First(tool =>
@@ -334,6 +347,141 @@ namespace Automation.McpServer
                 throw new InvalidOperationException("ChangeSet 删除选择器组合校验错误。");
             }
             Console.WriteLine($"Editor Profile 校验通过，共 {names.Length} 个工具；V2 写入链完整，旧写入链未暴露。");
+        }
+
+        private static void VerifyPreviewChangeSetDiscriminatedUnions(string schemaJson)
+        {
+            JsonObject root = JsonNode.Parse(schemaJson) as JsonObject
+                ?? throw new InvalidOperationException("preview_change_set 参数Schema不是JSON对象。");
+            EnsureClosedBranch(root, "preview_change_set根参数");
+            JsonObject rootProperties = root["properties"] as JsonObject
+                ?? throw new InvalidOperationException("preview_change_set根参数缺少properties。");
+            JsonObject changeSet = rootProperties["changeSet"] as JsonObject
+                ?? throw new InvalidOperationException("preview_change_set缺少changeSet参数定义。");
+            EnsureClosedBranch(changeSet, "preview_change_set.changeSet");
+            if (!rootProperties.ContainsKey("replacePreviewId")
+                || changeSet["properties"] is JsonObject changeSetProperties
+                    && changeSetProperties.ContainsKey("replacePreviewId"))
+            {
+                throw new InvalidOperationException("replacePreviewId必须只存在于preview_change_set根参数。");
+            }
+            JsonObject actionSchema = FindSchemaByMarker(root, "x-localKeyScope", "current_change_set")
+                ?? throw new InvalidOperationException("preview_change_set 未找到ChangeAction判别联合。");
+            JsonArray actionBranches = actionSchema["oneOf"] as JsonArray
+                ?? throw new InvalidOperationException("ChangeAction Schema缺少oneOf。");
+            string[] expectedActionTypes = ChangeSetActionTypes.SupportedTypes.Split('、');
+            if (actionBranches.Count != expectedActionTypes.Length)
+                throw new InvalidOperationException($"ChangeAction分支数量错误：实际{actionBranches.Count}，期望{expectedActionTypes.Length}。");
+
+            var actualActionTypes = new HashSet<string>(StringComparer.Ordinal);
+            int operationUnionCount = 0;
+            foreach (JsonNode? node in actionBranches)
+            {
+                JsonObject branch = node as JsonObject
+                    ?? throw new InvalidOperationException("ChangeAction oneOf包含非对象分支。");
+                EnsureClosedBranch(branch, "ChangeAction");
+                JsonObject properties = branch["properties"] as JsonObject
+                    ?? throw new InvalidOperationException("ChangeAction分支缺少properties。");
+                string type = ReadDiscriminator(properties, "type", "ChangeAction");
+                if (!actualActionTypes.Add(type))
+                    throw new InvalidOperationException($"ChangeAction分支重复：{type}");
+                if (properties["operation"] is JsonObject operationSchema)
+                {
+                    VerifySemanticOperationUnion(operationSchema, type);
+                    operationUnionCount++;
+                }
+            }
+            if (!actualActionTypes.SetEquals(expectedActionTypes))
+                throw new InvalidOperationException("ChangeAction判别联合与SupportedTypes不一致。");
+            if (operationUnionCount != 4)
+                throw new InvalidOperationException($"ChangeAction内嵌SemanticOperation联合数量错误：实际{operationUnionCount}，期望4。");
+        }
+
+        private static void VerifySemanticOperationUnion(JsonObject operationSchema, string actionType)
+        {
+            if (!string.Equals(operationSchema["x-symbolicTargetScope"]?.GetValue<string>(),
+                    "operation_id_or_change_set_key", StringComparison.Ordinal))
+                throw new InvalidOperationException($"{actionType}.operation缺少符号目标作用域。");
+            JsonArray branches = operationSchema["oneOf"] as JsonArray
+                ?? throw new InvalidOperationException($"{actionType}.operation缺少oneOf。");
+            string[] expectedKinds = SemanticOperationKinds.SupportedKinds.Split('、');
+            if (branches.Count != expectedKinds.Length)
+                throw new InvalidOperationException($"{actionType}.operation分支数量错误：实际{branches.Count}，期望{expectedKinds.Length}。");
+
+            var actualKinds = new HashSet<string>(StringComparer.Ordinal);
+            var kindProperties = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
+            foreach (JsonNode? node in branches)
+            {
+                JsonObject branch = node as JsonObject
+                    ?? throw new InvalidOperationException($"{actionType}.operation oneOf包含非对象分支。");
+                EnsureClosedBranch(branch, $"{actionType}.operation");
+                JsonObject properties = branch["properties"] as JsonObject
+                    ?? throw new InvalidOperationException($"{actionType}.operation分支缺少properties。");
+                string kind = ReadDiscriminator(properties, "kind", $"{actionType}.operation");
+                if (!actualKinds.Add(kind))
+                    throw new InvalidOperationException($"SemanticOperation分支重复：{kind}");
+                foreach (string commonField in new[] { "opId", "key", "name" })
+                {
+                    if (!properties.ContainsKey(commonField))
+                        throw new InvalidOperationException($"{kind}分支缺少公共字段{commonField}。");
+                }
+                kindProperties[kind] = properties;
+            }
+            if (!actualKinds.SetEquals(expectedKinds))
+                throw new InvalidOperationException("SemanticOperation判别联合与SupportedKinds不一致。");
+
+            JsonObject ioWait = kindProperties["io.wait"];
+            if (ioWait.ContainsKey("beforeMs") || ioWait.ContainsKey("afterMs"))
+                throw new InvalidOperationException("io.wait分支不得包含beforeMs或afterMs。");
+            JsonObject ioWrite = kindProperties["io.write"];
+            if (!ioWrite.ContainsKey("beforeMs") || !ioWrite.ContainsKey("afterMs"))
+                throw new InvalidOperationException("io.write分支必须包含beforeMs和afterMs。");
+
+            JsonObject native = kindProperties["native.operation"];
+            if (native["fields"] is not JsonObject fieldsSchema
+                || fieldsSchema["additionalProperties"] is JsonValue additional
+                    && additional.TryGetValue(out bool allowsFields) && !allowsFields)
+                throw new InvalidOperationException("native.operation.fields未保留动态原生字段。");
+        }
+
+        private static void EnsureClosedBranch(JsonObject branch, string unionName)
+        {
+            if (branch["additionalProperties"] is not JsonValue value
+                || !value.TryGetValue(out bool allowed) || allowed)
+                throw new InvalidOperationException($"{unionName}分支必须显式设置additionalProperties=false。");
+        }
+
+        private static string ReadDiscriminator(JsonObject properties, string fieldName, string unionName)
+        {
+            if (properties[fieldName] is not JsonObject field
+                || field["const"] is not JsonValue value
+                || !value.TryGetValue(out string? discriminator)
+                || string.IsNullOrEmpty(discriminator))
+                throw new InvalidOperationException($"{unionName}分支缺少{fieldName}.const判别值。");
+            return discriminator;
+        }
+
+        private static JsonObject? FindSchemaByMarker(JsonNode? node, string markerName, string markerValue)
+        {
+            if (node is JsonObject obj)
+            {
+                if (string.Equals(obj[markerName]?.GetValue<string>(), markerValue, StringComparison.Ordinal))
+                    return obj;
+                foreach (KeyValuePair<string, JsonNode?> property in obj)
+                {
+                    JsonObject? found = FindSchemaByMarker(property.Value, markerName, markerValue);
+                    if (found != null) return found;
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (JsonNode? item in array)
+                {
+                    JsonObject? found = FindSchemaByMarker(item, markerName, markerValue);
+                    if (found != null) return found;
+                }
+            }
+            return null;
         }
 
         private static void RestartCurrentProcess(string[] args)

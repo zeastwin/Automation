@@ -111,8 +111,9 @@ namespace Automation
             IReadOnlyCollection<string> tcpNames = GetReferenceValues(resources, "comm.tcp");
             IReadOnlyCollection<string> serialNames = GetReferenceValues(resources, "comm.serial");
             IReadOnlyCollection<string> alarmInfoIds = GetReferenceValues(resources, "alarm.infoId");
+            IReadOnlyCollection<string> plcNames = GetReferenceValues(resources, "plc.device");
             var validationContext = new ProcessDefinitionValidationContext(
-                variables.Keys, tcpNames, serialNames, alarmInfoIds);
+                variables.Keys, tcpNames, serialNames, alarmInfoIds, plcNames, variables);
             for (int procIndex = 0; procIndex < processes.Count; procIndex++)
             {
                 var errors = new List<string>();
@@ -177,8 +178,7 @@ namespace Automation
                     ["procIndex"] = change["procIndex"]?.DeepClone(),
                     ["name"] = change["name"]?.DeepClone(),
                     ["count"] = invalidatedGotoCount,
-                    ["message"] = $"本阶段使 {invalidatedGotoCount} 个既有跳转目标失效。",
-                    ["recommendedAction"] = "revise_change_set"
+                    ["message"] = $"本阶段使 {invalidatedGotoCount} 个既有跳转目标失效。"
                 });
             }
             return result;
@@ -1308,10 +1308,8 @@ namespace Automation
                 {
                     continue;
                 }
-                ProcessFlowAnalysis analysis = ProcessFlowAnalyzer.Analyze(procIndex, processes[procIndex]);
                 ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
                     procIndex, processes[procIndex], processes, validationContext);
-                change["containsReachableCycle"] = analysis.ContainsReachableCycle;
                 change["readinessStatus"] = readiness.ReadinessStatus;
                 change["runnable"] = readiness.Runnable;
                 var item = new JObject
@@ -1322,9 +1320,7 @@ namespace Automation
                     ["readinessStatus"] = readiness.ReadinessStatus,
                     ["runnable"] = readiness.Runnable,
                     ["warnings"] = new JArray(readiness.Warnings),
-                    ["runBlockers"] = new JArray(readiness.RunBlockers),
-                    ["containsReachableCycle"] = analysis.ContainsReachableCycle,
-                    ["cycleLocations"] = new JArray(analysis.CycleLocations)
+                    ["runBlockers"] = new JArray(readiness.RunBlockers)
                 };
                 analyses.Add(item);
             }

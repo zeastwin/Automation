@@ -83,19 +83,32 @@ namespace Automation
         // 每个 ACP 进程使用独立会话名，避免 Goose 恢复旧会话历史污染新的用户请求。
         private readonly string runtimeSessionName = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N").Substring(0, 6);
         private readonly StringBuilder assistantResponse = new StringBuilder();
-        private readonly StringBuilder assistantThought = new StringBuilder();
         private readonly StringBuilder currentAssistantTraceSegment = new StringBuilder();
         private readonly StringBuilder currentThoughtTraceSegment = new StringBuilder();
-        private readonly JArray reasoningTrace = new JArray();
+        private readonly Dictionary<string, AnalysisToolCallState> activeAnalysisToolCalls =
+            new Dictionary<string, AnalysisToolCallState>(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> analysisToolAttempts =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly List<AnalysisTimeInterval> analysisToolIntervals =
+            new List<AnalysisTimeInterval>();
         private string restoredConversationContext;
         private int nextRequestId;
         private Process process;
         private StreamWriter stdin;
         private string sessionId;
+        private string gooseAgentName;
+        private string gooseAgentVersion;
         private string currentPromptId;
         private DateTime currentPromptStartedUtc;
         private int currentPromptToolCallCount;
         private int currentPromptToolErrorCount;
+        private int currentAnalysisSequence;
+        private int currentParallelGroup;
+        private int currentMaxConcurrentTools;
+        private int currentParameterFailureCount;
+        private long currentPreviewWaitMs;
+        private DateTime lastAnalysisToolStartedUtc;
+        private DateTime currentFirstModelActivityUtc;
         private bool supportsImagePrompt;
         private bool disposed;
 
@@ -145,6 +158,8 @@ namespace Automation
             }, InitializeTimeoutMs, cancellationToken).ConfigureAwait(false);
 
             supportsImagePrompt = result["agentCapabilities"]?["promptCapabilities"]?["image"]?.Value<bool>() ?? false;
+            gooseAgentName = result["agentInfo"]?["name"]?.Value<string>() ?? string.Empty;
+            gooseAgentVersion = result["agentInfo"]?["version"]?.Value<string>() ?? string.Empty;
             Report("lifecycle", "EW-AI ACP 初始化完成。", result);
         }
 
@@ -298,64 +313,71 @@ namespace Automation
                 currentPromptStartedUtc = DateTime.UtcNow;
                 currentPromptToolCallCount = 0;
                 currentPromptToolErrorCount = 0;
+                currentAnalysisSequence = 0;
+                currentParallelGroup = 0;
+                currentMaxConcurrentTools = 0;
+                currentParameterFailureCount = 0;
+                currentPreviewWaitMs = 0;
+                lastAnalysisToolStartedUtc = default(DateTime);
+                currentFirstModelActivityUtc = default(DateTime);
+                activeAnalysisToolCalls.Clear();
+                analysisToolAttempts.Clear();
+                analysisToolIntervals.Clear();
                 assistantResponse.Clear();
-                assistantThought.Clear();
                 currentAssistantTraceSegment.Clear();
                 currentThoughtTraceSegment.Clear();
-                reasoningTrace.Clear();
             }
+            WriteAnalysisEvent("turn.started", new JObject
+            {
+                ["request"] = AiAnalysisLogger.SummarizePayload(new JValue(prompt), 8 * 1024),
+                ["toolProfile"] = config.ToolProfile ?? string.Empty,
+                ["provider"] = config.Provider ?? string.Empty,
+                ["model"] = config.Model ?? string.Empty,
+                ["goose"] = new JObject
+                {
+                    ["name"] = gooseAgentName ?? string.Empty,
+                    ["version"] = gooseAgentVersion ?? string.Empty
+                },
+                ["attachmentCount"] = fileAttachments?.Count ?? 0,
+                ["effectivePromptBytes"] = Encoding.UTF8.GetByteCount(finalPrompt),
+                ["context"] = BuildManagedContextAnalysis(),
+                ["selection"] = BuildSelectionAnalysis()
+            });
             LogExecution("user_prompt", prompt, new JObject
             {
-                ["effectivePrompt"] = finalPrompt
+                ["effectivePromptBytes"] = Encoding.UTF8.GetByteCount(finalPrompt),
+                ["attachmentCount"] = fileAttachments?.Count ?? 0
             });
+            JObject promptResult = null;
+            Exception promptException = null;
             try
             {
-                JObject result = await SendRequestAsync("session/prompt", new JObject
+                promptResult = await SendRequestAsync("session/prompt", new JObject
                 {
                     ["sessionId"] = sessionId,
                     ["prompt"] = promptContent
                 }, 0, cancellationToken).ConfigureAwait(false);
 
-                LogExecution("prompt_completed", result["stopReason"]?.Value<string>() ?? "unknown", result);
-                Report("lifecycle", $"EW-AI 本轮结束：{result["stopReason"]?.Value<string>() ?? "unknown"}", result);
-                return result;
+                LogExecution("prompt_completed", promptResult["stopReason"]?.Value<string>() ?? "unknown", promptResult);
+                Report("lifecycle", $"EW-AI 本轮结束：{promptResult["stopReason"]?.Value<string>() ?? "unknown"}", promptResult);
+                return promptResult;
             }
             catch (Exception ex)
             {
+                promptException = ex;
                 LogExecution("prompt_failed", ex.Message, null);
                 throw;
             }
             finally
             {
                 string response;
-                JArray trace;
                 lock (executionLock)
                 {
-                    FlushReasoningTraceSegmentLocked("assistant_segment", currentAssistantTraceSegment);
-                    FlushReasoningTraceSegmentLocked("thought_segment", currentThoughtTraceSegment);
-                    MarkFinalAssistantTraceSegmentLocked();
+                    FlushReasoningTraceSegmentLocked("assistant_segment", currentAssistantTraceSegment, "final");
+                    FlushReasoningTraceSegmentLocked("thought_segment", currentThoughtTraceSegment, "reasoning");
                     response = assistantResponse.ToString();
-                    trace = (JArray)reasoningTrace.DeepClone();
                 }
                 LogExecution("assistant_response", response, null);
-                if (trace.Count > 0)
-                {
-                    LogExecution("reasoning_trace", $"本轮共记录 {trace.Count} 个推理与工具事件。", new JObject
-                    {
-                        ["events"] = trace
-                    });
-                }
-
-                string thought;
-                lock (executionLock)
-                {
-                    thought = assistantThought.ToString();
-                }
-                if (!string.IsNullOrWhiteSpace(thought))
-                {
-                    LogExecution("assistant_thought", thought, null);
-                }
-
                 long totalDurationMs;
                 int toolCallCount;
                 int toolErrorCount;
@@ -371,6 +393,16 @@ namespace Automation
                     ["toolCallCount"] = toolCallCount,
                     ["toolErrorCount"] = toolErrorCount
                 });
+                JObject turnFinished;
+                lock (executionLock)
+                {
+                    turnFinished = BuildTurnFinishedAnalysisLocked(
+                        promptResult,
+                        promptException,
+                        totalDurationMs,
+                        response.Length);
+                }
+                WriteAnalysisEvent(promptException == null ? "turn.completed" : "turn.failed", turnFinished);
             }
         }
 
@@ -899,6 +931,7 @@ namespace Automation
                     string chunkText = ExtractText(parameters);
                     if (!string.IsNullOrWhiteSpace(chunkText))
                     {
+                        MarkFirstModelActivity();
                         lock (executionLock)
                         {
                             FlushReasoningTraceSegmentLocked("thought_segment", currentThoughtTraceSegment);
@@ -916,10 +949,10 @@ namespace Automation
                     string thoughtText = ExtractText(parameters);
                     if (!string.IsNullOrWhiteSpace(thoughtText))
                     {
+                        MarkFirstModelActivity();
                         lock (executionLock)
                         {
                             FlushReasoningTraceSegmentLocked("assistant_segment", currentAssistantTraceSegment);
-                            assistantThought.Append(thoughtText);
                             currentThoughtTraceSegment.Append(thoughtText);
                         }
                         Report("assistant_thought", thoughtText, message);
@@ -945,7 +978,9 @@ namespace Automation
                     string displayName = parameterGenerationFailed
                         ? "模型工具参数未形成"
                         : ResolveToolDisplayName(parameters, title);
+                    MarkFirstModelActivity();
                     AppendReasoningTraceEvent("tool_call", displayName, message);
+                    RecordAnalysisToolStarted(callId, parameters, parameterGenerationFailed);
                     LogExecution("tool_call", displayName, message);
                     Report("tool_call", displayName, message);
                     return;
@@ -970,6 +1005,7 @@ namespace Automation
                             : string.IsNullOrWhiteSpace(detail)
                                 ? "× 工具调用失败，ACP 未提供错误内容"
                                 : "× " + detail;
+                        RecordAnalysisToolFinished(callId, parameters, true, parameterGenerationFailed);
                         AppendReasoningTraceEvent("tool_error", failureSummary, message);
                         var diagnostic = (JObject)parameters.DeepClone();
                         diagnostic["automationDiagnostic"] = parameterGenerationFailed
@@ -991,10 +1027,9 @@ namespace Automation
                         Report("tool_result", failureSummary, message);
                         return;
                     }
-                    // 进度描述（非完成）：仅落盘，不转发 UI。
+                    // 进度描述（非完成）不进入 UI 或分析日志，避免同一调用重复刷屏。
                     if (!string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase))
                     {
-                        LogFile("ACP<- 通知 session/update kind=tool_call_update (progress)", parameters, LogLevel.Normal);
                         return;
                     }
                     string completedCallId = FindFirstString(parameters, "toolCallId");
@@ -1004,6 +1039,7 @@ namespace Automation
                     }
                     // 完成响应只提取摘要给 UI；完整参数和结果由 MCP 统一审计，避免重复落盘。
                     string summary = ExtractToolResultSummary(parameters);
+                    RecordAnalysisToolFinished(completedCallId, parameters, false, false);
                     AppendReasoningTraceEvent("tool_result", summary, message);
                     Report("tool_result", summary, message);
                     return;
@@ -1016,6 +1052,7 @@ namespace Automation
                 }
                 if (string.Equals(updateKind, "agent_message", StringComparison.Ordinal))
                 {
+                    MarkFirstModelActivity();
                     lock (executionLock)
                     {
                         FlushReasoningTraceSegmentLocked("thought_segment", currentThoughtTraceSegment);
@@ -1025,10 +1062,10 @@ namespace Automation
                 }
                 else if (string.Equals(updateKind, "agent_thought", StringComparison.Ordinal))
                 {
+                    MarkFirstModelActivity();
                     lock (executionLock)
                     {
                         FlushReasoningTraceSegmentLocked("assistant_segment", currentAssistantTraceSegment);
-                        assistantThought.Append(text);
                         currentThoughtTraceSegment.Append(text);
                     }
                 }
@@ -1153,6 +1190,185 @@ namespace Automation
             return SummarizeToolResultText(raw);
         }
 
+        private static string ExtractRawToolResultText(JObject parameters)
+        {
+            JToken update = parameters?["update"] ?? parameters;
+            JToken content = update?["content"];
+            if (!(content is JArray array) || array.Count == 0)
+            {
+                return null;
+            }
+
+            JToken first = array[0];
+            JToken text = first?["text"] ?? first?["content"]?["text"];
+            return text?.Type == JTokenType.String ? text.Value<string>() : null;
+        }
+
+        private void RecordAnalysisToolStarted(string callId, JObject parameters, bool parameterGenerationFailed)
+        {
+            DateTime startedUtc = DateTime.UtcNow;
+            JToken update = parameters?["update"] ?? parameters;
+            string rawToolName = update?["_meta"]?["goose"]?["toolCall"]?["toolName"]?.Value<string>()
+                ?? FindFirstString(parameters, "toolName")
+                ?? string.Empty;
+            string toolName = AiAnalysisLogger.NormalizeToolName(rawToolName);
+            JToken rawInput = update?["rawInput"] ?? JValue.CreateNull();
+            JObject args = AiAnalysisLogger.SummarizePayload(rawInput, 12 * 1024);
+            string signature = toolName + ":" + (args["sha256"]?.Value<string>() ?? string.Empty);
+            int parallelGroup;
+            int attempt;
+            int activeAtStart;
+
+            lock (executionLock)
+            {
+                if (activeAnalysisToolCalls.Count == 0
+                    || lastAnalysisToolStartedUtc == default(DateTime)
+                    || (startedUtc - lastAnalysisToolStartedUtc).TotalMilliseconds > 500)
+                {
+                    currentParallelGroup++;
+                }
+                lastAnalysisToolStartedUtc = startedUtc;
+                parallelGroup = currentParallelGroup;
+                analysisToolAttempts.TryGetValue(signature, out int previousAttempts);
+                attempt = previousAttempts + 1;
+                analysisToolAttempts[signature] = attempt;
+                activeAtStart = activeAnalysisToolCalls.Count;
+                if (!string.IsNullOrWhiteSpace(callId))
+                {
+                    activeAnalysisToolCalls[callId] = new AnalysisToolCallState
+                    {
+                        ToolCallId = callId,
+                        ToolName = toolName,
+                        IsAutomationMcp = rawToolName.StartsWith("automation__", StringComparison.Ordinal),
+                        StartedUtc = startedUtc,
+                        ParallelGroup = parallelGroup,
+                        Attempt = attempt
+                    };
+                }
+                currentMaxConcurrentTools = Math.Max(currentMaxConcurrentTools, activeAtStart + 1);
+            }
+
+            WriteAnalysisEvent("tool.started", new JObject
+            {
+                ["toolCallId"] = callId ?? string.Empty,
+                ["tool"] = toolName,
+                ["parallelGroup"] = parallelGroup,
+                ["activeAtStart"] = activeAtStart,
+                ["attempt"] = attempt,
+                ["parameterState"] = parameterGenerationFailed ? "not_formed" : "formed",
+                ["args"] = args
+            }, startedUtc);
+        }
+
+        private void RecordAnalysisToolFinished(
+            string callId,
+            JObject parameters,
+            bool transportFailed,
+            bool parameterGenerationFailed)
+        {
+            DateTime finishedUtc = DateTime.UtcNow;
+            AnalysisToolCallState state;
+            lock (executionLock)
+            {
+                if (string.IsNullOrWhiteSpace(callId)
+                    || !activeAnalysisToolCalls.TryGetValue(callId, out state))
+                {
+                    state = new AnalysisToolCallState
+                    {
+                        ToolCallId = callId ?? string.Empty,
+                        ToolName = AiAnalysisLogger.NormalizeToolName(FindFirstString(parameters, "toolName")),
+                        IsAutomationMcp = (FindFirstString(parameters, "toolName") ?? string.Empty)
+                            .StartsWith("automation__", StringComparison.Ordinal),
+                        StartedUtc = finishedUtc,
+                        ParallelGroup = currentParallelGroup,
+                        Attempt = 1
+                    };
+                }
+                else
+                {
+                    activeAnalysisToolCalls.Remove(callId);
+                }
+                analysisToolIntervals.Add(new AnalysisTimeInterval(state.StartedUtc, finishedUtc));
+                if (parameterGenerationFailed)
+                {
+                    currentParameterFailureCount++;
+                }
+            }
+
+            long durationMs = Math.Max(0L, (long)(finishedUtc - state.StartedUtc).TotalMilliseconds);
+            string rawResult = parameterGenerationFailed ? null : ExtractRawToolResultText(parameters);
+            JToken resultValue = JValue.CreateNull();
+            JObject resultObject = null;
+            if (!string.IsNullOrWhiteSpace(rawResult))
+            {
+                try
+                {
+                    resultValue = JToken.Parse(rawResult);
+                    resultObject = resultValue as JObject;
+                }
+                catch
+                {
+                    resultValue = new JValue(rawResult);
+                }
+            }
+
+            bool businessFailed = resultObject?["ok"]?.Type == JTokenType.Boolean
+                && resultObject["ok"].Value<bool>() == false;
+            if (businessFailed)
+            {
+                lock (executionLock)
+                {
+                    currentPromptToolErrorCount++;
+                }
+            }
+            string status = parameterGenerationFailed
+                ? "not_dispatched"
+                : transportFailed ? "transport_error"
+                : businessFailed ? "business_error" : "ok";
+            string stage = parameterGenerationFailed
+                ? "provider.arguments"
+                : transportFailed ? "acp" : businessFailed ? "business" : string.Empty;
+            int resultBudget = string.Equals(status, "ok", StringComparison.Ordinal) ? 4 * 1024 : 8 * 1024;
+            var data = new JObject
+            {
+                ["toolCallId"] = state.ToolCallId,
+                ["tool"] = state.ToolName,
+                ["parallelGroup"] = state.ParallelGroup,
+                ["attempt"] = state.Attempt,
+                ["status"] = status,
+                ["durationMs"] = durationMs,
+                ["route"] = new JObject
+                {
+                    ["reachedMcp"] = parameterGenerationFailed
+                        ? false
+                        : state.IsAutomationMcp && !transportFailed ? (bool?)true : null,
+                    ["sideEffects"] = parameterGenerationFailed
+                        ? "none"
+                        : resultObject?["recovery"]?["sideEffects"]?.Value<string>() ?? "unknown"
+                }
+            };
+            if (!string.IsNullOrWhiteSpace(stage))
+            {
+                data["stage"] = stage;
+            }
+            if (!parameterGenerationFailed && resultValue.Type != JTokenType.Null)
+            {
+                data["result"] = AiAnalysisLogger.SummarizePayload(resultValue, resultBudget);
+            }
+            if (!string.Equals(status, "ok", StringComparison.Ordinal))
+            {
+                data["error"] = new JObject
+                {
+                    ["code"] = resultObject?["errorCode"]?.Value<string>() ?? string.Empty,
+                    ["message"] = resultObject?["message"]?.Value<string>()
+                        ?? FindFirstString(parameters, "message", "error", "text")
+                        ?? string.Empty,
+                    ["recovery"] = resultObject?["recovery"]?.DeepClone()
+                };
+            }
+            WriteAnalysisEvent("tool.finished", data, finishedUtc);
+        }
+
         // 尝试从工具返回 JSON 提取类型与数量摘要，失败则截断。
         private static string SummarizeToolResultText(string raw)
         {
@@ -1237,11 +1453,11 @@ namespace Automation
             string context;
             if (string.Equals(config.ToolProfile, "Diagnostic", StringComparison.Ordinal))
             {
-                context = "当前 Automation 工具模式：Diagnostic（只读诊断）。本会话未开放流程启动、停止、测试或配置变更工具；用户要求执行这些动作时，应明确回复“当前模式不允许运行或变更，请切换到编辑模式”，不得改用其他工具模拟。";
+                context = "当前 Automation 工具模式：Diagnostic。当前会话只开放读取和诊断工具，不具备运行控制或配置写入能力。";
             }
             else
             {
-                context = "当前 Automation 工具模式：Editor。只能使用本会话实际开放的工具执行流程控制和配置变更。";
+                context = "当前 Automation 工具模式：Editor。当前会话开放读取、诊断、配置写入和运行控制工具。";
             }
             context += BuildSelectionContext();
             string restoredContext = restoredConversationContext;
@@ -1254,28 +1470,96 @@ namespace Automation
             return context + "\n\n用户请求：\n" + prompt.Trim();
         }
 
+        private static JObject BuildManagedContextAnalysis()
+        {
+            try
+            {
+                string promptVersionPath = Path.Combine(
+                    Path.GetDirectoryName(GooseRuntimeProvisioner.PromptPath),
+                    ".automation-system-prompt-version");
+                string integrationVersionPath = Path.Combine(
+                    Path.GetDirectoryName(GooseRuntimeProvisioner.IntegrationContextPath),
+                    ".automation-context-version");
+                return new JObject
+                {
+                    ["managedAvailable"] = GooseRuntimeProvisioner.IsManagedContextAvailable,
+                    ["system"] = BuildManagedFileAnalysis(
+                        GooseRuntimeProvisioner.PromptPath,
+                        promptVersionPath,
+                        GooseRuntimeProvisioner.SystemPromptVersion),
+                    ["automation"] = BuildManagedFileAnalysis(
+                        GooseRuntimeProvisioner.IntegrationContextPath,
+                        integrationVersionPath,
+                        GooseRuntimeProvisioner.IntegrationContextVersion)
+                };
+            }
+            catch (Exception ex)
+            {
+                return new JObject
+                {
+                    ["managedAvailable"] = GooseRuntimeProvisioner.IsManagedContextAvailable,
+                    ["inspectionError"] = ex.Message
+                };
+            }
+        }
+
+        private static JObject BuildManagedFileAnalysis(string path, string versionPath, int bundledVersion)
+        {
+            var result = new JObject
+            {
+                ["bundledVersion"] = bundledVersion,
+                ["exists"] = File.Exists(path)
+            };
+            if (File.Exists(versionPath)
+                && int.TryParse(File.ReadAllText(versionPath, Encoding.UTF8).Trim(), out int effectiveVersion))
+            {
+                result["effectiveVersion"] = effectiveVersion;
+            }
+            if (File.Exists(path))
+            {
+                JObject fingerprint = AiAnalysisLogger.FingerprintText(File.ReadAllText(path, Encoding.UTF8));
+                result["bytes"] = fingerprint["bytes"];
+                result["sha256"] = fingerprint["sha256"];
+            }
+            return result;
+        }
+
         /// <summary>
         /// 构建当前用户选中流程/步骤/指令的背景信息，附加到 prompt 中。
         /// 只展开到用户实际选中的最深层级，避免把未选中的下级对象误传给 AI。
         /// </summary>
         private static string BuildSelectionContext()
         {
+            JObject selection = BuildSelectionAnalysis();
+            if (selection?["hasSelection"]?.Value<bool?>() != true)
+            {
+                return "\n\n当前用户未选中任何流程。";
+            }
+            selection.Remove("hasSelection");
+            return "\n\n当前用户在流程编辑器中的选中对象（仅用于定位，不等于用户要求改动；实际目标仍以用户请求为准）：\n"
+                + selection.ToString(Formatting.None)
+                + "\n用户口语中的\"N号流程\"即 procIndex=N。";
+        }
+
+        private static JObject BuildSelectionAnalysis()
+        {
             try
             {
                 if (SF.frmProc == null || SF.frmProc.IsDisposed)
                 {
-                    return string.Empty;
+                    return new JObject { ["hasSelection"] = false };
                 }
                 int procIndex = SF.frmProc.SelectedProcNum;
                 if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
                 {
-                    return "\n\n当前用户未选中任何流程。";
+                    return new JObject { ["hasSelection"] = false };
                 }
 
                 Proc proc = SF.frmProc.procsList[procIndex];
                 int stepCount = proc.steps?.Count ?? 0;
                 var selection = new JObject
                 {
+                    ["hasSelection"] = true,
                     ["process"] = new JObject
                     {
                         ["procIndex"] = procIndex,
@@ -1311,13 +1595,11 @@ namespace Automation
                         };
                     }
                 }
-                return "\n\n当前用户在流程编辑器中的选中对象（仅用于定位，不等于用户要求改动；实际目标仍以用户请求为准）：\n"
-                    + selection.ToString(Formatting.None)
-                    + "\n用户口语中的\"N号流程\"即 procIndex=N。";
+                return selection;
             }
             catch
             {
-                return string.Empty;
+                return new JObject { ["hasSelection"] = false };
             }
         }
 
@@ -1439,50 +1721,24 @@ namespace Automation
             {
                 FlushReasoningTraceSegmentLocked("assistant_segment", currentAssistantTraceSegment);
                 FlushReasoningTraceSegmentLocked("thought_segment", currentThoughtTraceSegment);
-                var traceEvent = new JObject
-                {
-                    ["time"] = DateTime.Now.ToString("O"),
-                    ["kind"] = kind ?? string.Empty,
-                    ["text"] = text ?? string.Empty
-                };
-                if (raw != null)
-                {
-                    traceEvent["raw"] = raw.DeepClone();
-                }
-                reasoningTrace.Add(traceEvent);
             }
         }
 
-        private void FlushReasoningTraceSegmentLocked(string kind, StringBuilder segment)
+        private void FlushReasoningTraceSegmentLocked(string kind, StringBuilder segment, string channel = null)
         {
             if (segment == null || segment.Length == 0)
             {
                 return;
             }
-            reasoningTrace.Add(new JObject
+            string text = segment.ToString();
+            WriteAnalysisEventLocked("model.segment", new JObject
             {
-                ["time"] = DateTime.Now.ToString("O"),
-                ["kind"] = kind ?? string.Empty,
-                ["text"] = segment.ToString()
+                ["channel"] = channel ?? (string.Equals(kind, "thought_segment", StringComparison.Ordinal)
+                    ? "reasoning"
+                    : "analysis"),
+                ["text"] = AiAnalysisLogger.SummarizePayload(new JValue(text), 4 * 1024)
             });
             segment.Clear();
-        }
-
-        private void MarkFinalAssistantTraceSegmentLocked()
-        {
-            JObject finalSegment = reasoningTrace
-                .OfType<JObject>()
-                .LastOrDefault(item => string.Equals(
-                    item["kind"]?.Value<string>(),
-                    "assistant_segment",
-                    StringComparison.Ordinal));
-            foreach (JObject item in reasoningTrace.OfType<JObject>())
-            {
-                if (string.Equals(item["kind"]?.Value<string>(), "assistant_segment", StringComparison.Ordinal))
-                {
-                    item["kind"] = ReferenceEquals(item, finalSegment) ? "final_answer" : "reasoning_segment";
-                }
-            }
         }
 
         private static void LogFile(string message, LogLevel level)
@@ -1500,8 +1756,12 @@ namespace Automation
         {
             try
             {
-                JToken safeRaw = json?.DeepClone();
-                RedactSensitiveValues(safeRaw);
+                JToken safeRaw = null;
+                if (level == LogLevel.Error)
+                {
+                    safeRaw = json?.DeepClone();
+                    RedactSensitiveValues(safeRaw);
+                }
                 var record = new JObject
                 {
                     ["time"] = DateTime.Now.ToString("O"),
@@ -1509,7 +1769,7 @@ namespace Automation
                     ["kind"] = level == LogLevel.Error ? "diagnostic_error" : "diagnostic",
                     ["text"] = message ?? string.Empty
                 };
-                if (safeRaw != null)
+                if (level == LogLevel.Error && safeRaw != null)
                 {
                     record["raw"] = safeRaw;
                 }
@@ -1550,6 +1810,146 @@ namespace Automation
             catch
             {
             }
+        }
+
+        public void LogFrontendAnalysisEvent(string eventName, JObject data)
+        {
+            if (string.IsNullOrWhiteSpace(eventName))
+            {
+                return;
+            }
+            lock (executionLock)
+            {
+                long waitMs = data?["waitMs"]?.Value<long?>() ?? 0L;
+                if (waitMs > 0)
+                {
+                    currentPreviewWaitMs += waitMs;
+                }
+                WriteAnalysisEventLocked(eventName, data);
+            }
+        }
+
+        private void MarkFirstModelActivity()
+        {
+            lock (executionLock)
+            {
+                if (currentFirstModelActivityUtc == default(DateTime))
+                {
+                    currentFirstModelActivityUtc = DateTime.UtcNow;
+                }
+            }
+        }
+
+        private void WriteAnalysisEvent(string eventName, JObject data, DateTime? eventUtc = null)
+        {
+            lock (executionLock)
+            {
+                WriteAnalysisEventLocked(eventName, data, eventUtc);
+            }
+        }
+
+        private void WriteAnalysisEventLocked(string eventName, JObject data, DateTime? eventUtc = null)
+        {
+            DateTime timestampUtc = (eventUtc ?? DateTime.UtcNow).ToUniversalTime();
+            var record = new JObject
+            {
+                ["event"] = eventName ?? string.Empty,
+                ["tsUtc"] = timestampUtc.ToString("O"),
+                ["seq"] = ++currentAnalysisSequence,
+                ["auditSessionId"] = auditSessionId,
+                ["gooseSessionId"] = sessionId ?? string.Empty,
+                ["turnId"] = currentPromptId ?? string.Empty,
+                ["elapsedMs"] = currentPromptStartedUtc == default(DateTime)
+                    ? 0L
+                    : Math.Max(0L, (long)(timestampUtc - currentPromptStartedUtc).TotalMilliseconds)
+            };
+            if (data != null)
+            {
+                foreach (JProperty property in data.Properties())
+                {
+                    record[property.Name] = property.Value?.DeepClone();
+                }
+            }
+            AiAnalysisLogger.Write(record);
+        }
+
+        private JObject BuildTurnFinishedAnalysisLocked(
+            JObject promptResult,
+            Exception promptException,
+            long totalDurationMs,
+            int visibleResponseChars)
+        {
+            long toolAggregateMs = analysisToolIntervals.Sum(interval => interval.DurationMs);
+            long toolWallMs = CalculateIntervalUnionMs(analysisToolIntervals);
+            long unattributedMs = Math.Max(0L, totalDurationMs - toolWallMs - currentPreviewWaitMs);
+            int retryCount = analysisToolAttempts.Values.Sum(count => Math.Max(0, count - 1));
+            var result = new JObject
+            {
+                ["status"] = promptException == null ? "completed" : "failed",
+                ["stopReason"] = promptResult?["stopReason"]?.Value<string>() ?? string.Empty,
+                ["durationMs"] = totalDurationMs,
+                ["firstActivityMs"] = currentFirstModelActivityUtc == default(DateTime)
+                    ? (long?)null
+                    : Math.Max(0L, (long)(currentFirstModelActivityUtc - currentPromptStartedUtc).TotalMilliseconds),
+                ["toolCallCount"] = currentPromptToolCallCount,
+                ["toolFailureCount"] = currentPromptToolErrorCount,
+                ["parameterFailureCount"] = currentParameterFailureCount,
+                ["retryCount"] = retryCount,
+                ["maxConcurrentTools"] = currentMaxConcurrentTools,
+                ["toolAggregateMs"] = toolAggregateMs,
+                ["toolWallMs"] = toolWallMs,
+                ["confirmationWaitMs"] = currentPreviewWaitMs,
+                ["unattributedMs"] = unattributedMs,
+                ["visibleResponseChars"] = visibleResponseChars,
+                ["unfinishedToolCount"] = activeAnalysisToolCalls.Count
+            };
+            JToken usage = promptResult?["usage"];
+            if (usage != null)
+            {
+                result["usage"] = usage.DeepClone();
+            }
+            if (promptException != null)
+            {
+                result["error"] = new JObject
+                {
+                    ["type"] = promptException.GetType().FullName,
+                    ["message"] = promptException.Message
+                };
+            }
+            return result;
+        }
+
+        private static long CalculateIntervalUnionMs(IEnumerable<AnalysisTimeInterval> intervals)
+        {
+            List<AnalysisTimeInterval> ordered = intervals
+                .Where(interval => interval != null)
+                .OrderBy(interval => interval.StartUtc)
+                .ToList();
+            if (ordered.Count == 0)
+            {
+                return 0L;
+            }
+
+            DateTime start = ordered[0].StartUtc;
+            DateTime end = ordered[0].EndUtc;
+            long totalMs = 0L;
+            for (int i = 1; i < ordered.Count; i++)
+            {
+                AnalysisTimeInterval interval = ordered[i];
+                if (interval.StartUtc <= end)
+                {
+                    if (interval.EndUtc > end)
+                    {
+                        end = interval.EndUtc;
+                    }
+                    continue;
+                }
+                totalMs += Math.Max(0L, (long)(end - start).TotalMilliseconds);
+                start = interval.StartUtc;
+                end = interval.EndUtc;
+            }
+            totalMs += Math.Max(0L, (long)(end - start).TotalMilliseconds);
+            return totalMs;
         }
 
         private static void RedactSensitiveValues(JToken token)
@@ -1652,26 +2052,31 @@ namespace Automation
                     writer.Write(content);
                 }
 
-                JObject structuredRecord = CreateStructuredExecutionRecord(record);
-                string structuredContent = structuredRecord.ToString(Formatting.None) + Environment.NewLine;
-                Directory.CreateDirectory(structuredExecutionLogRoot);
-                int structuredIndex = 0;
-                string structuredPath;
-                while (true)
+                string kind = record["kind"]?.Value<string>() ?? string.Empty;
+                if (string.Equals(kind, "diagnostic_error", StringComparison.Ordinal)
+                    || string.Equals(kind, "prompt_failed", StringComparison.Ordinal))
                 {
-                    structuredPath = Path.Combine(
-                        structuredExecutionLogRoot,
-                        $"{datePrefix}_{structuredIndex:000}.jsonl");
-                    if (!File.Exists(structuredPath)
-                        || new FileInfo(structuredPath).Length + Encoding.UTF8.GetByteCount(structuredContent) <= MaxLogFileBytes)
+                    JObject structuredRecord = CreateStructuredExecutionRecord(record);
+                    string structuredContent = structuredRecord.ToString(Formatting.None) + Environment.NewLine;
+                    Directory.CreateDirectory(structuredExecutionLogRoot);
+                    int structuredIndex = 0;
+                    string structuredPath;
+                    while (true)
                     {
-                        break;
+                        structuredPath = Path.Combine(
+                            structuredExecutionLogRoot,
+                            $"{datePrefix}_{structuredIndex:000}.jsonl");
+                        if (!File.Exists(structuredPath)
+                            || new FileInfo(structuredPath).Length + Encoding.UTF8.GetByteCount(structuredContent) <= MaxLogFileBytes)
+                        {
+                            break;
+                        }
+                        structuredIndex++;
                     }
-                    structuredIndex++;
-                }
-                using (StreamWriter writer = new StreamWriter(structuredPath, true, new UTF8Encoding(false)))
-                {
-                    writer.Write(structuredContent);
+                    using (StreamWriter writer = new StreamWriter(structuredPath, true, new UTF8Encoding(false)))
+                    {
+                        writer.Write(structuredContent);
+                    }
                 }
             }
             catch (AbandonedMutexException)
@@ -1755,17 +2160,7 @@ namespace Automation
                 structured["error"] = record["error"].DeepClone();
             }
 
-            if (string.Equals(kind, "reasoning_trace", StringComparison.Ordinal))
-            {
-                structured["eventCount"] = raw?["events"] is JArray events ? events.Count : 0;
-            }
-            else if (string.Equals(kind, "turn.summary", StringComparison.Ordinal))
-            {
-                CopyStructuredMetric(raw, structured, "totalDurationMs");
-                CopyStructuredMetric(raw, structured, "toolCallCount");
-                CopyStructuredMetric(raw, structured, "toolErrorCount");
-            }
-            else if (raw != null)
+            if (raw != null)
             {
                 structured["raw"] = raw.DeepClone();
             }
@@ -1778,15 +2173,6 @@ namespace Automation
             if (!string.IsNullOrWhiteSpace(value))
             {
                 target[name] = value;
-            }
-        }
-
-        private static void CopyStructuredMetric(JToken source, JObject target, string name)
-        {
-            JToken value = source?[name];
-            if (value != null && value.Type != JTokenType.Null)
-            {
-                target[name] = value.DeepClone();
             }
         }
 
@@ -1833,6 +2219,36 @@ namespace Automation
             {
                 builder.AppendLine(value.ToString(Formatting.Indented));
             }
+        }
+
+        private sealed class AnalysisToolCallState
+        {
+            public string ToolCallId { get; set; }
+
+            public string ToolName { get; set; }
+
+            public bool IsAutomationMcp { get; set; }
+
+            public DateTime StartedUtc { get; set; }
+
+            public int ParallelGroup { get; set; }
+
+            public int Attempt { get; set; }
+        }
+
+        private sealed class AnalysisTimeInterval
+        {
+            public AnalysisTimeInterval(DateTime startUtc, DateTime endUtc)
+            {
+                StartUtc = startUtc;
+                EndUtc = endUtc < startUtc ? startUtc : endUtc;
+            }
+
+            public DateTime StartUtc { get; }
+
+            public DateTime EndUtc { get; }
+
+            public long DurationMs => Math.Max(0L, (long)(EndUtc - StartUtc).TotalMilliseconds);
         }
 
         public void Dispose()

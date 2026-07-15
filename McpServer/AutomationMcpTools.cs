@@ -10,7 +10,7 @@ namespace Automation.McpServer
     public static class AutomationMcpTools
     {
         [McpServerTool(Name = "get_native_operation_schemas"), Description(
-            "按精确原生operaType读取递归字段契约，供operation.kind=native.operation使用。适用于精确复刻或语义kind无法表达的指令；已知多个精确类型时一次传入数组读取，资源候选按字段需要另行查询。")]
+            "按精确原生operaType批量读取递归字段契约，供operation.kind=native.operation使用。返回common公共契约与各类型差量，合并后填写；critical优先列出运行必填及业务跳转。适用于精确复刻或语义kind无法表达的指令，资源候选按字段需要另行查询。")]
         public static async Task<string> GetOperationSchemas(
             [Description("精确原生指令类型数组，例如 跳转、延时、修改变量")] string[] operaTypes)
         {
@@ -32,11 +32,9 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_change_set"), Description(
-            "预演一个可独立保存、原子提交的ChangeSet V2配置阶段；空流程、空步骤以及只缺runRequired或运行资源的配置可作为阶段结果。"
-            + "来源已包含精确operaType和原生字段时，先批量读取这些类型的Schema并按native.operation保真；同类型字段修改用operation.update，类型替换用operation.replace。"
-            + "现有对象使用稳定ID，当前阶段的新对象使用局部key；插入和移动使用锚点定位。指令字段遵循所选语义或原生Schema。"
-            + "返回预演状态、配置就绪状态及recommendedAction；本阶段破坏既有引用时建议先修正，只有外部运行资源暂缺时可直接保存未完成配置。新对象在提交前标记为preview_only，仅有plannedProcIndex。"
-            + "修正预演时，changeSet必须是基于当前已保存配置的完整修正版阶段，不能用旧预演中的局部key做增量更新。新预演会替换当前活动的ChangeSet预演；replacePreviewId用于显式指定被替换项。")]
+            "预演一个可独立保存、原子提交的ChangeSet V2配置阶段。现有对象使用稳定ID，当前阶段的新对象使用局部key；插入和移动使用锚点定位。"
+            + "指令字段遵循所选语义或精确原生Schema。返回对象状态、配置就绪事实、警告、启动阻塞和合法状态迁移；新对象在提交前标记为preview_only。"
+            + "replacePreviewId只标识被完整修正版替换的活动预演，不能代替changeSet参数。")]
         public static async Task<string> PreviewChangeSet(
             [Description("当前原子阶段；actions按依赖顺序执行并整体预演")] AtomicChangeSetDefinition changeSet,
             [Description("可选；显式指定要被完整修正版替换的未提交previewId。省略时若已有活动ChangeSet预演则自动替换")] string? replacePreviewId = null)
@@ -123,8 +121,8 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_proc_overview"), Description(
-            "读取已提交流程的摘要视图（步骤/指令/摘要/稳定标识）。参数使用提交结果affectedProcesses中的procIndex；preview_only的plannedProcIndex尚不属于可读流程。"
-            + "比 get_proc_detail 轻量，适合快速了解流程结构。")]
+            "读取已提交流程的摘要视图（步骤/指令摘要/稳定标识/当前就绪状态）。参数使用提交结果affectedProcesses中的procIndex；preview_only的plannedProcIndex尚不属于可读流程。"
+            + "比 get_proc_detail 轻量，适合快速了解结构和runnable/runBlockers；摘要不会返回全部原生字段，不能证明字段级一致性。")]
         public static async Task<string> GetProcOverview(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
         {
@@ -138,6 +136,7 @@ namespace Automation.McpServer
             "读取已提交流程。参数使用提交结果affectedProcesses中的procIndex；preview_only对象在apply后才成为可读流程。"
             + "服务端先计算流程体积：不超过100条指令且序列化详情不超过256KB时，返回完整详情"
             + "（head/steps/ops/fields，含 isJump/flow/gotoWarnings）；超限时只返回流程规模和轻量步骤目录。"
+            + "需要核对、复现或转换已有对象的字段值时，以本工具返回的fields作为字段级证据；get_proc_overview只适合结构摘要。"
             + "超限结果会给出适合继续读取的步骤目录，可按目标改用get_step_detail或get_op_details。"
             + "返回的 flow 字段标注每条指令执行后的流向（opIndex+1 或跳转目标），"
             + "gotoWarnings 列出越界的跳转目标。")]
@@ -268,6 +267,28 @@ namespace Automation.McpServer
                 action: client => client.GetCommunicationAsync(name, kind, includeStatus)).ConfigureAwait(false);
         }
 
+        [McpServerTool(Name = "list_plc_devices"), Description(
+            "列出PLC设备目录和当前运行状态。仅在设备名称未知、需要发现候选设备时调用；不会返回映射明细。")]
+        public static async Task<string> ListPlcDevices()
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ListPlcDevices),
+                args: new { },
+                action: client => client.ListPlcDevicesAsync()).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "get_plc_device"), Description(
+            "按精确名称读取一个PLC设备的配置和当前状态。已知DeviceName时直接调用；PLC读写只需设备配置，分析PLC映射控制或现有映射时再包含映射明细。")]
+        public static async Task<string> GetPlcDevice(
+            [Description("PLC设备精确名称，对应PLC指令的DeviceName")] string name,
+            [Description("是否包含该设备的映射明细，默认false")] bool? includeMaps = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetPlcDevice),
+                args: new { name, includeMaps },
+                action: client => client.GetPlcDeviceAsync(name, includeMaps)).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "search_operation_fields"), Description(
             "在指令的全部可见字段中分页搜索文本或精确值，适合查自定义字符串、表达式、备注及未声明为资源引用的历史字段。可按字段名和指令类型收窄，返回精确位置，不返回流程全文。")]
         public static async Task<string> SearchOperationFields(
@@ -345,19 +366,8 @@ namespace Automation.McpServer
                 action: client => client.AuditProcBatchAsync(procOffset, procLimit, findingLimit)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "analyze_flow_graph"), Description(
-            "分析单个流程的执行流语义，不返回流程全文。检查无效跳转、无条件跳转后的疑似死代码，以及报警策略与AlarmInfoID/Goto1/2/3不匹配。")]
-        public static async Task<string> AnalyzeFlowGraph(
-            [Description("流程索引")] int procIndex)
-        {
-            return await ExecuteAsync(
-                toolName: nameof(AnalyzeFlowGraph),
-                args: new { procIndex },
-                action: client => client.AnalyzeFlowAsync(procIndex)).ConfigureAwait(false);
-        }
-
         [McpServerTool(Name = "diagnose_issue"), Description(
-            "根据现场症状和流程位置生成有上限的诊断证据包，自动组合运行快照、目标前后指令和执行流问题。只读，不修改配置。")]
+            "根据现场症状和流程位置生成有上限的诊断证据包，自动组合运行快照、严格结构校验和目标前后指令。只读，不修改配置。")]
         public static async Task<string> DiagnoseIssue(
             [Description("流程索引")] int procIndex,
             [Description("现场症状，最长300字符")] string? symptom = null,
@@ -384,7 +394,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "wait_for_proc_state"), Description(
-            "在 Bridge 内长轮询等待单个有限流程到达目标状态。流程存在可达控制流环且等待Stopped时会立即拒绝，避免把人工停止误判为自然完成。"
+            "在 Bridge 内长轮询等待单个流程到达目标状态；只报告是否到达、是否超时和真实快照，不推测流程能否自然结束。"
             + "需要等待状态变化时一次调用本工具即可；到达 Alarming 或超时后可按需读取诊断信息。")]
         public static async Task<string> WaitForProcState(
             [Description("流程索引；优先使用 apply_change_set.affectedProcesses 返回值")] int procIndex,
@@ -399,8 +409,7 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "run_proc_test"), Description(
             "仅用于用户本轮明确要求测试或试运行的场景；只要求创建或修改配置时，以预演和validate_proc作为完成证据。独立执行一次有边界的流程测试：直接传入Stopped流程，本工具负责启动、观察和安全停止；已经运行的流程不会被接管。观察窗口500..15000ms，自然结束则直接返回。"
-            + "返回containsReachableCycle、真实terminationReason和outcome；存在可达循环不等于无限循环，实际是否结束以terminationReason和outcome为准。"
-            + "同时返回verificationStatus、verificationSatisfied和recommendedNextAction。本次测试结果不授权再次启动；start_proc只用于用户明确要求持续运行的场景。")]
+            + "只返回真实terminationReason、outcome、是否观察到运行、位置变化和是否由测试器停止，由调用方结合用户目标判断结果。本次测试结果不授权再次启动；start_proc只用于用户明确要求持续运行的场景。")]
         public static async Task<string> RunProcTest(
             [Description("处于Stopped的流程索引；优先使用 apply_change_set.affectedProcesses 返回值")] int procIndex,
             [Description("观察窗口500..15000ms，默认5000ms")] int? durationMs = null)
@@ -451,16 +460,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_operation_guide"), Description(
-            "按精确原生operaType读取运行行为、字段联动和失败条件，作为原生Schema的按需补充。语义kind的行为由语义Schema返回。")]
+            "按精确原生operaType读取同一行为契约源。coverage=specialized时返回已建模的运行行为、字段联动和失败条件；coverage=unknown时不提供控制流结论。语义kind的行为由语义Schema返回。")]
         public static async Task<string> GetOperationGuide(
             [Description("精确指令类型，例如IO检测、逻辑判断、工站运行")] string operaType)
         {
-            if (!UsesBehaviorContractGuide(operaType))
-            {
-                string legacyResult = GetOperationGuideByType(operaType);
-                ToolCallLogger.Log(nameof(GetOperationGuide), new { operaType }, legacyResult);
-                return legacyResult;
-            }
             var parameters = new JsonObject { ["operaType"] = operaType };
             return await ExecuteAsync(
                 toolName: nameof(GetOperationGuide),
@@ -480,395 +483,12 @@ namespace Automation.McpServer
             [Description("操作类型：list_types/schema/guide/reference_catalog")] string action,
             [Description("参数 JSON 字符串，不同 action 需要不同参数，详见工具描述")] string? parameters = null)
         {
-            if (action == "guide")
-            {
-                JsonObject parsed = ParseParameters(parameters);
-                string? operaType = parsed["operaType"]?.GetValue<string>();
-                if (!UsesBehaviorContractGuide(operaType))
-                {
-                    return GetOperationGuideByType(operaType);
-                }
-            }
             return await ExecuteAsync(
                 toolName: nameof(OpMeta),
                 args: new { action, parameters },
                 action: client => client.OpMetaAsync(action, ParseParameters(parameters))).ConfigureAwait(false);
         }
 
-        private static bool UsesBehaviorContractGuide(string? operaType)
-        {
-            switch (operaType?.Trim())
-            {
-                case "逻辑判断":
-                case "IO逻辑跳转":
-                case "跳转":
-                case "弹框":
-                case "修改变量":
-                case "PLC读写":
-                case "PLC映射控制":
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        // 指令类型调用说明，基于执行代码（ProcessEngine.Operations.*.cs）和字段定义（OperationType.cs）编写。
-        // AI 仅在当前指令语义或约束不明确时按类型读取本指南，避免把全部模块送入上下文。
-        private const string OperationGuideJson = """
-{
-  "_流程编号语义": {
-    "purpose": "明确用户口语中\"N号流程\"与 procIndex 的对应关系，避免定位偏差",
-    "keyFields": {
-      "规则": "用户口语中的\"N号流程\"即 procIndex=N，索引从0开始",
-      "示例": "\"3号流程\" = procIndex=3（不是第3个流程procIndex=2）",
-      "list_procs返回": "返回列表中的 procIndex 字段就是用户口中的\"流程号\"，直接对应"
-    },
-    "constraints": "不要把\"N号流程\"理解为\"第N个流程\"从而误算为 procIndex=N-1；N号就是 procIndex=N",
-    "commonMistakes": "常见错误：把\"3号流程\"理解为第3个流程(procIndex=2)，实际应是 procIndex=3；定位时务必以 list_procs 返回的 procIndex 为准，与用户口中的流程号一一对应"
-  },
-  "_流程级操作": {
-    "purpose": "通过ChangeSet V2原子动作创建、修改或删除流程",
-    "keyFields": {
-      "process.create": "创建流程，并用同阶段局部key供后续步骤和指令动作引用",
-      "process.update": "使用procId或精确名称定位现有流程并修改流程字段",
-      "process.delete/process.delete_all": "删除指定流程或全部流程",
-      "step/operation动作": "在同一阶段继续追加、插入、更新、删除或移动步骤和指令"
-    },
-    "constraints": "流程与变量定义使用preview_change_set预演，前台确认后仅携带previewId调用apply_change_set；正式提交要求全部流程Stopped",
-    "commonMistakes": "提交后的阶段使用apply_change_set返回的affectedProcesses和createdObjects稳定ID"
-  },
-  "_通用字段说明": {
-    "purpose": "所有指令继承自 OperationType 基类，以下字段对全部指令通用",
-    "keyFields": {
-      "Name": "指令显示名称，仅用于编辑识别与日志，不影响执行",
-      "OperaType": "指令类型标识（只读），决定引擎执行分支，创建时由构造函数自动设置",
-      "AlarmType": "异常处理策略，取值：报警停止/报警忽略/自动处理/弹框确定/弹框确定与否/弹框确定与否与取消",
-      "AlarmInfoID": "报警信息库编号，仅 AlarmType 为弹框类时生效；字段类型是 string，必须按 JSON 字符串传，例如 \"0\"，不能传数字 0",
-      "Goto1/Goto2/Goto3": "报警分支符号目标；AlarmType=自动处理仅用Goto1，弹框确定与否用Goto1/Goto2，弹框确定与否与取消用全部三个",
-      "Disable": "true 时该指令被跳过执行",
-      "isStopPoint": "true 时运行到该指令进入断点"
-    },
-    "constraints": "AlarmType 与 Goto1/2/3 联动：报警停止/报警忽略时不显示任何 Goto；自动处理仅 Goto1；弹框类按按钮数量显示。指令默认按 opIndex 顺序往下执行：执行完当前指令后自动执行下一条（opIndex+1），除非遇到跳转类指令（逻辑判断/IO逻辑跳转/跳转）改变了执行流。不写跳转指令就会默认往下执行。",
-    "commonMistakes": "AlarmType选了弹框类但报警资源或对应Goto未就绪时允许保存为incomplete，启动闸门会拦截；AlarmInfoID看起来像编号但仍是string字段，必须写成JSON字符串；忽略默认顺序执行会导致旁路；插入、移动或删除指令后Bridge会按稳定ID重算同流程跳转"
-  },
-  "_跳转编码说明": {
-    "purpose": "所有跳转类字段在ChangeSet V2中的统一符号目标格式",
-    "keyFields": {
-      "既有指令": "使用{operationId}",
-      "当前步骤内按key定位": "使用{operationKey}",
-      "跨步骤按key定位": "使用{stepId,operationKey}或{stepKey,operationKey}",
-      "空值行为": "跳转类指令（逻辑判断/IO逻辑跳转）的 goto 字段为空时报\"跳转位置为空\"并报警，不会自动跳到下一条"
-    },
-    "constraints": "目标暂未创建时会保留为待解析引用，后续阶段创建匹配key后Bridge自动解析；Bridge统一编译物理索引",
-    "commonMistakes": "跨步骤时遗漏步骤定位会按当前步骤解析；已有稳定opId时优先直接使用operationId"
-  },
-  "自定义方法": {
-    "purpose": "调用预先在自定义函数库中注册的方法",
-    "keyFields": {"Name": "方法名，必须与 CustomFunc 注册的方法名完全一致"},
-    "constraints": "Name 必填；运行时调用 Context.CustomFunc.RunFunc(Name)",
-    "commonMistakes": "Name 写错或未注册会报\"找不到自定义函数\"；该方法无参数无返回值"
-  },
-  "IO操作": {
-    "purpose": "批量输出IO点状态（开/关），每项支持前后延时",
-    "keyFields": {"IOCount": "子项数量(1-6)", "IoParams": "IO输出项列表，每项含 IOName(输出点名)、value(开/关)、delayBefore/delayBeforeV、delayAfter/delayAfterV"},
-    "constraints": "IOName 必填且必须是\"通用输出\"类型；delayBefore<=0 时读 delayBeforeV 变量；delayAfter<=0 时读 delayAfterV 变量；列表为空时报错",
-    "commonMistakes": "IOName 填输入点会报\"IO输出失败\"；value 是 bool(true=开,false=关)不是字符串"
-  },
-  "IO检测": {
-    "purpose": "检测输入IO点是否达到期望状态，所有项为\"与\"关系，超时未满足报警",
-    "keyFields": {"IOCount": "子项数量(1-6)", "timeOutC": "超时参数组，含 TimeOut(固定ms) 和 TimeOutValue(变量名)", "IoParams": "检测项列表，每项含 IOName(输入/输出点名) 和 value(期望状态)"},
-    "constraints": "IOName 必填；timeOutC.TimeOut<=0 时读 TimeOutValue；两者都<=0 报\"超时配置无效\"；循环检测直到全部满足或超时",
-    "commonMistakes": "IOName 必须是\"通用输入\"或\"通用输出\"；多项任一不满足即继续等待；value 是 bool"
-  },
-  "IO组": {
-    "purpose": "组合指令：先执行输出动作，再检测输入状态",
-    "keyFields": {"OutIOCount": "输出子项数量", "CheckIOCount": "检测子项数量", "OutIoParams": "输出IO列表(同 IO操作)", "CheckIoParams": "检测IO列表(同 IO检测)", "timeOutC": "检测阶段超时参数组"},
-    "constraints": "OutIoParams 必须全为\"通用输出\"；CheckIoParams 必须全为\"通用输入\"；类型不符直接报错；两阶段均不能为空",
-    "commonMistakes": "输出和检测的IO类型不能混；timeOutC 仅作用于检测阶段"
-  },
-  "IO逻辑跳转": {
-    "purpose": "根据多个IO状态逻辑组合结果跳转",
-    "keyFields": {"IOCount": "IO条件数量", "InvalidDelayMs": "首次判断失败后的重试延时(ms)", "IoParams": "条件项列表，每项含 IOName、Target(目标bool)、Logic(与/或)", "TrueGoto": "逻辑为真时的符号目标", "FalseGoto": "逻辑为假时的符号目标"},
-    "constraints": "IOName必填；Logic仅\"与\"/\"或\"；InvalidDelayMs<0报错；第一项Logic不参与组合；TrueGoto和FalseGoto均必填并使用符号目标",
-    "commonMistakes": "TrueGoto/FalseGoto留空会报警，不表示不跳转；跳转对象必须按_跳转编码说明填写"
-  },
-  "流程操作": {
-    "purpose": "启动或停止其他流程",
-    "keyFields": {"ProcCount": "子项数量", "procParams": "流程项列表，每项含 ProcName(流程名)、ProcValue(流程变量)、value(运行/停止)、delayAfter/delayAfterV"},
-    "constraints": "ProcName 非空时优先，否则读 ProcValue 变量；value 仅\"运行\"/\"停止\"；运行要求目标流程处于 Stopped，停止要求非 Stopped",
-    "commonMistakes": "启动未停止的流程会报\"流程未停止\"；停止已停止的流程会报\"流程已停止\""
-  },
-  "等待流程状态": {
-    "purpose": "等待其他流程达到指定状态(运行/停止)",
-    "keyFields": {"ProcCount": "子项数量", "Params": "等待项列表，每项含 ProcName/ProcValue、value(运行/停止)", "timeOutC": "超时参数组", "delayAfter": "完成后附加延时(ms)", "delayAfterV": "附加延时变量名(delayAfter<=0 时读取)"},
-    "constraints": "timeOut<=0 时读 TimeOutValue；两者均<=0 报\"超时配置无效\"；所有项同时满足才通过",
-    "commonMistakes": "value 必须是\"运行\"或\"停止\"；找不到流程会报错"
-  },
-  "跳转": {
-    "purpose": "根据变量值匹配跳转目标(类似 switch)",
-    "keyFields": {"ValueIndex/ValueName": "待匹配变量(必填)", "Count": "匹配分支数量", "Params": "分支列表，每项含匹配值和符号Goto目标", "DefaultGoto": "未匹配时的默认符号目标"},
-    "constraints": "MatchValue(固定值)与 MatchValueIndex/MatchValueV(变量)互斥，同时填报\"匹配值配置冲突\"；待匹配变量值为空报错；命中即跳转；全未命中用 DefaultGoto；DefaultGoto 为空时不跳转（继续执行下一条指令）",
-    "commonMistakes": "匹配值固定值和变量只能填一个；Goto使用符号目标；DefaultGoto为空表示未命中时继续下一条"
-  },
-  "逻辑判断": {
-    "purpose": "多条件数值/字符判断后跳转",
-    "keyFields": {"goto1": "条件成立时的符号目标，必填", "goto2": "条件不成立时的符号目标，必填", "failDelay": "失败时重试延时(ms，字符串)", "Count": "条件分支数量", "Params": "条件项列表，含 ValueIndex/ValueName(判断变量)、JudgeMode、Up/Down、keyString、equal、Operator"},
-    "constraints": "JudgeMode 仅\"值在区间左\"/\"值在区间右\"/\"值在区间内\"/\"等于特征字符\"；值在区间左比较 value 与 Down（equal=true 为 value<=Down，否则 value<Down，Up 不参与）；值在区间右比较 value 与 Down（equal=true 为 value>=Down，否则 value>Down，Up 不参与）；值在区间内按 equal 决定 Down/Up 边界是否包含；等于特征字符比较变量文本与 keyString；Operator 仅\"且\"/\"或\"；第一项 Operator 忽略；goto1 和 goto2 均必填，为空会报\"跳转位置为空\"",
-    "commonMistakes": "goto2为空不是不跳转或正常结束；若条件不成立时需继续执行下一条，应显式指向下一条指令的符号目标"
-  },
-  "延时": {
-    "purpose": "流程暂停指定时长",
-    "keyFields": {"timeMiniSecond": "固定延时时长(ms，字符串)", "timeMiniSecondV": "延时变量名"},
-    "constraints": "timeMiniSecond 非空时优先(需非负整数)；为空时读 timeMiniSecondV 变量值(需非负整数)；两者都空则延时0",
-    "commonMistakes": "timeMiniSecond 是字符串字段不是数字；负值或非数字会报\"延时时间无效\""
-  },
-  "弹框": {
-    "purpose": "弹出对话框供用户选择，支持报警灯/蜂鸣器联动和延时自动关闭",
-    "keyFields": {"PopupType": "弹框样式：弹是/弹是与否/弹是与否与取消", "InfoType": "提示信息来源：自定义提示信息/变量类型/报警信息库", "PopupMessage": "固定提示文本", "PopupMessageValue": "提示变量名", "PopupAlarmInfoID": "报警信息编号；字段类型是 string，必须按 JSON 字符串传，例如 \"0\"", "Btn1Text/Btn2Text/Btn3Text": "按钮文本", "PopupGoto1/2/3": "按钮对应的可选符号目标", "DelayClose/DelayCloseTimeMs": "延时自动关闭", "AlarmLightEnable": "启用报警灯", "BuzzerIo/RedLightIo/YellowLightIo/GreenLightIo": "报警灯IO"},
-    "constraints": "PopupType决定按钮数量；InfoType决定提示文本来源；DelayClose=true时DelayCloseTimeMs必须>0；非空PopupGoto使用符号目标",
-    "commonMistakes": "InfoType=自定义提示信息时PopupMessage原样显示，不解析{变量名}；显示变量当前值必须使用InfoType=变量类型并填写PopupMessageValue"
-  },
-  "获取变量": {
-    "purpose": "批量复制变量值(源→存储)，支持二级索引嵌套",
-    "keyFields": {"Count": "子项数量", "Params": "复制项列表，每项含 ValueSourceIndex/ValueSourceName(源) 和 ValueSaveIndex/ValueSaveName(存储)"},
-    "constraints": "源变量和存储变量都必须能解析；按项逐一复制 Value 字段",
-    "commonMistakes": "源/存储变量任一不存在都会报错；索引和名称二选一"
-  },
-  "数据拼接": {
-    "purpose": "按 string.Format 模板拼接多个变量值",
-    "keyFields": {"Format": "拼接格式模板(如 \"{0}-{1}\")", "OutputValueIndex/OutputValueName": "结果保存变量", "Count": "源变量数量", "Params": "源变量列表"},
-    "constraints": "Format 不能为 null(可空串)；按 Params 顺序填充占位符；源变量值 null 转空字符串",
-    "commonMistakes": "占位符数量应与 Params 数量匹配；使用 .NET string.Format 语法"
-  },
-  "字符串分割": {
-    "purpose": "按分隔符分割字符串，将结果连续写入多个变量",
-    "keyFields": {"SplitMark": "分隔符(char)", "startIndex": "分割结果起始下标(字符串)", "Count": "提取数量(字符串，空则取全部)", "SourceValueIndex/SourceValue": "源变量", "OutputIndex/Output": "结果起始保存变量"},
-    "constraints": "startIndex 需非负整数；Count 为空时取全部分段；从 OutputIndex 开始连续写入 Count 个变量；越界报错",
-    "commonMistakes": "结果写入从 Output 变量索引开始连续 Count 个变量；SplitMark 是单个 char"
-  },
-  "字符串替换": {
-    "purpose": "替换字符串内容(按字符或按区间)",
-    "keyFields": {"ReplaceType": "替换类型：替换指定字符/替换指定区间", "ReplaceStr/ReplaceStrIndex/ReplaceStrV": "被替换字符串", "NewStr/NewStrIndex/NewStrV": "新字符串", "StartIndex/Count": "区间模式下的起始位置和长度", "SourceValueIndex/SourceValue": "源变量", "OutputIndex/Output": "结果保存变量"},
-    "constraints": "ReplaceType=替换指定字符时用 ReplaceStr 系列；=替换指定区间时用 StartIndex/Count；固定值与变量互斥",
-    "commonMistakes": "模式选错会导致字段不显示；被替换字符/新字符任一为空报错"
-  },
-  "设置结构体数据项": {
-    "purpose": "设置结构体中某数据项的多个字段值",
-    "keyFields": {"StructIndex": "结构体索引", "ItemIndex": "数据项索引", "Count": "设置的字段数量", "Params": "字段列表，每项含 valueIndex(字段索引) 和 value(固定值)"},
-    "constraints": "StructIndex/ItemIndex/Count 必须为有效整数；value 是字符串固定值不是变量名",
-    "commonMistakes": "value 是字符串固定值；Count 不能超过 Params 实际数量"
-  },
-  "获取结构体数据项": {
-    "purpose": "读取结构体数据项字段值并写入变量",
-    "keyFields": {"IsAllItem": "true 时批量读取全部字段", "StartValue": "批量模式结果起始保存变量", "StructIndex": "结构体索引", "ItemIndex": "数据项索引", "Count": "非批量模式的读取数量", "Params": "字段列表"},
-    "constraints": "IsAllItem=true 时按 StartValue 起始连续写全部字段；false 时按 Params 逐项读取",
-    "commonMistakes": "批量模式与非批量模式字段使用不同"
-  },
-  "复制结构体数据项": {
-    "purpose": "复制结构体数据项(整项或部分字段)",
-    "keyFields": {"IsAllValue": "true 时整体复制", "SourceStructIndex/SourceItemIndex": "源索引", "TargetStructIndex/TargetItemIndex": "目标索引", "Count": "字段数量", "Params": "字段列表"},
-    "constraints": "IsAllValue=true 时仅用四个索引整体复制；false 时按 Params 逐字段复制",
-    "commonMistakes": "目标字段索引字段名是 Targetvalue(注意拼写)"
-  },
-  "插入结构体数据项": {
-    "purpose": "在指定位置插入新数据项",
-    "keyFields": {"Name": "新数据项名称", "TargetStructIndex": "目标结构体索引", "TargetItemIndex": "目标数据项索引", "Count": "字段数量", "Params": "字段列表，每项含 Type(double/string)、ValueItem(变量名)、Value(固定值)"},
-    "constraints": "Type 仅\"double\"/\"string\"；ValueItem 非空时优先于 Value",
-    "commonMistakes": "ValueItem 优先于 Value；数值类型 Value 不能解析会报错"
-  },
-  "删除结构体数据项": {
-    "purpose": "删除结构体中指定数据项",
-    "keyFields": {"TargetStructIndex": "结构体索引", "TargetItemIndex": "数据项索引(有特殊含义)"},
-    "constraints": "TargetItemIndex>=255 删末尾项；<=-1 删首项；其他值删指定位置",
-    "commonMistakes": "TargetItemIndex 有特殊语义：255 和 -1 不是普通索引"
-  },
-  "查找结构体数据项": {
-    "purpose": "按关键字查找数据项并返回结果",
-    "keyFields": {"TargetStructIndex": "结构体索引", "Type": "查找类型：名称等于key/字符串等于key/数值等于key", "key": "查找关键字", "save": "结果保存变量名"},
-    "constraints": "Type=数值等于key 时 key 必须能 double.Parse",
-    "commonMistakes": "Type 与 key 内容类型要匹配；save 是变量名不是索引"
-  },
-  "获取结构体数量": {
-    "purpose": "获取结构体总数和指定结构体的项数",
-    "keyFields": {"TargetStructIndex": "目标结构体索引", "StructCount": "结构体总数保存变量", "ItemCount": "项数保存变量"},
-    "constraints": "StructCount 和 ItemCount 都必填",
-    "commonMistakes": "两个保存变量都要填"
-  },
-  "网口通讯操作": {
-    "purpose": "启动或断开 TCP 连接",
-    "keyFields": {"Count": "子项数量", "Params": "操作列表，每项含 Name(TCP对象名) 和 Ops(启动/断开)"},
-    "constraints": "Name 必须是已配置的 TCP 对象；Ops 仅\"启动\"/\"断开\"",
-    "commonMistakes": "Ops 不能填其他值；Name 不存在会报\"TCP配置不存在\""
-  },
-  "等待网口连接": {
-    "purpose": "等待 TCP 连接建立成功",
-    "keyFields": {"Count": "子项数量", "Params": "等待列表，每项含 Name 和 TimeOut(超时ms)"},
-    "constraints": "Name 必须已配置；TimeOut 必须>0",
-    "commonMistakes": "TimeOut 是每项内的字段；超时未连接报\"等待TCP连接超时\""
-  },
-  "发送TCP通讯消息": {
-    "purpose": "发送 TCP 消息",
-    "keyFields": {"ID": "TCP对象标识", "Msg": "发送内容来源变量名", "isConVert": "true 按16进制发送", "TimeOut": "超时(ms，默认3000)"},
-    "constraints": "ID 必填；TimeOut 必须>0；Msg 是变量名(运行时取值)",
-    "commonMistakes": "Msg 是变量名不是直接文本"
-  },
-  "接收TCP通讯消息": {
-    "purpose": "接收 TCP 消息并写入变量",
-    "keyFields": {"ID": "TCP对象标识", "MsgSaveValue": "接收结果保存变量名", "isConVert": "true 按16进制解析", "TImeOut": "超时(ms，默认3000，注意大小写拼写)"},
-    "constraints": "必须已连接；TImeOut 必须>0",
-    "commonMistakes": "字段名是 TImeOut(首字母大写 I)不是 Timeout"
-  },
-  "串口通讯操作": {
-    "purpose": "启动或断开串口连接",
-    "keyFields": {"Count": "子项数量", "Params": "操作列表，每项含 Name(串口对象名) 和 Ops(启动/断开)"},
-    "constraints": "Name 必须是已配置的串口对象；Ops 仅\"启动\"/\"断开\"",
-    "commonMistakes": "Ops 不能填其他值"
-  },
-  "等待串口连接": {
-    "purpose": "等待串口连接建立成功",
-    "keyFields": {"Count": "子项数量", "Params": "等待列表，每项含 Name 和 TimeOut(超时ms)"},
-    "constraints": "Name 必须已配置；TimeOut 必须>0",
-    "commonMistakes": "TimeOut<=0 报\"超时配置无效\""
-  },
-  "发送串口通讯消息": {
-    "purpose": "发送串口消息",
-    "keyFields": {"ID": "串口对象标识", "Msg": "发送内容来源变量名", "isConVert": "true 按16进制发送", "TimeOut": "超时(ms，默认3000)"},
-    "constraints": "ID 必填；TimeOut 必须>0；Msg 是变量名",
-    "commonMistakes": "Msg 是变量名不是直接文本"
-  },
-  "接收串口通讯消息": {
-    "purpose": "接收串口消息并写入变量",
-    "keyFields": {"ID": "串口对象标识", "MsgSaveValue": "接收结果保存变量名", "isConVert": "true 按16进制解析", "TImeOut": "超时(ms，默认3000，注意拼写)"},
-    "constraints": "必须已打开；TImeOut 必须>0",
-    "commonMistakes": "字段名是 TImeOut(首字母大写 I)不是 Timeout"
-  },
-  "发送与接收": {
-    "purpose": "一次性完成发送+接收(TCP 或串口)",
-    "keyFields": {"CommType": "通讯类型：TCP/串口", "ID": "通讯对象标识", "SendMsg": "发送内容来源变量名", "SendConvert": "true 按16进制发送", "ReceiveSaveValue": "接收结果保存变量名(可空仅发送)", "ReceiveConvert": "true 按16进制解析", "TimeOut": "超时(ms，默认3000)"},
-    "constraints": "CommType 仅\"TCP\"/\"串口\"；TimeOut 必须>0；ReceiveSaveValue 可空",
-    "commonMistakes": "CommType 决定 ID 可选范围"
-  },
-  "PLC读写": {
-    "purpose": "执行离散多项PLC读取、连续批量读取或连续写入",
-    "keyFields": {"DeviceName": "PLC设备名", "Action": "Read/Write", "ReadMode": "DiscreteItems/ContinuousBatch", "ItemCount": "离散读取项数量(1..100)", "ReadItems": "离散项数组，每项含Area/StartAddress/DataType/StringByteLength/VariableName", "Area/StartAddress/DataType/ElementCount": "连续批量读取或写入参数", "FirstVariableName": "连续结果首变量，后续按变量索引展开", "WriteSource": "Variables/Constant", "ConstantValue": "仅单元素常量写入"},
-    "constraints": "离散读取的ItemCount必须等于ReadItems数量；连续批量读取从FirstVariableName按变量索引展开；Boolean仅线圈区；只读区禁止Write；Constant仅单元素Write",
-    "commonMistakes": "离散地址不要填到连续批量模式；String必须单元素并设置StringByteLength；首变量后必须存在足够数量且类型一致的连续变量"
-  },
-  "PLC映射控制": {
-    "purpose": "按设备重新初始化、启动或停止PLC变量映射",
-    "keyFields": {"DeviceName": "PLC设备名", "Action": "Reinitialize/Start/Stop"},
-    "constraints": "Reinitialize只重建连接并停在Ready；Start要求设备已Ready或Stopped；Stop幂等",
-    "commonMistakes": "通讯故障后必须先Reinitialize，再Start；Reinitialize不会自动启动映射"
-  },
-  "创建料盘": {
-    "purpose": "根据四角参考点生成料盘网格点阵",
-    "keyFields": {"StationName": "工站名", "TrayId": "料盘ID(>=0)", "RowCount/ColCount": "行/列数(>0)", "PX1": "左上参考点", "PX2": "右上参考点", "PY1": "左下参考点", "PY2": "右下参考点"},
-    "constraints": "RowCount/ColCount 必须>0；四个角点必须是工站已有点位且6轴数据完整",
-    "commonMistakes": "四个角点必须都已存在于工站；点位轴数量不是6会报\"参考点轴数量异常\""
-  },
-  "走料盘点": {
-    "purpose": "移动到料盘指定位置",
-    "keyFields": {"StationName": "工站名", "TrayId": "料盘号(固定)", "TrayIdValueIndex/TrayIdValueName": "料盘号变量(与 TrayId 二选一)", "TrayPos": "料盘位置(固定，>0)", "TrayPosValueIndex/TrayPosValueName": "料盘位置变量(与 TrayPos 二选一)", "isUnWait": "true 不等待运动完成"},
-    "constraints": "TrayId 和 TrayId 变量二选一(变量非空时 TrayId 必须=0)；TrayPos 同理；TrayId>=0，TrayPos>0",
-    "commonMistakes": "固定值非0时不能再填变量字段"
-  },
-  "回原": {
-    "purpose": "工站回零",
-    "keyFields": {"StationName": "工站名", "StationIndex": "工站索引(!=-1 时优先，默认-1)", "StationHomeType": "回原模式：所有轴同步回/轴按优先顺序回", "isUnWait": "true 不等待完成"},
-    "constraints": "StationIndex!=-1 时按索引取工站；回零前轴必须已到位",
-    "commonMistakes": "StationHomeType 仅两个取值；轴未到位报\"轴未到位，禁止回零\""
-  },
-  "工站走点": {
-    "purpose": "移动到工站预设点位",
-    "keyFields": {"StationName": "工站名", "PosName": "点位名", "PosIndex": "点位索引(!=-1 时优先)", "isUnWait": "true 不等待", "isCheckInPos": "true 校验到位精度(0.01)", "timeOut/timeOutV": "超时(默认120000)及变量", "IsDisableAxis": "无禁用/有禁用", "Axis1-6": "禁用标志(true=禁用该轴)", "ChangeVel": "不改变/改变速度", "Vel/VelV": "速度(0-100)", "Acc/AccV": "加速度(0-100)", "Dec/DecV": "减速度(0-100)"},
-    "constraints": "速度/加减速度范围 0-100(百分比)；Axis=true 的轴被跳过；timeOut<=0 读 timeOutV",
-    "commonMistakes": "Axis=true 是\"禁用\"不是\"启用\"；速度值是百分比不是实际速度"
-  },
-  "点位修改": {
-    "purpose": "修改工站点位坐标(覆盖或叠加)",
-    "keyFields": {"StationName": "工站名", "RefPosName": "参考点：自定义坐标/当前位置/具体点位名", "TargetPosName": "待修改的目标点位", "ModifyType": "修改方式：叠加/替换", "CustomX/Y/Z/U/V/W": "自定义坐标"},
-    "constraints": "RefPosName=自定义坐标 时用 Custom* 字段；ModifyType=替换 覆盖，=叠加 累加",
-    "commonMistakes": "替换是覆盖目标点坐标；叠加是在目标点基础上加参考点值"
-  },
-  "获取工站位置": {
-    "purpose": "获取当前位置或点位坐标，保存到点位或变量",
-    "keyFields": {"StationName": "工站名", "SourceType": "获取方式：当前位置/指定点位", "SourcePosName": "指定点位名", "SaveType": "保存方式：保存到点位/保存到变量", "TargetPosName": "保存目标点位", "OutputXIndex/XName/Y.../W...": "各轴保存变量"},
-    "constraints": "SourceType=指定点位 时 SourcePosName 必填；SaveType=保存到变量 时至少配置一个轴 Output 字段",
-    "commonMistakes": "保存到变量时所有轴 Output 字段都未配置会报\"保存变量未配置\""
-  },
-  "偏移量": {
-    "purpose": "按相对距离移动(各轴独立设距离)",
-    "keyFields": {"StationName": "工站名", "isUnWait": "true 不等待", "isCheckInPos": "true 校验到位", "timeOut/timeOutV": "超时(默认120000)", "Axis1-6": "各轴相对距离(=0 时读 AxisV 变量)", "Axis1V-6V": "各轴距离变量名", "ChangeVel": "不改变/改变速度", "Vel/VelV": "速度(0-100)", "Acc/AccV": "加速度(0-100)", "Dec/DecV": "减速度(0-100)"},
-    "constraints": "每轴 Axis 值=0 时读对应 AxisV 变量；速度/加减速度范围 0-100",
-    "commonMistakes": "Axis=0 且 AxisV 未配会报错；距离是相对量不是绝对坐标"
-  },
-  "设置速度": {
-    "purpose": "修改工站或单轴的运行速度参数",
-    "keyFields": {"StationName": "工站名", "StationIndex": "工站索引(默认-1)", "SetAxisObj": "设置对象：工站 或 具体轴名", "Vel/VelV": "速度(0-100)", "Acc/AccV": "加速度(0-100)", "Dec/DecV": "减速度(0-100)"},
-    "constraints": "SetAxisObj=工站 时修改全部轴；Vel=0 时读 VelV；速度范围 0-100",
-    "commonMistakes": "速度值是百分比(0-100)不是实际速度"
-  },
-  "停止运动": {
-    "purpose": "停止工站运动(整站或按轴)",
-    "keyFields": {"StationName": "工站名", "isAllStop": "true 整站停止", "Axis1-6": "轴停止标志(isAllStop=false 时，true=停止该轴)"},
-    "constraints": "isAllStop=true 时停止所有轴；=false 时按 Axis=true 停止对应轴",
-    "commonMistakes": "Axis1-6 仅在 isAllStop=false 时生效"
-  },
-  "等待运动": {
-    "purpose": "等待工站运动停止(到位或回零完成)",
-    "keyFields": {"StationName": "工站名", "StationIndex": "工站索引(默认-1)", "isWaitHome": "true 等待回零完成，false 等待到位", "timeOut/timeOutV": "超时(默认120000)及变量"},
-    "constraints": "isWaitHome=true 时检查 HomeStatus；=false 时检查 GetInPos；timeOut<=0 读 timeOutV",
-    "commonMistakes": "timeOut 默认 120000；等待回零和等待到位是两种不同判定逻辑"
-  }
-}
-""";
-
-        private static string GetOperationGuideByType(string? operaType)
-        {
-            if (string.IsNullOrWhiteSpace(operaType))
-            {
-                return new JsonObject
-                {
-                    ["ok"] = false,
-                    ["type"] = "bridge.error",
-                    ["errorCode"] = "OPERA_TYPE_REQUIRED",
-                    ["message"] = "operaType 需要一个精确原生指令类型。"
-                }.ToJsonString();
-            }
-            JsonObject root = JsonNode.Parse(OperationGuideJson)?.AsObject()
-                ?? throw new InvalidOperationException("指令指南格式无效");
-            JsonNode? guide = root.FirstOrDefault(item =>
-                string.Equals(item.Key, operaType.Trim(), StringComparison.Ordinal)).Value;
-            if (guide != null)
-            {
-                return new JsonObject
-                {
-                    ["ok"] = true,
-                    ["type"] = "op.meta",
-                    ["data"] = new JsonObject
-                    {
-                        ["representation"] = "native",
-                        ["schemaTool"] = "get_native_operation_schemas",
-                        ["operaType"] = operaType.Trim(),
-                        ["guide"] = guide.DeepClone()
-                    }
-                }.ToJsonString();
-            }
-            string[] candidates = root.Select(item => item.Key)
-                .Where(key => !key.StartsWith("_", StringComparison.Ordinal)
-                    && key.Contains(operaType.Trim(), StringComparison.OrdinalIgnoreCase))
-                .Take(10)
-                .ToArray();
-            return new JsonObject
-            {
-                ["ok"] = false,
-                ["type"] = "bridge.error",
-                ["errorCode"] = "OPERATION_GUIDE_NOT_FOUND",
-                ["message"] = $"未找到指令类型:{operaType.Trim()}",
-                ["candidates"] = new JsonArray(candidates
-                    .Select(item => (JsonNode?)JsonValue.Create(item)).ToArray())
-            }.ToJsonString();
-        }
 
         private static string BuildPatchActionSchema(string actionType)
         {
@@ -1460,11 +1080,11 @@ namespace Automation.McpServer
                 action: client => client.GetDataStructAsync(name)).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "search_data_structs"), Description(
-            "在指定数据结构内搜索数据项。"
+        [McpServerTool(Name = "search_data_struct_items"), Description(
+            "在一个已知数据结构内搜索其数据项。"
             + "可按 item 名称/字符串字段值/数值字段范围过滤。")]
-        public static async Task<string> SearchDataStructs(
-            [Description("数据结构名称")] string name,
+        public static async Task<string> SearchDataStructItems(
+            [Description("已验证的数据结构精确名称")] string name,
             [Description("item 名称模糊匹配")] string? itemNameLike = null,
             [Description("字符串字段值模糊匹配")] string? strValueLike = null,
             [Description("数值字段下界（含）")] double? numValueMin = null,
@@ -1472,7 +1092,7 @@ namespace Automation.McpServer
             [Description("返回上限")] int? limit = null)
         {
             return await ExecuteAsync(
-                toolName: nameof(SearchDataStructs),
+                toolName: nameof(SearchDataStructItems),
                 args: new { name, itemNameLike, strValueLike, numValueMin, numValueMax, limit },
                 action: client => client.SearchDataStructsAsync(name, itemNameLike, strValueLike, numValueMin, numValueMax, limit)).ConfigureAwait(false);
         }

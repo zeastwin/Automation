@@ -13,13 +13,20 @@ namespace Automation
             IEnumerable<string> variableNames,
             IEnumerable<string> tcpNames,
             IEnumerable<string> serialNames,
-            IEnumerable<string> alarmInfoIds = null)
+            IEnumerable<string> alarmInfoIds = null,
+            IEnumerable<string> plcNames = null,
+            IEnumerable<KeyValuePair<string, DicValue>> variableDefinitions = null)
         {
             VariableNames = new HashSet<string>(variableNames ?? Array.Empty<string>(), StringComparer.Ordinal);
             TcpNames = new HashSet<string>(tcpNames ?? Array.Empty<string>(), StringComparer.Ordinal);
             SerialNames = new HashSet<string>(serialNames ?? Array.Empty<string>(), StringComparer.Ordinal);
             AlarmInfoIds = new HashSet<string>(alarmInfoIds ?? Array.Empty<string>(), StringComparer.Ordinal);
             HasAlarmInfoCatalog = alarmInfoIds != null;
+            PlcNames = new HashSet<string>(plcNames ?? Array.Empty<string>(), StringComparer.Ordinal);
+            HasPlcCatalog = plcNames != null;
+            VariableDefinitions = (variableDefinitions ?? Array.Empty<KeyValuePair<string, DicValue>>())
+                .Where(item => !string.IsNullOrWhiteSpace(item.Key) && item.Value != null)
+                .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
         }
 
         public IReadOnlyCollection<string> VariableNames { get; }
@@ -31,6 +38,12 @@ namespace Automation
         public IReadOnlyCollection<string> AlarmInfoIds { get; }
 
         public bool HasAlarmInfoCatalog { get; }
+
+        public IReadOnlyCollection<string> PlcNames { get; }
+
+        public bool HasPlcCatalog { get; }
+
+        public IReadOnlyDictionary<string, DicValue> VariableDefinitions { get; }
     }
 
     public static class ProcessDefinitionService
@@ -232,7 +245,155 @@ namespace Automation
         {
             var errors = new List<string>();
             ValidateCommunicationOperation(operation, errors, location, validationContext);
+            ValidatePlcOperation(operation, errors, location, validationContext);
             return errors;
+        }
+
+        private static void ValidatePlcOperation(OperationType operation, List<string> errors,
+            string location, ProcessDefinitionValidationContext validationContext)
+        {
+            if (operation == null || operation.Disable) return;
+
+            bool HasPlc(string name)
+            {
+                if (string.IsNullOrWhiteSpace(name)) return false;
+                if (validationContext?.HasPlcCatalog == true)
+                    return validationContext.PlcNames.Contains(name);
+                return (SF.plcStore?.GetSnapshot().Devices ?? new List<PlcDeviceConfig>())
+                    .Any(item => item != null && string.Equals(item.Name, name, StringComparison.Ordinal));
+            }
+            bool TryGetVariable(string name, out DicValue value)
+            {
+                value = null;
+                if (string.IsNullOrWhiteSpace(name)) return false;
+                if (validationContext != null && validationContext.VariableDefinitions.Count > 0)
+                    return validationContext.VariableDefinitions.TryGetValue(name, out value);
+                return SF.valueStore != null && SF.valueStore.TryGetValueByName(name, out value);
+            }
+            bool ValidateVariable(string name, PlcDataType dataType, HashSet<string> unique, string field)
+            {
+                if (string.IsNullOrWhiteSpace(name) || !unique.Add(name))
+                {
+                    errors.Add($"{location} 的 {field} 为空或重复。");
+                    return false;
+                }
+                if (!TryGetVariable(name, out DicValue value))
+                {
+                    errors.Add($"{location} 的 {field} 引用的变量不存在：{name}。");
+                    return false;
+                }
+                string expected = dataType == PlcDataType.String ? "string" : "double";
+                if (!string.Equals(value.Type, expected, StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.Add($"{location} 的变量[{name}]必须是{expected}类型。");
+                    return false;
+                }
+                return true;
+            }
+
+            string deviceName;
+            if (operation is PlcMappingControl mapping)
+            {
+                deviceName = mapping.DeviceName;
+                if (!Enum.IsDefined(typeof(PlcMappingAction), mapping.Action))
+                    errors.Add($"{location} 的PLC映射控制动作无效。");
+                if (!string.IsNullOrWhiteSpace(deviceName) && !HasPlc(deviceName))
+                    errors.Add($"{location} 引用的PLC设备尚未配置：{deviceName ?? string.Empty}。");
+                return;
+            }
+            if (!(operation is PlcReadWrite readWrite)) return;
+
+            deviceName = readWrite.DeviceName;
+            if (!string.IsNullOrWhiteSpace(deviceName) && !HasPlc(deviceName))
+                errors.Add($"{location} 引用的PLC设备尚未配置：{deviceName ?? string.Empty}。");
+            if (!Enum.IsDefined(typeof(PlcAccessAction), readWrite.Action)
+                || !Enum.IsDefined(typeof(PlcReadMode), readWrite.ReadMode)
+                || !Enum.IsDefined(typeof(PlcWriteSource), readWrite.WriteSource))
+            {
+                errors.Add($"{location} 的PLC读写枚举参数无效。");
+                return;
+            }
+
+            if (readWrite.Action == PlcAccessAction.Read
+                && readWrite.ReadMode == PlcReadMode.DiscreteItems)
+            {
+                if (readWrite.ItemCount < 1 || readWrite.ItemCount > 100
+                    || readWrite.ReadItems == null || readWrite.ReadItems.Count != readWrite.ItemCount)
+                {
+                    errors.Add($"{location} 的PLC按项读取数量必须为1..100，并与读取项数量一致。");
+                    return;
+                }
+                var unique = new HashSet<string>(StringComparer.Ordinal);
+                for (int index = 0; index < readWrite.ReadItems.Count; index++)
+                {
+                    PlcReadItem item = readWrite.ReadItems[index];
+                    if (item == null)
+                    {
+                        errors.Add($"{location} 的PLC读取项{index + 1}为空。");
+                        continue;
+                    }
+                    if (!PlcDirectOperationValidator.TryValidateAddress(
+                        item.Area, item.StartAddress, item.DataType, 1,
+                        item.StringByteLength, false, out string itemError))
+                    {
+                        errors.Add($"{location} 的PLC读取项{index + 1}：{itemError}");
+                    }
+                    ValidateVariable(item.VariableName, item.DataType, unique, $"ReadItems[{index}].VariableName");
+                }
+                return;
+            }
+
+            bool isWrite = readWrite.Action == PlcAccessAction.Write;
+            if (!PlcDirectOperationValidator.TryValidateAddress(
+                readWrite.Area, readWrite.StartAddress, readWrite.DataType,
+                readWrite.ElementCount, readWrite.StringByteLength, isWrite, out string addressError))
+            {
+                errors.Add($"{location} 的PLC连续读写参数无效：{addressError}");
+                return;
+            }
+            if (isWrite && readWrite.WriteSource == PlcWriteSource.Constant)
+            {
+                if (readWrite.ElementCount != 1)
+                {
+                    errors.Add($"{location} 的PLC固定常量只支持单元素写入。");
+                    return;
+                }
+                string constantError = null;
+                if (readWrite.ConstantValue == null
+                    || !HslModbusAdapter.TryNormalizeValues(
+                        readWrite.DataType, new object[] { readWrite.ConstantValue }, out _, out constantError))
+                {
+                    errors.Add($"{location} 的PLC写入常量无效：{constantError ?? "常量为空。"}");
+                }
+                return;
+            }
+
+            if (!TryGetVariable(readWrite.FirstVariableName, out DicValue firstVariable))
+            {
+                errors.Add($"{location} 的PLC首变量不存在：{readWrite.FirstVariableName ?? string.Empty}。");
+                return;
+            }
+            var continuousVariables = new HashSet<string>(StringComparer.Ordinal);
+            for (int offset = 0; offset < readWrite.ElementCount; offset++)
+            {
+                DicValue variable = null;
+                if (validationContext != null && validationContext.VariableDefinitions.Count > 0)
+                {
+                    variable = validationContext.VariableDefinitions.Values.FirstOrDefault(
+                        item => item != null && item.Index == firstVariable.Index + offset);
+                }
+                else
+                {
+                    SF.valueStore?.TryGetValueByIndex(firstVariable.Index + offset, out variable);
+                }
+                if (variable == null)
+                {
+                    errors.Add($"{location} 从变量[{readWrite.FirstVariableName}]开始的第{offset + 1}个连续变量不存在。");
+                    continue;
+                }
+                ValidateVariable(variable.Name, readWrite.DataType, continuousVariables,
+                    $"连续变量[{offset}]");
+            }
         }
 
         private static void ValidateCommunicationOperation(OperationType operation, List<string> errors,

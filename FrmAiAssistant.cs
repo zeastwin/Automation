@@ -35,10 +35,6 @@ namespace Automation
         private int streamingSegmentIndex;
         private string latestAssistantSegmentText;
         private string latestAssistantSegmentDivId;
-        private readonly Dictionary<string, JObject> previewChangeSetsByCallId =
-            new Dictionary<string, JObject>(StringComparer.Ordinal);
-        private readonly Dictionary<string, JObject> changeSetsByPreviewId =
-            new Dictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> flowVisualizationCallIds =
             new HashSet<string>(StringComparer.Ordinal);
         private readonly JArray flowVisualizationProcesses = new JArray();
@@ -493,7 +489,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .thinking-box .toggle-bar:hover{color:#1f5f99;background:#f1f6fb;}
 .thinking-box .toggle-bar::before{content:'▼ ';font-size:10px;}
 .thinking-box.collapsed .toggle-bar::before{content:'▶ ';font-size:10px;}
-.tool-call,.tool-result,.tool-error{
+.tool-call,.tool-result,.tool-business-failure,.tool-error{
     min-height:22px;
     margin:1px 6px;
     padding:2px 6px;
@@ -505,6 +501,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 }
 .tool-call{color:#69430f;background:#fffaf1;}
 .tool-result{color:#405069;background:#f7f9fc;}
+.tool-business-failure{color:#805b12;background:#fff9e8;}
 .tool-error{color:#9b2c2c;background:#fff5f5;}
 .tool-entry-label{flex:0 0 auto;color:#7b8798;font-size:11px;}
 .tool-entry-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:Consolas,""Cascadia Mono"",monospace;}
@@ -948,7 +945,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
       </div>
       <button class=""toolbar-option"" id=""newSessionButton"" title=""新建会话"">新对话</button>
       <button class=""icon-button"" id=""deleteSessionButton"" title=""删除当前对话"" aria-label=""删除当前对话""><svg viewBox=""0 0 24 24""><path d=""M4 7h16""/><path d=""M9 7V4h6v3""/><path d=""M7 7l1 13h8l1-13""/><path d=""M10 11v5""/><path d=""M14 11v5""/></svg></button>
-      <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""包含诊断能力并允许预演和修改"">编辑</button></div>
+      <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""读取、诊断、配置编辑和运行控制"">编辑</button></div>
       <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演；代码访问范围仍限制为 Hmi 目录"">完全权限</button>
       <button class=""icon-button"" id=""resetButton"" title=""重置会话"" aria-label=""重置会话""><svg viewBox=""0 0 24 24""><path d=""M3 12a9 9 0 1 0 3-6.7""/><path d=""M3 4v6h6""/></svg></button>
       <button class=""icon-button"" id=""configButton"" title=""配置"" aria-label=""配置""><svg viewBox=""0 0 24 24""><path d=""M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z""/><path d=""M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z""/></svg></button>
@@ -1874,8 +1871,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             sending = true;
             latestAssistantSegmentText = null;
             latestAssistantSegmentDivId = null;
-            previewChangeSetsByCallId.Clear();
-            changeSetsByPreviewId.Clear();
             flowVisualizationCallIds.Clear();
             flowVisualizationProcesses.RemoveAll();
             promptStartedAt = DateTime.Now;
@@ -2096,8 +2091,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             streamingSegmentIndex = 0;
             latestAssistantSegmentText = null;
             latestAssistantSegmentDivId = null;
-            previewChangeSetsByCallId.Clear();
-            changeSetsByPreviewId.Clear();
             flowVisualizationCallIds.Clear();
             flowVisualizationProcesses.RemoveAll();
             promptStartedAt = default(DateTime);
@@ -2346,9 +2339,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                             case "process.create":
                                 type = "创建流程";
                                 obj = change["name"]?.Value<string>() ?? "";
-                                field = change["containsReachableCycle"]?.Value<bool>() == true
-                                    ? "结构（含可达循环）"
-                                    : "结构";
+                                field = "结构";
                                 newVal = $"{change["stepCount"]?.Value<int>() ?? 0}步骤 / {change["operationCount"]?.Value<int>() ?? 0}指令";
                                 rowColor = Color.FromArgb(235, 255, 235);
                                 break;
@@ -2356,9 +2347,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                                 type = "替换流程";
                                 location = $"流程{change["procIndex"]?.Value<int>() ?? 0}";
                                 obj = change["name"]?.Value<string>() ?? "";
-                                field = change["containsReachableCycle"]?.Value<bool>() == true
-                                    ? "完整结构（含可达循环）"
-                                    : "完整结构";
+                                field = "完整结构";
                                 oldVal = change["oldName"]?.Value<string>() ?? "";
                                 newVal = $"{change["stepCount"]?.Value<int>() ?? 0}步骤 / {change["operationCount"]?.Value<int>() ?? 0}指令";
                                 rowColor = Color.FromArgb(255, 248, 235);
@@ -2367,9 +2356,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                                 type = "修改流程";
                                 location = $"流程{change["procIndex"]?.Value<int>() ?? 0}";
                                 obj = change["name"]?.Value<string>() ?? "";
-                                field = change["containsReachableCycle"]?.Value<bool>() == true
-                                    ? "动作完成后结构（含可达循环）"
-                                    : "动作完成后结构";
+                                field = "动作完成后结构";
                                 newVal = $"{change["stepCount"]?.Value<int>() ?? 0}步骤 / {change["operationCount"]?.Value<int>() ?? 0}指令";
                                 rowColor = Color.FromArgb(255, 248, 235);
                                 break;
@@ -2926,7 +2913,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
         }
 
-        // 关联流程读取及已提交结果，渲染当前会话中可确认的流程结构。
+        // 流程读取直接使用工具返回；提交结果按 affectedProcesses 回读当前内存中的正式对象。
         private void CaptureFlowVisualizationEvent(GooseAcpEvent item)
         {
             JObject update = item?.Raw?["params"]?["update"] as JObject
@@ -2945,18 +2932,12 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 bool capturesFlow = string.Equals(extensionName, "automation", StringComparison.OrdinalIgnoreCase)
                     && (string.Equals(toolName, "get_proc_overview", StringComparison.Ordinal)
                         || string.Equals(toolName, "get_proc_detail", StringComparison.Ordinal)
-                        || string.Equals(toolName, "preview_change_set", StringComparison.Ordinal)
                         || string.Equals(toolName, "apply_change_set", StringComparison.Ordinal));
                 if (string.IsNullOrWhiteSpace(callId) || !capturesFlow)
                 {
                     return;
                 }
                 flowVisualizationCallIds.Add(callId);
-                JObject changeSet = update?["rawInput"]?["changeSet"] as JObject;
-                if (changeSet != null)
-                {
-                    previewChangeSetsByCallId[callId] = (JObject)changeSet.DeepClone();
-                }
                 return;
             }
             if (!string.Equals(item?.Kind, "tool_result", StringComparison.Ordinal))
@@ -2985,45 +2966,71 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     return;
                 }
 
-                string previewId = data["previewId"]?.Value<string>();
-                if (string.Equals(resultType, "change_set.preview", StringComparison.Ordinal))
-                {
-                    JObject changeSet = null;
-                    if (!string.IsNullOrWhiteSpace(callId))
-                        previewChangeSetsByCallId.TryGetValue(callId, out changeSet);
-                    if (!string.IsNullOrWhiteSpace(previewId) && changeSet != null)
-                    {
-                        changeSetsByPreviewId[previewId] = (JObject)changeSet.DeepClone();
-                    }
-                    return;
-                }
-
                 if (!string.Equals(resultType, "change_set.apply", StringComparison.Ordinal)
-                    || data["committed"]?.Value<bool>() != true
-                    || string.IsNullOrWhiteSpace(previewId)
-                    || !changeSetsByPreviewId.TryGetValue(previewId, out JObject committedChangeSet))
+                    || data["committed"]?.Value<bool>() != true)
                 {
                     return;
                 }
 
-                if (committedChangeSet["processes"] is JArray processes)
+                flowVisualizationProcesses.RemoveAll();
+                foreach (JObject affected in (data["affectedProcesses"] as JArray ?? new JArray())
+                    .OfType<JObject>())
                 {
-                    foreach (JObject process in processes.OfType<JObject>())
+                    int procIndex = affected["procIndex"]?.Value<int?>() ?? -1;
+                    JObject process = BuildCommittedFlowVisualization(procIndex);
+                    if (process != null)
                     {
                         UpsertFlowVisualizationProcess(process);
                     }
                 }
-                changeSetsByPreviewId.Remove(previewId);
             }
             catch (Exception ex)
             {
                 // 只有 Automation 的流程工具进入这里；其返回形状异常需要记录，但不得中断工具主链路。
                 SF.DR?.Logger?.Log($"AI流程可视化解析失败:{ex}", LogLevel.Error);
             }
-            finally
+        }
+
+        private static JObject BuildCommittedFlowVisualization(int procIndex)
+        {
+            if (SF.frmProc == null || procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
             {
-                previewChangeSetsByCallId.Remove(callId);
+                return null;
             }
+            Proc proc = SF.frmProc.procsList[procIndex];
+            if (proc == null)
+            {
+                return null;
+            }
+            var steps = new JArray();
+            foreach (Step step in proc.steps ?? new List<Step>())
+            {
+                var operations = new JArray();
+                foreach (OperationType operation in step?.Ops ?? new List<OperationType>())
+                {
+                    if (operation == null) continue;
+                    operations.Add(new JObject
+                    {
+                        ["kind"] = "platform.operation",
+                        ["name"] = operation.Name ?? string.Empty,
+                        ["operaType"] = operation.OperaType ?? string.Empty,
+                        ["summary"] = operation.OperaType ?? string.Empty
+                    });
+                }
+                steps.Add(new JObject
+                {
+                    ["name"] = step?.Name ?? "未命名步骤",
+                    ["operations"] = operations
+                });
+            }
+            return new JObject
+            {
+                ["action"] = "committed",
+                ["procIndex"] = procIndex,
+                ["name"] = proc.head?.Name ?? "未命名流程",
+                ["state"] = SF.DR?.GetSnapshot(procIndex)?.State.ToString() ?? string.Empty,
+                ["steps"] = steps
+            };
         }
 
         private void UpsertFlowVisualizationProcess(JObject process)
@@ -3055,24 +3062,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private static JObject BuildReadFlowVisualization(JObject data)
         {
-            var targetsByOperationId = new Dictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
-            foreach (JObject sourceStep in (data["steps"] as JArray ?? new JArray()).OfType<JObject>())
-            {
-                int sourceStepIndex = sourceStep["stepIndex"]?.Value<int?>() ?? 0;
-                foreach (JObject sourceOperation in (sourceStep["ops"] as JArray ?? new JArray()).OfType<JObject>())
-                {
-                    string opId = sourceOperation["opId"]?.Value<string>();
-                    int sourceOperationIndex = sourceOperation["opIndex"]?.Value<int?>() ?? 0;
-                    if (!string.IsNullOrWhiteSpace(opId))
-                    {
-                        targetsByOperationId[opId] = new JObject
-                        {
-                            ["step"] = "步骤" + sourceStepIndex,
-                            ["operation"] = sourceOperationIndex
-                        };
-                    }
-                }
-            }
             var process = new JObject
             {
                 ["action"] = "inspect",
@@ -3087,43 +3076,15 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 var visualOperations = new JArray();
                 foreach (JObject operation in (step["ops"] as JArray ?? new JArray()).OfType<JObject>())
                 {
-                    string operaType = operation["operaType"]?.Value<string>() ?? string.Empty;
-                    string summary = operation["summary"]?.Value<string>() ?? string.Empty;
-                    var visualOperation = new JObject
+                    visualOperations.Add(new JObject
                     {
                         ["kind"] = "platform.operation",
                         ["name"] = operation["name"]?.Value<string>() ?? string.Empty,
-                        ["operaType"] = operaType,
-                        ["summary"] = summary
-                    };
-                    JObject fields = operation["fields"] as JObject;
-                    if (string.Equals(operaType, "逻辑判断", StringComparison.Ordinal)
-                        && TryBuildReadFlowTarget(fields?["goto1"], targetsByOperationId, out JObject whenTrue)
-                        && TryBuildReadFlowTarget(fields?["goto2"], targetsByOperationId, out JObject whenFalse))
-                    {
-                        visualOperation["kind"] = "branch.platform";
-                        visualOperation["whenTrue"] = whenTrue;
-                        visualOperation["whenFalse"] = whenFalse;
-                    }
-                    else if (string.Equals(operaType, "流程结束", StringComparison.Ordinal))
-                    {
-                        visualOperation["kind"] = "flow.end";
-                    }
-                    else
-                    {
-                        JToken targetValue = fields?["DefaultGoto"];
-                        if (targetValue == null || targetValue.Type == JTokenType.Null)
-                        {
-                            Match match = Regex.Match(summary, @"默认跳转[=：]\s*(\d+-\d+-\d+)");
-                            targetValue = match.Success ? new JValue(match.Groups[1].Value) : null;
-                        }
-                        if (TryBuildReadFlowTarget(targetValue, targetsByOperationId, out JObject target))
-                        {
-                            visualOperation["kind"] = "flow.goto";
-                            visualOperation["target"] = target;
-                        }
-                    }
-                    visualOperations.Add(visualOperation);
+                        ["operaType"] = operation["operaType"]?.Value<string>() ?? string.Empty,
+                        ["summary"] = operation["summary"]?.Value<string>()
+                            ?? operation["operaType"]?.Value<string>()
+                            ?? string.Empty
+                    });
                 }
                 visualSteps.Add(new JObject
                 {
@@ -3136,48 +3097,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             return process;
         }
 
-        private static bool TryBuildReadFlowTarget(string address, out JObject target)
-        {
-            target = null;
-            string[] parts = (address ?? string.Empty).Split('-');
-            if (parts.Length != 3
-                || !int.TryParse(parts[0], out _)
-                || !int.TryParse(parts[1], out int stepIndex)
-                || !int.TryParse(parts[2], out int operationIndex)
-                || stepIndex < 0
-                || operationIndex < 0)
-            {
-                return false;
-            }
-            target = new JObject
-            {
-                ["step"] = "步骤" + stepIndex,
-                ["operation"] = operationIndex
-            };
-            return true;
-        }
-
-        private static bool TryBuildReadFlowTarget(
-            JToken value,
-            IReadOnlyDictionary<string, JObject> targetsByOperationId,
-            out JObject target)
-        {
-            target = null;
-            if (value is JObject selector)
-            {
-                string operationId = selector["operationId"]?.Value<string>();
-                if (!string.IsNullOrWhiteSpace(operationId)
-                    && targetsByOperationId != null
-                    && targetsByOperationId.TryGetValue(operationId, out JObject resolved))
-                {
-                    target = (JObject)resolved.DeepClone();
-                    return true;
-                }
-                return false;
-            }
-            return value?.Type == JTokenType.String
-                && TryBuildReadFlowTarget(value.Value<string>(), out target);
-        }
 
         // 工具调用/结果紧凑单行显示；连续相同项合并计数，避免重复占用纵向空间。
         private void AppendToolEntry(string marker, string text, JObject raw)
@@ -3188,18 +3107,20 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             bool isCall = string.Equals(marker, "call", StringComparison.Ordinal);
             string normalizedText = string.IsNullOrWhiteSpace(text) ? "无摘要" : LocalizeAutomationToolText(text.Trim());
-            bool isError = !isCall && (normalizedText.StartsWith("×", StringComparison.Ordinal)
+            bool isSystemError = !isCall && (normalizedText.StartsWith("×", StringComparison.Ordinal)
                 || string.Equals(
                     raw?["params"]?["update"]?["status"]?.Value<string>(),
                     "failed",
                     StringComparison.OrdinalIgnoreCase));
+            bool isBusinessFailure = false;
+            string resultLabel = isSystemError ? "异常" : "结果";
             if (!isCall)
             {
                 try
                 {
                     JObject result = JObject.Parse(ExtractToolResultText(raw) ?? string.Empty);
-                    isError = result["ok"]?.Value<bool?>() == false;
-                    if (isError)
+                    bool failed = result["ok"]?.Value<bool?>() == false;
+                    if (failed)
                     {
                         string code = result["errorCode"]?.Value<string>() ?? "工具调用失败";
                         string detail = result["recovery"]?["validationError"]?.Value<string>()
@@ -3207,14 +3128,28 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         normalizedText = string.IsNullOrWhiteSpace(detail)
                             ? code
                             : code + " · " + detail;
+                        isSystemError = IsSystemToolFailure(code);
+                        isBusinessFailure = !isSystemError;
+                        resultLabel = isSystemError ? "异常" : ResolveBusinessFailureLabel(code);
+                    }
+                    else
+                    {
+                        // MCP/Bridge 已正常返回结果；不能沿用 ACP 摘要中的“×”误报系统异常。
+                        isSystemError = false;
+                        isBusinessFailure = false;
+                        resultLabel = "结果";
                     }
                 }
                 catch (JsonReaderException)
                 {
                 }
             }
-            string cls = isCall ? "tool-call" : isError ? "tool-error" : "tool-result";
-            string display = isCall ? "调用" : isError ? "异常" : "结果";
+            string cls = isCall
+                ? "tool-call"
+                : isSystemError
+                    ? "tool-error"
+                    : isBusinessFailure ? "tool-business-failure" : "tool-result";
+            string display = isCall ? "调用" : resultLabel;
             string callId = raw?["params"]?["update"]?["toolCallId"]?.Value<string>()
                 ?? raw?["params"]?["toolCallId"]?.Value<string>()
                 ?? string.Empty;
@@ -3229,10 +3164,55 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             string js = "var box=document.getElementById('" + boxId + "');if(box){var callId=" + callIdJson + ";var sig=" + signatureJson
                 + ";var paired=null;if(callId){var entries=box.querySelectorAll('.tool-entry');for(var i=entries.length-1;i>=0;i--){if(entries[i].dataset.callId===callId){paired=entries[i];break;}}}"
                 + "if(paired&&" + (isCall ? "false" : "true") + "){paired.classList.remove('tool-call');paired.classList.add('" + cls + "');paired.title=paired.title+' | '+"
-                + JsonConvert.SerializeObject(normalizedText) + ";var label=paired.querySelector('.tool-entry-label');if(label){label.textContent='" + (isError ? "异常" : "完成") + "';}var value=paired.querySelector('.tool-entry-text');if(value){value.textContent=value.textContent+'  →  '+"
+                + JsonConvert.SerializeObject(normalizedText) + ";var label=paired.querySelector('.tool-entry-label');if(label){label.textContent='" + (isSystemError || isBusinessFailure ? resultLabel : "完成") + "';}var value=paired.querySelector('.tool-entry-text');if(value){value.textContent=value.textContent+'  →  '+"
                 + JsonConvert.SerializeObject(normalizedText) + ";}}else{var entries2=box.querySelectorAll('.tool-entry');var last=entries2.length?entries2[entries2.length-1]:null;if(last&&last.dataset.signature===sig){var count=parseInt(last.dataset.count||'1',10)+1;last.dataset.count=count;var badge=last.querySelector('.tool-entry-count');if(badge){badge.textContent='×'+count;badge.style.display='inline-block';}}else{box.insertAdjacentHTML('beforeend',"
                 + htmlJson + ");var added=box.lastElementChild;if(added){added.dataset.signature=sig;added.dataset.count='1';added.dataset.callId=callId;}}}scrollThinkingBoxToBottom('" + boxId + "');}";
             EnqueueScript(js);
+        }
+
+        private static bool IsSystemToolFailure(string errorCode)
+        {
+            if (string.IsNullOrWhiteSpace(errorCode))
+            {
+                return false;
+            }
+            return errorCode.StartsWith("MCP_", StringComparison.OrdinalIgnoreCase)
+                || errorCode.StartsWith("TRANSPORT_", StringComparison.OrdinalIgnoreCase)
+                || errorCode.StartsWith("INTERNAL_", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "UNHANDLED_EXCEPTION", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "TOOL_INVOCATION_FAILED", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "INVALID_RESPONSE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "EMPTY_RESPONSE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "BRIDGE_ERROR", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "REQUEST_ERROR", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "TIMEOUT", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "BRIDGE_NOT_READY", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "BRIDGE_STOPPING", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "RUNTIME_NOT_READY", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "STORE_UNAVAILABLE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "PROCS_UNAVAILABLE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "SAVE_FAILED", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "COMMIT_FAILED", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "CHANGE_SET_COMMIT_FAILED", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "CHANGE_SET_ROLLBACK_FAILED", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(errorCode, "VARIABLE_COMMIT_FAILED", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ResolveBusinessFailureLabel(string errorCode)
+        {
+            if (!string.IsNullOrWhiteSpace(errorCode)
+                && (errorCode.EndsWith("_NOT_FOUND", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(errorCode, "NOT_FOUND", StringComparison.OrdinalIgnoreCase)))
+            {
+                return "未找到";
+            }
+            if (!string.IsNullOrWhiteSpace(errorCode)
+                && (errorCode.IndexOf("INVALID", StringComparison.OrdinalIgnoreCase) >= 0
+                    || errorCode.IndexOf("VALIDATE", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return "未通过";
+            }
+            return "未完成";
         }
 
         private static string LocalizeAutomationToolText(string value)
@@ -3256,6 +3236,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 .Replace("delete_variable", "删除变量")
                 .Replace("get_variable", "获取变量")
                 .Replace("search_variables", "搜索变量")
+                .Replace("search_data_struct_items", "搜索数据结构项")
+                .Replace("get_data_struct", "获取数据结构")
+                .Replace("search_alarms", "搜索报警配置")
+                .Replace("get_alarm", "获取报警配置")
                 .Replace("get_snapshot", "获取运行快照")
                 .Replace("run_proc_test", "限时测试流程")
                 .Replace("wait_for_proc_state", "等待流程状态")
@@ -3306,6 +3290,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 case "replace": actionText = "替换"; break;
                 case "inspect": actionText = "现有"; break;
+                case "committed": actionText = "已提交"; break;
                 default: actionText = "新建"; break;
             }
 
@@ -3481,19 +3466,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             return false;
         }
 
-        private static string RemoveAsciiFlowDiagrams(string markdown)
-        {
-            if (string.IsNullOrWhiteSpace(markdown))
-            {
-                return markdown;
-            }
-            string result = Regex.Replace(markdown,
-                @"(?ms)(?:^[ \t]*#{1,6}[^\r\n]*(?:流程图|循环图)[ \t]*)?(?<fence>```|~~~)(?<body>.*?)\k<fence>[ \t]*",
-                match => Regex.Matches(match.Groups["body"].Value, @"[\u2500-\u257F]").Count >= 4
-                    ? string.Empty
-                    : match.Value);
-            return Regex.Replace(result, @"\n{3,}", "\n\n").Trim();
-        }
 
         // 确保思维链窗口存在（首次调用时创建），返回窗口 ID。
         private string EnsureThinkingBox()
@@ -3601,10 +3573,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             latestAssistantSegmentText = null;
             latestAssistantSegmentDivId = null;
-            if (!string.IsNullOrWhiteSpace(visualizationJson))
-            {
-                finalText = RemoveAsciiFlowDiagrams(finalText);
-            }
             if (!string.IsNullOrWhiteSpace(finalText))
             {
                 AppendConversation("EW-AI", finalText, Color.FromArgb(30, 104, 74), null, visualizationJson);
@@ -4121,11 +4089,28 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             string mode = resultData?["mode"]?.Value<string>()
                 ?? resultData?["apply"]?["mode"]?.Value<string>()
                 ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(previewId)
-                || confirmed
-                || committed
-                || string.Equals(mode, "apply", StringComparison.Ordinal))
+            if (string.IsNullOrWhiteSpace(previewId))
             {
+                return;
+            }
+
+            if (committed || string.Equals(mode, "apply", StringComparison.Ordinal))
+            {
+                gooseClient?.LogFrontendAnalysisEvent("preview.applied", new JObject
+                {
+                    ["previewId"] = previewId,
+                    ["resultType"] = resultObj["type"]?.Value<string>() ?? string.Empty
+                });
+                return;
+            }
+            if (confirmed)
+            {
+                gooseClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
+                {
+                    ["previewId"] = previewId,
+                    ["decision"] = "confirmed",
+                    ["source"] = fullPermissionMode ? "full_permission_auto" : "bridge"
+                });
                 return;
             }
 
@@ -4134,17 +4119,43 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 return;
             }
             promptedPreviewIds.Add(previewId);
+            gooseClient?.LogFrontendAnalysisEvent("preview.created", new JObject
+            {
+                ["previewId"] = previewId,
+                ["status"] = "awaiting_confirmation",
+                ["fullPermissionMode"] = fullPermissionMode
+            });
 
             // 完全权限模式下，预演记录已由 Bridge 直接标记为确认；无需弹窗或追加聊天消息。
             if (fullPermissionMode)
             {
+                gooseClient?.LogFrontendAnalysisEvent("preview.state_mismatch", new JObject
+                {
+                    ["previewId"] = previewId,
+                    ["message"] = "完全权限模式下返回了未确认预演。"
+                });
                 return;
             }
 
             // 正常模式：弹出自定义审核对话框，让用户确认预演结果。
             JArray changes = FindFirstArray(resultObj, "changes") as JArray;
             JArray messages = FindFirstArray(resultObj, "messages") as JArray;
+            gooseClient?.LogFrontendAnalysisEvent("preview.presented", new JObject
+            {
+                ["previewId"] = previewId,
+                ["changeCount"] = changes?.Count ?? 0,
+                ["messageCount"] = messages?.Count ?? 0
+            });
+            Stopwatch confirmationStopwatch = Stopwatch.StartNew();
             DialogResult result = ShowPreviewApprovalDialog(previewId, changes, messages);
+            confirmationStopwatch.Stop();
+            gooseClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
+            {
+                ["previewId"] = previewId,
+                ["decision"] = result == DialogResult.Yes ? "confirmed" : "rejected",
+                ["source"] = "user",
+                ["waitMs"] = confirmationStopwatch.ElapsedMilliseconds
+            });
             if (result == DialogResult.Yes)
             {
                 await ConfirmPreviewAsync(previewId).ConfigureAwait(true);
@@ -4161,7 +4172,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         {
             try
             {
-                string response = await SendBridgeRequestAsync("POST", "/bridge/previews/confirm", new JObject
+                await SendBridgeRequestAsync("POST", "/bridge/previews/confirm", new JObject
                 {
                     ["previewId"] = previewId
                 }).ConfigureAwait(false);

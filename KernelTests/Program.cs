@@ -64,7 +64,7 @@ namespace Automation.KernelTests
             Run("AI语义完整替换现有流程", TestAiChangeSetReplaceProcess);
             Run("AI原子动作分阶段与稳定插入", TestAiAtomicChangeActions);
             Run("AI未完成流程保存与运行闸门", TestAiDraftProcessReadiness);
-            Run("流程环检测与终止原因可追溯", TestFlowBoundariesAndTerminationReason);
+            Run("流程终止原因可追溯", TestTerminationReason);
             Run("AI联合配置事务与中断恢复", TestAiConfigurationTransaction);
             Run("AI回复粘连Markdown归一化", TestAiMarkdownNormalization);
             Run("AI历史会话选择器布局契约", TestAiSessionPickerTemplate);
@@ -629,7 +629,6 @@ namespace Automation.KernelTests
                 device.IpAddress = "127.0.0.1";
                 device.Port = port;
                 device.ConnectTimeoutMs = 2000;
-                device.ReceiveTimeoutMs = 2000;
                 // 实报文服务按ABCD返回，用于验证可显式覆盖设备默认的CDAB。
                 device.DataFormat = "ABCD";
                 var configuration = new PlcConfiguration { Devices = new List<PlcDeviceConfig> { device } };
@@ -1305,6 +1304,18 @@ namespace Automation.KernelTests
                 && OperationBehaviorCatalog.IsFieldRequired(logic, "goto2"),
                 "逻辑判断契约未声明两个跳转字段必填");
 
+            JObject endContract = OperationBehaviorCatalog.BuildContract(new EndProcess());
+            Assert(endContract?["coverage"]?.Value<string>() == "specialized"
+                && endContract?["controlFlow"]?["terminal"]?.Value<bool>() == true
+                && endContract?["controlFlow"]?["fallThrough"]?.Value<bool>() == false,
+                "流程结束契约与运行引擎的终止语义不一致");
+
+            JObject unknownContract = OperationBehaviorCatalog.BuildContract(new CallCustomFunc());
+            Assert(unknownContract?["coverage"]?.Value<string>() == "unknown"
+                && unknownContract?["controlFlow"]?["known"]?.Value<bool>() == false
+                && unknownContract?["controlFlow"]?["fallThrough"] == null,
+                "未覆盖指令被通用默认值错误声明了控制流语义");
+
             JObject modifyContract = OperationBehaviorCatalog.BuildContract(new ModifyValue());
             Assert(modifyContract?["semanticKinds"]?["variableOrNumericCompute"]?.Value<string>()
                     == "variable.compute"
@@ -1477,6 +1488,66 @@ namespace Automation.KernelTests
             var tcp = (TcpOps)StructuredOperationCompiler.Compile("网口通讯操作", tcpFields, context);
             Assert(tcp.Count == "1" && tcp.Params.Count == 1 && tcp.Params[0].Name == "测试TCP",
                 "通讯嵌套参数未编译或数量未自动同步");
+
+            JObject plcReadWriteContract = StructuredOperationCompiler.BuildContract("PLC读写");
+            Assert(plcReadWriteContract["fields"]?["ItemCount"] == null
+                && plcReadWriteContract["fields"]?["ReadItems"]?["jsonType"]?.Value<string>() == "array"
+                && plcReadWriteContract["fields"]?["ReadItems"]?["items"]?["fields"]?["VariableName"]?["referenceType"]?.Value<string>() == "value",
+                "PLC按项读取没有生成可写嵌套契约，或仍要求AI手填ItemCount");
+            Assert(plcReadWriteContract["behavior"]?["modeMatrix"] is JArray plcModes
+                && plcModes.Count == 4
+                && plcReadWriteContract["behavior"]?["dataRules"]?["variableType"] != null,
+                "PLC读写缺少模式矩阵或数据类型规则");
+            var plcVariables = new Dictionary<string, DicValue>(StringComparer.Ordinal)
+            {
+                ["温度"] = new DicValue { Index = 20, Name = "温度", Type = "double", Value = "0", ConfigValue = "0" },
+                ["压力"] = new DicValue { Index = 21, Name = "压力", Type = "double", Value = "0", ConfigValue = "0" }
+            };
+            var plcContext = new AiOperationCompileContext(
+                0, plcVariables,
+                new AiResourceSnapshot(references: new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
+                {
+                    ["plc.device"] = new[] { "PLC_1" }
+                }));
+            var plcRead = (PlcReadWrite)StructuredOperationCompiler.Compile("PLC读写",
+                new Dictionary<string, object>
+                {
+                    ["DeviceName"] = "PLC_1",
+                    ["Action"] = "Read",
+                    ["ReadMode"] = "DiscreteItems",
+                    ["ReadItems"] = new JArray(
+                        new JObject
+                        {
+                            ["Area"] = "HoldingRegister", ["StartAddress"] = 0,
+                            ["DataType"] = "Float", ["StringByteLength"] = 0,
+                            ["VariableName"] = "温度"
+                        },
+                        new JObject
+                        {
+                            ["Area"] = "HoldingRegister", ["StartAddress"] = 2,
+                            ["DataType"] = "Float", ["StringByteLength"] = 0,
+                            ["VariableName"] = "压力"
+                        })
+                }, plcContext);
+            Assert(plcRead.ItemCount == 2 && plcRead.ReadItems.Count == 2
+                && plcRead.ReadItems[1].VariableName == "压力",
+                "PLC读取项未递归编译或ItemCount未按数组长度同步");
+            var plcMapping = (PlcMappingControl)StructuredOperationCompiler.Compile("PLC映射控制",
+                new Dictionary<string, object>
+                {
+                    ["DeviceName"] = "PLC_1",
+                    ["Action"] = "Start"
+                }, plcContext);
+            Assert(plcMapping.DeviceName == "PLC_1" && plcMapping.Action == PlcMappingAction.Start,
+                "PLC映射控制未按强类型字段编译");
+            var plcValidationContext = new ProcessDefinitionValidationContext(
+                plcVariables.Keys, Array.Empty<string>(), Array.Empty<string>(),
+                Array.Empty<string>(), new[] { "PLC_1" }, plcVariables);
+            Proc plcProc = CreateProc(plcRead, plcMapping);
+            ProcessReadinessAnalysis plcReadiness = ProcessReadinessService.Analyze(
+                0, plcProc, new[] { plcProc }, plcValidationContext);
+            Assert(plcReadiness.Runnable,
+                "有效PLC指令未通过运行就绪校验：" + string.Join("；", plcReadiness.RunBlockers));
 
             JObject gotoContract = StructuredOperationCompiler.BuildContract("跳转");
             Assert(gotoContract["fields"]?["Params"]?["items"]?["fields"]?["Goto"]?["referenceType"]
@@ -1670,9 +1741,6 @@ namespace Automation.KernelTests
             Assert(result.Processes[0].steps[0].Ops[2] is Goto gotoOperation
                 && gotoOperation.Count == "0"
                 && gotoOperation.DefaultGoto == "0-0-0", "符号跳转未解析为最终物理地址");
-            Assert(result.ProcessAnalyses?[0]?["containsReachableCycle"]?.Value<bool>() == true,
-                "变更集预演未携带循环流程的执行边界分析");
-
             var branchChangeSet = new AiChangeSet
             {
                 Version = 2,
@@ -2746,32 +2814,15 @@ namespace Automation.KernelTests
             }
         }
 
-        private static void TestFlowBoundariesAndTerminationReason()
+        private static void TestTerminationReason()
         {
             Proc finite = CreateProc(new Delay { timeMiniSecond = "1" });
-            Assert(!ProcessFlowAnalyzer.Analyze(0, finite).ContainsReachableCycle,
-                "有限顺序流程被错误识别为潜在无限循环");
-
             Proc loop = CreateProc(new Goto
             {
                 Count = "0",
                 Params = new OperationTypePartial.CustomList<GotoParam>(),
                 DefaultGoto = "0-0-0"
             });
-            ProcessFlowAnalysis loopAnalysis = ProcessFlowAnalyzer.Analyze(0, loop);
-            Assert(loopAnalysis.ContainsReachableCycle && loopAnalysis.CycleLocations.Contains("0-0"),
-                "可达自循环未被控制流分析识别");
-
-            Proc loopThroughDisabled = CreateProc(
-                new Delay { timeMiniSecond = "1", Disable = true },
-                new Goto
-                {
-                    Count = "0",
-                    Params = new OperationTypePartial.CustomList<GotoParam>(),
-                    DefaultGoto = "0-0-0"
-                });
-            Assert(ProcessFlowAnalyzer.Analyze(0, loopThroughDisabled).ContainsReachableCycle,
-                "跳转到禁用指令后形成的运行时循环未被识别");
 
             ValueConfigStore values = CreateValueStore(ResetStatus.ResetCompleted);
             using (ProcessEngine engine = CreateEngine(values, new CustomFunc(), finite))
@@ -2788,8 +2839,6 @@ namespace Automation.KernelTests
             Proc explicitEnd = CreateProc(
                 new EndProcess(),
                 new CallCustomFunc { Name = "after-end" });
-            Assert(!ProcessFlowAnalyzer.Analyze(0, explicitEnd).ContainsReachableCycle,
-                "流程结束指令后仍错误保留顺序执行边");
             using (ProcessEngine engine = CreateEngine(values, endFunctions, explicitEnd))
             {
                 Assert(engine.StartProc(explicitEnd, 0), "显式结束流程启动失败");
@@ -2846,21 +2895,6 @@ namespace Automation.KernelTests
                 && flowHtml.Contains("显示变量“计数”当前值 &#183; 2000 ms后关闭"),
                 "结构化流程卡片缺少步骤、分支、回环或弹框语义");
 
-            MethodInfo removeAsciiFlow = typeof(FrmAiAssistant).GetMethod(
-                "RemoveAsciiFlowDiagrams", BindingFlags.NonPublic | BindingFlags.Static);
-            Assert(removeAsciiFlow != null, "未找到ASCII流程图清理入口");
-            const string mixedMarkdown = "流程如下：\n```\n┌──loop──┐\n│ 计数+1 │\n└────────┘\n```\n```csharp\nConsole.WriteLine();\n```";
-            string cleaned = (string)removeAsciiFlow.Invoke(null, new object[] { mixedMarkdown });
-            Assert(!cleaned.Contains("┌──loop──┐") && cleaned.Contains("Console.WriteLine"),
-                "清理ASCII流程图时误删了普通代码块或保留了字符图");
-
-            const string gluedDiagram = "##整体运行循环图```┌──步骤0──┐│等待500ms│└───────┘```\n后续说明";
-            string gluedCleaned = (string)removeAsciiFlow.Invoke(null, new object[] { gluedDiagram });
-            Assert(!gluedCleaned.Contains("┌──步骤0──┐")
-                && !gluedCleaned.Contains("整体运行循环图")
-                && gluedCleaned.Contains("后续说明"),
-                "粘连标题与围栏的字符流程图未被结构化呈现替换");
-
             MethodInfo buildReadFlow = typeof(FrmAiAssistant).GetMethod(
                 "BuildReadFlowVisualization", BindingFlags.NonPublic | BindingFlags.Static);
             Assert(buildReadFlow != null, "未找到现有流程可视化转换入口");
@@ -2906,9 +2940,11 @@ namespace Automation.KernelTests
                 new object[] { new JArray(readFlow).ToString(Newtonsoft.Json.Formatting.None) });
             Assert(readFlowHtml.Contains("持续心跳")
                 && readFlowHtml.Contains("现有")
-                && readFlowHtml.Contains("含回环")
-                && readFlowHtml.Contains("跳转 → 步骤0 · 1"),
-                "现有流程读取结果未正确生成结构化回环图");
+                && readFlowHtml.Contains("等待500ms")
+                && readFlowHtml.Contains("回心跳")
+                && !readFlowHtml.Contains("含回环")
+                && !readFlowHtml.Contains("跳转 →"),
+                "现有原生流程卡片仍在根据摘要猜测跳转或回环");
         }
 
         private static void TestAiSessionPickerTemplate()

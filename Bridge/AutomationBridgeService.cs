@@ -189,8 +189,6 @@ namespace Automation.Bridge
                         return WrapResponse("diagnostics.context", ExecuteOnUiThread(() => HandleGetOperationContext(request)));
                     case "/bridge/diagnostics/audit":
                         return WrapResponse("diagnostics.audit", ExecuteOnUiThread(() => HandleAuditProcBatch(request)));
-                    case "/bridge/diagnostics/flow":
-                        return WrapResponse("diagnostics.flow", ExecuteOnUiThread(() => HandleAnalyzeFlow(request)));
                     case "/bridge/diagnostics/issue":
                         return WrapResponse("diagnostics.issue", ExecuteOnUiThread(() => HandleDiagnoseIssue(request)));
                     // ---------- intent 拆分端点 ----------
@@ -1125,7 +1123,6 @@ namespace Automation.Bridge
             string previewId = RegisterManagePreview(preview);
             preview["previewId"] = previewId;
             preview["committed"] = false;
-            preview["nextAction"] = "这是预演，尚未创建流程。确认后必须使用同一 previewId 再次调用 create_proc 提交；提交成功后再调用 list_procs，并且只能使用 list_procs 返回的 procIndex。";
             return preview;
         }
 
@@ -1417,24 +1414,17 @@ namespace Automation.Bridge
                 .Select(value => value.Trim()).Distinct(StringComparer.Ordinal).ToArray();
             try
             {
-                var contracts = new JObject();
-                foreach (string operaType in distinct)
+                JObject compactContracts = StructuredOperationCompiler.BuildCompactContracts(distinct);
+                compactContracts.AddFirst(new JProperty("schemaRoute", new JObject
                 {
-                    contracts[operaType] = StructuredOperationCompiler.BuildContract(operaType);
-                }
-                return new JObject
-                {
-                    ["schemaRoute"] = new JObject
-                    {
-                        ["representation"] = "native",
-                        ["writeKind"] = "native.operation",
-                        ["writeFields"] = "operation.operaType + operation.fields",
-                        ["nextTool"] = "preview_change_set",
-                        ["fieldMeaning"] = "saveRequired决定配置能否保存；behavior.fieldRules.requiredForRun决定流程能否启动",
-                        ["rule"] = "按所请求的精确operaType填写递归字段；语义kind使用语义Schema"
-                    },
-                    ["contracts"] = contracts
-                };
+                    ["representation"] = "native",
+                    ["writeKind"] = "native.operation",
+                    ["writeFields"] = "operation.operaType + operation.fields",
+                    ["nextTool"] = "preview_change_set",
+                    ["fieldMeaning"] = "saveRequired决定配置能否保存；critical与behavior.fieldRules决定流程能否启动",
+                    ["rule"] = "先合并common与精确operaType差量再填写递归字段；语义kind使用语义Schema"
+                }));
+                return compactContracts;
             }
             catch (Exception ex) when (ex is InvalidOperationException
                 || ex is ArgumentException || ex is KeyNotFoundException)
@@ -1636,8 +1626,8 @@ namespace Automation.Bridge
                     "语义变更集编译失败。", new JObject
                     {
                         ["validationError"] = ex.Message,
-                        ["nextAction"] = "preview_change_set",
                         ["reason"] = "fix_validation_error",
+                        ["retryableWhen"] = "change_set_passes_validation",
                         ["sideEffects"] = "none"
                     }.ToString(Formatting.None));
             }
@@ -1656,7 +1646,36 @@ namespace Automation.Bridge
                     change["type"]?.Value<string>(), "process.create", StringComparison.Ordinal))
                 .Select(change => change["procId"]?.Value<string>())
                 .Where(procId => !string.IsNullOrWhiteSpace(procId)), StringComparer.OrdinalIgnoreCase);
-            bool hasCurrentStageIssues = (draft.StageIssues?.Count ?? 0) > 0;
+            var allowedTransitions = new JArray();
+            if (record.Confirmed)
+            {
+                allowedTransitions.Add(new JObject
+                {
+                    ["tool"] = "apply_change_set",
+                    ["arguments"] = new JObject { ["previewId"] = previewId }
+                });
+            }
+            else
+            {
+                allowedTransitions.Add(new JObject
+                {
+                    ["state"] = "awaiting_foreground_confirmation"
+                });
+            }
+            allowedTransitions.Add(new JObject
+            {
+                ["tool"] = "preview_change_set",
+                ["requiredArguments"] = new JArray("changeSet", "replacePreviewId"),
+                ["fixedArguments"] = new JObject { ["replacePreviewId"] = previewId },
+                ["changeSetMode"] = "complete_replacement",
+                ["previousPreviewActionsInherited"] = false,
+                ["previousPreviewLocalKeysInherited"] = false
+            });
+            allowedTransitions.Add(new JObject
+            {
+                ["tool"] = "discard_change_set_preview",
+                ["arguments"] = new JObject { ["previewId"] = previewId }
+            });
             return new JObject
             {
                 ["previewId"] = previewId,
@@ -1665,16 +1684,8 @@ namespace Automation.Bridge
                 ["objectState"] = "preview_only",
                 ["readAfterApplyFrom"] = "apply_change_set.createdObjects/affectedProcesses",
                 ["status"] = record.Confirmed ? "confirmed" : "awaiting_confirmation",
-                ["nextAction"] = record.Confirmed ? "apply_change_set" : "await_foreground_confirmation",
-                ["nextToolArgs"] = record.Confirmed
-                    ? new JObject { ["previewId"] = previewId }
-                    : null,
-                ["recommendedAction"] = hasCurrentStageIssues
-                    ? "revise_change_set"
-                    : record.Confirmed ? "apply_change_set" : "await_foreground_confirmation",
+                ["allowedTransitions"] = allowedTransitions,
                 ["draftSaveAllowed"] = true,
-                ["revisionAction"] = "preview_change_set",
-                ["revisionToolArgs"] = new JObject { ["replacePreviewId"] = previewId },
                 ["revisionMode"] = "full_stage_replacement",
                 ["replacedPreviewId"] = record.ReplacedPreviewId,
                 ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
@@ -1744,12 +1755,16 @@ namespace Automation.Bridge
                     && !string.IsNullOrWhiteSpace(item.Note))
                 .Select(item => item.Index.ToString(CultureInfo.InvariantCulture))
                 .ToArray();
+            string[] plcNames = (SF.plcStore?.GetSnapshot().Devices ?? new List<PlcDeviceConfig>())
+                .Where(item => item != null && !string.IsNullOrWhiteSpace(item.Name))
+                .Select(item => item.Name).Distinct(StringComparer.Ordinal).ToArray();
             var references = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
             {
                 ["comm.tcp"] = tcpNames,
                 ["comm.serial"] = serialNames,
                 ["comm.all"] = tcpNames.Concat(serialNames).Distinct(StringComparer.Ordinal).ToArray(),
-                ["alarm.infoId"] = alarmInfoIds
+                ["alarm.infoId"] = alarmInfoIds,
+                ["plc.device"] = plcNames
             };
             return new AiResourceSnapshot(ioTypes, references);
         }
@@ -1783,8 +1798,8 @@ namespace Automation.Bridge
                     "预演后的流程或变量配置已经变化，本次提交未执行。",
                     new JObject
                     {
-                        ["nextAction"] = "preview_change_set",
                         ["reason"] = "base_state_changed",
+                        ["retryableWhen"] = "new_preview_created_from_current_state",
                         ["sideEffects"] = "none"
                     }.ToString(Formatting.None));
             }
@@ -1811,8 +1826,7 @@ namespace Automation.Bridge
                         ["name"] = name,
                         ["changeType"] = changeType,
                         ["readinessStatus"] = change["readinessStatus"]?.Value<string>() ?? "ready",
-                        ["runnable"] = change["runnable"]?.Value<bool>() ?? true,
-                        ["containsReachableCycle"] = change["containsReachableCycle"]?.Value<bool>() ?? false
+                        ["runnable"] = change["runnable"]?.Value<bool>() ?? true
                     };
                     affectedProcesses.Add(item);
                     if (string.Equals(changeType, "process.create", StringComparison.Ordinal))
@@ -1826,9 +1840,6 @@ namespace Automation.Bridge
                 ["previewId"] = previewId,
                 ["committed"] = true,
                 ["status"] = "committed",
-                ["stageComplete"] = true,
-                ["taskCompletion"] = "not_evaluated",
-                ["nextAction"] = "evaluate_task_completion",
                 ["procCount"] = draft.Processes.Count,
                 ["variableCount"] = draft.Variables.Count,
                 ["createdProcesses"] = createdProcesses,
@@ -1872,27 +1883,6 @@ namespace Automation.Bridge
                         $"不支持的流程状态：{stateToken}. 可选 Stopped/Running/Paused/Alarming/Stopping。");
                 }
                 targetStates.Add(state);
-            }
-
-            if (targetStates.Contains(ProcRunState.Stopped))
-            {
-                Proc proc = ExecuteOnUiThread(() => ObjectGraphCloner.Clone(GetProcByIndex(procIndex)));
-                EngineSnapshot current = SF.DR?.GetSnapshot(procIndex);
-                ProcessFlowAnalysis flow = ProcessFlowAnalyzer.Analyze(procIndex, proc);
-                if (current != null && current.State != ProcRunState.Stopped && flow.ContainsReachableCycle)
-                {
-                    throw new BridgeRequestException(
-                        409,
-                        "PROC_MAY_NOT_STOP_NATURALLY",
-                        $"流程 {procIndex} 存在可达控制流环，等待Stopped不适合作为自然完成验证。",
-                        new JObject
-                        {
-                            ["cycleLocations"] = new JArray(flow.CycleLocations),
-                            ["nextAction"] = "run_proc_test",
-                            ["nextToolArgs"] = new JObject { ["procIndex"] = procIndex },
-                            ["sideEffects"] = "none"
-                        }.ToString(Formatting.None));
-                }
             }
 
             DateTime startedAt = DateTime.UtcNow;
@@ -1952,7 +1942,6 @@ namespace Automation.Bridge
 
             Guid procId = Guid.Empty;
             string procName = string.Empty;
-            ProcessFlowAnalysis flow = null;
             ExecuteOnUiThread(() =>
             {
                 EnsureRuntimeReady();
@@ -1965,7 +1954,6 @@ namespace Automation.Bridge
                 }
                 procId = proc.head?.Id ?? Guid.Empty;
                 procName = proc.head?.Name ?? string.Empty;
-                flow = ProcessFlowAnalyzer.Analyze(procIndex, proc);
                 if (!SF.DR.StartProc(proc, procIndex))
                 {
                     string startError = SF.DR.TryValidateProcessStart(proc, procIndex, out string gateError)
@@ -2068,21 +2056,6 @@ namespace Automation.Bridge
                     outcome = "ExternallyStopped";
                     break;
             }
-            bool containsReachableCycle = flow?.ContainsReachableCycle ?? false;
-            bool verificationSatisfied = outcome == "NaturallyCompleted"
-                || outcome == "ObservationWindowCompleted"
-                    && observedRunning
-                    && positionChanges > 0;
-            string verificationStatus = outcome == "Alarmed"
-                ? "alarmed"
-                : outcome == "ExternallyStopped"
-                    ? "interrupted"
-                    : verificationSatisfied ? "passed" : "inconclusive";
-            string recommendedNextAction = verificationStatus == "alarmed"
-                ? "report_alarm"
-                : verificationStatus == "interrupted"
-                    ? "report_test_interrupted"
-                    : verificationSatisfied ? "report_test_result" : "report_test_inconclusive";
             return new JObject
             {
                 ["procIndex"] = procIndex,
@@ -2091,13 +2064,7 @@ namespace Automation.Bridge
                 ["outcome"] = outcome,
                 ["observedRunning"] = observedRunning,
                 ["positionChanges"] = positionChanges,
-                ["containsReachableCycle"] = containsReachableCycle,
-                ["cycleLocations"] = new JArray(flow?.CycleLocations ?? Array.Empty<string>()),
                 ["stoppedByTestRunner"] = stoppedByTestRunner,
-                ["verificationStatus"] = verificationStatus,
-                ["verificationSatisfied"] = verificationSatisfied,
-                ["waitForStoppedSupported"] = !containsReachableCycle,
-                ["recommendedNextAction"] = recommendedNextAction,
                 ["continuationAuthorized"] = false,
                 ["startRequiresExplicitUserRequest"] = true,
                 ["elapsedMs"] = (long)(DateTime.UtcNow - startedAt).TotalMilliseconds,
@@ -2373,7 +2340,6 @@ namespace Automation.Bridge
                             ["blockingProcIndex"] = procIndex,
                             ["currentState"] = snapshot.State.ToString(),
                             ["retryableNow"] = false,
-                            ["nextAction"] = "wait_for_operator_stop_all",
                             ["retryableWhen"] = "all_processes_stopped",
                             ["sideEffects"] = "none"
                         }.ToString(Formatting.None));
@@ -2533,7 +2499,8 @@ namespace Automation.Bridge
                         new JObject
                         {
                             ["previewId"] = previewId,
-                            ["nextAction"] = "await_foreground_confirmation",
+                            ["state"] = "awaiting_foreground_confirmation",
+                            ["retryableWhen"] = "preview_confirmed",
                             ["sideEffects"] = "none"
                         }.ToString(Formatting.None));
                 }
@@ -3464,124 +3431,27 @@ namespace Automation.Bridge
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
-        private JObject HandleAnalyzeFlow(JObject request)
-        {
-            int procIndex = ReadRequiredInt(request, "procIndex");
-            Proc proc = GetProcByIndex(procIndex);
-            var findings = new JArray();
-            var inboundTargets = new HashSet<string>(StringComparer.Ordinal);
-            if (proc?.steps != null)
-            {
-                foreach (Step step in proc.steps.Where(item => item?.Ops != null))
-                {
-                    foreach (OperationType op in step.Ops.Where(item => item != null))
-                    {
-                        foreach (PropertyDescriptor descriptor in TypeDescriptor.GetProperties(op).Cast<PropertyDescriptor>())
-                        {
-                            if (!string.Equals(GetReferenceType(descriptor.Converter?.GetType().Name),
-                                "proc.goto", StringComparison.Ordinal)) continue;
-                            string target = ConvertFieldValueToText(descriptor.GetValue(op));
-                            if (!string.IsNullOrWhiteSpace(target)) inboundTargets.Add(target.Trim());
-                        }
-                    }
-                }
-                for (int si = 0; si < proc.steps.Count; si++)
-                {
-                    Step step = proc.steps[si];
-                    if (step?.Ops == null) continue;
-                    for (int oi = 0; oi < step.Ops.Count; oi++)
-                    {
-                        OperationType op = step.Ops[oi];
-                        if (op == null) continue;
-                        int requiredGotoCount = 0;
-                        bool requiresAlarmInfo = false;
-                        switch (op.AlarmType)
-                        {
-                            case "报警停止":
-                            case "报警忽略":
-                                break;
-                            case "自动处理":
-                                requiredGotoCount = 1;
-                                break;
-                            case "弹框确定":
-                                requiredGotoCount = 1;
-                                requiresAlarmInfo = true;
-                                break;
-                            case "弹框确定与否":
-                                requiredGotoCount = 2;
-                                requiresAlarmInfo = true;
-                                break;
-                            case "弹框确定与否与取消":
-                                requiredGotoCount = 3;
-                                requiresAlarmInfo = true;
-                                break;
-                            default:
-                                AddFlowFinding(findings, "error", "alarm.invalidType", procIndex, si, oi,
-                                    $"报警类型无效:{op.AlarmType}");
-                                break;
-                        }
-                        if (requiresAlarmInfo && string.IsNullOrWhiteSpace(op.AlarmInfoID))
-                        {
-                            AddFlowFinding(findings, "error", "alarm.missingInfo", procIndex, si, oi,
-                                "弹框报警未配置报警信息编号");
-                        }
-                        string[] gotos = { op.Goto1, op.Goto2, op.Goto3 };
-                        for (int gi = 0; gi < requiredGotoCount; gi++)
-                        {
-                            if (string.IsNullOrWhiteSpace(gotos[gi]))
-                            {
-                                AddFlowFinding(findings, "error", "alarm.missingGoto", procIndex, si, oi,
-                                    $"报警策略{op.AlarmType}缺少Goto{gi + 1}");
-                            }
-                        }
-                        if (string.Equals(op.OperaType, "跳转", StringComparison.Ordinal) && oi + 1 < step.Ops.Count)
-                        {
-                            string nextLocation = $"{procIndex}-{si}-{oi + 1}";
-                            if (!inboundTargets.Contains(nextLocation))
-                            {
-                                AddFlowFinding(findings, "warning", "flow.unreachableAfterJump", procIndex, si, oi + 1,
-                                    "无条件跳转后的下一条指令没有检测到其他跳转入口，可能永远不可达");
-                            }
-                        }
-                    }
-                }
-            }
-            foreach (string error in ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc))
-            {
-                AddFlowFinding(findings, "error", "goto.invalid", procIndex, -1, -1, error);
-            }
-            ProcessFlowAnalysis controlFlow = ProcessFlowAnalyzer.Analyze(procIndex, proc);
-            return new JObject
-            {
-                ["procIndex"] = procIndex,
-                ["procId"] = proc?.head?.Id.ToString("D"),
-                ["name"] = proc?.head?.Name ?? string.Empty,
-                ["operationCount"] = CountOperations(proc),
-                ["containsReachableCycle"] = controlFlow.ContainsReachableCycle,
-                ["cycleLocations"] = new JArray(controlFlow.CycleLocations),
-                ["findingCount"] = findings.Count,
-                ["findings"] = findings
-            };
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleDiagnoseIssue(JObject request)
         {
             int procIndex = ReadRequiredInt(request, "procIndex");
             string symptom = ReadOptionalString(request, "symptom") ?? string.Empty;
             int? stepIndex = ReadOptionalInt(request, "stepIndex");
             int? opIndex = ReadOptionalInt(request, "opIndex");
-            JObject flow = HandleAnalyzeFlow(new JObject { ["procIndex"] = procIndex });
+            JObject validation = HandleValidateProc(new JObject { ["procIndex"] = procIndex });
             EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
             var result = new JObject
             {
                 ["symptom"] = symptom.Length <= 300 ? symptom : symptom.Substring(0, 300),
                 ["procIndex"] = procIndex,
                 ["runtime"] = BuildEngineSnapshot(snapshot, procIndex),
-                ["flowSummary"] = new JObject
+                ["structureValidation"] = new JObject
                 {
-                    ["findingCount"] = flow["findingCount"],
-                    ["findings"] = flow["findings"]
+                    ["isValid"] = validation["isValid"],
+                    ["readinessStatus"] = validation["readinessStatus"],
+                    ["runnable"] = validation["runnable"],
+                    ["runBlockers"] = validation["runBlockers"],
+                    ["errors"] = validation["errors"],
+                    ["warnings"] = validation["warnings"]
                 }
             };
             int targetStep = stepIndex ?? snapshot?.StepIndex ?? -1;
@@ -3599,23 +3469,8 @@ namespace Automation.Bridge
             }
             result["recommendedNextQueries"] = new JArray(
                 "若字段值可疑，使用trace_resource检查资源引用",
-                "若需要修改，只对目标指令调用get_op_detail后进行preview_patch");
+                "若需要修改，只对目标指令调用get_op_detail后通过preview_change_set预演");
             return result;
-        }
-
-        private static void AddFlowFinding(JArray findings, string severity, string code,
-            int procIndex, int stepIndex, int opIndex, string message)
-        {
-            if (findings.Count >= 200) return;
-            findings.Add(new JObject
-            {
-                ["severity"] = severity,
-                ["code"] = code,
-                ["procIndex"] = procIndex,
-                ["stepIndex"] = stepIndex,
-                ["opIndex"] = opIndex,
-                ["message"] = message
-            });
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
@@ -4045,7 +3900,7 @@ namespace Automation.Bridge
             // 2. 空步骤/指令检查
             if (proc.steps == null || proc.steps.Count == 0)
             {
-                warnings.Add(new JObject { ["message"] = "流程尚未添加步骤，可以继续分阶段配置。" });
+                warnings.Add(new JObject { ["message"] = "流程尚未添加步骤。" });
             }
             else
             {
@@ -5641,6 +5496,7 @@ namespace Automation.Bridge
                 return BridgeError(500, "STORE_UNAVAILABLE", "PLC 存储未初始化。");
             }
             bool includeMaps = request["includeMaps"]?.Value<bool>() ?? false;
+            string exactName = ReadOptionalString(request, "name");
             PlcConfiguration configuration = store.GetSnapshot();
             var devices = configuration.Devices;
             IReadOnlyDictionary<string, PlcDeviceRuntimeSnapshot> runtimeByName =
@@ -5650,6 +5506,8 @@ namespace Automation.Bridge
             foreach (PlcDeviceConfig dev in devices)
             {
                 if (dev == null) continue;
+                if (!string.IsNullOrWhiteSpace(exactName)
+                    && !string.Equals(dev.Name, exactName, StringComparison.Ordinal)) continue;
                 runtimeByName.TryGetValue(dev.Name ?? string.Empty, out PlcDeviceRuntimeSnapshot runtime);
                 JObject obj = new JObject
                 {
@@ -5660,7 +5518,6 @@ namespace Automation.Bridge
                     ["port"] = dev.Port,
                     ["unitId"] = dev.UnitId,
                     ["connectTimeoutMs"] = dev.ConnectTimeoutMs,
-                    ["receiveTimeoutMs"] = dev.ReceiveTimeoutMs,
                     ["autoConnect"] = dev.AutoConnect,
                     ["scanIntervalMs"] = dev.ScanIntervalMs,
                     ["dataFormat"] = dev.DataFormat,
@@ -5695,6 +5552,10 @@ namespace Automation.Bridge
                     obj["maps"] = deviceMaps;
                 }
                 items.Add(obj);
+            }
+            if (!string.IsNullOrWhiteSpace(exactName) && items.Count == 0)
+            {
+                throw new BridgeRequestException(404, "PLC_DEVICE_NOT_FOUND", $"未找到PLC设备：{exactName}");
             }
             return new JObject
             {
@@ -6027,7 +5888,6 @@ namespace Automation.Bridge
                         ["procIndex"] = procIndex,
                         ["currentState"] = snapshot.State.ToString(),
                         ["retryableNow"] = false,
-                        ["nextAction"] = "wait_for_operator_stop",
                         ["retryableWhen"] = "process_stopped",
                         ["sideEffects"] = "none"
                     }.ToString(Formatting.None));
@@ -6717,6 +6577,34 @@ namespace Automation.Bridge
             if (active != null)
             {
                 bool canReplace = supportsExplicitReplacement && active.IsChangeSetPreview;
+                var allowedTransitions = new JArray();
+                if (canReplace)
+                {
+                    allowedTransitions.Add(new JObject
+                    {
+                        ["tool"] = "preview_change_set",
+                        ["requiredArguments"] = new JArray("changeSet", "replacePreviewId"),
+                        ["fixedArguments"] = new JObject { ["replacePreviewId"] = active.PreviewId },
+                        ["changeSetMode"] = "complete_replacement",
+                        ["previousPreviewActionsInherited"] = false,
+                        ["previousPreviewLocalKeysInherited"] = false
+                    });
+                }
+                if (active.IsChangeSetPreview && active.Confirmed)
+                {
+                    allowedTransitions.Add(new JObject
+                    {
+                        ["tool"] = "apply_change_set",
+                        ["arguments"] = new JObject { ["previewId"] = active.PreviewId }
+                    });
+                }
+                else if (!active.Confirmed)
+                {
+                    allowedTransitions.Add(new JObject
+                    {
+                        ["state"] = "awaiting_foreground_confirmation"
+                    });
+                }
                 throw new BridgeRequestException(
                     409,
                     "PREVIEW_IN_FLIGHT",
@@ -6725,25 +6613,10 @@ namespace Automation.Bridge
                     {
                         ["activePreviewId"] = active.PreviewId,
                         ["confirmed"] = active.Confirmed,
-                        ["nextAction"] = canReplace
-                            ? "preview_change_set"
-                            : active.IsChangeSetPreview && active.Confirmed
-                                ? "apply_change_set"
-                                : active.Confirmed ? null : "await_foreground_confirmation",
-                        ["nextToolArgs"] = canReplace
-                            ? new JObject { ["replacePreviewId"] = active.PreviewId }
-                            : active.IsChangeSetPreview && active.Confirmed
-                                ? new JObject { ["previewId"] = active.PreviewId }
-                                : null,
+                        ["allowedTransitions"] = allowedTransitions,
                         ["retryableWhen"] = canReplace
-                            ? "在原新预演参数中补充 replacePreviewId 后重试"
-                            : "活动预演已提交、结束或过期",
-                        ["activePreviewAction"] = active.IsChangeSetPreview && active.Confirmed
-                            ? "apply_change_set"
-                            : active.Confirmed ? null : "await_foreground_confirmation",
-                        ["activePreviewToolArgs"] = active.IsChangeSetPreview && active.Confirmed
-                            ? new JObject { ["previewId"] = active.PreviewId }
-                            : null,
+                            ? "complete_replacement_change_set_retried_with_replace_preview_id"
+                            : "active_preview_committed_discarded_or_expired",
                         ["sideEffects"] = "none"
                     }.ToString(Formatting.None));
             }
@@ -6776,7 +6649,8 @@ namespace Automation.Bridge
                         new JObject
                         {
                             ["previewId"] = previewId,
-                            ["nextAction"] = "await_foreground_confirmation",
+                            ["state"] = "awaiting_foreground_confirmation",
+                            ["retryableWhen"] = "preview_confirmed",
                             ["sideEffects"] = "none"
                         }.ToString(Formatting.None));
                 }
@@ -6865,6 +6739,8 @@ namespace Automation.Bridge
         private JObject BuildProcOverview(int procIndex, Proc proc)
         {
             EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
+            ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
+                procIndex, proc, SF.frmProc?.procsList);
             JArray steps = new JArray();
             if (proc?.steps != null)
             {
@@ -6909,6 +6785,10 @@ namespace Automation.Bridge
                 ["autoStart"] = proc?.head?.AutoStart ?? false,
                 ["disable"] = proc?.head?.Disable ?? false,
                 ["state"] = snapshot?.State.ToString() ?? ProcRunState.Stopped.ToString(),
+                ["readinessStatus"] = readiness.ReadinessStatus,
+                ["runnable"] = readiness.Runnable,
+                ["warnings"] = new JArray(readiness.Warnings),
+                ["runBlockers"] = new JArray(readiness.RunBlockers),
                 ["stepCount"] = proc?.steps?.Count ?? 0,
                 ["operationCount"] = CountOperations(proc),
                 ["steps"] = steps
@@ -7633,8 +7513,8 @@ namespace Automation.Bridge
                     $"已提交的流程中不存在索引 {procIndex}；当前流程数为 {SF.frmProc.procsList.Count}。",
                     new JObject
                     {
-                        ["nextAction"] = "list_procs",
                         ["reason"] = "committed_process_not_found",
+                        ["retryableWhen"] = "valid_committed_proc_index_provided",
                         ["sideEffects"] = "none"
                     }.ToString(Formatting.None));
                 return false;

@@ -21,7 +21,8 @@ namespace Automation
         private static readonly HashSet<string> OperationManagedProperties = new HashSet<string>(StringComparer.Ordinal)
         {
             nameof(OperationType.Id), nameof(OperationType.AiKey), nameof(OperationType.Num), nameof(OperationType.Name),
-            nameof(OperationType.OperaType), "Count", "IOCount", "OutIOCount", "CheckIOCount", "ProcCount"
+            nameof(OperationType.OperaType), "Count", "IOCount", "OutIOCount", "CheckIOCount", "ProcCount",
+            nameof(PlcReadWrite.ItemCount)
         };
 
         public static JObject BuildContract(string operaType)
@@ -37,11 +38,263 @@ namespace Automation
                 ["fields"] = BuildObjectFields(operation.GetType(), 0),
                 ["rules"] = new JArray(
                     "字段名区分大小写，未知字段直接拒绝",
-                    "数组数量字段由编译器计算，禁止手工填写 Count/IOCount/ProcCount",
+                    "数组数量字段由编译器计算，禁止手工填写 Count/IOCount/ProcCount/ItemCount",
                     "operation.update 可通过 clearFields 显式清空顶层字符串字段；同一字段不得同时出现在 fields",
                     "operation.update 只修改同一原生类型；改变类型使用 operation.replace 原位替换",
                     "现有目标使用 {operationId}；当前步骤内按 key 定位使用 {operationKey}；跨步骤时再附加 stepId 或 stepKey；禁止填写物理索引字符串")
             };
+        }
+
+        /// <summary>
+        /// 批量返回原生指令契约。基类字段和统一报警行为只返回一次，
+        /// 每个指令类型仅保留自身差量；返回前会展开并校验与完整契约等价。
+        /// </summary>
+        public static JObject BuildCompactContracts(IEnumerable<string> operaTypes)
+        {
+            string[] requestedTypes = (operaTypes ?? Enumerable.Empty<string>())
+                .Select(value => RequireText(value, "operaTypes"))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (requestedTypes.Length == 0)
+                throw new InvalidOperationException("operaTypes 至少包含一个非空字符串。");
+
+            var fullContracts = requestedTypes.ToDictionary(
+                operaType => operaType,
+                BuildContract,
+                StringComparer.Ordinal);
+            JObject first = fullContracts[requestedTypes[0]];
+            JObject commonFields = BuildObjectFields(typeof(OperationType), 0);
+            string[] commonFieldNames = commonFields.Properties()
+                .Select(property => property.Name)
+                .ToArray();
+            JObject commonFieldRules = SelectProperties(
+                (JObject)first["behavior"]["fieldRules"],
+                new[] { "AlarmInfoID", "Goto1", "Goto2", "Goto3" });
+            var common = new JObject
+            {
+                ["purpose"] = first["purpose"].DeepClone(),
+                ["saveRequired"] = first["saveRequired"].DeepClone(),
+                ["optional"] = first["optional"].DeepClone(),
+                ["fields"] = commonFields,
+                ["behavior"] = new JObject
+                {
+                    ["fieldRules"] = commonFieldRules,
+                    ["alarmPolicy"] = first["behavior"]["alarmPolicy"].DeepClone()
+                },
+                ["rules"] = first["rules"].DeepClone()
+            };
+
+            var contracts = new JObject();
+            foreach (string operaType in requestedTypes)
+            {
+                JObject full = fullContracts[operaType];
+                EnsureCommonContractMatches(operaType, full, common, commonFieldNames);
+
+                JObject fields = RemoveProperties((JObject)full["fields"], commonFieldNames);
+                JObject behavior = (JObject)full["behavior"].DeepClone();
+                JObject fieldRules = (JObject)behavior["fieldRules"];
+                foreach (JProperty rule in commonFieldRules.Properties())
+                    fieldRules.Property(rule.Name, StringComparison.Ordinal)?.Remove();
+                behavior.Property("alarmPolicy", StringComparison.Ordinal)?.Remove();
+
+                JObject compact = new JObject
+                {
+                    ["critical"] = BuildCriticalSummary(full, fields, commonFieldRules.Properties()
+                        .Select(property => property.Name)),
+                    ["behavior"] = behavior,
+                    ["fields"] = fields
+                };
+                EnsureCompactContractEquivalent(operaType, full, common, compact);
+                contracts[operaType] = compact;
+            }
+
+            return new JObject
+            {
+                ["contractFormat"] = "native.compact.v1",
+                ["composition"] = new JObject
+                {
+                    ["fields"] = "完整字段 = common.fields + contracts[operaType].fields",
+                    ["behavior"] = "完整行为 = contracts[operaType].behavior + common.behavior",
+                    ["precedence"] = "类型差量优先；当前契约已校验无同名冲突"
+                },
+                ["criticalSummary"] = new JObject
+                {
+                    ["caseSensitive"] = "字段名区分大小写；Goto1/Goto2/Goto3 是报警分支，小写 goto1/goto2 等字段是具体指令的业务分支",
+                    ["alarmGotoScope"] = common["behavior"]["alarmPolicy"]["gotoScope"].DeepClone(),
+                    ["alarmRunRequirements"] = BuildConditionalRequirements(commonFieldRules)
+                },
+                ["common"] = common,
+                ["contracts"] = contracts
+            };
+        }
+
+        private static JObject BuildCriticalSummary(
+            JObject full, JObject typeFields, IEnumerable<string> commonRuleNames)
+        {
+            JObject behavior = (JObject)full["behavior"];
+            JObject fieldRules = (JObject)behavior["fieldRules"];
+            var commonRules = new HashSet<string>(commonRuleNames, StringComparer.Ordinal);
+            var requiredForRun = new JArray(fieldRules.Properties()
+                .Where(property => !commonRules.Contains(property.Name)
+                    && property.Value["requiredForRun"]?.Value<bool>() == true)
+                .Select(property => new JValue(property.Name)));
+            JObject conditional = BuildConditionalRequirements(
+                RemoveProperties(fieldRules, commonRules));
+            var businessGotoFields = new JArray();
+            CollectGotoFieldPaths(typeFields, string.Empty, businessGotoFields);
+
+            string[] allFieldNames = ((JObject)full["fields"]).Properties()
+                .Select(property => property.Name)
+                .ToArray();
+            var distinctions = new JArray(allFieldNames
+                .GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Distinct(StringComparer.Ordinal).Count() > 1)
+                .Select(group => new JValue(string.Join(" != ", group.Distinct(StringComparer.Ordinal)))));
+
+            var summary = new JObject
+            {
+                ["behaviorCoverage"] = behavior["coverage"]?.DeepClone(),
+                ["fallThrough"] = behavior["controlFlow"]?["fallThrough"]?.DeepClone(),
+                ["runRequired"] = requiredForRun,
+                ["conditionalRunRequired"] = conditional,
+                ["businessGotoFields"] = businessGotoFields
+            };
+            if (distinctions.Count > 0)
+                summary["caseSensitiveDistinctions"] = distinctions;
+            return summary;
+        }
+
+        private static JObject BuildConditionalRequirements(JObject fieldRules)
+        {
+            var requirements = new JObject();
+            foreach (JProperty property in fieldRules.Properties())
+            {
+                JToken condition = property.Value["requiredWhenForRun"];
+                JToken alternatives = property.Value["requiredWhenAnyForRun"];
+                if (condition != null || alternatives != null)
+                {
+                    requirements[property.Name] = alternatives != null
+                        ? new JObject { ["anyOf"] = alternatives.DeepClone() }
+                        : condition.DeepClone();
+                }
+            }
+            return requirements;
+        }
+
+        private static void CollectGotoFieldPaths(JObject fields, string prefix, JArray paths)
+        {
+            foreach (JProperty field in fields.Properties())
+            {
+                string path = string.IsNullOrEmpty(prefix) ? field.Name : prefix + "." + field.Name;
+                if (string.Equals(field.Value["referenceType"]?.Value<string>(),
+                    "proc.goto.symbolic", StringComparison.Ordinal))
+                {
+                    paths.Add(path);
+                }
+                if (field.Value["fields"] is JObject objectFields)
+                    CollectGotoFieldPaths(objectFields, path, paths);
+                if (field.Value["items"]?["fields"] is JObject itemFields)
+                    CollectGotoFieldPaths(itemFields, path + "[]", paths);
+            }
+        }
+
+        private static JObject SelectProperties(JObject source, IEnumerable<string> names)
+        {
+            var selected = new JObject();
+            foreach (string name in names)
+            {
+                JProperty property = source.Property(name, StringComparison.Ordinal);
+                if (property == null)
+                    throw new InvalidOperationException($"统一契约缺少字段规则：{name}。");
+                selected[name] = property.Value.DeepClone();
+            }
+            return selected;
+        }
+
+        private static JObject RemoveProperties(JObject source, IEnumerable<string> names)
+        {
+            var result = (JObject)source.DeepClone();
+            foreach (string name in names)
+                result.Property(name, StringComparison.Ordinal)?.Remove();
+            return result;
+        }
+
+        private static void EnsureCommonContractMatches(
+            string operaType, JObject full, JObject common, IEnumerable<string> commonFieldNames)
+        {
+            EnsureEquivalent(common["purpose"], full["purpose"], operaType + ".purpose");
+            EnsureEquivalent(common["saveRequired"], full["saveRequired"], operaType + ".saveRequired");
+            EnsureEquivalent(common["optional"], full["optional"], operaType + ".optional");
+            EnsureEquivalent(common["rules"], full["rules"], operaType + ".rules");
+            foreach (string fieldName in commonFieldNames)
+            {
+                EnsureEquivalent(common["fields"][fieldName], full["fields"][fieldName],
+                    operaType + ".fields." + fieldName);
+            }
+            foreach (JProperty rule in ((JObject)common["behavior"]["fieldRules"]).Properties())
+            {
+                EnsureEquivalent(rule.Value, full["behavior"]["fieldRules"][rule.Name],
+                    operaType + ".behavior.fieldRules." + rule.Name);
+            }
+            EnsureEquivalent(common["behavior"]["alarmPolicy"], full["behavior"]["alarmPolicy"],
+                operaType + ".behavior.alarmPolicy");
+        }
+
+        private static void EnsureCompactContractEquivalent(
+            string operaType, JObject full, JObject common, JObject compact)
+        {
+            var expandedFields = (JObject)common["fields"].DeepClone();
+            foreach (JProperty property in ((JObject)compact["fields"]).Properties())
+                expandedFields[property.Name] = property.Value.DeepClone();
+
+            var expandedBehavior = (JObject)compact["behavior"].DeepClone();
+            JObject expandedRules = (JObject)expandedBehavior["fieldRules"];
+            foreach (JProperty property in ((JObject)common["behavior"]["fieldRules"]).Properties())
+                expandedRules[property.Name] = property.Value.DeepClone();
+            expandedBehavior["alarmPolicy"] = common["behavior"]["alarmPolicy"].DeepClone();
+
+            var expanded = new JObject
+            {
+                ["operaType"] = operaType,
+                ["purpose"] = common["purpose"].DeepClone(),
+                ["behavior"] = expandedBehavior,
+                ["saveRequired"] = common["saveRequired"].DeepClone(),
+                ["optional"] = common["optional"].DeepClone(),
+                ["fields"] = expandedFields,
+                ["rules"] = common["rules"].DeepClone()
+            };
+            EnsureEquivalent(full, expanded, operaType);
+        }
+
+        private static void EnsureEquivalent(JToken expected, JToken actual, string path)
+        {
+            if (expected == null || actual == null)
+            {
+                if (expected == null && actual == null) return;
+                throw new InvalidOperationException($"紧凑原生契约展开不完整：{path}。");
+            }
+            if (expected.Type != actual.Type)
+                throw new InvalidOperationException($"紧凑原生契约类型不一致：{path}。");
+            if (expected is JObject expectedObject && actual is JObject actualObject)
+            {
+                string[] expectedNames = expectedObject.Properties().Select(property => property.Name).ToArray();
+                string[] actualNames = actualObject.Properties().Select(property => property.Name).ToArray();
+                if (!new HashSet<string>(expectedNames, StringComparer.Ordinal).SetEquals(actualNames))
+                    throw new InvalidOperationException($"紧凑原生契约字段不一致：{path}。");
+                foreach (string name in expectedNames)
+                    EnsureEquivalent(expectedObject[name], actualObject[name], path + "." + name);
+                return;
+            }
+            if (expected is JArray expectedArray && actual is JArray actualArray)
+            {
+                if (expectedArray.Count != actualArray.Count)
+                    throw new InvalidOperationException($"紧凑原生契约数组长度不一致：{path}。");
+                for (int index = 0; index < expectedArray.Count; index++)
+                    EnsureEquivalent(expectedArray[index], actualArray[index], $"{path}[{index}]");
+                return;
+            }
+            if (!JToken.DeepEquals(expected, actual))
+                throw new InvalidOperationException($"紧凑原生契约值不一致：{path}。");
         }
 
         /// <summary>
@@ -335,7 +588,13 @@ namespace Automation
             string countPropertyName = GetCountPropertyName(target.GetType(), property.Name);
             PropertyInfo countProperty = target.GetType().GetProperty(countPropertyName,
                 BindingFlags.Instance | BindingFlags.Public);
-            countProperty?.SetValue(target, array.Count.ToString(CultureInfo.InvariantCulture));
+            if (countProperty != null)
+            {
+                object countValue = countProperty.PropertyType == typeof(int)
+                    ? (object)array.Count
+                    : array.Count.ToString(CultureInfo.InvariantCulture);
+                countProperty.SetValue(target, countValue);
+            }
         }
 
         private static string ResolveSymbolicTarget(JToken token, string path, AiOperationCompileContext context)
@@ -466,6 +725,8 @@ namespace Automation
             if (listName == "OutIoParams") return "OutIOCount";
             if (listName == "CheckIoParams") return "CheckIOCount";
             if (listName == "procParams" || ownerType == typeof(WaitProc)) return "ProcCount";
+            if (ownerType == typeof(PlcReadWrite) && listName == nameof(PlcReadWrite.ReadItems))
+                return nameof(PlcReadWrite.ItemCount);
             return "Count";
         }
 

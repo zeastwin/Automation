@@ -21,9 +21,10 @@ namespace Automation.McpServer
             "wait_for_proc_state",
             "list_variables", "get_variable_by_name", "get_variable_by_index",
             "list_stations", "get_station", "list_points", "get_point",
-            "get_data_struct", "search_data_structs",
+            "get_data_struct", "search_data_struct_items",
             "get_io", "search_io", "get_io_state",
             "get_communication",
+            "list_plc_devices", "get_plc_device",
             "search_alarms", "get_alarm"
         };
 
@@ -32,7 +33,7 @@ namespace Automation.McpServer
             "search_ops", "diagnose_issue", "get_operation_schema",
             "search_operation_fields", "find_references", "find_variable_usages",
             "get_operation_context", "audit_proc_batch",
-            "analyze_flow_graph", "get_info_log_tail", "diagnose_proc",
+            "get_info_log_tail", "diagnose_proc",
             "list_data_structs", "list_io"
         };
 
@@ -44,6 +45,11 @@ namespace Automation.McpServer
             "set_variable_by_name", "set_variable_by_index",
             "add_variable", "update_variable", "delete_variable",
             "set_alarm", "delete_alarm"
+        };
+
+        private static readonly HashSet<string> EditorDiagnosticTools = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "get_operation_context", "get_info_log_tail"
         };
 
         public static IReadOnlyList<McpServerTool> CreateTools(string profile)
@@ -59,6 +65,7 @@ namespace Automation.McpServer
             }
             else
             {
+                enabled.UnionWith(EditorDiagnosticTools);
                 enabled.UnionWith(EditorMutationTools);
             }
             var tools = new List<McpServerTool>();
@@ -140,51 +147,79 @@ namespace Automation.McpServer
             if (root == null || actionSchema == null || operationSchema == null || positionSchema == null)
                 throw new InvalidOperationException("preview_change_set 生成Schema缺少动作或语义指令定义。");
 
-            actionSchema["oneOf"] = new JsonArray
+            if (root["properties"] is not JsonObject rootProperties
+                || rootProperties["changeSet"] is not JsonObject changeSetSchema)
             {
-                ActionShape("process.create", "process"),
-                ActionShape("process.update", "targetProcess", "process"),
-                ActionShape("process.delete", "targetProcess"),
-                ActionShape("process.delete_all"),
-                ActionShape("step.append", "targetProcess", "step"),
-                ActionShape("step.insert", "targetProcess", "position", "step"),
-                ActionShape("step.update", "targetProcess", "targetStep", "step"),
-                ActionShape("step.delete", "targetProcess", "targetStep"),
-                ActionShape("step.move", "targetProcess", "targetStep", "position"),
-                ActionShape("operation.append", "targetProcess", "targetStep", "operation"),
-                ActionShape("operation.insert", "targetProcess", "targetStep", "position", "operation"),
-                ActionShape("operation.update", "targetProcess", "targetOperation", "operation"),
-                ActionShape("operation.replace", "targetProcess", "targetOperation", "operation"),
-                ActionShape("operation.delete", "targetProcess", "targetOperation"),
-                ActionShape("operation.move", "targetProcess", "targetOperation", "position")
-            };
-            actionSchema["x-localKeyScope"] = "current_change_set";
-            operationSchema["oneOf"] = new JsonArray
+                throw new InvalidOperationException("preview_change_set 生成Schema缺少changeSet参数定义。");
+            }
+            root["additionalProperties"] = false;
+            changeSetSchema["additionalProperties"] = false;
+
+            if (actionSchema["properties"] is not JsonObject actionProperties
+                || operationSchema["properties"] is not JsonObject operationProperties)
             {
-                SemanticShape("variable.set", "variable", "value"),
-                SemanticShape("variable.add", "variable", "amount"),
-                SemanticShape("variable.compute", "sourceVariable", "operator", "outputVariable"),
-                SemanticShape("wait", "milliseconds"),
-                SemanticShape("flow.goto"),
-                SemanticShape("flow.end"),
-                SemanticShape("branch.number_compare", "variable", "comparison", "compareValue"),
-                SemanticShape("branch.number_range", "variable", "min", "max"),
-                SemanticShape("popup.message", "message"),
-                SemanticShape("popup.variable", "variable"),
-                SemanticShape("config.placeholder", "message"),
-                SemanticShape("io.write", "io", "state"),
-                SemanticShape("io.wait", "io", "state", "timeoutMs"),
-                SemanticShape("process.control"),
-                SemanticShape("process.wait"),
-                SemanticShape("native.operation", "operaType", "fields")
-            };
-            operationSchema["x-symbolicTargetScope"] = "operation_id_or_change_set_key";
+                throw new InvalidOperationException("preview_change_set 生成Schema缺少动作或语义指令字段。");
+            }
+
             ApplyPositionSchema(positionSchema);
             ApplyNumericRange(operationSchema, "milliseconds", 0, 86400000);
             ApplyNumericRange(operationSchema, "autoCloseMs", 1, 3600000);
             ApplyNumericRange(operationSchema, "beforeMs", 0, 3600000);
             ApplyNumericRange(operationSchema, "afterMs", 0, 3600000);
             ApplyNumericRange(operationSchema, "timeoutMs", 1, 86400000);
+
+            operationSchema["oneOf"] = new JsonArray
+            {
+                SemanticShape(operationProperties, "variable.set", new[] { "variable", "value" }),
+                SemanticShape(operationProperties, "variable.add", new[] { "variable", "amount" }),
+                SemanticShape(operationProperties, "variable.compute", new[] { "sourceVariable", "operator", "outputVariable" },
+                    "operandValue", "operandVariable"),
+                SemanticShape(operationProperties, "wait", new[] { "milliseconds" }),
+                SemanticShape(operationProperties, "flow.goto", Array.Empty<string>(), "target"),
+                SemanticShape(operationProperties, "flow.end", Array.Empty<string>()),
+                SemanticShape(operationProperties, "branch.number_compare", new[] { "variable", "comparison", "compareValue" },
+                    "whenTrue", "whenFalse"),
+                SemanticShape(operationProperties, "branch.number_range", new[] { "variable", "min", "max" },
+                    "includeBounds", "whenTrue", "whenFalse"),
+                SemanticShape(operationProperties, "popup.message", new[] { "message" },
+                    "buttonText", "autoCloseMs", "target"),
+                SemanticShape(operationProperties, "popup.variable", new[] { "variable" },
+                    "buttonText", "autoCloseMs", "target"),
+                SemanticShape(operationProperties, "config.placeholder", new[] { "message" }),
+                SemanticShape(operationProperties, "io.write", new[] { "io", "state" }, "beforeMs", "afterMs"),
+                SemanticShape(operationProperties, "io.wait", new[] { "io", "state", "timeoutMs" }),
+                SemanticShape(operationProperties, "process.control", Array.Empty<string>(), "process", "action", "afterMs"),
+                SemanticShape(operationProperties, "process.wait", Array.Empty<string>(), "process", "expectedState", "timeoutMs", "afterMs"),
+                SemanticShape(operationProperties, "native.operation", new[] { "operaType", "fields" }, "clearFields")
+            };
+            operationSchema["x-symbolicTargetScope"] = "operation_id_or_change_set_key";
+            operationSchema.Remove("properties");
+            operationSchema.Remove("required");
+            operationSchema.Remove("additionalProperties");
+
+            // 动作分支最后生成，确保其中的 operation 载荷复制的是已经闭合的语义判别联合。
+            actionSchema["oneOf"] = new JsonArray
+            {
+                ActionShape(actionProperties, "process.create", new[] { "process" }),
+                ActionShape(actionProperties, "process.update", new[] { "targetProcess", "process" }),
+                ActionShape(actionProperties, "process.delete", new[] { "targetProcess" }),
+                ActionShape(actionProperties, "process.delete_all", Array.Empty<string>()),
+                ActionShape(actionProperties, "step.append", new[] { "targetProcess", "step" }),
+                ActionShape(actionProperties, "step.insert", new[] { "targetProcess", "position", "step" }),
+                ActionShape(actionProperties, "step.update", new[] { "targetProcess", "targetStep", "step" }),
+                ActionShape(actionProperties, "step.delete", new[] { "targetProcess", "targetStep" }),
+                ActionShape(actionProperties, "step.move", new[] { "targetProcess", "targetStep", "position" }),
+                ActionShape(actionProperties, "operation.append", new[] { "targetProcess", "targetStep", "operation" }),
+                ActionShape(actionProperties, "operation.insert", new[] { "targetProcess", "targetStep", "position", "operation" }),
+                ActionShape(actionProperties, "operation.update", new[] { "targetProcess", "targetOperation", "operation" }, "targetStep"),
+                ActionShape(actionProperties, "operation.replace", new[] { "targetProcess", "targetOperation", "operation" }, "targetStep"),
+                ActionShape(actionProperties, "operation.delete", new[] { "targetProcess", "targetOperation" }, "targetStep"),
+                ActionShape(actionProperties, "operation.move", new[] { "targetProcess", "targetOperation", "position" }, "targetStep")
+            };
+            actionSchema["x-localKeyScope"] = "current_change_set";
+            actionSchema.Remove("properties");
+            actionSchema.Remove("required");
+            actionSchema.Remove("additionalProperties");
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
         }
 
@@ -316,33 +351,58 @@ namespace Automation.McpServer
             };
         }
 
-        private static JsonObject ActionShape(string type, params string[] requiredPayload)
+        private static JsonObject ActionShape(
+            JsonObject sourceProperties, string type, string[] requiredPayload, params string[] optionalPayload)
         {
-            var required = new JsonArray { "type" };
-            foreach (string field in requiredPayload) required.Add(field);
-            return new JsonObject
-            {
-                ["title"] = type,
-                ["properties"] = new JsonObject
-                {
-                    ["type"] = new JsonObject { ["const"] = type }
-                },
-                ["required"] = required
-            };
+            return ClosedDiscriminatorShape(
+                sourceProperties, "type", type, requiredPayload, optionalPayload);
         }
 
-        private static JsonObject SemanticShape(string kind, params string[] requiredPayload)
+        private static JsonObject SemanticShape(
+            JsonObject sourceProperties, string kind, string[] requiredPayload, params string[] optionalPayload)
         {
-            var required = new JsonArray { "kind" };
-            foreach (string field in requiredPayload) required.Add(field);
+            string[] commonOptionalFields = { "opId", "key", "name" };
+            return ClosedDiscriminatorShape(sourceProperties, "kind", kind, requiredPayload,
+                commonOptionalFields.Concat(optionalPayload).ToArray());
+        }
+
+        private static JsonObject ClosedDiscriminatorShape(
+            JsonObject sourceProperties,
+            string discriminatorField,
+            string discriminatorValue,
+            IEnumerable<string> requiredPayload,
+            IEnumerable<string> optionalPayload)
+        {
+            var branchProperties = new JsonObject();
+            foreach (string field in new[] { discriminatorField }
+                .Concat(requiredPayload)
+                .Concat(optionalPayload)
+                .Distinct(StringComparer.Ordinal))
+            {
+                if (!sourceProperties.TryGetPropertyValue(field, out JsonNode? sourceSchema)
+                    || sourceSchema == null)
+                {
+                    throw new InvalidOperationException(
+                        $"preview_change_set 参数Schema缺少字段：{field}");
+                }
+                branchProperties[field] = sourceSchema.DeepClone();
+            }
+            if (branchProperties[discriminatorField] is not JsonObject discriminatorSchema)
+            {
+                throw new InvalidOperationException(
+                    $"preview_change_set 参数Schema的判别字段无效：{discriminatorField}");
+            }
+            discriminatorSchema["const"] = discriminatorValue;
+
+            var required = new JsonArray { discriminatorField };
+            foreach (string field in requiredPayload.Distinct(StringComparer.Ordinal)) required.Add(field);
             return new JsonObject
             {
-                ["title"] = kind,
-                ["properties"] = new JsonObject
-                {
-                    ["kind"] = new JsonObject { ["const"] = kind }
-                },
-                ["required"] = required
+                ["title"] = discriminatorValue,
+                ["type"] = "object",
+                ["properties"] = branchProperties,
+                ["required"] = required,
+                ["additionalProperties"] = false
             };
         }
 

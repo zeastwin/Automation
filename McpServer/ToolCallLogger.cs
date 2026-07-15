@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Security.Cryptography;
 
 namespace Automation.McpServer
 {
@@ -115,6 +116,7 @@ namespace Automation.McpServer
                 businessStatus,
                 errorCode = business.ErrorCode,
                 payloadBytes = completedPayload.OriginalBytes,
+                payloadSha256 = completedPayload.Sha256,
                 payloadTruncated = completedPayload.Truncated,
                 result = transportSucceeded ? resultSnapshot.Value : null,
                 error = transportSucceeded ? null : errorSnapshot.Value
@@ -201,6 +203,7 @@ namespace Automation.McpServer
                 businessStatus = "failed",
                 errorCode = "TOOL_INVOCATION_FAILED",
                 payloadBytes = errorSnapshot.OriginalBytes,
+                payloadSha256 = errorSnapshot.Sha256,
                 payloadTruncated = errorSnapshot.Truncated,
                 stage = "dispatch_or_parameter_binding",
                 exceptionType = exception?.GetType().FullName ?? string.Empty,
@@ -235,7 +238,7 @@ namespace Automation.McpServer
                     string path = FindRollingPath(root, datePrefix, ".log", content, false);
                     File.AppendAllText(path, content, new UTF8Encoding(false));
 
-                    if (structuredRecord != null)
+                    if (ShouldWriteStructured(structuredRecord))
                     {
                         string structuredContent = JsonSerializer.Serialize(
                             structuredRecord, CompactJsonOptions) + Environment.NewLine;
@@ -279,6 +282,30 @@ namespace Automation.McpServer
                     return path;
                 }
                 index++;
+            }
+        }
+
+        private static bool ShouldWriteStructured(object? record)
+        {
+            if (record == null)
+            {
+                return false;
+            }
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(record, CompactJsonOptions));
+                if (!document.RootElement.TryGetProperty("eventName", out JsonElement eventName)
+                    || eventName.ValueKind != JsonValueKind.String)
+                {
+                    return false;
+                }
+                string value = eventName.GetString() ?? string.Empty;
+                return value.EndsWith("failed", StringComparison.Ordinal)
+                    || string.Equals(value, "tool.business_failed", StringComparison.Ordinal);
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -343,7 +370,7 @@ namespace Automation.McpServer
         {
             if (value == null)
             {
-                return new PayloadSnapshot(string.Empty, null, 0, false);
+                return new PayloadSnapshot(string.Empty, null, 0, false, ComputeSha256(string.Empty));
             }
 
             string text;
@@ -369,11 +396,17 @@ namespace Automation.McpServer
             int originalBytes = Encoding.UTF8.GetByteCount(text);
             if (originalBytes <= MaxPayloadBytes)
             {
-                return new PayloadSnapshot(text, structuredValue ?? text, originalBytes, false);
+                return new PayloadSnapshot(text, structuredValue ?? text, originalBytes, false, ComputeSha256(text));
             }
 
             string truncatedText = TruncateUtf8(text, MaxPayloadBytes);
-            return new PayloadSnapshot(truncatedText, truncatedText, originalBytes, true);
+            return new PayloadSnapshot(truncatedText, truncatedText, originalBytes, true, ComputeSha256(text));
+        }
+
+        private static string ComputeSha256(string text)
+        {
+            byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(text ?? string.Empty));
+            return Convert.ToHexString(hash).ToLowerInvariant();
         }
 
         private static string TruncateUtf8(string text, int maxBytes)
@@ -454,12 +487,13 @@ namespace Automation.McpServer
 
         private sealed class PayloadSnapshot
         {
-            public PayloadSnapshot(string text, object? value, int originalBytes, bool truncated)
+            public PayloadSnapshot(string text, object? value, int originalBytes, bool truncated, string sha256)
             {
                 Text = text;
                 Value = value;
                 OriginalBytes = originalBytes;
                 Truncated = truncated;
+                Sha256 = sha256;
             }
 
             public string Text { get; }
@@ -469,6 +503,8 @@ namespace Automation.McpServer
             public int OriginalBytes { get; }
 
             public bool Truncated { get; }
+
+            public string Sha256 { get; }
         }
     }
 }

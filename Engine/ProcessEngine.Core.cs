@@ -72,6 +72,7 @@ namespace Automation
         public ILogger Logger { get; set; }
         public event Action<EngineSnapshot> SnapshotChanged;
         public event Action<OperationTraceEntry> OperationTraced;
+        public event Action<int, Guid> ProcessStarted;
         public event Action<int, Guid> ProcessCompleted;
         public int SnapshotThrottleMilliseconds
         {
@@ -973,6 +974,18 @@ namespace Automation
             catch (Exception ex)
             {
                 Logger?.Log($"流程完成事件处理失败:{ex.Message}", LogLevel.Error);
+            }
+        }
+
+        internal void RaiseProcessStarted(int procIndex, Guid procId)
+        {
+            try
+            {
+                ProcessStarted?.Invoke(procIndex, procId);
+            }
+            catch (Exception ex)
+            {
+                Logger?.Log($"流程启动事件处理失败:{ex.Message}", LogLevel.Error);
             }
         }
         public bool StartProcAuto(Proc proc, int index)
@@ -2479,6 +2492,7 @@ namespace Automation
             }
             engine.PublishHandleSnapshot(handle, true);
             // 先发布 Running 再启动工作线程，避免极短流程先发布 Stopped，随后又被启动线程回写为 Running。
+            engine.RaiseProcessStarted(handle.procNum, handle.procId);
             execThread.Start();
             if (command.Type == EngineCommandType.RunSingleOpOnce)
             {

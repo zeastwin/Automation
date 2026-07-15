@@ -131,7 +131,6 @@
     <Compile Include="Engine\AiChangeSetCompiler.cs" />
     <Compile Include="Engine\AiOperationCompilerRegistry.cs" />
     <Compile Include="Engine\StructuredOperationCompiler.cs" />
-    <Compile Include="Engine\ProcessFlowAnalyzer.cs" />
     <Compile Include="Engine\ProcessReadinessService.cs" />
     <Compile Include="Engine\OperationDefinitionRegistry.cs" />
     <Compile Include="Engine\ProcessDefinitionService.cs" />
@@ -158,6 +157,7 @@
     <Compile Include="Engine\\ProcessEngine.Operations.cs" />
     <Compile Include="Engine\\ProcessEngine.Models.cs" />
     <Compile Include="PLC\\PlcModels.cs" />
+    <Compile Include="PLC\\PlcDirectOperationValidator.cs" />
     <Compile Include="PLC\\HslModbusAdapter.cs" />
     <Compile Include="PLC\\PlcRuntimeService.cs" />
     <Compile Include="Stores\\PlcConfigStore.cs" />
@@ -171,6 +171,7 @@
     <Compile Include="Runtime\\AppConfigStorage.cs" />
     <Compile Include="Runtime\\RuntimeExceptionLogger.cs" />
     <Compile Include="Runtime\\StructuredAuditLogger.cs" />
+    <Compile Include="Runtime\\AiAnalysisLogger.cs" />
     <Compile Include="Runtime\\ProcessTraceAuditSink.cs" />
     <Compile Include="Runtime\\ObjectGraphCloner.cs" />
     <Compile Include="Runtime\\AutomationConfigSerializationBinder.cs" />

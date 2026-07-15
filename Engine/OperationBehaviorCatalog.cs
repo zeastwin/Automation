@@ -1,5 +1,6 @@
 using Newtonsoft.Json.Linq;
 using System;
+using System.Linq;
 using System.Reflection;
 
 namespace Automation
@@ -10,7 +11,7 @@ namespace Automation
     /// </summary>
     public static class OperationBehaviorCatalog
     {
-        public const int ContractVersion = 2;
+        public const int ContractVersion = 3;
 
         public static JObject BuildContract(OperationType operation)
         {
@@ -102,9 +103,65 @@ namespace Automation
                         "按强类型Modbus地址执行离散多项读取、连续批量读取或连续写入。",
                         new[] { "按项读取时一次配置多个独立地址", "连续批量读取时从首变量按索引展开", "同一HSL客户端在库内部逐次完成请求响应", "失败时报警且不执行宽松转换" },
                         true);
+                    AddRequiredField(contract, "DeviceName", "PLC设备精确名称；可通过 get_plc_device 或 list_plc_devices 获取");
+                    AddMultiConditionalField(contract, "ReadItems", new JObject
+                    {
+                        ["Action"] = new JArray("Read"),
+                        ["ReadMode"] = new JArray("DiscreteItems")
+                    }, "离散读取项；ItemCount 由数组长度自动计算，每项读取一个地址并写入一个变量");
+                    AddAnyConditionalField(contract, "FirstVariableName", new JArray(
+                        new JObject
+                        {
+                            ["Action"] = new JArray("Read"),
+                            ["ReadMode"] = new JArray("ContinuousBatch")
+                        },
+                        new JObject
+                        {
+                            ["Action"] = new JArray("Write"),
+                            ["WriteSource"] = new JArray("Variables")
+                        }), "连续读或变量写入的首变量；后续元素按变量索引连续展开");
+                    AddMultiConditionalField(contract, "ConstantValue", new JObject
+                    {
+                        ["Action"] = new JArray("Write"),
+                        ["WriteSource"] = new JArray("Constant")
+                    }, "单元素写入的固定常量，按 DataType 严格解析");
+                    contract["modeMatrix"] = new JArray(
+                        new JObject
+                        {
+                            ["when"] = new JObject { ["Action"] = "Read", ["ReadMode"] = "DiscreteItems" },
+                            ["use"] = new JArray("DeviceName", "ReadItems"),
+                            ["ignore"] = new JArray("Area", "StartAddress", "DataType", "ElementCount", "StringByteLength", "FirstVariableName", "WriteSource", "ConstantValue")
+                        },
+                        new JObject
+                        {
+                            ["when"] = new JObject { ["Action"] = "Read", ["ReadMode"] = "ContinuousBatch" },
+                            ["use"] = new JArray("DeviceName", "Area", "StartAddress", "DataType", "ElementCount", "StringByteLength", "FirstVariableName"),
+                            ["ignore"] = new JArray("ReadItems", "WriteSource", "ConstantValue")
+                        },
+                        new JObject
+                        {
+                            ["when"] = new JObject { ["Action"] = "Write", ["WriteSource"] = "Variables" },
+                            ["use"] = new JArray("DeviceName", "Area", "StartAddress", "DataType", "ElementCount", "StringByteLength", "FirstVariableName", "WriteSource"),
+                            ["ignore"] = new JArray("ReadMode", "ReadItems", "ConstantValue")
+                        },
+                        new JObject
+                        {
+                            ["when"] = new JObject { ["Action"] = "Write", ["WriteSource"] = "Constant" },
+                            ["use"] = new JArray("DeviceName", "Area", "StartAddress", "DataType", "ElementCount", "StringByteLength", "WriteSource", "ConstantValue"),
+                            ["ignore"] = new JArray("ReadMode", "ReadItems", "FirstVariableName")
+                        });
+                    contract["dataRules"] = new JObject
+                    {
+                        ["address"] = "StartAddress 0..65535，且按数据宽度计算后的访问末地址不得超过65535",
+                        ["elementCount"] = "1..1000；String 固定为1；Constant 写入固定为1",
+                        ["stringByteLength"] = "String 为1..2000，其他 DataType 必须为0",
+                        ["areaAndType"] = "Coil/DiscreteInput 仅 Boolean；HoldingRegister/InputRegister 不允许 Boolean",
+                        ["writeArea"] = "Write 仅允许 Coil 或 HoldingRegister",
+                        ["variableType"] = "String 对应平台 string；Boolean及所有数值类型对应平台 double"
+                    };
                     contract["constraints"] = new JArray(
                         "Action只能是Read或Write",
-                        "ReadMode=DiscreteItems时ItemCount必须与ReadItems数量一致，每项绑定一个变量",
+                        "ReadMode=DiscreteItems时ItemCount由ReadItems数组长度计算，范围1..100，每项绑定不同变量",
                         "ReadMode=ContinuousBatch时使用连续参数，并从FirstVariableName按变量索引展开",
                         "Boolean只允许Coil或DiscreteInput，其他类型只允许寄存器区",
                         "DiscreteInput和InputRegister禁止Write",
@@ -117,6 +174,13 @@ namespace Automation
                         "按设备重新初始化、启动或停止PLC变量映射。",
                         new[] { "按DeviceName定位设备", "执行Reinitialize、Start或Stop", "失败时报警" },
                         true);
+                    AddRequiredField(contract, "DeviceName", "PLC设备精确名称；可通过 get_plc_device 或 list_plc_devices 获取");
+                    contract["actionSemantics"] = new JObject
+                    {
+                        ["Reinitialize"] = "重建该设备连接，成功后进入Ready，不自动启动映射",
+                        ["Start"] = "启动该设备已启用的变量映射",
+                        ["Stop"] = "停止该设备变量映射；重复停止仍视为成功"
+                    };
                     contract["constraints"] = new JArray(
                         "Reinitialize只重建连接，不自动启动映射",
                         "Start要求设备处于Ready或Stopped",
@@ -124,15 +188,25 @@ namespace Automation
                     contract["failureModes"] = new JArray("设备不存在或状态不允许时报警", "重新初始化失败时保持Faulted");
                     break;
 
-                default:
+                case "流程结束":
                     contract = CreateContract(
-                        "执行该类型指令定义的自动化动作。",
-                        new[] { "按字段配置执行指令" },
-                        true);
-                    contract["coverage"] = "基础契约；尚未迁移该指令的专用执行语义";
+                        "执行到当前位置时正常结束当前流程。",
+                        new[] { "请求流程以 Completed 原因结束", "不执行当前位置之后的指令" },
+                        false);
+                    contract["controlFlow"]["terminal"] = true;
+                    contract["controlFlow"]["terminationReason"] = "Completed";
+                    break;
+
+                default:
+                    contract = CreateUnknownContract();
                     break;
             }
 
+            if (contract["coverage"] == null)
+            {
+                contract["coverage"] = "specialized";
+            }
+            contract["source"] = nameof(OperationBehaviorCatalog);
             AddAlarmPolicy(contract);
             return contract;
         }
@@ -156,19 +230,28 @@ namespace Automation
             }
 
             JObject requiredWhen = rule["requiredWhenForRun"] as JObject;
-            if (requiredWhen == null)
+            if (requiredWhen != null && MatchesAllConditions(operation, requiredWhen))
             {
-                return false;
+                return true;
             }
-            foreach (JProperty condition in requiredWhen.Properties())
+            if (rule["requiredWhenAnyForRun"] is JArray alternatives)
+            {
+                foreach (JObject alternative in alternatives.OfType<JObject>())
+                {
+                    if (MatchesAllConditions(operation, alternative)) return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool MatchesAllConditions(OperationType operation, JObject conditions)
+        {
+            foreach (JProperty condition in conditions.Properties())
             {
                 PropertyInfo property = operation.GetType().GetProperty(condition.Name);
                 string currentValue = property?.GetValue(operation)?.ToString();
                 if (!(condition.Value is JArray candidates)
-                    || !ContainsString(candidates, currentValue))
-                {
-                    return false;
-                }
+                    || !ContainsString(candidates, currentValue)) return false;
             }
             return true;
         }
@@ -198,6 +281,23 @@ namespace Automation
                     ["description"] = fallThrough
                         ? "正常完成后自动执行下一条指令"
                         : "该指令显式决定后续流向，不自动执行下一条"
+                },
+                ["fieldRules"] = new JObject()
+            };
+        }
+
+        private static JObject CreateUnknownContract()
+        {
+            return new JObject
+            {
+                ["contractVersion"] = ContractVersion,
+                ["coverage"] = "unknown",
+                ["purpose"] = "该原生指令的字段结构可以严格读取和写入，但尚无专用运行行为契约。",
+                ["execution"] = new JArray(),
+                ["controlFlow"] = new JObject
+                {
+                    ["known"] = false,
+                    ["description"] = "未提供控制流结论；不得由通用默认值推断是否顺序执行。"
                 },
                 ["fieldRules"] = new JObject()
             };
@@ -233,6 +333,37 @@ namespace Automation
             {
                 ["visibleWhen"] = new JObject { [dependsOn] = new JArray(values) },
                 ["requiredWhenForRun"] = new JObject { [dependsOn] = new JArray(values) },
+                ["description"] = description
+            };
+        }
+
+        private static void AddRequiredField(JObject contract, string fieldName, string description)
+        {
+            ((JObject)contract["fieldRules"])[fieldName] = new JObject
+            {
+                ["requiredForRun"] = true,
+                ["description"] = description
+            };
+        }
+
+        private static void AddMultiConditionalField(
+            JObject contract, string fieldName, JObject conditions, string description)
+        {
+            ((JObject)contract["fieldRules"])[fieldName] = new JObject
+            {
+                ["visibleWhen"] = conditions.DeepClone(),
+                ["requiredWhenForRun"] = conditions.DeepClone(),
+                ["description"] = description
+            };
+        }
+
+        private static void AddAnyConditionalField(
+            JObject contract, string fieldName, JArray alternatives, string description)
+        {
+            ((JObject)contract["fieldRules"])[fieldName] = new JObject
+            {
+                ["visibleWhenAny"] = alternatives.DeepClone(),
+                ["requiredWhenAnyForRun"] = alternatives.DeepClone(),
                 ["description"] = description
             };
         }

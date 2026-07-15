@@ -111,6 +111,11 @@ namespace Automation
                 // 由 ProcessReadinessService 在启动闸门统一拦截，不阻止配置保存。
                 return;
             }
+            if (string.Equals(referenceType, "plc.device", StringComparison.Ordinal))
+            {
+                // PLC设备允许晚于流程定义补齐；运行就绪分析会基于当前设备清单拦截启动。
+                return;
+            }
             if (string.Equals(referenceType, "value", StringComparison.Ordinal))
             {
                 RequireVariable(text, path);

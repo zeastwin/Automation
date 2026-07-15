@@ -581,11 +581,6 @@ namespace Automation.McpServer
             return PostAsync("/bridge/diagnostics/audit", payload);
         }
 
-        public Task<string> AnalyzeFlowAsync(int procIndex)
-        {
-            return PostAsync("/bridge/diagnostics/flow", new JsonObject { ["procIndex"] = procIndex });
-        }
-
         public Task<string> DiagnoseIssueAsync(int procIndex, string? symptom, int? stepIndex, int? opIndex)
         {
             JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
@@ -727,6 +722,18 @@ namespace Automation.McpServer
             if (!string.IsNullOrEmpty(kind)) parameters["kind"] = kind;
             if (includeStatus.HasValue) parameters["includeStatus"] = includeStatus.Value;
             return ListResourcesAsync("communications", parameters);
+        }
+
+        public Task<string> ListPlcDevicesAsync()
+        {
+            return ListResourcesAsync("plc", new JsonObject { ["includeMaps"] = false });
+        }
+
+        public Task<string> GetPlcDeviceAsync(string name, bool? includeMaps)
+        {
+            var parameters = new JsonObject { ["name"] = name };
+            if (includeMaps.HasValue) parameters["includeMaps"] = includeMaps.Value;
+            return ListResourcesAsync("plc", parameters);
         }
 
         private Task<string> PostAsync(string path, object payload)
