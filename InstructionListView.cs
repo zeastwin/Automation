@@ -18,6 +18,7 @@ namespace Automation
     {
         private const int FlowColumnWidth = 112;
         private const int JumpLaneSpacing = 9;
+        private const int JumpVisibleLaneCount = 3;
         private readonly ImageList rowHeightImages;
         private readonly Bitmap rowHeightBitmap;
         private readonly Font contentFont;
@@ -38,8 +39,6 @@ namespace Automation
         private Proc flowProc;
         private int flowProcIndex = -1;
         private int flowStepIndex = -1;
-        private int maxOutgoingLaneCount;
-        private int maxIncomingLaneCount;
 
         private enum JumpKind
         {
@@ -484,10 +483,8 @@ namespace Automation
             int verticalScrollWidth = OperationCount * rowHeightImages.ImageSize.Height > ClientSize.Height - 28
                 ? SystemInformation.VerticalScrollBarWidth
                 : 0;
-            int laneCount = Math.Max(1, Math.Max(maxOutgoingLaneCount, maxIncomingLaneCount));
-            int flowColumnWidth = Math.Max(FlowColumnWidth, 58 + laneCount * JumpLaneSpacing * 2);
-            int available = Math.Max(240, ClientSize.Width - flowColumnWidth - 68 - verticalScrollWidth - 2);
-            base.Columns[0].Width = flowColumnWidth;
+            int available = Math.Max(240, ClientSize.Width - FlowColumnWidth - 68 - verticalScrollWidth - 2);
+            base.Columns[0].Width = FlowColumnWidth;
             base.Columns[1].Width = 68;
             if (noteColumnVisible)
             {
@@ -506,8 +503,6 @@ namespace Automation
         private void RebuildJumpLinks()
         {
             jumpLinks.Clear();
-            maxOutgoingLaneCount = 0;
-            maxIncomingLaneCount = 0;
             if (flowProcIndex < 0 || flowStepIndex < 0 || flowProc?.steps == null
                 || flowStepIndex >= flowProc.steps.Count)
             {
@@ -579,21 +574,6 @@ namespace Automation
             foreach (JumpLink link in jumpLinks.Where(link => link.IsCrossStep))
             {
                 link.CrossId = crossId++;
-            }
-            if (flowStepIndex >= 0)
-            {
-                IEnumerable<JumpLink> sameStepLinks = jumpLinks.Where(link =>
-                    !link.IsCrossStep && link.SourceStepIndex == flowStepIndex);
-                maxOutgoingLaneCount = sameStepLinks
-                    .GroupBy(link => link.SourceOpIndex)
-                    .Select(group => group.Count())
-                    .DefaultIfEmpty(0)
-                    .Max();
-                maxIncomingLaneCount = sameStepLinks
-                    .GroupBy(link => link.TargetOpIndex)
-                    .Select(group => group.Count())
-                    .DefaultIfEmpty(0)
-                    .Max();
             }
         }
 
@@ -737,9 +717,17 @@ namespace Automation
             {
                 descriptions.Add("选中后左侧显示输出路径，右侧显示输入路径");
             }
-            if (jumpLinks.Any(link => link.IsCrossStep && IsEndpointOnCurrentStep(link, index)))
+            if (jumpLinks.Any(link => link.IsCrossStep
+                && link.SourceStepIndex == flowStepIndex
+                && link.SourceOpIndex == index))
             {
-                descriptions.Add("紫色角标表示存在跨步骤跳转");
+                descriptions.Add("左侧紫色外箭头表示跳到其他步骤");
+            }
+            if (jumpLinks.Any(link => link.IsCrossStep
+                && link.TargetStepIndex == flowStepIndex
+                && link.TargetOpIndex == index))
+            {
+                descriptions.Add("右侧青色内箭头表示由其他步骤跳入");
             }
             return string.Join("；", descriptions);
         }
@@ -1120,9 +1108,10 @@ namespace Automation
                 bool isOutput = link.SourceOpIndex == focusRow;
                 List<JumpLink> directionLinks = isOutput ? outgoingLinks : incomingLinks;
                 int laneIndex = directionLinks.IndexOf(link);
+                int visibleLaneIndex = laneIndex % JumpVisibleLaneCount;
                 int laneX = isOutput
-                    ? centerX - 22 - laneIndex * JumpLaneSpacing
-                    : centerX + 22 + laneIndex * JumpLaneSpacing;
+                    ? centerX - 22 - visibleLaneIndex * JumpLaneSpacing
+                    : centerX + 22 + visibleLaneIndex * JumpLaneSpacing;
                 float portOffset = GetPortOffset(laneIndex, directionLinks.Count);
                 float sourcePortY = link.SourceOpIndex == focusRow ? centerY + portOffset : centerY;
                 float targetPortY = link.TargetOpIndex == focusRow ? centerY + portOffset : centerY;
@@ -1347,29 +1336,73 @@ namespace Automation
             }
         }
 
-        private static void DrawCrossStepMarker(
+        private void DrawCrossStepMarker(
             Graphics graphics,
             int centerX,
             int centerY,
             IReadOnlyCollection<JumpLink> endpointLinks)
         {
-            bool hasCrossOutput = endpointLinks.Any(link => link.IsCrossStep);
-            if (!hasCrossOutput)
+            bool hasCrossOutput = endpointLinks.Any(link => link.IsCrossStep
+                && link.SourceStepIndex == flowStepIndex);
+            bool hasCrossInput = endpointLinks.Any(link => link.IsCrossStep
+                && link.TargetStepIndex == flowStepIndex);
+            if (!hasCrossOutput && !hasCrossInput)
             {
                 return;
             }
-            Rectangle badge = new Rectangle(centerX + 4, centerY - 12, 9, 9);
-            using (SolidBrush brush = new SolidBrush(Color.FromArgb(133, 83, 183)))
-            using (Pen glyph = new Pen(Color.White, 1.2F)
+
+            if (hasCrossOutput)
             {
-                StartCap = LineCap.Round,
-                EndCap = LineCap.Round
-            })
+                Color outputColor = Color.FromArgb(133, 83, 183);
+                Rectangle outputBadge = new Rectangle(centerX - 25, centerY - 7, 14, 14);
+                using (SolidBrush brush = new SolidBrush(outputColor))
+                using (Pen connector = new Pen(Color.FromArgb(165, outputColor), 1.8F))
+                using (Pen border = new Pen(Color.White, 1.2F))
+                using (Pen glyph = new Pen(Color.White, 1.55F)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round
+                })
+                {
+                    graphics.DrawLine(connector, outputBadge.Right, centerY, centerX - 8, centerY);
+                    graphics.FillEllipse(brush, outputBadge);
+                    graphics.DrawEllipse(border, outputBadge);
+                    graphics.DrawLine(
+                        glyph,
+                        outputBadge.Right - 3,
+                        outputBadge.Bottom - 3,
+                        outputBadge.Left + 3,
+                        outputBadge.Top + 3);
+                    graphics.DrawLine(glyph, outputBadge.Left + 3, outputBadge.Top + 3, outputBadge.Left + 7, outputBadge.Top + 3);
+                    graphics.DrawLine(glyph, outputBadge.Left + 3, outputBadge.Top + 3, outputBadge.Left + 3, outputBadge.Top + 7);
+                }
+            }
+
+            if (hasCrossInput)
             {
-                graphics.FillEllipse(brush, badge);
-                graphics.DrawLine(glyph, badge.Left + 2, badge.Bottom - 3, badge.Right - 2, badge.Top + 2);
-                graphics.DrawLine(glyph, badge.Right - 5, badge.Top + 2, badge.Right - 2, badge.Top + 2);
-                graphics.DrawLine(glyph, badge.Right - 2, badge.Top + 2, badge.Right - 2, badge.Top + 5);
+                Color inputColor = Color.FromArgb(24, 151, 166);
+                Rectangle inputBadge = new Rectangle(centerX + 11, centerY - 7, 14, 14);
+                using (SolidBrush brush = new SolidBrush(inputColor))
+                using (Pen connector = new Pen(Color.FromArgb(165, inputColor), 1.8F))
+                using (Pen border = new Pen(Color.White, 1.2F))
+                using (Pen glyph = new Pen(Color.White, 1.55F)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round
+                })
+                {
+                    graphics.DrawLine(connector, centerX + 8, centerY, inputBadge.Left, centerY);
+                    graphics.FillEllipse(brush, inputBadge);
+                    graphics.DrawEllipse(border, inputBadge);
+                    graphics.DrawLine(
+                        glyph,
+                        inputBadge.Right - 3,
+                        inputBadge.Top + 3,
+                        inputBadge.Left + 3,
+                        inputBadge.Bottom - 3);
+                    graphics.DrawLine(glyph, inputBadge.Left + 3, inputBadge.Bottom - 7, inputBadge.Left + 3, inputBadge.Bottom - 3);
+                    graphics.DrawLine(glyph, inputBadge.Left + 3, inputBadge.Bottom - 3, inputBadge.Left + 7, inputBadge.Bottom - 3);
+                }
             }
         }
 
