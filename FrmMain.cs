@@ -626,7 +626,16 @@ namespace Automation
                 }
                 snapshotCache.TryGetValue(snapshot.ProcId, out previous);
                 snapshotCache[snapshot.ProcId] = snapshot;
-                snapshotDirty.Add(snapshot.ProcId);
+                bool treeVisualChanged = previous == null
+                    || previous.ProcIndex != snapshot.ProcIndex
+                    || previous.State != snapshot.State
+                    || previous.StepIndex != snapshot.StepIndex
+                    || previous.IsBreakpoint != snapshot.IsBreakpoint
+                    || !string.Equals(previous.ProcName, snapshot.ProcName, StringComparison.Ordinal);
+                if (treeVisualChanged)
+                {
+                    snapshotDirty.Add(snapshot.ProcId);
+                }
             }
             if (snapshot.State == ProcRunState.Stopped
                 && (previous == null || previous.State != ProcRunState.Stopped))
@@ -671,9 +680,27 @@ namespace Automation
             }
             if (pending != null)
             {
-                foreach (EngineSnapshot snapshot in pending)
+                TreeView processTree = SF.frmProc?.proc_treeView;
+                bool suspendTreeDrawing = processTree != null
+                    && !processTree.IsDisposed
+                    && processTree.IsHandleCreated;
+                if (suspendTreeDrawing)
                 {
-                    UpdateProcText(snapshot);
+                    processTree.BeginUpdate();
+                }
+                try
+                {
+                    foreach (EngineSnapshot snapshot in pending)
+                    {
+                        UpdateProcText(snapshot);
+                    }
+                }
+                finally
+                {
+                    if (suspendTreeDrawing && !processTree.IsDisposed)
+                    {
+                        processTree.EndUpdate();
+                    }
                 }
             }
             UpdateHighlightFromCache();

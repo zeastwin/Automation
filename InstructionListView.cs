@@ -99,8 +99,8 @@ namespace Automation
             GridLines = false;
             BorderStyle = BorderStyle.None;
             AllowDrop = true;
-            contentFont = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
-            headerFont = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
+            contentFont = ProcessPageFont.Create(10F, FontStyle.Regular);
+            headerFont = ProcessPageFont.Create(9.5F, FontStyle.Bold);
             Font = contentFont;
             BackColor = Color.FromArgb(246, 249, 251);
             ForeColor = Color.FromArgb(39, 52, 61);
@@ -144,9 +144,13 @@ namespace Automation
             get => bindingSource ?? (object)operationSource;
             set
             {
-                if (ReferenceEquals(value, bindingSource) || ReferenceEquals(value, operationSource))
+                BindingSource nextBindingSource = value as BindingSource;
+                IList nextOperationSource = nextBindingSource?.List ?? value as IList;
+                bool bindingChanged = !ReferenceEquals(nextBindingSource, bindingSource);
+                bool operationSourceChanged = !ReferenceEquals(nextOperationSource, operationSource);
+                if (!bindingChanged && !operationSourceChanged)
                 {
-                    RefreshOperations();
+                    RefreshOperations(false);
                     return;
                 }
                 ClearSelection();
@@ -156,17 +160,13 @@ namespace Automation
                 runtimeIndex = -1;
                 runtimeState = ProcRunState.Stopped;
                 runtimeBreakpoint = false;
-                bindingSource = value as BindingSource;
+                bindingSource = nextBindingSource;
                 if (bindingSource != null)
                 {
                     bindingSource.ListChanged += BindingSource_ListChanged;
-                    operationSource = bindingSource.List;
                 }
-                else
-                {
-                    operationSource = value as IList;
-                }
-                RefreshOperations();
+                operationSource = nextOperationSource;
+                RefreshOperations(true);
             }
         }
 
@@ -195,6 +195,58 @@ namespace Automation
         [Browsable(false)]
         public int CurrentIndex => FocusedItem?.Index
             ?? SelectedIndices.Cast<int>().DefaultIfEmpty(-1).First();
+
+        [Browsable(false)]
+        public int FirstVisibleIndex
+        {
+            get
+            {
+                if (!IsHandleCreated || OperationCount <= 0)
+                {
+                    return -1;
+                }
+                try
+                {
+                    return TopItem?.Index ?? -1;
+                }
+                catch (InvalidOperationException)
+                {
+                    return -1;
+                }
+                catch (NullReferenceException)
+                {
+                    return -1;
+                }
+            }
+        }
+
+        public void SetFirstVisibleIndex(int index)
+        {
+            if (!IsHandleCreated || OperationCount <= 0)
+            {
+                return;
+            }
+            int visibleRowCount = Math.Max(
+                1,
+                (ClientSize.Height - 28) / Math.Max(1, rowHeightImages.ImageSize.Height));
+            int maxTopIndex = Math.Max(0, OperationCount - visibleRowCount);
+            int targetIndex = Math.Max(0, Math.Min(index, maxTopIndex));
+            try
+            {
+                TopItem = Items[targetIndex];
+            }
+            catch (InvalidOperationException)
+            {
+                EnsureVisible(targetIndex);
+            }
+            catch (NullReferenceException)
+            {
+                EnsureVisible(targetIndex);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+            }
+        }
 
         public void ClearSelection()
         {
@@ -358,8 +410,10 @@ namespace Automation
 
         private void BindingSource_ListChanged(object sender, ListChangedEventArgs e)
         {
-            operationSource = bindingSource?.List;
-            RefreshOperations();
+            IList currentOperationSource = bindingSource?.List;
+            bool operationSourceChanged = !ReferenceEquals(currentOperationSource, operationSource);
+            operationSource = currentOperationSource;
+            RefreshOperations(operationSourceChanged);
         }
 
         private void DetachBindingSource()
@@ -371,21 +425,52 @@ namespace Automation
             }
         }
 
-        private void RefreshOperations()
+        private void RefreshOperations(bool resetViewport)
         {
-            int selectedIndex = CurrentIndex;
-            VirtualListSize = OperationCount;
-            RebuildJumpLinks();
-            RecalculateColumnWidths();
-            rowBackColors.Keys.Where(index => index >= OperationCount).ToList()
-                .ForEach(index => rowBackColors.Remove(index));
-            if (runtimeIndex >= OperationCount)
+            int selectedIndex = resetViewport ? -1 : CurrentIndex;
+            int firstVisibleIndex = resetViewport ? 0 : FirstVisibleIndex;
+            int previousVirtualListSize = VirtualListSize;
+            BeginUpdate();
+            try
             {
-                ClearRuntimeState();
+                if (resetViewport)
+                {
+                    ClearSelection();
+                }
+                VirtualListSize = OperationCount;
+                RebuildJumpLinks();
+                RecalculateColumnWidths();
+                rowBackColors.Keys.Where(index => index >= OperationCount).ToList()
+                    .ForEach(index => rowBackColors.Remove(index));
+                if (runtimeIndex >= OperationCount)
+                {
+                    ClearRuntimeState();
+                }
+            }
+            finally
+            {
+                EndUpdate();
+            }
+            if ((resetViewport || previousVirtualListSize != OperationCount)
+                && OperationCount > 0
+                && IsHandleCreated)
+            {
+                // WinForms 的虚拟 ListView 在同一控件上换成更短的列表后，
+                // 原生滚动原点可能仍停留在旧列表，导致首行悬在中部或部分行不绘制。
+                // 仅在列表实例或数量真正变化时重建句柄，彻底清除旧的虚拟视口状态。
+                RecreateHandle();
+            }
+            if (OperationCount > 0)
+            {
+                SetFirstVisibleIndex(firstVisibleIndex < 0 ? 0 : firstVisibleIndex);
             }
             if (selectedIndex >= 0 && selectedIndex < OperationCount)
             {
                 SelectSingle(selectedIndex);
+            }
+            else if (resetViewport || previousVirtualListSize != OperationCount)
+            {
+                ClearSelection();
             }
             Invalidate();
         }

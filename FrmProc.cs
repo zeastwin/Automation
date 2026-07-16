@@ -77,8 +77,8 @@ namespace Automation
 
         private void ConfigureProcTreeAppearance()
         {
-            procNodeFont = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
-            stepNodeFont = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
+            procNodeFont = ProcessPageFont.Create(10.5F, FontStyle.Bold);
+            stepNodeFont = ProcessPageFont.Create(10F, FontStyle.Regular);
             // TreeView 使用基准字体计算节点标签边界。基准字体小于流程节点粗体时，
             // WinForms 会在仍有可用宽度的情况下裁掉流程名称末尾。
             proc_treeView.Font = procNodeFont;
@@ -199,13 +199,11 @@ namespace Automation
 
             Proc proc = procsList[procIndex];
             TreeNode procNode = proc_treeView.Nodes[procIndex];
-            procNode.NodeFont = procNodeFont;
             SetNodeImage(procNode, GetProcImageKey(proc, snapshot));
             int stepCount = Math.Min(proc?.steps?.Count ?? 0, procNode.Nodes.Count);
             for (int i = 0; i < stepCount; i++)
             {
                 TreeNode stepNode = procNode.Nodes[i];
-                stepNode.NodeFont = stepNodeFont;
                 SetNodeImage(stepNode, GetStepImageKey(proc, proc.steps[i], i, snapshot));
             }
         }
@@ -730,12 +728,12 @@ namespace Automation
             InstructionListView grid = SF.frmDataGrid?.dataGridView1;
             OperationType selectedOp = grid?.GetOperation(grid.CurrentIndex);
             Guid selectedOpId = selectedOp?.Id ?? Guid.Empty;
-            int firstDisplayedRow = -1;
+            int firstVisibleRow = -1;
             if (grid != null && grid.OperationCount > 0)
             {
                 try
                 {
-                    firstDisplayedRow = grid.CurrentIndex;
+                    firstVisibleRow = grid.FirstVisibleIndex;
                 }
                 catch (InvalidOperationException)
                 {
@@ -788,11 +786,11 @@ namespace Automation
                         SF.frmDataGrid.iSelectedRow = selectedRowIndex;
                     }
                 }
-                if (firstDisplayedRow >= 0 && firstDisplayedRow < grid.OperationCount)
+                if (firstVisibleRow >= 0 && firstVisibleRow < grid.OperationCount)
                 {
                     try
                     {
-                        grid.EnsureIndexVisible(firstDisplayedRow);
+                        grid.SetFirstVisibleIndex(firstVisibleRow);
                     }
                     catch (InvalidOperationException)
                     {
@@ -1811,6 +1809,42 @@ namespace Automation
             return new Tuple<int, int, int>(-1, -1, -1);
         }
 
+    }
+
+    internal static class ProcessPageFont
+    {
+        private static readonly string FamilyName = ResolveFamilyName();
+
+        public static Font Create(float size, FontStyle style)
+        {
+            try
+            {
+                return new Font(FamilyName, size, style, GraphicsUnit.Point);
+            }
+            catch
+            {
+                return new Font("Microsoft YaHei UI", size, style, GraphicsUnit.Point);
+            }
+        }
+
+        private static string ResolveFamilyName()
+        {
+            string[] preferredFamilies = { "Noto Sans SC", "Microsoft YaHei UI", "DengXian" };
+            try
+            {
+                using (var fonts = new System.Drawing.Text.InstalledFontCollection())
+                {
+                    var installedNames = new HashSet<string>(
+                        fonts.Families.Select(family => family.Name),
+                        StringComparer.OrdinalIgnoreCase);
+                    return preferredFamilies.First(installedNames.Contains);
+                }
+            }
+            catch
+            {
+                return "Microsoft YaHei UI";
+            }
+        }
     }
 
 }
