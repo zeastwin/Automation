@@ -24,8 +24,8 @@ namespace Automation
 {
     public partial class FrmToolBar : Form
     {
-        private static readonly Color ToolbarBackColor = Color.FromArgb(242, 246, 249);
-        private static readonly Color ButtonBackColor = Color.FromArgb(242, 246, 249);
+        private static readonly Color ToolbarBackColor = Color.FromArgb(252, 253, 254);
+        private static readonly Color ButtonBackColor = Color.FromArgb(252, 253, 254);
         private static readonly Color ButtonForeColor = Color.FromArgb(48, 67, 78);
         private readonly List<int> separatorPositions = new List<int>();
         private readonly System.Windows.Forms.ToolTip toolbarToolTip = new System.Windows.Forms.ToolTip();
@@ -169,6 +169,15 @@ namespace Automation
                 {
                     e.Graphics.DrawLine(pen, x, top, x, top + 22);
                 }
+            }
+            using (Pen borderPen = new Pen(Color.FromArgb(214, 222, 227)))
+            {
+                e.Graphics.DrawLine(
+                    borderPen,
+                    0,
+                    ToolBar_Panel.ClientSize.Height - 1,
+                    ToolBar_Panel.ClientSize.Width,
+                    ToolBar_Panel.ClientSize.Height - 1);
             }
         }
 

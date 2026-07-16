@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -550,6 +551,24 @@ namespace Automation
             }
             startInfo.EnvironmentVariables["PATH"] = machineGitCommandPath + Path.PathSeparator
                 + (startInfo.EnvironmentVariables["PATH"] ?? Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
+            using (Process hostProcess = Process.GetCurrentProcess())
+            {
+                startInfo.EnvironmentVariables["AUTOMATION_HOST_PROCESS_ID"] =
+                    hostProcess.Id.ToString(CultureInfo.InvariantCulture);
+                string hostExecutablePath;
+                try
+                {
+                    hostExecutablePath = hostProcess.MainModule?.FileName;
+                }
+                catch
+                {
+                    hostExecutablePath = null;
+                }
+                startInfo.EnvironmentVariables["AUTOMATION_HOST_EXECUTABLE"] =
+                    string.IsNullOrWhiteSpace(hostExecutablePath)
+                        ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Automation.exe")
+                        : hostExecutablePath;
+            }
             // Goose 会把 Developer Shell 输出严格按 UTF-8 解码。统一通过随程序发布的
             // UTF-8 适配器启动 PowerShell，避免系统代码页把中文不可逆地解码成乱码。
             string developerShellPath = ResolveGooseDeveloperShellPath();

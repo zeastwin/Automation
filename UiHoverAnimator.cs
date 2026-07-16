@@ -92,7 +92,7 @@ namespace Automation
                 float difference = state.Target - state.Progress;
                 if (Math.Abs(difference) > 0.01F)
                 {
-                    state.Progress += difference * 0.24F;
+                    state.Progress += difference * 0.18F;
                     animating = true;
                 }
                 else

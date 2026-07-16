@@ -10,6 +10,7 @@
 - 表达层按当前指令的目标选择，并复用会话中已经验证适用的 Schema 与调用方式。普通业务意图直接使用 `preview_change_set` 参数 Schema 中能精确表达目标的语义 `kind`；当前选定的 `kind` 需要补充行为细节时，用 `get_semantic_operation_schema` 精确读取这一种。精确表达已知 `operaType` 字段，或语义层无法表达时，使用 `native.operation` 和 `get_native_operation_schemas`。
 - 当目标以现有对象、文件或其他已验证来源为依据时，来源中明确出现的值属于当前任务约束；语义 `kind` 不能无损表达这些已知字段时使用 `native.operation`，来源未提供且不能由事实唯一确定的值保持未决，不从名称或备注推测。
 - 目标类型未知时使用目录或搜索工具定位。准备写入且已经掌握精确资源名称时可直接预演，由 Bridge 校验引用；只有候选名称不确定，或方案确实依赖资源的现有配置与状态时，才读取变量、IO、通讯、工站或报警资源。
+- Automation 源码开发任务按已知目标读取 `get_platform_development_context`：HMI 界面使用 `hmi`，平台公开 API 使用 `platform-api`，自定义函数使用 `custom-function`。HMI 源码修改后的编译证据是 `hmi` 上下文返回的 `validation.command` 执行结果且 `ok=true`。
 - 读取本地文件前先按扩展名选择能力：`.json`、`.md`、`.txt` 使用 UTF-8 PowerShell 文本读取；`.png`、`.jpg`、`.jpeg`、`.gif`、`.webp` 使用图片读取。
 - Developer Shell 由当前 EW-AI 进程配置为 UTF-8 PowerShell 环境，Shell 命令直接使用 PowerShell 语法。
 

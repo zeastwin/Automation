@@ -17,6 +17,7 @@ namespace Automation.Hmi
         {
             this.homeRoot = new System.Windows.Forms.Panel();
             this.workspacePanel = new System.Windows.Forms.Panel();
+            this.pressureChart = new Automation.Hmi.PressureChart();
             this.sidebarPanel = new System.Windows.Forms.Panel();
             this.sidebarLayout = new System.Windows.Forms.TableLayoutPanel();
             this.statisticsSection = new System.Windows.Forms.TableLayoutPanel();
@@ -41,6 +42,7 @@ namespace Automation.Hmi
             this.lblSystemTitle = new System.Windows.Forms.Label();
             this.lblSystemStatus = new System.Windows.Forms.Label();
             this.homeRoot.SuspendLayout();
+            this.workspacePanel.SuspendLayout();
             this.sidebarPanel.SuspendLayout();
             this.sidebarLayout.SuspendLayout();
             this.statisticsSection.SuspendLayout();
@@ -64,11 +66,23 @@ namespace Automation.Hmi
             // workspacePanel
             //
             this.workspacePanel.BackColor = System.Drawing.Color.White;
+            this.workspacePanel.Controls.Add(this.pressureChart);
             this.workspacePanel.Dock = System.Windows.Forms.DockStyle.Fill;
             this.workspacePanel.Location = new System.Drawing.Point(370, 0);
             this.workspacePanel.Name = "workspacePanel";
+            this.workspacePanel.Padding = new System.Windows.Forms.Padding(20, 16, 20, 16);
             this.workspacePanel.Size = new System.Drawing.Size(830, 656);
             this.workspacePanel.TabIndex = 1;
+            //
+            // pressureChart
+            //
+            this.pressureChart.BackColor = System.Drawing.Color.White;
+            this.pressureChart.ChartTitle = "压力趋势 (MPa)";
+            this.pressureChart.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.pressureChart.Location = new System.Drawing.Point(20, 16);
+            this.pressureChart.Name = "pressureChart";
+            this.pressureChart.Size = new System.Drawing.Size(790, 624);
+            this.pressureChart.TabIndex = 0;
             //
             // sidebarPanel
             //
@@ -285,6 +299,7 @@ namespace Automation.Hmi
             this.Name = "HmiHomePage";
             this.Text = "主页";
             this.homeRoot.ResumeLayout(false);
+            this.workspacePanel.ResumeLayout(false);
             this.sidebarPanel.ResumeLayout(false);
             this.sidebarLayout.ResumeLayout(false);
             this.statisticsSection.ResumeLayout(false);
@@ -297,6 +312,7 @@ namespace Automation.Hmi
 
         private System.Windows.Forms.Panel homeRoot;
         private System.Windows.Forms.Panel workspacePanel;
+        private PressureChart pressureChart;
         private System.Windows.Forms.Panel sidebarPanel;
         private System.Windows.Forms.TableLayoutPanel sidebarLayout;
         private System.Windows.Forms.TableLayoutPanel statisticsSection;

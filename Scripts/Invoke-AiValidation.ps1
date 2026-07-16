@@ -12,6 +12,7 @@ $projectName = [IO.Path]::GetFileName($projectPath)
 $isMachineApp = $projectName.Equals('MachineApp.csproj', [StringComparison]::OrdinalIgnoreCase)
 $isAutomation = $projectName.Equals('Automation.csproj', [StringComparison]::OrdinalIgnoreCase)
 $hmiRoot = Join-Path $projectRoot 'Hmi'
+$validationProjectPath = Join-Path $repoRoot 'Build\HmiValidation\HmiValidation.csproj'
 $stagingRoot = Join-Path $repoRoot 'artifacts\HmiValidation'
 $protectedDebugFiles = @(
     (Join-Path $repoRoot 'bin\Debug\Automation.exe')
@@ -69,6 +70,9 @@ function Assert-HmiProject {
 
     if (-not $isMachineApp -and -not $isAutomation) {
         throw "Only Automation.csproj or MachineApp.csproj can be validated: $projectPath"
+    }
+    if (-not (Test-Path -LiteralPath $validationProjectPath -PathType Leaf)) {
+        throw "HMI validation project does not exist: $validationProjectPath"
     }
 }
 
@@ -151,33 +155,34 @@ try {
     $appOut = $appDirectory.Replace('\', '/') + '/'
     $intermediateOut = $intermediateDirectory.Replace('\', '/') + '/'
 
-    if ($isAutomation) {
-        foreach ($dependencyName in @('Automation.DeviceSdk.dll', 'Automation.Protocol.dll')) {
-            $dependencyPath = Join-Path $repoRoot ("bin\Debug\" + $dependencyName)
-            if (-not (Test-Path -LiteralPath $dependencyPath -PathType Leaf)) {
-                throw "Platform Debug dependency does not exist: $dependencyPath"
-            }
-            Copy-Item -LiteralPath $dependencyPath -Destination (Join-Path $appDirectory $dependencyName) -Force
-        }
-    }
-
-    Write-Host "Stage 2/2: compile $projectName without running code -> $appDirectory"
-    if ($isAutomation) {
-        $buildArguments = @(
-            'msbuild', $projectPath, '-t:Compile', '-p:Configuration=Debug', '-p:Platform=x64',
-            '-p:BuildProjectReferences=false',
-            "/p:OutDir=$appOut",
-            "/p:IntermediateOutputPath=$intermediateOut"
-        )
+    $deviceSdkPath = if ($isAutomation) {
+        Join-Path $repoRoot 'bin\Debug\Automation.DeviceSdk.dll'
     }
     else {
-        $buildArguments = @(
-            'build', $projectPath, '-c', 'Debug', '-p:Platform=x64',
-            "/p:OutDir=$appOut",
-            "/p:IntermediateOutputPath=$intermediateOut",
-            "/p:MSBuildProjectExtensionsPath=$intermediateOut"
-        )
+        Join-Path $projectRoot 'Platform\Automation.DeviceSdk.dll'
     }
+    if (-not (Test-Path -LiteralPath $deviceSdkPath -PathType Leaf)) {
+        throw "Automation.DeviceSdk runtime dependency does not exist: $deviceSdkPath"
+    }
+    $hmiRootNamespace = if ($isAutomation) { 'Automation.Hmi' } else { 'MachineApp.Hmi' }
+    $platformUiBrandingSource = if ($isAutomation) {
+        Join-Path $repoRoot 'Runtime\UiBranding.cs'
+    }
+    else {
+        ''
+    }
+
+    Write-Host "Stage 2/2: compile HMI sources without running code -> $appDirectory"
+    $buildArguments = @(
+        'build', $validationProjectPath, '-c', 'Debug', '-p:Platform=x64',
+        "/p:HmiSourceRoot=$hmiRoot",
+        "/p:HmiRootNamespace=$hmiRootNamespace",
+        "/p:AutomationDeviceSdkPath=$deviceSdkPath",
+        "/p:PlatformUiBrandingSource=$platformUiBrandingSource",
+        "/p:OutDir=$appOut",
+        "/p:BaseIntermediateOutputPath=$intermediateOut",
+        "/p:MSBuildProjectExtensionsPath=$intermediateOut"
+    )
     Invoke-DotNet -Arguments $buildArguments
     $compiled = $true
     Assert-ProtectedDebugFilesUnchanged -ExpectedFingerprints $debugFingerprints

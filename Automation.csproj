@@ -230,6 +230,9 @@
     <Compile Include="Hmi\\HmiCapacityPage.Designer.cs">
       <DependentUpon>HmiCapacityPage.cs</DependentUpon>
     </Compile>
+    <Compile Include="Hmi\\PressureChart.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="FrmAppConfig.cs">
       <SubType>Form</SubType>
     </Compile>

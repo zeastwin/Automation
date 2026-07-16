@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace Automation.McpServer
@@ -27,11 +28,16 @@ namespace Automation.McpServer
                     + "\" -ProjectPath \""
                     + projectPath.Replace("\"", "`\"")
                     + "\"";
+            string validationScriptSha256 = File.Exists(validationScript)
+                ? Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(validationScript))).ToLowerInvariant()
+                : string.Empty;
             object validation = new
             {
                 available = !string.IsNullOrWhiteSpace(validationCommand),
                 command = validationCommand,
                 project = projectPath,
+                script = validationScript,
+                scriptSha256 = validationScriptSha256,
                 compileOnly = true,
                 executesCandidateCode = false,
                 overwritesDebug = false,
