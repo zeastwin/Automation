@@ -159,66 +159,6 @@ namespace Automation.McpServer
             return PostAsync("/bridge/proc/validate", payload);
         }
 
-        // ---------- intent 拆分（3 个） ----------
-
-        public Task<string> ListIntentTemplatesAsync(string? patchAction)
-        {
-            JsonObject payload = new JsonObject();
-            if (!string.IsNullOrEmpty(patchAction)) payload["patchAction"] = patchAction;
-            return PostAsync("/bridge/intent/list_templates", payload);
-        }
-
-        public Task<string> GetIntentTemplateAsync(string? templateId, string? patchAction)
-        {
-            JsonObject payload = new JsonObject();
-            if (!string.IsNullOrEmpty(templateId)) payload["templateId"] = templateId;
-            if (!string.IsNullOrEmpty(patchAction)) payload["patchAction"] = patchAction;
-            return PostAsync("/bridge/intent/get_template", payload);
-        }
-
-        public Task<string> BuildPatchFromIntentAsync(JsonElement intent)
-        {
-            JsonObject payload = new JsonObject { ["intent"] = JsonNode.Parse(intent.GetRawText()) };
-            return PostAsync("/bridge/intent/build_patch", payload);
-        }
-
-        // ---------- patch 拆分（4 个，patch_contract 由 MCP 层静态返回不走 Bridge） ----------
-
-        public Task<string> PreviewIntentAsync(JsonElement intent)
-        {
-            JsonObject payload = new JsonObject { ["intent"] = JsonNode.Parse(intent.GetRawText()) };
-            return PostAsync("/bridge/patch/preview_intent", payload);
-        }
-
-        public Task<string> ApplyIntentAsync(JsonElement intent, string previewId)
-        {
-            ValidatePreviewId(previewId);
-            JsonObject payload = new JsonObject
-            {
-                ["intent"] = JsonNode.Parse(intent.GetRawText()),
-                ["previewId"] = previewId
-            };
-            return PostAsync("/bridge/patch/apply_intent", payload);
-        }
-
-        public Task<string> PreviewPatchAsync(string patchJson)
-        {
-            // patchJson 是完整 Patch JSON 字符串，解析后作为请求体直接发送
-            //（ExecutePatch 期望 procIndex/baseProcId/actions 在顶层）。
-            JsonNode? parsed = string.IsNullOrEmpty(patchJson) ? null : JsonNode.Parse(patchJson);
-            JsonObject payload = parsed as JsonObject ?? new JsonObject();
-            return PostAsync("/bridge/patch/preview_patch", payload);
-        }
-
-        public Task<string> ApplyPatchAsync(string patchJson, string previewId)
-        {
-            ValidatePreviewId(previewId);
-            JsonNode? parsed = string.IsNullOrEmpty(patchJson) ? null : JsonNode.Parse(patchJson);
-            JsonObject payload = parsed as JsonObject ?? new JsonObject();
-            payload["previewId"] = previewId;
-            return PostAsync("/bridge/patch/apply_patch", payload);
-        }
-
         public Task<string> PreviewChangeSetAsync(AiChangeSet changeSet, string? replacePreviewId)
         {
             JsonNode changeSetNode = JsonSerializer.SerializeToNode(changeSet, jsonOptions)
@@ -267,55 +207,6 @@ namespace Automation.McpServer
             {
                 ["previewId"] = previewId
             });
-        }
-
-        // ---------- proc_manage 拆分（4 个，previewId 为空预演，非空提交） ----------
-
-        public Task<string> CreateProcAsync(string name, bool? autoStart, bool? disable, string? previewId)
-        {
-            JsonObject payload = new JsonObject { ["name"] = name };
-            if (autoStart.HasValue) payload["autoStart"] = autoStart.Value;
-            if (disable.HasValue) payload["disable"] = disable.Value;
-            AddPreviewIdIfPresent(payload, previewId);
-            return PostAsync("/bridge/proc/create", payload);
-        }
-
-        public Task<string> CreateProcBatchAsync(CreateProcBatchDefinition definition, string? previewId)
-        {
-            JsonNode definitionNode = JsonSerializer.SerializeToNode(definition, jsonOptions)
-                ?? throw new ArgumentException("流程变更集不能为 null。", nameof(definition));
-            JsonObject payload = new JsonObject { ["definition"] = definitionNode };
-            AddPreviewIdIfPresent(payload, previewId);
-            return PostAsync("/bridge/proc/create_batch", payload);
-        }
-
-        public Task<string> DeleteProcsAsync(int[] procIndexes, string? previewId)
-        {
-            JsonObject payload = new JsonObject();
-            JsonArray arr = new JsonArray();
-            foreach (int i in procIndexes) arr.Add(i);
-            payload["procIndexes"] = arr;
-            AddPreviewIdIfPresent(payload, previewId);
-            return PostAsync("/bridge/proc/delete", payload);
-        }
-
-        public Task<string> ReorderProcAsync(int procIndex, int targetIndex, string? previewId)
-        {
-            JsonObject payload = new JsonObject
-            {
-                ["procIndex"] = procIndex,
-                ["targetIndex"] = targetIndex
-            };
-            AddPreviewIdIfPresent(payload, previewId);
-            return PostAsync("/bridge/proc/reorder", payload);
-        }
-
-        public Task<string> CopyProcAsync(int procIndex, string? newName, string? previewId)
-        {
-            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
-            if (!string.IsNullOrEmpty(newName)) payload["newName"] = newName;
-            AddPreviewIdIfPresent(payload, previewId);
-            return PostAsync("/bridge/proc/copy", payload);
         }
 
         // ---------- control_proc 拆分（4 个） ----------
@@ -403,7 +294,7 @@ namespace Automation.McpServer
             return PostAsync("/bridge/variable/update", payload);
         }
 
-        // ---------- station 拆分（5 个） ----------
+        // ---------- station 精确读取（2 个） ----------
 
         public Task<string> ListStationsAsync()
         {
@@ -417,28 +308,7 @@ namespace Automation.McpServer
             return PostAsync("/bridge/station/get", payload);
         }
 
-        public Task<string> AddStationAsync(string name, double? vel)
-        {
-            JsonObject payload = new JsonObject { ["name"] = name };
-            if (vel.HasValue) payload["vel"] = vel.Value;
-            return PostAsync("/bridge/station/add", payload);
-        }
-
-        public Task<string> DeleteStationAsync(int stationIndex)
-        {
-            JsonObject payload = new JsonObject { ["stationIndex"] = stationIndex };
-            return PostAsync("/bridge/station/delete", payload);
-        }
-
-        public Task<string> UpdateStationAsync(int stationIndex, string? name, double? vel)
-        {
-            JsonObject payload = new JsonObject { ["stationIndex"] = stationIndex };
-            if (name != null) payload["name"] = name;
-            if (vel.HasValue) payload["vel"] = vel.Value;
-            return PostAsync("/bridge/station/update", payload);
-        }
-
-        // ---------- point 拆分（3 个） ----------
+        // ---------- point 精确读取（2 个） ----------
 
         public Task<string> ListPointsAsync(int stationIndex)
         {
@@ -454,33 +324,6 @@ namespace Automation.McpServer
                 ["index"] = index
             };
             return PostAsync("/bridge/point/get", payload);
-        }
-
-        public Task<string> SetPointAsync(int stationIndex, int index, string? name, double? x, double? y, double? z, double? u, double? v, double? w)
-        {
-            JsonObject payload = new JsonObject
-            {
-                ["stationIndex"] = stationIndex,
-                ["index"] = index
-            };
-            if (name != null) payload["name"] = name;
-            if (x.HasValue) payload["x"] = x.Value;
-            if (y.HasValue) payload["y"] = y.Value;
-            if (z.HasValue) payload["z"] = z.Value;
-            if (u.HasValue) payload["u"] = u.Value;
-            if (v.HasValue) payload["v"] = v.Value;
-            if (w.HasValue) payload["w"] = w.Value;
-            return PostAsync("/bridge/point/set", payload);
-        }
-
-        public Task<string> DeletePointAsync(int stationIndex, int index)
-        {
-            JsonObject payload = new JsonObject
-            {
-                ["stationIndex"] = stationIndex,
-                ["index"] = index
-            };
-            return PostAsync("/bridge/point/delete", payload);
         }
 
         // ---------- alarm 拆分（4 个） ----------
@@ -590,11 +433,6 @@ namespace Automation.McpServer
             return PostAsync("/bridge/diagnostics/issue", payload);
         }
 
-        public Task<string> ListAlarmsAsync(bool? includeEmpty, string? categoryLike, string? nameLike)
-        {
-            return ListAlarmsAsync(includeEmpty, categoryLike, nameLike, null, null);
-        }
-
         public Task<string> GetAlarmAsync(int index)
         {
             JsonObject payload = new JsonObject { ["index"] = index };
@@ -630,7 +468,7 @@ namespace Automation.McpServer
             return PostAsync("/bridge/alarm/delete", payload);
         }
 
-        // ---------- data_struct 拆分（4 个） ----------
+        // ---------- data_struct 读取与整对象维护（5 个） ----------
 
         public Task<string> ListDataStructsAsync()
         {
@@ -653,18 +491,6 @@ namespace Automation.McpServer
             if (numValueMax.HasValue) payload["numValueMax"] = numValueMax.Value;
             if (limit.HasValue) payload["limit"] = limit.Value;
             return PostAsync("/bridge/data_struct/search", payload);
-        }
-
-        public Task<string> SetDataStructFieldAsync(string name, int itemIndex, int fieldIndex, string value)
-        {
-            JsonObject payload = new JsonObject
-            {
-                ["name"] = name,
-                ["itemIndex"] = itemIndex,
-                ["fieldIndex"] = fieldIndex,
-                ["value"] = value
-            };
-            return PostAsync("/bridge/data_struct/set_field", payload);
         }
 
         public Task<string> UpsertDataStructAsync(DataStructDefinition definition)
@@ -794,17 +620,6 @@ namespace Automation.McpServer
         {
             string json = JsonSerializer.Serialize(payload, jsonOptions);
             return SendAsync("POST", path, json);
-        }
-
-        private static void AddPreviewIdIfPresent(JsonObject payload, string? previewId)
-        {
-            if (previewId == null || previewId.Length == 0)
-            {
-                return;
-            }
-
-            ValidatePreviewId(previewId);
-            payload["previewId"] = previewId;
         }
 
         private static void ValidatePreviewId(string previewId)

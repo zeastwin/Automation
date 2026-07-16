@@ -1,45 +1,22 @@
-﻿namespace Automation
+namespace Automation
 {
     partial class FrmDataGrid
     {
-        /// <summary>
-        /// Required designer variable.
-        /// </summary>
         private System.ComponentModel.IContainer components = null;
 
-        /// <summary>
-        /// Clean up any resources being used.
-        /// </summary>
-        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
         protected override void Dispose(bool disposing)
         {
-            if (disposing && (components != null))
+            if (disposing && components != null)
             {
                 components.Dispose();
             }
             base.Dispose(disposing);
         }
 
-        #region Windows Form Designer generated code
-
-        /// <summary>
-        /// Required method for Designer support - do not modify
-        /// the contents of this method with the code editor.
-        /// </summary>
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle1 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle2 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle3 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle4 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle5 = new System.Windows.Forms.DataGridViewCellStyle();
-            this.dataGridView1 = new System.Windows.Forms.DataGridView();
-            this.statusMark = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.index = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.name = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.operaType = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.Note = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.dataGridView1 = new Automation.InstructionListView();
             this.contextMenuStrip2 = new System.Windows.Forms.ContextMenuStrip(this.components);
             this.Add = new System.Windows.Forms.ToolStripMenuItem();
             this.Modify = new System.Windows.Forms.ToolStripMenuItem();
@@ -48,104 +25,27 @@
             this.Enable = new System.Windows.Forms.ToolStripMenuItem();
             this.copy = new System.Windows.Forms.ToolStripMenuItem();
             this.paste = new System.Windows.Forms.ToolStripMenuItem();
-            this.SetStartOps = new System.Windows.Forms.ToolStripMenuItem();
             this.Others = new System.Windows.Forms.ToolStripMenuItem();
             this.CProgramCopy = new System.Windows.Forms.ToolStripMenuItem();
             this.CProgramPaste = new System.Windows.Forms.ToolStripMenuItem();
             this.separatorStartOps = new System.Windows.Forms.ToolStripSeparator();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).BeginInit();
+            this.SetStartOps = new System.Windows.Forms.ToolStripMenuItem();
             this.contextMenuStrip2.SuspendLayout();
             this.SuspendLayout();
             // 
             // dataGridView1
             // 
-            this.dataGridView1.AllowDrop = true;
-            this.dataGridView1.AllowUserToAddRows = false;
-            this.dataGridView1.AllowUserToResizeRows = false;
-            this.dataGridView1.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.dataGridView1.BackgroundColor = System.Drawing.SystemColors.ControlLight;
-            this.dataGridView1.ColumnHeadersHeight = 22;
-            this.dataGridView1.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
-            this.dataGridView1.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
-            this.statusMark,
-            this.index,
-            this.name,
-            this.operaType,
-            this.Note});
             this.dataGridView1.ContextMenuStrip = this.contextMenuStrip2;
             this.dataGridView1.Dock = System.Windows.Forms.DockStyle.Fill;
             this.dataGridView1.Location = new System.Drawing.Point(0, 0);
             this.dataGridView1.Name = "dataGridView1";
-            this.dataGridView1.RowHeadersVisible = false;
-            this.dataGridView1.RowHeadersWidth = 21;
-            this.dataGridView1.RowTemplate.Height = 23;
-            this.dataGridView1.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
             this.dataGridView1.Size = new System.Drawing.Size(800, 450);
             this.dataGridView1.TabIndex = 1;
-            this.dataGridView1.CellDoubleClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dataGridView1_CellDoubleClick);
-            this.dataGridView1.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.dataGridView1_CellFormatting);
-            this.dataGridView1.CellMouseDown += new System.Windows.Forms.DataGridViewCellMouseEventHandler(this.dataGridView1_CellMouseDown);
             this.dataGridView1.DragDrop += new System.Windows.Forms.DragEventHandler(this.dataGridView1_DragDrop);
             this.dataGridView1.DragOver += new System.Windows.Forms.DragEventHandler(this.dataGridView1_DragOver);
             this.dataGridView1.KeyDown += new System.Windows.Forms.KeyEventHandler(this.dataGridView1_KeyDown);
+            this.dataGridView1.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(this.dataGridView1_MouseDoubleClick);
             this.dataGridView1.MouseDown += new System.Windows.Forms.MouseEventHandler(this.dataGridView1_MouseDown);
-            // 
-            // statusMark
-            // 
-            dataGridViewCellStyle5.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.statusMark.DefaultCellStyle = dataGridViewCellStyle5;
-            this.statusMark.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.None;
-            this.statusMark.HeaderText = "标记";
-            this.statusMark.MinimumWidth = 36;
-            this.statusMark.Name = "statusMark";
-            this.statusMark.ReadOnly = true;
-            this.statusMark.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
-            this.statusMark.Width = 36;
-            // 
-            // index
-            // 
-            this.index.DataPropertyName = "Num";
-            dataGridViewCellStyle1.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.index.DefaultCellStyle = dataGridViewCellStyle1;
-            this.index.FillWeight = 15F;
-            this.index.HeaderText = "编号";
-            this.index.MinimumWidth = 6;
-            this.index.Name = "index";
-            this.index.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
-            // 
-            // name
-            // 
-            this.name.DataPropertyName = "Name";
-            dataGridViewCellStyle2.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.name.DefaultCellStyle = dataGridViewCellStyle2;
-            this.name.FillWeight = 40F;
-            this.name.HeaderText = "名称";
-            this.name.MinimumWidth = 6;
-            this.name.Name = "name";
-            this.name.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
-            // 
-            // operaType
-            // 
-            this.operaType.DataPropertyName = "OperaType";
-            dataGridViewCellStyle3.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.operaType.DefaultCellStyle = dataGridViewCellStyle3;
-            this.operaType.FillWeight = 30F;
-            this.operaType.HeaderText = "操作类型";
-            this.operaType.MinimumWidth = 6;
-            this.operaType.Name = "operaType";
-            this.operaType.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
-            // 
-            // Note
-            // 
-            this.Note.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
-            this.Note.DataPropertyName = "Note";
-            dataGridViewCellStyle4.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.Note.DefaultCellStyle = dataGridViewCellStyle4;
-            this.Note.FillWeight = 146.5714F;
-            this.Note.HeaderText = "备注";
-            this.Note.MinimumWidth = 6;
-            this.Note.Name = "Note";
-            this.Note.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
             // 
             // contextMenuStrip2
             // 
@@ -161,7 +61,7 @@
             this.Others,
             this.separatorStartOps,
             this.SetStartOps});
-            this.contextMenuStrip2.Name = "contextMenuStrip1";
+            this.contextMenuStrip2.Name = "contextMenuStrip2";
             this.contextMenuStrip2.Size = new System.Drawing.Size(181, 246);
             // 
             // Add
@@ -213,18 +113,6 @@
             this.paste.Text = "粘贴";
             this.paste.Click += new System.EventHandler(this.paste_Click);
             // 
-            // SetStartOps
-            // 
-            this.SetStartOps.Name = "SetStartOps";
-            this.SetStartOps.Size = new System.Drawing.Size(180, 22);
-            this.SetStartOps.Text = "设为启动点";
-            this.SetStartOps.Click += new System.EventHandler(this.SetStartOps_Click);
-            // 
-            // separatorStartOps
-            // 
-            this.separatorStartOps.Name = "separatorStartOps";
-            this.separatorStartOps.Size = new System.Drawing.Size(177, 6);
-            // 
             // Others
             // 
             this.Others.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
@@ -247,6 +135,18 @@
             this.CProgramPaste.Size = new System.Drawing.Size(136, 22);
             this.CProgramPaste.Text = "跨程序粘贴";
             this.CProgramPaste.Click += new System.EventHandler(this.CProgramPaste_Click);
+            //
+            // separatorStartOps
+            //
+            this.separatorStartOps.Name = "separatorStartOps";
+            this.separatorStartOps.Size = new System.Drawing.Size(177, 6);
+            //
+            // SetStartOps
+            //
+            this.SetStartOps.Name = "SetStartOps";
+            this.SetStartOps.Size = new System.Drawing.Size(180, 22);
+            this.SetStartOps.Text = "设为启动点";
+            this.SetStartOps.Click += new System.EventHandler(this.SetStartOps_Click);
             // 
             // FrmDataGrid
             // 
@@ -257,25 +157,16 @@
             this.DoubleBuffered = true;
             this.Name = "FrmDataGrid";
             this.Text = "FrmDataGrid";
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).EndInit();
             this.contextMenuStrip2.ResumeLayout(false);
             this.ResumeLayout(false);
-
         }
 
-        #endregion
-
-        public System.Windows.Forms.DataGridView dataGridView1;
+        public Automation.InstructionListView dataGridView1;
         private System.Windows.Forms.ContextMenuStrip contextMenuStrip2;
         private System.Windows.Forms.ToolStripMenuItem Add;
         private System.Windows.Forms.ToolStripMenuItem Delete;
         private System.Windows.Forms.ToolStripMenuItem Modify;
         private System.Windows.Forms.ToolStripMenuItem SetStartOps;
-        private System.Windows.Forms.DataGridViewTextBoxColumn index;
-        private System.Windows.Forms.DataGridViewTextBoxColumn name;
-        private System.Windows.Forms.DataGridViewTextBoxColumn operaType;
-        private System.Windows.Forms.DataGridViewTextBoxColumn Note;
-        private System.Windows.Forms.DataGridViewTextBoxColumn statusMark;
         private System.Windows.Forms.ToolStripMenuItem SetStopPoint;
         private System.Windows.Forms.ToolStripMenuItem copy;
         private System.Windows.Forms.ToolStripMenuItem paste;

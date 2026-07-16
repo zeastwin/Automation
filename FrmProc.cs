@@ -30,6 +30,9 @@ namespace Automation
         private readonly object procNodeMapLock = new object();
         private readonly Dictionary<Guid, TreeNode> procNodeMap = new Dictionary<Guid, TreeNode>();
         private readonly Dictionary<Guid, int> procIndexMap = new Dictionary<Guid, int>();
+        private ImageList procStateImages;
+        private Font procNodeFont;
+        private Font stepNodeFont;
 
         // 流程节点变动动效：AI 改动流程后在 proc_treeView 上闪烁对应节点，让用户直观看到改动位置。
         private System.Windows.Forms.Timer procFlashTimer;
@@ -46,6 +49,7 @@ namespace Automation
         public FrmProc()
         {
             InitializeComponent();
+            ConfigureProcTreeAppearance();
             Disposed += FrmProc_Disposed;
             this.proc_treeView.HideSelection = false;
             typeof(Control).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -63,6 +67,147 @@ namespace Automation
                 procFlashTimer = null;
             }
             procFlashNode = null;
+            procStateImages?.Dispose();
+            procStateImages = null;
+            procNodeFont?.Dispose();
+            procNodeFont = null;
+            stepNodeFont?.Dispose();
+            stepNodeFont = null;
+        }
+
+        private void ConfigureProcTreeAppearance()
+        {
+            procNodeFont = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
+            stepNodeFont = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
+            // TreeView 使用基准字体计算节点标签边界。基准字体小于流程节点粗体时，
+            // WinForms 会在仍有可用宽度的情况下裁掉流程名称末尾。
+            proc_treeView.Font = procNodeFont;
+            proc_treeView.ForeColor = Color.FromArgb(38, 50, 58);
+            proc_treeView.BackColor = Color.White;
+            proc_treeView.BorderStyle = BorderStyle.None;
+            proc_treeView.ItemHeight = 28;
+            proc_treeView.Indent = 24;
+            proc_treeView.ShowLines = false;
+            proc_treeView.ShowRootLines = false;
+
+            procStateImages = new ImageList
+            {
+                ColorDepth = ColorDepth.Depth32Bit,
+                ImageSize = new Size(20, 20),
+                TransparentColor = Color.Transparent
+            };
+            AddProcStateImage("proc-stopped", ProcTreeIconKind.Stopped);
+            AddProcStateImage("proc-running", ProcTreeIconKind.Running);
+            AddProcStateImage("proc-paused", ProcTreeIconKind.Paused);
+            AddProcStateImage("proc-single", ProcTreeIconKind.SingleStep);
+            AddProcStateImage("proc-alarm", ProcTreeIconKind.Alarming);
+            AddProcStateImage("proc-pausing", ProcTreeIconKind.Pausing);
+            AddProcStateImage("proc-stopping", ProcTreeIconKind.Stopping);
+            AddProcStateImage("disabled", ProcTreeIconKind.Disabled);
+            AddProcStateImage("step", ProcTreeIconKind.Step);
+            AddProcStateImage("step-running", ProcTreeIconKind.StepRunning);
+            AddProcStateImage("step-paused", ProcTreeIconKind.StepPaused);
+            AddProcStateImage("step-single", ProcTreeIconKind.StepSingle);
+            AddProcStateImage("step-alarm", ProcTreeIconKind.StepAlarming);
+            proc_treeView.ImageList = procStateImages;
+        }
+
+        private void AddProcStateImage(string key, ProcTreeIconKind kind)
+        {
+            // ImageList 在创建原生句柄时才读取源图像，图像由 ImageList 统一持有并释放。
+            // 此处提前释放会在 TreeView.OnHandleCreated 中触发 GDI+“参数无效”。
+            procStateImages.Images.Add(key, ProcTreeIconFactory.Create(kind, 20));
+        }
+
+        private static void SetNodeImage(TreeNode node, string imageKey)
+        {
+            if (node == null || string.IsNullOrEmpty(imageKey))
+            {
+                return;
+            }
+            if (!string.Equals(node.ImageKey, imageKey, StringComparison.Ordinal))
+            {
+                node.ImageKey = imageKey;
+            }
+            if (!string.Equals(node.SelectedImageKey, imageKey, StringComparison.Ordinal))
+            {
+                node.SelectedImageKey = imageKey;
+            }
+        }
+
+        private static string GetProcImageKey(Proc proc, EngineSnapshot snapshot)
+        {
+            if (proc?.head?.Disable == true)
+            {
+                return "disabled";
+            }
+            switch (snapshot?.State ?? ProcRunState.Stopped)
+            {
+                case ProcRunState.Running:
+                    return "proc-running";
+                case ProcRunState.Paused:
+                    return "proc-paused";
+                case ProcRunState.SingleStep:
+                    return "proc-single";
+                case ProcRunState.Alarming:
+                    return "proc-alarm";
+                case ProcRunState.Pausing:
+                    return "proc-pausing";
+                case ProcRunState.Stopping:
+                    return "proc-stopping";
+                default:
+                    return "proc-stopped";
+            }
+        }
+
+        private static string GetStepImageKey(Proc proc, Step step, int stepIndex, EngineSnapshot snapshot)
+        {
+            if (proc?.head?.Disable == true || step?.Disable == true)
+            {
+                return "disabled";
+            }
+            if (snapshot == null || snapshot.State == ProcRunState.Stopped || snapshot.StepIndex != stepIndex)
+            {
+                return "step";
+            }
+            switch (snapshot.State)
+            {
+                case ProcRunState.Alarming:
+                    return "step-alarm";
+                case ProcRunState.Paused:
+                case ProcRunState.Pausing:
+                    return "step-paused";
+                case ProcRunState.SingleStep:
+                    return "step-single";
+                default:
+                    return "step-running";
+            }
+        }
+
+        internal void UpdateProcStateIcons(int procIndex, EngineSnapshot snapshot)
+        {
+            if (proc_treeView.IsDisposed || procIndex < 0 || procIndex >= procsList.Count
+                || procIndex >= proc_treeView.Nodes.Count)
+            {
+                return;
+            }
+            if (proc_treeView.InvokeRequired)
+            {
+                proc_treeView.BeginInvoke((Action)(() => UpdateProcStateIcons(procIndex, snapshot)));
+                return;
+            }
+
+            Proc proc = procsList[procIndex];
+            TreeNode procNode = proc_treeView.Nodes[procIndex];
+            procNode.NodeFont = procNodeFont;
+            SetNodeImage(procNode, GetProcImageKey(proc, snapshot));
+            int stepCount = Math.Min(proc?.steps?.Count ?? 0, procNode.Nodes.Count);
+            for (int i = 0; i < stepCount; i++)
+            {
+                TreeNode stepNode = procNode.Nodes[i];
+                stepNode.NodeFont = stepNodeFont;
+                SetNodeImage(stepNode, GetStepImageKey(proc, proc.steps[i], i, snapshot));
+            }
         }
 
         private bool TrySaveNewProc(ProcHead head, int selectedProcIndex)
@@ -239,7 +384,12 @@ namespace Automation
                 }
                 procsListTemp.Add(proc);
 
-                TreeNode treeNode = new TreeNode(BuildProcNodeText(i, proc));
+                EngineSnapshot procSnapshot = SF.DR?.GetSnapshot(i);
+                TreeNode treeNode = new TreeNode(BuildProcNodeText(i, proc))
+                {
+                    NodeFont = procNodeFont
+                };
+                SetNodeImage(treeNode, GetProcImageKey(proc, procSnapshot));
                 if (proc?.head?.Disable == true)
                 {
                     treeNode.ForeColor = DisabledNodeColor;
@@ -261,8 +411,12 @@ namespace Automation
                     for (int j = 0; j < proc.steps.Count; j++)
                     {
                         Step step = proc.steps[j];
-                        TreeNode chnode = new TreeNode(BuildStepNodeText(i, j, proc, step));
+                        TreeNode chnode = new TreeNode(BuildStepNodeText(i, j, proc, step))
+                        {
+                            NodeFont = stepNodeFont
+                        };
                         chnode.Tag = step?.Id ?? Guid.Empty;
+                        SetNodeImage(chnode, GetStepImageKey(proc, step, j, procSnapshot));
                         if (proc?.head?.Disable == true || proc.steps[j]?.Disable == true)
                         {
                             chnode.ForeColor = DisabledNodeColor;
@@ -272,7 +426,6 @@ namespace Automation
                 }
             }
             procsList = procsListTemp;
-
             RestoreTreeState(selectedProcId, selectedStepId, topProcId, expandedProcIds);
             }
             finally
@@ -345,6 +498,7 @@ namespace Automation
             {
                 procNode.Text = BuildProcNodeText(procIndex, proc);
                 procNode.Tag = proc?.head?.Id ?? Guid.Empty;
+                procNode.NodeFont = procNodeFont;
                 procNode.ForeColor = proc?.head?.Disable == true ? DisabledNodeColor : proc_treeView.ForeColor;
 
                 int stepCount = proc?.steps?.Count ?? 0;
@@ -369,6 +523,7 @@ namespace Automation
                         var stepNode = new TreeNode(BuildStepNodeText(procIndex, i, proc, step))
                         {
                             Tag = step?.Id ?? Guid.Empty,
+                            NodeFont = stepNodeFont,
                             ForeColor = proc?.head?.Disable == true || step?.Disable == true
                                 ? DisabledNodeColor
                                 : proc_treeView.ForeColor
@@ -382,6 +537,7 @@ namespace Automation
                     {
                         Step step = proc.steps[i];
                         procNode.Nodes[i].Text = BuildStepNodeText(procIndex, i, proc, step);
+                        procNode.Nodes[i].NodeFont = stepNodeFont;
                         procNode.Nodes[i].ForeColor = proc?.head?.Disable == true || step?.Disable == true
                             ? DisabledNodeColor
                             : proc_treeView.ForeColor;
@@ -411,6 +567,7 @@ namespace Automation
             {
                 RefreshCurrentBinding();
             }
+            UpdateProcStateIcons(procIndex, SF.DR?.GetSnapshot(procIndex));
         }
 
         private void RestoreTreeState(Guid selectedProcId, Guid selectedStepId, Guid topProcId, HashSet<Guid> expandedProcIds)
@@ -570,16 +727,15 @@ namespace Automation
                 }
                 return;
             }
-            DataGridView grid = SF.frmDataGrid?.dataGridView1;
-            Guid selectedOpId = grid?.CurrentRow?.DataBoundItem is OperationType selectedOp
-                ? selectedOp.Id
-                : Guid.Empty;
+            InstructionListView grid = SF.frmDataGrid?.dataGridView1;
+            OperationType selectedOp = grid?.GetOperation(grid.CurrentIndex);
+            Guid selectedOpId = selectedOp?.Id ?? Guid.Empty;
             int firstDisplayedRow = -1;
-            if (grid != null && grid.Rows.Count > 0)
+            if (grid != null && grid.OperationCount > 0)
             {
                 try
                 {
-                    firstDisplayedRow = grid.FirstDisplayedScrollingRowIndex;
+                    firstDisplayedRow = grid.CurrentIndex;
                 }
                 catch (InvalidOperationException)
                 {
@@ -620,19 +776,20 @@ namespace Automation
                 grid.DataSource = bindingSource;
                 if (selectedOpId != Guid.Empty)
                 {
-                    DataGridViewRow selectedRow = grid.Rows.Cast<DataGridViewRow>()
-                        .FirstOrDefault(row => row.DataBoundItem is OperationType op && op.Id == selectedOpId);
-                    if (selectedRow != null && selectedRow.Cells.Count > 0)
+                    int selectedRowIndex = Enumerable.Range(0, grid.OperationCount)
+                        .FirstOrDefault(index => grid.GetOperation(index)?.Id == selectedOpId);
+                    if (selectedRowIndex >= 0 && selectedRowIndex < grid.OperationCount
+                        && grid.GetOperation(selectedRowIndex)?.Id == selectedOpId)
                     {
-                        grid.CurrentCell = selectedRow.Cells[0];
-                        SF.frmDataGrid.iSelectedRow = selectedRow.Index;
+                        grid.SelectSingle(selectedRowIndex);
+                        SF.frmDataGrid.iSelectedRow = selectedRowIndex;
                     }
                 }
-                if (firstDisplayedRow >= 0 && firstDisplayedRow < grid.Rows.Count)
+                if (firstDisplayedRow >= 0 && firstDisplayedRow < grid.OperationCount)
                 {
                     try
                     {
-                        grid.FirstDisplayedScrollingRowIndex = firstDisplayedRow;
+                        grid.EnsureIndexVisible(firstDisplayedRow);
                     }
                     catch (InvalidOperationException)
                     {
@@ -1432,6 +1589,8 @@ namespace Automation
             {
                 node.ForeColor = disabled ? DisabledNodeColor : Color.Black;
                 node.Text = BuildProcNodeText(procIndex);
+                node.NodeFont = procNodeFont;
+                SetNodeImage(node, GetProcImageKey(procsList[procIndex], SF.DR?.GetSnapshot(procIndex)));
             }
         }
 
@@ -1455,6 +1614,14 @@ namespace Automation
             {
                 node.ForeColor = disabled ? DisabledNodeColor : Color.Black;
                 node.Text = BuildStepNodeText(procIndex, stepIndex);
+                node.NodeFont = stepNodeFont;
+                SetNodeImage(
+                    node,
+                    GetStepImageKey(
+                        procsList[procIndex],
+                        procsList[procIndex].steps[stepIndex],
+                        stepIndex,
+                        SF.DR?.GetSnapshot(procIndex)));
             }
         }
 

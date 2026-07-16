@@ -1015,15 +1015,13 @@ namespace Automation
 
         private bool TrySelectOperationInGrid(int opIndex)
         {
-            DataGridView grid = SF.frmDataGrid.dataGridView1;
-            if (grid == null || opIndex < 0 || opIndex >= grid.RowCount)
+            InstructionListView grid = SF.frmDataGrid.dataGridView1;
+            if (grid == null || opIndex < 0 || opIndex >= grid.OperationCount)
             {
                 return false;
             }
-            grid.ClearSelection();
-            grid.Rows[opIndex].Selected = true;
+            grid.SelectSingle(opIndex);
             SF.frmDataGrid.iSelectedRow = opIndex;
-            grid.CurrentCell = grid.Rows[opIndex].Cells[0];
             SF.frmDataGrid.ScrollRowToCenter(opIndex);
 
             if (SF.frmProc?.procsList == null)

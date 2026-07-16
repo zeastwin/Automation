@@ -214,18 +214,18 @@ namespace Automation
                         graphics.DrawLines(pen, new[] { new PointF(3, 7), new PointF(3, 4), new PointF(9, 4), new PointF(11, 7), new PointF(20, 7), new PointF(20, 10) });
                         break;
                     case UiIconKind.Settings:
-                        graphics.DrawEllipse(pen, 8, 8, 8, 8);
-                        FillCircle(graphics, brush, 12, 12, 1.6F);
-                        for (int i = 0; i < 8; i++)
+                        PointF[] gearPoints = new PointF[24];
+                        for (int i = 0; i < gearPoints.Length; i++)
                         {
-                            double angle = Math.PI * i / 4;
-                            graphics.DrawLine(
-                                pen,
-                                12 + (float)Math.Cos(angle) * 6,
-                                12 + (float)Math.Sin(angle) * 6,
-                                12 + (float)Math.Cos(angle) * 9,
-                                12 + (float)Math.Sin(angle) * 9);
+                            double angle = -Math.PI / 2 + Math.PI * 2 * i / gearPoints.Length;
+                            float radius = i % 3 == 1 ? 7F : 9F;
+                            gearPoints[i] = new PointF(
+                                12 + (float)Math.Cos(angle) * radius,
+                                12 + (float)Math.Sin(angle) * radius);
                         }
+                        graphics.DrawPolygon(pen, gearPoints);
+                        graphics.DrawEllipse(pen, 8.5F, 8.5F, 7, 7);
+                        FillCircle(graphics, brush, 12, 12, 1.5F);
                         break;
                     case UiIconKind.StopAll:
                         DrawRoundedRectangle(graphics, pen, 3, 3, 18, 18, 4);

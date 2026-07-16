@@ -67,27 +67,6 @@
     <StartupObject />
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Hmi\AnalogClock.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="Hmi\ProductionStatusCard.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="Hmi\KpiCardControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="Hmi\TrendChartControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="Hmi\ShiftTableControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="Hmi\DowntimePanelControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="Hmi\RuntimeSummaryPanel.cs">
-      <SubType>Component</SubType>
-    </Compile>
     <Compile Include="Runtime\AiConversationStorage.cs" />
     <Compile Include="Runtime\AiStandardTestSuite.cs" />
     <Compile Include="Runtime\AttachmentTextExtractor.cs" />
@@ -169,7 +148,7 @@
     <Compile Include="Stores\\ConfigurationBatchWriter.cs" />
     <Compile Include="Stores\\AiConfigurationTransaction.cs" />
     <Compile Include="Stores\\CommunicationConfigStore.cs" />
-    <Compile Include="Hmi\\CustomFunc.cs" />
+    <Compile Include="Engine\CustomFunc.cs" />
     <Compile Include="Engine\\ProcessEngine.Core.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Comm.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Custom.cs" />
@@ -208,6 +187,7 @@
     <Compile Include="Runtime\\PlatformValueStoreFacade.cs" />
     <Compile Include="Runtime\\PlatformProcessStoreFacade.cs" />
     <Compile Include="Runtime\\AutomationMcpServerManager.cs" />
+    <Compile Include="Runtime\\HmiDevelopmentSourceLocator.cs" />
     <Compile Include="Runtime\\AutomationRuntimeOptions.cs" />
     <Compile Include="Runtime\\GooseConfigStorage.cs" />
     <Compile Include="Runtime\\GooseRuntimeProvisioner.cs" />
@@ -219,6 +199,7 @@
     <Compile Include="Bridge\\AutomationBridgeHost.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.cs" />
     <Compile Include="GooseAcpClient.cs" />
+    <Compile Include="Hmi\CustomFunctions.cs" />
     <Compile Include="Hmi\\FrmHmiMain.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -303,6 +284,9 @@
     <Compile Include="FrmDataGrid.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="InstructionListView.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="FrmDataGrid.Designer.cs">
       <DependentUpon>FrmDataGrid.cs</DependentUpon>
     </Compile>
@@ -374,6 +358,7 @@
     </Compile>
     <Compile Include="UiIconFactory.cs" />
     <Compile Include="UiHoverAnimator.cs" />
+    <Compile Include="ProcTreeIconFactory.cs" />
     <Compile Include="FrmValue.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -579,10 +564,7 @@
     <Delete Files="@(RedundantOutputFile)" />
   </Target>
   <Target Name="WritePlatformRuntimeManifest" AfterTargets="Build">
-    <WriteLinesToFile File="$(TargetDir)PlatformRuntimeManifest.json"
-                      Lines="{ &quot;apiVersion&quot;: &quot;1.0&quot;, &quot;platformVersion&quot;: &quot;$(PlatformRuntimeVersion)&quot;, &quot;architecture&quot;: &quot;x64&quot;, &quot;configuration&quot;: &quot;$(Configuration)&quot; }"
-                      Overwrite="true"
-                      Encoding="UTF-8" />
+    <WriteLinesToFile File="$(TargetDir)PlatformRuntimeManifest.json" Lines="{ &quot;apiVersion&quot;: &quot;1.0&quot;, &quot;platformVersion&quot;: &quot;$(PlatformRuntimeVersion)&quot;, &quot;architecture&quot;: &quot;x64&quot;, &quot;configuration&quot;: &quot;$(Configuration)&quot; }" Overwrite="true" Encoding="UTF-8" />
   </Target>
   <!-- Release 运行包不携带调试符号；递归清理可同时移除项目引用遗留的 PDB。 -->
   <Target Name="SlimReleaseOutput" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">

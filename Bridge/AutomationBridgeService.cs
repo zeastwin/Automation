@@ -6977,59 +6977,26 @@ namespace Automation.Bridge
             }
 
             var errors = new List<string>();
-            HashSet<string> valueStoreMethods = new HashSet<string>(
-                typeof(ValueConfigStore)
-                    .GetMethods(BindingFlags.Instance | BindingFlags.Public)
-                    .Select(method => method.Name),
-                StringComparer.Ordinal);
-            string[] usedValueStoreMethods = Regex.Matches(
-                    source,
-                    @"\bSF\s*\.\s*valueStore\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(")
-                .Cast<Match>()
-                .Select(match => match.Groups[1].Value)
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
-            foreach (string methodName in usedValueStoreMethods)
+            if (Regex.IsMatch(source, @"\bSF\s*\."))
             {
-                if (valueStoreMethods.Contains(methodName))
-                {
-                    continue;
-                }
-
-                string[] candidates = valueStoreMethods
-                    .Where(candidate => string.Equals(candidate, methodName, StringComparison.OrdinalIgnoreCase)
-                        || candidate.IndexOf(methodName, StringComparison.OrdinalIgnoreCase) >= 0
-                        || methodName.IndexOf(candidate, StringComparison.OrdinalIgnoreCase) >= 0)
-                    .OrderBy(candidate => candidate, StringComparer.Ordinal)
-                    .Take(8)
-                    .ToArray();
-                string candidateText = candidates.Length == 0
-                    ? "请读取当前 ValueConfigStore 的公开方法后修改"
-                    : "可用候选：" + string.Join("、", candidates);
-                errors.Add($"CustomFunc.cs 调用了当前 ValueConfigStore 不存在的公开方法 {methodName}；C# 方法名区分大小写。{candidateText}。");
+                errors.Add("HMI 自定义函数只能通过 IAutomationPlatform 公开接口访问平台能力，不能直接引用 SF。");
             }
 
             string[] registeredFunctions = Regex.Matches(
                     source,
-                    "\\{\\s*\"[^\"]+\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\}")
+                    "\\bRegisterCustomFunction\\s*\\(\\s*\"([^\"]+)\"")
                 .Cast<Match>()
                 .Select(match => match.Groups[1].Value)
-                .Distinct(StringComparer.Ordinal)
                 .ToArray();
-            foreach (string functionName in registeredFunctions)
+            string[] duplicateNames = registeredFunctions
+                .GroupBy(name => name, StringComparer.Ordinal)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            if (duplicateNames.Length > 0)
             {
-                if (!Regex.IsMatch(
-                    source,
-                    $"\\b(?:public|private|protected|internal)\\s+(?:static\\s+)?(?:void|bool|int|long|double|string)\\s+{Regex.Escape(functionName)}\\s*\\(",
-                    RegexOptions.CultureInvariant))
-                {
-                    errors.Add($"functionMap 注册了自定义函数 {functionName}，但源码中没有对应的方法定义。");
-                }
-            }
-
-            if (source.Count(character => character == '{') != source.Count(character => character == '}'))
-            {
-                errors.Add("CustomFunc.cs 的大括号数量不匹配，源码结构不完整。");
+                errors.Add("HMI 自定义函数存在重复注册名称：" + string.Join("、", duplicateNames) + "。");
             }
 
             if (errors.Count > 0)
@@ -7044,15 +7011,12 @@ namespace Automation.Bridge
 
         private static string FindHmiCustomFunctionSource()
         {
-            DirectoryInfo directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
-            while (directory != null)
+            if (HmiDevelopmentSourceLocator.TryResolve(
+                AppDomain.CurrentDomain.BaseDirectory,
+                out HmiDevelopmentSource source,
+                out _))
             {
-                string candidate = Path.Combine(directory.FullName, "Hmi", "CustomFunc.cs");
-                if (File.Exists(candidate))
-                {
-                    return candidate;
-                }
-                directory = directory.Parent;
+                return source.CustomFunctionSourcePath;
             }
             return null;
         }

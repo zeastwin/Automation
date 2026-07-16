@@ -95,6 +95,34 @@ namespace Automation
                     CreateNoWindow = true
                 };
                 startInfo.Arguments = "--AutomationMcp:ToolProfile=" + toolProfile;
+                if (HmiDevelopmentSourceLocator.TryResolve(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    out HmiDevelopmentSource hmiSource,
+                    out _))
+                {
+                    startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.SourceDirectoryEnvironmentVariable] =
+                        hmiSource.SourceDirectory;
+                    if (!string.IsNullOrWhiteSpace(hmiSource.ProjectPath))
+                    {
+                        startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.ProjectPathEnvironmentVariable] =
+                            hmiSource.ProjectPath;
+                    }
+                    if (!string.IsNullOrWhiteSpace(hmiSource.PlatformSourceRoot))
+                    {
+                        startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.PlatformSourceRootEnvironmentVariable] =
+                            hmiSource.PlatformSourceRoot;
+                    }
+                    if (!string.IsNullOrWhiteSpace(hmiSource.ValidationScriptPath))
+                    {
+                        startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.ValidationScriptEnvironmentVariable] =
+                            hmiSource.ValidationScriptPath;
+                    }
+                    if (!string.IsNullOrWhiteSpace(hmiSource.CustomFunctionSourcePath))
+                    {
+                        startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.CustomFunctionSourceEnvironmentVariable] =
+                            hmiSource.CustomFunctionSourcePath;
+                    }
+                }
                 managedProcess = Process.Start(startInfo);
                 if (managedProcess == null)
                 {

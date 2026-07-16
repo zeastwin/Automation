@@ -68,6 +68,15 @@ namespace Automation
             }
         }
 
+        public static string GetModelServiceSecretKey(string serviceId)
+        {
+            if (!Guid.TryParse(serviceId, out Guid id))
+            {
+                throw new ArgumentException("自定义模型服务 ID 无效", nameof(serviceId));
+            }
+            return "model-service-" + id.ToString("D");
+        }
+
         private static bool TryLoad(out Dictionary<string, string> values, out string error)
         {
             values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

@@ -167,20 +167,23 @@ namespace Automation
         {
             EnsureProcessStarted();
             string sessionWorkingDirectory = ResolveWorkingDirectory();
+            AiModelServiceConfig modelService = GooseConfigStorage.FindModelService(config);
+            string configuredProvider = modelService == null ? config.Provider?.Trim() : "openai";
+            string configuredModel = modelService == null ? config.Model?.Trim() : modelService.Model?.Trim();
             JObject sessionMeta = new JObject
             {
                 ["sessionName"] = runtimeSessionName,
                 ["maxTurns"] = config.MaxTurns
             };
-            if (!string.IsNullOrWhiteSpace(config.Provider))
+            if (!string.IsNullOrWhiteSpace(configuredProvider))
             {
-                sessionMeta["provider"] = string.Equals(config.Provider.Trim(), "deepseek", StringComparison.OrdinalIgnoreCase)
+                sessionMeta["provider"] = string.Equals(configuredProvider, "deepseek", StringComparison.OrdinalIgnoreCase)
                     ? "custom_deepseek"
-                    : config.Provider.Trim();
+                    : configuredProvider;
             }
-            if (!string.IsNullOrWhiteSpace(config.Model))
+            if (!string.IsNullOrWhiteSpace(configuredModel))
             {
-                sessionMeta["model"] = config.Model.Trim();
+                sessionMeta["model"] = configuredModel;
             }
             JObject result = await SendRequestAsync("session/new", new JObject
             {
@@ -256,10 +259,17 @@ namespace Automation
                     }
                     if (file.IsImage)
                     {
-                        if (IsKnownTextOnlyImageConfiguration(config.Provider, config.Model))
+                        AiModelServiceConfig modelService = GooseConfigStorage.FindModelService(config);
+                        bool textOnly = modelService != null
+                            ? !modelService.SupportsVision
+                            : IsKnownTextOnlyImageConfiguration(config.Provider, config.Model);
+                        if (textOnly)
                         {
+                            string modelLabel = modelService == null
+                                ? config.Provider + "/" + config.Model
+                                : modelService.Name + "/" + modelService.Model;
                             throw new InvalidOperationException(
-                                $"当前模型 {config.Provider}/{config.Model} 只支持文本，不能分析图片。请移除图片或切换到支持视觉的模型。");
+                                $"当前模型 {modelLabel} 只支持文本，不能分析图片。请移除图片或切换到支持视觉的模型。");
                         }
                         if (!supportsImagePrompt)
                         {
@@ -331,8 +341,11 @@ namespace Automation
             {
                 ["request"] = AiAnalysisLogger.SummarizePayload(new JValue(prompt), 8 * 1024),
                 ["toolProfile"] = config.ToolProfile ?? string.Empty,
-                ["provider"] = config.Provider ?? string.Empty,
-                ["model"] = config.Model ?? string.Empty,
+                ["provider"] = GooseConfigStorage.FindModelService(config) == null
+                    ? config.Provider ?? string.Empty : "openai",
+                ["model"] = GooseConfigStorage.FindModelService(config)?.Model
+                    ?? config.Model ?? string.Empty,
+                ["modelServiceId"] = config.ModelServiceId ?? string.Empty,
                 ["goose"] = new JObject
                 {
                     ["name"] = gooseAgentName ?? string.Empty,
@@ -554,7 +567,9 @@ namespace Automation
             }
             startInfo.EnvironmentVariables["GOOSE_MOIM_MESSAGE_FILE"] = GooseRuntimeProvisioner.IntegrationContextPath;
 
-            string configuredProvider = config.Provider?.Trim();
+            AiModelServiceConfig modelService = GooseConfigStorage.FindModelService(config);
+            string configuredProvider = modelService == null ? config.Provider?.Trim() : "openai";
+            string configuredModel = modelService == null ? config.Model?.Trim() : modelService.Model?.Trim();
             bool useDeepSeekProvider = string.Equals(configuredProvider, "deepseek", StringComparison.OrdinalIgnoreCase);
             string effectiveProvider = useDeepSeekProvider ? "custom_deepseek" : configuredProvider;
             if (useDeepSeekProvider)
@@ -565,13 +580,45 @@ namespace Automation
             {
                 startInfo.EnvironmentVariables["GOOSE_PROVIDER"] = effectiveProvider;
             }
-            if (!string.IsNullOrWhiteSpace(config.Model))
+            if (!string.IsNullOrWhiteSpace(configuredModel))
             {
-                startInfo.EnvironmentVariables["GOOSE_MODEL"] = config.Model.Trim();
+                startInfo.EnvironmentVariables["GOOSE_MODEL"] = configuredModel;
             }
             startInfo.EnvironmentVariables["GOOSE_MAX_TOKENS"] =
                 config.MaxOutputTokens.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            if (!string.IsNullOrWhiteSpace(config.Provider))
+            startInfo.EnvironmentVariables["GOOSE_TEMPERATURE"] =
+                config.Temperature.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (modelService != null)
+            {
+                // 自定义服务只覆盖当前 EW-AI 子进程，避免污染 Goose 全局配置和其他应用。
+                // OPENAI_HOST 的优先级高于 OPENAI_BASE_URL，必须移除父进程可能继承的旧值。
+                startInfo.EnvironmentVariables.Remove("OPENAI_HOST");
+                startInfo.EnvironmentVariables.Remove("OPENAI_BASE_PATH");
+                startInfo.EnvironmentVariables["OPENAI_BASE_URL"] = modelService.BaseUrl.Trim();
+                startInfo.EnvironmentVariables.Remove("OPENAI_API_KEY");
+                string serviceSecretKey = AiProviderSecretStorage.GetModelServiceSecretKey(modelService.Id);
+                if (AiProviderSecretStorage.TryGetSecret(serviceSecretKey, out string serviceSecret, out string serviceSecretError))
+                {
+                    startInfo.EnvironmentVariables["OPENAI_API_KEY"] = serviceSecret;
+                }
+                else if (modelService.RequiresApiKey)
+                {
+                    throw new InvalidOperationException(serviceSecretError);
+                }
+                if (modelService.ContextLimit.HasValue)
+                {
+                    startInfo.EnvironmentVariables["GOOSE_PREDEFINED_MODELS"] = new JArray
+                    {
+                        new JObject
+                        {
+                            ["name"] = configuredModel,
+                            ["provider"] = "openai",
+                            ["context_limit"] = modelService.ContextLimit.Value
+                        }
+                    }.ToString(Formatting.None);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(config.Provider))
             {
                 if (!AiProviderSecretStorage.TryGetEnvironmentVariableName(config.Provider, out string secretVariable))
                 {
@@ -614,16 +661,22 @@ namespace Automation
             startupInfo.Append(" mcpUri=").Append(config.McpUri);
             startupInfo.Append(" sessionName=").Append(runtimeSessionName);
             startupInfo.Append(" developerShell=").Append(developerShellPath ?? "cmd");
-            if (!string.IsNullOrWhiteSpace(config.Provider))
+            if (!string.IsNullOrWhiteSpace(configuredProvider))
             {
                 startupInfo.Append(" provider=").Append(effectiveProvider);
             }
-            if (!string.IsNullOrWhiteSpace(config.Model))
+            if (!string.IsNullOrWhiteSpace(configuredModel))
             {
-                startupInfo.Append(" model=").Append(config.Model);
+                startupInfo.Append(" model=").Append(configuredModel);
+            }
+            if (modelService != null)
+            {
+                startupInfo.Append(" modelService=").Append(modelService.Name);
+                startupInfo.Append(" baseUrl=").Append(modelService.BaseUrl);
             }
             startupInfo.Append(" maxTurns=").Append(config.MaxTurns);
             startupInfo.Append(" maxOutputTokens=").Append(config.MaxOutputTokens);
+            startupInfo.Append(" temperature=").Append(config.Temperature);
             LogFile(startupInfo.ToString(), LogLevel.Normal);
             Report("lifecycle", $"EW-AI ACP 进程已启动：{config.GooseExecutablePath} acp --with-builtin developer", null);
         }
@@ -1649,29 +1702,17 @@ namespace Automation
             return value;
         }
 
-        // Developer 工具只面向自动化项目的 Hmi 源码。优先定位包含 Automation.csproj
-        // 的源码根目录；发布包若要开放代码修改，必须在程序目录携带 Hmi 目录。
+        // Developer 工具的工作目录使用当前运行项目的 HMI 源码目录。
         private string ResolveWorkingDirectory()
         {
-            DirectoryInfo directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
-            while (directory != null)
+            if (!HmiDevelopmentSourceLocator.TryResolve(
+                AppDomain.CurrentDomain.BaseDirectory,
+                out HmiDevelopmentSource source,
+                out string error))
             {
-                string projectFile = Path.Combine(directory.FullName, "Automation.csproj");
-                string sourceDirectory = Path.Combine(directory.FullName, "Hmi");
-                if (File.Exists(projectFile) && Directory.Exists(sourceDirectory))
-                {
-                    return sourceDirectory;
-                }
-                directory = directory.Parent;
+                throw new DirectoryNotFoundException(error);
             }
-
-            string deployedHmiDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Hmi");
-            if (!Directory.Exists(deployedHmiDirectory))
-            {
-                throw new DirectoryNotFoundException(
-                    "未找到 EW-AI 可编辑的 Hmi 源码目录。开发环境需保留 Automation.csproj/Hmi，发布包需在程序目录携带 Hmi。平台内核目录不会开放给 EW-AI。");
-            }
-            return deployedHmiDirectory;
+            return source.SourceDirectory;
         }
 
         private static string ExtractText(JToken token)

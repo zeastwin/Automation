@@ -28,6 +28,7 @@ namespace Automation
         private static readonly Color ButtonBackColor = Color.FromArgb(242, 246, 249);
         private static readonly Color ButtonForeColor = Color.FromArgb(48, 67, 78);
         private readonly List<int> separatorPositions = new List<int>();
+        private readonly System.Windows.Forms.ToolTip toolbarToolTip = new System.Windows.Forms.ToolTip();
         private readonly UiHoverAnimator hoverAnimator = new UiHoverAnimator();
 
         public FrmToolBar()
@@ -37,7 +38,11 @@ namespace Automation
             btnSave.Enabled = false;
             btnCancel.Enabled = false;
             btnIOMonitor.Visible = false;
-            Disposed += (sender, args) => hoverAnimator.Dispose();
+            Disposed += (sender, args) =>
+            {
+                hoverAnimator.Dispose();
+                toolbarToolTip.Dispose();
+            };
         }
 
         private void ConfigureToolbarAppearance()
@@ -52,11 +57,14 @@ namespace Automation
             ConfigureButton(SingleRun, UiIconKind.Step, 78, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnLocate, UiIconKind.Locate, 78, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnAlarm, UiIconKind.Alarm, 106, Color.FromArgb(151, 91, 16), ButtonBackColor, Color.FromArgb(252, 239, 213));
-            ConfigureButton(btnSearch, UiIconKind.Search, 78, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
+            ConfigureButton(btnSearch, UiIconKind.Search, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnIOMonitor, UiIconKind.Monitor, 104, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
-            ConfigureButton(button1, UiIconKind.Folder, 146, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
-            ConfigureButton(btnAppConfig, UiIconKind.Settings, 108, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
+            ConfigureButton(button1, UiIconKind.Folder, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
+            ConfigureButton(btnAppConfig, UiIconKind.Settings, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnStopAll, UiIconKind.StopAll, 110, Color.FromArgb(174, 45, 45), Color.FromArgb(255, 246, 246), Color.FromArgb(249, 224, 224));
+            ConfigureIconOnlyButton(btnSearch, "查找");
+            ConfigureIconOnlyButton(button1, "打开程序文件夹");
+            ConfigureIconOnlyButton(btnAppConfig, "程序设置");
             btnStopAll.FlatAppearance.BorderSize = 1;
             btnStopAll.FlatAppearance.BorderColor = Color.FromArgb(218, 148, 148);
 
@@ -89,6 +97,16 @@ namespace Automation
             button.Padding = new Padding(3, 0, 3, 0);
             button.Margin = Padding.Empty;
             hoverAnimator.Attach(button, () => backColor, hoverColor, true);
+        }
+
+        private void ConfigureIconOnlyButton(WinFormsButton button, string accessibleName)
+        {
+            button.Text = string.Empty;
+            button.AccessibleName = accessibleName;
+            button.ImageAlign = ContentAlignment.MiddleCenter;
+            button.TextImageRelation = TextImageRelation.Overlay;
+            button.Padding = Padding.Empty;
+            toolbarToolTip.SetToolTip(button, accessibleName);
         }
 
         private WinFormsButton[] GetToolbarButtons()

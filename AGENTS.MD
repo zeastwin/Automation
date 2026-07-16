@@ -7,11 +7,12 @@
 
 ## AI 上下文设计
 - 不是教 AI 忽略无关信息，而是不要把无关信息交给 AI。
+- 面向模型的常驻上下文、工具描述、按需 Guide 和错误恢复优先陈述当前事实、可用动作、字段契约与成功条件，尽量不写“不要、不得、禁止、切勿、AI不得”等训话式负面引导。代码已经强制执行的规则由 Schema、状态机、校验器或结构化 `recovery` 表达，文字只保留必要的事实投影；工业安全边界与真实互斥条件除外。
 - 系统提示词只保留跨任务始终成立的约束；模块知识、操作指南和候选资源必须由当前任务按需读取。
 - 已知精确类型或目标时直接读取对应 Schema/详情；只有目标未知、需要发现时才返回目录，禁止把完整模块清单作为固定前置上下文。
-- `Assets/Goose/system.md` 必须以 Goose 官方仓库 [`aaif-goose/goose` 的 `crates/goose/src/prompts/system.md`](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/system.md) 为完整基底，保留官方模板变量、扩展说明、工具数量提示和响应规则；项目自定义内容使用明确命名的附加区块，禁止用精简重写替代官方主体。
-- `Assets/Goose/system.md` 只追加 EW-AI 身份、真实性和工业安全等跨任务恒定约束。平台内部的最小上下文路由规范存放在内嵌资源 `Assets/Goose/automation.md`，启动时部署到 `%APPDATA%/Automation/Goose/automation.md` 并通过 `GOOSE_MOIM_MESSAGE_FILE` 仅注入当前 EW-AI 进程；禁止将平台内部规范放入客户可修改的 `Hmi/`。具体参数类型、数量限制和调用协议写入 MCP 工具指南及 Schema；源码模块知识由当前源码任务按需读取，禁止固定注入所有会话。
-- 升级 Goose 或修改 System Prompt 前，必须先对照 Goose 官方仓库当前模板；若官方模板发生变化，应先同步官方基底，再重新应用 EW-AI 自定义区块，并递增 `GooseRuntimeProvisioner.SystemPromptVersion`。
+- `Assets/Goose/system.md` 以 Goose 官方仓库 [`aaif-goose/goose` 的 `crates/goose/src/prompts/system.md`](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/system.md) 为功能规则基底，保留官方模板变量、扩展说明、工具数量提示和响应规则。官方身份、名称和来源文案可以按 EW-AI 品牌直接替换，不视为破坏功能基底；其他项目自定义内容使用明确命名的附加区块，禁止用精简重写替代官方功能主体。
+- `Assets/Goose/system.md` 只在官方功能规则基底上替换 EW-AI 品牌身份，并追加真实性和工业安全等跨任务恒定约束。平台内部的最小上下文路由规范存放在内嵌资源 `Assets/Goose/automation.md`，启动时部署到 `%APPDATA%/Automation/Goose/automation.md` 并通过 `GOOSE_MOIM_MESSAGE_FILE` 仅注入当前 EW-AI 进程；禁止将平台内部规范放入客户可修改的 `Hmi/`。具体参数类型、数量限制和调用协议写入 MCP 工具指南及 Schema；源码模块知识由当前源码任务按需读取，禁止固定注入所有会话。
+- 升级 Goose 或修改 System Prompt 前，必须先对照 Goose 官方仓库当前模板；若官方模板发生变化，应先同步官方功能规则基底，再重新应用 EW-AI 品牌身份和自定义区块，并递增 `GooseRuntimeProvisioner.SystemPromptVersion`。
 - `Assets/Goose/automation.md` 使用独立的 `GooseRuntimeProvisioner.IntegrationContextVersion` 和 `%APPDATA%/Automation/Goose/.automation-context-version`，不得与 System Prompt 共用版本号；修改该文件时只递增专用上下文版本。
 - AI 的流程结构以及需要与流程同阶段事务提交的逐变量声明，以 ChangeSet V2 为默认公开链路：业务语义 `preview_change_set` → 前台确认 → 仅携带 `previewId` 的 `apply_change_set`。Bridge 冻结编译结果并负责资源策略、符号跳转、版本校验与事务提交；旧 intent/patch/create_batch 工具不得重新加入 Goose 默认 Editor Profile。
 - Goose 受管 Markdown 同时作为 Manifest 资源和 `Assets/Goose/` 输出内容发布；运行时优先读取 Manifest，缺失时读取程序目录副本。两条通道均失败时只禁用 EW-AI 并明确报警，不得阻断 HMI/平台初始化。
@@ -37,7 +38,7 @@
 
 ## AI 事实分层与单一事实源
 - 同一事实只允许一个权威来源；其他层只能引用、投影或验证，不得手写另一份近似说明。若确需多种输出形式，必须从同一来源生成并用测试证明等价。
-- Goose 官方通用行为的权威来源是 `Assets/Goose/system.md` 的官方基底；EW-AI 只追加身份、真实性、工业安全等跨任务约束。
+- Goose 官方通用行为的权威来源是 `Assets/Goose/system.md` 的官方功能规则基底；EW-AI 品牌身份可替换官方身份与来源文案，真实性、工业安全等跨任务约束放在明确命名的自定义区块。
 - Automation 的常驻路由方法权威来源是 `Assets/Goose/automation.md`；这里只说明如何选择表达层、如何分阶段提交和如何验证，不保存具体指令知识。
 - MCP 对外工具集合的权威来源是 `McpServer/McpToolProfile.cs`；工具是否存在、属于 Editor 还是 Diagnostic，以 Profile 为准。`McpServer/Program.cs --verify-profile` 必须检查必需工具和退役工具，Markdown、错误和 Guide 不得引用 Profile 中不存在的工具。
 - MCP 参数入口的权威来源是 `Automation.Protocol/` 的强类型 DTO、`AutomationMcpTools` 方法签名及 `McpToolProfile` 生成的 JSON Schema。工具描述只补充“何时使用”和参数无法表达的短语义。
@@ -65,7 +66,7 @@
 - 修改 ChangeSet 时，逐项检查：`Automation.Protocol` DTO、MCP JSON Schema、Bridge 基础参数验证是否在 UI 线程前、`AiChangeSetCompiler`、冻结预演、状态哈希、前台确认、仅凭 `previewId` 提交、事务保存、运行值保持、`createdObjects/affectedProcesses` 和 Profile 回归。
 - 修改跳转、插入、删除或移动指令时，必须检查稳定 ID、局部 key 解析、跨步骤目标、未解析标签、物理地址重算、被删目标失效证据和提交后回读；禁止依赖旧 index 继续编辑。
 - 修改变量能力时，保持“列表可批量读取、对象按名称/索引精确读取、配置按单变量增删改、运行值按单变量设置”的公开语义。ChangeSet 中的变量声明是与流程同阶段提交的单变量策略，不得暴露整张变量表替换工具；配置提交不得把当前运行值重置为初始值。
-- 修改提示词或 Goose 部署时，逐项检查：官方 system 基底 diff、自定义区块边界、Manifest 与输出副本、对应独立版本号、运行时部署路径、当前进程环境变量、缺失时只禁用 EW-AI、Profile 中无旧工具词，并记录本轮 prompt/context 哈希供日志定位。
+- 修改提示词或 Goose 部署时，逐项检查：官方 system 功能规则基底 diff、EW-AI 品牌身份差异、自定义区块边界、Manifest 与输出副本、对应独立版本号、运行时部署路径、当前进程环境变量、缺失时只禁用 EW-AI、Profile 中无旧工具词，并记录本轮 prompt/context 哈希供日志定位。
 - 修改工具集合或路由时，必须同步 `McpToolProfile` 与 `Program --verify-profile`；评估新增工具是否真的提供新的精确能力，能否由现有强类型工具自然承担。不得为了规避一次模型误用持续增加近义工具。
 - 修改前台聊天、确认窗体或选择上下文时，检查 UI 线程安全、关闭/取消竞态、一个活动预演的状态机、流程/步骤/指令分层选择、内部事件不进入聊天正文、Markdown 渲染和结构化日志关联。
 - 修改日志时，保证 `turnId/seq` 能串起用户输入、模型段、工具开始/结束、预演、确认、提交和轮次结束；主分析日志保留紧凑事实，完整报文只作底层取证。日志不得反向注入模型上下文，也不得在高速循环中逐指令同步写盘。
@@ -88,7 +89,9 @@
 - `IntentTemplates/` — 遗留中间意图模板，仅保留兼容；不属于 Goose 默认 Editor 写入链。
 - `McpServer/` — 独立进程，把 Bridge 透传为 MCP Streamable HTTP 服务。
 - `MotionControl/` — 运动控制（雷赛 LTDMC/LeiSei3000）。
-- `DeviceProject/Hmi/` — 面向客户和现场操作的设备 HMI 应用层；`FrmHmiMain` 由 `MachineApp.exe` 启动，只能通过 `AutomationPlatformHost` 的公开 SDK 访问平台能力。平台仓库根目录的 `Hmi/` 不再作为 `Automation.exe` 的启动入口。
+- `Hmi/` — 平台仓库保留的 HMI 调试界面源码；`Automation.exe` 根据 `AppConfig.StartupView` 选择启动该 HMI 或平台编辑器。
+- `../DeviceProject/Hmi/` — 与平台并列的独立设备 HMI 工程源码；`FrmHmiMain` 由 `MachineApp.exe` 启动，只能通过 `AutomationPlatformHost` 的公开 SDK 访问平台能力。
+- `Engine/CustomFunc.cs` — 平台内部的自定义函数注册与执行容器，AI 不得直接修改；平台内置 HMI 与独立设备 HMI 的业务函数分别写入各自的 `Hmi/CustomFunctions.cs`，并统一通过 `IAutomationPlatform.RegisterCustomFunction` 注册。
 - `PLC/` — PLC 通讯（S7/ModbusTcp）。
 - `Runtime/` — `AutomationPlatformHost`、`AppConfigStorage`、`GooseConfigStorage`、`AutomationMcpServerManager`。
 - `Stores/` — 各类配置 Store 与 `LocalFileLogger`。
@@ -97,13 +100,13 @@
 - `FrmMain.cs` / `FrmProc.cs` / `FrmDataGrid.cs` / `FrmPropertyGrid.cs` — 可隐藏的平台编辑器与流程编辑链。
 
 ## 启动模式
-- `Automation.exe` 无参数直接启动平台编辑器 `FrmMain`，用于平台开发、配置与调试；其他参数一律拒绝。
-- `MachineApp.exe` 是设备工程入口：初始化平台内核后启动设备工程自己的 `FrmHmiMain`，需要时可从 HMI 打开平台编辑器。
+- `Automation.exe` 无参数时根据 `AppConfig.StartupView` 启动平台编辑器 `FrmMain` 或平台内置 HMI，用于平台开发、配置与调试；其他参数一律拒绝。
+- `../DeviceProject/MachineApp.exe` 是独立设备工程入口：同样读取自身 `Config/AppConfig.json` 的 `StartupView`，初始化平台内核后启动设备工程自己的 `FrmHmiMain` 或平台编辑器。
 - HMI 和平台处于同一 UI 线程、同一进程、同一程序集，共用 `<exe>/Config/`。
 
 ## 运行时全局对象
 - `SF` 是全局容器，持有窗体、`ProcessEngine`、`MotionCtrl`、各 Store、权限会话。
-- `SF` 仅允许平台内部适配使用；`Hmi/` 禁止直接引用 `SF`、平台窗体、Store、引擎和原生运动对象。
+- `SF` 仅允许平台内部适配使用；`../DeviceProject/Hmi/` 禁止直接引用 `SF`、平台窗体、Store、引擎和原生运动对象。
 - `SF.ConfigPath = <exe>/Config/`，`SF.workPath = <exe>/Config/Work/`。
 - 权限入口：`SF.EnsurePermission`（动作级）、`SF.HasPermission`（状态级）、`SF.SetSecurityLock`（停机锁定）。
 - 流程发布：`SF.PublishProc(procIndex)`。

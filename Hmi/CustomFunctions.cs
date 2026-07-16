@@ -2,12 +2,12 @@ using System;
 using System.Diagnostics;
 using Automation.DeviceSdk;
 
-namespace MachineApp.Hmi
+namespace Automation.Hmi
 {
     /// <summary>
-    /// 设备工程自定义函数入口。这里可以使用公开平台接口，但不依赖平台源码或内部全局对象。
+    /// 平台内置 HMI 的自定义函数入口，只通过公开平台接口访问运行能力。
     /// </summary>
-    internal static class DeviceCustomFunctions
+    internal static class CustomFunctions
     {
         private static readonly Stopwatch Stopwatch = new Stopwatch();
 

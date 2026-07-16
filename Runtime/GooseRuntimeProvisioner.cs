@@ -8,7 +8,7 @@ namespace Automation
 {
     public static class GooseRuntimeProvisioner
     {
-        public const int SystemPromptVersion = 16;
+        public const int SystemPromptVersion = 19;
         public const int IntegrationContextVersion = 38;
         private const string PromptResourceName = "Automation.Assets.Goose.system.md";
         private const string IntegrationContextResourceName = "Automation.Assets.Goose.automation.md";
@@ -110,7 +110,7 @@ namespace Automation
             File.Copy(PromptPath, path, false);
         }
 
-        private static void ValidateManagedPromptFiles(bool requireCurrentOfficialIdentity)
+        private static void ValidateManagedPromptFiles(bool requireCurrentPromptIdentity)
         {
             string systemPrompt = File.ReadAllText(PromptPath, Encoding.UTF8);
             string[] systemAnchors =
@@ -127,10 +127,10 @@ namespace Automation
             {
                 throw new InvalidDataException("System Prompt 缺少官方基底或 EW-AI 区块：" + missingSystemAnchor);
             }
-            if (requireCurrentOfficialIdentity
-                && systemPrompt.IndexOf("You are a general-purpose AI agent called goose", StringComparison.Ordinal) < 0)
+            if (requireCurrentPromptIdentity
+                && systemPrompt.IndexOf("You are a general-purpose AI agent called EW-AI", StringComparison.Ordinal) < 0)
             {
-                throw new InvalidDataException("System Prompt 缺少当前 Goose 官方身份基底。");
+                throw new InvalidDataException("System Prompt 缺少当前 EW-AI 身份定义。");
             }
 
             string integrationContext = File.ReadAllText(IntegrationContextPath, Encoding.UTF8);

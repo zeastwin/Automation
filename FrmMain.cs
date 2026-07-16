@@ -71,6 +71,8 @@ namespace Automation
         private int shutdownStarted;
         private const int MinimumWorkspaceWidthWithAi = 1000;
         private const int MinimumAiPanelWidth = 320;
+        private FormWindowState previousWindowState;
+        private bool centerAfterRestorePending;
 
         internal bool HideOnUserClose { get; set; }
         internal bool IsPlatformInitialized => platformInitialized;
@@ -178,6 +180,8 @@ namespace Automation
 
             StartPosition = FormStartPosition.CenterScreen;
             WindowState = FormWindowState.Maximized;
+            previousWindowState = WindowState;
+            Resize += FrmMain_Resize;
 
             loadFillForm(MenuPanel, SF.frmMenu);
             loadFillForm(treeView_panel, SF.frmProc);
@@ -212,6 +216,32 @@ namespace Automation
             {
                 UpdateAiPanelWidth();
             }
+        }
+
+        private void FrmMain_Resize(object sender, EventArgs e)
+        {
+            FormWindowState currentWindowState = WindowState;
+            bool restoredFromMaximized = previousWindowState == FormWindowState.Maximized
+                && currentWindowState == FormWindowState.Normal;
+            previousWindowState = currentWindowState;
+            if (!restoredFromMaximized || centerAfterRestorePending || IsDisposed)
+            {
+                return;
+            }
+
+            centerAfterRestorePending = true;
+            BeginInvoke((Action)(() =>
+            {
+                centerAfterRestorePending = false;
+                if (IsDisposed || WindowState != FormWindowState.Normal)
+                {
+                    return;
+                }
+                Rectangle workingArea = Screen.FromControl(this).WorkingArea;
+                int centeredX = workingArea.Left + Math.Max(0, (workingArea.Width - Width) / 2);
+                int centeredY = workingArea.Top + Math.Max(0, (workingArea.Height - Height) / 2);
+                Location = new Point(centeredX, centeredY);
+            }));
         }
 
         internal void UpdateAiPanelWidth()
@@ -1338,6 +1368,7 @@ namespace Automation
                 {
                     targetNode.ForeColor = nextColor;
                 }
+                SF.frmProc.UpdateProcStateIcons(procNum, snapshot);
             }
             if (SF.frmProc.proc_treeView.InvokeRequired)
             {
@@ -1469,13 +1500,13 @@ namespace Automation
                 int procIndex = SF.frmProc.SelectedProcNum;
                 int stepIndex = SF.frmProc.SelectedStepNum;
                 int opIndex = SF.frmDataGrid.iSelectedRow;
-                if (opIndex < 0 && SF.frmDataGrid.dataGridView1.CurrentCell != null)
+                if (opIndex < 0 && SF.frmDataGrid.dataGridView1.CurrentIndex >= 0)
                 {
-                    opIndex = SF.frmDataGrid.dataGridView1.CurrentCell.RowIndex;
+                    opIndex = SF.frmDataGrid.dataGridView1.CurrentIndex;
                     SF.frmDataGrid.iSelectedRow = opIndex;
                 }
 
-                if (procIndex < 0 || stepIndex < 0 || opIndex < 0 || opIndex >= SF.frmDataGrid.dataGridView1.Rows.Count)
+                if (procIndex < 0 || stepIndex < 0 || opIndex < 0 || opIndex >= SF.frmDataGrid.dataGridView1.OperationCount)
                 {
                     if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
                     {

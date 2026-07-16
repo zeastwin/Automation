@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Drawing;
+using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Windows.Forms;
@@ -159,6 +160,23 @@ namespace Automation.McpServer
         private static void VerifyEditorProfile()
         {
             IReadOnlyList<McpServerTool> editorTools = McpToolProfile.CreateEditorTools();
+            HashSet<string> profiledToolNames = editorTools
+                .Concat(McpToolProfile.CreateTools("Diagnostic"))
+                .Concat(McpToolProfile.CreateTools("Editor", true))
+                .Select(tool => tool.ProtocolTool.Name)
+                .ToHashSet(StringComparer.Ordinal);
+            string[] unprofiledDeclarations = typeof(AutomationMcpTools)
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                .Select(method => method.GetCustomAttribute<McpServerToolAttribute>()?.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name) && !profiledToolNames.Contains(name))
+                .Select(name => name!)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            if (unprofiledDeclarations.Length > 0)
+            {
+                throw new InvalidOperationException("MCP源码包含未归属任何Profile的工具声明："
+                    + string.Join(", ", unprofiledDeclarations));
+            }
             string[] names = editorTools
                 .Select(tool => tool.ProtocolTool.Name)
                 .OrderBy(value => value, StringComparer.Ordinal)

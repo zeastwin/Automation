@@ -114,7 +114,7 @@ namespace Automation
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(1584, 921);
+            this.ClientSize = new System.Drawing.Size(1680, 921);
             this.Controls.Add(this.main_panel);
             this.Controls.Add(this.state_panel);
             this.Controls.Add(this.MenuPanel);

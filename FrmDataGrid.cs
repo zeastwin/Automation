@@ -1,20 +1,11 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Data;
 using System.Drawing;
 using System.Linq;
-using System.Reflection;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Drawing.Drawing2D;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using static Automation.OperationTypePartial;
-using System.Diagnostics;
-using System.Security.Cryptography.X509Certificates;
 
 namespace Automation
 {
@@ -31,6 +22,7 @@ namespace Automation
         private int lastHighlightedProc = -1;
         private int lastHighlightedStep = -1;
         private ProcRunState lastHighlightedState = ProcRunState.Stopped;
+        private bool lastHighlightedBreakpoint;
         private bool lastHighlightActive = false;
         private bool singleStepFollowPending;
         private int singleStepFollowProcIndex = -1;
@@ -44,7 +36,6 @@ namespace Automation
         private const int GridFlashMaxCount = 6;
         // 行级闪烁目标列表：(行索引, 颜色)。为空时闪烁整个 grid。
         private List<(int rowIndex, Color color)> flashTargetRows;
-
         //记录要复制行的index
         public List<int> selectedRowIndexes4Copy = new List<int>();
         //
@@ -54,20 +45,9 @@ namespace Automation
         {
             InitializeComponent();
             Disposed += FrmDataGrid_Disposed;
-            dataGridView1.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            dataGridView1.ReadOnly = true;
-            dataGridView1.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
-            dataGridView1.RowHeadersVisible = false;
-            dataGridView1.AutoGenerateColumns = false;
             InitContextMenuIcons();
             contextMenuStrip2.KeyDown += contextMenuStrip2_KeyDown;
             contextMenuStrip2.Opening += contextMenuStrip2_Opening;
-
-            Type dgvType = this.dataGridView1.GetType();
-            PropertyInfo pi = dgvType.GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
-            pi.SetValue(this.dataGridView1, true, null);
-
-            dataGridView1.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
         }
 
         private void InitContextMenuIcons()
@@ -143,27 +123,36 @@ namespace Automation
             else
             {
                 Point clientPoint = dataGridView1.PointToClient(Cursor.Position);
-                DataGridView.HitTestInfo hitTest = dataGridView1.HitTest(clientPoint.X, clientPoint.Y);
-                rowIndex = hitTest.RowIndex;
-                if (rowIndex < 0 && dataGridView1.CurrentCell != null)
+                rowIndex = dataGridView1.IndexFromPoint(clientPoint);
+                if (rowIndex < 0 && dataGridView1.CurrentIndex >= 0)
                 {
-                    rowIndex = dataGridView1.CurrentCell.RowIndex;
+                    rowIndex = dataGridView1.CurrentIndex;
                 }
             }
             contextMenuByMouse = false;
             contextMenuRowIndex = -1;
 
-            if (rowIndex >= 0 && rowIndex < dataGridView1.Rows.Count)
+            if (rowIndex >= 0 && rowIndex < dataGridView1.OperationCount)
             {
                 iSelectedRow = rowIndex;
-                dataGridView1.ClearSelection();
-                dataGridView1.Rows[rowIndex].Selected = true;
-                dataGridView1.CurrentCell = dataGridView1.Rows[rowIndex].Cells[0];
+                dataGridView1.SelectSingle(rowIndex);
+                OperationType operation = dataGridView1.GetOperation(rowIndex);
+                if (operation != null)
+                {
+                    SetStopPoint.Text = operation.isStopPoint ? "取消断点" : "设置断点";
+                    SetStopPoint.Checked = operation.isStopPoint;
+                    Enable.Text = operation.Disable ? "启用指令" : "禁用指令";
+                    Enable.Checked = operation.Disable;
+                }
             }
             else
             {
                 iSelectedRow = -1;
                 dataGridView1.ClearSelection();
+                SetStopPoint.Text = "设置断点";
+                SetStopPoint.Checked = false;
+                Enable.Text = "禁用指令";
+                Enable.Checked = false;
             }
         }
 
@@ -195,7 +184,7 @@ namespace Automation
                 return;
             }
 
-            if (iSelectedRow < 0 || iSelectedRow >= dataGridView1.Rows.Count)
+            if (iSelectedRow < 0 || iSelectedRow >= dataGridView1.OperationCount)
             {
                 if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
                 {
@@ -213,7 +202,7 @@ namespace Automation
                 return;
             }
 
-            OperationType dataItem = dataGridView1.Rows[iSelectedRow].DataBoundItem as OperationType;
+            OperationType dataItem = dataGridView1.GetOperation(iSelectedRow);
             if (dataItem == null)
             {
                 if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
@@ -322,7 +311,7 @@ namespace Automation
                 }
 
                 int rowIndex = snapshot.OpIndex;
-                if (rowIndex < 0 || rowIndex >= dataGridView1.RowCount)
+                if (rowIndex < 0 || rowIndex >= dataGridView1.OperationCount)
                 {
                     ClearLastHighlight();
                     return;
@@ -332,15 +321,16 @@ namespace Automation
                     || rowIndex != lastHighlightedRow
                     || selectedProc != lastHighlightedProc
                     || snapshot.StepIndex != lastHighlightedStep
-                    || snapshot.State != lastHighlightedState)
+                    || snapshot.State != lastHighlightedState
+                    || snapshot.IsBreakpoint != lastHighlightedBreakpoint)
                 {
-                    if (lastHighlightActive && lastHighlightedRow >= 0 && lastHighlightedRow < dataGridView1.RowCount)
+                    if (lastHighlightActive && lastHighlightedRow >= 0 && lastHighlightedRow < dataGridView1.OperationCount)
                     {
                         ClearRowColor(lastHighlightedRow);
                         dataGridView1.InvalidateRow(lastHighlightedRow);
                     }
 
-                    Color highlightColor = snapshot.State == ProcRunState.Alarming ? Color.Red : Color.LightBlue;
+                    Color highlightColor = GetRuntimeRowBackColor(snapshot.State, snapshot.IsBreakpoint);
                     SetRowColor(rowIndex, highlightColor);
                     dataGridView1.InvalidateRow(rowIndex);
                     lastHighlightActive = true;
@@ -348,6 +338,8 @@ namespace Automation
                     lastHighlightedProc = selectedProc;
                     lastHighlightedStep = snapshot.StepIndex;
                     lastHighlightedState = snapshot.State;
+                    lastHighlightedBreakpoint = snapshot.IsBreakpoint;
+                    dataGridView1.SetRuntimeState(rowIndex, snapshot.State, snapshot.IsBreakpoint);
                 }
             }
             catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
@@ -367,7 +359,7 @@ namespace Automation
 
         private void ClearLastHighlight()
         {
-            if (lastHighlightActive && lastHighlightedRow >= 0 && lastHighlightedRow < dataGridView1.RowCount)
+            if (lastHighlightActive && lastHighlightedRow >= 0 && lastHighlightedRow < dataGridView1.OperationCount)
             {
                 ClearRowColor(lastHighlightedRow);
                 dataGridView1.InvalidateRow(lastHighlightedRow);
@@ -377,6 +369,32 @@ namespace Automation
             lastHighlightedProc = -1;
             lastHighlightedStep = -1;
             lastHighlightedState = ProcRunState.Stopped;
+            lastHighlightedBreakpoint = false;
+            dataGridView1.ClearRuntimeState();
+        }
+
+        private static Color GetRuntimeRowBackColor(ProcRunState state, bool isBreakpoint)
+        {
+            if (isBreakpoint)
+            {
+                return Color.FromArgb(255, 241, 242);
+            }
+            switch (state)
+            {
+                case ProcRunState.Running:
+                    return Color.FromArgb(235, 248, 241);
+                case ProcRunState.Paused:
+                case ProcRunState.Pausing:
+                    return Color.FromArgb(255, 247, 229);
+                case ProcRunState.SingleStep:
+                    return Color.FromArgb(234, 245, 252);
+                case ProcRunState.Alarming:
+                    return Color.FromArgb(253, 235, 237);
+                case ProcRunState.Stopping:
+                    return Color.FromArgb(250, 237, 237);
+                default:
+                    return Color.FromArgb(240, 246, 249);
+            }
         }
 
         public void SelectChildNode(int parentIndex, int childIndex)
@@ -398,18 +416,15 @@ namespace Automation
         {
             Invoke(new Action(() =>
             {
-                if (rowIndex >= 0 && rowIndex < dataGridView1.RowCount)
+                if (rowIndex >= 0 && rowIndex < dataGridView1.OperationCount)
                 {
-                    dataGridView1.FirstDisplayedScrollingRowIndex = rowIndex;
+                    dataGridView1.EnsureIndexVisible(rowIndex);
                 }
             }));
         }
         public void ClearAllRowColors()
         {
-            foreach (DataGridViewRow row in dataGridView1.Rows)
-            {
-                row.DefaultCellStyle.BackColor = Color.Empty;
-            }
+            dataGridView1.ClearRowColors();
         }
 
         /// <summary>
@@ -477,9 +492,9 @@ namespace Automation
                 // 行级闪烁：只闪烁目标行
                 foreach (var (rowIndex, color) in flashTargetRows)
                 {
-                    if (rowIndex >= 0 && rowIndex < dataGridView1.Rows.Count)
+                    if (rowIndex >= 0 && rowIndex < dataGridView1.OperationCount)
                     {
-                        dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = setColor ? color : Color.Empty;
+                        dataGridView1.SetRowColor(rowIndex, setColor ? color : Color.Empty);
                     }
                 }
             }
@@ -487,10 +502,7 @@ namespace Automation
             {
                 // 整体闪烁：闪烁所有行
                 Color c = setColor ? gridFlashColor : Color.Empty;
-                foreach (DataGridViewRow row in dataGridView1.Rows)
-                {
-                    row.DefaultCellStyle.BackColor = c;
-                }
+                dataGridView1.SetAllRowsColor(c);
             }
             gridFlashCount++;
         }
@@ -543,12 +555,12 @@ namespace Automation
                 .Select(item => item.rowIndex)
                 .DefaultIfEmpty(-1)
                 .First();
-            if (addedRowIndex >= 0 && addedRowIndex < dataGridView1.Rows.Count
-                && !dataGridView1.Rows[addedRowIndex].Displayed)
+            if (addedRowIndex >= 0 && addedRowIndex < dataGridView1.OperationCount
+                && !dataGridView1.IsIndexVisible(addedRowIndex))
             {
                 try
                 {
-                    dataGridView1.FirstDisplayedScrollingRowIndex = addedRowIndex;
+                    dataGridView1.EnsureIndexVisible(addedRowIndex);
                 }
                 catch (InvalidOperationException)
                 {
@@ -575,18 +587,18 @@ namespace Automation
 
         public void SetRowColor(int rowIndex, Color color)
         {
-            if (rowIndex >= 0 && rowIndex < dataGridView1.RowCount)
+            if (rowIndex >= 0 && rowIndex < dataGridView1.OperationCount)
             {
-                dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = color;
+                dataGridView1.SetRowColor(rowIndex, color);
             }
 
         }
 
         public void ClearRowColor(int rowIndex)
         {
-            if (rowIndex >= 0 && rowIndex < dataGridView1.RowCount)
+            if (rowIndex >= 0 && rowIndex < dataGridView1.OperationCount)
             {
-                dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = Color.Empty;
+                dataGridView1.SetRowColor(rowIndex, Color.Empty);
             }
         }
 
@@ -618,72 +630,15 @@ namespace Automation
                 MessageBox.Show("流程或步骤索引无效，无法新增指令。");
                 return;
             }
-            if (this.dataGridView1.SelectedRows.Count == 0)
+            if (dataGridView1.GetSelectedIndexes().Count == 0)
                 iSelectedRow = -1;
-            OperationTemp = new HomeRun() { Num = iSelectedRow == -1 ? this.dataGridView1.Rows.Count : iSelectedRow + 1 };
+            OperationTemp = new HomeRun() { Num = iSelectedRow == -1 ? dataGridView1.OperationCount : iSelectedRow + 1 };
             SF.frmPropertyGrid.OperationType.SelectedIndex = 0;
             OperationTemp.RefleshPropertyAlarm();
             SF.frmPropertyGrid.propertyGrid1.SelectedObject = OperationTemp;
             SF.isAddOps = true;
             BeginOperationEditSession(true);
             SF.frmDataGrid.dataGridView1.Enabled = false;
-        }
-
-        private void dataGridView1_CellMouseDown(object sender, DataGridViewCellMouseEventArgs e)
-        {
-            if (e.RowIndex < 0 || e.RowIndex >= dataGridView1.Rows.Count)
-            {
-                if (e.Button == MouseButtons.Right)
-                {
-                    iSelectedRow = -1;
-                    dataGridView1.ClearSelection();
-                }
-                return;
-            }
-
-            if (e.Button == MouseButtons.Right)
-            {
-                iSelectedRow = e.RowIndex;
-                dataGridView1.ClearSelection();
-                dataGridView1.Rows[e.RowIndex].Selected = true;
-                dataGridView1.CurrentCell = dataGridView1.Rows[e.RowIndex].Cells[0];
-                return;
-            }
-
-            //输出Ops信息到属性窗体上并输出当前选择行数
-            if (e.RowIndex >= 0
-                && SF.frmProc.SelectedProcNum >= 0
-                && SF.frmProc.SelectedStepNum >= 0
-                && SF.frmProc.SelectedProcNum < SF.frmProc.procsList.Count
-                && SF.frmProc.SelectedStepNum < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count
-                && e.Button == MouseButtons.Left)
-            {
-                
-
-                SF.frmDataGrid.OperationTemp = (OperationType)(SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[e.RowIndex]).Clone();
-                dataGridView1.Rows[e.RowIndex].Selected = true;
-                SF.frmPropertyGrid.propertyGrid1.SelectedObject = OperationTemp;
-                OperationTemp.evtRP();
-                SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmPropertyGrid.propertyGrid1.SelectedObject;
-                string selectedValue = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops[e.RowIndex].OperaType;
-
-                foreach (OperationType item in SF.frmPropertyGrid.OperationType.Items)
-                {
-                    if (item.OperaType.ToString() == selectedValue)
-                    {
-                        SF.frmPropertyGrid.OperationType.SelectedItem = item; // 设置选定项为匹配的项
-                        break;
-                    }
-                }
-                SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-
-            }
-            if ((Control.ModifierKeys & Keys.Control) == Keys.Control && e.RowIndex >= 0 && e.RowIndex < dataGridView1.Rows.Count)
-            {
-                dataGridView1.Rows[e.RowIndex].Selected = !dataGridView1.Rows[e.RowIndex].Selected;
-            }
-            iSelectedRow = e.RowIndex;
-
         }
 
         private void Delete_Click(object sender, EventArgs e)
@@ -698,10 +653,7 @@ namespace Automation
             }
             // int count = 0;
             selectedRowIndexes4Del.Clear();
-            foreach (DataGridViewRow selectedRow in dataGridView1.SelectedRows)
-            {
-                selectedRowIndexes4Del.Add(selectedRow.Index);
-            }
+            selectedRowIndexes4Del.AddRange(dataGridView1.GetSelectedIndexes());
             selectedRowIndexes4Del.Sort();
             if (selectedRowIndexes4Del.Count == 0)
             {
@@ -806,7 +758,7 @@ namespace Automation
         {
             if (e.Control && e.KeyCode == Keys.C)
             {
-                if (dataGridView1.SelectedRows.Count > 0)
+                if (dataGridView1.GetSelectedIndexes().Count > 0)
                 {
                     Copy();
                 }
@@ -879,68 +831,6 @@ namespace Automation
             }));
         }
 
-        private void dataGridView1_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
-        {
-            if (e.RowIndex < 0)
-            {
-                return;
-            }
-
-            if (dataGridView1.DataSource == null)
-            {
-                return;
-            }
-
-            CurrencyManager currencyManager = dataGridView1.BindingContext[dataGridView1.DataSource] as CurrencyManager;
-            if (currencyManager == null || e.RowIndex >= currencyManager.Count)
-            {
-                return;
-            }
-
-            OperationType dataItem = dataGridView1.Rows[e.RowIndex].DataBoundItem as OperationType;
-            if (dataItem == null)
-            {
-                return;
-            }
-
-            if (e.ColumnIndex == statusMark.Index)
-            {
-                string mark = string.Empty;
-                if (dataItem.Disable)
-                {
-                    mark += "X";
-                }
-                if (dataItem.isStopPoint)
-                {
-                    mark += "●";
-                }
-                e.Value = mark;
-                if (dataItem.isStopPoint)
-                {
-                    e.CellStyle.BackColor = Color.Red;
-                    // 断点标记列保持红底，不再走后续行色逻辑
-                    return;
-                }
-            }
-
-            Color rowColor = dataGridView1.Rows[e.RowIndex].DefaultCellStyle.BackColor;
-            bool hasRowColor = !rowColor.IsEmpty;
-            if (hasRowColor)
-            {
-                e.CellStyle.BackColor = rowColor;
-            }
-            else if (dataItem.Disable)
-            {
-                e.CellStyle.BackColor = Color.Gray;
-            }
-            else
-            {
-                e.CellStyle.BackColor = dataGridView1.DefaultCellStyle.BackColor;
-            }
-
-            // 保持系统默认选中颜色，避免选中状态不可见
-        }
-
         private void SetStopPoint_Click(object sender, EventArgs e)
         {
             if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
@@ -951,7 +841,7 @@ namespace Automation
             {
                 return;
             }
-            if (iSelectedRow >= 0 && iSelectedRow < dataGridView1.Rows.Count)
+            if (iSelectedRow >= 0 && iSelectedRow < dataGridView1.OperationCount)
             {
                 int procIndex = SF.frmProc.SelectedProcNum;
                 int stepIndex = SF.frmProc.SelectedStepNum;
@@ -973,14 +863,11 @@ namespace Automation
         {
             selectedRowIndexes4Copy.Clear();
             ListOperationType4Copy.Clear();
-            foreach (DataGridViewRow selectedRow in dataGridView1.SelectedRows)
-            {
-                selectedRowIndexes4Copy.Add(selectedRow.Index);
-            }
+            selectedRowIndexes4Copy.AddRange(dataGridView1.GetSelectedIndexes());
             selectedRowIndexes4Copy.Sort();
             for (int i = 0; i < selectedRowIndexes4Copy.Count; i++)
             {
-                OperationType boundItem = dataGridView1.Rows[selectedRowIndexes4Copy[i]].DataBoundItem as OperationType;
+                OperationType boundItem = dataGridView1.GetOperation(selectedRowIndexes4Copy[i]);
                 if (boundItem == null)
                 {
                     continue;
@@ -1052,14 +939,14 @@ namespace Automation
 
         private void HighlightInsertedRows(int insertIndex, int insertedCount)
         {
-            for (int i = insertIndex; i < insertIndex + insertedCount && i < dataGridView1.Rows.Count; i++)
+            for (int i = insertIndex; i < insertIndex + insertedCount && i < dataGridView1.OperationCount; i++)
             {
-                dataGridView1.Rows[i].DefaultCellStyle.BackColor = Color.LightGreen;
+                dataGridView1.SetRowColor(i, Color.LightGreen);
             }
         }
         private void copy_Click(object sender, EventArgs e)
         {
-            if (dataGridView1.SelectedRows.Count > 0)
+            if (dataGridView1.GetSelectedIndexes().Count > 0)
             {
                 Copy();
             }
@@ -1071,19 +958,81 @@ namespace Automation
         private int dragIndex = -1;
         private void dataGridView1_MouseDown(object sender, MouseEventArgs e)
         {
+            int rowIndex = dataGridView1.IndexFromPoint(e.Location);
             if (e.Button == MouseButtons.Right)
             {
                 contextMenuByMouse = true;
-                contextMenuRowIndex = dataGridView1.HitTest(e.X, e.Y).RowIndex;
+                contextMenuRowIndex = rowIndex;
+                if (rowIndex < 0)
+                {
+                    iSelectedRow = -1;
+                    dataGridView1.ClearSelection();
+                }
+                else
+                {
+                    dataGridView1.SelectSingle(rowIndex);
+                    iSelectedRow = rowIndex;
+                }
+            }
+            else if (e.Button == MouseButtons.Left && rowIndex >= 0)
+            {
+                iSelectedRow = rowIndex;
+                ShowOperationProperties(rowIndex);
             }
             if (ModifierKeys == Keys.Alt && e.Button == MouseButtons.Left)
             {
-                dragIndex = dataGridView1.HitTest(e.X, e.Y).RowIndex;
+                dragIndex = rowIndex;
                 if (dragIndex >= 0)
                 {
-                    dataGridView1.DoDragDrop(dataGridView1.Rows[dragIndex], DragDropEffects.Move);
+                    dataGridView1.DoDragDrop(dragIndex, DragDropEffects.Move);
                 }
             }
+        }
+
+        private void dataGridView1_MouseDoubleClick(object sender, MouseEventArgs e)
+        {
+            int rowIndex = dataGridView1.IndexFromPoint(e.Location);
+            if (rowIndex < 0)
+            {
+                return;
+            }
+            iSelectedRow = rowIndex;
+            ShowOperationProperties(rowIndex);
+            Modify_Click(sender, EventArgs.Empty);
+        }
+
+        private void ShowOperationProperties(int rowIndex)
+        {
+            int procIndex = SF.frmProc.SelectedProcNum;
+            int stepIndex = SF.frmProc.SelectedStepNum;
+            if (rowIndex < 0
+                || procIndex < 0
+                || stepIndex < 0
+                || procIndex >= SF.frmProc.procsList.Count
+                || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count
+                || rowIndex >= SF.frmProc.procsList[procIndex].steps[stepIndex].Ops.Count)
+            {
+                return;
+            }
+
+            OperationType operation = SF.frmProc.procsList[procIndex].steps[stepIndex].Ops[rowIndex];
+            if (operation == null)
+            {
+                return;
+            }
+            OperationTemp = (OperationType)operation.Clone();
+            SF.frmPropertyGrid.propertyGrid1.SelectedObject = OperationTemp;
+            OperationTemp.evtRP();
+            SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmPropertyGrid.propertyGrid1.SelectedObject;
+            foreach (OperationType item in SF.frmPropertyGrid.OperationType.Items)
+            {
+                if (string.Equals(item.OperaType, operation.OperaType, StringComparison.Ordinal))
+                {
+                    SF.frmPropertyGrid.OperationType.SelectedItem = item;
+                    break;
+                }
+            }
+            SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
         }
 
         private void dataGridView1_DragDrop(object sender, DragEventArgs e)
@@ -1104,7 +1053,7 @@ namespace Automation
             if (dragIndex >= 0)
             {
                 Point p = dataGridView1.PointToClient(new Point(e.X, e.Y));
-                int targetIndex = dataGridView1.HitTest(p.X, p.Y).RowIndex;
+                int targetIndex = dataGridView1.IndexFromPoint(p);
                 Proc current = SF.frmProc.procsList[procIndex];
 
                 if (targetIndex >= 0 && targetIndex < current.steps[stepIndex].Ops.Count
@@ -1129,25 +1078,6 @@ namespace Automation
         private void dataGridView1_DragOver(object sender, DragEventArgs e)
         {
             e.Effect = DragDropEffects.Move;
-        }
-
-        private void dataGridView1_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
-        {
-            if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
-            {
-                if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
-                {
-                    return;
-                }
-                if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
-                {
-                    MessageBox.Show("请先选择流程步骤。");
-                    return;
-                }
-                BeginOperationEditSession(false);
-                SF.frmDataGrid.dataGridView1.Enabled = false;
-                SF.frmProc.Enabled = false;
-            }
         }
 
         private void BeginOperationEditSession(bool isAdd)
@@ -1249,18 +1179,15 @@ namespace Automation
 
         private void CProgramCopy_Click(object sender, EventArgs e)
         {
-            if (dataGridView1.SelectedRows.Count > 0)
+            if (dataGridView1.GetSelectedIndexes().Count > 0)
             {
                 selectedRowIndexes4Copy.Clear();
                 ListOperationType4Copy.Clear();
-                foreach (DataGridViewRow selectedRow in dataGridView1.SelectedRows)
-                {
-                    selectedRowIndexes4Copy.Add(selectedRow.Index);
-                }
+                selectedRowIndexes4Copy.AddRange(dataGridView1.GetSelectedIndexes());
                 selectedRowIndexes4Copy.Sort();
                 for (int i = 0; i < selectedRowIndexes4Copy.Count; i++)
                 {
-                    OperationType dataItem = (OperationType)(dataGridView1.Rows[selectedRowIndexes4Copy[i]].DataBoundItem as OperationType).Clone();
+                    OperationType dataItem = (OperationType)dataGridView1.GetOperation(selectedRowIndexes4Copy[i]).Clone();
                     dataItem.Num = -1;
                     ListOperationType4Copy.Add(dataItem);
                 }

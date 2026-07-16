@@ -21,6 +21,12 @@ namespace Automation
 
         public string Model { get; set; }
 
+        public string ModelServiceId { get; set; }
+
+        public List<AiModelServiceConfig> ModelServices { get; set; }
+
+        public double Temperature { get; set; }
+
         public int MaxTurns { get; set; }
 
         public int MaxOutputTokens { get; set; }
@@ -28,6 +34,27 @@ namespace Automation
         public bool AutoApproveMode { get; set; }
 
         public string ToolProfile { get; set; }
+    }
+
+    /// <summary>
+    /// 用户在 EW-AI 中维护的 OpenAI 兼容模型服务。密钥不保存在此对象中，
+    /// 仅由 <see cref="AiProviderSecretStorage"/> 按服务 ID 加密保存。
+    /// </summary>
+    public sealed class AiModelServiceConfig
+    {
+        public string Id { get; set; }
+
+        public string Name { get; set; }
+
+        public string BaseUrl { get; set; }
+
+        public string Model { get; set; }
+
+        public int? ContextLimit { get; set; }
+
+        public bool SupportsVision { get; set; }
+
+        public bool RequiresApiKey { get; set; }
     }
 
     /// <summary>
@@ -52,6 +79,9 @@ namespace Automation
         public const string SessionNameKey = "SessionName";
         public const string ProviderKey = "Provider";
         public const string ModelKey = "Model";
+        public const string ModelServiceIdKey = "ModelServiceId";
+        public const string ModelServicesKey = "ModelServices";
+        public const string TemperatureKey = "Temperature";
         public const string MaxTurnsKey = "MaxTurns";
         public const string MaxOutputTokensKey = "MaxOutputTokens";
         public const string AutoApproveModeKey = "AutoApproveMode";
@@ -60,6 +90,7 @@ namespace Automation
         public const string DefaultToolProfile = "Diagnostic";
         public const int DefaultMaxTurns = 100;
         public const int DefaultMaxOutputTokens = 8192;
+        public const double DefaultTemperature = 0.7d;
         public const string DefaultProvider = "deepseek";
         public const string DefaultModel = "deepseek-v4-pro";
 
@@ -103,6 +134,9 @@ namespace Automation
                     SessionName = ReadRequiredString(obj, SessionNameKey),
                     Provider = ReadRequiredString(obj, ProviderKey),
                     Model = ReadRequiredString(obj, ModelKey),
+                    ModelServiceId = ReadOptionalString(obj, ModelServiceIdKey, string.Empty),
+                    ModelServices = ReadModelServices(obj),
+                    Temperature = ReadOptionalDouble(obj, TemperatureKey, DefaultTemperature),
                     MaxTurns = ReadRequiredInt(obj, MaxTurnsKey),
                     MaxOutputTokens = ReadOptionalInt(obj, MaxOutputTokensKey, DefaultMaxOutputTokens),
                     AutoApproveMode = ReadOptionalBool(
@@ -120,6 +154,9 @@ namespace Automation
 
                 bool configMigrated = !obj.TryGetValue(
                     MaxOutputTokensKey, StringComparison.Ordinal, out _)
+                    || !obj.TryGetValue(ModelServiceIdKey, StringComparison.Ordinal, out _)
+                    || !obj.TryGetValue(ModelServicesKey, StringComparison.Ordinal, out _)
+                    || !obj.TryGetValue(TemperatureKey, StringComparison.Ordinal, out _)
                     || !obj.TryGetValue(AutoApproveModeKey, StringComparison.Ordinal, out _)
                     || obj.TryGetValue(LegacyFullPermissionModeKey, StringComparison.Ordinal, out _);
                 // DeepSeek 已发布 V4-Pro/V4-Flash，并将在 2026-07-24 停用旧模型标识。
@@ -191,6 +228,9 @@ namespace Automation
                 [SessionNameKey] = config.SessionName,
                 [ProviderKey] = config.Provider,
                 [ModelKey] = config.Model,
+                [ModelServiceIdKey] = config.ModelServiceId ?? string.Empty,
+                [ModelServicesKey] = JArray.FromObject(config.ModelServices ?? new List<AiModelServiceConfig>()),
+                [TemperatureKey] = config.Temperature,
                 [MaxTurnsKey] = config.MaxTurns,
                 [MaxOutputTokensKey] = config.MaxOutputTokens,
                 [AutoApproveModeKey] = config.AutoApproveMode,
@@ -243,6 +283,9 @@ namespace Automation
                 SessionName = "automation",
                 Provider = DefaultProvider,
                 Model = DefaultModel,
+                ModelServiceId = string.Empty,
+                ModelServices = new List<AiModelServiceConfig>(),
+                Temperature = DefaultTemperature,
                 MaxTurns = DefaultMaxTurns,
                 MaxOutputTokens = DefaultMaxOutputTokens,
                 AutoApproveMode = false,
@@ -323,6 +366,44 @@ namespace Automation
             if (config.Model == null)
             {
                 error = "EW-AI Model 不能为 null";
+                return false;
+            }
+            if (config.ModelServiceId == null)
+            {
+                error = "EW-AI ModelServiceId 不能为 null";
+                return false;
+            }
+            if (config.ModelServices == null)
+            {
+                error = "EW-AI ModelServices 不能为 null";
+                return false;
+            }
+            var serviceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var serviceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (AiModelServiceConfig service in config.ModelServices)
+            {
+                if (!ValidateModelService(service, out error)
+                    || !serviceIds.Add(service.Id))
+                {
+                    if (error == null) error = $"自定义模型服务 ID 重复:{service?.Id}";
+                    return false;
+                }
+                if (!serviceNames.Add(service.Name))
+                {
+                    error = $"自定义模型服务名称重复:{service.Name}";
+                    return false;
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(config.ModelServiceId)
+                && !serviceIds.Contains(config.ModelServiceId))
+            {
+                error = $"当前自定义模型服务不存在:{config.ModelServiceId}";
+                return false;
+            }
+            if (double.IsNaN(config.Temperature) || double.IsInfinity(config.Temperature)
+                || config.Temperature < 0d || config.Temperature > 1d)
+            {
+                error = $"EW-AI Temperature 必须在 0..1 之间:{config.Temperature}";
                 return false;
             }
             if (config.MaxTurns <= 0)
@@ -443,11 +524,104 @@ namespace Automation
                 SessionName = config.SessionName,
                 Provider = config.Provider,
                 Model = config.Model,
+                ModelServiceId = config.ModelServiceId,
+                ModelServices = CloneModelServices(config.ModelServices),
+                Temperature = config.Temperature,
                 MaxTurns = config.MaxTurns,
                 MaxOutputTokens = config.MaxOutputTokens,
                 AutoApproveMode = config.AutoApproveMode,
                 ToolProfile = config.ToolProfile
             };
+        }
+
+        public static AiModelServiceConfig FindModelService(GooseConfig config)
+        {
+            if (config == null || string.IsNullOrWhiteSpace(config.ModelServiceId))
+            {
+                return null;
+            }
+            return (config.ModelServices ?? new List<AiModelServiceConfig>()).Find(item =>
+                string.Equals(item.Id, config.ModelServiceId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public static List<AiModelServiceConfig> CloneModelServices(IEnumerable<AiModelServiceConfig> services)
+        {
+            var result = new List<AiModelServiceConfig>();
+            if (services == null) return result;
+            foreach (AiModelServiceConfig service in services)
+            {
+                if (service == null) continue;
+                result.Add(new AiModelServiceConfig
+                {
+                    Id = service.Id,
+                    Name = service.Name,
+                    BaseUrl = service.BaseUrl,
+                    Model = service.Model,
+                    ContextLimit = service.ContextLimit,
+                    SupportsVision = service.SupportsVision,
+                    RequiresApiKey = service.RequiresApiKey
+                });
+            }
+            return result;
+        }
+
+        public static bool ValidateModelService(AiModelServiceConfig service, out string error)
+        {
+            error = null;
+            if (service == null) { error = "自定义模型服务为空"; return false; }
+            if (!Guid.TryParse(service.Id, out _)) { error = $"自定义模型服务 ID 无效:{service.Id}"; return false; }
+            if (string.IsNullOrWhiteSpace(service.Name)) { error = "自定义模型服务名称不能为空"; return false; }
+            if (string.IsNullOrWhiteSpace(service.Model)) { error = $"自定义模型服务 {service.Name} 的模型 ID 不能为空"; return false; }
+            if (!Uri.TryCreate(service.BaseUrl, UriKind.Absolute, out Uri uri)
+                || (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+            {
+                error = $"自定义模型服务 {service.Name} 的 Base URL 必须是 HTTP/HTTPS 绝对地址:{service.BaseUrl}";
+                return false;
+            }
+            string path = uri.AbsolutePath.TrimEnd('/');
+            if (path.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+            {
+                error = $"自定义模型服务 {service.Name} 必须填写 Base URL（例如 http://主机:端口/v1），不能填写具体请求端点:{service.BaseUrl}";
+                return false;
+            }
+            if (service.ContextLimit.HasValue && service.ContextLimit.Value <= 0)
+            {
+                error = $"自定义模型服务 {service.Name} 的上下文长度必须大于 0:{service.ContextLimit}";
+                return false;
+            }
+            return true;
+        }
+
+        private static List<AiModelServiceConfig> ReadModelServices(JObject obj)
+        {
+            if (!obj.TryGetValue(ModelServicesKey, StringComparison.Ordinal, out JToken token))
+            {
+                return new List<AiModelServiceConfig>();
+            }
+            if (token.Type != JTokenType.Array)
+            {
+                throw new InvalidOperationException($"EW-AI 配置字段类型无效:{ModelServicesKey}");
+            }
+            return token.ToObject<List<AiModelServiceConfig>>() ?? new List<AiModelServiceConfig>();
+        }
+
+        private static string ReadOptionalString(JObject obj, string key, string defaultValue)
+        {
+            if (!obj.TryGetValue(key, StringComparison.Ordinal, out JToken token)) return defaultValue;
+            if (token.Type != JTokenType.String) throw new InvalidOperationException($"EW-AI 配置字段类型无效:{key}");
+            return token.Value<string>();
+        }
+
+        private static double ReadOptionalDouble(JObject obj, string key, double defaultValue)
+        {
+            if (!obj.TryGetValue(key, StringComparison.Ordinal, out JToken token)) return defaultValue;
+            if (token.Type != JTokenType.Float && token.Type != JTokenType.Integer)
+            {
+                throw new InvalidOperationException($"EW-AI 配置字段类型无效:{key}");
+            }
+            return token.Value<double>();
         }
 
         /// <summary>

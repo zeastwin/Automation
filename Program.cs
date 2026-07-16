@@ -22,25 +22,37 @@ namespace Automation
             {
                 MessageBox.Show(warning, "平台辅助能力不可用", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
+            if (!AppConfigStorage.TryGetCached(out AppConfig appConfig, out string configError))
+            {
+                MessageBox.Show(configError, "程序配置不可用", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             UiBranding.Initialize();
 
-            using (FrmMain platformEditor = new FrmMain { HideOnUserClose = false })
+            using (var runtime = new AutomationPlatformHost())
             {
-                try
+                Hmi.CustomFunctions.Register(runtime);
+                if (!runtime.Initialize(out string platformError))
                 {
-                    platformEditor.InitializePlatform();
-                }
-                catch (Exception ex)
-                {
-                    platformEditor.ShutdownPlatform();
-                    MessageBox.Show(ex.Message, "平台初始化失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(platformError, "平台初始化失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
-                platformEditor.Shown += (sender, eventArgs) => platformEditor.NotifyProcessInteractionUiReady();
-                Application.Run(platformEditor);
-                platformEditor.ShutdownPlatform();
+
+                if (appConfig.StartupView == AutomationStartupView.Hmi)
+                {
+                    using (var hmi = new Hmi.FrmHmiMain(runtime))
+                    {
+                        Application.Run(hmi);
+                    }
+                }
+                else
+                {
+                    Form platformEditor = runtime.PreparePlatformEditorMainWindow();
+                    platformEditor.Shown += (sender, eventArgs) => runtime.NotifyInteractionUiReady();
+                    Application.Run(platformEditor);
+                }
             }
         }
     }

@@ -1,11 +1,24 @@
 [CmdletBinding()]
-param()
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$ProjectPath
+)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$debugExe = Join-Path $repoRoot 'bin\Debug\Automation.exe'
+$projectPath = [IO.Path]::GetFullPath($ProjectPath)
+$projectRoot = Split-Path -Parent $projectPath
+$projectName = [IO.Path]::GetFileName($projectPath)
+$isMachineApp = $projectName.Equals('MachineApp.csproj', [StringComparison]::OrdinalIgnoreCase)
+$isAutomation = $projectName.Equals('Automation.csproj', [StringComparison]::OrdinalIgnoreCase)
+$hmiRoot = Join-Path $projectRoot 'Hmi'
 $stagingRoot = Join-Path $repoRoot 'artifacts\HmiValidation'
-$legacyIntermediateRoot = Join-Path $repoRoot 'Build\HmiValidation\obj'
+$protectedDebugFiles = @(
+    (Join-Path $repoRoot 'bin\Debug\Automation.exe')
+)
+if ($isMachineApp) {
+    $protectedDebugFiles += Join-Path $projectRoot 'bin\x64\Debug\MachineApp.exe'
+}
 
 function Invoke-DotNet {
     param([string[]]$Arguments)
@@ -27,77 +40,67 @@ function Get-FileFingerprint {
     return "$($item.Length)|$($item.LastWriteTimeUtc.Ticks)|$hash"
 }
 
-function Assert-DebugUnchanged {
-    param([string]$ExpectedFingerprint)
+function Get-ProtectedDebugFingerprints {
+    $fingerprints = @{}
+    foreach ($path in $protectedDebugFiles) {
+        $fingerprints[$path] = Get-FileFingerprint -Path $path
+    }
+    return $fingerprints
+}
 
-    $actual = Get-FileFingerprint -Path $debugExe
-    if ($actual -ne $ExpectedFingerprint) {
-        throw 'HMI validation changed bin\Debug\Automation.exe.'
+function Assert-ProtectedDebugFilesUnchanged {
+    param([hashtable]$ExpectedFingerprints)
+
+    foreach ($path in $protectedDebugFiles) {
+        $actual = Get-FileFingerprint -Path $path
+        if ($actual -ne $ExpectedFingerprints[$path]) {
+            throw "HMI validation changed the current Debug program: $path"
+        }
+    }
+}
+
+function Assert-HmiProject {
+    if (-not (Test-Path -LiteralPath $projectPath -PathType Leaf)) {
+        throw "HMI project does not exist: $projectPath"
+    }
+    if (-not (Test-Path -LiteralPath $hmiRoot -PathType Container)) {
+        throw "HMI source directory does not exist: $hmiRoot"
+    }
+
+    if (-not $isMachineApp -and -not $isAutomation) {
+        throw "Only Automation.csproj or MachineApp.csproj can be validated: $projectPath"
     }
 }
 
 function Assert-HmiProjectItems {
-    $projectPath = Join-Path $repoRoot 'Automation.csproj'
-    $project = $null
-    for ($attempt = 1; $attempt -le 5; $attempt++) {
-        try {
-            $projectText = [IO.File]::ReadAllText($projectPath)
-            $document = New-Object System.Xml.XmlDocument
-            $document.LoadXml($projectText)
-            $project = $document
-            break
-        }
-        catch [System.Xml.XmlException] {
-            if ($attempt -eq 5) {
-                throw
-            }
-            Start-Sleep -Milliseconds 200
-        }
-        catch [System.IO.IOException] {
-            if ($attempt -eq 5) {
-                throw
-            }
-            Start-Sleep -Milliseconds 200
-        }
+    $queryOutput = & dotnet msbuild $projectPath `
+        '-getItem:Compile' `
+        '-getItem:EmbeddedResource' `
+        '-p:Configuration=Debug' `
+        '-p:Platform=x64'
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to evaluate HMI project items, dotnet msbuild exited with code $LASTEXITCODE"
     }
 
-    $compilePatterns = @($project.SelectNodes("//*[local-name()='Compile']") | ForEach-Object {
-        (($_.GetAttribute('Include') -replace '/', '\') -replace '\\+', '\').TrimStart('\')
-    })
-    $resourcePatterns = @($project.SelectNodes("//*[local-name()='EmbeddedResource']") | ForEach-Object {
-        (($_.GetAttribute('Include') -replace '/', '\') -replace '\\+', '\').TrimStart('\')
-    })
+    $query = ($queryOutput -join "`n") | ConvertFrom-Json
+    $includedItems = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($item in @($query.Items.Compile) + @($query.Items.EmbeddedResource)) {
+        if (-not [string]::IsNullOrWhiteSpace($item.FullPath)) {
+            [void]$includedItems.Add([IO.Path]::GetFullPath($item.FullPath))
+        }
+    }
 
     $missingItems = New-Object System.Collections.Generic.List[string]
-    $hmiRoot = Join-Path $repoRoot 'Hmi'
     foreach ($file in Get-ChildItem -LiteralPath $hmiRoot -Recurse -File) {
-        $extension = $file.Extension.ToLowerInvariant()
-        if ($extension -eq '.cs') {
-            $itemType = 'Compile'
-        }
-        elseif ($extension -eq '.resx') {
-            $itemType = 'EmbeddedResource'
-        }
-        else {
+        if ($file.Extension -ne '.cs' -and $file.Extension -ne '.resx') {
             continue
         }
-        $patterns = if ($itemType -eq 'Compile') { $compilePatterns } else { $resourcePatterns }
-        $relativePath = $file.FullName.Substring($repoRoot.Length).TrimStart('\')
-        $included = $false
-        foreach ($pattern in $patterns) {
-            if ($relativePath -like $pattern) {
-                $included = $true
-                break
-            }
-        }
-        if (-not $included) {
-            $missingItems.Add("$itemType $relativePath")
+        if (-not $includedItems.Contains($file.FullName)) {
+            $missingItems.Add($file.FullName)
         }
     }
-
     if ($missingItems.Count -gt 0) {
-        $detail = $missingItems -join "`r`n  - "
-        throw "Automation.csproj does not include these HMI project items:`r`n  - $detail"
+        throw "$projectName does not include these HMI source files:`r`n  - $($missingItems -join "`r`n  - ")"
     }
 }
 
@@ -115,18 +118,6 @@ function Remove-StagingDirectory {
     Remove-Item -LiteralPath $fullPath -Recurse -Force
 }
 
-function Remove-LegacyIntermediateDirectory {
-    if (-not (Test-Path -LiteralPath $legacyIntermediateRoot)) {
-        return
-    }
-    $fullPath = [IO.Path]::GetFullPath($legacyIntermediateRoot)
-    $expectedPath = [IO.Path]::GetFullPath((Join-Path $repoRoot 'Build\HmiValidation\obj'))
-    if (-not $fullPath.Equals($expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to remove an unexpected intermediate path: $fullPath"
-    }
-    Remove-Item -LiteralPath $fullPath -Recurse -Force
-}
-
 function Remove-EmptyStagingRoot {
     if (-not (Test-Path -LiteralPath $stagingRoot)) {
         return
@@ -138,21 +129,20 @@ function Remove-EmptyStagingRoot {
 }
 
 $candidate = $null
-$debugFingerprint = $null
+$debugFingerprints = $null
 $projectItemsVerified = $false
 $compiled = $false
 $validationError = $null
 $cleanupErrors = New-Object System.Collections.Generic.List[string]
 Push-Location $repoRoot
 try {
-    $debugFingerprint = Get-FileFingerprint -Path $debugExe
-    Write-Host 'Stage 1/2: verify HMI files are included by Automation.csproj'
+    $debugFingerprints = Get-ProtectedDebugFingerprints
+    Assert-HmiProject
+    Write-Host "Stage 1/2: verify HMI files belong to $projectPath"
     Assert-HmiProjectItems
     $projectItemsVerified = $true
+
     New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
-    Remove-StagingDirectory -Path (Join-Path $stagingRoot 'current')
-    Remove-StagingDirectory -Path (Join-Path $stagingRoot 'last-known-good')
-    Remove-LegacyIntermediateDirectory
     $candidateName = 'candidate-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + $PID
     $candidate = Join-Path $stagingRoot $candidateName
     $appDirectory = Join-Path $candidate 'App'
@@ -161,15 +151,36 @@ try {
     $appOut = $appDirectory.Replace('\', '/') + '/'
     $intermediateOut = $intermediateDirectory.Replace('\', '/') + '/'
 
-    Write-Host "Stage 2/2: compile HMI and CustomFunc sources without running code -> $appDirectory"
-    Invoke-DotNet -Arguments @(
-        'build', 'Build\HmiValidation\HmiValidation.csproj', '-c', 'Debug',
-        "/p:OutDir=$appOut",
-        "/p:BaseIntermediateOutputPath=$intermediateOut",
-        "/p:MSBuildProjectExtensionsPath=$intermediateOut"
-    )
+    if ($isAutomation) {
+        foreach ($dependencyName in @('Automation.DeviceSdk.dll', 'Automation.Protocol.dll')) {
+            $dependencyPath = Join-Path $repoRoot ("bin\Debug\" + $dependencyName)
+            if (-not (Test-Path -LiteralPath $dependencyPath -PathType Leaf)) {
+                throw "Platform Debug dependency does not exist: $dependencyPath"
+            }
+            Copy-Item -LiteralPath $dependencyPath -Destination (Join-Path $appDirectory $dependencyName) -Force
+        }
+    }
+
+    Write-Host "Stage 2/2: compile $projectName without running code -> $appDirectory"
+    if ($isAutomation) {
+        $buildArguments = @(
+            'msbuild', $projectPath, '-t:Compile', '-p:Configuration=Debug', '-p:Platform=x64',
+            '-p:BuildProjectReferences=false',
+            "/p:OutDir=$appOut",
+            "/p:IntermediateOutputPath=$intermediateOut"
+        )
+    }
+    else {
+        $buildArguments = @(
+            'build', $projectPath, '-c', 'Debug', '-p:Platform=x64',
+            "/p:OutDir=$appOut",
+            "/p:IntermediateOutputPath=$intermediateOut",
+            "/p:MSBuildProjectExtensionsPath=$intermediateOut"
+        )
+    }
+    Invoke-DotNet -Arguments $buildArguments
     $compiled = $true
-    Assert-DebugUnchanged -ExpectedFingerprint $debugFingerprint
+    Assert-ProtectedDebugFilesUnchanged -ExpectedFingerprints $debugFingerprints
 }
 catch {
     $validationError = $_.Exception
@@ -185,12 +196,6 @@ finally {
         $cleanupErrors.Add($_.Exception.Message)
     }
     try {
-        Remove-LegacyIntermediateDirectory
-    }
-    catch {
-        $cleanupErrors.Add($_.Exception.Message)
-    }
-    try {
         Remove-EmptyStagingRoot
     }
     catch {
@@ -198,9 +203,16 @@ finally {
     }
 }
 
-$debugUnchanged = $debugFingerprint -ne $null -and (Get-FileFingerprint -Path $debugExe) -eq $debugFingerprint
-$temporaryOutputsRemoved = ([string]::IsNullOrWhiteSpace($candidate) -or -not (Test-Path -LiteralPath $candidate)) `
-    -and -not (Test-Path -LiteralPath $legacyIntermediateRoot)
+$debugUnchanged = $debugFingerprints -ne $null
+if ($debugUnchanged) {
+    foreach ($path in $protectedDebugFiles) {
+        if ((Get-FileFingerprint -Path $path) -ne $debugFingerprints[$path]) {
+            $debugUnchanged = $false
+            break
+        }
+    }
+}
+$temporaryOutputsRemoved = [string]::IsNullOrWhiteSpace($candidate) -or -not (Test-Path -LiteralPath $candidate)
 
 if ($validationError -ne $null -or $cleanupErrors.Count -gt 0 -or -not $debugUnchanged -or -not $temporaryOutputsRemoved) {
     $messages = New-Object System.Collections.Generic.List[string]
@@ -211,7 +223,7 @@ if ($validationError -ne $null -or $cleanupErrors.Count -gt 0 -or -not $debugUnc
         $messages.Add("cleanup: $cleanupError")
     }
     if (-not $debugUnchanged) {
-        $messages.Add('bin\Debug\Automation.exe changed during validation.')
+        $messages.Add('A protected Debug executable changed during validation.')
     }
     if (-not $temporaryOutputsRemoved) {
         $messages.Add('Temporary validation outputs were not fully removed.')
@@ -221,6 +233,8 @@ if ($validationError -ne $null -or $cleanupErrors.Count -gt 0 -or -not $debugUnc
         type = 'hmi.compile_validation'
         errorCode = 'HMI_COMPILE_VALIDATION_FAILED'
         message = $messages -join ' '
+        project = $projectPath
+        sourceDirectory = $hmiRoot
         compileOnly = $true
         projectItemsVerified = $projectItemsVerified
         compiled = $compiled
@@ -234,6 +248,8 @@ if ($validationError -ne $null -or $cleanupErrors.Count -gt 0 -or -not $debugUnc
 [ordered]@{
     ok = $true
     type = 'hmi.compile_validation'
+    project = $projectPath
+    sourceDirectory = $hmiRoot
     compileOnly = $true
     projectItemsVerified = $true
     compiled = $true

@@ -69,6 +69,9 @@ namespace Automation
         private readonly ComboBox cboModel = new ComboBox();
         private readonly NumericUpDown nudMaxTurns = new NumericUpDown();
         private readonly NumericUpDown nudMaxOutputTokens = new NumericUpDown();
+        private readonly NumericUpDown nudTemperature = new NumericUpDown();
+        private List<AiModelServiceConfig> modelServices = new List<AiModelServiceConfig>();
+        private string modelServiceId = string.Empty;
         private string toolProfile = GooseConfigStorage.DefaultToolProfile;
         private GooseConfig appliedConfig;
         private readonly HashSet<string> promptedPreviewIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -294,7 +297,6 @@ body{
 .msg-head{display:flex;align-items:center;gap:5px;padding:0 2px;min-height:22px;}
 .msg.user .msg-head{justify-content:flex-end;}
 .msg-time{font-size:10px;color:#7b8798;line-height:1.2;}
-.msg-role{font-size:11px;color:#526071;line-height:1.2;font-weight:600;}
 .avatar{width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 22px;color:#fff;font-size:9px;font-weight:700;letter-spacing:.2px;}
 .avatar-image{display:block;object-fit:contain;background:transparent;}
 .system-avatar{background:#9a4f00;}
@@ -592,6 +594,12 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .field input,.field select{height:36px;border:1px solid #d8e0ea;border-radius:9px;background:#fff;color:#172033;padding:0 10px;font:13px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;outline:none;}
 .field input:focus,.field select:focus{border-color:#75a7da;box-shadow:0 0 0 3px rgba(117,167,218,.18);}
 .field-wide{grid-column:1 / -1;}
+.field-line{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;}
+.field-line .text-button{height:36px;white-space:nowrap;}
+.check-line{display:flex;align-items:center;gap:8px;min-height:36px;color:#35445a;font-size:12px;}
+.check-line input{width:16px;height:16px;margin:0;}
+.service-summary{min-height:38px;padding:9px 11px;border:1px solid #dde5ef;border-radius:9px;background:#f4f7fb;color:#526071;font-size:12px;line-height:1.55;}
+#modelServiceOverlay{z-index:35;}
 .test-list{display:flex;flex-direction:column;gap:9px;}
 .test-item{display:grid;grid-template-columns:22px 1fr;gap:9px;align-items:start;padding:11px 12px;border:1px solid #dde5ef;border-radius:10px;background:#fff;cursor:pointer;}
 .test-item:hover{border-color:#a8c4e1;background:#f8fbff;}
@@ -612,7 +620,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 @media (max-width:720px){.settings-grid{grid-template-columns:1fr}.composer-wrap{padding:10px}.topbar{padding:0 12px}.brand-subtitle{display:none}}
 </style>
 <script>
-var appState={sending:false,taskHomeVisible:true,canAccess:false,canEditConfig:false,config:{},providerOptions:[],modelOptions:[],conversations:[],activeConversationId:'',attachments:[]};
+var appState={sending:false,taskHomeVisible:true,canAccess:false,canEditConfig:false,config:{},providerOptions:[],modelOptions:[],modelServices:[],conversations:[],activeConversationId:'',attachments:[]};
 var quickSettingPending=false;
 var dropReadCount=0;
 var lastAiActivityAt=Date.now();
@@ -741,6 +749,29 @@ function setOptions(select,items,value){
     if(value && Array.prototype.some.call(select.options,function(o){return o.value===value;})){select.value=value;}
     else if(select.options.length){select.selectedIndex=0;}
 }
+function setModelServiceOptions(select,items,value){
+    select.innerHTML='';
+    var builtIn=document.createElement('option');builtIn.value='';builtIn.textContent='内置 Provider';select.appendChild(builtIn);
+    (items||[]).forEach(function(item){var opt=document.createElement('option');opt.value=item.id;opt.textContent=item.name+' · '+item.model;select.appendChild(opt);});
+    select.value=value||'';
+    if(select.value!==(value||'')){select.value='';}
+}
+function selectedModelService(){
+    var id=byId('cfgModelService').value;
+    return (appState.modelServices||[]).find(function(item){return item.id===id;})||null;
+}
+function refreshModelServiceState(){
+    var custom=!!selectedModelService();
+    var lock=!appState.canEditConfig||appState.sending;
+    ['cfgProvider','cfgModel','cfgApiKey','clearApiKey'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock||custom;}});
+    var summary=byId('modelServiceSummary');
+    if(summary){
+        var service=selectedModelService();
+        summary.textContent=service
+            ? service.name+'｜'+service.baseUrl+'｜'+service.model+(service.contextLimit?'｜上下文 '+service.contextLimit:'')
+            : '使用下方内置 Provider、模型和 API Key。';
+    }
+}
 function collectConfig(){
     return {
         gooseExecutablePath:byId('cfgGoose').value,
@@ -749,6 +780,8 @@ function collectConfig(){
         sessionName:byId('cfgSession').value,
         provider:byId('cfgProvider').value,
         model:byId('cfgModel').value,
+        modelServiceId:byId('cfgModelService').value,
+        temperature:parseFloat(byId('cfgTemperature').value||'0.7'),
         apiKey:byId('cfgApiKey').value,
         maxTurns:parseInt(byId('cfgTurns').value||'1',10),
         maxOutputTokens:parseInt(byId('cfgOutputTokens').value||'8192',10),
@@ -764,10 +797,13 @@ function fillConfig(){
     byId('cfgSession').value=c.sessionName||'';
     byId('cfgTurns').value=c.maxTurns||20;
     byId('cfgOutputTokens').value=c.maxOutputTokens||8192;
+    byId('cfgTemperature').value=typeof c.temperature==='number'?c.temperature:0.7;
+    setModelServiceOptions(byId('cfgModelService'),appState.modelServices||[],c.modelServiceId||'');
     setOptions(byId('cfgProvider'),appState.providerOptions||[],c.provider||'deepseek');
     setOptions(byId('cfgModel'),appState.modelOptions||[],c.model||'deepseek-v4-pro');
     byId('cfgApiKey').value='';
     byId('cfgApiKey').placeholder=c.hasApiKey?'本机已保存，留空则保持不变':'输入 API Key（仅保存在本机）';
+    refreshModelServiceState();
 }
 function refreshToolbar(){
     var c=appState.config||{};
@@ -816,9 +852,11 @@ function automationSetState(state){
     fillConfig();
     refreshToolbar();
     var lock=!appState.canEditConfig||appState.sending;
-    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgProvider','cfgModel','cfgApiKey','cfgTurns','cfgOutputTokens','saveConfig','clearApiKey'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
+    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgModelService','cfgProvider','cfgModel','cfgApiKey','cfgTurns','cfgOutputTokens','cfgTemperature','saveConfig','clearApiKey','manageModelServices'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
+    refreshModelServiceState();
     byId('reloadConfig').disabled=appState.sending;
     byId('checkConfig').disabled=appState.sending||!appState.canAccess;
+    if(byId('modelServiceOverlay').classList.contains('open')){renderModelServicePicker((appState.config||{}).modelServiceId||'');}
 }
 function refreshSendButton(){
     var send=byId('sendButton');
@@ -919,6 +957,39 @@ function refreshAttachments(){
 }
 function openConfig(){fillConfig();byId('configOverlay').classList.add('open');}
 function closeConfig(){byId('configOverlay').classList.remove('open');}
+function findModelService(id){return (appState.modelServices||[]).find(function(item){return item.id===id;})||null;}
+function fillModelServiceEditor(id){
+    var item=findModelService(id);
+    byId('svcId').value=item?item.id:'';
+    byId('svcName').value=item?item.name:'';
+    byId('svcBaseUrl').value=item?item.baseUrl:'http://127.0.0.1:8080/v1';
+    byId('svcModel').value=item?item.model:'';
+    byId('svcContextLimit').value=item&&item.contextLimit?item.contextLimit:'';
+    byId('svcSupportsVision').checked=!!(item&&item.supportsVision);
+    byId('svcRequiresApiKey').checked=!!(item&&item.requiresApiKey);
+    byId('svcApiKey').value='';
+    byId('svcApiKey').placeholder=item&&item.hasApiKey?'本机已保存，留空则保持不变':'可选；仅使用 Windows 当前用户加密保存';
+    var lock=!appState.canEditConfig||appState.sending;
+    ['svcPicker','newModelService','svcName','svcBaseUrl','svcModel','svcContextLimit','svcSupportsVision','svcRequiresApiKey','svcApiKey','saveModelService'].forEach(function(controlId){byId(controlId).disabled=lock;});
+    byId('deleteModelService').disabled=lock||!item;
+    byId('clearModelServiceApiKey').disabled=lock||!item||!item.hasApiKey;
+}
+function renderModelServicePicker(preferredId){
+    var picker=byId('svcPicker');picker.innerHTML='';
+    (appState.modelServices||[]).forEach(function(item){var opt=document.createElement('option');opt.value=item.id;opt.textContent=item.name+' · '+item.model;picker.appendChild(opt);});
+    var id=preferredId||byId('cfgModelService').value;
+    if(id&&findModelService(id)){picker.value=id;fillModelServiceEditor(id);}
+    else{picker.selectedIndex=-1;fillModelServiceEditor('');}
+}
+function openModelServices(){renderModelServicePicker();byId('modelServiceOverlay').classList.add('open');}
+function closeModelServices(){byId('modelServiceOverlay').classList.remove('open');}
+function collectModelService(){
+    var context=parseInt(byId('svcContextLimit').value||'0',10);
+    return {id:byId('svcId').value,name:byId('svcName').value,baseUrl:byId('svcBaseUrl').value,
+        model:byId('svcModel').value,contextLimit:context>0?context:null,
+        supportsVision:byId('svcSupportsVision').checked,requiresApiKey:byId('svcRequiresApiKey').checked,
+        apiKey:byId('svcApiKey').value};
+}
 function openStandardTests(){renderStandardTests();byId('testOverlay').classList.add('open');}
 function closeStandardTests(){byId('testOverlay').classList.remove('open');}
 function renderStandardTests(){
@@ -1018,7 +1089,17 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('checkConfig').addEventListener('click',function(){post('checkConfig',{config:collectConfig()});});
     byId('clearApiKey').addEventListener('click',function(){post('clearApiKey',{provider:byId('cfgProvider').value});});
     byId('cfgProvider').addEventListener('change',function(){post('providerChanged',{provider:this.value,config:collectConfig()});});
+    byId('cfgModelService').addEventListener('change',refreshModelServiceState);
+    byId('manageModelServices').addEventListener('click',openModelServices);
     byId('configOverlay').addEventListener('click',function(e){if(e.target===this){closeConfig();}});
+    byId('closeModelServices').addEventListener('click',closeModelServices);
+    byId('doneModelServices').addEventListener('click',closeModelServices);
+    byId('newModelService').addEventListener('click',function(){byId('svcPicker').selectedIndex=-1;fillModelServiceEditor('');});
+    byId('svcPicker').addEventListener('change',function(){fillModelServiceEditor(this.value);});
+    byId('saveModelService').addEventListener('click',function(){post('saveModelService',{config:collectConfig(),service:collectModelService()});});
+    byId('deleteModelService').addEventListener('click',function(){var id=byId('svcId').value;if(id&&window.confirm('确定删除该自定义模型服务吗？')){post('deleteModelService',{config:collectConfig(),id:id});}});
+    byId('clearModelServiceApiKey').addEventListener('click',function(){var id=byId('svcId').value;if(id){post('clearModelServiceApiKey',{id:id});}});
+    byId('modelServiceOverlay').addEventListener('click',function(e){if(e.target===this){closeModelServices();}});
     byId('closeTests').addEventListener('click',closeStandardTests);
     byId('cancelTests').addEventListener('click',closeStandardTests);
     byId('runTests').addEventListener('click',runStandardTests);
@@ -1070,6 +1151,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         <div class=""field""><label>会话名</label><input id=""cfgSession"" autocomplete=""off""></div>
         <div class=""field""><label>最大轮次</label><input id=""cfgTurns"" type=""number"" min=""1"" max=""200""></div>
         <div class=""field""><label>单次输出 Token</label><input id=""cfgOutputTokens"" type=""number"" min=""1024"" max=""65536"" step=""1024""></div>
+        <div class=""field""><label>温度</label><input id=""cfgTemperature"" type=""number"" min=""0"" max=""1"" step=""0.05""></div>
+        <div class=""field field-wide""><label>模型来源</label><div class=""field-line""><select id=""cfgModelService""></select><button class=""text-button"" id=""manageModelServices"" type=""button"">管理自定义服务</button></div><div class=""service-summary"" id=""modelServiceSummary""></div></div>
         <div class=""field""><label>Provider</label><select id=""cfgProvider""></select></div>
         <div class=""field""><label>模型</label><select id=""cfgModel""></select></div>
         <div class=""field field-wide""><label>API Key（使用 Windows 当前用户加密，仅保存在本机）</label><input id=""cfgApiKey"" type=""password"" autocomplete=""new-password""></div>
@@ -1078,6 +1161,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
     <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""reloadConfig"">重载</button><button class=""text-button"" id=""checkConfig"">检查 AI 组件</button><button class=""text-button"" id=""clearApiKey"">清除本机密钥</button></div><div class=""foot-right""><button class=""text-button"" id=""cancelConfig"">取消</button><button class=""primary-button"" id=""saveConfig"">保存配置</button></div></div>
   </section>
 </div>
+<div class=""modal-backdrop"" id=""modelServiceOverlay""><section class=""config-modal"" style=""width:min(760px,96vw)""><div class=""modal-head""><div><div class=""modal-title"">自定义模型服务</div><div class=""modal-desc"">配置 llama.cpp、vLLM、LM Studio 等 OpenAI 兼容服务；配置只注入当前 EW-AI 进程。</div></div><button class=""icon-button"" id=""closeModelServices"" title=""关闭""><svg viewBox=""0 0 24 24""><path d=""M18 6 6 18""/><path d=""M6 6l12 12""/></svg></button></div>
+  <div class=""modal-body scrollable""><div class=""settings-grid""><div class=""field field-wide""><label>已配置服务</label><div class=""field-line""><select id=""svcPicker""></select><button class=""text-button"" id=""newModelService"" type=""button"">新增</button></div></div><input id=""svcId"" type=""hidden""><div class=""field""><label>服务名称</label><input id=""svcName"" autocomplete=""off"" placeholder=""例如：车间 llama.cpp""></div><div class=""field""><label>模型 ID</label><input id=""svcModel"" autocomplete=""off"" placeholder=""服务 /v1/models 返回的 id""></div><div class=""field field-wide""><label>OpenAI Base URL</label><input id=""svcBaseUrl"" autocomplete=""off"" placeholder=""http://172.16.50.172:8080/v1""></div><div class=""field""><label>上下文长度<span class=""field-hint"">留空则由 Goose 判断</span></label><input id=""svcContextLimit"" type=""number"" min=""1"" step=""1024"" placeholder=""例如 131072""></div><div class=""field""><label>模型能力</label><label class=""check-line""><input id=""svcSupportsVision"" type=""checkbox"">支持图片输入</label></div><div class=""field""><label>鉴权</label><label class=""check-line""><input id=""svcRequiresApiKey"" type=""checkbox"">服务要求 API Key</label></div><div class=""field field-wide""><label>API Key（Windows 当前用户加密）</label><input id=""svcApiKey"" type=""password"" autocomplete=""new-password""></div></div></div>
+  <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""clearModelServiceApiKey"">清除密钥</button><button class=""text-button"" id=""deleteModelService"">删除服务</button></div><div class=""foot-right""><button class=""text-button"" id=""doneModelServices"">完成</button><button class=""primary-button"" id=""saveModelService"">保存并选中</button></div></div></section></div>
 <div class=""toast"" id=""toast""></div>
 </body>
 </html>";
@@ -1134,6 +1220,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             nudMaxOutputTokens.Maximum = 65536;
             nudMaxOutputTokens.Increment = 1024;
             nudMaxOutputTokens.Value = GooseConfigStorage.DefaultMaxOutputTokens;
+            nudTemperature.Minimum = 0;
+            nudTemperature.Maximum = 1;
+            nudTemperature.DecimalPlaces = 2;
+            nudTemperature.Increment = 0.05m;
+            nudTemperature.Value = (decimal)GooseConfigStorage.DefaultTemperature;
         }
 
         private void BuildMainLayout()
@@ -1465,6 +1556,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             txtSessionName.Text = config.SessionName;
             cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? GooseConfigStorage.DefaultProvider : config.Provider;
             RefreshModelOptions(cboProvider.Text, string.IsNullOrWhiteSpace(config.Model) ? GooseConfigStorage.DefaultModel : config.Model);
+            modelServices = GooseConfigStorage.CloneModelServices(config.ModelServices);
+            modelServiceId = config.ModelServiceId ?? string.Empty;
+            nudTemperature.Value = Math.Max(nudTemperature.Minimum,
+                Math.Min(nudTemperature.Maximum, (decimal)config.Temperature));
             nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, config.MaxTurns));
             nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
                 Math.Min(nudMaxOutputTokens.Maximum, config.MaxOutputTokens));
@@ -1599,6 +1694,17 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     autoApproveMode = message["enabled"]?.Value<bool?>() ?? false;
                     SaveWebConfig(autoApproveMode ? "自动批准已开启，请谨慎操作。" : "自动批准已关闭。", false);
                     break;
+                case "saveModelService":
+                    ApplyWebConfig(message["config"] as JObject);
+                    SaveModelService(message["service"] as JObject);
+                    break;
+                case "deleteModelService":
+                    ApplyWebConfig(message["config"] as JObject);
+                    DeleteModelService(message["id"]?.Value<string>());
+                    break;
+                case "clearModelServiceApiKey":
+                    ClearModelServiceApiKey(message["id"]?.Value<string>());
+                    break;
                 case "providerChanged":
                     ApplyWebConfig(message["config"] as JObject);
                     cboProvider.Text = message["provider"]?.Value<string>() ?? "deepseek";
@@ -1621,6 +1727,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         PushWebAppState();
                         break;
                     }
+                    if (!string.IsNullOrWhiteSpace(apiKey)) DisposeGooseClient();
                     SaveWebConfig();
                     break;
                 case "clearApiKey":
@@ -1666,6 +1773,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     ["sessionName"] = txtSessionName.Text,
                     ["provider"] = providerText,
                     ["model"] = modelText,
+                    ["modelServiceId"] = modelServiceId,
+                    ["temperature"] = (double)nudTemperature.Value,
                     ["hasApiKey"] = !string.IsNullOrWhiteSpace(normalizedProvider)
                         && AiProviderSecretStorage.HasSecret(normalizedProvider),
                     ["maxTurns"] = (int)nudMaxTurns.Value,
@@ -1676,6 +1785,18 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 },
                 ["providerOptions"] = BuildComboOptions(cboProvider, providerText),
                 ["modelOptions"] = BuildComboOptions(cboModel, modelText),
+                ["modelServices"] = new JArray(modelServices.Select(item => new JObject
+                {
+                    ["id"] = item.Id,
+                    ["name"] = item.Name,
+                    ["baseUrl"] = item.BaseUrl,
+                    ["model"] = item.Model,
+                    ["contextLimit"] = item.ContextLimit,
+                    ["supportsVision"] = item.SupportsVision,
+                    ["requiresApiKey"] = item.RequiresApiKey,
+                    ["hasApiKey"] = AiProviderSecretStorage.HasSecret(
+                        AiProviderSecretStorage.GetModelServiceSecretKey(item.Id))
+                })),
                 ["attachments"] = new JArray(pendingFileAttachments.Select(BuildAttachmentWebState)),
                 ["testScenarios"] = new JArray(AiStandardTestSuite.Scenarios.Select(item => new JObject
                 {
@@ -1745,6 +1866,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
             string provider = config["provider"]?.Value<string>() ?? GooseConfigStorage.DefaultProvider;
             string model = config["model"]?.Value<string>() ?? GooseConfigStorage.DefaultModel;
+            modelServiceId = config["modelServiceId"]?.Value<string>() ?? string.Empty;
             cboProvider.Text = string.IsNullOrWhiteSpace(provider) ? GooseConfigStorage.DefaultProvider : provider;
             RefreshModelOptions(NormalizeGooseOverride(cboProvider.Text), model);
             cboModel.Text = string.IsNullOrWhiteSpace(model) ? GooseConfigStorage.DefaultModel : model;
@@ -1755,6 +1877,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 ?? GooseConfigStorage.DefaultMaxOutputTokens;
             nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
                 Math.Min(nudMaxOutputTokens.Maximum, maxOutputTokens));
+            double temperature = config["temperature"]?.Value<double?>() ?? GooseConfigStorage.DefaultTemperature;
+            nudTemperature.Value = Math.Max(nudTemperature.Minimum,
+                Math.Min(nudTemperature.Maximum, (decimal)temperature));
             toolProfile = config["toolProfile"]?.Value<string>() ?? GooseConfigStorage.DefaultToolProfile;
             autoApproveMode = config["autoApproveMode"]?.Value<bool?>() ?? false;
         }
@@ -1785,6 +1910,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 || !string.Equals(oldConfig.SessionName, config.SessionName, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.Provider, config.Provider, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.Model, config.Model, StringComparison.Ordinal)
+                || !string.Equals(oldConfig.ModelServiceId, config.ModelServiceId, StringComparison.OrdinalIgnoreCase)
+                || !SelectedModelServiceEqual(oldConfig, config)
+                || Math.Abs(oldConfig.Temperature - config.Temperature) > 0.0001d
                 || oldConfig.MaxTurns != config.MaxTurns
                 || oldConfig.MaxOutputTokens != config.MaxOutputTokens;
             bool uriChanged = oldConfig == null
@@ -1989,6 +2117,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 SessionName = txtSessionName.Text.Trim(),
                 Provider = NormalizeGooseOverride(cboProvider.Text),
                 Model = NormalizeGooseOverride(cboModel.Text),
+                ModelServiceId = modelServiceId ?? string.Empty,
+                ModelServices = GooseConfigStorage.CloneModelServices(modelServices),
+                Temperature = (double)nudTemperature.Value,
                 MaxTurns = (int)nudMaxTurns.Value,
                 MaxOutputTokens = (int)nudMaxOutputTokens.Value,
                 ToolProfile = toolProfile,
@@ -2001,7 +2132,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 txtGooseExecutable.Text = resolvedGoosePath;
             }
 
-            if (!string.IsNullOrWhiteSpace(config.Provider)
+            if (string.IsNullOrWhiteSpace(config.ModelServiceId)
+                && !string.IsNullOrWhiteSpace(config.Provider)
                 && !AiProviderSecretStorage.TryGetEnvironmentVariableName(config.Provider, out _))
             {
                 error = "当前 Provider 未配置严格的 API Key 环境变量映射：" + config.Provider;
@@ -2025,11 +2157,21 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 SessionName = config.SessionName,
                 Provider = config.Provider,
                 Model = config.Model,
+                ModelServiceId = config.ModelServiceId,
+                ModelServices = GooseConfigStorage.CloneModelServices(config.ModelServices),
+                Temperature = config.Temperature,
                 MaxTurns = config.MaxTurns,
                 MaxOutputTokens = config.MaxOutputTokens,
                 ToolProfile = config.ToolProfile,
                 AutoApproveMode = config.AutoApproveMode
             };
+        }
+
+        private static bool SelectedModelServiceEqual(GooseConfig left, GooseConfig right)
+        {
+            string leftJson = JsonConvert.SerializeObject(GooseConfigStorage.FindModelService(left));
+            string rightJson = JsonConvert.SerializeObject(GooseConfigStorage.FindModelService(right));
+            return string.Equals(leftJson, rightJson, StringComparison.Ordinal);
         }
 
         private async void BtnSend_Click(object sender, EventArgs e)
@@ -2078,7 +2220,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
             GooseFileAttachment invalidAttachment = fileAttachments.FirstOrDefault(item =>
                 !string.IsNullOrWhiteSpace(item.Error)
-                || (item.IsImage && GooseAcpClient.IsKnownTextOnlyImageConfiguration(config.Provider, config.Model)));
+                || (item.IsImage && IsTextOnlyConfiguration(config)));
             if (invalidAttachment != null)
             {
                 string attachmentError = invalidAttachment.Error;
@@ -2217,6 +2359,124 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 SaveConversationHistory();
                 ApplyPermissions();
             }
+        }
+
+        private void SaveModelService(JObject value)
+        {
+            if (HasRunningTasks)
+            {
+                ShowWebToast("AI 任务运行期间不能修改模型服务。");
+                PushWebAppState();
+                return;
+            }
+            if (value == null)
+            {
+                ShowWebToast("自定义模型服务配置为空。");
+                return;
+            }
+            string id = value["id"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(id)) id = Guid.NewGuid().ToString("D");
+            int? contextLimit = value["contextLimit"]?.Value<int?>();
+            var service = new AiModelServiceConfig
+            {
+                Id = id.Trim(),
+                Name = value["name"]?.Value<string>()?.Trim(),
+                BaseUrl = value["baseUrl"]?.Value<string>()?.Trim(),
+                Model = value["model"]?.Value<string>()?.Trim(),
+                ContextLimit = contextLimit.HasValue && contextLimit.Value > 0 ? contextLimit : null,
+                SupportsVision = value["supportsVision"]?.Value<bool?>() ?? false,
+                RequiresApiKey = value["requiresApiKey"]?.Value<bool?>() ?? false
+            };
+            if (!GooseConfigStorage.ValidateModelService(service, out string error))
+            {
+                ShowWebToast(error);
+                PushWebAppState();
+                return;
+            }
+            if (modelServices.Any(item => !string.Equals(item.Id, service.Id, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(item.Name, service.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                ShowWebToast("自定义模型服务名称已存在：" + service.Name);
+                PushWebAppState();
+                return;
+            }
+            string apiKey = value["apiKey"]?.Value<string>();
+            string serviceSecretKey = AiProviderSecretStorage.GetModelServiceSecretKey(service.Id);
+            if (service.RequiresApiKey && string.IsNullOrWhiteSpace(apiKey)
+                && !AiProviderSecretStorage.HasSecret(serviceSecretKey))
+            {
+                ShowWebToast("该模型服务要求鉴权，请填写 API Key。");
+                PushWebAppState();
+                return;
+            }
+            if (!string.IsNullOrWhiteSpace(apiKey)
+                && !AiProviderSecretStorage.TrySaveSecret(
+                    serviceSecretKey, apiKey, out error))
+            {
+                ShowWebToast(error);
+                PushWebAppState();
+                return;
+            }
+            int index = modelServices.FindIndex(item =>
+                string.Equals(item.Id, service.Id, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0) modelServices[index] = service;
+            else modelServices.Add(service);
+            modelServiceId = service.Id;
+            if (!string.IsNullOrWhiteSpace(apiKey)) DisposeGooseClient();
+            SaveWebConfig("自定义模型服务已保存并选中。", false);
+        }
+
+        private void DeleteModelService(string id)
+        {
+            if (HasRunningTasks)
+            {
+                ShowWebToast("AI 任务运行期间不能删除模型服务。");
+                PushWebAppState();
+                return;
+            }
+            AiModelServiceConfig service = modelServices.FirstOrDefault(item =>
+                string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (service == null)
+            {
+                ShowWebToast("自定义模型服务不存在。");
+                PushWebAppState();
+                return;
+            }
+            modelServices.Remove(service);
+            AiProviderSecretStorage.TryDeleteSecret(
+                AiProviderSecretStorage.GetModelServiceSecretKey(service.Id), out _);
+            if (string.Equals(modelServiceId, service.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                modelServiceId = string.Empty;
+            }
+            SaveWebConfig("自定义模型服务已删除。", false);
+        }
+
+        private void ClearModelServiceApiKey(string id)
+        {
+            if (HasRunningTasks)
+            {
+                ShowWebToast("AI 任务运行期间不能清除模型服务密钥。");
+                PushWebAppState();
+                return;
+            }
+            AiModelServiceConfig service = modelServices.FirstOrDefault(item =>
+                string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (service == null)
+            {
+                ShowWebToast("请先选择自定义模型服务。");
+            }
+            else if (!AiProviderSecretStorage.TryDeleteSecret(
+                AiProviderSecretStorage.GetModelServiceSecretKey(service.Id), out string error))
+            {
+                ShowWebToast(error);
+            }
+            else
+            {
+                DisposeGooseClient();
+                ShowWebToast("已清除该模型服务的本机 API Key。");
+            }
+            PushWebAppState();
         }
 
         private void StopCurrentPrompt()
@@ -2415,10 +2675,14 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         private JObject BuildAttachmentWebState(GooseFileAttachment attachment)
         {
             string error = attachment.Error;
-            if (string.IsNullOrWhiteSpace(error) && attachment.IsImage
-                && GooseAcpClient.IsKnownTextOnlyImageConfiguration(cboProvider.Text, cboModel.Text))
+            TryBuildConfig(out GooseConfig currentConfig, out _);
+            if (string.IsNullOrWhiteSpace(error) && attachment.IsImage && IsTextOnlyConfiguration(currentConfig))
             {
-                error = $"当前模型 {cboProvider.Text}/{cboModel.Text} 只支持文本，不能分析图片。";
+                AiModelServiceConfig service = GooseConfigStorage.FindModelService(currentConfig);
+                string modelLabel = service == null
+                    ? cboProvider.Text + "/" + cboModel.Text
+                    : service.Name + "/" + service.Model;
+                error = $"当前模型 {modelLabel} 只支持文本，不能分析图片。";
             }
             fileAttachmentPreviews.TryGetValue(attachment.Id, out string preview);
             return new JObject
@@ -2430,6 +2694,15 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 ["preview"] = preview ?? string.Empty,
                 ["error"] = error ?? string.Empty
             };
+        }
+
+        private static bool IsTextOnlyConfiguration(GooseConfig config)
+        {
+            if (config == null) return false;
+            AiModelServiceConfig service = GooseConfigStorage.FindModelService(config);
+            return service != null
+                ? !service.SupportsVision
+                : GooseAcpClient.IsKnownTextOnlyImageConfiguration(config.Provider, config.Model);
         }
 
         private void StartNewConversation()
@@ -4118,7 +4391,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 string messageHtml = "<div class=\"msg assistant\"><div class=\"msg-head\">"
                     + "<img class=\"avatar avatar-image\" src=\"" + ChickAvatarDataUri
                     + "\" alt=\"AI\" title=\"EW-AI " + HtmlEncode(time) + "\">"
-                    + "<span class=\"msg-role\">最终回答</span><span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
+                    + "<span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
                     + CopyButtonHtml + "</div><div class=\"content\">" + finalHtml + "</div></div>";
                 EnqueueScript("var el=document.getElementById("
                     + JsonConvert.SerializeObject(latestAssistantSegmentDivId)
@@ -4233,7 +4506,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 contentHtml = HtmlEncode(text);
                 avatarHtml = "<span class=\"avatar system-avatar\" title=\"" + HtmlEncode(role) + " " + HtmlEncode(time) + "\">!</span>";
             }
-            string roleHtml = role == "EW-AI" ? "<span class=\"msg-role\">最终回答</span>" : string.Empty;
+            string roleHtml = string.Empty;
             string html = "<div class=\"" + cls + "\"><div class=\"msg-head\">" + avatarHtml + roleHtml + "<span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
                 + CopyButtonHtml + "</div>"
                 + "<div class=\"content\">" + contentHtml + "</div></div>";
@@ -4928,6 +5201,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     SessionName = config.SessionName,
                     Provider = config.Provider,
                     Model = config.Model,
+                    ModelServiceId = config.ModelServiceId,
+                    ModelServices = GooseConfigStorage.CloneModelServices(config.ModelServices),
+                    Temperature = config.Temperature,
                     MaxTurns = config.MaxTurns,
                     MaxOutputTokens = config.MaxOutputTokens,
                     ToolProfile = config.ToolProfile,

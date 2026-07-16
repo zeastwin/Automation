@@ -122,6 +122,24 @@ namespace Automation
             }
         }
 
+        /// <summary>
+        /// 将已经初始化的平台编辑器作为设备程序主窗口运行。
+        /// 此入口只改变窗口关闭语义，不重复初始化平台。
+        /// </summary>
+        public Form PreparePlatformEditorMainWindow()
+        {
+            EnsureUiThread();
+            EnsureReadyOrFaulted();
+            if (platformEditor == null || platformEditor.IsDisposed)
+            {
+                HandleDisposedPlatformEditor();
+            }
+            platformEditor.HideOnUserClose = false;
+            platformEditor.Owner = null;
+            platformEditor.ShowInTaskbar = true;
+            return platformEditor;
+        }
+
         public void RegisterCustomFunction(string name, CustomFunc.FunctionDelegate function)
         {
             EnsureUiThread();

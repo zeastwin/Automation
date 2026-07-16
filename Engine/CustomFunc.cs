@@ -3,6 +3,9 @@ using System.Collections.Generic;
 
 namespace Automation
 {
+    /// <summary>
+    /// 平台内部的自定义函数注册与执行容器。业务函数通过 IAutomationPlatform 注册，不直接修改此类型。
+    /// </summary>
     public class CustomFunc
     {
         public delegate void FunctionDelegate();
@@ -43,6 +46,5 @@ namespace Automation
             funcToRun();
             return true;
         }
-
     }
 }

@@ -6,10 +6,17 @@ using Newtonsoft.Json.Linq;
 
 namespace Automation
 {
+    public enum AutomationStartupView
+    {
+        Hmi = 0,
+        PlatformEditor = 1
+    }
+
     public sealed class AppConfig
     {
         public int CommMaxMessageQueueSize { get; set; }
         public AutomationRuntimeMode RuntimeMode { get; set; }
+        public AutomationStartupView StartupView { get; set; }
     }
 
     public static class AppConfigStorage
@@ -18,6 +25,7 @@ namespace Automation
         public const string ConfigFileName = "AppConfig.json";
         public const string CommMaxMessageQueueSizeKey = "CommMaxMessageQueueSize";
         public const string RuntimeModeKey = "RuntimeMode";
+        public const string StartupViewKey = "StartupView";
         public const int DefaultCommMaxMessageQueueSize = 1000;
         private static readonly object cacheLock = new object();
         private static AppConfig cachedConfig;
@@ -34,7 +42,8 @@ namespace Automation
                 AppConfig defaultConfig = new AppConfig
                 {
                     CommMaxMessageQueueSize = DefaultCommMaxMessageQueueSize,
-                    RuntimeMode = AutomationRuntimeMode.Hardware
+                    RuntimeMode = AutomationRuntimeMode.Hardware,
+                    StartupView = AutomationStartupView.Hmi
                 };
                 if (!TrySave(defaultConfig, out string saveError))
                 {
@@ -80,12 +89,31 @@ namespace Automation
                 {
                     runtimeMode = (AutomationRuntimeMode)token.Value<int>();
                 }
+                AutomationStartupView startupView;
+                bool addDefaultStartupView = false;
+                if (!obj.TryGetValue(StartupViewKey, StringComparison.Ordinal, out token))
+                {
+                    startupView = AutomationStartupView.Hmi;
+                    addDefaultStartupView = true;
+                }
+                else if (token.Type != JTokenType.Integer
+                    || (token.Value<int>() != (int)AutomationStartupView.Hmi
+                        && token.Value<int>() != (int)AutomationStartupView.PlatformEditor))
+                {
+                    error = $"启动界面配置无效:{token}";
+                    return false;
+                }
+                else
+                {
+                    startupView = (AutomationStartupView)token.Value<int>();
+                }
                 config = new AppConfig
                 {
                     CommMaxMessageQueueSize = value,
-                    RuntimeMode = runtimeMode
+                    RuntimeMode = runtimeMode,
+                    StartupView = startupView
                 };
-                if (addDefaultRuntimeMode && !TrySave(config, out error))
+                if ((addDefaultRuntimeMode || addDefaultStartupView) && !TrySave(config, out error))
                 {
                     return false;
                 }
@@ -133,10 +161,17 @@ namespace Automation
                 error = $"运行模式配置无效:{config.RuntimeMode}";
                 return false;
             }
+            if (config.StartupView != AutomationStartupView.Hmi
+                && config.StartupView != AutomationStartupView.PlatformEditor)
+            {
+                error = $"启动界面配置无效:{config.StartupView}";
+                return false;
+            }
             JObject obj = new JObject
             {
                 [CommMaxMessageQueueSizeKey] = config.CommMaxMessageQueueSize,
-                [RuntimeModeKey] = (int)config.RuntimeMode
+                [RuntimeModeKey] = (int)config.RuntimeMode,
+                [StartupViewKey] = (int)config.StartupView
             };
             string json = obj.ToString(Formatting.Indented);
             string path = ConfigPath;
@@ -169,7 +204,8 @@ namespace Automation
             return new AppConfig
             {
                 CommMaxMessageQueueSize = config.CommMaxMessageQueueSize,
-                RuntimeMode = config.RuntimeMode
+                RuntimeMode = config.RuntimeMode,
+                StartupView = config.StartupView
             };
         }
     }

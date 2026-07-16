@@ -296,9 +296,9 @@ namespace Automation
         // AI 助手打开时隐藏流程列表的"备注"列，腾出空间给助手窗体
         private void SetNoteColumnVisible(bool visible)
         {
-            if (SF.frmDataGrid?.dataGridView1?.Columns?.Contains("Note") == true)
+            if (SF.frmDataGrid?.dataGridView1 != null)
             {
-                SF.frmDataGrid.dataGridView1.Columns["Note"].Visible = visible;
+                SF.frmDataGrid.dataGridView1.SetNoteColumnVisible(visible);
             }
         }
 
