@@ -485,6 +485,9 @@
     <EmbeddedResource Include="Assets\Goose\automation.md">
       <LogicalName>Automation.Assets.Goose.automation.md</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Hmi\CustomFunctions.cs">
+      <LogicalName>Automation.Hmi.CustomFunctions.Source</LogicalName>
+    </EmbeddedResource>
     <Content Include="Assets\Goose\system.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

@@ -2,7 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
+using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using System.Drawing.Drawing2D;
 using static Automation.OperationTypePartial;
@@ -13,6 +18,10 @@ namespace Automation
     {
         private const int MenuIconSize = 24;
         private const int MenuIconRenderSize = 18;
+        private const int EmLineScroll = 0x00B6;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr windowHandle, int message, IntPtr wordParameter, IntPtr longParameter);
 
         //临时保存操作对象
         public OperationType OperationTemp;
@@ -29,6 +38,7 @@ namespace Automation
         private int singleStepFollowProcIndex = -1;
         private bool contextMenuByMouse = false;
         private int contextMenuRowIndex = -1;
+        private readonly ToolStripMenuItem viewCustomFunctionCode = new ToolStripMenuItem();
 
         // 数据网格变动动效：AI 改动当前显示的流程后，闪烁整个网格提示用户。
         private System.Windows.Forms.Timer gridFlashTimer;
@@ -69,6 +79,7 @@ namespace Automation
         private void InitContextMenuIcons()
         {
             SetStartOps.Image = CreateMenuIcon(MenuIconType.StartPoint);
+            viewCustomFunctionCode.Image = CreateMenuIcon(MenuIconType.Code);
             Add.Image = CreateMenuIcon(MenuIconType.Add);
             Modify.Image = CreateMenuIcon(MenuIconType.Edit);
             SetStopPoint.Image = CreateMenuIcon(MenuIconType.Breakpoint);
@@ -96,7 +107,8 @@ namespace Automation
             Delete,
             Copy,
             Paste,
-            More
+            More,
+            Code
         }
 
         private static Bitmap CreateMenuIcon(MenuIconType iconType)
@@ -159,6 +171,10 @@ namespace Automation
                             g.FillEllipse(brush, 3, 8, 4, 4);
                             g.FillEllipse(brush, 8, 8, 4, 4);
                             g.FillEllipse(brush, 13, 8, 4, 4);
+                            break;
+                        case MenuIconType.Code:
+                            g.DrawLines(pen, new[] { new Point(8, 5), new Point(4, 10), new Point(8, 15) });
+                            g.DrawLines(pen, new[] { new Point(12, 5), new Point(16, 10), new Point(12, 15) });
                             break;
                     }
                 }
@@ -226,16 +242,21 @@ namespace Automation
                 CProgramCopy.Text = "复制到跨程序剪贴板";
                 CProgramPaste.Text = "从跨程序剪贴板粘贴";
                 SetStartOps.Text = "设为调试启动点";
+                viewCustomFunctionCode.Text = "查看代码";
+                viewCustomFunctionCode.Visible = false;
+                viewCustomFunctionCode.Click += ViewCustomFunctionCode_Click;
                 Delete.ForeColor = Color.FromArgb(188, 55, 64);
 
                 ApplyContextMenuItemStyle(new[]
                 {
                     Add, Modify, Delete, copy, paste, Others,
-                    CProgramCopy, CProgramPaste, SetStartOps, SetStopPoint, Enable
+                    CProgramCopy, CProgramPaste, SetStartOps, SetStopPoint, Enable,
+                    viewCustomFunctionCode
                 });
 
                 contextMenuStrip2.Items.Add(Add);
                 contextMenuStrip2.Items.Add(Modify);
+                contextMenuStrip2.Items.Add(viewCustomFunctionCode);
                 contextMenuStrip2.Items.Add(CreateContextMenuSeparator());
                 contextMenuStrip2.Items.Add(copy);
                 contextMenuStrip2.Items.Add(paste);
@@ -441,6 +462,7 @@ namespace Automation
             }
 
             bool hasSelection = selectedOperation != null;
+            viewCustomFunctionCode.Visible = selectedOperation is CallCustomFunc;
             bool hasStep = SF.frmProc != null
                 && SF.frmProc.SelectedProcNum >= 0
                 && SF.frmProc.SelectedProcNum < SF.frmProc.procsList.Count
@@ -465,6 +487,194 @@ namespace Automation
             else
             {
                 Enable.ForeColor = Color.FromArgb(42, 55, 63);
+            }
+        }
+
+        private void ViewCustomFunctionCode_Click(object sender, EventArgs e)
+        {
+            CallCustomFunc customFunction = iSelectedRow >= 0
+                ? dataGridView1.GetOperation(iSelectedRow) as CallCustomFunc
+                : null;
+            if (customFunction == null || string.IsNullOrWhiteSpace(customFunction.Name))
+            {
+                MessageBox.Show("当前指令未指定已注册的自定义函数。", "查看代码",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            const string resourceName = "Automation.Hmi.CustomFunctions.Source";
+            Assembly entryAssembly = Assembly.GetEntryAssembly();
+            Assembly platformAssembly = typeof(FrmDataGrid).Assembly;
+            Stream sourceStream = entryAssembly?.GetManifestResourceStream(resourceName);
+            if (sourceStream == null && !ReferenceEquals(entryAssembly, platformAssembly))
+            {
+                sourceStream = platformAssembly.GetManifestResourceStream(resourceName);
+            }
+            if (sourceStream == null)
+            {
+                MessageBox.Show("当前执行程序未包含自定义函数源码快照。", "查看代码",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string code;
+            try
+            {
+                using (sourceStream)
+                using (var reader = new StreamReader(sourceStream, Encoding.UTF8, true))
+                {
+                    code = reader.ReadToEnd();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("读取内嵌源码失败：" + ex.Message, "查看代码",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            var codeBox = new RichTextBox
+            {
+                BackColor = Color.FromArgb(250, 251, 252),
+                BorderStyle = BorderStyle.None,
+                DetectUrls = false,
+                Dock = DockStyle.Fill,
+                Font = new Font("Consolas", 10.5F, FontStyle.Regular),
+                HideSelection = false,
+                ReadOnly = true,
+                Text = code,
+                WordWrap = false
+            };
+            var sourceLabel = new Label
+            {
+                AutoEllipsis = true,
+                BackColor = Color.White,
+                Dock = DockStyle.Top,
+                Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(83, 99, 110),
+                Height = 34,
+                Padding = new Padding(10, 8, 10, 0),
+                Text = "内嵌源码快照 · 构建时 Hmi/CustomFunctions.cs"
+            };
+            var viewer = new Form
+            {
+                BackColor = Color.White,
+                MinimizeBox = false,
+                MinimumSize = new Size(720, 480),
+                ShowIcon = false,
+                ShowInTaskbar = false,
+                Size = new Size(920, 680),
+                StartPosition = FormStartPosition.CenterParent,
+                Text = "自定义函数代码 - " + customFunction.Name
+            };
+            viewer.Controls.Add(codeBox);
+            viewer.Controls.Add(sourceLabel);
+
+            // RichTextBox 会把换行规范化为 CRLF，定位索引必须以控件实际文本为准。
+            code = codeBox.Text;
+
+            int registrationIndex = code.IndexOf(
+                "RegisterCustomFunction(\"" + customFunction.Name + "\"",
+                StringComparison.Ordinal);
+            if (registrationIndex >= 0)
+            {
+                registrationIndex += "RegisterCustomFunction(\"".Length;
+            }
+            else
+            {
+                registrationIndex = code.IndexOf("\"" + customFunction.Name + "\"", StringComparison.Ordinal);
+            }
+            if (registrationIndex >= 0)
+            {
+                int targetIndex = registrationIndex;
+                string targetDescription = customFunction.Name + " 的注册语句";
+                int statementEnd = code.IndexOf(';', registrationIndex);
+                statementEnd = statementEnd < 0
+                    ? Math.Min(code.Length, registrationIndex + 2000)
+                    : statementEnd + 1;
+                string registrationStatement = code.Substring(
+                    registrationIndex,
+                    statementEnd - registrationIndex);
+                Match implementationReference = Regex.Match(
+                    registrationStatement,
+                    @"=>\s*(?:\{\s*)?(?:return\s+)?(?:await\s+)?(?<target>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*\(");
+                if (!implementationReference.Success)
+                {
+                    implementationReference = Regex.Match(
+                        registrationStatement,
+                        @",\s*(?<target>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*\)");
+                }
+                if (implementationReference.Success)
+                {
+                    string implementationTarget = implementationReference.Groups["target"].Value;
+                    string methodName = implementationTarget.Split('.').Last();
+                    Match methodDeclaration = Regex.Match(
+                        code,
+                        @"^[ \t]*(?:public|private|internal|protected)\s+"
+                        + @"(?:(?:static|async|unsafe|virtual|override|sealed|new|partial)\s+)*"
+                        + @"[A-Za-z_]\w*(?:\s*<[^\r\n>]+>)?(?:\[\])?\s+"
+                        + Regex.Escape(methodName)
+                        + @"\s*\(",
+                        RegexOptions.Multiline);
+                    if (methodDeclaration.Success)
+                    {
+                        targetIndex = methodDeclaration.Index;
+                        targetDescription = customFunction.Name + " 的实现方法 " + methodName;
+                    }
+                }
+
+                int lineStart = code.LastIndexOf('\n', targetIndex);
+                lineStart = lineStart < 0 ? 0 : lineStart + 1;
+                int lineEnd = code.IndexOf('\n', targetIndex);
+                lineEnd = lineEnd < 0 ? code.Length : lineEnd;
+                if (lineEnd > lineStart && code[lineEnd - 1] == '\r')
+                {
+                    lineEnd--;
+                }
+                string targetLineText = code.Substring(lineStart, lineEnd - lineStart);
+                int lineNumber = 1;
+                for (int i = 0; i < lineStart; i++)
+                {
+                    if (code[i] == '\n')
+                    {
+                        lineNumber++;
+                    }
+                }
+                sourceLabel.Text = "已定位到 " + targetDescription
+                    + " · 第 " + lineNumber + " 行 · 内嵌源码快照";
+                viewer.Shown += (shownSender, shownArgs) =>
+                {
+                    int controlLineStart = codeBox.Find(
+                        targetLineText,
+                        RichTextBoxFinds.MatchCase);
+                    if (controlLineStart < 0)
+                    {
+                        return;
+                    }
+                    codeBox.Select(controlLineStart, Math.Max(1, targetLineText.Length));
+                    codeBox.SelectionBackColor = Color.FromArgb(255, 236, 166);
+                    codeBox.Focus();
+                    codeBox.ScrollToCaret();
+                    int targetLine = codeBox.GetLineFromCharIndex(controlLineStart);
+                    int firstVisibleCharacter = codeBox.GetCharIndexFromPosition(new Point(1, 1));
+                    int firstVisibleLine = codeBox.GetLineFromCharIndex(firstVisibleCharacter);
+                    int desiredFirstLine = Math.Max(0, targetLine - 3);
+                    SendMessage(
+                        codeBox.Handle,
+                        EmLineScroll,
+                        IntPtr.Zero,
+                        new IntPtr(desiredFirstLine - firstVisibleLine));
+                    codeBox.Select(controlLineStart, 0);
+                };
+            }
+            else
+            {
+                sourceLabel.Text = "未在内嵌源码中找到 " + customFunction.Name + " 的注册语句";
+                sourceLabel.ForeColor = Color.FromArgb(168, 75, 36);
+            }
+            using (viewer)
+            {
+                viewer.ShowDialog(this);
             }
         }
 
