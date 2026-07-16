@@ -309,6 +309,7 @@ namespace Automation
                 SF.curPage = 5;
                 SetActiveMenuButton(Card_Page);
                 SetMainPanelScrollSize(Size.Empty);
+                SF.mainfrm.ShowEditorWorkspace();
                 SF.frmPropertyGrid.panel1.Visible = false;
                 SF.mainfrm.panel_Info.Visible = false;
 
@@ -332,16 +333,6 @@ namespace Automation
                 SF.frmCard.Visible = true;
                 SF.frmDataGrid.Visible = false;
                 SF.frmProc.Visible = false;
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
-                {
-                    SF.frmStation.Visible = false;
-                }
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
-                {
-                    SF.frmValueDebug.Visible = false;
-                }
-                HideEmbeddedMainPages();
-
                 SF.frmCard.BringToFront();
                 SF.frmIO.BringToFront();
 
@@ -366,6 +357,7 @@ namespace Automation
                 SF.curPage = 0;
                 SetActiveMenuButton(process_Page);
                 SetMainPanelScrollSize(Size.Empty);
+                SF.mainfrm.ShowEditorWorkspace();
                 SF.frmPropertyGrid.panel1.Visible = true;
                 SF.mainfrm.panel_Info.Visible = true;
 
@@ -395,16 +387,6 @@ namespace Automation
                 {
                     SF.frmCard.Visible = false;
                 }
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
-                {
-                    SF.frmStation.Visible = false;
-                }
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
-                {
-                    SF.frmValueDebug.Visible = false;
-                }
-                HideEmbeddedMainPages();
-
                 SF.frmToolBar.btnPause.Visible = true;
                 SF.frmToolBar.btnStop.Visible = true;
                 SF.frmToolBar.btnStopAll.Visible = true;
@@ -445,39 +427,9 @@ namespace Automation
                 {
                     SF.mainfrm.loadFillForm(SF.frmStation.panel1, SF.frmControl);
                 }
-                if (!SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
-                {
-                SF.mainfrm.loadFillForm(SF.mainfrm.main_panel, SF.frmStation);
-                }
-
-                SF.mainfrm.ToolBar_panel.Visible = false;
-                SF.mainfrm.treeView_panel.Visible = false;
-                SF.mainfrm.propertyGrid_panel.Visible = false;
-                SF.mainfrm.DataGrid_panel.Visible = false;
-                SF.mainfrm.panel_Info.Visible = false;
-                SF.mainfrm.state_panel.Visible = false;
-
-                SF.frmStation.Visible = true;
-                SF.frmStation.BringToFront();
-
-                SF.frmDataGrid.Visible = false;
-                SF.frmProc.Visible = false;
-                if (SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
-                {
-                    SF.frmIO.Visible = false;
-                }
-                if (SF.mainfrm.treeView_panel.Controls.Contains(SF.frmCard))
-                {
-                    SF.frmCard.Visible = false;
-                }
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
-                {
-                    SF.frmValueDebug.Visible = false;
-                }
-                HideEmbeddedMainPages(SF.frmStation);
-                
                 SF.frmControl.comboBox1.DisplayMember = "Name";
                 SF.frmControl.comboBox1.DataSource = SF.frmCard.dataStation;
+                SF.mainfrm.ShowWorkspacePage(SF.frmStation);
 
                 SF.frmToolBar.btnIOMonitor.Visible = false;
                 SF.frmIO.StopIOMonitor();
@@ -511,38 +463,9 @@ namespace Automation
                 SF.curPage = 6;
                 SetActiveMenuButton(valueDebug_Page);
                 SetMainPanelScrollSize(Size.Empty);
-                if (!SF.mainfrm.main_panel.Controls.Contains(SF.frmValueDebug))
-                {
-                    SF.mainfrm.loadFillForm(SF.mainfrm.main_panel, SF.frmValueDebug);
-                }
                 SF.frmValueDebug.RefreshCheckList();
                 SF.frmValueDebug.RefreshEditList();
-
-                SF.mainfrm.ToolBar_panel.Visible = false;
-                SF.mainfrm.treeView_panel.Visible = false;
-                SF.mainfrm.propertyGrid_panel.Visible = false;
-                SF.mainfrm.DataGrid_panel.Visible = false;
-                SF.mainfrm.panel_Info.Visible = false;
-                SF.mainfrm.state_panel.Visible = false;
-
-                SF.frmValueDebug.Visible = true;
-                SF.frmValueDebug.BringToFront();
-
-                SF.frmDataGrid.Visible = false;
-                SF.frmProc.Visible = false;
-                if (SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
-                {
-                    SF.frmIO.Visible = false;
-                }
-                if (SF.mainfrm.treeView_panel.Controls.Contains(SF.frmCard))
-                {
-                    SF.frmCard.Visible = false;
-                }
-                if (SF.mainfrm.main_panel.Controls.Contains(SF.frmStation))
-                {
-                    SF.frmStation.Visible = false;
-                }
-                HideEmbeddedMainPages(SF.frmValueDebug);
+                SF.mainfrm.ShowWorkspacePage(SF.frmValueDebug);
 
                 SF.frmToolBar.btnIOMonitor.Visible = false;
                 SF.frmIO.StopIOMonitor();
@@ -569,32 +492,7 @@ namespace Automation
             SF.curPage = pageIndex;
             SetActiveMenuButton(menuButton);
             SetMainPanelScrollSize(page.MinimumSize);
-            if (!SF.mainfrm.main_panel.Controls.Contains(page))
-            {
-                SF.mainfrm.loadFillForm(SF.mainfrm.main_panel, page);
-            }
-
-            SF.mainfrm.ToolBar_panel.Visible = false;
-            SF.mainfrm.treeView_panel.Visible = false;
-            SF.mainfrm.propertyGrid_panel.Visible = false;
-            SF.mainfrm.DataGrid_panel.Visible = false;
-            SF.mainfrm.panel_Info.Visible = false;
-            SF.mainfrm.state_panel.Visible = false;
-
-            HideEmbeddedMainPages(page);
-            page.Visible = true;
-            page.BringToFront();
-
-            SF.frmDataGrid.Visible = false;
-            SF.frmProc.Visible = false;
-            if (SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
-            {
-                SF.frmIO.Visible = false;
-            }
-            if (SF.mainfrm.treeView_panel.Controls.Contains(SF.frmCard))
-            {
-                SF.frmCard.Visible = false;
-            }
+            SF.mainfrm.ShowWorkspacePage(page);
 
             SF.frmToolBar.btnIOMonitor.Visible = false;
             SF.frmIO.StopIOMonitor();
@@ -605,26 +503,6 @@ namespace Automation
         {
             SF.mainfrm.main_panel.AutoScrollMinSize = minimumSize;
             SF.mainfrm.main_panel.AutoScrollPosition = Point.Empty;
-        }
-
-        private static void HideEmbeddedMainPages(Form except = null)
-        {
-            Form[] pages =
-            {
-                SF.frmStation,
-                SF.frmValueDebug,
-                SF.frmComunication,
-                SF.frmPlc,
-                SF.frmVersionManager
-            };
-            foreach (Form page in pages)
-            {
-                if (page != null && !page.IsDisposed && page != except
-                    && SF.mainfrm.main_panel.Controls.Contains(page))
-                {
-                    page.Visible = false;
-                }
-            }
         }
 
     }

@@ -25,6 +25,8 @@ namespace Automation
         public FrmValueDebug frmValueDebug = new FrmValueDebug();
         public FrmAiAssistant frmAiAssistant = new FrmAiAssistant();
         public Panel ai_panel;
+        private WorkspacePageHost workspacePageHost;
+        private Panel editorWorkspacePage;
         public FrmIO  frmIO = new FrmIO();
         public FrmCard  frmCard = new FrmCard();
         public ProcessEngine dataRun;
@@ -94,6 +96,7 @@ namespace Automation
             uiThreadId = Thread.CurrentThread.ManagedThreadId;
             UiBranding.Apply(this);
             InitializeComponent();
+            InitializeWorkspacePageHost();
             uiDispatcher = new Control();
             _ = uiDispatcher.Handle;
             if (AutomationRuntimeOptions.Current.IsSimulation)
@@ -1454,6 +1457,55 @@ namespace Automation
             SF.StopAllProcs("设备配置已还原，必须重启程序后才能继续运行。");
         }
 
+        private void InitializeWorkspacePageHost()
+        {
+            Controls.Remove(state_panel);
+            editorWorkspacePage = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(246, 249, 251)
+            };
+            editorWorkspacePage.Controls.Add(DataGrid_panel);
+            editorWorkspacePage.Controls.Add(panel_Info);
+            editorWorkspacePage.Controls.Add(propertyGrid_panel);
+            editorWorkspacePage.Controls.Add(treeView_panel);
+            editorWorkspacePage.Controls.Add(ToolBar_panel);
+            editorWorkspacePage.Controls.Add(state_panel);
+
+            workspacePageHost = new WorkspacePageHost
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(246, 249, 251)
+            };
+            main_panel.Controls.Add(workspacePageHost);
+            workspacePageHost.ShowPage(editorWorkspacePage);
+        }
+
+        public void ShowEditorWorkspace()
+        {
+            workspacePageHost.ShowPage(editorWorkspacePage);
+        }
+
+        public void ShowWorkspacePage(Form page)
+        {
+            if (page == null || page.IsDisposed)
+            {
+                return;
+            }
+            if (!workspacePageHost.Controls.Contains(page))
+            {
+                page.FormBorderStyle = FormBorderStyle.None;
+                page.ShowIcon = false;
+                page.ShowInTaskbar = false;
+                page.TopLevel = false;
+                page.Dock = DockStyle.Fill;
+                workspacePageHost.Controls.Add(page);
+                page.Show();
+            }
+            workspacePageHost.ShowPage(page);
+            page.Focus();
+        }
+
         public void RequireRestartAfterMotionConfigurationChange()
         {
             SF.MotionConfigRestartRequired = true;
@@ -1798,6 +1850,48 @@ namespace Automation
                 () => tcs.TrySetResult(AlarmDecision.Stop));
 
             return tcs.Task;
+        }
+    }
+
+    internal sealed class WorkspacePageHost : Panel
+    {
+        private Control activePage;
+
+        public WorkspacePageHost()
+        {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw, true);
+        }
+
+        public void ShowPage(Control page)
+        {
+            if (page == null || page.IsDisposed || ReferenceEquals(activePage, page))
+            {
+                return;
+            }
+            SuspendLayout();
+            try
+            {
+                if (!Controls.Contains(page))
+                {
+                    Controls.Add(page);
+                }
+                page.Dock = DockStyle.Fill;
+                page.Visible = true;
+                page.BringToFront();
+                if (activePage != null && !activePage.IsDisposed)
+                {
+                    activePage.Visible = false;
+                }
+                activePage = page;
+            }
+            finally
+            {
+                ResumeLayout(true);
+            }
+            Invalidate(true);
         }
     }
 
