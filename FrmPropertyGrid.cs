@@ -49,9 +49,10 @@ namespace Automation
             Color textColor = Color.FromArgb(49, 63, 73);
             Color mutedTextColor = Color.FromArgb(83, 99, 110);
             Color borderColor = Color.FromArgb(218, 226, 231);
+            Color accentColor = Color.FromArgb(38, 126, 186);
+            Color selectedBackColor = Color.FromArgb(224, 241, 252);
 
             BackColor = Color.White;
-            panel1.Height = 44;
             panel1.BackColor = Color.FromArgb(249, 251, 252);
             panel1.Paint += (sender, args) =>
             {
@@ -76,20 +77,131 @@ namespace Automation
             OperationType.ForeColor = textColor;
             OperationType.FlatStyle = FlatStyle.Flat;
             OperationType.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Regular);
+            OperationType.DropDownStyle = ComboBoxStyle.DropDownList;
+            OperationType.DrawMode = DrawMode.OwnerDrawFixed;
+            int operationTypeTextHeight = TextRenderer.MeasureText(
+                "指令类型",
+                OperationType.Font,
+                Size.Empty,
+                TextFormatFlags.NoPadding).Height;
+            OperationType.ItemHeight = Math.Max(30, operationTypeTextHeight + 10);
             OperationType.IntegralHeight = false;
-            OperationType.DropDownHeight = 260;
+            OperationType.DropDownHeight = Math.Min(
+                600,
+                Math.Max(OperationType.ItemHeight + 2, OperationType.ItemHeight * OperationTypeList.Count + 2));
+            OperationType.DrawItem += (sender, args) =>
+            {
+                bool selected = (args.State & DrawItemState.Selected) == DrawItemState.Selected;
+                bool disabled = (args.State & DrawItemState.Disabled) == DrawItemState.Disabled;
+                using (SolidBrush background = new SolidBrush(selected ? selectedBackColor : Color.White))
+                {
+                    args.Graphics.FillRectangle(background, args.Bounds);
+                }
+
+                if (args.Index >= 0)
+                {
+                    Rectangle textBounds = new Rectangle(
+                        args.Bounds.Left + 12,
+                        args.Bounds.Top,
+                        Math.Max(0, args.Bounds.Width - 18),
+                        args.Bounds.Height);
+                    TextRenderer.DrawText(
+                        args.Graphics,
+                        OperationType.GetItemText(OperationType.Items[args.Index]),
+                        OperationType.Font,
+                        textBounds,
+                        disabled ? Color.FromArgb(145, 155, 164) : (selected ? accentColor : textColor),
+                        TextFormatFlags.Left
+                            | TextFormatFlags.VerticalCenter
+                            | TextFormatFlags.SingleLine
+                            | TextFormatFlags.EndEllipsis
+                            | TextFormatFlags.NoPadding);
+                }
+            };
+            Action updateOperationTypeDropDown = () =>
+            {
+                Rectangle workingArea = Screen.FromControl(OperationType).WorkingArea;
+                Point comboLocation = OperationType.PointToScreen(Point.Empty);
+                int availableBelow = workingArea.Bottom - comboLocation.Y - OperationType.Height - 8;
+                int availableAbove = comboLocation.Y - workingArea.Top - 8;
+                int availableHeight = Math.Max(availableBelow, availableAbove);
+                int visibleRows = Math.Max(
+                    1,
+                    Math.Min(
+                        Math.Max(1, OperationType.Items.Count),
+                        Math.Max(1, (availableHeight - 2) / OperationType.ItemHeight)));
+                OperationType.DropDownHeight = visibleRows * OperationType.ItemHeight + 2;
+
+                int contentWidth = OperationType.Width;
+                foreach (object item in OperationType.Items)
+                {
+                    int itemWidth = TextRenderer.MeasureText(
+                        OperationType.GetItemText(item),
+                        OperationType.Font,
+                        Size.Empty,
+                        TextFormatFlags.NoPadding).Width;
+                    contentWidth = Math.Max(
+                        contentWidth,
+                        itemWidth + SystemInformation.VerticalScrollBarWidth + 28);
+                }
+                OperationType.DropDownWidth = Math.Min(
+                    Math.Max(OperationType.Width, workingArea.Width - 16),
+                    contentWidth);
+            };
+            OperationType.Enter += (sender, args) => panel1.Invalidate();
+            OperationType.Leave += (sender, args) => panel1.Invalidate();
+            OperationType.DropDown += (sender, args) =>
+            {
+                updateOperationTypeDropDown();
+                panel1.Invalidate();
+            };
+            OperationType.DropDownClosed += (sender, args) => panel1.Invalidate();
+
+            Label operationTypeReadOnly = new Label
+            {
+                AutoEllipsis = true,
+                BackColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Regular),
+                ForeColor = textColor,
+                Padding = new Padding(11, 0, 8, 0),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Visible = false
+            };
+            panel1.Controls.Add(operationTypeReadOnly);
+
+            Action refreshOperationTypePresentation = () =>
+            {
+                operationTypeReadOnly.Text = OperationType.Text;
+                operationTypeReadOnly.Visible = !OperationType.Enabled;
+                if (operationTypeReadOnly.Visible)
+                {
+                    operationTypeReadOnly.BringToFront();
+                }
+            };
+            OperationType.EnabledChanged += (sender, args) => refreshOperationTypePresentation();
+            OperationType.SelectedIndexChanged += (sender, args) => refreshOperationTypePresentation();
+            EnabledChanged += (sender, args) => refreshOperationTypePresentation();
 
             Action layoutHeader = () =>
             {
+                int comboHeight = OperationType.PreferredHeight;
+                int headerHeight = Math.Max(44, comboHeight + 16);
+                if (panel1.Height != headerHeight)
+                {
+                    panel1.Height = headerHeight;
+                }
                 label1.SetBounds(12, 0, 76, panel1.ClientSize.Height - 1);
                 OperationType.SetBounds(
                     92,
-                    8,
+                    Math.Max(0, (panel1.ClientSize.Height - comboHeight) / 2),
                     Math.Max(80, panel1.ClientSize.Width - 104),
-                    28);
+                    comboHeight);
+                operationTypeReadOnly.Bounds = OperationType.Bounds;
             };
             panel1.Resize += (sender, args) => layoutHeader();
             layoutHeader();
+            refreshOperationTypePresentation();
 
             propertyGrid1.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
             propertyGrid1.BackColor = Color.White;
@@ -633,6 +745,15 @@ namespace Automation
         public PropertyDescriptor Index2 { get; set; }
         public PropertyDescriptor Name { get; set; }
         public PropertyDescriptor Name2 { get; set; }
+
+        public bool IsVariableReference
+        {
+            get
+            {
+                return Name?.Converter?.GetType() == typeof(ValueItem)
+                    || Name2?.Converter?.GetType() == typeof(ValueItem);
+            }
+        }
 
         public Type ComponentType
         {
@@ -1264,7 +1385,7 @@ namespace Automation
 
         public override object GetValue(object component)
         {
-            return ToText(group.GetKind(component));
+            return ToText(group.GetKind(component), group);
         }
 
         public override void ResetValue(object component)
@@ -1289,7 +1410,7 @@ namespace Automation
 
         public override TypeConverter Converter => new ValueRefTypeConverter(group);
 
-        private static string ToText(ValueRefInputKind kind)
+        private static string ToText(ValueRefInputKind kind, ValueRefGroup group)
         {
             switch (kind)
             {
@@ -1298,13 +1419,13 @@ namespace Automation
                 case ValueRefInputKind.Index2:
                     return "索引二级";
                 case ValueRefInputKind.Name2:
-                    return "名称二级";
+                    return group.IsVariableReference ? "变量二级" : "名称二级";
                 case ValueRefInputKind.Name:
-                    return "名称";
+                    return group.IsVariableReference ? "变量" : "名称";
                 case ValueRefInputKind.Conflict:
                     return "冲突";
                 default:
-                    return "名称";
+                    return group.IsVariableReference ? "变量" : "名称";
             }
         }
 
@@ -1318,11 +1439,13 @@ namespace Automation
             {
                 return group.Index2 != null ? ValueRefInputKind.Index2 : ValueRefInputKind.Conflict;
             }
-            if (string.Equals(text, "名称二级", StringComparison.Ordinal))
+            if (string.Equals(text, "名称二级", StringComparison.Ordinal)
+                || (group.IsVariableReference && string.Equals(text, "变量二级", StringComparison.Ordinal)))
             {
                 return group.Name2 != null ? ValueRefInputKind.Name2 : ValueRefInputKind.Conflict;
             }
-            if (string.Equals(text, "名称", StringComparison.Ordinal))
+            if (string.Equals(text, "名称", StringComparison.Ordinal)
+                || (group.IsVariableReference && string.Equals(text, "变量", StringComparison.Ordinal)))
             {
                 return group.Name != null ? ValueRefInputKind.Name : ValueRefInputKind.Conflict;
             }
@@ -1354,8 +1477,8 @@ namespace Automation
                 {
                     values.Add("冲突");
                 }
-                if (group.Name != null) values.Add("名称");
-                if (group.Name2 != null) values.Add("名称二级");
+                if (group.Name != null) values.Add(group.IsVariableReference ? "变量" : "名称");
+                if (group.Name2 != null) values.Add(group.IsVariableReference ? "变量二级" : "名称二级");
                 if (group.Index != null) values.Add("索引");
                 if (group.Index2 != null) values.Add("索引二级");
                 if (values.Count == 0)

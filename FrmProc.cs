@@ -750,12 +750,14 @@ namespace Automation
                 bindingSource.DataSource = null;
                 if (grid != null)
                 {
+                    grid.SetFlowContext(-1, -1, null);
                     grid.DataSource = null;
                 }
                 return;
             }
             if (SelectedStepNum >= 0 && SelectedStepNum < procsList[SelectedProcNum].steps.Count)
             {
+                grid?.SetFlowContext(SelectedProcNum, SelectedStepNum, procsList[SelectedProcNum]);
                 bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
                 if (SF.frmPropertyGrid != null && !SF.frmPropertyGrid.IsDisposed)
                 {
@@ -764,6 +766,7 @@ namespace Automation
             }
             else
             {
+                grid?.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
                 bindingSource.DataSource = null;
                 if (SF.frmPropertyGrid != null && !SF.frmPropertyGrid.IsDisposed)
                 {
@@ -981,6 +984,7 @@ namespace Automation
                         SelectedProcNum = -1;
                         SelectedStepNum = -1;
                         bindingSource.DataSource = null;
+                        SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
                         SF.frmDataGrid.dataGridView1.DataSource = null;
                         SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
                         return;
@@ -990,10 +994,15 @@ namespace Automation
                         MessageBox.Show("步骤索引无效，无法加载指令。");
                         SelectedStepNum = -1;
                         bindingSource.DataSource = null;
+                        SF.frmDataGrid.dataGridView1.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
                         SF.frmDataGrid.dataGridView1.DataSource = null;
                         SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
                         return;
                     }
+                    SF.frmDataGrid.dataGridView1.SetFlowContext(
+                        SelectedProcNum,
+                        SelectedStepNum,
+                        procsList[SelectedProcNum]);
                     bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
 
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject =procsList[SelectedProcNum].steps[SF.frmProc.SelectedStepNum];
@@ -1011,10 +1020,15 @@ namespace Automation
                         MessageBox.Show("流程索引无效，无法加载。");
                         SelectedProcNum = -1;
                         bindingSource.DataSource = null;
+                        SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
                         SF.frmDataGrid.dataGridView1.DataSource = null;
                         SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
                         return;
                     }
+                    SF.frmDataGrid.dataGridView1.SetFlowContext(
+                        SelectedProcNum,
+                        -1,
+                        procsList[SelectedProcNum]);
                     bindingSource.DataSource = null;
 
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject = procsList[SelectedProcNum].head;
@@ -1125,6 +1139,7 @@ namespace Automation
                     SF.frmDataGrid.iSelectedRow = -1;
                     SF.frmDataGrid.OperationTemp = null;
                     bindingSource.DataSource = null;
+                    SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
                     SF.frmDataGrid.dataGridView1.DataSource = null;
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
                 }

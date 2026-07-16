@@ -217,8 +217,12 @@ namespace Automation
             panel1.BackColor = Color.FromArgb(245, 247, 250);
             btnSearch.FlatStyle = FlatStyle.Flat;
             btnSearch.FlatAppearance.BorderColor = Color.FromArgb(63, 126, 181);
+            btnSearch.FlatAppearance.BorderSize = 1;
+            btnSearch.FlatAppearance.MouseOverBackColor = Color.FromArgb(52, 110, 164);
+            btnSearch.FlatAppearance.MouseDownBackColor = Color.FromArgb(40, 91, 138);
             btnSearch.BackColor = Color.FromArgb(63, 126, 181);
             btnSearch.ForeColor = Color.White;
+            btnSearch.Cursor = Cursors.Hand;
             dataGridView1.BackgroundColor = Color.White;
             dataGridView1.BorderStyle = BorderStyle.None;
             dataGridView1.GridColor = Color.FromArgb(222, 228, 234);

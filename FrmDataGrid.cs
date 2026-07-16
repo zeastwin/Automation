@@ -11,7 +11,8 @@ namespace Automation
 {
     public partial class FrmDataGrid : Form
     {
-        private const int MenuIconSize = 20;
+        private const int MenuIconSize = 24;
+        private const int MenuIconRenderSize = 18;
 
         //临时保存操作对象
         public OperationType OperationTemp;
@@ -46,8 +47,23 @@ namespace Automation
             InitializeComponent();
             Disposed += FrmDataGrid_Disposed;
             InitContextMenuIcons();
+            ConfigureContextMenu();
             contextMenuStrip2.KeyDown += contextMenuStrip2_KeyDown;
             contextMenuStrip2.Opening += contextMenuStrip2_Opening;
+            dataGridView1.SelectedIndexChanged += dataGridView1_SelectedIndexChanged;
+        }
+
+        private void dataGridView1_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            int rowIndex = dataGridView1.GetSelectedIndexes().DefaultIfEmpty(-1).First();
+            iSelectedRow = rowIndex;
+            if (rowIndex >= 0
+                && SF.frmProc != null
+                && SF.frmPropertyGrid != null
+                && !SF.frmPropertyGrid.IsDisposed)
+            {
+                ShowOperationProperties(rowIndex);
+            }
         }
 
         private void InitContextMenuIcons()
@@ -57,8 +73,17 @@ namespace Automation
             Modify.Image = CreateMenuIcon(MenuIconType.Edit);
             SetStopPoint.Image = CreateMenuIcon(MenuIconType.Breakpoint);
             Enable.Image = CreateMenuIcon(MenuIconType.Toggle);
+            Delete.Image = CreateMenuIcon(MenuIconType.Delete);
+            copy.Image = CreateMenuIcon(MenuIconType.Copy);
+            paste.Image = CreateMenuIcon(MenuIconType.Paste);
+            Others.Image = CreateMenuIcon(MenuIconType.More);
+            CProgramCopy.Image = CreateMenuIcon(MenuIconType.Copy);
+            CProgramPaste.Image = CreateMenuIcon(MenuIconType.Paste);
             SetStopPoint.ShortcutKeyDisplayString = "X";
             Enable.ShortcutKeyDisplayString = "U";
+            copy.ShortcutKeyDisplayString = "Ctrl+C";
+            paste.ShortcutKeyDisplayString = "Ctrl+V";
+            Delete.ShortcutKeyDisplayString = "Del";
         }
 
         private enum MenuIconType
@@ -67,7 +92,11 @@ namespace Automation
             Add,
             Edit,
             Breakpoint,
-            Toggle
+            Toggle,
+            Delete,
+            Copy,
+            Paste,
+            More
         }
 
         private static Bitmap CreateMenuIcon(MenuIconType iconType)
@@ -77,9 +106,14 @@ namespace Automation
             {
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.Clear(Color.Transparent);
-                using (Pen pen = new Pen(Color.DimGray, 2))
-                using (Brush brush = new SolidBrush(Color.DimGray))
+                g.TranslateTransform(2F, 2F);
+                Color color = GetMenuIconColor(iconType);
+                using (Pen pen = new Pen(color, 1.8F))
+                using (Brush brush = new SolidBrush(color))
                 {
+                    pen.StartCap = LineCap.Round;
+                    pen.EndCap = LineCap.Round;
+                    pen.LineJoin = LineJoin.Round;
                     switch (iconType)
                     {
                         case MenuIconType.StartPoint:
@@ -102,10 +136,258 @@ namespace Automation
                             g.DrawArc(pen, 4, 4, 12, 12, 40, 280);
                             g.DrawLine(pen, 10, 2, 10, 8);
                             break;
+                        case MenuIconType.Delete:
+                            g.DrawLine(pen, 5, 6, 15, 6);
+                            g.DrawLine(pen, 8, 3, 12, 3);
+                            g.DrawRectangle(pen, 6, 7, 8, 10);
+                            g.DrawLine(pen, 9, 9, 9, 15);
+                            g.DrawLine(pen, 12, 9, 12, 15);
+                            break;
+                        case MenuIconType.Copy:
+                            DrawMenuRoundedRectangle(g, pen, new Rectangle(7, 4, 10, 12), 2);
+                            DrawMenuRoundedRectangle(g, pen, new Rectangle(3, 8, 10, 10), 2);
+                            break;
+                        case MenuIconType.Paste:
+                            DrawMenuRoundedRectangle(g, pen, new Rectangle(4, 5, 12, 13), 2);
+                            g.DrawLine(pen, 8, 3, 12, 3);
+                            g.DrawLine(pen, 8, 3, 7, 6);
+                            g.DrawLine(pen, 12, 3, 13, 6);
+                            g.DrawLine(pen, 7, 10, 13, 10);
+                            g.DrawLine(pen, 7, 14, 11, 14);
+                            break;
+                        case MenuIconType.More:
+                            g.FillEllipse(brush, 3, 8, 4, 4);
+                            g.FillEllipse(brush, 8, 8, 4, 4);
+                            g.FillEllipse(brush, 13, 8, 4, 4);
+                            break;
                     }
                 }
             }
             return bitmap;
+        }
+
+        private static void DrawMenuRoundedRectangle(
+            Graphics graphics,
+            Pen pen,
+            Rectangle bounds,
+            int radius)
+        {
+            int diameter = radius * 2;
+            using (var path = new GraphicsPath())
+            {
+                path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+                path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+                path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+                path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+                path.CloseFigure();
+                graphics.DrawPath(pen, path);
+            }
+        }
+
+        private static Color GetMenuIconColor(MenuIconType iconType)
+        {
+            switch (iconType)
+            {
+                case MenuIconType.Add: return Color.FromArgb(43, 145, 93);
+                case MenuIconType.Edit: return Color.FromArgb(44, 126, 181);
+                case MenuIconType.Delete:
+                case MenuIconType.Breakpoint: return Color.FromArgb(197, 62, 70);
+                case MenuIconType.Toggle: return Color.FromArgb(193, 124, 28);
+                case MenuIconType.StartPoint: return Color.FromArgb(117, 86, 178);
+                case MenuIconType.More: return Color.FromArgb(117, 86, 178);
+                case MenuIconType.Paste: return Color.FromArgb(31, 137, 145);
+                default: return Color.FromArgb(82, 105, 118);
+            }
+        }
+
+        private void ConfigureContextMenu()
+        {
+            contextMenuStrip2.SuspendLayout();
+            try
+            {
+                contextMenuStrip2.Items.Clear();
+                contextMenuStrip2.AutoSize = true;
+                contextMenuStrip2.MinimumSize = new Size(210, 0);
+                contextMenuStrip2.Padding = new Padding(3, 3, 3, 3);
+                contextMenuStrip2.ImageScalingSize = new Size(20, 20);
+                contextMenuStrip2.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
+                contextMenuStrip2.BackColor = Color.White;
+                contextMenuStrip2.ForeColor = Color.FromArgb(42, 55, 63);
+                contextMenuStrip2.Renderer = new InstructionContextMenuRenderer();
+                contextMenuStrip2.ShowCheckMargin = false;
+                contextMenuStrip2.ShowImageMargin = true;
+
+                Add.Text = "新建指令";
+                Modify.Text = "编辑指令";
+                Delete.Text = "删除指令";
+                copy.Text = "复制指令";
+                paste.Text = "粘贴指令";
+                Others.Text = "其他";
+                CProgramCopy.Text = "复制到跨程序剪贴板";
+                CProgramPaste.Text = "从跨程序剪贴板粘贴";
+                SetStartOps.Text = "设为调试启动点";
+                Delete.ForeColor = Color.FromArgb(188, 55, 64);
+
+                ApplyContextMenuItemStyle(new[]
+                {
+                    Add, Modify, Delete, copy, paste, Others,
+                    CProgramCopy, CProgramPaste, SetStartOps, SetStopPoint, Enable
+                });
+
+                contextMenuStrip2.Items.Add(Add);
+                contextMenuStrip2.Items.Add(Modify);
+                contextMenuStrip2.Items.Add(CreateContextMenuSeparator());
+                contextMenuStrip2.Items.Add(copy);
+                contextMenuStrip2.Items.Add(paste);
+                contextMenuStrip2.Items.Add(Others);
+                separatorStartOps.AutoSize = false;
+                separatorStartOps.Size = new Size(202, 5);
+                separatorStartOps.Margin = Padding.Empty;
+                contextMenuStrip2.Items.Add(separatorStartOps);
+                contextMenuStrip2.Items.Add(SetStartOps);
+                contextMenuStrip2.Items.Add(SetStopPoint);
+                contextMenuStrip2.Items.Add(Enable);
+                contextMenuStrip2.Items.Add(CreateContextMenuSeparator());
+                contextMenuStrip2.Items.Add(Delete);
+            }
+            finally
+            {
+                contextMenuStrip2.ResumeLayout(false);
+            }
+        }
+
+        private static void ApplyContextMenuItemStyle(IEnumerable<ToolStripMenuItem> items)
+        {
+            foreach (ToolStripMenuItem item in items)
+            {
+                item.AutoSize = true;
+                item.Padding = new Padding(4, 2, 5, 2);
+                item.Margin = Padding.Empty;
+            }
+        }
+
+        private static ToolStripSeparator CreateContextMenuSeparator()
+        {
+            return new ToolStripSeparator
+            {
+                AutoSize = false,
+                Size = new Size(202, 5),
+                Margin = Padding.Empty
+            };
+        }
+
+        private sealed class InstructionContextMenuRenderer : ToolStripProfessionalRenderer
+        {
+            public InstructionContextMenuRenderer()
+                : base(new InstructionContextMenuColorTable())
+            {
+                RoundedEdges = false;
+            }
+
+            protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+            {
+                if (!e.Item.Selected)
+                {
+                    return;
+                }
+                Rectangle bounds = new Rectangle(3, 2, Math.Max(1, e.Item.Width - 6), Math.Max(1, e.Item.Height - 4));
+                bool destructive = e.Item.ForeColor.R > 160 && e.Item.ForeColor.G < 90;
+                Color background = destructive
+                    ? Color.FromArgb(253, 235, 237)
+                    : Color.FromArgb(228, 242, 249);
+                Color accent = destructive
+                    ? Color.FromArgb(197, 62, 70)
+                    : Color.FromArgb(47, 132, 179);
+                using (GraphicsPath path = CreateMenuItemPath(bounds, 5))
+                using (SolidBrush brush = new SolidBrush(background))
+                using (SolidBrush accentBrush = new SolidBrush(accent))
+                {
+                    e.Graphics.FillPath(brush, path);
+                    e.Graphics.FillRectangle(accentBrush, bounds.Left, bounds.Top + 5, 3, Math.Max(1, bounds.Height - 10));
+                }
+            }
+
+            protected override void OnRenderItemImage(ToolStripItemImageRenderEventArgs e)
+            {
+                if (e.Image == null)
+                {
+                    return;
+                }
+
+                int x = 7;
+                int y = Math.Max(0, (e.Item.Height - MenuIconRenderSize) / 2);
+                if (e.Item.Enabled)
+                {
+                    e.Graphics.DrawImage(e.Image, new Rectangle(x, y, MenuIconRenderSize, MenuIconRenderSize));
+                }
+                else
+                {
+                    using (var disabledImage = new Bitmap(MenuIconRenderSize, MenuIconRenderSize))
+                    using (Graphics graphics = Graphics.FromImage(disabledImage))
+                    {
+                        graphics.DrawImage(e.Image, new Rectangle(0, 0, MenuIconRenderSize, MenuIconRenderSize));
+                        ControlPaint.DrawImageDisabled(e.Graphics, disabledImage, x, y, Color.White);
+                    }
+                }
+            }
+
+            protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+            {
+                if (e.Item is ToolStripMenuItem)
+                {
+                    bool isMenuText = string.Equals(e.Text, e.Item.Text, StringComparison.Ordinal);
+                    e.TextRectangle = isMenuText
+                        ? new Rectangle(35, 0, Math.Max(1, e.Item.Width - 78), e.Item.Height)
+                        : new Rectangle(
+                            e.TextRectangle.X,
+                            0,
+                            e.TextRectangle.Width,
+                            e.Item.Height);
+                    e.TextFormat = (isMenuText ? TextFormatFlags.Left : TextFormatFlags.Right)
+                        | TextFormatFlags.VerticalCenter
+                        | TextFormatFlags.SingleLine
+                        | TextFormatFlags.NoPadding;
+                    e.TextColor = e.Item.Enabled ? e.Item.ForeColor : SystemColors.GrayText;
+                }
+                base.OnRenderItemText(e);
+            }
+
+            protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+            {
+                int y = e.Item.Height / 2;
+                using (Pen pen = new Pen(Color.FromArgb(226, 232, 235)))
+                {
+                    e.Graphics.DrawLine(pen, 12, y, Math.Max(12, e.Item.Width - 12), y);
+                }
+            }
+
+            private static GraphicsPath CreateMenuItemPath(Rectangle bounds, int radius)
+            {
+                int diameter = radius * 2;
+                var path = new GraphicsPath();
+                path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+                path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+                path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+                path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+                path.CloseFigure();
+                return path;
+            }
+        }
+
+        private sealed class InstructionContextMenuColorTable : ProfessionalColorTable
+        {
+            public override Color ToolStripDropDownBackground => Color.White;
+            public override Color ImageMarginGradientBegin => Color.FromArgb(248, 250, 251);
+            public override Color ImageMarginGradientMiddle => Color.FromArgb(248, 250, 251);
+            public override Color ImageMarginGradientEnd => Color.FromArgb(248, 250, 251);
+            public override Color MenuBorder => Color.FromArgb(204, 214, 219);
+            public override Color MenuItemBorder => Color.Transparent;
+            public override Color MenuItemSelected => Color.Transparent;
+            public override Color MenuItemPressedGradientBegin => Color.FromArgb(228, 242, 249);
+            public override Color MenuItemPressedGradientMiddle => Color.FromArgb(228, 242, 249);
+            public override Color MenuItemPressedGradientEnd => Color.FromArgb(228, 242, 249);
+            public override Color SeparatorDark => Color.FromArgb(226, 232, 235);
+            public override Color SeparatorLight => Color.White;
         }
 
         private void contextMenuStrip2_Opening(object sender, CancelEventArgs e)
@@ -132,17 +414,21 @@ namespace Automation
             contextMenuByMouse = false;
             contextMenuRowIndex = -1;
 
+            OperationType selectedOperation = null;
             if (rowIndex >= 0 && rowIndex < dataGridView1.OperationCount)
             {
                 iSelectedRow = rowIndex;
-                dataGridView1.SelectSingle(rowIndex);
-                OperationType operation = dataGridView1.GetOperation(rowIndex);
-                if (operation != null)
+                if (!dataGridView1.SelectedIndices.Contains(rowIndex))
                 {
-                    SetStopPoint.Text = operation.isStopPoint ? "取消断点" : "设置断点";
-                    SetStopPoint.Checked = operation.isStopPoint;
-                    Enable.Text = operation.Disable ? "启用指令" : "禁用指令";
-                    Enable.Checked = operation.Disable;
+                    dataGridView1.SelectSingle(rowIndex);
+                }
+                selectedOperation = dataGridView1.GetOperation(rowIndex);
+                if (selectedOperation != null)
+                {
+                    SetStopPoint.Text = selectedOperation.isStopPoint ? "取消断点" : "设置断点";
+                    SetStopPoint.Checked = selectedOperation.isStopPoint;
+                    Enable.Text = selectedOperation.Disable ? "启用指令" : "禁用指令";
+                    Enable.Checked = false;
                 }
             }
             else
@@ -152,7 +438,45 @@ namespace Automation
                 SetStopPoint.Text = "设置断点";
                 SetStopPoint.Checked = false;
                 Enable.Text = "禁用指令";
-                Enable.Checked = false;
+            }
+
+            bool hasSelection = selectedOperation != null;
+            bool hasStep = SF.frmProc != null
+                && SF.frmProc.SelectedProcNum >= 0
+                && SF.frmProc.SelectedProcNum < SF.frmProc.procsList.Count
+                && SF.frmProc.SelectedStepNum >= 0
+                && SF.frmProc.SelectedStepNum < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count;
+            Add.Enabled = hasStep;
+            Modify.Enabled = hasSelection;
+            Delete.Enabled = hasSelection;
+            copy.Enabled = hasSelection;
+            paste.Enabled = hasStep && ListOperationType4Copy.Count > 0;
+            CProgramCopy.Enabled = hasSelection;
+            CProgramPaste.Enabled = hasStep && HasCrossProgramClipboardData();
+            Others.Enabled = CProgramCopy.Enabled || CProgramPaste.Enabled;
+            SetStartOps.Enabled = hasSelection;
+            SetStopPoint.Enabled = hasSelection;
+            Enable.Enabled = hasSelection;
+
+            if (selectedOperation?.Disable == true)
+            {
+                Enable.ForeColor = Color.FromArgb(43, 145, 93);
+            }
+            else
+            {
+                Enable.ForeColor = Color.FromArgb(42, 55, 63);
+            }
+        }
+
+        private static bool HasCrossProgramClipboardData()
+        {
+            try
+            {
+                return Clipboard.ContainsData(OperationClipboardService.Format);
+            }
+            catch (System.Runtime.InteropServices.ExternalException)
+            {
+                return false;
             }
         }
 
@@ -604,6 +928,7 @@ namespace Automation
 
         private void FrmDataGrid_Disposed(object sender, EventArgs e)
         {
+            dataGridView1.SelectedIndexChanged -= dataGridView1_SelectedIndexChanged;
             if (gridFlashTimer != null)
             {
                 gridFlashTimer.Stop();
@@ -970,14 +1295,16 @@ namespace Automation
                 }
                 else
                 {
-                    dataGridView1.SelectSingle(rowIndex);
+                    if (!dataGridView1.SelectedIndices.Contains(rowIndex))
+                    {
+                        dataGridView1.SelectSingle(rowIndex);
+                    }
                     iSelectedRow = rowIndex;
                 }
             }
             else if (e.Button == MouseButtons.Left && rowIndex >= 0)
             {
                 iSelectedRow = rowIndex;
-                ShowOperationProperties(rowIndex);
             }
             if (ModifierKeys == Keys.Alt && e.Button == MouseButtons.Left)
             {

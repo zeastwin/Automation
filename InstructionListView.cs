@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
+using System.Reflection;
 using System.Windows.Forms;
 
 namespace Automation
@@ -15,6 +16,8 @@ namespace Automation
     /// </summary>
     public sealed class InstructionListView : ListView
     {
+        private const int FlowColumnWidth = 112;
+        private const int JumpLaneSpacing = 9;
         private readonly ImageList rowHeightImages;
         private readonly Bitmap rowHeightBitmap;
         private readonly Font contentFont;
@@ -29,6 +32,47 @@ namespace Automation
         private bool runtimeBreakpoint;
         private bool pulseVisible;
         private readonly Timer pulseTimer;
+        private readonly Timer jumpFlowTimer;
+        private float jumpFlowPhase;
+        private readonly List<JumpLink> jumpLinks = new List<JumpLink>();
+        private Proc flowProc;
+        private int flowProcIndex = -1;
+        private int flowStepIndex = -1;
+        private int maxOutgoingLaneCount;
+        private int maxIncomingLaneCount;
+
+        private enum JumpKind
+        {
+            Automatic,
+            Confirm,
+            Reject,
+            Cancel,
+            True,
+            False,
+            Default,
+            Success,
+            Failure,
+            Match,
+            Generic
+        }
+
+        private sealed class GotoTargetRecord
+        {
+            public string Address { get; set; }
+            public JumpKind Kind { get; set; }
+        }
+
+        private sealed class JumpLink
+        {
+            public int SourceStepIndex { get; set; }
+            public int SourceOpIndex { get; set; }
+            public int TargetStepIndex { get; set; }
+            public int TargetOpIndex { get; set; }
+            public int CrossId { get; set; }
+            public List<JumpKind> Kinds { get; set; } = new List<JumpKind>();
+
+            public bool IsCrossStep => SourceStepIndex != TargetStepIndex;
+        }
 
         private enum VisualState
         {
@@ -50,6 +94,7 @@ namespace Automation
             FullRowSelect = true;
             MultiSelect = true;
             HideSelection = false;
+            ShowItemToolTips = true;
             HeaderStyle = ColumnHeaderStyle.Nonclickable;
             GridLines = false;
             BorderStyle = BorderStyle.None;
@@ -62,7 +107,7 @@ namespace Automation
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
 
-            base.Columns.Add(string.Empty, 54, HorizontalAlignment.Center);
+            base.Columns.Add(string.Empty, FlowColumnWidth, HorizontalAlignment.Center);
             base.Columns.Add("编号", 68, HorizontalAlignment.Center);
             base.Columns.Add("名称", 220, HorizontalAlignment.Left);
             base.Columns.Add("操作类型", 180, HorizontalAlignment.Center);
@@ -87,6 +132,10 @@ namespace Automation
             pulseTimer = new Timer { Interval = 520 };
             pulseTimer.Tick += PulseTimer_Tick;
             pulseTimer.Start();
+
+            jumpFlowTimer = new Timer { Interval = 55 };
+            jumpFlowTimer.Tick += JumpFlowTimer_Tick;
+            jumpFlowTimer.Start();
         }
 
         [Browsable(false)]
@@ -123,6 +172,15 @@ namespace Automation
 
         [Browsable(false)]
         public int OperationCount => operationSource?.Count ?? 0;
+
+        public void SetFlowContext(int procIndex, int stepIndex, Proc proc)
+        {
+            flowProcIndex = procIndex;
+            flowStepIndex = stepIndex;
+            flowProc = proc;
+            RebuildJumpLinks();
+            Invalidate();
+        }
 
         public OperationType GetOperation(int index)
         {
@@ -282,11 +340,20 @@ namespace Automation
                 pulseTimer.Stop();
                 pulseTimer.Tick -= PulseTimer_Tick;
                 pulseTimer.Dispose();
+                jumpFlowTimer.Stop();
+                jumpFlowTimer.Tick -= JumpFlowTimer_Tick;
+                jumpFlowTimer.Dispose();
                 rowHeightImages.Dispose();
                 headerFont.Dispose();
                 contentFont.Dispose();
             }
             base.Dispose(disposing);
+        }
+
+        protected override void OnSelectedIndexChanged(EventArgs e)
+        {
+            base.OnSelectedIndexChanged(e);
+            Invalidate();
         }
 
         private void BindingSource_ListChanged(object sender, ListChangedEventArgs e)
@@ -308,6 +375,7 @@ namespace Automation
         {
             int selectedIndex = CurrentIndex;
             VirtualListSize = OperationCount;
+            RebuildJumpLinks();
             RecalculateColumnWidths();
             rowBackColors.Keys.Where(index => index >= OperationCount).ToList()
                 .ForEach(index => rowBackColors.Remove(index));
@@ -331,8 +399,10 @@ namespace Automation
             int verticalScrollWidth = OperationCount * rowHeightImages.ImageSize.Height > ClientSize.Height - 28
                 ? SystemInformation.VerticalScrollBarWidth
                 : 0;
-            int available = Math.Max(240, ClientSize.Width - 54 - 68 - verticalScrollWidth - 2);
-            base.Columns[0].Width = 54;
+            int laneCount = Math.Max(1, Math.Max(maxOutgoingLaneCount, maxIncomingLaneCount));
+            int flowColumnWidth = Math.Max(FlowColumnWidth, 58 + laneCount * JumpLaneSpacing * 2);
+            int available = Math.Max(240, ClientSize.Width - flowColumnWidth - 68 - verticalScrollWidth - 2);
+            base.Columns[0].Width = flowColumnWidth;
             base.Columns[1].Width = 68;
             if (noteColumnVisible)
             {
@@ -345,6 +415,182 @@ namespace Automation
                 base.Columns[2].Width = (int)(available * 0.54F);
                 base.Columns[3].Width = Math.Max(0, available - base.Columns[2].Width);
                 base.Columns[4].Width = 0;
+            }
+        }
+
+        private void RebuildJumpLinks()
+        {
+            jumpLinks.Clear();
+            maxOutgoingLaneCount = 0;
+            maxIncomingLaneCount = 0;
+            if (flowProcIndex < 0 || flowStepIndex < 0 || flowProc?.steps == null
+                || flowStepIndex >= flowProc.steps.Count)
+            {
+                return;
+            }
+
+            for (int stepIndex = 0; stepIndex < flowProc.steps.Count; stepIndex++)
+            {
+                List<OperationType> operations = flowProc.steps[stepIndex]?.Ops;
+                if (operations == null)
+                {
+                    continue;
+                }
+                for (int opIndex = 0; opIndex < operations.Count; opIndex++)
+                {
+                    OperationType operation = operations[opIndex];
+                    var targets = new List<GotoTargetRecord>();
+                    CollectGotoTargets(operation, operation, targets);
+                    foreach (GotoTargetRecord target in targets)
+                    {
+                        if (!ProcessDefinitionService.TryParseGotoKey(
+                                target.Address,
+                                out int targetProcIndex,
+                                out int targetStepIndex,
+                                out int targetOpIndex)
+                            || targetProcIndex != flowProcIndex
+                            || targetStepIndex < 0
+                            || targetStepIndex >= flowProc.steps.Count
+                            || targetOpIndex < 0
+                            || targetOpIndex >= (flowProc.steps[targetStepIndex]?.Ops?.Count ?? 0))
+                        {
+                            continue;
+                        }
+                        jumpLinks.Add(new JumpLink
+                        {
+                            SourceStepIndex = stepIndex,
+                            SourceOpIndex = opIndex,
+                            TargetStepIndex = targetStepIndex,
+                            TargetOpIndex = targetOpIndex,
+                            Kinds = new List<JumpKind> { target.Kind }
+                        });
+                    }
+                }
+            }
+
+            List<JumpLink> distinctLinks = jumpLinks
+                .GroupBy(link => new
+                {
+                    link.SourceStepIndex,
+                    link.SourceOpIndex,
+                    link.TargetStepIndex,
+                    link.TargetOpIndex
+                })
+                .Select(group =>
+                {
+                    JumpLink link = group.First();
+                    link.Kinds = group.SelectMany(item => item.Kinds).Distinct().ToList();
+                    return link;
+                })
+                .OrderBy(link => link.SourceStepIndex)
+                .ThenBy(link => link.SourceOpIndex)
+                .ThenBy(link => link.TargetStepIndex)
+                .ThenBy(link => link.TargetOpIndex)
+                .ToList();
+            jumpLinks.Clear();
+            jumpLinks.AddRange(distinctLinks);
+
+            int crossId = 1;
+            foreach (JumpLink link in jumpLinks.Where(link => link.IsCrossStep))
+            {
+                link.CrossId = crossId++;
+            }
+            if (flowStepIndex >= 0)
+            {
+                IEnumerable<JumpLink> sameStepLinks = jumpLinks.Where(link =>
+                    !link.IsCrossStep && link.SourceStepIndex == flowStepIndex);
+                maxOutgoingLaneCount = sameStepLinks
+                    .GroupBy(link => link.SourceOpIndex)
+                    .Select(group => group.Count())
+                    .DefaultIfEmpty(0)
+                    .Max();
+                maxIncomingLaneCount = sameStepLinks
+                    .GroupBy(link => link.TargetOpIndex)
+                    .Select(group => group.Count())
+                    .DefaultIfEmpty(0)
+                    .Max();
+            }
+        }
+
+        private static void CollectGotoTargets(
+            object value,
+            OperationType rootOperation,
+            ICollection<GotoTargetRecord> targets)
+        {
+            if (value == null)
+            {
+                return;
+            }
+            if (value is IEnumerable enumerable && !(value is string))
+            {
+                foreach (object item in enumerable)
+                {
+                    CollectGotoTargets(item, rootOperation, targets);
+                }
+                return;
+            }
+
+            foreach (PropertyInfo property in value.GetType().GetProperties())
+            {
+                if (!property.CanRead || property.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+                if (property.PropertyType == typeof(string)
+                    && property.GetCustomAttribute<MarkedGotoAttribute>() != null)
+                {
+                    string target = property.GetValue(value) as string;
+                    if (!string.IsNullOrWhiteSpace(target))
+                    {
+                        targets.Add(new GotoTargetRecord
+                        {
+                            Address = target,
+                            Kind = ResolveJumpKind(rootOperation, value, property)
+                        });
+                    }
+                    continue;
+                }
+                if (property.PropertyType != typeof(string)
+                    && typeof(IEnumerable).IsAssignableFrom(property.PropertyType))
+                {
+                    CollectGotoTargets(property.GetValue(value), rootOperation, targets);
+                }
+            }
+        }
+
+        private static JumpKind ResolveJumpKind(
+            OperationType rootOperation,
+            object owner,
+            PropertyInfo property)
+        {
+            switch (property.Name)
+            {
+                case "Goto1":
+                    return string.Equals(rootOperation?.AlarmType, "自动处理", StringComparison.Ordinal)
+                        ? JumpKind.Automatic
+                        : JumpKind.Confirm;
+                case "Goto2":
+                case "PopupGoto2":
+                    return JumpKind.Reject;
+                case "Goto3":
+                case "PopupGoto3":
+                    return JumpKind.Cancel;
+                case "PopupGoto1":
+                    return JumpKind.Confirm;
+                case "TrueGoto":
+                    return JumpKind.True;
+                case "FalseGoto":
+                    return JumpKind.False;
+                case "DefaultGoto":
+                    return JumpKind.Default;
+                case "goto1":
+                    return JumpKind.Success;
+                case "goto2":
+                    return JumpKind.Failure;
+                case "Goto" when owner is GotoParam:
+                    return JumpKind.Match;
+                default:
+                    return JumpKind.Generic;
             }
         }
 
@@ -392,7 +638,102 @@ namespace Automation
             {
                 descriptions.Add($"当前状态：{GetStateText(GetRuntimeVisualState())}");
             }
+            foreach (JumpLink link in jumpLinks.Where(link =>
+                link.SourceStepIndex == flowStepIndex && link.SourceOpIndex == index))
+            {
+                descriptions.Add($"{GetJumpLabel(link)} 跳转到 {FormatLocation(link.TargetStepIndex, link.TargetOpIndex)}");
+            }
+            foreach (JumpLink link in jumpLinks.Where(link =>
+                link.TargetStepIndex == flowStepIndex && link.TargetOpIndex == index))
+            {
+                descriptions.Add($"{GetJumpLabel(link)} 来自 {FormatLocation(link.SourceStepIndex, link.SourceOpIndex)}");
+            }
+            if (jumpLinks.Any(link => IsEndpointOnCurrentStep(link, index)))
+            {
+                descriptions.Add("选中后左侧显示输出路径，右侧显示输入路径");
+            }
+            if (jumpLinks.Any(link => link.IsCrossStep && IsEndpointOnCurrentStep(link, index)))
+            {
+                descriptions.Add("紫色角标表示存在跨步骤跳转");
+            }
             return string.Join("；", descriptions);
+        }
+
+        private string FormatLocation(int stepIndex, int opIndex)
+        {
+            string stepName = stepIndex >= 0 && stepIndex < (flowProc?.steps?.Count ?? 0)
+                ? flowProc.steps[stepIndex]?.Name
+                : null;
+            OperationType operation = stepIndex >= 0 && stepIndex < (flowProc?.steps?.Count ?? 0)
+                && opIndex >= 0 && opIndex < (flowProc.steps[stepIndex]?.Ops?.Count ?? 0)
+                ? flowProc.steps[stepIndex].Ops[opIndex]
+                : null;
+            string location = $"步骤{stepIndex}";
+            if (!string.IsNullOrWhiteSpace(stepName))
+            {
+                location += $"“{stepName}”";
+            }
+            location += $" · 指令{opIndex}";
+            if (!string.IsNullOrWhiteSpace(operation?.Name))
+            {
+                location += $"“{operation.Name}”";
+            }
+            return location;
+        }
+
+        private static string GetJumpLabel(JumpLink link)
+        {
+            string kinds = string.Join("/", link.Kinds.Select(GetJumpKindText));
+            return link.IsCrossStep
+                ? $"J{link.CrossId} · {kinds}"
+                : kinds;
+        }
+
+        private static string GetJumpKindText(JumpKind kind)
+        {
+            switch (kind)
+            {
+                case JumpKind.Automatic: return "自动处理跳转";
+                case JumpKind.Confirm: return "确定跳转";
+                case JumpKind.Reject: return "否跳转";
+                case JumpKind.Cancel: return "取消跳转";
+                case JumpKind.True: return "True跳转";
+                case JumpKind.False: return "False跳转";
+                case JumpKind.Default: return "默认跳转";
+                case JumpKind.Success: return "成功跳转";
+                case JumpKind.Failure: return "失败跳转";
+                case JumpKind.Match: return "匹配跳转";
+                default: return "跳转";
+            }
+        }
+
+        private static Color GetJumpKindColor(JumpKind kind)
+        {
+            switch (kind)
+            {
+                case JumpKind.Automatic: return Color.FromArgb(0, 158, 158);
+                case JumpKind.Confirm: return Color.FromArgb(46, 157, 88);
+                case JumpKind.Reject: return Color.FromArgb(215, 76, 69);
+                case JumpKind.Cancel: return Color.FromArgb(132, 105, 174);
+                case JumpKind.True: return Color.FromArgb(47, 128, 237);
+                case JumpKind.False: return Color.FromArgb(242, 153, 74);
+                case JumpKind.Default: return Color.FromArgb(96, 125, 139);
+                case JumpKind.Success: return Color.FromArgb(22, 145, 121);
+                case JumpKind.Failure: return Color.FromArgb(190, 69, 112);
+                case JumpKind.Match: return Color.FromArgb(191, 145, 24);
+                default: return Color.FromArgb(83, 124, 148);
+            }
+        }
+
+        private bool IsEndpointOnCurrentStep(JumpLink link, int opIndex)
+        {
+            return (link.SourceStepIndex == flowStepIndex && link.SourceOpIndex == opIndex)
+                || (link.TargetStepIndex == flowStepIndex && link.TargetOpIndex == opIndex);
+        }
+
+        private int GetJumpFocusRow()
+        {
+            return SelectedIndices.Cast<int>().DefaultIfEmpty(-1).First();
         }
 
         private void InstructionListView_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
@@ -509,7 +850,7 @@ namespace Automation
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-            int centerX = bounds.Left + bounds.Width / 2;
+            int centerX = GetRailCenterX(bounds);
             int centerY = bounds.Top + bounds.Height / 2;
             Color railColor = operation?.Disable == true
                 ? Color.FromArgb(126, 137, 143)
@@ -525,6 +866,7 @@ namespace Automation
                     graphics.DrawLine(railPen, centerX, centerY + 5, centerX, bounds.Bottom);
                 }
             }
+            DrawSameStepJumpPaths(graphics, bounds, index, centerX, centerY);
             if (isRuntime && state != VisualState.None)
             {
                 using (SolidBrush accentBrush = new SolidBrush(GetStateColor(state)))
@@ -532,15 +874,27 @@ namespace Automation
                     graphics.FillRectangle(accentBrush, bounds.Left, bounds.Top + 2, 3, Math.Max(1, bounds.Height - 4));
                 }
             }
+            List<JumpLink> endpointLinks = jumpLinks
+                .Where(link => IsEndpointOnCurrentStep(link, index))
+                .ToList();
+            List<JumpKind> outgoingKinds = endpointLinks.Where(link =>
+                    link.SourceStepIndex == flowStepIndex && link.SourceOpIndex == index)
+                .SelectMany(link => link.Kinds)
+                .Distinct()
+                .ToList();
+            bool hasOutgoing = outgoingKinds.Count > 0;
+            bool hasIncoming = endpointLinks.Any(link =>
+                link.TargetStepIndex == flowStepIndex && link.TargetOpIndex == index);
             if (state == VisualState.None)
             {
-                DrawNeutralStateNode(graphics, centerX, centerY, selected);
+                DrawFlowStateNode(graphics, centerX, centerY, selected, outgoingKinds, hasIncoming);
+                DrawCrossStepMarker(graphics, centerX, centerY, endpointLinks);
                 graphics.Restore(savedState);
                 return;
             }
 
             Rectangle iconBounds = new Rectangle(
-                bounds.Left + (bounds.Width - 24) / 2,
+                centerX - 12,
                 bounds.Top + (bounds.Height - 24) / 2,
                 24,
                 24);
@@ -561,6 +915,11 @@ namespace Automation
                     graphics.DrawEllipse(markerBorder, marker);
                 }
             }
+            if (hasOutgoing)
+            {
+                DrawRuntimeJumpBadge(graphics, iconBounds, outgoingKinds);
+            }
+            DrawCrossStepMarker(graphics, centerX, centerY, endpointLinks);
             graphics.Restore(savedState);
         }
 
@@ -568,7 +927,7 @@ namespace Automation
         {
             GraphicsState savedState = graphics.Save();
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            int centerX = bounds.Left + bounds.Width / 2;
+            int centerX = GetRailCenterX(bounds);
             int centerY = bounds.Top + bounds.Height / 2;
             using (Pen linePen = new Pen(Color.FromArgb(166, 183, 193), 1.3F))
             using (SolidBrush nodeBrush = new SolidBrush(Color.FromArgb(116, 141, 154)))
@@ -581,8 +940,20 @@ namespace Automation
             graphics.Restore(savedState);
         }
 
-        private static void DrawNeutralStateNode(Graphics graphics, int centerX, int centerY, bool selected)
+        private static int GetRailCenterX(Rectangle bounds)
         {
+            return bounds.Left + bounds.Width / 2;
+        }
+
+        private static void DrawFlowStateNode(
+            Graphics graphics,
+            int centerX,
+            int centerY,
+            bool selected,
+            IReadOnlyList<JumpKind> outgoingKinds,
+            bool hasIncoming)
+        {
+            bool hasOutgoing = outgoingKinds.Count > 0;
             Color borderColor = selected
                 ? Color.FromArgb(42, 139, 190)
                 : Color.FromArgb(151, 171, 182);
@@ -593,10 +964,327 @@ namespace Automation
             using (Pen borderPen = new Pen(borderColor, selected ? 1.8F : 1.4F))
             using (SolidBrush centerBrush = new SolidBrush(borderColor))
             {
-                Rectangle nodeBounds = new Rectangle(centerX - 5, centerY - 5, 10, 10);
-                graphics.FillEllipse(fillBrush, nodeBounds);
-                graphics.DrawEllipse(borderPen, nodeBounds);
-                graphics.FillEllipse(centerBrush, centerX - 1, centerY - 1, 3, 3);
+                if (!hasOutgoing)
+                {
+                    Rectangle nodeBounds = new Rectangle(centerX - 5, centerY - 5, 10, 10);
+                    graphics.FillEllipse(fillBrush, nodeBounds);
+                    graphics.DrawEllipse(borderPen, nodeBounds);
+                }
+                if (hasOutgoing)
+                {
+                    DrawJumpOperationMarker(graphics, centerX, centerY, selected, outgoingKinds);
+                }
+                else if (hasIncoming)
+                {
+                    graphics.DrawEllipse(borderPen, centerX - 2, centerY - 2, 4, 4);
+                }
+                else
+                {
+                    graphics.FillEllipse(centerBrush, centerX - 1, centerY - 1, 3, 3);
+                }
+            }
+        }
+
+        private void JumpFlowTimer_Tick(object sender, EventArgs e)
+        {
+            int focusRow = GetJumpFocusRow();
+            if (focusRow < 0 || !jumpLinks.Any(link => IsEndpointOnCurrentStep(link, focusRow)))
+            {
+                return;
+            }
+            jumpFlowPhase = (jumpFlowPhase + 0.9F) % 18F;
+            if (base.Columns.Count > 0)
+            {
+                Invalidate(new Rectangle(0, 0, base.Columns[0].Width, ClientSize.Height));
+            }
+        }
+
+        private void DrawSameStepJumpPaths(
+            Graphics graphics,
+            Rectangle bounds,
+            int rowIndex,
+            int centerX,
+            int centerY)
+        {
+            int focusRow = GetJumpFocusRow();
+            if (focusRow < 0)
+            {
+                return;
+            }
+            List<JumpLink> outgoingLinks = jumpLinks.Where(link =>
+                    !link.IsCrossStep
+                    && link.SourceStepIndex == flowStepIndex
+                    && link.SourceOpIndex == focusRow)
+                .OrderBy(link => link.TargetOpIndex)
+                .ToList();
+            List<JumpLink> incomingLinks = jumpLinks.Where(link =>
+                    !link.IsCrossStep
+                    && link.TargetStepIndex == flowStepIndex
+                    && link.TargetOpIndex == focusRow
+                    && link.SourceOpIndex != focusRow)
+                .OrderBy(link => link.SourceOpIndex)
+                .ToList();
+            foreach (JumpLink link in outgoingLinks.Concat(incomingLinks))
+            {
+                int first = Math.Min(link.SourceOpIndex, link.TargetOpIndex);
+                int last = Math.Max(link.SourceOpIndex, link.TargetOpIndex);
+                if (rowIndex < first || rowIndex > last)
+                {
+                    continue;
+                }
+                bool isOutput = link.SourceOpIndex == focusRow;
+                List<JumpLink> directionLinks = isOutput ? outgoingLinks : incomingLinks;
+                int laneIndex = directionLinks.IndexOf(link);
+                int laneX = isOutput
+                    ? centerX - 22 - laneIndex * JumpLaneSpacing
+                    : centerX + 22 + laneIndex * JumpLaneSpacing;
+                float portOffset = GetPortOffset(laneIndex, directionLinks.Count);
+                float sourcePortY = link.SourceOpIndex == focusRow ? centerY + portOffset : centerY;
+                float targetPortY = link.TargetOpIndex == focusRow ? centerY + portOffset : centerY;
+                JumpKind primaryKind = link.Kinds.Count > 0 ? link.Kinds[0] : JumpKind.Generic;
+                Color color = GetJumpKindColor(primaryKind);
+                Color trackColor = link.Kinds.Count > 1 ? Color.FromArgb(105, 116, 122) : color;
+                List<Pen> flowPens = CreateFlowPens(link.Kinds);
+                using (Pen basePen = new Pen(Color.FromArgb(155, trackColor), 2.2F))
+                using (SolidBrush arrowBrush = new SolidBrush(color))
+                {
+                    try
+                    {
+                        basePen.StartCap = LineCap.Round;
+                        basePen.EndCap = LineCap.Round;
+                        if (link.SourceOpIndex == link.TargetOpIndex)
+                        {
+                            if (rowIndex == link.SourceOpIndex)
+                            {
+                                Rectangle loopBounds = Rectangle.FromLTRB(
+                                    laneX,
+                                    centerY - 9,
+                                    centerX - 6,
+                                    centerY + 9);
+                                graphics.DrawArc(basePen, loopBounds, 65, 235);
+                                foreach (Pen flowPen in flowPens)
+                                {
+                                    graphics.DrawArc(flowPen, loopBounds, 65, 235);
+                                }
+                                DrawTargetArrow(graphics, arrowBrush, centerX, centerY, false);
+                            }
+                            continue;
+                        }
+
+                        float firstPortY = first == link.SourceOpIndex ? sourcePortY : targetPortY;
+                        float lastPortY = last == link.SourceOpIndex ? sourcePortY : targetPortY;
+                        float verticalTop = rowIndex == first ? firstPortY : bounds.Top;
+                        float verticalBottom = rowIndex == last ? lastPortY : bounds.Bottom;
+                        PointF verticalStart = link.TargetOpIndex > link.SourceOpIndex
+                            ? new PointF(laneX, verticalTop)
+                            : new PointF(laneX, verticalBottom);
+                        PointF verticalEnd = link.TargetOpIndex > link.SourceOpIndex
+                            ? new PointF(laneX, verticalBottom)
+                            : new PointF(laneX, verticalTop);
+                        DrawAnimatedSegment(graphics, basePen, flowPens, verticalStart, verticalEnd);
+                        if (rowIndex == link.SourceOpIndex)
+                        {
+                            PointF sourceEdge = new PointF(
+                                centerX + (isOutput ? -7 : 7),
+                                centerY);
+                            DrawAnimatedSegment(
+                                graphics,
+                                basePen,
+                                flowPens,
+                                sourceEdge,
+                                new PointF(laneX, sourcePortY));
+                        }
+                        if (rowIndex == link.TargetOpIndex)
+                        {
+                            PointF targetEdge = new PointF(
+                                centerX + (isOutput ? -7 : 7),
+                                centerY);
+                            DrawAnimatedSegment(
+                                graphics,
+                                basePen,
+                                flowPens,
+                                new PointF(laneX, targetPortY),
+                                targetEdge);
+                            DrawTargetArrow(graphics, arrowBrush, centerX, centerY, !isOutput);
+                        }
+                    }
+                    finally
+                    {
+                        foreach (Pen flowPen in flowPens)
+                        {
+                            flowPen.Dispose();
+                        }
+                    }
+                }
+            }
+        }
+
+        private List<Pen> CreateFlowPens(IReadOnlyList<JumpKind> kinds)
+        {
+            List<JumpKind> distinctKinds = kinds.Distinct().ToList();
+            if (distinctKinds.Count == 0)
+            {
+                distinctKinds.Add(JumpKind.Generic);
+            }
+            var pens = new List<Pen>();
+            float gap = distinctKinds.Count == 1 ? 3.2F : 3.2F * distinctKinds.Count;
+            for (int i = 0; i < distinctKinds.Count; i++)
+            {
+                Color color = ControlPaint.Light(GetJumpKindColor(distinctKinds[i]), 0.55F);
+                var pen = new Pen(color, 2.4F)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round,
+                    DashCap = DashCap.Round,
+                    DashPattern = new[] { 1.1F, gap },
+                    DashOffset = -jumpFlowPhase - i * 3.2F
+                };
+                pens.Add(pen);
+            }
+            return pens;
+        }
+
+        private static float GetPortOffset(int laneIndex, int laneCount)
+        {
+            if (laneCount <= 1)
+            {
+                return 0F;
+            }
+            return -6F + 12F * laneIndex / (laneCount - 1F);
+        }
+
+        private static void DrawAnimatedSegment(
+            Graphics graphics,
+            Pen basePen,
+            IReadOnlyList<Pen> flowPens,
+            PointF start,
+            PointF end)
+        {
+            graphics.DrawLine(basePen, start, end);
+            foreach (Pen flowPen in flowPens)
+            {
+                graphics.DrawLine(flowPen, start, end);
+            }
+        }
+
+        private static void DrawTargetArrow(
+            Graphics graphics,
+            Brush brush,
+            int centerX,
+            int centerY,
+            bool fromRight)
+        {
+            if (fromRight)
+            {
+                graphics.FillPolygon(brush, new[]
+                {
+                    new Point(centerX + 6, centerY),
+                    new Point(centerX + 12, centerY - 4),
+                    new Point(centerX + 12, centerY + 4)
+                });
+            }
+            else
+            {
+                graphics.FillPolygon(brush, new[]
+                {
+                    new Point(centerX - 6, centerY),
+                    new Point(centerX - 12, centerY - 4),
+                    new Point(centerX - 12, centerY + 4)
+                });
+            }
+        }
+
+        private static void DrawJumpOperationMarker(
+            Graphics graphics,
+            int centerX,
+            int centerY,
+            bool selected,
+            IReadOnlyList<JumpKind> kinds)
+        {
+            List<Color> colors = kinds.Distinct().Select(GetJumpKindColor).ToList();
+            if (colors.Count == 0)
+            {
+                colors.Add(GetJumpKindColor(JumpKind.Generic));
+            }
+            Rectangle marker = new Rectangle(centerX - 8, centerY - 8, 16, 16);
+            if (selected)
+            {
+                using (Pen halo = new Pen(Color.FromArgb(92, colors[0]), 3F))
+                {
+                    graphics.DrawEllipse(halo, Rectangle.Inflate(marker, 2, 2));
+                }
+            }
+            Color fillColor = colors.Count == 1 ? colors[0] : Color.FromArgb(62, 73, 80);
+            using (SolidBrush fill = new SolidBrush(fillColor))
+            using (Pen glyph = new Pen(Color.White, 1.7F)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round
+            })
+            {
+                graphics.FillEllipse(fill, marker);
+                if (colors.Count > 1)
+                {
+                    Rectangle ring = Rectangle.Inflate(marker, 1, 1);
+                    float sweep = 360F / colors.Count;
+                    for (int i = 0; i < colors.Count; i++)
+                    {
+                        using (Pen segment = new Pen(colors[i], 2.4F))
+                        {
+                            graphics.DrawArc(segment, ring, -90F + i * sweep + 2F, sweep - 4F);
+                        }
+                    }
+                }
+                graphics.DrawLines(glyph, new[]
+                {
+                    new Point(centerX - 4, centerY + 3),
+                    new Point(centerX, centerY + 3),
+                    new Point(centerX, centerY - 2),
+                    new Point(centerX + 4, centerY - 2)
+                });
+                graphics.DrawLine(glyph, centerX + 1, centerY - 5, centerX + 4, centerY - 2);
+                graphics.DrawLine(glyph, centerX + 1, centerY + 1, centerX + 4, centerY - 2);
+            }
+        }
+
+        private static void DrawRuntimeJumpBadge(
+            Graphics graphics,
+            Rectangle iconBounds,
+            IReadOnlyList<JumpKind> kinds)
+        {
+            Rectangle badge = new Rectangle(iconBounds.Left - 3, iconBounds.Top - 2, 10, 10);
+            JumpKind kind = kinds.Count > 0 ? kinds[0] : JumpKind.Generic;
+            using (SolidBrush fill = new SolidBrush(GetJumpKindColor(kind)))
+            using (Pen border = new Pen(Color.White, 1.2F))
+            {
+                graphics.FillEllipse(fill, badge);
+                graphics.DrawEllipse(border, badge);
+            }
+        }
+
+        private static void DrawCrossStepMarker(
+            Graphics graphics,
+            int centerX,
+            int centerY,
+            IReadOnlyCollection<JumpLink> endpointLinks)
+        {
+            bool hasCrossOutput = endpointLinks.Any(link => link.IsCrossStep);
+            if (!hasCrossOutput)
+            {
+                return;
+            }
+            Rectangle badge = new Rectangle(centerX + 4, centerY - 12, 9, 9);
+            using (SolidBrush brush = new SolidBrush(Color.FromArgb(133, 83, 183)))
+            using (Pen glyph = new Pen(Color.White, 1.2F)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round
+            })
+            {
+                graphics.FillEllipse(brush, badge);
+                graphics.DrawLine(glyph, badge.Left + 2, badge.Bottom - 3, badge.Right - 2, badge.Top + 2);
+                graphics.DrawLine(glyph, badge.Right - 5, badge.Top + 2, badge.Right - 2, badge.Top + 2);
+                graphics.DrawLine(glyph, badge.Right - 2, badge.Top + 2, badge.Right - 2, badge.Top + 5);
             }
         }
 
@@ -756,4 +1444,5 @@ namespace Automation
         }
 
     }
+
 }
