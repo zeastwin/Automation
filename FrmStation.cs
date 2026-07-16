@@ -40,6 +40,7 @@ namespace Automation
         public FrmStation()
         {
             InitializeComponent();
+            ConfigureAppearance();
 
             Type dgvType = this.dataGridView1.GetType();
             PropertyInfo pi = dgvType.GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -67,6 +68,103 @@ namespace Automation
 
             SetPointEditMode(false);
             UpdateResponsiveLayout();
+        }
+
+        private void ConfigureAppearance()
+        {
+            Color borderColor = Color.FromArgb(222, 228, 234);
+            BackColor = Color.White;
+            panel1.BackColor = Color.White;
+            panel2.BackColor = borderColor;
+            panel2.Padding = new Padding(1, 0, 0, 0);
+            panel3.BackColor = Color.White;
+            panelPointTools.Height = 44;
+            panelPointTools.BackColor = Color.FromArgb(238, 243, 248);
+            panelPointTools.Paint += (sender, args) =>
+            {
+                using (Pen pen = new Pen(borderColor))
+                {
+                    args.Graphics.DrawLine(
+                        pen,
+                        0,
+                        panelPointTools.ClientSize.Height - 1,
+                        panelPointTools.ClientSize.Width,
+                        panelPointTools.ClientSize.Height - 1);
+                }
+            };
+
+            ConfigurePointButton(
+                btnPointEdit,
+                Color.FromArgb(48, 63, 78),
+                Color.FromArgb(190, 199, 210),
+                Color.FromArgb(237, 240, 244));
+            btnPointEdit.BackColor = Color.White;
+            ConfigurePointButton(
+                btnPointSave,
+                Color.White,
+                Color.FromArgb(34, 111, 183),
+                Color.FromArgb(43, 126, 201));
+            btnPointSave.BackColor = Color.FromArgb(34, 111, 183);
+            ConfigurePointButton(
+                btnPointCancel,
+                Color.FromArgb(48, 63, 78),
+                Color.FromArgb(190, 199, 210),
+                Color.FromArgb(237, 240, 244));
+            btnPointCancel.BackColor = Color.White;
+            btnPointEdit.SetBounds(10, 8, 72, 28);
+            btnPointSave.SetBounds(88, 8, 72, 28);
+            btnPointCancel.SetBounds(166, 8, 72, 28);
+
+            ConfigureGrid(dataGridView1, 34, 28);
+            ConfigureGrid(dataGridView2, 32, 28);
+        }
+
+        private static void ConfigurePointButton(
+            System.Windows.Forms.Button button,
+            Color foreColor,
+            Color borderColor,
+            Color hoverColor)
+        {
+            button.BackColor = Color.White;
+            button.ForeColor = foreColor;
+            button.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 1;
+            button.FlatAppearance.BorderColor = borderColor;
+            button.FlatAppearance.MouseOverBackColor = hoverColor;
+            button.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(hoverColor, 0.04F);
+            button.UseVisualStyleBackColor = false;
+        }
+
+        private static void ConfigureGrid(DataGridView grid, int headerHeight, int rowHeight)
+        {
+            grid.EnableHeadersVisualStyles = false;
+            grid.BorderStyle = BorderStyle.FixedSingle;
+            grid.BackgroundColor = Color.White;
+            grid.GridColor = Color.FromArgb(222, 228, 234);
+            grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+            grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
+            grid.ColumnHeadersHeight = headerHeight;
+            grid.RowTemplate.Height = rowHeight;
+            grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Color.FromArgb(238, 243, 248),
+                ForeColor = Color.FromArgb(48, 63, 78),
+                Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold),
+                Alignment = DataGridViewContentAlignment.MiddleCenter,
+                SelectionBackColor = Color.FromArgb(238, 243, 248),
+                SelectionForeColor = Color.FromArgb(48, 63, 78)
+            };
+            grid.DefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Color.White,
+                ForeColor = Color.FromArgb(48, 63, 78),
+                Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular),
+                Alignment = DataGridViewContentAlignment.MiddleCenter,
+                SelectionBackColor = Color.FromArgb(217, 234, 250),
+                SelectionForeColor = Color.FromArgb(27, 43, 59)
+            };
+            grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(248, 250, 252);
         }
 
         private void FrmStation_Resize(object sender, EventArgs e)

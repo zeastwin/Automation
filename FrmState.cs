@@ -14,7 +14,40 @@ namespace Automation
         public FrmState()
         {
             InitializeComponent();
+            ConfigureAppearance();
             Disposed += FrmState_Disposed;
+        }
+
+        private void ConfigureAppearance()
+        {
+            BackColor = Color.FromArgb(245, 248, 249);
+            Paint += (sender, args) =>
+            {
+                using (Pen pen = new Pen(Color.FromArgb(210, 220, 225)))
+                {
+                    args.Graphics.DrawLine(pen, 0, 0, ClientSize.Width, 0);
+                }
+            };
+            lblSystemStatus.AutoSize = false;
+            lblSystemStatus.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            lblSystemStatus.TextAlign = ContentAlignment.MiddleLeft;
+            SysInfo.AutoSize = false;
+            SysInfo.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
+            SysInfo.ForeColor = Color.FromArgb(83, 98, 108);
+            SysInfo.TextAlign = ContentAlignment.MiddleLeft;
+            LayoutStatusBar();
+        }
+
+        private void LayoutStatusBar()
+        {
+            int height = Math.Max(1, ClientSize.Height - 1);
+            Size statusTextSize = TextRenderer.MeasureText(
+                string.IsNullOrEmpty(lblSystemStatus.Text) ? "●  系统状态：未初始化" : lblSystemStatus.Text,
+                lblSystemStatus.Font);
+            int statusWidth = Math.Max(170, statusTextSize.Width + 24);
+            lblSystemStatus.SetBounds(12, 1, statusWidth, height);
+            SysInfo.SetBounds(lblSystemStatus.Right + 12, 1,
+                Math.Max(0, ClientSize.Width - lblSystemStatus.Right - 24), height);
         }
         private void FrmState_Load(object sender, EventArgs e)
         {
@@ -44,14 +77,9 @@ namespace Automation
             bool hasStatus = TryGetSystemStatus(out SystemStatus status);
             string systemStatus = GetSystemStatusText(hasStatus, status);
             SysInfo.Text = basicInfo;
-            lblSystemStatus.Text = $"系统状态:{systemStatus}";
+            lblSystemStatus.Text = $"●  系统状态：{systemStatus}";
             lblSystemStatus.ForeColor = GetSystemStatusColor(hasStatus, status);
-            int nextX = SysInfo.Right + 20;
-            if (nextX < 6)
-            {
-                nextX = 6;
-            }
-            lblSystemStatus.Location = new Point(nextX, SysInfo.Top);
+            LayoutStatusBar();
         }
         
         private void InitializeSystemStatusTimer()
@@ -72,7 +100,11 @@ namespace Automation
 
         private void FrmState_VisibleChanged(object sender, EventArgs e) => UpdateSystemStatusTimerState();
 
-        private void FrmState_Resize(object sender, EventArgs e) => UpdateSystemStatusTimerState();
+        private void FrmState_Resize(object sender, EventArgs e)
+        {
+            LayoutStatusBar();
+            UpdateSystemStatusTimerState();
+        }
 
         private void FrmState_Disposed(object sender, EventArgs e)
         {
@@ -163,24 +195,24 @@ namespace Automation
         {
             if (!hasStatus)
             {
-                return Color.DimGray;
+                return Color.FromArgb(104, 119, 128);
             }
             switch (status)
             {
                 case SystemStatus.Uninitialized:
-                    return Color.DimGray;
+                    return Color.FromArgb(104, 119, 128);
                 case SystemStatus.ProcAlarm:
-                    return Color.Red;
+                    return Color.FromArgb(190, 55, 55);
                 case SystemStatus.Ready:
-                    return Color.DodgerBlue;
+                    return Color.FromArgb(27, 119, 164);
                 case SystemStatus.Working:
-                    return Color.ForestGreen;
+                    return Color.FromArgb(45, 135, 84);
                 case SystemStatus.Paused:
-                    return Color.Orange;
+                    return Color.FromArgb(190, 119, 12);
                 case SystemStatus.PopupAlarm:
-                    return Color.Red;
+                    return Color.FromArgb(190, 55, 55);
                 default:
-                    return Color.DimGray;
+                    return Color.FromArgb(104, 119, 128);
             }
         }
     }

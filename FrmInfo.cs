@@ -37,11 +37,197 @@ namespace Automation
         private System.Windows.Forms.Timer infoAutoScrollTimer;
         private bool infoAutoScrollPausedByUser;
         private DateTime infoLastInteractionUtc;
+        private ImageList infoRowHeightImages;
+        private Bitmap infoRowHeightBitmap;
+        private Panel infoTabBar;
+        private Panel infoContentFrame;
+        private Panel infoContentHost;
+        private Button infoTabButton;
+        private Button statusTabButton;
+        private Panel infoTabIndicator;
+        private bool statusTabSelected;
 
         public FrmInfo()
         {
             InitializeComponent();
+            ConfigureAppearance();
             Disposed += FrmInfo_Disposed;
+        }
+
+        private void ConfigureAppearance()
+        {
+            BackColor = Color.FromArgb(246, 249, 251);
+            tabPage2.BackColor = Color.White;
+            tabPage2.UseVisualStyleBackColor = false;
+            tabPage2.Padding = new Padding(1);
+            tabPageStatus.BackColor = Color.White;
+            tabPageStatus.UseVisualStyleBackColor = false;
+            tabPageStatus.Padding = new Padding(1);
+
+            lvInfoLog.BorderStyle = BorderStyle.None;
+            lvInfoLog.BackColor = Color.FromArgb(246, 249, 251);
+            lvInfoLog.ForeColor = Color.FromArgb(49, 63, 73);
+            lvInfoLog.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
+            infoRowHeightImages = new ImageList
+            {
+                ColorDepth = ColorDepth.Depth32Bit,
+                ImageSize = new Size(1, 26),
+                TransparentColor = Color.Transparent
+            };
+            infoRowHeightBitmap = new Bitmap(1, 26);
+            infoRowHeightImages.Images.Add(infoRowHeightBitmap);
+            lvInfoLog.SmallImageList = infoRowHeightImages;
+
+            panelStatusTools.Visible = false;
+            panelStatusTools.Height = 0;
+
+            infoContentFrame = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(1),
+                BackColor = Color.FromArgb(188, 202, 210)
+            };
+            Controls.Remove(tabControl1);
+            tabPage2.Controls.Remove(lvInfoLog);
+            tabPageStatus.Controls.Remove(dgvProcStatus);
+            infoContentHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(6),
+                BackColor = Color.FromArgb(246, 249, 251)
+            };
+            lvInfoLog.Dock = DockStyle.Fill;
+            dgvProcStatus.Dock = DockStyle.Fill;
+            infoContentHost.Controls.Add(dgvProcStatus);
+            infoContentHost.Controls.Add(lvInfoLog);
+            infoContentFrame.Controls.Add(infoContentHost);
+            Controls.Add(infoContentFrame);
+
+            infoTabBar = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 35,
+                BackColor = Color.FromArgb(237, 244, 248)
+            };
+            infoTabBar.Paint += (sender, args) =>
+            {
+                using (Pen pen = new Pen(Color.FromArgb(211, 222, 228)))
+                {
+                    args.Graphics.DrawLine(pen, 0, 0, infoTabBar.ClientSize.Width, 0);
+                }
+            };
+            infoTabButton = CreateInfoTabButton("运行信息", 0);
+            statusTabButton = CreateInfoTabButton("流程状态", 84);
+            infoTabButton.Click += (sender, args) =>
+            {
+                SelectInfoPage(false);
+            };
+            statusTabButton.Click += (sender, args) =>
+            {
+                SelectInfoPage(true);
+            };
+            infoTabIndicator = new Panel
+            {
+                BackColor = Color.FromArgb(49, 157, 207),
+                Height = 3,
+                Enabled = false
+            };
+            infoTabBar.Controls.Add(infoTabButton);
+            infoTabBar.Controls.Add(statusTabButton);
+            infoTabBar.Controls.Add(infoTabIndicator);
+            infoContentFrame.Controls.Add(infoTabBar);
+            infoTabBar.BringToFront();
+            UpdateInfoTabButtons();
+
+            dgvProcStatus.BorderStyle = BorderStyle.None;
+            dgvProcStatus.BackgroundColor = Color.FromArgb(246, 249, 251);
+            dgvProcStatus.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+            dgvProcStatus.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
+            dgvProcStatus.GridColor = Color.FromArgb(226, 232, 236);
+            dgvProcStatus.ColumnHeadersHeight = 32;
+            dgvProcStatus.RowTemplate.Height = 28;
+            dgvProcStatus.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(238, 243, 246);
+            dgvProcStatus.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(47, 65, 76);
+            dgvProcStatus.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(238, 243, 246);
+            dgvProcStatus.ColumnHeadersDefaultCellStyle.SelectionForeColor = Color.FromArgb(47, 65, 76);
+            dgvProcStatus.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            dgvProcStatus.DefaultCellStyle.BackColor = Color.White;
+            dgvProcStatus.DefaultCellStyle.ForeColor = Color.FromArgb(49, 63, 73);
+            dgvProcStatus.DefaultCellStyle.SelectionBackColor = Color.FromArgb(219, 239, 248);
+            dgvProcStatus.DefaultCellStyle.SelectionForeColor = Color.FromArgb(29, 81, 108);
+            dgvProcStatus.DefaultCellStyle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
+            dgvProcStatus.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(250, 252, 253);
+        }
+
+        private Button CreateInfoTabButton(string text, int left)
+        {
+            Button button = new Button
+            {
+                Text = text,
+                Location = new Point(left, 1),
+                Size = new Size(84, 34),
+                BackColor = Color.FromArgb(237, 244, 248),
+                ForeColor = Color.FromArgb(78, 94, 104),
+                Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular),
+                FlatStyle = FlatStyle.Flat,
+                TabStop = false,
+                UseVisualStyleBackColor = false
+            };
+            button.FlatAppearance.BorderSize = 1;
+            button.FlatAppearance.BorderColor = Color.FromArgb(199, 212, 220);
+            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(232, 243, 248);
+            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(222, 237, 244);
+            return button;
+        }
+
+        private void UpdateInfoTabButtons()
+        {
+            if (infoTabButton == null || statusTabButton == null || infoTabIndicator == null)
+            {
+                return;
+            }
+            bool infoSelected = !statusTabSelected;
+            infoTabButton.BackColor = infoSelected
+                ? Color.White
+                : Color.FromArgb(237, 244, 248);
+            statusTabButton.BackColor = infoSelected
+                ? Color.FromArgb(237, 244, 248)
+                : Color.White;
+            infoTabButton.ForeColor = infoSelected
+                ? Color.FromArgb(24, 112, 157)
+                : Color.FromArgb(78, 94, 104);
+            statusTabButton.ForeColor = infoSelected
+                ? Color.FromArgb(78, 94, 104)
+                : Color.FromArgb(24, 112, 157);
+            Button selectedButton = infoSelected ? infoTabButton : statusTabButton;
+            infoTabIndicator.SetBounds(selectedButton.Left + 14, 1, selectedButton.Width - 28, 3);
+            infoTabIndicator.BringToFront();
+            if (infoContentHost != null)
+            {
+                lvInfoLog.Visible = infoSelected;
+                dgvProcStatus.Visible = !infoSelected;
+                if (infoSelected)
+                {
+                    lvInfoLog.BringToFront();
+                }
+                else
+                {
+                    dgvProcStatus.BringToFront();
+                }
+            }
+        }
+
+        private void SelectInfoPage(bool selectStatus)
+        {
+            statusTabSelected = selectStatus;
+            int selectedIndex = selectStatus ? 1 : 0;
+            if (tabControl1.SelectedIndex != selectedIndex)
+            {
+                tabControl1.SelectedIndex = selectedIndex;
+            }
+            UpdateInfoTabButtons();
+            UpdateStatusTimerState();
+            ActiveControl = null;
         }
 
         private void FrmInfo_Disposed(object sender, EventArgs e)
@@ -86,6 +272,11 @@ namespace Automation
                 infoMenu = null;
                 menuClearInfo = null;
             }
+            lvInfoLog.SmallImageList = null;
+            infoRowHeightImages?.Dispose();
+            infoRowHeightImages = null;
+            infoRowHeightBitmap?.Dispose();
+            infoRowHeightBitmap = null;
         }
 
         private void FrmInfo_Load(object sender, EventArgs e)
@@ -204,6 +395,13 @@ namespace Automation
             item.UseItemStyleForSubItems = false;
             item.SubItems.Add(entry.Message);
             item.SubItems[0].BackColor = GetInfoPrefixColor(entry.Level);
+            item.SubItems[0].ForeColor = GetInfoPrefixForeColor(entry.Level);
+            item.SubItems[1].BackColor = e.ItemIndex % 2 == 0
+                ? Color.White
+                : Color.FromArgb(249, 251, 252);
+            item.SubItems[1].ForeColor = entry.Level == Level.Error
+                ? Color.FromArgb(133, 51, 51)
+                : Color.FromArgb(49, 63, 73);
             e.Item = item;
         }
 
@@ -369,9 +567,16 @@ namespace Automation
         {
             if (level == Level.Error)
             {
-                return Color.Red;
+                return Color.FromArgb(252, 231, 231);
             }
-            return Color.BurlyWood;
+            return Color.FromArgb(232, 242, 247);
+        }
+
+        private static Color GetInfoPrefixForeColor(Level level)
+        {
+            return level == Level.Error
+                ? Color.FromArgb(174, 54, 54)
+                : Color.FromArgb(64, 99, 116);
         }
 
 
@@ -483,6 +688,8 @@ namespace Automation
 
         private void tabControl1_SelectedIndexChanged(object sender, EventArgs e)
         {
+            statusTabSelected = tabControl1.SelectedIndex == 1;
+            UpdateInfoTabButtons();
             UpdateStatusTimerState();
         }
 
@@ -529,7 +736,7 @@ namespace Automation
 
         private bool IsStatusPageVisible()
         {
-            return Visible && tabControl1.SelectedTab == tabPageStatus;
+            return Visible && statusTabSelected;
         }
 
         private void RefreshProcStatus()
@@ -665,11 +872,9 @@ namespace Automation
 
         private Color GetStatusGroupBackColor(int groupIndex)
         {
-            if (groupIndex % 2 == 0)
-            {
-                return Color.FromArgb(245, 248, 255);
-            }
-            return Color.FromArgb(245, 255, 245);
+            return groupIndex % 2 == 0
+                ? Color.White
+                : Color.FromArgb(249, 251, 252);
         }
 
         private void EnsureStatusRowCount(int targetCount)

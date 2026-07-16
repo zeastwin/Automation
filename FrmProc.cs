@@ -83,7 +83,7 @@ namespace Automation
             // WinForms 会在仍有可用宽度的情况下裁掉流程名称末尾。
             proc_treeView.Font = procNodeFont;
             proc_treeView.ForeColor = Color.FromArgb(38, 50, 58);
-            proc_treeView.BackColor = Color.White;
+            proc_treeView.BackColor = Color.FromArgb(246, 249, 251);
             proc_treeView.BorderStyle = BorderStyle.None;
             proc_treeView.ItemHeight = 28;
             proc_treeView.Indent = 24;

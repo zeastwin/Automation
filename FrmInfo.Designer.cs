@@ -171,7 +171,7 @@
             this.lblStatusTip.Name = "lblStatusTip";
             this.lblStatusTip.Size = new System.Drawing.Size(140, 17);
             this.lblStatusTip.TabIndex = 0;
-            this.lblStatusTip.Text = "双击当前位置可跳转到指令";
+            this.lblStatusTip.Text = "";
             // 
             // lvInfoLog
             // 

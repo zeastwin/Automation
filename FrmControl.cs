@@ -39,6 +39,7 @@ namespace Automation
         public FrmControl()
         {
             InitializeComponent();
+            ConfigureAppearance();
             PosTextBox.Add(txtPos1);
             PosTextBox.Add(txtPos2);
             PosTextBox.Add(txtPos3);
@@ -63,6 +64,246 @@ namespace Automation
 
             //InintMovParam();
 
+        }
+
+        private void ConfigureAppearance()
+        {
+            Color textColor = Color.FromArgb(48, 63, 78);
+            Color mutedTextColor = Color.FromArgb(86, 99, 112);
+            Color borderColor = Color.FromArgb(190, 199, 210);
+            BackColor = Color.FromArgb(248, 250, 252);
+            groupBox1.BackColor = Color.FromArgb(234, 240, 245);
+            groupBox1.ForeColor = mutedTextColor;
+            groupBox2.BackColor = Color.FromArgb(248, 250, 252);
+            groupBox2.ForeColor = mutedTextColor;
+            groupBox2.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
+
+            comboBox1.BackColor = Color.White;
+            comboBox1.ForeColor = textColor;
+            comboBox1.FlatStyle = FlatStyle.Flat;
+            comboBox1.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
+            comboBox1.DropDownStyle = ComboBoxStyle.DropDownList;
+            comboBox1.DrawMode = DrawMode.OwnerDrawFixed;
+            comboBox1.ItemHeight = 27;
+            comboBox1.DropDownHeight = 280;
+            comboBox1.DrawItem += comboBox1_DrawItem;
+            label24.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
+            label24.AutoSize = false;
+            label24.TextAlign = ContentAlignment.MiddleLeft;
+            label25.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
+            label25.Text = "手动速度：";
+            label25.AutoSize = false;
+            label25.TextAlign = ContentAlignment.MiddleLeft;
+            label6.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
+            label6.ForeColor = Color.FromArgb(34, 111, 183);
+            label6.AutoSize = false;
+            label6.TextAlign = ContentAlignment.MiddleLeft;
+            Action alignTopControls = () =>
+            {
+                int comboHeight = comboBox1.PreferredHeight;
+                int comboTop = Math.Max(0, (groupBox1.ClientSize.Height - comboHeight) / 2);
+                label24.SetBounds(10, 0, 58, groupBox1.ClientSize.Height);
+                comboBox1.SetBounds(68, comboTop, 125, comboHeight);
+                label25.SetBounds(207, 0, 78, groupBox1.ClientSize.Height);
+                label6.SetBounds(282, 0, 54, groupBox1.ClientSize.Height);
+                trackBar1.SetBounds(
+                    334,
+                    Math.Max(0, (groupBox1.ClientSize.Height - 30) / 2),
+                    142,
+                    30);
+            };
+            groupBox1.Resize += (sender, args) => alignTopControls();
+            alignTopControls();
+
+            Label[] rowLabels = { label5, label4, label13, label3, label2, label1 };
+            foreach (Label label in rowLabels)
+            {
+                label.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
+                label.ForeColor = Color.FromArgb(48, 63, 78);
+            }
+
+            Label[] axisNameLabels = { AxisName1, AxisName2, AxisName3, AxisName4, AxisName5, AxisName6 };
+            foreach (Label label in axisNameLabels)
+            {
+                label.BackColor = Color.FromArgb(238, 243, 248);
+                label.ForeColor = Color.FromArgb(48, 63, 78);
+                label.BorderStyle = BorderStyle.FixedSingle;
+                label.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
+            }
+
+            var positionBoxes = new[] { txtPos1, txtPos2, txtPos3, txtPos4, txtPos5, txtPos6 };
+            foreach (var textBox in positionBoxes)
+            {
+                textBox.BackColor = Color.White;
+                textBox.ForeColor = textColor;
+                textBox.BorderStyle = BorderStyle.FixedSingle;
+                textBox.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
+            }
+
+            foreach (Label label in new[] { AxisVel1, AxisVel2, AxisVel3, AxisVel4, AxisVel5, AxisVel6 })
+            {
+                label.ForeColor = Color.FromArgb(86, 99, 112);
+                label.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
+            }
+
+            foreach (var textBox in new[] { txtMovPos1, txtMovPos2, txtMovPos3, txtMovPos4, txtMovPos5, txtMovPos6 })
+            {
+                textBox.BackColor = Color.White;
+                textBox.ForeColor = textColor;
+                textBox.BorderStyle = BorderStyle.FixedSingle;
+                textBox.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
+            }
+            foreach (Label label in new[] { label18, label19, label20, label21, label22, label23 })
+            {
+                label.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
+                label.ForeColor = mutedTextColor;
+            }
+            foreach (var radioButton in new[]
+            {
+                radioButton1, radioButton2, radioButton3,
+                radioButton4, radioButton5, radioButton6
+            })
+            {
+                radioButton.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
+                radioButton.ForeColor = textColor;
+                radioButton.FlatStyle = FlatStyle.Flat;
+            }
+
+            foreach (var button in new[] { btnHome1, btnHome2, btnHome3, btnHome4, btnHome5, btnHome6 })
+            {
+                ConfigureControlButton(
+                    button,
+                    Color.FromArgb(48, 63, 78),
+                    borderColor,
+                    Color.FromArgb(237, 240, 244));
+                button.BackColor = Color.FromArgb(241, 245, 248);
+            }
+            foreach (var button in new[]
+            {
+                Handle1, Handle2, Handle3, Handle4, Handle5, Handle6,
+                Handle7, Handle8, Handle9, Handle10, Handle11, Handle12
+            })
+            {
+                ConfigureControlButton(
+                    button,
+                    Color.FromArgb(48, 63, 78),
+                    borderColor,
+                    Color.FromArgb(237, 240, 244));
+                button.BackColor = Color.FromArgb(232, 241, 247);
+            }
+
+            ConfigureControlButton(
+                btnStationHome,
+                Color.FromArgb(48, 63, 78),
+                Color.FromArgb(190, 199, 210),
+                Color.FromArgb(237, 240, 244));
+            btnStationHome.BackColor = Color.FromArgb(230, 240, 247);
+            ConfigureControlButton(
+                btnStop,
+                Color.FromArgb(170, 48, 48),
+                Color.FromArgb(226, 176, 176),
+                Color.FromArgb(253, 229, 229));
+            btnStop.BackColor = Color.FromArgb(255, 240, 240);
+            ConfigureControlButton(
+                btnReSet,
+                Color.FromArgb(139, 88, 26),
+                Color.FromArgb(224, 197, 161),
+                Color.FromArgb(250, 240, 225));
+            btnReSet.BackColor = Color.FromArgb(255, 246, 232);
+            RefreshAxisAvailabilityPalette();
+        }
+
+        private void comboBox1_DrawItem(object sender, DrawItemEventArgs e)
+        {
+            Color backColor = (e.State & DrawItemState.Selected) == DrawItemState.Selected
+                ? Color.FromArgb(217, 234, 250)
+                : Color.White;
+            Color foreColor = (e.State & DrawItemState.Disabled) == DrawItemState.Disabled
+                ? Color.FromArgb(146, 156, 166)
+                : Color.FromArgb(48, 63, 78);
+            using (SolidBrush background = new SolidBrush(backColor))
+            {
+                e.Graphics.FillRectangle(background, e.Bounds);
+            }
+            if (e.Index >= 0)
+            {
+                Rectangle textBounds = new Rectangle(
+                    e.Bounds.Left + 9,
+                    e.Bounds.Top,
+                    Math.Max(0, e.Bounds.Width - 12),
+                    e.Bounds.Height);
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    comboBox1.GetItemText(comboBox1.Items[e.Index]),
+                    comboBox1.Font,
+                    textBounds,
+                    foreColor,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+            e.DrawFocusRectangle();
+        }
+
+        private void RefreshAxisAvailabilityPalette()
+        {
+            Label[] axisLabels = { AxisName1, AxisName2, AxisName3, AxisName4, AxisName5, AxisName6 };
+            System.Windows.Forms.Button[] homeButtons =
+            {
+                btnHome1, btnHome2, btnHome3, btnHome4, btnHome5, btnHome6
+            };
+            System.Windows.Forms.Button[] moveButtons =
+            {
+                Handle1, Handle2, Handle3, Handle4, Handle5, Handle6,
+                Handle7, Handle8, Handle9, Handle10, Handle11, Handle12
+            };
+
+            for (int i = 0; i < axisLabels.Length; i++)
+            {
+                string axisName = axisLabels[i].Text?.Trim() ?? string.Empty;
+                bool configured = axisName.Length > 0
+                    && axisName != "-1"
+                    && axisName.Any(character => character != '-');
+                axisLabels[i].BackColor = configured
+                    ? Color.FromArgb(238, 243, 248)
+                    : Color.FromArgb(248, 250, 252);
+                axisLabels[i].ForeColor = configured
+                    ? Color.FromArgb(48, 63, 78)
+                    : Color.FromArgb(135, 146, 157);
+
+                homeButtons[i].BackColor = configured
+                    ? Color.FromArgb(241, 245, 248)
+                    : Color.FromArgb(244, 247, 249);
+                homeButtons[i].ForeColor = configured
+                    ? Color.FromArgb(48, 63, 78)
+                    : Color.FromArgb(146, 156, 166);
+
+                for (int buttonOffset = 0; buttonOffset < 2; buttonOffset++)
+                {
+                    System.Windows.Forms.Button moveButton = moveButtons[i * 2 + buttonOffset];
+                    moveButton.BackColor = configured
+                        ? Color.FromArgb(232, 241, 247)
+                        : Color.FromArgb(244, 247, 249);
+                    moveButton.ForeColor = configured
+                        ? Color.FromArgb(48, 63, 78)
+                        : Color.FromArgb(146, 156, 166);
+                }
+            }
+        }
+
+        private static void ConfigureControlButton(
+            System.Windows.Forms.Button button,
+            Color foreColor,
+            Color borderColor,
+            Color hoverColor)
+        {
+            button.BackColor = Color.White;
+            button.ForeColor = foreColor;
+            button.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 1;
+            button.FlatAppearance.BorderColor = borderColor;
+            button.FlatAppearance.MouseOverBackColor = hoverColor;
+            button.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(hoverColor, 0.05F);
+            button.UseVisualStyleBackColor = false;
         }
 
      //   public List<DataGridViewTextBoxColumn> dataGridViewTextBoxColumns = new List<DataGridViewTextBoxColumn>();
@@ -195,6 +436,8 @@ namespace Automation
                 Handle11.Text = temp.dataAxis.axisConfig6.AxisName + "+";
                 Handle12.Text = temp.dataAxis.axisConfig6.AxisName + "-";
             }
+
+            RefreshAxisAvailabilityPalette();
 
             SF.frmStation.RefleshDgvState();
             lastStationIndex = selectedIndex;

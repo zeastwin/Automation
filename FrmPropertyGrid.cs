@@ -25,6 +25,7 @@ namespace Automation
         public FrmPropertyGrid()
         {
             InitializeComponent();
+            ConfigureAppearance();
             propertyGrid1.PropertySort = PropertySort.Categorized;
             InlineListTypeDescriptionProvider.Register();
             
@@ -41,6 +42,77 @@ namespace Automation
 
             Enabled = false;
 
+        }
+
+        private void ConfigureAppearance()
+        {
+            Color textColor = Color.FromArgb(49, 63, 73);
+            Color mutedTextColor = Color.FromArgb(83, 99, 110);
+            Color borderColor = Color.FromArgb(218, 226, 231);
+
+            BackColor = Color.White;
+            panel1.Height = 44;
+            panel1.BackColor = Color.FromArgb(249, 251, 252);
+            panel1.Paint += (sender, args) =>
+            {
+                using (Pen pen = new Pen(borderColor))
+                {
+                    args.Graphics.DrawLine(
+                        pen,
+                        0,
+                        panel1.ClientSize.Height - 1,
+                        panel1.ClientSize.Width,
+                        panel1.ClientSize.Height - 1);
+                }
+            };
+
+            label1.AutoSize = false;
+            label1.BackColor = Color.Transparent;
+            label1.ForeColor = mutedTextColor;
+            label1.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
+            label1.TextAlign = ContentAlignment.MiddleLeft;
+
+            OperationType.BackColor = Color.White;
+            OperationType.ForeColor = textColor;
+            OperationType.FlatStyle = FlatStyle.Flat;
+            OperationType.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Regular);
+            OperationType.IntegralHeight = false;
+            OperationType.DropDownHeight = 260;
+
+            Action layoutHeader = () =>
+            {
+                label1.SetBounds(12, 0, 76, panel1.ClientSize.Height - 1);
+                OperationType.SetBounds(
+                    92,
+                    8,
+                    Math.Max(80, panel1.ClientSize.Width - 104),
+                    28);
+            };
+            panel1.Resize += (sender, args) => layoutHeader();
+            layoutHeader();
+
+            propertyGrid1.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
+            propertyGrid1.BackColor = Color.White;
+            propertyGrid1.ViewBackColor = Color.White;
+            propertyGrid1.ViewForeColor = textColor;
+            propertyGrid1.ViewBorderColor = borderColor;
+            propertyGrid1.CategoryForeColor = Color.FromArgb(45, 72, 88);
+            propertyGrid1.CategorySplitterColor = Color.FromArgb(235, 240, 243);
+            propertyGrid1.LineColor = Color.FromArgb(231, 236, 239);
+            propertyGrid1.SelectedItemWithFocusBackColor = Color.FromArgb(220, 239, 248);
+            propertyGrid1.SelectedItemWithFocusForeColor = Color.FromArgb(25, 82, 112);
+            propertyGrid1.HelpBackColor = Color.FromArgb(249, 251, 252);
+            propertyGrid1.HelpBorderColor = borderColor;
+            propertyGrid1.HelpForeColor = mutedTextColor;
+            propertyGrid1.CommandsBackColor = Color.FromArgb(249, 251, 252);
+            propertyGrid1.CommandsBorderColor = borderColor;
+            propertyGrid1.CommandsForeColor = textColor;
+            propertyGrid1.ToolbarVisible = false;
+
+            PropertyInfo doubleBufferedProperty = typeof(Control).GetProperty(
+                "DoubleBuffered",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            doubleBufferedProperty?.SetValue(propertyGrid1, true, null);
         }
 
         public OperationType temp;

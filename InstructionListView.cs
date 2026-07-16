@@ -57,7 +57,7 @@ namespace Automation
             contentFont = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
             headerFont = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
             Font = contentFont;
-            BackColor = Color.White;
+            BackColor = Color.FromArgb(246, 249, 251);
             ForeColor = Color.FromArgb(39, 52, 61);
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
