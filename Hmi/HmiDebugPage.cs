@@ -1,4 +1,5 @@
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 
 namespace Automation.Hmi
 {
@@ -9,7 +10,7 @@ namespace Automation.Hmi
             InitializeComponent();
         }
 
-        internal void AttachHost(AutomationPlatformHost host)
+        internal void AttachPlatform(IAutomationPlatform platform)
         {
             // 空架子，保留方法供 FrmHmiMain 调用
         }
@@ -24,7 +25,7 @@ namespace Automation.Hmi
             // 空架子，保留方法供 FrmHmiMain 调用
         }
 
-        internal void UpdateRuntimeState(PlatformRuntimeState state, string message)
+        internal void UpdateRuntimeState(PlatformRuntimeStatus state, string message)
         {
             // 空架子，保留方法供 FrmHmiMain 调用
         }

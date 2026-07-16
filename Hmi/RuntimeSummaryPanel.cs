@@ -1,13 +1,14 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 
 namespace Automation.Hmi
 {
     /// <summary>
     /// RuntimeSummaryPanel —— 调试页面顶部面板
     /// 显示平台状态、流程总数以及运行中/暂停/停止的流程数量。
-    /// 数据仅通过 AutomationPlatformHost 公开能力获取。
+    /// 数据仅通过 IAutomationPlatform 公开能力获取。
     /// </summary>
     public class RuntimeSummaryPanel : Panel
     {
@@ -78,22 +79,22 @@ namespace Automation.Hmi
         }
 
         /// <summary>
-        /// 用 AutomationPlatformHost 的数据刷新状态显示
+        /// 用 IAutomationPlatform 的数据刷新状态显示
         /// </summary>
-        public void RefreshFromHost(AutomationPlatformHost host)
+        public void RefreshFromHost(IAutomationPlatform platform)
         {
-            if (host == null)
+            if (platform == null)
                 return;
 
             // 平台状态
-            string stateText = host.State switch
+            string stateText = platform.RuntimeStatus switch
             {
-                PlatformRuntimeState.Created => "已创建",
-                PlatformRuntimeState.Initializing => "初始化中",
-                PlatformRuntimeState.Ready => "就绪",
-                PlatformRuntimeState.Faulted => $"故障: {host.StateMessage}",
-                PlatformRuntimeState.ShuttingDown => "关闭中",
-                PlatformRuntimeState.Stopped => "已停止",
+                PlatformRuntimeStatus.Created => "已创建",
+                PlatformRuntimeStatus.Initializing => "初始化中",
+                PlatformRuntimeStatus.Ready => "就绪",
+                PlatformRuntimeStatus.Faulted => $"故障: {platform.RuntimeMessage}",
+                PlatformRuntimeStatus.ShuttingDown => "关闭中",
+                PlatformRuntimeStatus.Stopped => "已停止",
                 _ => "未知"
             };
             if (stateText != lastStateText)
@@ -105,29 +106,29 @@ namespace Automation.Hmi
             // 获取全部流程信息
             try
             {
-                var processes = host.GetProcesses();
+                var processes = platform.Processes.GetAll();
                 int total = processes.Count;
                 int running = 0, paused = 0, stopped = 0;
                 foreach (var proc in processes)
                 {
                     switch (proc.State)
                     {
-                        case ProcRunState.Running:
+                        case ProcessRuntimeStatus.Running:
                             running++;
                             break;
-                        case ProcRunState.Paused:
-                        case ProcRunState.Pausing:
+                        case ProcessRuntimeStatus.Paused:
+                        case ProcessRuntimeStatus.Pausing:
                             paused++;
                             break;
-                        case ProcRunState.Stopped:
-                        case ProcRunState.Stopping:
+                        case ProcessRuntimeStatus.Stopped:
+                        case ProcessRuntimeStatus.Stopping:
                             stopped++;
                             break;
-                        case ProcRunState.Alarming:
+                        case ProcessRuntimeStatus.Alarming:
                             // 报警状态按运行中计数（仍在执行但处于报警）
                             running++;
                             break;
-                        case ProcRunState.SingleStep:
+                        case ProcessRuntimeStatus.SingleStep:
                             running++;
                             break;
                     }

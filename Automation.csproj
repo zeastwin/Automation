@@ -20,8 +20,13 @@
     <NuGetPackageImportStamp>
     </NuGetPackageImportStamp>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+    <PlatformRuntimeVersion>1.0.0.0</PlatformRuntimeVersion>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="Automation.DeviceSdk\Automation.DeviceSdk.csproj">
+      <Project>{A6A8D87F-DCB2-4D6D-8C98-730E0E527A20}</Project>
+      <Name>Automation.DeviceSdk</Name>
+    </ProjectReference>
     <ProjectReference Include="Automation.Protocol\Automation.Protocol.csproj">
       <Project>{9B777468-5118-4A4B-AB0E-6D02861C6B5F}</Project>
       <Name>Automation.Protocol</Name>
@@ -199,6 +204,9 @@
     <Compile Include="Runtime\\AutomationConfigSerializationBinder.cs" />
     <Compile Include="Runtime\\OperationClipboardService.cs" />
     <Compile Include="Runtime\\AutomationPlatformHost.cs" />
+    <Compile Include="Runtime\\AutomationPlatformBootstrap.cs" />
+    <Compile Include="Runtime\\PlatformValueStoreFacade.cs" />
+    <Compile Include="Runtime\\PlatformProcessStoreFacade.cs" />
     <Compile Include="Runtime\\AutomationMcpServerManager.cs" />
     <Compile Include="Runtime\\AutomationRuntimeOptions.cs" />
     <Compile Include="Runtime\\GooseConfigStorage.cs" />
@@ -519,7 +527,9 @@
     <None Include="Resources\invalid.png" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Resources\AutomationChick.ico" />
+    <Content Include="Resources\AutomationChick.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Resources\AutomationChick.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -560,11 +570,17 @@
   <Target Name="RemoveRedundantOutputArtifacts" AfterTargets="Build">
     <RemoveDir Directories="$(TargetDir)Assets" />
     <ItemGroup>
-      <RedundantOutputFile Include="$(TargetDir)*.xml" />
+      <RedundantOutputFile Include="$(TargetDir)*.xml" Exclude="$(TargetDir)Automation.DeviceSdk.xml" />
       <RedundantOutputFile Include="$(TargetDir)README.md" />
       <RedundantOutputFile Include="$(TargetDir)intent_templates.json" />
     </ItemGroup>
     <Delete Files="@(RedundantOutputFile)" />
+  </Target>
+  <Target Name="WritePlatformRuntimeManifest" AfterTargets="Build">
+    <WriteLinesToFile File="$(TargetDir)PlatformRuntimeManifest.json"
+                      Lines="{ &quot;apiVersion&quot;: &quot;1.0&quot;, &quot;platformVersion&quot;: &quot;$(PlatformRuntimeVersion)&quot;, &quot;architecture&quot;: &quot;x64&quot;, &quot;configuration&quot;: &quot;$(Configuration)&quot; }"
+                      Overwrite="true"
+                      Encoding="UTF-8" />
   </Target>
   <!-- Release 运行包不携带调试符号；递归清理可同时移除项目引用遗留的 PDB。 -->
   <Target Name="SlimReleaseOutput" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">

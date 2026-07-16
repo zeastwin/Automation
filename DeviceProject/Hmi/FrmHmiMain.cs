@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Windows.Forms;
 using Automation.DeviceSdk;
 
-namespace Automation.Hmi
+namespace MachineApp.Hmi
 {
     public sealed partial class FrmHmiMain : Form
     {
@@ -15,12 +15,10 @@ namespace Automation.Hmi
         private readonly Form[] pageForms;
         private IAutomationPlatform platform;
         private bool closingConfirmed;
-        private bool hostEventsDetached;
 
         public FrmHmiMain()
         {
             InitializeComponent();
-            UiBranding.Apply(this);
             headerPanel.Resize += HeaderPanel_Resize;
             homePage = new HmiHomePage();
             debugPage = new HmiDebugPage();
@@ -62,10 +60,6 @@ namespace Automation.Hmi
         {
             this.platform = platform ?? throw new ArgumentNullException(nameof(platform));
             homePage.AttachPlatform(platform);
-            debugPage.AttachPlatform(platform);
-            platform.RuntimeStatusChanged += Platform_RuntimeStatusChanged;
-            platform.Processes.Changed += Processes_Changed;
-            platform.Values.Changed += Values_Changed;
         }
 
         private void FrmHmiMain_Shown(object sender, EventArgs e)
@@ -87,7 +81,6 @@ namespace Automation.Hmi
                 return;
             }
             homePage.RefreshRuntimeView();
-            debugPage.RefreshRuntimeView();
         }
 
         private void btnHome_Click(object sender, EventArgs e)
@@ -103,7 +96,6 @@ namespace Automation.Hmi
         private void btnAlarmHistory_Click(object sender, EventArgs e)
         {
             ShowPage(alarmHistoryPage, btnAlarmHistory);
-            alarmHistoryPage.LoadSelectedDate();
         }
 
         private void btnCapacity_Click(object sender, EventArgs e)
@@ -141,7 +133,6 @@ namespace Automation.Hmi
             {
                 MessageBox.Show(this, error, "停止失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            debugPage.MarkProcessListDirty();
         }
 
         private void ShowPage(Form page, Button navigationButton)
@@ -175,36 +166,6 @@ namespace Automation.Hmi
             }
         }
 
-        private void Platform_RuntimeStatusChanged(object sender, PlatformRuntimeStatusChangedEventArgs e)
-        {
-            if (IsDisposed || Disposing || !IsHandleCreated)
-            {
-                return;
-            }
-            if (InvokeRequired)
-            {
-                try
-                {
-                    BeginInvoke((Action)(() => Platform_RuntimeStatusChanged(sender, e)));
-                }
-                catch (InvalidOperationException)
-                {
-                }
-                return;
-            }
-            debugPage.UpdateRuntimeState(e.Status, e.Message);
-        }
-
-        private void Processes_Changed(object sender, ProcessChangedEventArgs e)
-        {
-            debugPage.MarkProcessListDirty();
-        }
-
-        private void Values_Changed(object sender, Automation.DeviceSdk.ValueChangedEventArgs e)
-        {
-            // 由界面定时器统一读取状态，避免流程线程操作 WinForms 控件。
-        }
-
         private void FrmHmiMain_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (!closingConfirmed && e.CloseReason == CloseReason.UserClosing)
@@ -234,26 +195,12 @@ namespace Automation.Hmi
             }
 
             refreshTimer.Stop();
-            DetachHostEvents();
             platform?.Shutdown();
         }
 
         private void FrmHmiMain_Disposed(object sender, EventArgs e)
         {
             refreshTimer.Dispose();
-            DetachHostEvents();
-        }
-
-        private void DetachHostEvents()
-        {
-            if (hostEventsDetached || platform == null)
-            {
-                return;
-            }
-            hostEventsDetached = true;
-            platform.RuntimeStatusChanged -= Platform_RuntimeStatusChanged;
-            platform.Processes.Changed -= Processes_Changed;
-            platform.Values.Changed -= Values_Changed;
         }
     }
 }

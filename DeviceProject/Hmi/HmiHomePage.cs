@@ -2,7 +2,7 @@ using System;
 using System.Windows.Forms;
 using Automation.DeviceSdk;
 
-namespace Automation.Hmi
+namespace MachineApp.Hmi
 {
     public partial class HmiHomePage : Form
     {

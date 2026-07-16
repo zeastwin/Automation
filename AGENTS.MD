@@ -88,7 +88,7 @@
 - `IntentTemplates/` — 遗留中间意图模板，仅保留兼容；不属于 Goose 默认 Editor 写入链。
 - `McpServer/` — 独立进程，把 Bridge 透传为 MCP Streamable HTTP 服务。
 - `MotionControl/` — 运动控制（雷赛 LTDMC/LeiSei3000）。
-- `Hmi/` — 面向客户和现场操作的正式 HMI 应用层；`FrmHmiMain` 是默认启动窗体，HMI 只能通过 `AutomationPlatformHost` 访问平台能力。
+- `DeviceProject/Hmi/` — 面向客户和现场操作的设备 HMI 应用层；`FrmHmiMain` 由 `MachineApp.exe` 启动，只能通过 `AutomationPlatformHost` 的公开 SDK 访问平台能力。平台仓库根目录的 `Hmi/` 不再作为 `Automation.exe` 的启动入口。
 - `PLC/` — PLC 通讯（S7/ModbusTcp）。
 - `Runtime/` — `AutomationPlatformHost`、`AppConfigStorage`、`GooseConfigStorage`、`AutomationMcpServerManager`。
 - `Stores/` — 各类配置 Store 与 `LocalFileLogger`。
@@ -97,8 +97,8 @@
 - `FrmMain.cs` / `FrmProc.cs` / `FrmDataGrid.cs` / `FrmPropertyGrid.cs` — 可隐藏的平台编辑器与流程编辑链。
 
 ## 启动模式
-- `Automation.exe` 无参数启动正式 HMI `FrmHmiMain`。
-- `Automation.exe --platform` 直接启动平台编辑器，便于开发调试；其他参数一律拒绝。
+- `Automation.exe` 无参数直接启动平台编辑器 `FrmMain`，用于平台开发、配置与调试；其他参数一律拒绝。
+- `MachineApp.exe` 是设备工程入口：初始化平台内核后启动设备工程自己的 `FrmHmiMain`，需要时可从 HMI 打开平台编辑器。
 - HMI 和平台处于同一 UI 线程、同一进程、同一程序集，共用 `<exe>/Config/`。
 
 ## 运行时全局对象

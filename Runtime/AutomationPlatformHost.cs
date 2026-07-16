@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -62,7 +64,7 @@ namespace Automation
         public FrmInfo.Level Level { get; set; }
     }
 
-    public sealed class AutomationPlatformHost : IDisposable
+    public sealed class AutomationPlatformHost : IAutomationPlatform
     {
         private readonly int uiThreadId = Thread.CurrentThread.ManagedThreadId;
         private readonly Dictionary<string, CustomFunc.FunctionDelegate> pendingCustomFunctions =
@@ -71,9 +73,29 @@ namespace Automation
         private PlatformRuntimeState state = PlatformRuntimeState.Created;
         private bool disposed;
 
+        public AutomationPlatformHost()
+        {
+            Values = new PlatformValueStoreFacade(this);
+            Processes = new PlatformProcessStoreFacade(this);
+        }
+
         public event EventHandler<PlatformRuntimeStateChangedEventArgs> RuntimeStateChanged;
         public event Action<EngineSnapshot> ProcessSnapshotChanged;
         public event EventHandler<ValueChangedEventArgs> ValueChanged;
+        public event EventHandler<PlatformRuntimeStatusChangedEventArgs> RuntimeStatusChanged;
+
+        public IValueStore Values { get; }
+
+        public IProcessStore Processes { get; }
+
+        public string ApiVersion => PlatformApiInfo.ApiVersion;
+
+        public string PlatformVersion => typeof(AutomationPlatformHost).Assembly
+            .GetName().Version?.ToString() ?? "0.0.0.0";
+
+        PlatformRuntimeStatus IAutomationPlatform.RuntimeStatus => (PlatformRuntimeStatus)(int)state;
+
+        string IAutomationPlatform.RuntimeMessage => StateMessage;
 
         public string ConfigRoot
         {
@@ -120,6 +142,15 @@ namespace Automation
                 throw new InvalidOperationException($"自定义方法重复注册:{name}");
             }
             pendingCustomFunctions.Add(name, function);
+        }
+
+        void IAutomationPlatform.RegisterCustomFunction(string name, Action function)
+        {
+            if (function == null)
+            {
+                throw new ArgumentNullException(nameof(function));
+            }
+            RegisterCustomFunction(name, function.Invoke);
         }
 
         public bool Initialize(out string error)
@@ -355,6 +386,37 @@ namespace Automation
             return true;
         }
 
+        public bool TryGetValue(int index, out PlatformValueSnapshot snapshot, out string error)
+        {
+            snapshot = null;
+            error = null;
+            if (state != PlatformRuntimeState.Ready && state != PlatformRuntimeState.Faulted)
+            {
+                error = $"当前状态禁止读取变量:{state}";
+                return false;
+            }
+            if (SF.valueStore == null || !SF.valueStore.TryGetValueByIndex(index, out DicValue value) || value == null)
+            {
+                error = $"变量索引不存在:{index}";
+                return false;
+            }
+            snapshot = new PlatformValueSnapshot
+            {
+                Index = value.Index,
+                Name = value.Name,
+                Type = value.Type,
+                Value = value.Value,
+                Note = value.Note
+            };
+            return true;
+        }
+
+        public IReadOnlyList<string> GetValueNames()
+        {
+            EnsureReadyOrFaulted();
+            return SF.valueStore?.GetValueNames() ?? new List<string>();
+        }
+
         public bool TrySetValue(string name, object value, out string error)
         {
             if (!CanIssueRuntimeCommand(out error))
@@ -529,6 +591,8 @@ namespace Automation
             state = nextState;
             StateMessage = message ?? string.Empty;
             RuntimeStateChanged?.Invoke(this, new PlatformRuntimeStateChangedEventArgs(nextState, StateMessage));
+            RuntimeStatusChanged?.Invoke(this, new PlatformRuntimeStatusChangedEventArgs(
+                (PlatformRuntimeStatus)(int)nextState, StateMessage));
         }
 
         private void EnsureReadyOrFaulted()
