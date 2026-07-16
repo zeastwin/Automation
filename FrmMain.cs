@@ -69,6 +69,8 @@ namespace Automation
         private bool allowFinalClose;
         private int aiInfrastructureStartState;
         private int shutdownStarted;
+        private const int MinimumWorkspaceWidthWithAi = 1000;
+        private const int MinimumAiPanelWidth = 320;
 
         internal bool HideOnUserClose { get; set; }
         internal bool IsPlatformInitialized => platformInitialized;
@@ -190,6 +192,8 @@ namespace Automation
             ai_panel = new Panel { Dock = DockStyle.Right, Width = 0, Visible = false, BackColor = Color.White };
             Controls.Add(ai_panel);
             Controls.SetChildIndex(ai_panel, Controls.Count - 1);
+            main_panel.AutoScroll = true;
+            ClientSizeChanged += FrmMain_ClientSizeChanged;
 
             frmAiAssistant.TopLevel = false;
             frmAiAssistant.FormBorderStyle = FormBorderStyle.None;
@@ -200,6 +204,27 @@ namespace Automation
             StartSnapshotTimer();
             Text = "Automation - 平台";
             Shown += FrmMain_Shown;
+        }
+
+        private void FrmMain_ClientSizeChanged(object sender, EventArgs e)
+        {
+            if (ai_panel != null && ai_panel.Visible)
+            {
+                UpdateAiPanelWidth();
+            }
+        }
+
+        internal void UpdateAiPanelWidth()
+        {
+            if (ai_panel == null)
+            {
+                return;
+            }
+
+            int minimumAiWidth = Math.Min(MinimumAiPanelWidth, Math.Max(0, ClientSize.Width / 2));
+            int preferredWidth = ClientSize.Width * 2 / 5;
+            int maximumWidth = Math.Max(minimumAiWidth, ClientSize.Width - MinimumWorkspaceWidthWithAi);
+            ai_panel.Width = Math.Min(Math.Max(minimumAiWidth, preferredWidth), maximumWidth);
         }
 
         public AutomationMcpServerManager McpServerManager => automationMcpServerManager;

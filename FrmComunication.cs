@@ -40,6 +40,7 @@ namespace Automation
         public FrmComunication()
         {
             InitializeComponent();
+            ConfigureResponsiveLayout();
             Disposed += FrmComunication_Disposed;
 
             dataGridView1.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
@@ -71,6 +72,56 @@ namespace Automation
                 }
             };
             ApplyCommunicationStyle();
+        }
+
+        private void ConfigureResponsiveLayout()
+        {
+            var receiveOptions = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Right,
+                Width = 145,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                Padding = new Padding(12, 12, 8, 8),
+                BackColor = SystemColors.Control
+            };
+            checkBox3.Margin = new Padding(0, 0, 0, 12);
+            ClearBoard.Margin = Padding.Empty;
+            ClearBoard.Width = 108;
+            receiveOptions.Controls.Add(checkBox3);
+            receiveOptions.Controls.Add(ClearBoard);
+            groupBox1.Controls.Clear();
+            ReceiveTextBox.Dock = DockStyle.Fill;
+            groupBox1.Controls.Add(ReceiveTextBox);
+            groupBox1.Controls.Add(receiveOptions);
+
+            var sendOptions = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Right,
+                Width = 155,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                Padding = new Padding(12, 8, 8, 6),
+                BackColor = SystemColors.Control
+            };
+            checkBox1.Margin = new Padding(0, 0, 0, 7);
+            checkBox2.Margin = new Padding(0, 0, 0, 5);
+            label1.Margin = new Padding(0, 0, 0, 3);
+            DelayText.Margin = new Padding(0, 0, 0, 6);
+            DelayText.Width = 120;
+            send.Margin = Padding.Empty;
+            send.Width = 120;
+            send.Height = 34;
+            sendOptions.Controls.Add(checkBox1);
+            sendOptions.Controls.Add(checkBox2);
+            sendOptions.Controls.Add(label1);
+            sendOptions.Controls.Add(DelayText);
+            sendOptions.Controls.Add(send);
+            groupBox2.Controls.Clear();
+            groupBox2.Height = 180;
+            SendTextBox.Dock = DockStyle.Fill;
+            groupBox2.Controls.Add(SendTextBox);
+            groupBox2.Controls.Add(sendOptions);
         }
 
         private void ApplyCommunicationStyle()

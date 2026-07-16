@@ -45,6 +45,7 @@ namespace Automation
         public FrmValueDebug()
         {
             InitializeComponent();
+            ConfigureResponsiveLayout();
             Font uiFont = new Font("微软雅黑", 10.5F, FontStyle.Regular, GraphicsUnit.Point, 134);
 
             dgvCheck.Font = uiFont;
@@ -97,6 +98,86 @@ namespace Automation
             ApplyButtonStyle(btnEditRemove, false);
             ApplyButtonStyle(btnCheckRefresh, false);
             ApplyButtonStyle(btnEditRefresh, false);
+        }
+
+        private void ConfigureResponsiveLayout()
+        {
+            groupCheck.Margin = new Padding(4);
+            groupEdit.Margin = new Padding(4);
+            panelCheckBottom.Height = 106;
+            panelEditBottom.Height = 132;
+
+            var checkLayout = CreateActionLayout(2);
+            checkLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 48F));
+            checkLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            checkLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82F));
+            checkLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82F));
+            checkLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82F));
+            checkLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
+            checkLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            panelCheckBottom.Controls.Clear();
+            checkLayout.Controls.Add(lblCheckIndex, 0, 0);
+            checkLayout.Controls.Add(cboCheckVar, 1, 0);
+            checkLayout.Controls.Add(btnCheckAdd, 2, 0);
+            checkLayout.Controls.Add(btnCheckRemove, 3, 0);
+            checkLayout.Controls.Add(btnCheckRefresh, 4, 0);
+            checkLayout.Controls.Add(lblCheckStatus, 0, 1);
+            checkLayout.SetColumnSpan(lblCheckStatus, 5);
+            panelCheckBottom.Controls.Add(checkLayout);
+
+            var editLayout = CreateActionLayout(3);
+            editLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 48F));
+            editLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            editLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82F));
+            editLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82F));
+            editLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82F));
+            editLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
+            editLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
+            editLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            panelEditBottom.Controls.Clear();
+            editLayout.Controls.Add(lblEditIndex, 0, 0);
+            editLayout.Controls.Add(cboEditVar, 1, 0);
+            editLayout.Controls.Add(btnEditAdd, 2, 0);
+            editLayout.Controls.Add(btnEditRemove, 3, 0);
+            editLayout.Controls.Add(btnEditRefresh, 4, 0);
+            editLayout.Controls.Add(lblEditValue, 0, 1);
+            editLayout.Controls.Add(txtEditValue, 1, 1);
+            editLayout.SetColumnSpan(txtEditValue, 3);
+            editLayout.Controls.Add(btnEditApply, 4, 1);
+            editLayout.Controls.Add(lblEditStatus, 0, 2);
+            editLayout.SetColumnSpan(lblEditStatus, 5);
+            panelEditBottom.Controls.Add(editLayout);
+
+            foreach (Control control in new Control[]
+            {
+                cboCheckVar, btnCheckAdd, btnCheckRemove, btnCheckRefresh,
+                cboEditVar, btnEditAdd, btnEditRemove, btnEditRefresh,
+                txtEditValue, btnEditApply
+            })
+            {
+                control.Dock = DockStyle.Fill;
+                control.Margin = new Padding(3, 4, 3, 4);
+            }
+            foreach (Label label in new[] { lblCheckIndex, lblEditIndex, lblEditValue })
+            {
+                label.Dock = DockStyle.Fill;
+                label.TextAlign = ContentAlignment.MiddleLeft;
+                label.Margin = new Padding(3);
+            }
+            lblCheckStatus.Dock = DockStyle.Fill;
+            lblEditStatus.Dock = DockStyle.Fill;
+        }
+
+        private static TableLayoutPanel CreateActionLayout(int rowCount)
+        {
+            return new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 5,
+                RowCount = rowCount,
+                Padding = new Padding(6, 5, 6, 3),
+                Margin = Padding.Empty
+            };
         }
 
         private static void ApplyButtonStyle(Button button, bool primary)

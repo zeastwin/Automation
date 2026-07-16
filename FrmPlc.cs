@@ -37,7 +37,7 @@ namespace Automation
 
         public FrmPlc()
         {
-            Text = "PLC 通讯中心";
+            Text = "PLC";
             BackColor = Color.FromArgb(245, 247, 250);
             Font = new Font("Microsoft YaHei UI", 9F);
             FormBorderStyle = FormBorderStyle.Sizable;
@@ -66,21 +66,21 @@ namespace Automation
             var header = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 78,
+                Height = 64,
                 BackColor = Color.White,
-                Padding = new Padding(24, 12, 24, 8)
+                Padding = new Padding(20, 8, 20, 6)
             };
             header.Controls.Add(new Label
             {
-                Text = "PLC 通讯中心",
+                Text = "PLC",
                 AutoSize = true,
-                Font = new Font("Microsoft YaHei UI", 18F, FontStyle.Bold),
+                Font = new Font("Microsoft YaHei UI", 16F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(31, 41, 55),
-                Location = new Point(24, 10)
+                Location = new Point(20, 7)
             });
             summaryLabel.AutoSize = true;
             summaryLabel.ForeColor = Color.FromArgb(100, 116, 139);
-            summaryLabel.Location = new Point(26, 48);
+            summaryLabel.Location = new Point(22, 38);
             header.Controls.Add(summaryLabel);
 
             var commandBar = new FlowLayoutPanel
@@ -149,7 +149,7 @@ namespace Automation
             deviceList.IntegralHeight = false;
             deviceList.SelectedIndexChanged += DeviceList_SelectedIndexChanged;
             stateLabel.Dock = DockStyle.Bottom;
-            stateLabel.Height = 178;
+            stateLabel.Height = 94;
             stateLabel.Padding = new Padding(8);
             stateLabel.BackColor = Color.White;
             stateLabel.ForeColor = Color.FromArgb(71, 85, 105);
@@ -168,19 +168,6 @@ namespace Automation
         private TabPage BuildOverviewTab()
         {
             var tab = new TabPage("设备概览") { BackColor = Color.White, Padding = new Padding(8) };
-            var help = new Label
-            {
-                Dock = DockStyle.Bottom,
-                Height = 128,
-                Padding = new Padding(10, 8, 10, 8),
-                BackColor = Color.FromArgb(239, 246, 255),
-                ForeColor = Color.FromArgb(30, 64, 175),
-                Text = "参数提示：\r\n"
-                    + "• 字节序只影响 UInt、Int、Float、Double 等跨多个寄存器的数值；Coil、Boolean、UShort、Short 不受影响。\r\n"
-                    + "• 扫描周期是映射运行时相邻两轮通讯的最短间隔；最低 50ms，避免通讯尚未完成就堆积下一轮请求。\r\n"
-                    + "• 汇川旧项目若已验证为 CDAB，请在此明确设置为 CDAB；字符串反转由“字符串反转”参数控制。\r\n"
-                    + "• 开启“自动连接”时，平台启动会连接设备并在断线后自动重连；只恢复到就绪，不会自动恢复映射。关闭后需执行“重新初始化”。"
-            };
             deviceProperties.Dock = DockStyle.Fill;
             deviceProperties.HelpVisible = true;
             deviceProperties.ToolbarVisible = false;
@@ -192,7 +179,6 @@ namespace Automation
                 RefreshSummary();
             };
             tab.Controls.Add(deviceProperties);
-            tab.Controls.Add(help);
             return tab;
         }
 
@@ -216,16 +202,9 @@ namespace Automation
                 CommandButton("删除映射", DeleteMap),
                 new Label { Text = "首变量：", AutoSize = true, Padding = new Padding(5, 9, 0, 0) },
                 variableSelector,
-                CommandButton("按数量填入变量", ApplySelectedVariable),
-                CommandButton("以PLC为准解除冲突", (s,e) => ResolveConflict(PlcConflictResolution.UsePlcValue)),
-                CommandButton("以本地为准解除冲突", (s,e) => ResolveConflict(PlcConflictResolution.UseLocalValue))
-            });
-            actions.Controls.Add(new Label
-            {
-                Text = "映射是PLC地址与平台变量的持续同步关系；保存前请先停止该设备映射。",
-                AutoSize = true,
-                ForeColor = Color.FromArgb(71, 85, 105),
-                Padding = new Padding(8, 8, 0, 0)
+                CommandButton("填入变量", ApplySelectedVariable),
+                CommandButton("采用PLC值", (s,e) => ResolveConflict(PlcConflictResolution.UsePlcValue)),
+                CommandButton("采用本地值", (s,e) => ResolveConflict(PlcConflictResolution.UseLocalValue))
             });
             ConfigureMapGrid();
             tab.Controls.Add(mapGrid);
@@ -236,15 +215,21 @@ namespace Automation
         private TabPage BuildDebugTab()
         {
             var tab = new TabPage("在线调试") { BackColor = Color.White, Padding = new Padding(8) };
-            var fields = new FlowLayoutPanel
+            var fields = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 78,
-                AutoScroll = true,
-                WrapContents = false,
+                Height = 126,
+                ColumnCount = 3,
+                RowCount = 2,
                 Padding = new Padding(4, 7, 4, 3),
                 BackColor = Color.FromArgb(248, 250, 252)
             };
+            for (int index = 0; index < 3; index++)
+            {
+                fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
+            }
+            fields.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+            fields.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
             debugArea.DropDownStyle = ComboBoxStyle.DropDownList;
             debugArea.DataSource = Enum.GetValues(typeof(PlcArea));
             debugArea.FormattingEnabled = true;
@@ -265,13 +250,12 @@ namespace Automation
             debugCount.Maximum = 1000;
             debugCount.Value = 1;
             debugStringLength.Maximum = 2000;
-            debugValue.Width = 190;
-            fields.Controls.AddRange(new Control[]
-            {
-                DebugField("地址区", debugArea), DebugField("起始地址", debugAddress),
-                DebugField("数据类型", debugType), DebugField("元素数", debugCount),
-                DebugField("字符串字节数", debugStringLength), DebugField("写入值（逗号分隔）", debugValue)
-            });
+            fields.Controls.Add(DebugField("地址区", debugArea), 0, 0);
+            fields.Controls.Add(DebugField("起始地址", debugAddress), 1, 0);
+            fields.Controls.Add(DebugField("数据类型", debugType), 2, 0);
+            fields.Controls.Add(DebugField("元素数", debugCount), 0, 1);
+            fields.Controls.Add(DebugField("字符串字节数", debugStringLength), 1, 1);
+            fields.Controls.Add(DebugField("写入值（逗号分隔）", debugValue), 2, 1);
 
             var actions = new FlowLayoutPanel
             {
@@ -286,7 +270,7 @@ namespace Automation
                 CommandButton("读取一次", async (s,e) => await DebugReadAsync("单次读取"), true),
                 CommandButton("写入一次", async (s,e) => await DebugWriteAsync(), false),
                 CommandButton("连续监视", ToggleMonitor),
-                CommandButton("100次性能测试", async (s,e) => await PerformanceTestAsync())
+                CommandButton("性能测试", async (s,e) => await PerformanceTestAsync())
             });
             monitorLabel.AutoSize = true;
             monitorLabel.Padding = new Padding(8, 9, 0, 0);
@@ -814,17 +798,21 @@ namespace Automation
         private void RefreshRuntimeState()
         {
             PlcDeviceRuntimeSnapshot runtime = GetCurrentRuntime();
-            stateLabel.Text = currentDevice == null
-                ? "未选择设备"
-                : runtime == null
-                    ? "状态：0（未初始化）"
-                    : $"状态：{FormatRuntimeState(runtime.State)}\r\n最后通讯：{FormatUtc(runtime.LastCommunicationUtc)}\r\n扫描耗时：{runtime.LastScanElapsedMs}ms\r\n{runtime.LastError}";
-            if (currentDevice != null)
+            if (currentDevice == null)
             {
-                string connectionMode = currentDevice.AutoConnect ? "自动连接/自动重连" : "手动连接";
-                stateLabel.Text += "\r\n连接方式：" + connectionMode;
+                stateLabel.Text = "未选择设备";
             }
-            stateLabel.Text += "\r\n\r\n状态码：0 未初始化/已释放；1 连接就绪或映射已停止；2 映射运行中；-1 通讯故障（自动设备等待重连，手动设备需重新初始化）。";
+            else
+            {
+                string state = runtime == null ? "未初始化" : FormatRuntimeState(runtime.State);
+                string mode = currentDevice.AutoConnect ? "自动连接" : "手动连接";
+                stateLabel.Text = $"状态：{state}    方式：{mode}\r\n"
+                    + $"最后通讯：{FormatUtc(runtime?.LastCommunicationUtc)}    耗时：{runtime?.LastScanElapsedMs ?? 0}ms";
+                if (!string.IsNullOrWhiteSpace(runtime?.LastError))
+                {
+                    stateLabel.Text += "\r\n" + runtime.LastError;
+                }
+            }
             if (currentDevice == null || runtime?.Mappings == null) return;
             foreach (DataGridViewRow row in mapGrid.Rows)
             {
@@ -875,10 +863,10 @@ namespace Automation
             switch (state)
             {
                 case PlcRuntimeState.Ready:
-                case PlcRuntimeState.Stopped: return "1（连接就绪/映射已停止）";
-                case PlcRuntimeState.Mapping: return "2（映射运行中）";
-                case PlcRuntimeState.Faulted: return "-1（通讯故障）";
-                default: return "0（未初始化/已释放）";
+                case PlcRuntimeState.Stopped: return "已就绪";
+                case PlcRuntimeState.Mapping: return "映射中";
+                case PlcRuntimeState.Faulted: return "通讯故障";
+                default: return "未初始化";
             }
         }
 
@@ -964,8 +952,7 @@ namespace Automation
 
         private static Control DebugField(string label, Control control)
         {
-            control.Width = Math.Max(control.Width, 105);
-            var panel = new Panel { Width = label.Contains("写入") ? 210 : 125, Height = 66, Margin = new Padding(3) };
+            var panel = new Panel { Dock = DockStyle.Fill, Margin = new Padding(5, 2, 5, 2) };
             panel.Controls.Add(new Label { Text = label, Dock = DockStyle.Top, Height = 22, ForeColor = Color.FromArgb(71, 85, 105) });
             control.Dock = DockStyle.Bottom;
             control.Height = 28;

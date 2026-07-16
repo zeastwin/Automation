@@ -474,8 +474,10 @@ pre{
     border:1px solid #d9e2ec;
     border-radius:8px;
     overflow-x:auto;
-    white-space:pre-wrap;
-    word-wrap:break-word;
+    white-space:pre;
+    overflow-wrap:normal;
+    word-break:normal;
+    tab-size:4;
 }
 code{
     color:#26374d;
@@ -485,7 +487,7 @@ code{
     padding:1px 4px;
     font:13px/1.4 Consolas,""Cascadia Mono"",monospace;
 }
-pre code{background:transparent;border:0;padding:0;}
+pre code{background:transparent;border:0;padding:0;font-variant-ligatures:none;}
 img{max-width:100%;border-radius:8px;}
 hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .thinking-box{
@@ -4333,7 +4335,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         {
             string normalizedMarkdown = (markdown ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n");
             normalizedMarkdown = Regex.Replace(normalizedMarkdown, @"(?m)(?<!^)(```|~~~)", "\n$1");
-            normalizedMarkdown = SimplifySingleRowBoxDrawingBlocks(normalizedMarkdown);
             normalizedMarkdown = UnwrapBareMarkdownFence(normalizedMarkdown);
             string[] lines = normalizedMarkdown.Split('\n');
             var output = new List<string>();
@@ -4351,10 +4352,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
                 if (inCodeFence)
                 {
-                    foreach (string codeLine in NormalizeFencedCodeLineBreaks(line))
-                    {
-                        output.Add(codeLine);
-                    }
+                    output.Add(line);
                     continue;
                 }
 
@@ -4379,108 +4377,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
 
             return string.Join("\n", output);
-        }
-
-        // 单行内容的字符框图无法可靠按中英文混排宽度对齐，降级为普通箭头链，保留信息而不显示失真的边框。
-        private static string SimplifySingleRowBoxDrawingBlocks(string markdown)
-        {
-            string[] lines = (markdown ?? string.Empty).Split('\n');
-            var output = new List<string>();
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string opening = lines[i].Trim();
-                if (!opening.StartsWith("```", StringComparison.Ordinal)
-                    && !opening.StartsWith("~~~", StringComparison.Ordinal))
-                {
-                    output.Add(lines[i]);
-                    continue;
-                }
-
-                string marker = opening.Substring(0, 3);
-                int closingIndex = -1;
-                for (int j = i + 1; j < lines.Length; j++)
-                {
-                    if (string.Equals(lines[j].Trim(), marker, StringComparison.Ordinal))
-                    {
-                        closingIndex = j;
-                        break;
-                    }
-                }
-                if (closingIndex < 0)
-                {
-                    output.Add(lines[i]);
-                    continue;
-                }
-
-                var blockLines = new List<string>();
-                for (int j = i + 1; j < closingIndex; j++)
-                {
-                    blockLines.AddRange(NormalizeFencedCodeLineBreaks(lines[j]));
-                }
-                if (!TrySimplifySingleRowBoxDrawing(blockLines, out string simplified))
-                {
-                    output.Add(lines[i]);
-                    for (int j = i + 1; j <= closingIndex; j++)
-                    {
-                        output.Add(lines[j]);
-                    }
-                    i = closingIndex;
-                    continue;
-                }
-
-                output.Add(simplified);
-                i = closingIndex;
-            }
-            return string.Join("\n", output);
-        }
-
-        private static bool TrySimplifySingleRowBoxDrawing(
-            IReadOnlyCollection<string> blockLines,
-            out string simplified)
-        {
-            simplified = string.Empty;
-            var nonEmptyLines = (blockLines ?? Array.Empty<string>())
-                .Where(line => !string.IsNullOrWhiteSpace(line)).ToList();
-            if (nonEmptyLines.Count < 2 || nonEmptyLines.Count > 4)
-            {
-                return false;
-            }
-
-            string joined = string.Join("", nonEmptyLines);
-            if (joined.IndexOf('┌') < 0 || joined.IndexOf('┐') < 0
-                || joined.IndexOf('└') < 0 || joined.IndexOf('┘') < 0)
-            {
-                return false;
-            }
-
-            List<string> contentLines = nonEmptyLines
-                .Where(line => !Regex.IsMatch(line, @"^[\s┌┐└┘│┃║─━═]+$"))
-                .ToList();
-            if (contentLines.Count != 1)
-            {
-                return false;
-            }
-
-            string content = Regex.Replace(contentLines[0], @"^[\s┌┐└┘│┃║─━═]+", string.Empty);
-            content = Regex.Replace(content, @"[\s┌┐└┘│┃║─━═]+$", string.Empty);
-            content = Regex.Replace(content, @"[─━═]+\s*→", "→");
-            content = Regex.Replace(content, @"\s*→\s*", " → ").Trim();
-            if (content.Length == 0)
-            {
-                return false;
-            }
-
-            simplified = content;
-            return true;
-        }
-
-        // 字符流程图偶尔会把相邻框线行粘在一起。仅修复能够由框角方向确定的缺失换行，
-        // 不解析或重排图的业务内容，也不影响围栏外文本和普通代码。
-        private static IEnumerable<string> NormalizeFencedCodeLineBreaks(string line)
-        {
-            string normalized = Regex.Replace(line ?? string.Empty, @"┐[ \t]*(?=└)", "┐\n");
-            normalized = Regex.Replace(normalized, @"┘[ \t]*(?=┌)", "┘\n");
-            return normalized.Split('\n');
         }
 
         // 只修复能够判定为块标记的粘连：行尾粗体标题、列表标记和水平分隔线。
