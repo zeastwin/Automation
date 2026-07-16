@@ -53,7 +53,7 @@ namespace Automation.McpServer
             "get_operation_context", "get_info_log_tail"
         };
 
-        private static readonly HashSet<string> MigrationTools = new HashSet<string>(StringComparer.Ordinal)
+        private static readonly HashSet<string> FullPermissionTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "get_migration_configuration",
             "preview_motion_io_configuration", "preview_io_debug_configuration",
@@ -62,7 +62,7 @@ namespace Automation.McpServer
             "validate_platform_configuration"
         };
 
-        public static IReadOnlyList<McpServerTool> CreateTools(string profile, bool migrationEnabled = false)
+        public static IReadOnlyList<McpServerTool> CreateTools(string profile, bool fullPermissionEnabled = false)
         {
             bool diagnostic;
             if (string.Equals(profile, "Diagnostic", StringComparison.OrdinalIgnoreCase)) diagnostic = true;
@@ -77,9 +77,9 @@ namespace Automation.McpServer
             {
                 enabled.UnionWith(EditorDiagnosticTools);
                 enabled.UnionWith(EditorMutationTools);
-                if (migrationEnabled)
+                if (fullPermissionEnabled)
                 {
-                    enabled.UnionWith(MigrationTools);
+                    enabled.UnionWith(FullPermissionTools);
                 }
             }
             var tools = new List<McpServerTool>();
@@ -432,23 +432,23 @@ namespace Automation.McpServer
         private readonly IReadOnlyDictionary<string, McpServerTool> allTools;
         private readonly HashSet<string> editorToolNames;
         private readonly HashSet<string> diagnosticToolNames;
-        private readonly HashSet<string> migrationToolNames;
+        private readonly HashSet<string> fullPermissionToolNames;
         private string profile = string.Empty;
-        private bool migrationEnabled;
+        private bool fullPermissionEnabled;
 
         public DynamicMcpToolRegistry(string initialProfile)
         {
             IReadOnlyList<McpServerTool> editorTools = McpToolProfile.CreateEditorTools();
             IReadOnlyList<McpServerTool> diagnosticTools = McpToolProfile.CreateTools("Diagnostic");
-            IReadOnlyList<McpServerTool> migrationEditorTools = McpToolProfile.CreateTools("Editor", true);
-            allTools = editorTools.Concat(diagnosticTools).Concat(migrationEditorTools)
+            IReadOnlyList<McpServerTool> fullPermissionEditorTools = McpToolProfile.CreateTools("Editor", true);
+            allTools = editorTools.Concat(diagnosticTools).Concat(fullPermissionEditorTools)
                 .GroupBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
             editorToolNames = editorTools
                 .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
             diagnosticToolNames = diagnosticTools
                 .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
-            migrationToolNames = migrationEditorTools.Select(tool => tool.ProtocolTool.Name)
+            fullPermissionToolNames = fullPermissionEditorTools.Select(tool => tool.ProtocolTool.Name)
                 .Where(name => !editorToolNames.Contains(name))
                 .ToHashSet(StringComparer.Ordinal);
             SetProfile(initialProfile);
@@ -459,9 +459,9 @@ namespace Automation.McpServer
             get { lock (syncRoot) return profile; }
         }
 
-        public bool MigrationEnabled
+        public bool FullPermissionEnabled
         {
-            get { lock (syncRoot) return migrationEnabled; }
+            get { lock (syncRoot) return fullPermissionEnabled; }
         }
 
         public IReadOnlyList<McpServerTool> GetTools()
@@ -471,9 +471,9 @@ namespace Automation.McpServer
                 HashSet<string> enabledNames = string.Equals(profile, "Editor", StringComparison.Ordinal)
                     ? new HashSet<string>(editorToolNames, StringComparer.Ordinal)
                     : new HashSet<string>(diagnosticToolNames, StringComparer.Ordinal);
-                if (migrationEnabled)
+                if (fullPermissionEnabled)
                 {
-                    enabledNames.UnionWith(migrationToolNames);
+                    enabledNames.UnionWith(fullPermissionToolNames);
                 }
                 return allTools.Values.Where(tool => enabledNames.Contains(tool.ProtocolTool.Name))
                     .OrderBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal).ToList();
@@ -485,20 +485,20 @@ namespace Automation.McpServer
             SetConfiguration(value, false);
         }
 
-        public void SetConfiguration(string value, bool enableMigration)
+        public void SetConfiguration(string value, bool enableFullPermission)
         {
             string normalized;
             if (string.Equals(value, "Diagnostic", StringComparison.Ordinal)) normalized = "Diagnostic";
             else if (string.Equals(value, "Editor", StringComparison.Ordinal)) normalized = "Editor";
             else throw new InvalidDataException($"MCP工具模式不支持:{value}");
-            if (enableMigration && !string.Equals(normalized, "Editor", StringComparison.Ordinal))
+            if (enableFullPermission && !string.Equals(normalized, "Editor", StringComparison.Ordinal))
             {
-                throw new InvalidDataException("迁移能力包只能在Editor模式下开启。");
+                throw new InvalidDataException("完全权限只能在Editor模式下开启。");
             }
             lock (syncRoot)
             {
                 profile = normalized;
-                migrationEnabled = enableMigration;
+                fullPermissionEnabled = enableFullPermission;
             }
         }
 

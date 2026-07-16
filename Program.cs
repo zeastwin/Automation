@@ -26,7 +26,7 @@ namespace Automation
             if (!GooseConfigStorage.TryApplyStartupSafetyDefaults(out string aiSafetyError))
             {
                 // AI 配置异常不阻断主控/HMI启动；本次运行的 AI 配置读取保持失败关闭状态，
-                // MCP 和 AI 页面只能回退到诊断模式、完全权限关闭。
+                // MCP 和 AI 页面只能回退到诊断模式、自动批准关闭。
                 MessageBox.Show(aiSafetyError, "AI安全默认值应用失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             if (!GooseRuntimeProvisioner.TryEnsureManagedContext(out string promptMessage))

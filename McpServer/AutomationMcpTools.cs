@@ -85,7 +85,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_platform_development_context"), Description(
-            "Automation 源码开发任务的按需知识入口。仅当用户明确要求修改 HMI、调用平台公开 API 或编写自定义函数时使用；流程、变量、IO、通讯等平台配置任务不需要该上下文。已知开发目标直接传对应 topic。")]
+            "Automation 源码开发任务的按需知识入口。仅当用户明确要求修改 HMI、调用平台公开 API 或编写自定义函数时使用；流程、变量、IO、通讯等平台配置任务不需要该上下文。已知开发目标直接传对应 topic。"
+            + "HMI 或 CustomFunc.cs 实际修改后的编译证据统一使用命令："
+            + PlatformDevelopmentContextCatalog.HmiValidationCommand
+            + "。该命令只做隔离编译，不执行候选代码，也不覆盖当前 Debug 程序。")]
         public static string GetPlatformDevelopmentContext(
             [Description("主题：hmi/platform-api/custom-function；仅目标不明确时使用 catalog")] string topic)
         {
@@ -618,7 +621,7 @@ namespace Automation.McpServer
             + "只需提供procIndex，baseProcId由Bridge读取当前流程自动补齐。"
             + "返回 previewId 和 patchHash，提交前需由 Automation 前台确认 previewId。"
             + "当前存在待审核预演时禁止继续创建新预演，必须等待用户确认或拒绝。"
-            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_intent 提交即可。")]
+            + "自动批准模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_intent 提交即可。")]
         public static async Task<string> PreviewIntent(
             [Description("结构化中间意图对象；baseProcId可省略")] JsonElement intent)
         {
@@ -633,7 +636,7 @@ namespace Automation.McpServer
             + "正式提交只允许目标流程处于Stopped；提交前先用get_snapshot确认。非Stopped时不要调用本工具、不得调用stop_proc，必须告知用户并等待操作员停止流程。"
             + "被PROC_NOT_STOPPED拒绝时没有停止流程、没有保存文件、没有发布热更新，状态未改变前禁止重复提交。"
             + "被SOURCE_VALIDATION_FAILED拒绝时应读取details逐项修正Hmi源码；该失败没有保存流程且预演仍有效，修正后使用同一previewId重试，不要重新生成流程Patch。"
-            + "完全权限模式下预演自动确认，直接传入预演返回的 previewId 即可；禁止传字符串 null/undefined。")]
+            + "自动批准模式下预演自动确认，直接传入预演返回的 previewId 即可；禁止传字符串 null/undefined。")]
         public static async Task<string> ApplyIntent(
             [Description("结构化中间意图对象，必须与预演完全一致；baseProcId可省略")] JsonElement intent,
             [Description("预演阶段返回且已确认的 previewId")] string previewId)
@@ -650,7 +653,7 @@ namespace Automation.McpServer
             + "update_proc_head_fields/update_step_fields/update_operation_fields 使用fieldChanges；append/insert_operation使用fieldValues。"
             + "fieldValues/fieldChanges 必须严格保持 get_operation_schema 返回的 JSON 类型：number 必须传数值且禁止加引号，boolean 必须传 true/false，禁止把字符串数字当作数值。"
             + "提交前必须先调用本工具。返回 previewId 和 patchHash，需由 Automation 前台确认 previewId。"
-            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_patch 提交即可。")]
+            + "自动批准模式下预演会自动确认，AI 拿到 previewId 后直接再调 apply_patch 提交即可。")]
         public static async Task<string> PreviewPatch(
             [Description("Patch JSON 字符串，至少含 procIndex/baseProcId/actions")] string patchJson)
         {
@@ -666,7 +669,7 @@ namespace Automation.McpServer
             + "正式提交只允许目标流程处于Stopped；提交前先用get_snapshot确认。非Stopped时不得调用stop_proc，必须等待操作员停止。"
             + "被PROC_NOT_STOPPED拒绝时无任何保存/发布副作用，状态未改变前禁止重复提交。"
             + "被SOURCE_VALIDATION_FAILED拒绝时应读取details逐项修正Hmi源码；该失败没有保存流程且预演仍有效，修正后使用同一previewId重试，不要重新生成Patch。"
-            + "完全权限模式下预演自动确认，直接传入预演返回的 previewId 即可；禁止传字符串 null/undefined。")]
+            + "自动批准模式下预演自动确认，直接传入预演返回的 previewId 即可；禁止传字符串 null/undefined。")]
         public static async Task<string> ApplyPatch(
             [Description("Patch JSON 字符串，必须与预演完全一致")] string patchJson,
             [Description("预演阶段返回且已确认的 previewId")] string previewId)
@@ -691,7 +694,7 @@ namespace Automation.McpServer
             + "新增流程含一个默认步骤，后续用 preview_patch 添加步骤指令。流程名不能重复。"
             + "预演返回的 targetIndex 只是预计位置，流程尚不存在；提交成功后必须调用 list_procs 获取真实 procIndex，禁止据此直接读取流程详情。"
             + "典型场景：新建流程来唤醒/启动其他流程、创建独立控制流程。"
-            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
+            + "自动批准模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
         public static async Task<string> CreateProc(
             [Description("流程名称（不能与现有流程重复）")] string name,
             [Description("是否自启动，默认 false")] bool? autoStart = null,
@@ -735,7 +738,7 @@ namespace Automation.McpServer
         [McpServerTool(Name = "delete_procs"), Description(
             "批量删除流程。两阶段操作：预演阶段省略 previewId；提交阶段传入预演返回的 previewId。禁止传字符串 null/undefined。"
             + "删除会改变流程索引，正式提交要求全部流程均为Stopped。存在非Stopped流程时不得调用stop_proc，必须告知用户并等待操作员停止全部流程；状态未改变前禁止重复提交。"
-            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
+            + "自动批准模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
         public static async Task<string> DeleteProcs(
             [Description("待删除流程索引数组")] int[] procIndexes,
             [Description("提交阶段必填：预演阶段返回的 previewId；预演阶段请省略本参数，不要传字符串 null/undefined")] string? previewId = null)
@@ -749,7 +752,7 @@ namespace Automation.McpServer
         [McpServerTool(Name = "reorder_proc"), Description(
             "重排流程位置。两阶段操作：预演阶段省略 previewId；提交阶段传入预演返回的 previewId。禁止传字符串 null/undefined。"
             + "targetIndex 是移动后的最终索引。重排会改变流程索引，正式提交要求全部流程均为Stopped；AI不得调用stop_proc，必须等待操作员停止全部流程。"
-            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
+            + "自动批准模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
         public static async Task<string> ReorderProc(
             [Description("待移动的流程索引")] int procIndex,
             [Description("移动后的最终索引")] int targetIndex,
@@ -764,7 +767,7 @@ namespace Automation.McpServer
         [McpServerTool(Name = "copy_proc"), Description(
             "复制现有流程为新流程（含全部步骤和指令）。两阶段操作：预演阶段省略 previewId；提交阶段传入预演返回的 previewId。禁止传字符串 null/undefined。"
             + "适合基于现有流程改造。newName 为空时自动追加 _副本。"
-            + "完全权限模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
+            + "自动批准模式下预演会自动确认，AI 拿到 previewId 后直接再调本工具并传入 previewId 即可提交。")]
         public static async Task<string> CopyProc(
             [Description("源流程索引")] int procIndex,
             [Description("新流程名称，为空自动追加 _副本")] string? newName = null,
@@ -1137,7 +1140,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_migration_configuration"), Description(
-            "迁移能力包的配置快照读取入口。domain为motion_io、io_debug、plc或communication；返回definition，结构与对应preview工具的definition参数一致，可直接修改后预演。")]
+            "完全权限下的配置快照读取入口。domain为motion_io、io_debug、plc或communication；返回definition，结构与对应preview工具的definition参数一致，可直接修改后预演。")]
         public static async Task<string> GetMigrationConfiguration(
             [Description("配置领域：motion_io/io_debug/plc/communication")] string domain)
         {
@@ -1148,7 +1151,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_motion_io_configuration"), Description(
-            "预演控制卡、轴与IO映射的完整目标配置。这些对象存在索引耦合，因此同一事务保存；仅迁移能力包开放。")]
+            "预演控制卡、轴与IO映射的完整目标配置。这些对象存在索引耦合，因此同一事务保存；仅完全权限开放。")]
         public static async Task<string> PreviewMotionIoConfiguration(
             [Description("控制卡和IO映射的完整目标配置")] MotionIoMigrationDefinition definition)
         {
@@ -1160,7 +1163,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_io_debug_configuration"), Description(
-            "预演IO调试界面的输入、输出和三组关联显示配置。所有名称必须引用现有IO；仅迁移能力包开放。")]
+            "预演IO调试界面的输入、输出和三组关联显示配置。所有名称必须引用现有IO；仅完全权限开放。")]
         public static async Task<string> PreviewIoDebugConfiguration(
             [Description("IO调试显示和关联配置")] IoDebugMigrationDefinition definition)
         {
@@ -1172,7 +1175,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_plc_configuration"), Description(
-            "预演PLC设备及其映射的完整目标配置。映射变量必须已存在；仅迁移能力包开放。")]
+            "预演PLC设备及其映射的完整目标配置。映射变量必须已存在；仅完全权限开放。")]
         public static async Task<string> PreviewPlcConfiguration(
             [Description("PLC设备和地址映射配置")] PlcMigrationDefinition definition)
         {
@@ -1184,7 +1187,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_communication_configuration"), Description(
-            "预演TCP与串口的完整目标配置，两份配置同一事务保存；仅迁移能力包开放。")]
+            "预演TCP与串口的完整目标配置，两份配置同一事务保存；仅完全权限开放。")]
         public static async Task<string> PreviewCommunicationConfiguration(
             [Description("TCP和串口配置")] CommunicationMigrationDefinition definition)
         {
@@ -1196,7 +1199,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "apply_migration_configuration"), Description(
-            "提交一个已由前台确认的冻结迁移配置预演，只接收previewId。迁移能力开关不等于自动确认。")]
+            "提交一个已由前台确认的冻结配置预演，只接收previewId。完全权限开关不等于自动批准。")]
         public static async Task<string> ApplyMigrationConfiguration(
             [Description("迁移配置预演返回的32位previewId")] string previewId)
         {

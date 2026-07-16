@@ -25,7 +25,7 @@ namespace Automation
 
         public int MaxOutputTokens { get; set; }
 
-        public bool FullPermissionMode { get; set; }
+        public bool AutoApproveMode { get; set; }
 
         public string ToolProfile { get; set; }
     }
@@ -54,7 +54,8 @@ namespace Automation
         public const string ModelKey = "Model";
         public const string MaxTurnsKey = "MaxTurns";
         public const string MaxOutputTokensKey = "MaxOutputTokens";
-        public const string FullPermissionModeKey = "FullPermissionMode";
+        public const string AutoApproveModeKey = "AutoApproveMode";
+        private const string LegacyFullPermissionModeKey = "FullPermissionMode";
         public const string ToolProfileKey = "ToolProfile";
         public const string DefaultToolProfile = "Diagnostic";
         public const int DefaultMaxTurns = 100;
@@ -104,7 +105,10 @@ namespace Automation
                     Model = ReadRequiredString(obj, ModelKey),
                     MaxTurns = ReadRequiredInt(obj, MaxTurnsKey),
                     MaxOutputTokens = ReadOptionalInt(obj, MaxOutputTokensKey, DefaultMaxOutputTokens),
-                    FullPermissionMode = ReadOptionalBool(obj, FullPermissionModeKey, false),
+                    AutoApproveMode = ReadOptionalBool(
+                        obj,
+                        AutoApproveModeKey,
+                        ReadOptionalBool(obj, LegacyFullPermissionModeKey, false)),
                     ToolProfile = ReadToolProfile(obj)
                 };
 
@@ -115,7 +119,9 @@ namespace Automation
                 }
 
                 bool configMigrated = !obj.TryGetValue(
-                    MaxOutputTokensKey, StringComparison.Ordinal, out _);
+                    MaxOutputTokensKey, StringComparison.Ordinal, out _)
+                    || !obj.TryGetValue(AutoApproveModeKey, StringComparison.Ordinal, out _)
+                    || obj.TryGetValue(LegacyFullPermissionModeKey, StringComparison.Ordinal, out _);
                 // DeepSeek 已发布 V4-Pro/V4-Flash，并将在 2026-07-24 停用旧模型标识。
                 // 项目原先默认使用旧标识，统一迁移到面向复杂代理任务的 V4-Pro。
                 if (string.Equals(config.Provider, "deepseek", StringComparison.OrdinalIgnoreCase)
@@ -187,7 +193,7 @@ namespace Automation
                 [ModelKey] = config.Model,
                 [MaxTurnsKey] = config.MaxTurns,
                 [MaxOutputTokensKey] = config.MaxOutputTokens,
-                [FullPermissionModeKey] = config.FullPermissionMode,
+                [AutoApproveModeKey] = config.AutoApproveMode,
                 [ToolProfileKey] = config.ToolProfile
             };
 
@@ -215,7 +221,7 @@ namespace Automation
             }
 
             config.ToolProfile = DefaultToolProfile;
-            config.FullPermissionMode = false;
+            config.AutoApproveMode = false;
             if (!TrySave(config, out error))
             {
                 startupSafetyError = "EW-AI 启动安全默认值保存失败:" + error;
@@ -239,7 +245,7 @@ namespace Automation
                 Model = DefaultModel,
                 MaxTurns = DefaultMaxTurns,
                 MaxOutputTokens = DefaultMaxOutputTokens,
-                FullPermissionMode = false,
+                AutoApproveMode = false,
                 ToolProfile = DefaultToolProfile
             };
         }
@@ -439,7 +445,7 @@ namespace Automation
                 Model = config.Model,
                 MaxTurns = config.MaxTurns,
                 MaxOutputTokens = config.MaxOutputTokens,
-                FullPermissionMode = config.FullPermissionMode,
+                AutoApproveMode = config.AutoApproveMode,
                 ToolProfile = config.ToolProfile
             };
         }

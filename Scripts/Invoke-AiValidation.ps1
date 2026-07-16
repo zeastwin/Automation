@@ -138,12 +138,17 @@ function Remove-EmptyStagingRoot {
 }
 
 $candidate = $null
-$validationPassed = $false
+$debugFingerprint = $null
+$projectItemsVerified = $false
+$compiled = $false
+$validationError = $null
+$cleanupErrors = New-Object System.Collections.Generic.List[string]
 Push-Location $repoRoot
 try {
     $debugFingerprint = Get-FileFingerprint -Path $debugExe
     Write-Host 'Stage 1/2: verify HMI files are included by Automation.csproj'
     Assert-HmiProjectItems
+    $projectItemsVerified = $true
     New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
     Remove-StagingDirectory -Path (Join-Path $stagingRoot 'current')
     Remove-StagingDirectory -Path (Join-Path $stagingRoot 'last-known-good')
@@ -163,21 +168,76 @@ try {
         "/p:BaseIntermediateOutputPath=$intermediateOut",
         "/p:MSBuildProjectExtensionsPath=$intermediateOut"
     )
+    $compiled = $true
     Assert-DebugUnchanged -ExpectedFingerprint $debugFingerprint
-
-    Assert-DebugUnchanged -ExpectedFingerprint $debugFingerprint
-    $validationPassed = $true
+}
+catch {
+    $validationError = $_.Exception
 }
 finally {
     Pop-Location
-    if (-not [string]::IsNullOrWhiteSpace($candidate)) {
-        Remove-StagingDirectory -Path $candidate
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+            Remove-StagingDirectory -Path $candidate
+        }
     }
-    Remove-LegacyIntermediateDirectory
-    Remove-EmptyStagingRoot
+    catch {
+        $cleanupErrors.Add($_.Exception.Message)
+    }
+    try {
+        Remove-LegacyIntermediateDirectory
+    }
+    catch {
+        $cleanupErrors.Add($_.Exception.Message)
+    }
+    try {
+        Remove-EmptyStagingRoot
+    }
+    catch {
+        $cleanupErrors.Add($_.Exception.Message)
+    }
 }
 
-if ($validationPassed) {
-    Write-Host 'HMI compile validation passed; no candidate code was executed and temporary outputs were removed.'
-    Write-Host 'bin\Debug\Automation.exe is unchanged.'
+$debugUnchanged = $debugFingerprint -ne $null -and (Get-FileFingerprint -Path $debugExe) -eq $debugFingerprint
+$temporaryOutputsRemoved = ([string]::IsNullOrWhiteSpace($candidate) -or -not (Test-Path -LiteralPath $candidate)) `
+    -and -not (Test-Path -LiteralPath $legacyIntermediateRoot)
+
+if ($validationError -ne $null -or $cleanupErrors.Count -gt 0 -or -not $debugUnchanged -or -not $temporaryOutputsRemoved) {
+    $messages = New-Object System.Collections.Generic.List[string]
+    if ($validationError -ne $null) {
+        $messages.Add($validationError.Message)
+    }
+    foreach ($cleanupError in $cleanupErrors) {
+        $messages.Add("cleanup: $cleanupError")
+    }
+    if (-not $debugUnchanged) {
+        $messages.Add('bin\Debug\Automation.exe changed during validation.')
+    }
+    if (-not $temporaryOutputsRemoved) {
+        $messages.Add('Temporary validation outputs were not fully removed.')
+    }
+    [ordered]@{
+        ok = $false
+        type = 'hmi.compile_validation'
+        errorCode = 'HMI_COMPILE_VALIDATION_FAILED'
+        message = $messages -join ' '
+        compileOnly = $true
+        projectItemsVerified = $projectItemsVerified
+        compiled = $compiled
+        candidateCodeExecuted = $false
+        debugUnchanged = $debugUnchanged
+        temporaryOutputsRemoved = $temporaryOutputsRemoved
+    } | ConvertTo-Json -Compress
+    exit 1
 }
+
+[ordered]@{
+    ok = $true
+    type = 'hmi.compile_validation'
+    compileOnly = $true
+    projectItemsVerified = $true
+    compiled = $true
+    candidateCodeExecuted = $false
+    debugUnchanged = $true
+    temporaryOutputsRemoved = $true
+} | ConvertTo-Json -Compress

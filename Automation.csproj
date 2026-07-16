@@ -68,6 +68,21 @@
     <Compile Include="Hmi\ProductionStatusCard.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="Hmi\KpiCardControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\TrendChartControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\ShiftTableControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\DowntimePanelControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\RuntimeSummaryPanel.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Runtime\AiConversationStorage.cs" />
     <Compile Include="Runtime\AiStandardTestSuite.cs" />
     <Compile Include="Runtime\AttachmentTextExtractor.cs" />

@@ -17,7 +17,6 @@ namespace Automation.Hmi
         {
             this.homeRoot = new System.Windows.Forms.Panel();
             this.workspacePanel = new System.Windows.Forms.Panel();
-            this.analogClock = new Automation.Hmi.AnalogClock();
             this.sidebarPanel = new System.Windows.Forms.Panel();
             this.sidebarLayout = new System.Windows.Forms.TableLayoutPanel();
             this.statisticsSection = new System.Windows.Forms.TableLayoutPanel();
@@ -65,21 +64,11 @@ namespace Automation.Hmi
             // workspacePanel
             //
             this.workspacePanel.BackColor = System.Drawing.Color.White;
-            this.workspacePanel.Controls.Add(this.analogClock);
             this.workspacePanel.Dock = System.Windows.Forms.DockStyle.Fill;
             this.workspacePanel.Location = new System.Drawing.Point(370, 0);
             this.workspacePanel.Name = "workspacePanel";
             this.workspacePanel.Size = new System.Drawing.Size(830, 656);
             this.workspacePanel.TabIndex = 1;
-            //
-            // analogClock
-            //
-            this.analogClock.Anchor = System.Windows.Forms.AnchorStyles.None;
-            this.analogClock.BackColor = System.Drawing.Color.White;
-            this.analogClock.Location = new System.Drawing.Point(215, 128);
-            this.analogClock.Name = "analogClock";
-            this.analogClock.Size = new System.Drawing.Size(400, 400);
-            this.analogClock.TabIndex = 0;
             //
             // sidebarPanel
             //
@@ -308,7 +297,6 @@ namespace Automation.Hmi
 
         private System.Windows.Forms.Panel homeRoot;
         private System.Windows.Forms.Panel workspacePanel;
-        private Automation.Hmi.AnalogClock analogClock;
         private System.Windows.Forms.Panel sidebarPanel;
         private System.Windows.Forms.TableLayoutPanel sidebarLayout;
         private System.Windows.Forms.TableLayoutPanel statisticsSection;

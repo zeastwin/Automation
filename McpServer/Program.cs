@@ -79,19 +79,19 @@ namespace Automation.McpServer
                 transport = "streamable-http",
                 stateless = true,
                 toolProfile = toolRegistry.Profile,
-                migrationEnabled = toolRegistry.MigrationEnabled,
+                fullPermissionEnabled = toolRegistry.FullPermissionEnabled,
                 toolCount = toolRegistry.GetTools().Count
             }));
             app.MapPost("/tool-profile", (ToolProfileRequest request) =>
             {
                 try
                 {
-                    toolRegistry.SetConfiguration(request.Profile, request.MigrationEnabled);
+                    toolRegistry.SetConfiguration(request.Profile, request.FullPermissionEnabled);
                     return Results.Json(new
                     {
                         ok = true,
                         toolProfile = toolRegistry.Profile,
-                        migrationEnabled = toolRegistry.MigrationEnabled,
+                        fullPermissionEnabled = toolRegistry.FullPermissionEnabled,
                         toolCount = toolRegistry.GetTools().Count
                     });
                 }
@@ -323,9 +323,9 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException("Diagnostic Profile 工具边界错误。");
             }
-            string[] migrationNames = McpToolProfile.CreateTools("Editor", true)
+            string[] fullPermissionNames = McpToolProfile.CreateTools("Editor", true)
                 .Select(tool => tool.ProtocolTool.Name).ToArray();
-            string[] expectedMigrationTools =
+            string[] expectedFullPermissionTools =
             {
                 "get_migration_configuration",
                 "preview_motion_io_configuration", "preview_io_debug_configuration",
@@ -333,17 +333,17 @@ namespace Automation.McpServer
                 "apply_migration_configuration", "discard_migration_configuration",
                 "validate_platform_configuration"
             };
-            string? migrationExposedByDefault = expectedMigrationTools.FirstOrDefault(name =>
+            string? fullPermissionExposedByDefault = expectedFullPermissionTools.FirstOrDefault(name =>
                 names.Contains(name, StringComparer.Ordinal));
-            if (migrationExposedByDefault != null)
+            if (fullPermissionExposedByDefault != null)
             {
-                throw new InvalidOperationException($"Editor默认模式意外暴露迁移工具：{migrationExposedByDefault}");
+                throw new InvalidOperationException($"Editor默认模式意外暴露完全权限工具：{fullPermissionExposedByDefault}");
             }
-            string? migrationMissing = expectedMigrationTools.FirstOrDefault(name =>
-                !migrationNames.Contains(name, StringComparer.Ordinal));
-            if (migrationMissing != null)
+            string? fullPermissionMissing = expectedFullPermissionTools.FirstOrDefault(name =>
+                !fullPermissionNames.Contains(name, StringComparer.Ordinal));
+            if (fullPermissionMissing != null)
             {
-                throw new InvalidOperationException($"Editor迁移能力包缺少工具：{migrationMissing}");
+                throw new InvalidOperationException($"Editor完全权限缺少工具：{fullPermissionMissing}");
             }
             var migrationSchemaTerms = new Dictionary<string, string[]>(StringComparer.Ordinal)
             {
@@ -365,7 +365,7 @@ namespace Automation.McpServer
                     !schema.Contains(term, StringComparison.Ordinal));
                 if (missingTerm != null)
                 {
-                    throw new InvalidOperationException($"迁移工具{contract.Key}缺少强类型字段：{missingTerm}");
+                    throw new InvalidOperationException($"完全权限工具{contract.Key}缺少强类型字段：{missingTerm}");
                 }
             }
             string invalidDeletion = AiChangeSetCatalog.Validate(new AiChangeSet
@@ -567,7 +567,7 @@ namespace Automation.McpServer
     {
         public string Profile { get; set; } = string.Empty;
 
-        public bool MigrationEnabled { get; set; }
+        public bool FullPermissionEnabled { get; set; }
     }
 
     internal sealed class McpTrayContext : ApplicationContext

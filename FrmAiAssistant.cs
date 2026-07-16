@@ -90,8 +90,8 @@ namespace Automation
         private bool sending;
         private bool standardTestRunning;
         private bool standardTestStopRequested;
-        private bool fullPermissionMode = false;
-        private bool migrationToolsEnabled;
+        private bool autoApproveMode = false;
+        private bool fullPermissionEnabled;
         private const int MaxFileAttachmentCount = 4;
         private const long MaxFileAttachmentBytes = 10L * 1024L * 1024L;
         private readonly List<GooseFileAttachment> pendingFileAttachments = new List<GooseFileAttachment>();
@@ -111,7 +111,7 @@ namespace Automation
 
         // Bridge 服务在生成预演记录时读取此属性，若为 true 则直接标记预演为已确认，
         // 避免 TryPromptPreviewConfirmation 通过 HTTP 回调 Bridge 确认导致 UI 线程死锁。
-        public bool IsFullPermissionMode => fullPermissionMode;
+        public bool IsAutoApproveMode => autoApproveMode;
 
         public FrmAiAssistant()
         {
@@ -235,6 +235,7 @@ body{
 .scrollable::-webkit-scrollbar-track,.thinking-box::-webkit-scrollbar-track{background:#eef2f7;}
 .app-shell{height:100%;display:flex;flex-direction:column;background:#f5f7fb;}
 .topbar{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;background:rgba(255,255,255,.92);border-bottom:1px solid #e5ebf3;}
+.topbar-left{display:flex;align-items:center;min-width:0;}
 .brand{display:flex;align-items:center;gap:10px;min-width:0;}
 .brand-mark{width:30px;height:30px;border-radius:8px;background:#172033;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;letter-spacing:.2px;}
 .brand-title{font-weight:650;color:#172033;line-height:1.1;}
@@ -251,15 +252,16 @@ body{
 .icon-button svg{width:17px;height:17px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;}
 .icon-button:hover{background:#eef3f9;color:#1f5f99;}
 .icon-button:disabled{opacity:.42;cursor:default;}
-.home-button{width:34px;height:34px;border:1px solid #dbe5ef;border-radius:11px;background:linear-gradient(145deg,#fff,#edf4fb);color:#49647e;box-shadow:0 2px 7px rgba(42,78,112,.10);}
-.home-button svg{width:18px;height:18px;}
-.home-button:hover{border-color:#b9cee1;background:linear-gradient(145deg,#fff,#e3f0fb);color:#22679f;box-shadow:0 3px 9px rgba(42,100,150,.15);}
-.home-button.active{border-color:#9fc3df;background:linear-gradient(145deg,#eaf6ff,#dcefff);color:#175f97;box-shadow:inset 0 0 0 1px rgba(255,255,255,.75),0 2px 8px rgba(42,105,155,.16);}
+.home-button{width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:#66717f;box-shadow:none;padding:2px;}
+.home-button svg{width:25px;height:25px;stroke-width:1.6;}
+.home-button.active{background:#f1f3f6;color:#596675;}
+.home-button:hover,.home-button.active:hover{background:#eaf3fa;color:#246b9f;}
+.home-divider{width:1px;height:20px;margin:0 10px 0 14px;background:#dfe5ec;flex:0 0 1px;}
 .topbar-button{height:30px;border:1px solid #d6e0eb;background:#fff;box-shadow:0 1px 2px rgba(30,64,100,.06);}
 .toolbar-option.topbar-button:hover,.icon-button.topbar-button:hover{border-color:#b9cbe0;background:#f4f8fc;color:#195e9d;}
 .topbar-icon-button{width:32px;padding:0;}
 #deleteSessionButton.topbar-button:hover{border-color:#e9beb9;background:#fff4f3;color:#b13b32;}
-#migrationToolsButton.active{border-color:#df9b46;background:#fff4e6;color:#9a4f00;box-shadow:0 0 0 2px rgba(223,155,70,.12);}
+#fullPermissionButton.active{border-color:#df9b46;background:#fff4e6;color:#9a4f00;box-shadow:0 0 0 2px rgba(223,155,70,.12);}
 .chat-area{flex:1;min-height:0;overflow-y:auto;}
 #messages{
     max-width:1120px;
@@ -749,7 +751,7 @@ function collectConfig(){
         maxTurns:parseInt(byId('cfgTurns').value||'1',10),
         maxOutputTokens:parseInt(byId('cfgOutputTokens').value||'8192',10),
         toolProfile:(appState.config||{}).toolProfile||'Diagnostic',
-        fullPermissionMode:!!(appState.config||{}).fullPermissionMode
+        autoApproveMode:!!(appState.config||{}).autoApproveMode
     };
 }
 function fillConfig(){
@@ -770,26 +772,26 @@ function refreshToolbar(){
     var profile=c.toolProfile||'Diagnostic';
     byId('toolDiagnostic').classList.toggle('active',profile==='Diagnostic');
     byId('toolEditor').classList.toggle('active',profile==='Editor');
-    byId('migrationToolsButton').classList.toggle('active',!!c.migrationToolsEnabled);
-    byId('migrationToolsButton').setAttribute('aria-pressed',c.migrationToolsEnabled?'true':'false');
-    byId('fullPermissionButton').classList.toggle('active',!!c.fullPermissionMode);
-    byId('fullPermissionButton').setAttribute('aria-pressed',c.fullPermissionMode?'true':'false');
+    byId('fullPermissionButton').classList.toggle('active',!!c.fullPermissionEnabled);
+    byId('fullPermissionButton').setAttribute('aria-pressed',c.fullPermissionEnabled?'true':'false');
+    byId('autoApproveButton').classList.toggle('active',!!c.autoApproveMode);
+    byId('autoApproveButton').setAttribute('aria-pressed',c.autoApproveMode?'true':'false');
     var lock=!appState.canEditConfig||appState.sending||quickSettingPending;
-    ['toolDiagnostic','toolEditor','fullPermissionButton'].forEach(function(id){byId(id).disabled=lock;});
-    byId('migrationToolsButton').disabled=lock||profile!=='Editor';
+    ['toolDiagnostic','toolEditor','autoApproveButton'].forEach(function(id){byId(id).disabled=lock;});
+    byId('fullPermissionButton').disabled=lock||profile!=='Editor';
 }
 function setToolProfile(profile){
     if(quickSettingPending||appState.sending||(appState.config||{}).toolProfile===profile){return;}
     quickSettingPending=true;appState.config.toolProfile=profile;refreshToolbar();post('setToolProfile',{profile:profile});
 }
-function toggleMigrationTools(){
+function toggleFullPermission(){
     var c=appState.config||{};
     if(quickSettingPending||appState.sending||(c.toolProfile||'Diagnostic')!=='Editor'){return;}
-    quickSettingPending=true;c.migrationToolsEnabled=!c.migrationToolsEnabled;refreshToolbar();post('setMigrationTools',{enabled:!!c.migrationToolsEnabled});
+    quickSettingPending=true;c.fullPermissionEnabled=!c.fullPermissionEnabled;refreshToolbar();post('setFullPermission',{enabled:!!c.fullPermissionEnabled});
 }
-function toggleFullPermission(){
+function toggleAutoApprove(){
     if(quickSettingPending||appState.sending){return;}
-    quickSettingPending=true;appState.config.fullPermissionMode=!appState.config.fullPermissionMode;refreshToolbar();post('setFullPermission',{enabled:!!appState.config.fullPermissionMode});
+    quickSettingPending=true;appState.config.autoApproveMode=!appState.config.autoApproveMode;refreshToolbar();post('setAutoApprove',{enabled:!!appState.config.autoApproveMode});
 }
 function automationSetState(state){
     appState=state||appState;
@@ -992,8 +994,8 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('standardTestButton').addEventListener('click',openStandardTests);
     byId('toolDiagnostic').addEventListener('click',function(){setToolProfile('Diagnostic');});
     byId('toolEditor').addEventListener('click',function(){setToolProfile('Editor');});
-    byId('migrationToolsButton').addEventListener('click',toggleMigrationTools);
     byId('fullPermissionButton').addEventListener('click',toggleFullPermission);
+    byId('autoApproveButton').addEventListener('click',toggleAutoApprove);
     byId('resetButton').addEventListener('click',function(){post('reset');});
     byId('newSessionButton').addEventListener('click',function(){post('showTaskHome');});
     byId('deleteSessionButton').addEventListener('click',function(){
@@ -1034,14 +1036,13 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 <body>
 <div class=""app-shell"">
   <header class=""topbar"">
-    <div class=""brand""><div class=""brand-mark"">EW</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div>
+    <div class=""topbar-left""><div class=""brand""><div class=""brand-mark"">EW</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div><span class=""home-divider"" aria-hidden=""true""></span><button class=""icon-button home-button"" id=""newSessionButton"" title=""任务主页"" aria-label=""任务主页"" aria-pressed=""false""><svg viewBox=""0 0 24 24"" aria-hidden=""true""><path d=""M3.5 11.2 12 4l8.5 7.2""/><path d=""M5.8 10.2v9.3h12.4v-9.3""/><path d=""M9.3 19.5v-5.7h5.4v5.7""/></svg></button></div>
     <div class=""top-actions"">
-      <button class=""icon-button home-button"" id=""newSessionButton"" title=""任务主页"" aria-label=""任务主页"" aria-pressed=""false""><svg viewBox=""0 0 24 24"" aria-hidden=""true""><path d=""M3 11.5 12 4l9 7.5""/><path d=""M5.5 10.5V20h13v-9.5""/><path d=""M9.5 20v-6h5v6""/></svg></button>
       <button class=""toolbar-option topbar-button"" id=""standardTestButton"" title=""选择并连续运行标准测试场景"">标准测试</button>
-      <button class=""toolbar-option topbar-button"" id=""migrationToolsButton"" aria-pressed=""false"" title=""按需加载平台迁移配置工具"">迁移</button>
+      <button class=""toolbar-option topbar-button"" id=""fullPermissionButton"" aria-pressed=""false"" title=""加载控制卡、IO、PLC、通讯及平台配置等完整工程工具"">完全权限</button>
       <button class=""icon-button topbar-button topbar-icon-button"" id=""deleteSessionButton"" title=""删除当前对话"" aria-label=""删除当前对话""><svg viewBox=""0 0 24 24""><path d=""M4 7h16""/><path d=""M9 7V4h6v3""/><path d=""M7 7l1 13h8l1-13""/><path d=""M10 11v5""/><path d=""M14 11v5""/></svg></button>
       <div class=""tool-mode"" role=""group"" aria-label=""AI工具模式""><button class=""toolbar-option"" id=""toolDiagnostic"" title=""只读查询和流程诊断"">诊断</button><button class=""toolbar-option"" id=""toolEditor"" title=""读取、诊断、配置编辑和运行控制"">编辑</button></div>
-      <button class=""permission-toggle"" id=""fullPermissionButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演；代码访问范围仍限制为 Hmi 目录"">完全权限</button>
+      <button class=""permission-toggle"" id=""autoApproveButton"" aria-pressed=""false"" title=""开启后自动批准工具调用和预演确认，请谨慎操作"">自动批准</button>
       <button class=""icon-button"" id=""resetButton"" title=""重置会话"" aria-label=""重置会话""><svg viewBox=""0 0 24 24""><path d=""M3 12a9 9 0 1 0 3-6.7""/><path d=""M3 4v6h6""/></svg></button>
       <button class=""icon-button"" id=""configButton"" title=""配置"" aria-label=""配置""><svg viewBox=""0 0 24 24""><path d=""M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z""/><path d=""M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z""/></svg></button>
     </div>
@@ -1052,7 +1053,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 <div class=""modal-backdrop"" id=""testOverlay"">
   <section class=""config-modal"" style=""width:min(680px,96vw)"">
     <div class=""modal-head""><div><div class=""modal-title"">标准测试</div><div class=""modal-desc"">选择场景后将按真实聊天链路逐轮发送，仍遵守当前权限与预演确认。</div></div><button class=""icon-button"" id=""closeTests"" title=""关闭""><svg viewBox=""0 0 24 24""><path d=""M18 6 6 18""/><path d=""M6 6l12 12""/></svg></button></div>
-    <div class=""modal-body scrollable""><div class=""test-list"" id=""testList""></div><div class=""test-options""><label><input type=""checkbox"" id=""separateTestConversations"" checked> 每个场景使用独立新对话</label>这些测试可能创建或修改流程配置。未开启完全权限时，仍需人工确认每次预演。</div></div>
+    <div class=""modal-body scrollable""><div class=""test-list"" id=""testList""></div><div class=""test-options""><label><input type=""checkbox"" id=""separateTestConversations"" checked> 每个场景使用独立新对话</label>这些测试可能创建或修改流程配置。未开启自动批准时，仍需人工确认每次预演。</div></div>
     <div class=""modal-foot""><div></div><div class=""foot-right""><button class=""text-button"" id=""cancelTests"">取消</button><button class=""primary-button"" id=""runTests"">开始测试</button></div></div>
   </section>
 </div>
@@ -1466,7 +1467,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
                 Math.Min(nudMaxOutputTokens.Maximum, config.MaxOutputTokens));
             toolProfile = config.ToolProfile;
-            fullPermissionMode = config.FullPermissionMode;
+            if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
+            {
+                fullPermissionEnabled = false;
+            }
+            autoApproveMode = config.AutoApproveMode;
             // 保存界面当前实际采用的配置。配置文件首次缺失或损坏时缓存可能为空，
             // 模式/权限切换必须与这份快照比较，不能因此误判为需要重建 Goose 会话。
             appliedConfig = CloneGooseConfig(config);
@@ -1570,18 +1575,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     toolProfile = requestedProfile;
                     if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
                     {
-                        migrationToolsEnabled = false;
+                        fullPermissionEnabled = false;
                     }
                     SaveWebConfig(requestedProfile == "Diagnostic" ? "已切换到诊断模式。" : "已切换到编辑模式。", false);
-                    break;
-                case "setMigrationTools":
-                    if (sending)
-                    {
-                        PushWebAppState();
-                        break;
-                    }
-                    await SetMigrationToolsAsync(message["enabled"]?.Value<bool?>() == true)
-                        .ConfigureAwait(true);
                     break;
                 case "setFullPermission":
                     if (sending)
@@ -1589,8 +1585,17 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         PushWebAppState();
                         break;
                     }
-                    fullPermissionMode = message["enabled"]?.Value<bool?>() ?? false;
-                    SaveWebConfig(fullPermissionMode ? "完全权限已开启，请谨慎操作。" : "完全权限已关闭。", false);
+                    await SetFullPermissionToolsAsync(message["enabled"]?.Value<bool?>() == true)
+                        .ConfigureAwait(true);
+                    break;
+                case "setAutoApprove":
+                    if (sending)
+                    {
+                        PushWebAppState();
+                        break;
+                    }
+                    autoApproveMode = message["enabled"]?.Value<bool?>() ?? false;
+                    SaveWebConfig(autoApproveMode ? "自动批准已开启，请谨慎操作。" : "自动批准已关闭。", false);
                     break;
                 case "providerChanged":
                     ApplyWebConfig(message["config"] as JObject);
@@ -1664,8 +1669,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     ["maxTurns"] = (int)nudMaxTurns.Value,
                     ["maxOutputTokens"] = (int)nudMaxOutputTokens.Value,
                     ["toolProfile"] = toolProfile,
-                    ["migrationToolsEnabled"] = migrationToolsEnabled,
-                    ["fullPermissionMode"] = fullPermissionMode
+                    ["fullPermissionEnabled"] = fullPermissionEnabled,
+                    ["autoApproveMode"] = autoApproveMode
                 },
                 ["providerOptions"] = BuildComboOptions(cboProvider, providerText),
                 ["modelOptions"] = BuildComboOptions(cboModel, modelText),
@@ -1749,7 +1754,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
                 Math.Min(nudMaxOutputTokens.Maximum, maxOutputTokens));
             toolProfile = config["toolProfile"]?.Value<string>() ?? GooseConfigStorage.DefaultToolProfile;
-            fullPermissionMode = config["fullPermissionMode"]?.Value<bool?>() ?? false;
+            autoApproveMode = config["autoApproveMode"]?.Value<bool?>() ?? false;
         }
 
         private async void SaveWebConfig(string successMessage = null, bool closeConfigAfterSave = true)
@@ -1764,7 +1769,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 if (oldConfig != null)
                 {
                     toolProfile = oldConfig.ToolProfile;
-                    fullPermissionMode = oldConfig.FullPermissionMode;
+                    autoApproveMode = oldConfig.AutoApproveMode;
                 }
                 ShowWebToast("配置无效：" + error);
                 PushWebAppState();
@@ -1779,8 +1784,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 || !string.Equals(oldConfig.Provider, config.Provider, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.Model, config.Model, StringComparison.Ordinal)
                 || oldConfig.MaxTurns != config.MaxTurns
-                || oldConfig.MaxOutputTokens != config.MaxOutputTokens
-                || oldConfig.FullPermissionMode != config.FullPermissionMode;
+                || oldConfig.MaxOutputTokens != config.MaxOutputTokens;
             bool uriChanged = oldConfig == null
                 || !string.Equals(oldConfig.McpUri, config.McpUri, StringComparison.Ordinal);
             bool profileChanged = oldConfig == null
@@ -1805,14 +1809,14 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                             .ConfigureAwait(true);
                         await AutomationMcpServerManager.SetToolProfileAsync(
                             config.McpUri, config.ToolProfile,
-                            migrationToolsEnabled && string.Equals(
+                            fullPermissionEnabled && string.Equals(
                                 config.ToolProfile, "Editor", StringComparison.Ordinal)).ConfigureAwait(true);
                     }
                     else
                     {
                         await AutomationMcpServerManager.SetToolProfileAsync(
                             config.McpUri, config.ToolProfile,
-                            migrationToolsEnabled && string.Equals(
+                            fullPermissionEnabled && string.Equals(
                                 config.ToolProfile, "Editor", StringComparison.Ordinal))
                             .ConfigureAwait(true);
                     }
@@ -1843,7 +1847,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                             // 保留原始切换异常；当前会话仍保留，用户可修复 Goose 版本或 MCP 状态后重试。
                         }
                         toolProfile = oldConfig.ToolProfile;
-                        fullPermissionMode = oldConfig.FullPermissionMode;
+                        autoApproveMode = oldConfig.AutoApproveMode;
                     }
                     ShowWebToast("MCP模式切换失败:" + ex.Message);
                     PushWebAppState();
@@ -1868,7 +1872,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     {
                     }
                     toolProfile = oldConfig.ToolProfile;
-                    fullPermissionMode = oldConfig.FullPermissionMode;
+                    autoApproveMode = oldConfig.AutoApproveMode;
                 }
                 ShowWebToast("保存失败：" + error);
                 PushWebAppState();
@@ -1889,22 +1893,22 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 : successMessage ?? "配置保存成功。");
         }
 
-        private async Task SetMigrationToolsAsync(bool enabled)
+        private async Task SetFullPermissionToolsAsync(bool enabled)
         {
             if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
             {
-                migrationToolsEnabled = false;
-                ShowWebToast("请先切换到编辑模式。迁移工具未加载。");
+                fullPermissionEnabled = false;
+                ShowWebToast("请先切换到编辑模式。完全权限未开启。");
                 PushWebAppState();
                 return;
             }
-            if (migrationToolsEnabled == enabled)
+            if (fullPermissionEnabled == enabled)
             {
                 PushWebAppState();
                 return;
             }
 
-            bool previous = migrationToolsEnabled;
+            bool previous = fullPermissionEnabled;
             GooseAcpClient activeClient;
             lock (clientLock)
             {
@@ -1922,10 +1926,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 bool reloaded = activeClient != null
                     && await activeClient.ReloadAutomationExtensionAsync(mcpUri, CancellationToken.None)
                         .ConfigureAwait(true);
-                migrationToolsEnabled = enabled;
+                fullPermissionEnabled = enabled;
                 ShowWebToast(enabled
-                    ? reloaded ? "迁移工具已加载，当前对话已保留。" : "迁移工具已加载。"
-                    : reloaded ? "迁移工具已卸载，当前对话已保留。" : "迁移工具已卸载。");
+                    ? reloaded ? "完全权限已开启，当前对话已保留。" : "完全权限已开启。"
+                    : reloaded ? "完全权限已关闭，当前对话已保留。" : "完全权限已关闭。");
             }
             catch (Exception ex)
             {
@@ -1942,8 +1946,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 catch
                 {
                 }
-                migrationToolsEnabled = previous;
-                ShowWebToast("迁移工具切换失败：" + ex.Message);
+                fullPermissionEnabled = previous;
+                ShowWebToast("完全权限切换失败：" + ex.Message);
             }
             PushWebAppState();
         }
@@ -1986,7 +1990,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 MaxTurns = (int)nudMaxTurns.Value,
                 MaxOutputTokens = (int)nudMaxOutputTokens.Value,
                 ToolProfile = toolProfile,
-                FullPermissionMode = fullPermissionMode
+                AutoApproveMode = autoApproveMode
             };
 
             if (TryResolveGooseExecutablePath(config.GooseExecutablePath, out string resolvedGoosePath))
@@ -2022,7 +2026,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 MaxTurns = config.MaxTurns,
                 MaxOutputTokens = config.MaxOutputTokens,
                 ToolProfile = config.ToolProfile,
-                FullPermissionMode = config.FullPermissionMode
+                AutoApproveMode = config.AutoApproveMode
             };
         }
 
@@ -3224,9 +3228,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 return BuildPermissionCancelled();
             }
 
-            if (fullPermissionMode)
+            if (autoApproveMode)
             {
-                // 完全权限模式：把工具调用信息显示到聊天区，让用户看到批准了什么
+                // 自动批准模式：把工具调用信息显示到聊天区，让用户看到批准了什么
                 AppendConversation("系统", "✅ 自动批准：" + title, Color.FromArgb(35, 92, 48));
 
                 // 预演确认在 tool_result 事件中自动完成（TryPromptPreviewConfirmation），
@@ -4782,7 +4786,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 {
                     ["previewId"] = previewId,
                     ["decision"] = "confirmed",
-                    ["source"] = fullPermissionMode ? "full_permission_auto" : "bridge"
+                    ["source"] = autoApproveMode ? "auto_approve" : "bridge"
                 });
                 return;
             }
@@ -4796,16 +4800,16 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 ["previewId"] = previewId,
                 ["status"] = "awaiting_confirmation",
-                ["fullPermissionMode"] = fullPermissionMode
+                ["autoApproveMode"] = autoApproveMode
             });
 
-            // 完全权限模式下，预演记录已由 Bridge 直接标记为确认；无需弹窗或追加聊天消息。
-            if (fullPermissionMode)
+            // 自动批准模式下，预演记录已由 Bridge 直接标记为确认；无需弹窗或追加聊天消息。
+            if (autoApproveMode)
             {
                 gooseClient?.LogFrontendAnalysisEvent("preview.state_mismatch", new JObject
                 {
                     ["previewId"] = previewId,
-                    ["message"] = "完全权限模式下返回了未确认预演。"
+                    ["message"] = "自动批准模式下返回了未确认预演。"
                 });
                 return;
             }
@@ -5031,7 +5035,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     MaxTurns = config.MaxTurns,
                     MaxOutputTokens = config.MaxOutputTokens,
                     ToolProfile = config.ToolProfile,
-                    FullPermissionMode = config.FullPermissionMode
+                    AutoApproveMode = config.AutoApproveMode
                 };
                 using (GooseAcpClient client = new GooseAcpClient(resolvedConfig))
                 using (CancellationTokenSource cts = new CancellationTokenSource(30000))

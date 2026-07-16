@@ -2398,7 +2398,7 @@ namespace Automation.Bridge
                 ["changes"] = result.Changes,
                 ["messages"] = new JArray($"将创建流程「{name}」，包含 {draft.steps.Count} 个步骤、{operationCount} 条指令。"),
                 ["previewId"] = previewId,
-                ["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true,
+                ["confirmed"] = SF.frmAiAssistant?.IsAutoApproveMode == true,
                 ["committed"] = false
             };
         }
@@ -2591,8 +2591,8 @@ namespace Automation.Bridge
             bool supportsExplicitReplacement = false)
         {
             string previewId = Guid.NewGuid().ToString("N");
-            // 完全权限模式：直接标记预演为已确认，避免 FrmAiAssistant 通过 HTTP 回调确认导致 UI 线程死锁。
-            bool autoConfirmed = SF.frmAiAssistant?.IsFullPermissionMode == true;
+            // 自动批准模式：直接标记预演为已确认，避免 FrmAiAssistant 通过 HTTP 回调确认导致 UI 线程死锁。
+            bool autoConfirmed = SF.frmAiAssistant?.IsAutoApproveMode == true;
             lock (previewLock)
             {
                 CleanupExpiredPreviewsLocked();
@@ -4172,7 +4172,7 @@ namespace Automation.Bridge
             if (string.IsNullOrEmpty(previewId))
             {
                 JObject preview = PreviewCreateProc(request);
-                preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
+                preview["confirmed"] = SF.frmAiAssistant?.IsAutoApproveMode == true;
                 return preview;
             }
             ValidateConfirmedManagePreview(previewId);
@@ -4188,7 +4188,7 @@ namespace Automation.Bridge
             if (string.IsNullOrEmpty(previewId))
             {
                 JObject preview = PreviewDeleteProcs(request);
-                preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
+                preview["confirmed"] = SF.frmAiAssistant?.IsAutoApproveMode == true;
                 return preview;
             }
             ValidateConfirmedManagePreview(previewId);
@@ -4204,7 +4204,7 @@ namespace Automation.Bridge
             if (string.IsNullOrEmpty(previewId))
             {
                 JObject preview = PreviewReorderProc(request);
-                preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
+                preview["confirmed"] = SF.frmAiAssistant?.IsAutoApproveMode == true;
                 return preview;
             }
             ValidateConfirmedManagePreview(previewId);
@@ -4220,7 +4220,7 @@ namespace Automation.Bridge
             if (string.IsNullOrEmpty(previewId))
             {
                 JObject preview = PreviewCopyProc(request);
-                preview["confirmed"] = SF.frmAiAssistant?.IsFullPermissionMode == true;
+                preview["confirmed"] = SF.frmAiAssistant?.IsAutoApproveMode == true;
                 return preview;
             }
             ValidateConfirmedManagePreview(previewId);
@@ -7541,8 +7541,8 @@ namespace Automation.Bridge
         {
             PreviewApprovalRecord record = RegisterPreview(patch, result);
 
-            // 完全权限模式：直接标记预演为已确认，避免 FrmAiAssistant 通过 HTTP 回调确认导致 UI 线程死锁。
-            bool autoConfirmed = SF.frmAiAssistant?.IsFullPermissionMode == true;
+            // 自动批准模式：直接标记预演为已确认，避免 FrmAiAssistant 通过 HTTP 回调确认导致 UI 线程死锁。
+            bool autoConfirmed = SF.frmAiAssistant?.IsAutoApproveMode == true;
             if (autoConfirmed)
             {
                 lock (previewLock)
