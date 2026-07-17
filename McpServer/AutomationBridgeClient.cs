@@ -284,13 +284,16 @@ namespace Automation.McpServer
             string? newName,
             string? type,
             string? initialValue,
-            string? note)
+            string? note,
+            bool? applyInitialValueToRuntime)
         {
             JsonObject payload = new JsonObject { ["name"] = name };
             if (newName != null) payload["newName"] = newName;
             if (type != null) payload["type"] = type;
             if (initialValue != null) payload["initialValue"] = initialValue;
             if (note != null) payload["note"] = note;
+            if (applyInitialValueToRuntime.HasValue)
+                payload["applyInitialValueToRuntime"] = applyInitialValueToRuntime.Value;
             return PostAsync("/bridge/variable/update", payload);
         }
 

@@ -45,6 +45,8 @@
             this.btnCopy = new System.Windows.Forms.Button();
             this.btnPaste = new System.Windows.Forms.Button();
             this.btnClearData = new System.Windows.Forms.Button();
+            this.btnNormalVariables = new System.Windows.Forms.Button();
+            this.btnSystemVariables = new System.Windows.Forms.Button();
             this.splitContainerMain = new System.Windows.Forms.SplitContainer();
             this.panelCommon = new System.Windows.Forms.Panel();
             this.listCommon = new System.Windows.Forms.ListBox();
@@ -75,6 +77,8 @@
             this.panel1.Controls.Add(this.btnCopy);
             this.panel1.Controls.Add(this.btnPaste);
             this.panel1.Controls.Add(this.btnClearData);
+            this.panel1.Controls.Add(this.btnNormalVariables);
+            this.panel1.Controls.Add(this.btnSystemVariables);
             this.panel1.Controls.Add(this.btnCancel);
             this.panel1.Controls.Add(this.btnPrevious);
             this.panel1.Controls.Add(this.BtnNext);
@@ -291,6 +295,44 @@
             this.btnClearData.Text = "清除数据";
             this.btnClearData.UseVisualStyleBackColor = false;
             this.btnClearData.Click += new System.EventHandler(this.btnClearData_Click);
+            //
+            // btnNormalVariables
+            //
+            this.btnNormalVariables.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnNormalVariables.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnNormalVariables.FlatAppearance.BorderSize = 2;
+            this.btnNormalVariables.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnNormalVariables.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnNormalVariables.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnNormalVariables.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnNormalVariables.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnNormalVariables.Location = new System.Drawing.Point(1074, 6);
+            this.btnNormalVariables.Margin = new System.Windows.Forms.Padding(2);
+            this.btnNormalVariables.Name = "btnNormalVariables";
+            this.btnNormalVariables.Size = new System.Drawing.Size(110, 36);
+            this.btnNormalVariables.TabIndex = 22;
+            this.btnNormalVariables.Text = "普通变量";
+            this.btnNormalVariables.UseVisualStyleBackColor = false;
+            this.btnNormalVariables.Click += new System.EventHandler(this.btnNormalVariables_Click);
+            //
+            // btnSystemVariables
+            //
+            this.btnSystemVariables.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            this.btnSystemVariables.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnSystemVariables.FlatAppearance.BorderSize = 2;
+            this.btnSystemVariables.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
+            this.btnSystemVariables.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnSystemVariables.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnSystemVariables.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
+            this.btnSystemVariables.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnSystemVariables.Location = new System.Drawing.Point(1188, 6);
+            this.btnSystemVariables.Margin = new System.Windows.Forms.Padding(2);
+            this.btnSystemVariables.Name = "btnSystemVariables";
+            this.btnSystemVariables.Size = new System.Drawing.Size(110, 36);
+            this.btnSystemVariables.TabIndex = 23;
+            this.btnSystemVariables.Text = "系统变量";
+            this.btnSystemVariables.UseVisualStyleBackColor = false;
+            this.btnSystemVariables.Click += new System.EventHandler(this.btnSystemVariables_Click);
             // 
             // splitContainerMain
             // 
@@ -482,6 +524,8 @@
         public System.Windows.Forms.Button btnCopy;
         public System.Windows.Forms.Button btnPaste;
         public System.Windows.Forms.Button btnClearData;
+        public System.Windows.Forms.Button btnNormalVariables;
+        public System.Windows.Forms.Button btnSystemVariables;
         public System.Windows.Forms.Button btnSearch;
         public System.Windows.Forms.DataGridView dgvValue;
         private System.Windows.Forms.SplitContainer splitContainerMain;

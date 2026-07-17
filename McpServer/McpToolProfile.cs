@@ -109,6 +109,10 @@ namespace Automation.McpServer
                 {
                     ApplyStringArraySchema(tool, "topics", ProcessDesignGuideCatalog.SupportedTopics);
                 }
+                else if (string.Equals(toolName, "add_variable", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "index", 0, VariableIndexContract.MaximumNormalValueIndex);
+                }
                 tools.Add(tool);
             }
             if (tools.Count == 0)
@@ -153,6 +157,20 @@ namespace Automation.McpServer
                 itemSchema["enum"] = new JsonArray(
                     allowedValues.Select(value => JsonValue.Create(value)).ToArray());
             }
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void ApplyToolNumericRange(
+            McpServerTool tool, string propertyName, int minimum, int maximum)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            if (root?["properties"] is not JsonObject properties
+                || properties[propertyName] is not JsonObject propertySchema)
+            {
+                throw new InvalidOperationException($"{tool.ProtocolTool.Name} 参数Schema缺少字段：{propertyName}");
+            }
+            propertySchema["minimum"] = minimum;
+            propertySchema["maximum"] = maximum;
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
         }
 

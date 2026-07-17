@@ -1095,15 +1095,16 @@ namespace Automation
                 {
                     procName = $"索引{procIndex}";
                 }
-                string warnMsg = $"警告：即将删除流程【{procName}】\r\n此操作不可恢复，确认删除？";
-                DialogResult result = MessageBox.Show(
-                    this,
-                    warnMsg,
-                    "删除流程确认",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Warning,
-                    MessageBoxDefaultButton.Button2);
-                if (result != DialogResult.Yes)
+                bool confirmed = false;
+                new Message(
+                    "删除流程",
+                    $"确定删除流程【{procName}】？\r\n删除后无法恢复。",
+                    () => confirmed = true,
+                    null,
+                    "删除",
+                    "取消",
+                    true);
+                if (!confirmed)
                 {
                     return;
                 }
@@ -1143,15 +1144,16 @@ namespace Automation
                 {
                     stepName = $"索引{stepIndex}";
                 }
-                string warnMsg = $"警告：即将删除步骤【{stepName}】\r\n所属流程：【{procName}】\r\n此操作不可恢复，确认删除？";
-                DialogResult result = MessageBox.Show(
-                    this,
-                    warnMsg,
-                    "删除步骤确认",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Warning,
-                    MessageBoxDefaultButton.Button2);
-                if (result != DialogResult.Yes)
+                bool confirmed = false;
+                new Message(
+                    "删除步骤",
+                    $"确定删除步骤【{stepName}】？\r\n所属流程：【{procName}】\r\n删除后无法恢复。",
+                    () => confirmed = true,
+                    null,
+                    "删除",
+                    "取消",
+                    true);
+                if (!confirmed)
                 {
                     return;
                 }

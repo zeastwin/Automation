@@ -896,6 +896,18 @@ namespace Automation
 
                 bool exists = variables.TryGetValue(name, out DicValue existing);
                 if (exists) EnsureVariableType(existing, type, name);
+                if (exists
+                    && ValueConfigStore.IsSystemValueIndex(existing.Index)
+                    && !string.Equals(policy, "reuse", StringComparison.Ordinal)
+                    && !string.Equals(policy, "require", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"系统变量[{name}]配置对 AI 只读，只允许 reuse 或 require 策略。");
+                }
+                if (!exists && ProtectedVariables.Contains(name))
+                {
+                    throw new InvalidOperationException($"系统保留变量不存在，AI 不能创建：{name}。");
+                }
                 if (string.Equals(policy, "require", StringComparison.Ordinal))
                 {
                     if (!exists) throw new InvalidOperationException($"要求复用的变量不存在：{name}");
@@ -1473,11 +1485,12 @@ namespace Automation
         private static int FindFreeVariableIndex(Dictionary<string, DicValue> variables)
         {
             var occupied = new HashSet<int>(variables.Values.Where(value => value != null).Select(value => value.Index));
-            for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
+            for (int i = 0; i < ValueConfigStore.NormalValueCapacity; i++)
             {
                 if (!occupied.Contains(i)) return i;
             }
-            throw new InvalidOperationException($"变量表已满，容量为 {ValueConfigStore.ValueCapacity}。");
+            throw new InvalidOperationException(
+                $"普通变量区已满，容量为 {ValueConfigStore.NormalValueCapacity}。");
         }
 
         private static string RequiredName(string value, string path)

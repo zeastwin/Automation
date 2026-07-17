@@ -917,9 +917,15 @@ namespace Automation
             }
             if (SF.valueStore.TryGetValueByName(valueName, out DicValue existingValue) && existingValue != null)
             {
+                if (!ValueConfigStore.IsSystemValueIndex(existingValue.Index))
+                {
+                    FailSystemStatus(
+                        $"系统保留变量“{valueName}”必须位于索引范围 "
+                        + $"[{ValueConfigStore.SystemValueStartIndex}, {ValueConfigStore.ValueCapacity})。");
+                }
                 return false;
             }
-            for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
+            for (int i = ValueConfigStore.SystemValueStartIndex; i < ValueConfigStore.ValueCapacity; i++)
             {
                 if (SF.valueStore.TryGetValueByIndex(i, out _))
                 {
@@ -933,7 +939,8 @@ namespace Automation
                 dataRun?.Logger?.Log($"已补齐系统保留变量：{valueName}", LogLevel.Normal);
                 return true;
             }
-            FailSystemStatus($"变量表已满，无法创建系统保留变量：{valueName}");
+            FailSystemStatus(
+                $"系统变量区已满（{ValueConfigStore.SystemValueCapacity} 个槽位），无法创建系统保留变量：{valueName}");
             return false;
         }
 

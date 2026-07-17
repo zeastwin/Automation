@@ -5,13 +5,17 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
+using Automation.Protocol;
 using Newtonsoft.Json;
 
 namespace Automation
 {
     public class ValueConfigStore
     {
-        public const int ValueCapacity = 1000;
+        public const int NormalValueCapacity = VariableIndexContract.NormalValueCapacity;
+        public const int SystemValueCapacity = VariableIndexContract.SystemValueCapacity;
+        public const int SystemValueStartIndex = VariableIndexContract.SystemValueStartIndex;
+        public const int ValueCapacity = VariableIndexContract.ValueCapacity;
         private static readonly HashSet<string> ProtectedValueNames = new HashSet<string>(StringComparer.Ordinal)
         {
             "复位状态",
@@ -45,6 +49,11 @@ namespace Automation
         public static bool IsProtectedValueName(string name)
         {
             return !string.IsNullOrEmpty(name) && ProtectedValueNames.Contains(name);
+        }
+
+        public static bool IsSystemValueIndex(int index)
+        {
+            return VariableIndexContract.IsSystemIndex(index);
         }
 
         public void SetMonitorFlag(int index, bool isMonitored)
@@ -167,6 +176,11 @@ namespace Automation
                     if (index < 0 || index >= ValueCapacity)
                     {
                         continue;
+                    }
+                    if (ProtectedValueNames.Contains(item.Key) && !IsSystemValueIndex(index))
+                    {
+                        throw new InvalidDataException(
+                            $"系统保留变量[{item.Key}]必须位于索引范围 [{SystemValueStartIndex}, {ValueCapacity})。");
                     }
                     if (!string.IsNullOrEmpty(values[index].Name))
                     {
@@ -324,13 +338,29 @@ namespace Automation
         public bool TryCommitConfiguration(
             string configPath,
             IDictionary<string, DicValue> source,
-            out string error)
+            out string error,
+            IReadOnlyDictionary<string, string> runtimeValueOverrides = null,
+            string runtimeValueSource = null)
         {
             error = null;
             Dictionary<string, DicValue> snapshot;
             try
             {
                 snapshot = CreateValidatedConfigurationSnapshot(source);
+                if (runtimeValueOverrides != null)
+                {
+                    foreach (KeyValuePair<string, string> item in runtimeValueOverrides)
+                    {
+                        if (!snapshot.TryGetValue(item.Key, out DicValue variable))
+                        {
+                            throw new InvalidDataException($"运行值目标变量不存在：{item.Key}");
+                        }
+                        if (!TryValidateRuntimeValue(variable, item.Value, out string validationError))
+                        {
+                            throw new InvalidDataException(validationError);
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -339,6 +369,7 @@ namespace Automation
             }
 
             Dictionary<string, DicValue> oldConfiguration = BuildSaveData();
+            Dictionary<string, RuntimeValueState> oldRuntimeValues = CaptureRuntimeValueStates();
             if (!AtomicJsonFileStore.Save(configPath, "value", snapshot))
             {
                 error = "变量配置写入磁盘失败。";
@@ -347,6 +378,16 @@ namespace Automation
             try
             {
                 ReplaceConfiguration(snapshot);
+                if (runtimeValueOverrides != null)
+                {
+                    foreach (KeyValuePair<string, string> item in runtimeValueOverrides)
+                    {
+                        if (!setValueByName(item.Key, item.Value, runtimeValueSource))
+                        {
+                            throw new InvalidOperationException($"变量[{item.Key}]运行值更新失败。");
+                        }
+                    }
+                }
                 return true;
             }
             catch (Exception ex)
@@ -356,6 +397,7 @@ namespace Automation
                 try
                 {
                     ReplaceConfiguration(oldConfiguration);
+                    RestoreRuntimeValueStates(oldRuntimeValues);
                 }
                 catch
                 {
@@ -367,6 +409,56 @@ namespace Automation
                     SF.SetSecurityLock(error);
                 }
                 return false;
+            }
+        }
+
+        private Dictionary<string, RuntimeValueState> CaptureRuntimeValueStates()
+        {
+            var snapshot = new Dictionary<string, RuntimeValueState>(StringComparer.Ordinal);
+            lock (valueLock)
+            {
+                foreach (KeyValuePair<string, int> item in nameIndex)
+                {
+                    DicValue value = values[item.Value];
+                    if (value == null || string.IsNullOrEmpty(value.Name))
+                    {
+                        continue;
+                    }
+                    snapshot[item.Key] = new RuntimeValueState
+                    {
+                        Value = value.Value,
+                        LastChangedAt = value.LastChangedAt,
+                        LastChangedBy = value.LastChangedBy,
+                        LastChangedOldValue = value.LastChangedOldValue,
+                        LastChangedNewValue = value.LastChangedNewValue
+                    };
+                }
+            }
+            return snapshot;
+        }
+
+        private void RestoreRuntimeValueStates(IReadOnlyDictionary<string, RuntimeValueState> source)
+        {
+            if (source == null)
+            {
+                return;
+            }
+            lock (valueLock)
+            {
+                foreach (KeyValuePair<string, RuntimeValueState> item in source)
+                {
+                    if (!nameIndex.TryGetValue(item.Key, out int index))
+                    {
+                        continue;
+                    }
+                    DicValue value = values[index];
+                    RuntimeValueState state = item.Value;
+                    value.Value = state.Value;
+                    value.LastChangedAt = state.LastChangedAt;
+                    value.LastChangedBy = state.LastChangedBy;
+                    value.LastChangedOldValue = state.LastChangedOldValue;
+                    value.LastChangedNewValue = state.LastChangedNewValue;
+                }
             }
         }
 
@@ -385,6 +477,11 @@ namespace Automation
                 if (item.Value.Index < 0 || item.Value.Index >= ValueCapacity)
                 {
                     throw new InvalidDataException($"变量[{item.Key}]索引超出范围：{item.Value.Index}");
+                }
+                if (ProtectedValueNames.Contains(item.Key) && !IsSystemValueIndex(item.Value.Index))
+                {
+                    throw new InvalidDataException(
+                        $"系统保留变量[{item.Key}]必须位于索引范围 [{SystemValueStartIndex}, {ValueCapacity})。");
                 }
                 if (!indexes.Add(item.Value.Index))
                 {
@@ -413,6 +510,10 @@ namespace Automation
             if (index < 0 || index >= ValueCapacity || string.IsNullOrEmpty(name)
                 || (!string.Equals(type, "double", StringComparison.Ordinal)
                     && !string.Equals(type, "string", StringComparison.Ordinal)))
+            {
+                return false;
+            }
+            if (ProtectedValueNames.Contains(name) && !IsSystemValueIndex(index))
             {
                 return false;
             }

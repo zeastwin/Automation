@@ -215,6 +215,47 @@ namespace Automation.McpServer
             if (missing != null) throw new InvalidOperationException($"Editor Profile 缺少工具：{missing}");
             string? exposed = retired.FirstOrDefault(name => names.Contains(name, StringComparer.Ordinal));
             if (exposed != null) throw new InvalidOperationException($"Editor Profile 意外暴露旧写入工具：{exposed}");
+            McpServerTool addVariableTool = editorTools.Single(tool =>
+                string.Equals(tool.ProtocolTool.Name, "add_variable", StringComparison.Ordinal));
+            JsonObject? addVariableSchema = JsonNode.Parse(addVariableTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            JsonObject? addVariableIndexSchema = (addVariableSchema?["properties"] as JsonObject)?["index"] as JsonObject;
+            if (addVariableIndexSchema?["minimum"]?.GetValue<int>() != 0
+                || addVariableIndexSchema?["maximum"]?.GetValue<int>() != VariableIndexContract.MaximumNormalValueIndex
+                || !(addVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "系统变量区配置对 AI 只读", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("add_variable 未严格限制为普通变量区配置写入。");
+            }
+            McpServerTool updateVariableTool = editorTools.Single(tool =>
+                string.Equals(tool.ProtocolTool.Name, "update_variable", StringComparison.Ordinal));
+            JsonObject? updateVariableSchema = JsonNode.Parse(updateVariableTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            JsonObject? updateVariableProperties = updateVariableSchema?["properties"] as JsonObject;
+            if (updateVariableProperties?["applyInitialValueToRuntime"] == null
+                || updateVariableProperties.ContainsKey("runtimeValue")
+                || !(updateVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "applyInitialValueToRuntime=true时把同一个initialValue同步为当前运行值", StringComparison.Ordinal)
+                || !(updateVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "源Value传给initialValue并启用该开关", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("update_variable 缺少配置值与运行值同步修正契约。");
+            }
+            McpServerTool deleteVariableTool = editorTools.Single(tool =>
+                string.Equals(tool.ProtocolTool.Name, "delete_variable", StringComparison.Ordinal));
+            McpServerTool setVariableByNameTool = editorTools.Single(tool =>
+                string.Equals(tool.ProtocolTool.Name, "set_variable_by_name", StringComparison.Ordinal));
+            McpServerTool setVariableByIndexTool = editorTools.Single(tool =>
+                string.Equals(tool.ProtocolTool.Name, "set_variable_by_index", StringComparison.Ordinal));
+            if (!(updateVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "系统变量区配置对 AI 只读", StringComparison.Ordinal)
+                || !(deleteVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "系统变量区配置对 AI 只读", StringComparison.Ordinal)
+                || !(setVariableByNameTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "普通变量和系统变量均可使用", StringComparison.Ordinal)
+                || !(setVariableByIndexTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "普通变量和系统变量均可使用", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("变量配置只读边界或系统变量运行值写入契约不完整。");
+            }
             string[] retiredRoutingTerms =
             {
                 "preview_intent", "apply_intent", "preview_patch", "apply_patch", "create_proc", "create_proc_batch"
@@ -268,7 +309,7 @@ namespace Automation.McpServer
                 "variable.compute", "branch.number_compare", "minimum", "maximum", "kind",
                 "replacePreviewId", "operation.replace", "afterKey", "current_change_set",
                 "branch.io", "conditions", "conditionLogic", "onFailure",
-                "IO运行时逻辑目标值", "不统一表示安全位或工作位"
+                "IO运行时逻辑目标值", "不统一表示安全位或工作位", "系统变量区配置只读"
             };
             schemaIssues.AddRange(requiredSchemaTerms
                 .Where(term => !previewSchema.Contains(term, StringComparison.Ordinal)

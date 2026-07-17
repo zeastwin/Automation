@@ -174,7 +174,8 @@ namespace Automation.Protocol
         [Description("变量说明，可省略。")]
         public string Note { get; set; }
 
-        [Description("策略：reuse/create/update/replace/require。reuse可复用或创建；require只接受已存在变量。")]
+        [Description("策略：reuse/create/update/replace/require。reuse可复用或创建；require只接受已存在变量。"
+            + "系统变量区配置只读，已存在的系统变量只使用reuse或require，缺失的系统变量不由ChangeSet创建。")]
         public string Policy { get; set; }
     }
 

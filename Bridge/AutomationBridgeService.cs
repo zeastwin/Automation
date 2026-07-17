@@ -4446,9 +4446,12 @@ namespace Automation.Bridge
                 return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
             }
             DicValue target = ResolveVariable(request, store);
-            if (ValueConfigStore.IsProtectedValueName(target.Name))
+            if (ValueConfigStore.IsSystemValueIndex(target.Index))
             {
-                return BridgeError(409, "PROTECTED_VARIABLE", $"系统保留变量不能删除：{target.Name}");
+                return BridgeError(
+                    409,
+                    "SYSTEM_VARIABLE_CONFIG_READ_ONLY",
+                    $"系统变量区配置对 AI 只读：{target.Name}，index={target.Index}。");
             }
             Dictionary<string, DicValue> draft = store.BuildSaveData();
             if (!draft.Remove(target.Name))
@@ -4489,7 +4492,10 @@ namespace Automation.Bridge
             }
             if (ValueConfigStore.IsProtectedValueName(name))
             {
-                return BridgeError(409, "PROTECTED_VARIABLE", $"系统保留变量不能通过此工具创建：{name}");
+                return BridgeError(
+                    409,
+                    "SYSTEM_VARIABLE_CONFIG_READ_ONLY",
+                    $"系统变量区配置对 AI 只读：{name}。");
             }
             string type = (request["type"]?.Value<string>() ?? "double").ToLowerInvariant();
             if (!string.Equals(type, "double", StringComparison.OrdinalIgnoreCase)
@@ -4519,9 +4525,12 @@ namespace Automation.Bridge
             if (requestedIndex.HasValue)
             {
                 targetIndex = requestedIndex.Value;
-                if (targetIndex < 0 || targetIndex >= ValueConfigStore.ValueCapacity)
+                if (targetIndex < 0 || targetIndex >= ValueConfigStore.NormalValueCapacity)
                 {
-                    return BridgeError(400, "INVALID_ARGUMENT", $"index 超出范围 [0, {ValueConfigStore.ValueCapacity})。");
+                    return BridgeError(
+                        400,
+                        "INVALID_ARGUMENT",
+                        $"add_variable 的 index 必须位于普通变量区 [0, {ValueConfigStore.NormalValueCapacity})。");
                 }
                 if (store.TryGetValueByIndex(targetIndex, out DicValue occupied))
                 {
@@ -4531,7 +4540,7 @@ namespace Automation.Bridge
             else
             {
                 targetIndex = -1;
-                for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
+                for (int i = 0; i < ValueConfigStore.NormalValueCapacity; i++)
                 {
                     if (!store.TryGetValueByIndex(i, out _))
                     {
@@ -4541,7 +4550,10 @@ namespace Automation.Bridge
                 }
                 if (targetIndex < 0)
                 {
-                    return BridgeError(500, "STORE_FULL", $"变量表已满（{ValueConfigStore.ValueCapacity} 个槽位均被占用）。");
+                    return BridgeError(
+                        500,
+                        "STORE_FULL",
+                        $"普通变量区已满（{ValueConfigStore.NormalValueCapacity} 个槽位均被占用）。");
                 }
             }
 
@@ -4580,18 +4592,40 @@ namespace Automation.Bridge
                 return BridgeError(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
             }
             DicValue target = ResolveVariable(request, store);
-            if (ValueConfigStore.IsProtectedValueName(target.Name))
+            if (ValueConfigStore.IsSystemValueIndex(target.Index))
             {
-                return BridgeError(409, "PROTECTED_VARIABLE", $"系统保留变量不能修改配置：{target.Name}");
+                return BridgeError(
+                    409,
+                    "SYSTEM_VARIABLE_CONFIG_READ_ONLY",
+                    $"系统变量区配置对 AI 只读：{target.Name}，index={target.Index}。");
             }
 
             bool hasNewName = request.Property("newName", StringComparison.Ordinal) != null;
             bool hasType = request.Property("type", StringComparison.Ordinal) != null;
             bool hasInitialValue = request.Property("initialValue", StringComparison.Ordinal) != null;
             bool hasNote = request.Property("note", StringComparison.Ordinal) != null;
+            bool hasApplyInitialValueToRuntime =
+                request.Property("applyInitialValueToRuntime", StringComparison.Ordinal) != null;
+            if (hasApplyInitialValueToRuntime
+                && request["applyInitialValueToRuntime"]?.Type != JTokenType.Boolean)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "applyInitialValueToRuntime 必须是布尔值。");
+            }
+            bool applyInitialValueToRuntime = hasApplyInitialValueToRuntime
+                && request["applyInitialValueToRuntime"].Value<bool>();
+            if (applyInitialValueToRuntime && !hasInitialValue)
+            {
+                return BridgeError(
+                    400,
+                    "INVALID_ARGUMENT",
+                    "applyInitialValueToRuntime=true 时必须同时提供 initialValue。");
+            }
             if (!hasNewName && !hasType && !hasInitialValue && !hasNote)
             {
-                return BridgeError(400, "INVALID_ARGUMENT", "至少提供 newName、type、initialValue 或 note 之一。");
+                return BridgeError(
+                    400,
+                    "INVALID_ARGUMENT",
+                    "至少提供 newName、type、initialValue 或 note 之一。");
             }
 
             string newName = hasNewName ? request["newName"]?.Value<string>()?.Trim() : target.Name;
@@ -4631,7 +4665,15 @@ namespace Automation.Bridge
             updated.ConfigValue = initialValue;
             updated.Note = note;
             draft[newName] = updated;
-            if (!store.TryCommitConfiguration(SF.ConfigPath, draft, out string commitError))
+            IReadOnlyDictionary<string, string> runtimeValueOverrides = applyInitialValueToRuntime
+                ? new Dictionary<string, string>(StringComparer.Ordinal) { [newName] = initialValue }
+                : null;
+            if (!store.TryCommitConfiguration(
+                SF.ConfigPath,
+                draft,
+                out string commitError,
+                runtimeValueOverrides,
+                "AI变量配置更新"))
             {
                 return BridgeError(500, "VARIABLE_COMMIT_FAILED", commitError);
             }
@@ -4641,7 +4683,10 @@ namespace Automation.Bridge
             {
                 ["ok"] = true,
                 ["variable"] = BuildVariableJObject(committed),
-                ["message"] = $"变量[{target.Name}]配置已更新。"
+                ["runtimeSynchronized"] = applyInitialValueToRuntime,
+                ["message"] = applyInitialValueToRuntime
+                    ? $"变量[{target.Name}]配置和运行值已更新。"
+                    : $"变量[{target.Name}]配置已更新。"
             };
         }
 

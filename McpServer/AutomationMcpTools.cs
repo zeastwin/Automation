@@ -587,7 +587,8 @@ namespace Automation.McpServer
         [McpServerTool(Name = "get_variable_by_index"), Description(
             "按固定槽位索引读取一个变量，返回名称、类型、运行值、配置初始值、备注和变更历史。")]
         public static async Task<string> GetVariableByIndex(
-            [Description("变量槽位索引，范围0..999")] int index)
+            [Description("变量槽位索引，范围" + VariableIndexContract.ValueIndexRange + "；"
+                + VariableIndexContract.SystemValueIndexRange + "为系统变量区")] int index)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetVariableByIndex),
@@ -596,7 +597,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "set_variable_by_name"), Description(
-            "按精确名称修改一个变量的运行时值，不写配置文件；double 类型会校验数字格式。")]
+            "按精确名称修改一个变量的运行时值，不写配置文件；普通变量和系统变量均可使用，double 类型会校验数字格式。")]
         public static async Task<string> SetVariableByName(
             [Description("变量精确名称")] string name,
             [Description("新运行值；double 类型填写数字文本")] string value)
@@ -608,9 +609,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "set_variable_by_index"), Description(
-            "按固定槽位索引修改一个变量的运行时值，不写配置文件；double 类型会校验数字格式。")]
+            "按固定槽位索引修改一个变量的运行时值，不写配置文件；普通变量和系统变量均可使用，double 类型会校验数字格式。")]
         public static async Task<string> SetVariableByIndex(
-            [Description("变量槽位索引，范围0..999")] int index,
+            [Description("变量槽位索引，范围" + VariableIndexContract.ValueIndexRange + "；"
+                + VariableIndexContract.SystemValueIndexRange + "为系统变量区")] int index,
             [Description("新运行值；double 类型填写数字文本")] string value)
         {
             return await ExecuteAsync(
@@ -620,7 +622,8 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "delete_variable"), Description(
-            "按精确名称删除一个变量，其他变量索引不移动。系统保留变量不能删除，且要求所有流程已停止。")]
+            "按精确名称删除普通变量区的一个变量，其他变量索引不移动，且要求所有流程已停止。"
+            + "系统变量区配置对 AI 只读，不能通过此工具删除。")]
         public static async Task<string> DeleteVariable(
             [Description("要删除的变量精确名称")] string name)
         {
@@ -634,7 +637,8 @@ namespace Automation.McpServer
             "创建一个新变量，要求所有流程已停止。"
             + "参数：name（必填，变量名，全局唯一）；type（可选，\"double\"或\"string\"，默认double）；"
             + "initialValue（可选，配置初始值，double类型必须是数字，默认\"0\"）；note（可选，备注）；"
-            + "index（可选，指定槽位位置[0,1000)，默认自动找第一个空槽位）。"
+            + "index（可选，只能指定普通变量槽位" + VariableIndexContract.NormalValueIndexRange
+            + "；省略时自动分配第一个普通变量空槽位）。系统变量区配置对 AI 只读。"
             + "名称重复或槽位被占用时返回错误。创建后自动持久化并刷新界面。"
             + "每次只创建一个变量；需要多个变量时逐个调用。")]
         public static async Task<string> AddVariable(
@@ -642,8 +646,16 @@ namespace Automation.McpServer
             [Description("类型：double 或 string，默认 double")] string? type = "double",
             [Description("配置初始值（double 类型必须是数字）")] string? initialValue = null,
             [Description("备注")] string? note = null,
-            [Description("指定槽位索引，不填则自动分配")] int? index = null)
+            [Description("指定普通变量槽位索引，范围" + VariableIndexContract.NormalValueIndexRange
+                + "；不填则自动分配")] int? index = null)
         {
+            if (index.HasValue
+                && (index.Value < 0 || index.Value >= VariableIndexContract.NormalValueCapacity))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(index), index.Value,
+                    $"add_variable 的 index 必须位于普通变量区 {VariableIndexContract.NormalValueIndexRange}。");
+            }
             return await ExecuteAsync(
                 toolName: nameof(AddVariable),
                 args: new { name, type, initialValue, note, index },
@@ -652,20 +664,25 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "update_variable"), Description(
             "修改一个现有变量的配置，要求所有流程已停止。"
-            + "按当前精确名称定位；只提供需要变更的字段。initialValue只修改配置初始值，不改变当前运行值。"
-            + "系统保留变量不能修改。")]
+            + "按当前精确名称定位；只提供需要变更的字段。initialValue修改配置初始值；"
+            + "applyInitialValueToRuntime=true时把同一个initialValue同步为当前运行值，且必须同时提供initialValue。"
+            + "迁移旧变量文件时，源Value传给initialValue并启用该开关，源Note只传给note；平台先按最终类型校验，再共同提交。"
+            + "结果中的runtimeSynchronized明确本次是否同步了当前运行值。"
+            + "仅修改运行值时使用set_variable_by_name。"
+            + "系统变量区配置对 AI 只读，不能通过此工具修改。")]
         public static async Task<string> UpdateVariable(
             [Description("当前变量精确名称")] string name,
             [Description("新名称；不修改则省略")] string? newName = null,
             [Description("新类型：double 或 string；不修改则省略")] string? type = null,
             [Description("新配置初始值；不修改则省略")] string? initialValue = null,
-            [Description("新备注；传空字符串可清空，不修改则省略")] string? note = null)
+            [Description("新备注；传空字符串可清空，不修改则省略")] string? note = null,
+            [Description("是否同时把initialValue应用到当前运行值；仅可与initialValue一起设为true，默认false")] bool? applyInitialValueToRuntime = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(UpdateVariable),
-                args: new { name, newName, type, initialValue, note },
+                args: new { name, newName, type, initialValue, note, applyInitialValueToRuntime },
                 action: client => client.UpdateVariableAsync(
-                    name, newName, type, initialValue, note)).ConfigureAwait(false);
+                    name, newName, type, initialValue, note, applyInitialValueToRuntime)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "list_stations"), Description(

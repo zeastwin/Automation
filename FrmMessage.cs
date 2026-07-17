@@ -59,8 +59,10 @@ namespace Automation
             btn1Action = eventHandler1;
             btn3Action = eventHandler2;
             closeFallback = eventHandler2;
-            AcceptButton = btn1;
             ApplyPrimaryButtonStyle(btn1, btnTxt1);
+            ApplySecondaryButtonStyle(btn3);
+            AcceptButton = IsDangerAction(btnTxt1) ? btn3 : btn1;
+            CancelButton = btn3;
             if (presentImmediately)
             {
                 Present(isWait);

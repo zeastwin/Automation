@@ -12,7 +12,7 @@ namespace Automation
         private const string DefaultValueText = "0";
         private static readonly Color HeaderBackColor = Color.FromArgb(238, 243, 248);
         private static readonly Color HeaderForeColor = Color.FromArgb(48, 63, 78);
-        private static readonly Color GridLineColor = Color.FromArgb(222, 228, 234);
+        private static readonly Color GridLineColor = Color.FromArgb(203, 213, 224);
         private static readonly Color AlternateRowColor = Color.FromArgb(248, 250, 252);
         private static readonly Color SelectionBackColor = Color.FromArgb(217, 234, 250);
         private static readonly Color SelectionForeColor = Color.FromArgb(27, 43, 59);
@@ -200,6 +200,9 @@ namespace Automation
             dgvValue.SelectionMode = DataGridViewSelectionMode.ColumnHeaderSelect;
             dgvValue.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
             dgvValue.Columns[0].ReadOnly = true;
+            type.DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton;
+            type.DisplayStyleForCurrentCellOnly = true;
+            type.FlatStyle = FlatStyle.Flat;
             dgvValue.RowHeadersVisible = false;
             dgvValue.AutoGenerateColumns = false;
 
@@ -244,6 +247,8 @@ namespace Automation
             ApplyButtonStyle(btnCopy, false, false);
             ApplyButtonStyle(btnPaste, false, false);
             ApplyButtonStyle(btnClearData, false, true);
+            ApplyButtonStyle(btnNormalVariables, false, false);
+            ApplyButtonStyle(btnSystemVariables, false, false);
         }
 
         private static void ApplyGridStyle(DataGridView grid)
@@ -252,7 +257,8 @@ namespace Automation
             grid.BackgroundColor = Color.White;
             grid.BorderStyle = BorderStyle.FixedSingle;
             grid.GridColor = GridLineColor;
-            grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+            grid.CellBorderStyle = DataGridViewCellBorderStyle.Single;
+            grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
             grid.EnableHeadersVisualStyles = false;
             grid.ColumnHeadersHeight = 34;
             grid.ColumnHeadersDefaultCellStyle.BackColor = HeaderBackColor;
@@ -941,6 +947,28 @@ namespace Automation
             SF.frmSearch4Value.BringToFront();
             SF.frmSearch4Value.WindowState = FormWindowState.Normal;
             SF.frmSearch4Value.textBox1.Focus();
+        }
+
+        private void btnNormalVariables_Click(object sender, EventArgs e)
+        {
+            LocateValueIndex(0);
+        }
+
+        private void btnSystemVariables_Click(object sender, EventArgs e)
+        {
+            LocateValueIndex(ValueConfigStore.SystemValueStartIndex);
+        }
+
+        private void LocateValueIndex(int index)
+        {
+            if (index < 0 || index >= dgvValue.Rows.Count)
+            {
+                return;
+            }
+            dgvValue.ClearSelection();
+            dgvValue.CurrentCell = dgvValue.Rows[index].Cells[0];
+            dgvValue.FirstDisplayedScrollingRowIndex = index;
+            dgvValue.Focus();
         }
 
         private void RefreshCommonList()
