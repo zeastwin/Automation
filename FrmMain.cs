@@ -363,17 +363,36 @@ namespace Automation
                 }
                 else
                 {
-                    // 初始化真实运动控制相关
-                    SF.motion.InitCardType();
-                    bool cardInitOk = SF.motion.InitCard();
-                    if (cardInitOk)
+                    int configuredCardCount = SF.cardStore?.GetControlCardCount() ?? 0;
+                    if (configuredCardCount == 0)
                     {
-                        SF.motion.DownLoadConfig();
-                        SF.motion.SetAllAxisSevonOn();
-                        SF.motion.SetAllAxisEquiv();
-                        Monitor();
+                        dataRun?.Logger?.Log("未配置运动控制卡，已跳过运动控制卡初始化。", LogLevel.Normal);
+                    }
+                    else
+                    {
+                        try
+                        {
+                            SF.motion.InitCardType();
+                            bool cardInitOk = SF.motion.InitCard();
+                            if (cardInitOk)
+                            {
+                                SF.motion.DownLoadConfig();
+                                SF.motion.SetAllAxisSevonOn();
+                                SF.motion.SetAllAxisEquiv();
+                                Monitor();
+                            }
+                            else
+                            {
+                                dataRun?.Logger?.Log("运动控制卡初始化失败，运动操作已禁用。", LogLevel.Error);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            dataRun?.Logger?.Log($"运动控制卡初始化异常，运动操作已禁用:{ex.Message}", LogLevel.Error);
+                        }
                     }
                 }
+                SF.frmControl?.RefreshMotionControlAvailability();
                 platformInitialized = true;
                 if (SF.SecurityLocked)
                 {
@@ -518,6 +537,10 @@ namespace Automation
             StopAllProcsForSafety(message);
             TryStopMotion();
             dataRun?.Context?.AxisStatuses?.Clear();
+            if (IsHandleCreated)
+            {
+                BeginInvoke((Action)(() => SF.frmControl?.RefreshMotionControlAvailability()));
+            }
         }
 
         private void HandleSimulationGatewayFault(string reason)
@@ -527,6 +550,7 @@ namespace Automation
             {
                 dataRun?.Context?.AxisStatuses?.Clear();
                 StopAllProcsForSafety(message);
+                SF.frmControl?.RefreshMotionControlAvailability();
             };
             if (IsHandleCreated && InvokeRequired)
             {
@@ -1509,6 +1533,7 @@ namespace Automation
         public void RequireRestartAfterMotionConfigurationChange()
         {
             SF.MotionConfigRestartRequired = true;
+            SF.frmControl?.RefreshMotionControlAvailability();
             const string message = "运动设备配置已保存，重启程序后生效；重启前轴运动不可用，MES、通讯及其他非运动流程可继续运行。";
             dataRun?.Logger?.Log(message, LogLevel.Normal);
             if (frmInfo != null && !frmInfo.IsDisposed)

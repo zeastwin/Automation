@@ -210,7 +210,7 @@ namespace Automation
                 Color.FromArgb(224, 197, 161),
                 Color.FromArgb(250, 240, 225));
             btnReSet.BackColor = Color.FromArgb(255, 246, 232);
-            RefreshAxisAvailabilityPalette();
+            RefreshMotionControlAvailability();
         }
 
         private void comboBox1_DrawItem(object sender, DrawItemEventArgs e)
@@ -243,7 +243,7 @@ namespace Automation
             e.DrawFocusRectangle();
         }
 
-        private void RefreshAxisAvailabilityPalette()
+        public void RefreshMotionControlAvailability()
         {
             Label[] axisLabels = { AxisName1, AxisName2, AxisName3, AxisName4, AxisName5, AxisName6 };
             System.Windows.Forms.Button[] homeButtons =
@@ -255,13 +255,27 @@ namespace Automation
                 Handle1, Handle2, Handle3, Handle4, Handle5, Handle6,
                 Handle7, Handle8, Handle9, Handle10, Handle11, Handle12
             };
+            PictureBox[] enableButtons =
+            {
+                pictureBox1, pictureBox2, pictureBox3, pictureBox4, pictureBox5, pictureBox6
+            };
+            bool motionReady = SF.motion?.IsCardInitialized == true && !SF.MotionConfigRestartRequired;
+            bool hasAvailableAxis = false;
 
             for (int i = 0; i < axisLabels.Length; i++)
             {
                 string axisName = axisLabels[i].Text?.Trim() ?? string.Empty;
-                bool configured = axisName.Length > 0
+                AxisConfig axisConfig = temp?.dataAxis?.axisConfigs != null
+                    && i < temp.dataAxis.axisConfigs.Count
+                    ? temp.dataAxis.axisConfigs[i]
+                    : null;
+                bool configured = axisConfig?.axis != null
+                    && ushort.TryParse(axisConfig.CardNum, out _)
+                    && axisName.Length > 0
                     && axisName != "-1"
                     && axisName.Any(character => character != '-');
+                bool operationEnabled = configured && motionReady;
+                hasAvailableAxis |= operationEnabled;
                 axisLabels[i].BackColor = configured
                     ? Color.FromArgb(238, 243, 248)
                     : Color.FromArgb(248, 250, 252);
@@ -275,6 +289,8 @@ namespace Automation
                 homeButtons[i].ForeColor = configured
                     ? Color.FromArgb(48, 63, 78)
                     : Color.FromArgb(146, 156, 166);
+                homeButtons[i].Enabled = operationEnabled;
+                enableButtons[i].Enabled = operationEnabled;
 
                 for (int buttonOffset = 0; buttonOffset < 2; buttonOffset++)
                 {
@@ -285,8 +301,13 @@ namespace Automation
                     moveButton.ForeColor = configured
                         ? Color.FromArgb(48, 63, 78)
                         : Color.FromArgb(146, 156, 166);
+                    moveButton.Enabled = operationEnabled;
                 }
             }
+
+            btnStationHome.Enabled = hasAvailableAxis;
+            btnStop.Enabled = hasAvailableAxis;
+            btnReSet.Enabled = hasAvailableAxis;
         }
 
         private static void ConfigureControlButton(
@@ -437,7 +458,7 @@ namespace Automation
                 Handle12.Text = temp.dataAxis.axisConfig6.AxisName + "-";
             }
 
-            RefreshAxisAvailabilityPalette();
+            RefreshMotionControlAvailability();
 
             SF.frmStation.RefleshDgvState();
             lastStationIndex = selectedIndex;

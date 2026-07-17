@@ -438,7 +438,14 @@ namespace Automation.MotionControl
         }
         public void StopConnect()
         {
-            stopConnect?.Invoke();
+            try
+            {
+                stopConnect?.Invoke();
+            }
+            finally
+            {
+                IsCardInitialized = false;
+            }
         }
         public bool HomeStatus(ushort card, ushort axis)
         {
