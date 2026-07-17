@@ -77,7 +77,7 @@ namespace Automation
             {
                 contextMenuStrip1.Items.Clear();
                 contextMenuStrip1.AutoSize = true;
-                contextMenuStrip1.MinimumSize = new Size(172, 0);
+                contextMenuStrip1.MinimumSize = Size.Empty;
                 contextMenuStrip1.Padding = new Padding(3);
                 contextMenuStrip1.ImageScalingSize = new Size(20, 20);
                 contextMenuStrip1.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
@@ -131,8 +131,7 @@ namespace Automation
         {
             return new ToolStripSeparator
             {
-                AutoSize = false,
-                Size = new Size(164, 5),
+                AutoSize = true,
                 Margin = Padding.Empty
             };
         }

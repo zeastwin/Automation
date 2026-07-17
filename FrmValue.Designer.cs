@@ -452,7 +452,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 14F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(1760, 860);
+            this.ClientSize = new System.Drawing.Size(1760, 960);
             this.Controls.Add(this.splitContainerMain);
             this.Controls.Add(this.panel1);
             this.Name = "FrmValue";

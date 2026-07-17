@@ -16,6 +16,8 @@ namespace Automation
 {
     public partial class FrmDataGrid : Form
     {
+        internal const string OperationAddressDragFormat = "Automation.OperationAddress";
+
         private const int MenuIconSize = 24;
         private const int MenuIconRenderSize = 18;
         private const int EmLineScroll = 0x00B6;
@@ -62,10 +64,16 @@ namespace Automation
             contextMenuStrip2.Opening += contextMenuStrip2_Opening;
             dataGridView1.SelectedIndexChanged += dataGridView1_SelectedIndexChanged;
             dataGridView1.JumpLinkClicked += dataGridView1_JumpLinkClicked;
+            dataGridView1.MouseMove += dataGridView1_MouseMove;
+            dataGridView1.MouseUp += dataGridView1_MouseUp;
         }
 
         private void dataGridView1_SelectedIndexChanged(object sender, EventArgs e)
         {
+            if (IsOperationAddressDragEnabled())
+            {
+                return;
+            }
             int rowIndex = dataGridView1.GetSelectedIndexes().DefaultIfEmpty(-1).First();
             iSelectedRow = rowIndex;
             if (rowIndex >= 0
@@ -471,6 +479,11 @@ namespace Automation
 
         private void contextMenuStrip2_Opening(object sender, CancelEventArgs e)
         {
+            if (IsOperationAddressDragEnabled())
+            {
+                e.Cancel = true;
+                return;
+            }
             if (dataGridView1 == null)
             {
                 return;
@@ -1197,6 +1210,8 @@ namespace Automation
         {
             dataGridView1.SelectedIndexChanged -= dataGridView1_SelectedIndexChanged;
             dataGridView1.JumpLinkClicked -= dataGridView1_JumpLinkClicked;
+            dataGridView1.MouseMove -= dataGridView1_MouseMove;
+            dataGridView1.MouseUp -= dataGridView1_MouseUp;
             if (gridFlashTimer != null)
             {
                 gridFlashTimer.Stop();
@@ -1231,7 +1246,7 @@ namespace Automation
             SF.frmPropertyGrid.propertyGrid1.SelectedObject = OperationTemp;
             SF.isAddOps = true;
             BeginOperationEditSession(true);
-            SF.frmDataGrid.dataGridView1.Enabled = false;
+            // 编辑期间保留指令表交互，用作跳转地址的拖拽来源。
         }
 
         private void Delete_Click(object sender, EventArgs e)
@@ -1343,12 +1358,15 @@ namespace Automation
                 return;
             }
             BeginOperationEditSession(false);
-            SF.frmDataGrid.dataGridView1.Enabled = false;
             SF.frmProc.Enabled = false;
         }
 
         private void dataGridView1_KeyDown(object sender, KeyEventArgs e)
         {
+            if (IsOperationAddressDragEnabled())
+            {
+                return;
+            }
             if (e.Control && e.KeyCode == Keys.C)
             {
                 if (dataGridView1.GetSelectedIndexes().Count > 0)
@@ -1549,9 +1567,17 @@ namespace Automation
             Paste();
         }
         private int dragIndex = -1;
+        private int addressDragIndex = -1;
+        private Point addressDragStart;
         private void dataGridView1_MouseDown(object sender, MouseEventArgs e)
         {
             int rowIndex = dataGridView1.IndexFromPoint(e.Location);
+            if (e.Button == MouseButtons.Left && IsOperationAddressDragEnabled())
+            {
+                addressDragIndex = rowIndex;
+                addressDragStart = e.Location;
+                return;
+            }
             if (e.Button == MouseButtons.Right)
             {
                 contextMenuByMouse = true;
@@ -1584,8 +1610,61 @@ namespace Automation
             }
         }
 
+        private void dataGridView1_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (addressDragIndex < 0
+                || e.Button != MouseButtons.Left
+                || !IsOperationAddressDragEnabled())
+            {
+                return;
+            }
+
+            Size dragSize = SystemInformation.DragSize;
+            Rectangle dragBounds = new Rectangle(
+                addressDragStart.X - dragSize.Width / 2,
+                addressDragStart.Y - dragSize.Height / 2,
+                dragSize.Width,
+                dragSize.Height);
+            if (dragBounds.Contains(e.Location))
+            {
+                return;
+            }
+
+            int procIndex = SF.frmProc?.SelectedProcNum ?? -1;
+            int stepIndex = SF.frmProc?.SelectedStepNum ?? -1;
+            int sourceIndex = addressDragIndex;
+            addressDragIndex = -1;
+            if (procIndex < 0
+                || stepIndex < 0
+                || procIndex >= SF.frmProc.procsList.Count
+                || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count
+                || sourceIndex >= SF.frmProc.procsList[procIndex].steps[stepIndex].Ops.Count)
+            {
+                return;
+            }
+
+            var dragData = new DataObject();
+            dragData.SetData(OperationAddressDragFormat, $"{procIndex}-{stepIndex}-{sourceIndex}");
+            dataGridView1.DoDragDrop(dragData, DragDropEffects.Copy);
+        }
+
+        private void dataGridView1_MouseUp(object sender, MouseEventArgs e)
+        {
+            addressDragIndex = -1;
+        }
+
+        private static bool IsOperationAddressDragEnabled()
+        {
+            return SF.ActiveEditSession?.Draft is OperationType
+                && (SF.isModify == ModifyKind.Operation || SF.isAddOps);
+        }
+
         private void dataGridView1_MouseDoubleClick(object sender, MouseEventArgs e)
         {
+            if (IsOperationAddressDragEnabled())
+            {
+                return;
+            }
             int rowIndex = dataGridView1.IndexFromPoint(e.Location);
             if (rowIndex < 0)
             {

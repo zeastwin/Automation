@@ -209,7 +209,6 @@ namespace Automation
             pi.SetValue(this.dgvValue, true, null);
 
             dgvValue.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-            dgvValue.RowTemplate.Height = 28;
             ApplyAlarmConfigStyle();
         }
 

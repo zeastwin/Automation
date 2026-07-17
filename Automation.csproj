@@ -428,6 +428,7 @@
     </EmbeddedResource>
     <EmbeddedResource Include="FrmIODebug.resx">
       <DependentUpon>FrmIODebug.cs</DependentUpon>
+      <LogicalName>Automation.FrmIODebug.resources</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="FrmIODebugConfig.resx">
       <DependentUpon>FrmIODebugConfig.cs</DependentUpon>
@@ -580,6 +581,22 @@
     <Delete Files="@(ReleaseSymbolFile)" />
   </Target>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!--
+    直接调用 Compile 目标时，旧式 .NET Framework 项目默认不会执行 PrepareResources，
+    会生成不含任何内嵌资源但仍可通过编译的残缺 EXE。将资源准备纳入 Compile 契约，
+    保证命令行增量验证与完整 Build 产物使用同一条资源链路。
+  -->
+  <PropertyGroup>
+    <CompileDependsOn>PrepareResources;$(CompileDependsOn)</CompileDependsOn>
+  </PropertyGroup>
+  <Target Name="ValidateEmbeddedResourceCompileInputs"
+          BeforeTargets="CoreCompile"
+          DependsOnTargets="PrepareResources;_GenerateCompileInputs">
+    <Error Condition="'@(_CoreCompileResourceInputs)' == ''"
+           Text="编译资源输入为空，已停止生成 Automation.exe。请使用完整项目资源链路重新生成。" />
+    <Error Condition="!Exists('$(IntermediateOutputPath)Automation.FrmIODebug.resources')"
+           Text="缺少 FrmIODebug 编译资源：$(IntermediateOutputPath)Automation.FrmIODebug.resources。" />
+  </Target>
   <Target Name="EnsureWebView2TargetsImported" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
       <ErrorText>缺少 Microsoft.Web.WebView2 的 targets 文件，请通过 nuget restore 还原 NuGet 包后重试。</ErrorText>

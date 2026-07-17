@@ -38,6 +38,7 @@ namespace Automation
         {
             InitializeComponent();
             ConfigureAppearance();
+            ConfigureGotoAddressDrop();
             propertyGrid1.PropertySort = PropertySort.Categorized;
             InlineListTypeDescriptionProvider.Register();
             
@@ -54,6 +55,195 @@ namespace Automation
 
             Enabled = false;
 
+        }
+
+        private void ConfigureGotoAddressDrop()
+        {
+            propertyGrid1.AllowDrop = true;
+            propertyGrid1.DragOver += propertyGrid1_DragOver;
+            propertyGrid1.DragDrop += propertyGrid1_DragDrop;
+            Control gridView = FindPropertyGridView(propertyGrid1);
+            if (gridView != null)
+            {
+                gridView.AllowDrop = true;
+                gridView.DragOver += propertyGrid1_DragOver;
+                gridView.DragDrop += propertyGrid1_DragDrop;
+            }
+        }
+
+        private void propertyGrid1_DragOver(object sender, DragEventArgs e)
+        {
+            if (!CanAcceptOperationAddress(e.Data))
+            {
+                e.Effect = DragDropEffects.None;
+                return;
+            }
+
+            GridItem target = GetGridItemAtScreenPoint(new Point(e.X, e.Y));
+            if (!IsGotoAddressItem(target))
+            {
+                e.Effect = DragDropEffects.None;
+                return;
+            }
+
+            if (!ReferenceEquals(propertyGrid1.SelectedGridItem, target))
+            {
+                propertyGrid1.SelectedGridItem = target;
+            }
+            e.Effect = DragDropEffects.Copy;
+        }
+
+        private void propertyGrid1_DragDrop(object sender, DragEventArgs e)
+        {
+            if (!CanAcceptOperationAddress(e.Data))
+            {
+                return;
+            }
+
+            GridItem target = GetGridItemAtScreenPoint(new Point(e.X, e.Y));
+            if (!IsGotoAddressItem(target))
+            {
+                return;
+            }
+
+            string address = e.Data.GetData(FrmDataGrid.OperationAddressDragFormat) as string;
+            if (!ProcessDefinitionService.TryParseGotoKey(address, out _, out _, out _))
+            {
+                return;
+            }
+
+            try
+            {
+                PropertyInfo valueProperty = FindInstanceProperty(target.GetType(), "PropertyValue");
+                if (valueProperty?.CanWrite != true)
+                {
+                    throw new InvalidOperationException("属性项不支持写入。");
+                }
+                valueProperty.SetValue(target, address, null);
+                propertyGrid1.SelectedGridItem = target;
+                propertyGrid1.Refresh();
+            }
+            catch (TargetInvocationException ex)
+            {
+                MessageBox.Show(
+                    ex.InnerException?.Message ?? ex.Message,
+                    "填写跳转地址失败",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    ex.Message,
+                    "填写跳转地址失败",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+        private static bool CanAcceptOperationAddress(System.Windows.Forms.IDataObject data)
+        {
+            return data != null
+                && data.GetDataPresent(FrmDataGrid.OperationAddressDragFormat)
+                && SF.ActiveEditSession?.Draft is OperationType
+                && (SF.isModify == ModifyKind.Operation || SF.isAddOps);
+        }
+
+        private static bool IsGotoAddressItem(GridItem item)
+        {
+            return item?.PropertyDescriptor?.PropertyType == typeof(string)
+                && item.PropertyDescriptor.Attributes[typeof(MarkedGotoAttribute)] is MarkedGotoAttribute
+                && !item.PropertyDescriptor.IsReadOnly;
+        }
+
+        private GridItem GetGridItemAtScreenPoint(Point screenPoint)
+        {
+            Control gridView = FindPropertyGridView(propertyGrid1);
+            if (gridView == null)
+            {
+                return null;
+            }
+
+            if (!gridView.RectangleToScreen(gridView.ClientRectangle).Contains(screenPoint))
+            {
+                return null;
+            }
+
+            Type gridViewType = gridView.GetType();
+            PropertyInfo rowHeightProperty = gridViewType.GetProperty(
+                "RowHeight",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            MethodInfo getEntryMethod = gridViewType.GetMethod(
+                "GetGridEntryFromRow",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(int) },
+                null);
+            MethodInfo getBoundsMethod = gridViewType.GetMethod(
+                "AccessibilityGetGridEntryBounds",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (!(rowHeightProperty?.GetValue(gridView, null) is int rowHeight)
+                || rowHeight <= 0
+                || getEntryMethod == null
+                || getBoundsMethod == null)
+            {
+                return null;
+            }
+
+            int visibleRowCount = gridView.ClientSize.Height / rowHeight + 2;
+            for (int row = 0; row < visibleRowCount; row++)
+            {
+                object entry = getEntryMethod.Invoke(gridView, new object[] { row });
+                if (entry == null)
+                {
+                    break;
+                }
+                if (getBoundsMethod.Invoke(gridView, new[] { entry }) is Rectangle bounds
+                    && bounds.Contains(screenPoint))
+                {
+                    return entry as GridItem;
+                }
+            }
+            return null;
+        }
+
+        private static Control FindPropertyGridView(Control parent)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                if (string.Equals(
+                    child.GetType().FullName,
+                    "System.Windows.Forms.PropertyGridInternal.PropertyGridView",
+                    StringComparison.Ordinal))
+                {
+                    return child;
+                }
+                Control nested = FindPropertyGridView(child);
+                if (nested != null)
+                {
+                    return nested;
+                }
+            }
+            return null;
+        }
+
+        private static PropertyInfo FindInstanceProperty(Type type, string propertyName)
+        {
+            while (type != null)
+            {
+                PropertyInfo property = type.GetProperty(
+                    propertyName,
+                    BindingFlags.Instance
+                    | BindingFlags.Public
+                    | BindingFlags.NonPublic
+                    | BindingFlags.DeclaredOnly);
+                if (property != null)
+                {
+                    return property;
+                }
+                type = type.BaseType;
+            }
+            return null;
         }
 
         private void ConfigureAppearance()
