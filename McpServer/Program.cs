@@ -183,7 +183,7 @@ namespace Automation.McpServer
                 .ToArray();
             string[] required =
             {
-                "list_operation_types", "get_native_operation_schemas", "get_semantic_operation_schema", "preview_change_set",
+                "list_operation_types", "get_native_operation_schemas", "get_semantic_operation_schema", "get_process_design_guide", "preview_change_set",
                 "get_operation_guide", "apply_change_set", "discard_change_set_preview", "validate_proc",
                 "wait_for_proc_state", "run_proc_test", "get_communication",
                 "list_plc_devices", "get_plc_device", "set_alarm", "delete_alarm",
@@ -266,17 +266,25 @@ namespace Automation.McpServer
                 "actions", "variables", "reuse/create/update/replace/require",
                 "targetProcess", "targetOperation", "position", "oneOf",
                 "variable.compute", "branch.number_compare", "minimum", "maximum", "kind",
-                "replacePreviewId", "operation.replace", "afterKey", "current_change_set"
+                "replacePreviewId", "operation.replace", "afterKey", "current_change_set",
+                "branch.io", "conditions", "conditionLogic", "onFailure",
+                "IO运行时逻辑目标值", "不统一表示安全位或工作位"
             };
             schemaIssues.AddRange(requiredSchemaTerms
-                .Where(term => !previewSchema.Contains(term, StringComparison.Ordinal))
+                .Where(term => !previewSchema.Contains(term, StringComparison.Ordinal)
+                    && !previewSchema.Contains(
+                        System.Text.Json.JsonSerializer.Serialize(term).Trim('"'),
+                        StringComparison.Ordinal))
                 .Select(term => "缺少 " + term));
             string[] retiredSchemaTerms =
             {
                 "draftId", "expectedOperationCount", "后续阶段可继续使用"
             };
             schemaIssues.AddRange(retiredSchemaTerms
-                .Where(term => previewSchema.Contains(term, StringComparison.Ordinal))
+                .Where(term => previewSchema.Contains(term, StringComparison.Ordinal)
+                    || previewSchema.Contains(
+                        System.Text.Json.JsonSerializer.Serialize(term).Trim('"'),
+                        StringComparison.Ordinal))
                 .Select(term => "仍包含 " + term));
             if (!previewSchema.Contains("current_change_set", StringComparison.Ordinal)
                 || !previewSchema.Contains("operation_id_or_change_set_key", StringComparison.Ordinal))
@@ -299,6 +307,12 @@ namespace Automation.McpServer
                 string.Equals(tool.ProtocolTool.Name, "get_native_operation_schemas", StringComparison.Ordinal));
             McpServerTool semanticSchemaTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "get_semantic_operation_schema", StringComparison.Ordinal));
+            McpServerTool processDesignTool = editorTools.First(tool =>
+                string.Equals(tool.ProtocolTool.Name, "get_process_design_guide", StringComparison.Ordinal));
+            McpServerTool getIoTool = editorTools.First(tool =>
+                string.Equals(tool.ProtocolTool.Name, "get_io", StringComparison.Ordinal));
+            McpServerTool getIoStateTool = editorTools.First(tool =>
+                string.Equals(tool.ProtocolTool.Name, "get_io_state", StringComparison.Ordinal));
             if (!(runTestTool.ProtocolTool.Description ?? string.Empty).Contains("明确要求测试或试运行", StringComparison.Ordinal)
                 || !(runTestTool.ProtocolTool.Description ?? string.Empty).Contains("负责启动、观察和安全停止", StringComparison.Ordinal)
                 || !(startTool.ProtocolTool.Description ?? string.Empty).Contains("由run_proc_test一次完成", StringComparison.Ordinal)
@@ -309,12 +323,20 @@ namespace Automation.McpServer
                 || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("variableResolutions", StringComparison.Ordinal)
                 || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("replacePreviewId", StringComparison.Ordinal)
                 || !(nativeSchemaTool.ProtocolTool.Description ?? string.Empty).Contains("native.operation", StringComparison.Ordinal)
-                || !(semanticSchemaTool.ProtocolTool.Description ?? string.Empty).Contains("保存必填项", StringComparison.Ordinal))
+                || !(semanticSchemaTool.ProtocolTool.Description ?? string.Empty).Contains("保存必填项", StringComparison.Ordinal)
+                || !(processDesignTool.ProtocolTool.Description ?? string.Empty).Contains("简单赋值", StringComparison.Ordinal)
+                || !(processDesignTool.ProtocolTool.Description ?? string.Empty).Contains("不提供具体字段", StringComparison.Ordinal)
+                || !(processDesignTool.ProtocolTool.Description ?? string.Empty).Contains("mechanical对应IO、气缸、真空和运动反馈", StringComparison.Ordinal)
+                || !(processDesignTool.ProtocolTool.Description ?? string.Empty).Contains("review对应设计前、中、后审查", StringComparison.Ordinal)
+                || !(getIoTool.ProtocolTool.Description ?? string.Empty).Contains("不自动定义机构的安全位或工作位", StringComparison.Ordinal)
+                || !(getIoStateTool.ProtocolTool.Description ?? string.Empty).Contains("运行时逻辑状态", StringComparison.Ordinal)
+                || !(getIoStateTool.ProtocolTool.Description ?? string.Empty).Contains("不统一表示电气高低电平、安全位或工作位", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException("预演生命周期或流程验证工具职责未完整公开。");
             }
             string semanticSchema = semanticSchemaTool.ProtocolTool.InputSchema.GetRawText();
             string nativeSchema = nativeSchemaTool.ProtocolTool.InputSchema.GetRawText();
+            string processDesignSchema = processDesignTool.ProtocolTool.InputSchema.GetRawText();
             string[] semanticKinds = SemanticOperationKinds.SupportedKinds.Split('、');
             if (semanticSchema.Contains("\"minItems\"", StringComparison.Ordinal)
                 || semanticSchema.Contains("\"maxItems\"", StringComparison.Ordinal)
@@ -328,6 +350,35 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException("原生Schema参数仍含无依据的数量上限或缺少基础数组约束。");
             }
+            if (!processDesignSchema.Contains("\"minItems\":1", StringComparison.Ordinal)
+                || !processDesignSchema.Contains("\"uniqueItems\":true", StringComparison.Ordinal)
+                || processDesignSchema.Contains("\"maxItems\"", StringComparison.Ordinal)
+                || ProcessDesignGuideCatalog.SupportedTopics.Any(topic =>
+                    !processDesignSchema.Contains(topic, StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException("流程设计指南参数未完整公开精确主题，或含无依据的数量上限。");
+            }
+            string processDesignGuide = ProcessDesignGuideCatalog.Get(ProcessDesignGuideCatalog.SupportedTopics);
+            string[] processDesignPollution =
+            {
+                "1HSG", "extracted_data.json", "VariableChanges", "穴位1-BC码", "MES启用标记"
+            };
+            JsonObject? processDesignRoot = JsonNode.Parse(processDesignGuide) as JsonObject;
+            JsonArray? processDesignSections = processDesignRoot?["sections"] as JsonArray;
+            string processDesignMarkdown = processDesignSections == null
+                ? string.Empty
+                : string.Join("\n", processDesignSections
+                    .Select(section => section?["markdown"]?.GetValue<string>() ?? string.Empty));
+            if (processDesignRoot?["ok"]?.GetValue<bool>() != true
+                || processDesignSections?.Count != ProcessDesignGuideCatalog.SupportedTopics.Length
+                || !processDesignMarkdown.Contains("检查前置条件", StringComparison.Ordinal)
+                || !processDesignMarkdown.Contains("异常路径", StringComparison.Ordinal)
+                || !processDesignMarkdown.Contains("单电磁阀气缸缩回到原位", StringComparison.Ordinal)
+                || !processDesignMarkdown.Contains("原位输入为 `true`，动位输入为 `false`", StringComparison.Ordinal)
+                || processDesignPollution.Any(term => processDesignMarkdown.Contains(term, StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException("流程设计指南资源缺失核心闭环或仍含项目专用内容。");
+            }
             string[] diagnosticNames = McpToolProfile.CreateTools("Diagnostic")
                 .Select(tool => tool.ProtocolTool.Name).ToArray();
             string[] editorWriteNames =
@@ -337,6 +388,7 @@ namespace Automation.McpServer
             if (!diagnosticNames.Contains("audit_proc_batch", StringComparer.Ordinal)
                 || !diagnosticNames.Contains("get_native_operation_schemas", StringComparer.Ordinal)
                 || !diagnosticNames.Contains("get_operation_guide", StringComparer.Ordinal)
+                || !diagnosticNames.Contains("get_process_design_guide", StringComparer.Ordinal)
                 || editorWriteNames.Any(name => diagnosticNames.Contains(name, StringComparer.Ordinal)))
             {
                 throw new InvalidOperationException("Diagnostic Profile 工具边界错误。");
@@ -415,6 +467,51 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException("ChangeSet 删除选择器组合校验错误。");
             }
+            string invalidLegacyIoWait = AiChangeSetCatalog.Validate(new AiChangeSet
+            {
+                Version = 2,
+                Actions = new List<ChangeSetAction>
+                {
+                    new ChangeSetAction
+                    {
+                        Type = "operation.append",
+                        Operation = new SemanticOperation
+                        {
+                            Kind = "io.wait",
+                            Io = "气缸原位",
+                            State = true,
+                            TimeoutMs = 1000
+                        }
+                    }
+                }
+            });
+            string validIoWait = AiChangeSetCatalog.Validate(new AiChangeSet
+            {
+                Version = 2,
+                Actions = new List<ChangeSetAction>
+                {
+                    new ChangeSetAction
+                    {
+                        Type = "operation.append",
+                        Operation = new SemanticOperation
+                        {
+                            Kind = "io.wait",
+                            Conditions = new List<IoStateCondition>
+                            {
+                                new IoStateCondition { Io = "气缸原位", State = true },
+                                new IoStateCondition { Io = "气缸动位", State = false }
+                            },
+                            TimeoutMs = 1000,
+                            OnFailure = new OperationTarget { OperationKey = "recovery" }
+                        }
+                    }
+                }
+            });
+            if (!(invalidLegacyIoWait ?? string.Empty).Contains("conditions", StringComparison.Ordinal)
+                || validIoWait != null)
+            {
+                throw new InvalidOperationException("io.wait联合条件与失败目标的本地校验错误。");
+            }
             Console.WriteLine($"Editor Profile 校验通过，共 {names.Length} 个工具；V2 写入链完整，旧写入链未暴露。");
         }
 
@@ -479,6 +576,7 @@ namespace Automation.McpServer
 
             var actualKinds = new HashSet<string>(StringComparer.Ordinal);
             var kindProperties = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
+            var kindBranches = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
             foreach (JsonNode? node in branches)
             {
                 JsonObject branch = node as JsonObject
@@ -495,13 +593,31 @@ namespace Automation.McpServer
                         throw new InvalidOperationException($"{kind}分支缺少公共字段{commonField}。");
                 }
                 kindProperties[kind] = properties;
+                kindBranches[kind] = branch;
             }
             if (!actualKinds.SetEquals(expectedKinds))
                 throw new InvalidOperationException("SemanticOperation判别联合与SupportedKinds不一致。");
 
             JsonObject ioWait = kindProperties["io.wait"];
-            if (ioWait.ContainsKey("beforeMs") || ioWait.ContainsKey("afterMs"))
-                throw new InvalidOperationException("io.wait分支不得包含beforeMs或afterMs。");
+            if (!ioWait.ContainsKey("conditions") || !ioWait.ContainsKey("onFailure")
+                || ioWait.ContainsKey("io") || ioWait.ContainsKey("state")
+                || ioWait.ContainsKey("beforeMs") || ioWait.ContainsKey("afterMs"))
+                throw new InvalidOperationException("io.wait分支必须只使用conditions/timeoutMs/onFailure表达IO等待。");
+            VerifyIoConditionsSchema(ioWait["conditions"] as JsonObject, "io.wait.conditions");
+            JsonObject ioBranch = kindProperties["branch.io"];
+            if (!ioBranch.ContainsKey("conditions") || !ioBranch.ContainsKey("conditionLogic")
+                || !ioBranch.ContainsKey("whenTrue") || !ioBranch.ContainsKey("whenFalse"))
+                throw new InvalidOperationException("branch.io分支缺少联合条件或双分支字段。");
+            VerifyIoConditionsSchema(ioBranch["conditions"] as JsonObject, "branch.io.conditions");
+            if (ioBranch["conditionLogic"] is not JsonObject conditionLogic
+                || conditionLogic["enum"] is not JsonArray logicValues
+                || !logicValues.Any(value => string.Equals(value?.GetValue<string>(), "all", StringComparison.Ordinal))
+                || !logicValues.Any(value => string.Equals(value?.GetValue<string>(), "any", StringComparison.Ordinal)))
+                throw new InvalidOperationException("branch.io.conditionLogic未限制为all/any。");
+            if (kindBranches["io.wait"]["required"] is not JsonArray waitRequired
+                || !waitRequired.Any(value => string.Equals(value?.GetValue<string>(), "conditions", StringComparison.Ordinal))
+                || !waitRequired.Any(value => string.Equals(value?.GetValue<string>(), "timeoutMs", StringComparison.Ordinal)))
+                throw new InvalidOperationException("io.wait未把conditions/timeoutMs声明为必填。");
             JsonObject ioWrite = kindProperties["io.write"];
             if (!ioWrite.ContainsKey("beforeMs") || !ioWrite.ContainsKey("afterMs"))
                 throw new InvalidOperationException("io.write分支必须包含beforeMs和afterMs。");
@@ -511,6 +627,19 @@ namespace Automation.McpServer
                 || fieldsSchema["additionalProperties"] is JsonValue additional
                     && additional.TryGetValue(out bool allowsFields) && !allowsFields)
                 throw new InvalidOperationException("native.operation.fields未保留动态原生字段。");
+        }
+
+        private static void VerifyIoConditionsSchema(JsonObject? conditions, string path)
+        {
+            if (conditions == null || conditions["minItems"]?.GetValue<int>() != 1
+                || conditions["items"] is not JsonObject item
+                || item["additionalProperties"]?.GetValue<bool>() != false
+                || item["required"] is not JsonArray required
+                || !required.Any(value => string.Equals(value?.GetValue<string>(), "io", StringComparison.Ordinal))
+                || !required.Any(value => string.Equals(value?.GetValue<string>(), "state", StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException($"{path}未声明非空、闭合且强类型的io/state条件项。");
+            }
         }
 
         private static void EnsureClosedBranch(JsonObject branch, string unionName)

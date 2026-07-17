@@ -281,7 +281,7 @@ namespace Automation
             {
                 contextMenuStrip2.Items.Clear();
                 contextMenuStrip2.AutoSize = true;
-                contextMenuStrip2.MinimumSize = new Size(210, 0);
+                contextMenuStrip2.MinimumSize = new Size(180, 0);
                 contextMenuStrip2.Padding = new Padding(3, 3, 3, 3);
                 contextMenuStrip2.ImageScalingSize = new Size(20, 20);
                 contextMenuStrip2.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);

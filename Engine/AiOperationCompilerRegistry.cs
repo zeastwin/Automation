@@ -265,6 +265,7 @@ namespace Automation
                 new FlowEndCompiler(),
                 new NumberCompareBranchCompiler(),
                 new NumberRangeBranchCompiler(),
+                new IoBranchCompiler(),
                 new PopupMessageCompiler(),
                 new PopupVariableCompiler(),
                 new ConfigurationPlaceholderCompiler(),
@@ -400,6 +401,42 @@ namespace Automation
                 ["unresolvedReference"] = "未定义的operationKey可先保存为未就绪引用；后续创建同标签指令后由Bridge解析",
                 ["physicalIndexAllowed"] = false
             };
+        }
+
+        private sealed class ResolvedIoCondition
+        {
+            public string Io { get; set; }
+
+            public bool State { get; set; }
+        }
+
+        private static List<ResolvedIoCondition> ResolveIoConditions(
+            SemanticOperation definition,
+            AiOperationCompileContext context,
+            string path)
+        {
+            if (definition?.Conditions == null || definition.Conditions.Count == 0)
+            {
+                throw new InvalidOperationException($"{path} 至少包含一个IO条件。");
+            }
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            var result = new List<ResolvedIoCondition>();
+            for (int index = 0; index < definition.Conditions.Count; index++)
+            {
+                IoStateCondition condition = definition.Conditions[index]
+                    ?? throw new InvalidOperationException($"{path}[{index}] 不能为空。");
+                string io = context.RequireIo(condition.Io, $"{path}[{index}].io", false);
+                if (!condition.State.HasValue)
+                {
+                    throw new InvalidOperationException($"{path}[{index}].state 必填。");
+                }
+                if (!names.Add(io))
+                {
+                    throw new InvalidOperationException($"{path} 包含重复IO：{io}");
+                }
+                result.Add(new ResolvedIoCondition { Io = io, State = condition.State.Value });
+            }
+            return result;
         }
 
         private sealed class NativeOperationCompiler : IAiOperationCompiler
@@ -760,6 +797,60 @@ namespace Automation
             }
         }
 
+        private sealed class IoBranchCompiler : IAiOperationCompiler
+        {
+            public string Kind => "branch.io";
+
+            public string DefaultName => "IO条件分支";
+
+            public JObject BuildContract() => Contract(
+                "立即读取一组IO运行时逻辑状态，并按组合结果双分支跳转",
+                new[] { "kind", "conditions" },
+                new[] { "name", "conditionLogic", "whenTrue", "whenFalse" },
+                new JProperty("conditionLogicValues", new JArray("all", "any")),
+                new JProperty("conditionShape", new JObject
+                {
+                    ["required"] = new JArray("io", "state"),
+                    ["stateMeaning"] = "运行时逻辑状态，不统一表示安全位或工作位"
+                }),
+                new JProperty("targetShape", SymbolicTargetContract()),
+                new JProperty("runRequired", new JArray("whenTrue", "whenFalse")),
+                new JProperty("runtimeBehavior", "读取或映射失败进入当前指令的报警策略；条件为真跳转whenTrue，为假跳转whenFalse"));
+
+            public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
+            {
+                List<ResolvedIoCondition> conditions = ResolveIoConditions(
+                    definition, context, "branch.io.conditions");
+                string logic = string.IsNullOrWhiteSpace(definition.ConditionLogic)
+                    ? "all"
+                    : definition.ConditionLogic.Trim();
+                if (!string.Equals(logic, "all", StringComparison.Ordinal)
+                    && !string.Equals(logic, "any", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("branch.io.conditionLogic 只能是 all 或 any。");
+                }
+                string nativeLogic = string.Equals(logic, "all", StringComparison.Ordinal) ? "与" : "或";
+                var ioParams = new CustomList<IoLogicGotoParam>();
+                foreach (ResolvedIoCondition condition in conditions)
+                {
+                    ioParams.Add(new IoLogicGotoParam
+                    {
+                        IOName = condition.Io,
+                        Target = condition.State,
+                        Logic = nativeLogic
+                    });
+                }
+                return new IoLogicGoto
+                {
+                    IOCount = conditions.Count.ToString(CultureInfo.InvariantCulture),
+                    InvalidDelayMs = 0,
+                    TrueGoto = context.ResolveTarget(definition.WhenTrue, "branch.io.whenTrue"),
+                    FalseGoto = context.ResolveTarget(definition.WhenFalse, "branch.io.whenFalse"),
+                    IoParams = ioParams
+                };
+            }
+        }
+
         private sealed class PopupMessageCompiler : IAiOperationCompiler
         {
             public string Kind => "popup.message";
@@ -906,7 +997,14 @@ namespace Automation
             public string Kind => "io.write";
             public string DefaultName => "设置IO输出";
             public JObject BuildContract() => Contract("设置一个现有输出IO的状态",
-                new[] { "kind", "io", "state" }, new[] { "name", "beforeMs", "afterMs" });
+                new[] { "kind", "io", "state" }, new[] { "name", "beforeMs", "afterMs" },
+                new JProperty("stateSemantics", new JObject
+                {
+                    ["valueDomain"] = "runtime-logical-boolean",
+                    ["true"] = "该精确输出IO逻辑激活",
+                    ["false"] = "该精确输出IO逻辑未激活",
+                    ["componentMeaning"] = "true/false不统一表示安全位或工作位；先确定机构目标，再确定输出逻辑值"
+                }));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
@@ -933,27 +1031,54 @@ namespace Automation
         {
             public string Kind => "io.wait";
             public string DefaultName => "等待IO状态";
-            public JObject BuildContract() => Contract("等待一个现有IO达到目标状态，超时报警",
-                new[] { "kind", "io", "state", "timeoutMs" }, new[] { "name" });
+            public JObject BuildContract() => Contract("等待一组现有IO同时达到目标状态；失败时报警停止或进入明确恢复目标",
+                new[] { "kind", "conditions", "timeoutMs" }, new[] { "name", "onFailure" },
+                new JProperty("stateSemantics", new JObject
+                {
+                    ["valueDomain"] = "runtime-logical-boolean",
+                    ["true"] = "该精确IO或传感器条件成立",
+                    ["false"] = "该精确IO或传感器条件不成立",
+                    ["componentMeaning"] = "机构到位由目标反馈和必要的对向反馈共同证明；例如缩回时原位为true、动位为false"
+                }),
+                new JProperty("conditionShape", new JObject
+                {
+                    ["required"] = new JArray("io", "state"),
+                    ["match"] = "全部条件同时成立时正常完成"
+                }),
+                new JProperty("targetShape", SymbolicTargetContract()),
+                new JProperty("failureBehavior", new JObject
+                {
+                    ["withoutOnFailure"] = "报警停止",
+                    ["withOnFailure"] = "自动处理并跳转onFailure",
+                    ["failureScope"] = "超时、IO映射缺失、IO类型无效和IO读取失败"
+                }));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
-                string io = context.RequireIo(definition.Io, "io.wait.io", false);
-                if (!definition.State.HasValue) throw new InvalidOperationException("io.wait.state 必填。");
+                List<ResolvedIoCondition> conditions = ResolveIoConditions(
+                    definition, context, "io.wait.conditions");
                 if (!definition.TimeoutMs.HasValue || definition.TimeoutMs.Value < 1
                     || definition.TimeoutMs.Value > 86400000)
                 {
                     throw new InvalidOperationException("io.wait.timeoutMs 必须在 1..86400000 之间。");
                 }
-                return new IoCheck
+                var ioParams = new CustomList<IoCheckParam>();
+                foreach (ResolvedIoCondition condition in conditions)
                 {
-                    IOCount = "1",
+                    ioParams.Add(new IoCheckParam { IOName = condition.Io, value = condition.State });
+                }
+                var operation = new IoCheck
+                {
+                    IOCount = conditions.Count.ToString(CultureInfo.InvariantCulture),
                     timeOutC = new TimeOutC { TimeOut = definition.TimeoutMs.Value },
-                    IoParams = new CustomList<IoCheckParam>
-                    {
-                        new IoCheckParam { IOName = io, value = definition.State.Value }
-                    }
+                    IoParams = ioParams
                 };
+                if (definition.OnFailure != null)
+                {
+                    operation.AlarmType = "自动处理";
+                    operation.Goto1 = context.ResolveTarget(definition.OnFailure, "io.wait.onFailure");
+                }
+                return operation;
             }
         }
 

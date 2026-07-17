@@ -6,7 +6,7 @@ namespace Automation.Protocol
     public static class SemanticOperationKinds
     {
         public const string SupportedKinds =
-            "variable.set、variable.add、variable.compute、wait、flow.goto、flow.end、branch.number_compare、branch.number_range、popup.message、popup.variable、config.placeholder、io.write、io.wait、process.control、process.wait、native.operation";
+            "variable.set、variable.add、variable.compute、wait、flow.goto、flow.end、branch.number_compare、branch.number_range、branch.io、popup.message、popup.variable、config.placeholder、io.write、io.wait、process.control、process.wait、native.operation";
     }
 
     /// <summary>
@@ -299,11 +299,20 @@ namespace Automation.Protocol
         [Description("弹框自动关闭时间，范围 1..3600000 毫秒；不需要自动关闭时省略，不能填0。")]
         public int? AutoCloseMs { get; set; }
 
-        [Description("IO精确名称；io.write要求输出IO，io.wait读取IO状态。")]
+        [Description("io.write 的输出IO精确名称。")]
         public string Io { get; set; }
 
-        [Description("IO目标状态。")]
+        [Description("io.write 写入的运行时逻辑目标值。true表示该精确输出IO逻辑激活，false表示逻辑未激活；它不统一表示安全位或工作位。")]
         public bool? State { get; set; }
+
+        [Description("branch.io/io.wait 的强类型IO条件集合；每项包含精确IO名称及期望的运行时逻辑值。机构完成证据可在同一集合中同时声明目标反馈和对向反馈。")]
+        public List<IoStateCondition> Conditions { get; set; }
+
+        [Description("branch.io 的条件组合方式：all 表示全部条件成立，any 表示任一条件成立；省略时为 all。")]
+        public string ConditionLogic { get; set; }
+
+        [Description("io.wait 检测失败后的符号目标。提供时，超时、IO映射缺失、IO类型无效或读取失败统一进入该目标；省略时使用安全默认策略“报警停止”。")]
+        public OperationTarget OnFailure { get; set; }
 
         [Description("动作前延时，范围 0..3600000 毫秒；不需要时省略。")]
         public int? BeforeMs { get; set; }
@@ -331,6 +340,15 @@ namespace Automation.Protocol
 
         [Description("仅 operation.update + native.operation 使用：显式清空现有指令的顶层字符串字段；字段不得同时出现在 fields。")]
         public List<string> ClearFields { get; set; }
+    }
+
+    public sealed class IoStateCondition
+    {
+        [Description("IO精确名称；branch.io/io.wait均可读取输入或输出的运行时逻辑状态。")]
+        public string Io { get; set; }
+
+        [Description("期望的IO运行时逻辑目标值。true表示该精确IO或传感器条件成立，false表示不成立；它不统一表示安全位或工作位。")]
+        public bool? State { get; set; }
     }
 
     public sealed class OperationTarget

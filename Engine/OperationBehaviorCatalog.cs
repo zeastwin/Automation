@@ -11,7 +11,7 @@ namespace Automation
     /// </summary>
     public static class OperationBehaviorCatalog
     {
-        public const int ContractVersion = 3;
+        public const int ContractVersion = 4;
 
         public static JObject BuildContract(OperationType operation)
         {
@@ -48,6 +48,34 @@ namespace Automation
                     AddRequiredGoto(contract, "TrueGoto", "IO 逻辑为真时的跳转目标");
                     AddRequiredGoto(contract, "FalseGoto", "IO 逻辑为假时的跳转目标");
                     contract["failureModes"] = new JArray("IO 名称无效时报警", "跳转目标为空或无效时报警");
+                    break;
+
+                case "IO操作":
+                    contract = CreateContract(
+                        "按配置顺序向一个或多个输出IO写入运行时逻辑目标值。",
+                        new[] { "逐项取得动作前延时", "等待动作前延时", "按精确名称定位输出IO并写入目标逻辑值", "逐项取得并等待动作后延时" },
+                        true);
+                    AddRequiredField(contract, "IoParams", "输出IO动作集合；每项包含IOName、value及前后延时配置");
+                    contract["stateSemantics"] = "value 是该精确输出IO的运行时逻辑目标值，不统一表示机构安全位、工作位或物理高低电平";
+                    contract["constraints"] = new JArray(
+                        "每个IOName必须映射到可写输出IO",
+                        "固定延时大于0时使用固定值；否则可从对应延时变量读取",
+                        "多个动作按IoParams顺序执行，前项失败后不执行后项");
+                    contract["semanticKinds"] = new JObject { ["singleOutput"] = "io.write" };
+                    contract["failureModes"] = new JArray("IO服务未初始化时报警", "IO映射不存在时报警", "IO写入失败时报警", "延时变量无效时报警");
+                    break;
+
+                case "IO检测":
+                    contract = CreateContract(
+                        "在超时边界内等待一组输入或输出IO全部达到各自的运行时逻辑目标值。",
+                        new[] { "解析固定超时或超时变量", "按精确名称读取每个IO的运行时逻辑状态", "全部条件同时成立时正常完成", "未全部成立时继续轮询，达到超时边界后进入报警策略" },
+                        true);
+                    AddRequiredField(contract, "IoParams", "IO条件集合；每项包含IOName和期望运行时逻辑值value");
+                    AddRequiredField(contract, "timeOutC", "固定超时或超时变量；运行时解析结果必须大于0毫秒");
+                    contract["stateSemantics"] = "value 是该精确IO的期望运行时逻辑值；机构到位可由目标反馈与必要的对向反馈共同组成条件集合";
+                    contract["controlFlow"]["failurePath"] = "超时、映射缺失、类型无效和读取失败均进入当前指令的AlarmType策略；AlarmType=自动处理时通过Goto1进入恢复目标";
+                    contract["semanticKinds"] = new JObject { ["waitAll"] = "io.wait" };
+                    contract["failureModes"] = new JArray("条件集合为空时报警", "超时配置无效时报警", "IO映射不存在或类型不是通用输入/通用输出时报警", "IO读取失败时报警", "条件在超时边界内未全部成立时报警");
                     break;
 
                 case "跳转":

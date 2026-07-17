@@ -170,6 +170,16 @@ namespace Automation.McpServer
                         ? operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "branch.number_compare.whenFalse")
                         : ValidateTarget(operation.WhenTrue, "branch.number_compare.whenTrue")
                             ?? (operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "branch.number_compare.whenFalse"));
+                case "branch.io":
+                    string branchConditionError = ValidateIoConditions(operation.Conditions, "branch.io.conditions");
+                    if (branchConditionError != null) return branchConditionError;
+                    if (!string.IsNullOrWhiteSpace(operation.ConditionLogic)
+                        && !new[] { "all", "any" }.Contains(operation.ConditionLogic, StringComparer.Ordinal))
+                        return "branch.io.conditionLogic 只能是 all 或 any。";
+                    return operation.WhenTrue == null
+                        ? operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "branch.io.whenFalse")
+                        : ValidateTarget(operation.WhenTrue, "branch.io.whenTrue")
+                            ?? (operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "branch.io.whenFalse"));
                 case "popup.message":
                     if (string.IsNullOrWhiteSpace(operation.Message)) return "popup.message.message 不能为空。";
                     if (ContainsPlaceholderSyntax(operation.Message))
@@ -187,9 +197,13 @@ namespace Automation.McpServer
                         return "io.write 必须提供 io/state。";
                     return null!;
                 case "io.wait":
-                    if (string.IsNullOrWhiteSpace(operation.Io) || !operation.State.HasValue || !operation.TimeoutMs.HasValue)
-                        return "io.wait 必须提供 io/state/timeoutMs。";
-                    return null!;
+                    string waitConditionError = ValidateIoConditions(operation.Conditions, "io.wait.conditions");
+                    if (waitConditionError != null) return waitConditionError;
+                    if (!operation.TimeoutMs.HasValue || operation.TimeoutMs < 1 || operation.TimeoutMs > 86400000)
+                        return "io.wait.timeoutMs 必须在1..86400000之间。";
+                    return operation.OnFailure == null
+                        ? null!
+                        : ValidateTarget(operation.OnFailure, "io.wait.onFailure");
                 case "process.control":
                     return null!;
                 case "process.wait":
@@ -216,6 +230,23 @@ namespace Automation.McpServer
                 return $"{path} 使用 operationId 时不得提供 stepId 或 stepKey。";
             if (!string.IsNullOrWhiteSpace(target.OperationKey) && stepSelectorCount > 1)
                 return $"{path} 使用 operationKey 时 stepId 和 stepKey 不能同时提供。";
+            return null!;
+        }
+
+        private static string ValidateIoConditions(IReadOnlyCollection<IoStateCondition> conditions, string path)
+        {
+            if (conditions == null || conditions.Count == 0)
+                return $"{path} 至少包含一个IO条件。";
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            int index = 0;
+            foreach (IoStateCondition condition in conditions)
+            {
+                if (condition == null || string.IsNullOrWhiteSpace(condition.Io) || !condition.State.HasValue)
+                    return $"{path}[{index}] 必须提供 io/state。";
+                if (!names.Add(condition.Io.Trim()))
+                    return $"{path} 包含重复IO：{condition.Io.Trim()}。";
+                index++;
+            }
             return null!;
         }
 

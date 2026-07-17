@@ -61,12 +61,185 @@ namespace Automation
         {
             InitializeComponent();
             ConfigureProcTreeAppearance();
+            ConfigureProcContextMenu();
             Disposed += FrmProc_Disposed;
             proc_treeView.HandleCreated += ProcTreeView_HandleCreated;
             this.proc_treeView.HideSelection = false;
             typeof(Control).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(proc_treeView, true, null);
             proc_treeView.BeforeSelect += proc_treeView_BeforeSelect;
+        }
+
+        private void ConfigureProcContextMenu()
+        {
+            contextMenuStrip1.SuspendLayout();
+            try
+            {
+                contextMenuStrip1.Items.Clear();
+                contextMenuStrip1.AutoSize = true;
+                contextMenuStrip1.MinimumSize = new Size(172, 0);
+                contextMenuStrip1.Padding = new Padding(3);
+                contextMenuStrip1.ImageScalingSize = new Size(20, 20);
+                contextMenuStrip1.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
+                contextMenuStrip1.BackColor = Color.White;
+                contextMenuStrip1.ForeColor = Color.FromArgb(42, 55, 63);
+                contextMenuStrip1.ShowCheckMargin = false;
+                contextMenuStrip1.ShowImageMargin = true;
+                contextMenuStrip1.Renderer = new ProcContextMenuRenderer();
+
+                AddProc.Image = CreateProcMenuIcon(ProcMenuIconKind.AddProc);
+                AddStep.Image = CreateProcMenuIcon(ProcMenuIconKind.AddStep);
+                startProc.Image = CreateProcMenuIcon(ProcMenuIconKind.Start);
+                Modify.Image = CreateProcMenuIcon(ProcMenuIconKind.Edit);
+                CopyProcStep.Image = CreateProcMenuIcon(ProcMenuIconKind.Copy);
+                PasteProcStep.Image = CreateProcMenuIcon(ProcMenuIconKind.Paste);
+                ToggleDisable.Image = CreateProcMenuIcon(ProcMenuIconKind.Disable);
+                Remove.Image = CreateProcMenuIcon(ProcMenuIconKind.Delete);
+                Remove.ForeColor = Color.FromArgb(188, 55, 64);
+
+                foreach (ToolStripMenuItem item in new[]
+                {
+                    AddProc, AddStep, startProc, Modify, CopyProcStep,
+                    PasteProcStep, ToggleDisable, Remove
+                })
+                {
+                    item.AutoSize = true;
+                    item.Padding = new Padding(4, 2, 5, 2);
+                    item.Margin = Padding.Empty;
+                }
+
+                contextMenuStrip1.Items.Add(AddProc);
+                contextMenuStrip1.Items.Add(AddStep);
+                contextMenuStrip1.Items.Add(CreateProcMenuSeparator());
+                contextMenuStrip1.Items.Add(startProc);
+                contextMenuStrip1.Items.Add(CreateProcMenuSeparator());
+                contextMenuStrip1.Items.Add(Modify);
+                contextMenuStrip1.Items.Add(CopyProcStep);
+                contextMenuStrip1.Items.Add(PasteProcStep);
+                contextMenuStrip1.Items.Add(CreateProcMenuSeparator());
+                contextMenuStrip1.Items.Add(ToggleDisable);
+                contextMenuStrip1.Items.Add(CreateProcMenuSeparator());
+                contextMenuStrip1.Items.Add(Remove);
+            }
+            finally
+            {
+                contextMenuStrip1.ResumeLayout(false);
+            }
+        }
+
+        private static ToolStripSeparator CreateProcMenuSeparator()
+        {
+            return new ToolStripSeparator
+            {
+                AutoSize = false,
+                Size = new Size(164, 5),
+                Margin = Padding.Empty
+            };
+        }
+
+        private enum ProcMenuIconKind
+        {
+            AddProc,
+            AddStep,
+            Start,
+            Edit,
+            Copy,
+            Paste,
+            Disable,
+            Delete
+        }
+
+        private static Bitmap CreateProcMenuIcon(ProcMenuIconKind kind)
+        {
+            Bitmap bitmap = new Bitmap(20, 20);
+            using (Graphics graphics = Graphics.FromImage(bitmap))
+            using (Pen pen = new Pen(GetProcMenuIconColor(kind), 1.7F))
+            {
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                switch (kind)
+                {
+                    case ProcMenuIconKind.AddProc:
+                        graphics.DrawRectangle(pen, 4, 5, 12, 10);
+                        graphics.DrawLine(pen, 10, 7, 10, 13);
+                        graphics.DrawLine(pen, 7, 10, 13, 10);
+                        break;
+                    case ProcMenuIconKind.AddStep:
+                        graphics.DrawRectangle(pen, 4, 4, 12, 12);
+                        graphics.DrawLine(pen, 7, 8, 13, 8);
+                        graphics.DrawLine(pen, 7, 12, 11, 12);
+                        break;
+                    case ProcMenuIconKind.Start:
+                        graphics.DrawPolygon(pen, new[] { new Point(7, 5), new Point(15, 10), new Point(7, 15) });
+                        break;
+                    case ProcMenuIconKind.Edit:
+                        graphics.DrawLine(pen, 5, 15, 14, 6);
+                        graphics.DrawLine(pen, 5, 15, 8, 14);
+                        graphics.DrawLine(pen, 12, 5, 15, 8);
+                        break;
+                    case ProcMenuIconKind.Copy:
+                        graphics.DrawRectangle(pen, 6, 4, 9, 10);
+                        graphics.DrawRectangle(pen, 4, 7, 9, 9);
+                        break;
+                    case ProcMenuIconKind.Paste:
+                        graphics.DrawRectangle(pen, 5, 5, 10, 11);
+                        graphics.DrawRectangle(pen, 8, 3, 4, 4);
+                        break;
+                    case ProcMenuIconKind.Disable:
+                        graphics.DrawEllipse(pen, 4, 4, 12, 12);
+                        graphics.DrawLine(pen, 6, 14, 14, 6);
+                        break;
+                    case ProcMenuIconKind.Delete:
+                        graphics.DrawRectangle(pen, 6, 7, 8, 9);
+                        graphics.DrawLine(pen, 5, 6, 15, 6);
+                        graphics.DrawLine(pen, 8, 4, 12, 4);
+                        break;
+                }
+            }
+            return bitmap;
+        }
+
+        private static Color GetProcMenuIconColor(ProcMenuIconKind kind)
+        {
+            switch (kind)
+            {
+                case ProcMenuIconKind.Start: return Color.FromArgb(43, 145, 93);
+                case ProcMenuIconKind.Disable: return Color.FromArgb(214, 126, 30);
+                case ProcMenuIconKind.Delete: return Color.FromArgb(205, 62, 70);
+                default: return Color.FromArgb(61, 112, 139);
+            }
+        }
+
+        private sealed class ProcContextMenuRenderer : ToolStripProfessionalRenderer
+        {
+            public ProcContextMenuRenderer() : base(new ProcContextMenuColorTable())
+            {
+                RoundedEdges = false;
+            }
+
+            protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+            {
+                Rectangle bounds = new Rectangle(4, 1, e.Item.Width - 8, e.Item.Height - 2);
+                if (e.Item.Selected && e.Item.Enabled)
+                {
+                    using (Brush brush = new SolidBrush(Color.FromArgb(226, 241, 248)))
+                    {
+                        e.Graphics.FillRectangle(brush, bounds);
+                    }
+                }
+            }
+        }
+
+        private sealed class ProcContextMenuColorTable : ProfessionalColorTable
+        {
+            public override Color ToolStripDropDownBackground => Color.White;
+            public override Color ImageMarginGradientBegin => Color.White;
+            public override Color ImageMarginGradientMiddle => Color.White;
+            public override Color ImageMarginGradientEnd => Color.White;
+            public override Color MenuBorder => Color.FromArgb(178, 188, 193);
+            public override Color SeparatorDark => Color.FromArgb(226, 232, 235);
+            public override Color SeparatorLight => Color.White;
         }
 
         private void FrmProc_Disposed(object sender, EventArgs e)

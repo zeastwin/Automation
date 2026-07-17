@@ -1565,6 +1565,10 @@ namespace Automation.Bridge
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
             EnsureOnlyProperties(operation, $"语义指令 {kind}", allowed);
+            if (allowed.Contains("conditions", StringComparer.Ordinal))
+            {
+                ValidateIoConditionArray(operation["conditions"], $"语义指令 {kind}.conditions");
+            }
             if (string.Equals(kind, "native.operation", StringComparison.Ordinal))
             {
                 if (operation["operaType"]?.Type != JTokenType.String
@@ -1579,7 +1583,7 @@ namespace Automation.Bridge
                         "native.operation.fields 必须是 JSON 对象。");
                 }
             }
-            foreach (string targetField in new[] { "target", "whenTrue", "whenFalse" })
+            foreach (string targetField in new[] { "target", "whenTrue", "whenFalse", "onFailure" })
             {
                 if (allowed.Contains(targetField, StringComparer.Ordinal))
                 {
@@ -1605,6 +1609,28 @@ namespace Automation.Bridge
                     throw new BridgeRequestException(400, "CHANGE_SET_INVALID", $"{path}[{index}] 必须是对象。");
                 }
                 validate(item);
+            }
+        }
+
+        private static void ValidateIoConditionArray(JToken token, string path)
+        {
+            if (!(token is JArray array) || array.Count == 0)
+            {
+                throw new BridgeRequestException(400, "CHANGE_SET_INVALID", $"{path} 必须是非空数组。");
+            }
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            for (int index = 0; index < array.Count; index++)
+            {
+                if (!(array[index] is JObject condition))
+                    throw new BridgeRequestException(400, "CHANGE_SET_INVALID", $"{path}[{index}] 必须是对象。");
+                EnsureOnlyProperties(condition, $"{path}[{index}]", "io", "state");
+                string io = condition["io"]?.Type == JTokenType.String
+                    ? condition["io"].Value<string>()?.Trim()
+                    : null;
+                if (string.IsNullOrWhiteSpace(io) || condition["state"]?.Type != JTokenType.Boolean)
+                    throw new BridgeRequestException(400, "CHANGE_SET_INVALID", $"{path}[{index}] 必须提供非空字符串 io 和布尔值 state。");
+                if (!names.Add(io))
+                    throw new BridgeRequestException(400, "CHANGE_SET_INVALID", $"{path} 包含重复IO：{io}。");
             }
         }
 

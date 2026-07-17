@@ -9,7 +9,7 @@ namespace Automation
     public static class GooseRuntimeProvisioner
     {
         public const int SystemPromptVersion = 19;
-        public const int IntegrationContextVersion = 39;
+        public const int IntegrationContextVersion = 41;
         private const string PromptResourceName = "Automation.Assets.Goose.system.md";
         private const string IntegrationContextResourceName = "Automation.Assets.Goose.automation.md";
         private const string VersionFileName = ".automation-system-prompt-version";
@@ -138,6 +138,7 @@ namespace Automation
             {
                 "get_semantic_operation_schema",
                 "get_native_operation_schemas",
+                "get_process_design_guide",
                 "preview_change_set",
                 "apply_change_set",
                 "preview_only",

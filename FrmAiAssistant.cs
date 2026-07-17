@@ -1119,7 +1119,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 <body>
 <div class=""app-shell"">
   <header class=""topbar"">
-    <div class=""topbar-left""><div class=""brand""><div class=""brand-mark"">EW</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div><span class=""home-divider"" aria-hidden=""true""></span><button class=""icon-button home-button"" id=""newSessionButton"" title=""任务主页"" aria-label=""任务主页"" aria-pressed=""false""><svg viewBox=""0 0 24 24"" aria-hidden=""true""><path d=""M3.5 11.2 12 4l8.5 7.2""/><path d=""M5.8 10.2v9.3h12.4v-9.3""/><path d=""M9.3 19.5v-5.7h5.4v5.7""/></svg></button></div>
+    <div class=""topbar-left""><div class=""brand""><div class=""brand-mark"">EW</div><div><div class=""brand-title"">EW-AI 助手</div><div class=""brand-subtitle"" id=""statusText"">就绪</div></div></div><span class=""home-divider"" aria-hidden=""true""></span><button class=""icon-button home-button"" id=""newSessionButton"" title=""返回任务列表"" aria-label=""返回任务列表"" aria-pressed=""false""><svg viewBox=""0 0 24 24"" aria-hidden=""true""><path d=""M19 12H5""/><path d=""m11 18-6-6 6-6""/></svg></button></div>
     <div class=""top-actions"">
       <button class=""toolbar-option topbar-button"" id=""standardTestButton"" title=""选择并连续运行标准测试场景"">标准测试</button>
       <button class=""toolbar-option topbar-button"" id=""fullPermissionButton"" aria-pressed=""false"" title=""加载控制卡、IO、PLC、通讯及平台配置等完整工程工具"">完全权限</button>

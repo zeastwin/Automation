@@ -95,6 +95,18 @@ namespace Automation.McpServer
             return result;
         }
 
+        [McpServerTool(Name = "get_process_design_guide"), Description(
+            "按当前复杂流程设计目标读取精确主题。适用于创建、重构或评审包含机械反馈、完整控制流、子流程事务、通讯重试、异常恢复或自定义函数边界的流程。"
+            + "主题路由中mechanical对应IO、气缸、真空和运动反馈，review对应设计前、中、后审查。"
+            + "简单赋值、固定延时、单IO操作和已知对象的字段级编辑不需要本指南。返回Automation流程设计方法，不提供具体字段、资源名称或运行参数；这些事实仍从当前Schema、Guide和资源工具读取。")]
+        public static string GetProcessDesignGuide(
+            [Description("流程设计主题数组，只传当前任务涉及的主题：architecture=目标与层级；mechanical=IO、气缸、真空和运动反馈；control-flow=分支、循环与终止；transaction=外部事务；recovery=超时与失败恢复；custom-function=函数边界；templates=常见流程骨架；review=设计前、中、后审查")] string[] topics)
+        {
+            string result = ProcessDesignGuideCatalog.Get(topics);
+            ToolCallLogger.Log(nameof(GetProcessDesignGuide), new { topics }, result);
+            return result;
+        }
+
         [McpServerTool(Name = "list_procs"), Description(
             "列出所有流程的基础信息（procIndex/procId/name/autoStart/disable/state/stepCount）。"
             + "同名流程通过procId或procIndex区分。"
@@ -873,7 +885,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_io"), Description(
-            "按精确名称读取单个 IO 配置信息；名称已知时直接使用本工具。")]
+            "按精确名称读取单个 IO 配置信息；名称已知时直接使用本工具。返回ioType/usedType/effectLevel/note等配置事实；它们不自动定义机构的安全位或工作位，部件目标与原位/动位反馈关系以明确设备契约为准。")]
         public static async Task<string> GetIo(
             [Description("IO 名称")] string name)
         {
@@ -899,9 +911,8 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_io_state"), Description(
-            "读取单个 IO 实时电平状态。"
-            + "true=高电平，false=低电平，null=读取失败。"
-            + "通用输入通过硬件读取，通用输出读取当前输出状态。需硬件已就绪。")]
+            "读取单个 IO 的运行时逻辑状态。true表示该精确IO逻辑激活，false表示逻辑未激活，null表示读取失败；它不统一表示电气高低电平、安全位或工作位。"
+            + "通用输入读取传感器条件，通用输出读取当前输出逻辑状态；机构语义由部件目标及对应反馈关系确定。需硬件已就绪。")]
         public static async Task<string> GetIoState(
             [Description("IO 名称")] string name)
         {

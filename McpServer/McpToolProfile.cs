@@ -11,7 +11,7 @@ namespace Automation.McpServer
         // 知识和只读定位能力是所有模式的基础；模式只决定是否追加深度诊断或配置写入能力。
         private static readonly HashSet<string> KnowledgeAndReadTools = new HashSet<string>(StringComparer.Ordinal)
         {
-            "get_platform_development_context",
+            "get_platform_development_context", "get_process_design_guide",
             "list_procs", "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_step_detail",
             "get_op_detail", "get_op_details",
             "get_operation_references", "get_proc_references", "trace_resource",
@@ -105,6 +105,10 @@ namespace Automation.McpServer
                 {
                     ApplyStringArraySchema(tool, "operaTypes", null);
                 }
+                else if (string.Equals(toolName, "get_process_design_guide", StringComparison.Ordinal))
+                {
+                    ApplyStringArraySchema(tool, "topics", ProcessDesignGuideCatalog.SupportedTopics);
+                }
                 tools.Add(tool);
             }
             if (tools.Count == 0)
@@ -181,6 +185,8 @@ namespace Automation.McpServer
             ApplyNumericRange(operationSchema, "beforeMs", 0, 3600000);
             ApplyNumericRange(operationSchema, "afterMs", 0, 3600000);
             ApplyNumericRange(operationSchema, "timeoutMs", 1, 86400000);
+            ApplyIoConditionsSchema(operationSchema);
+            ApplyStringEnum(operationSchema, "conditionLogic", "all", "any");
 
             operationSchema["oneOf"] = new JsonArray
             {
@@ -195,13 +201,15 @@ namespace Automation.McpServer
                     "whenTrue", "whenFalse"),
                 SemanticShape(operationProperties, "branch.number_range", new[] { "variable", "min", "max" },
                     "includeBounds", "whenTrue", "whenFalse"),
+                SemanticShape(operationProperties, "branch.io", new[] { "conditions" },
+                    "conditionLogic", "whenTrue", "whenFalse"),
                 SemanticShape(operationProperties, "popup.message", new[] { "message" },
                     "buttonText", "autoCloseMs", "target"),
                 SemanticShape(operationProperties, "popup.variable", new[] { "variable" },
                     "buttonText", "autoCloseMs", "target"),
                 SemanticShape(operationProperties, "config.placeholder", new[] { "message" }),
                 SemanticShape(operationProperties, "io.write", new[] { "io", "state" }, "beforeMs", "afterMs"),
-                SemanticShape(operationProperties, "io.wait", new[] { "io", "state", "timeoutMs" }),
+                SemanticShape(operationProperties, "io.wait", new[] { "conditions", "timeoutMs" }, "onFailure"),
                 SemanticShape(operationProperties, "process.control", Array.Empty<string>(), "process", "action", "afterMs"),
                 SemanticShape(operationProperties, "process.wait", Array.Empty<string>(), "process", "expectedState", "timeoutMs", "afterMs"),
                 SemanticShape(operationProperties, "native.operation", new[] { "operaType", "fields" }, "clearFields")
@@ -247,6 +255,29 @@ namespace Automation.McpServer
             }
             fieldSchema["minimum"] = minimum;
             fieldSchema["maximum"] = maximum;
+        }
+
+        private static void ApplyIoConditionsSchema(JsonObject operationSchema)
+        {
+            if (operationSchema["properties"] is not JsonObject properties
+                || properties["conditions"] is not JsonObject conditionsSchema
+                || conditionsSchema["items"] is not JsonObject itemSchema)
+            {
+                throw new InvalidOperationException("preview_change_set 参数Schema缺少conditions字段定义。");
+            }
+            conditionsSchema["minItems"] = 1;
+            itemSchema["required"] = new JsonArray("io", "state");
+            itemSchema["additionalProperties"] = false;
+        }
+
+        private static void ApplyStringEnum(JsonObject operationSchema, string fieldName, params string[] values)
+        {
+            if (operationSchema["properties"] is not JsonObject properties
+                || properties[fieldName] is not JsonObject fieldSchema)
+            {
+                throw new InvalidOperationException($"preview_change_set 参数Schema缺少字段：{fieldName}");
+            }
+            fieldSchema["enum"] = new JsonArray(values.Select(value => JsonValue.Create(value)).ToArray());
         }
 
         private static JsonObject? FindChangeActionSchema(JsonNode? node)
