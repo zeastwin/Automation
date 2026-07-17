@@ -727,10 +727,7 @@ namespace Automation
         {
             OperaType = "跳转";
             ParamListConverter<GotoParam>.Name = "跳转";
-            Params = new CustomList<GotoParam>
-            {
-                new GotoParam()
-            };
+            Params = new CustomList<GotoParam>();
         }
 
         [DisplayName("变量索引"), Category("参数"), Description("变量索引地址；运行时按索引读取或写入数据。"), ReadOnly(false)]
@@ -745,7 +742,7 @@ namespace Automation
         [DisplayName("变量名称二级"), Category("参数"), Description("二级变量名称；用于嵌套对象或二维结构的第二层定位。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string ValueName2Index { get; set; }
 
-        private string count = "1";
+        private string count = "0";
         [DisplayName("匹配数量"), Category("参数"), Description("条件分支数量；决定匹配列表项数。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
         public string Count
         {

@@ -77,8 +77,8 @@ namespace Automation
 
         private void ConfigureProcTreeAppearance()
         {
-            procNodeFont = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
-            stepNodeFont = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
+            procNodeFont = ProcessPageFont.Create(10.5F, FontStyle.Bold);
+            stepNodeFont = ProcessPageFont.Create(10F, FontStyle.Regular);
             // TreeView 使用基准字体计算节点标签边界。基准字体小于流程节点粗体时，
             // WinForms 会在仍有可用宽度的情况下裁掉流程名称末尾。
             proc_treeView.Font = procNodeFont;
@@ -199,13 +199,11 @@ namespace Automation
 
             Proc proc = procsList[procIndex];
             TreeNode procNode = proc_treeView.Nodes[procIndex];
-            procNode.NodeFont = procNodeFont;
             SetNodeImage(procNode, GetProcImageKey(proc, snapshot));
             int stepCount = Math.Min(proc?.steps?.Count ?? 0, procNode.Nodes.Count);
             for (int i = 0; i < stepCount; i++)
             {
                 TreeNode stepNode = procNode.Nodes[i];
-                stepNode.NodeFont = stepNodeFont;
                 SetNodeImage(stepNode, GetStepImageKey(proc, proc.steps[i], i, snapshot));
             }
         }
@@ -730,12 +728,12 @@ namespace Automation
             InstructionListView grid = SF.frmDataGrid?.dataGridView1;
             OperationType selectedOp = grid?.GetOperation(grid.CurrentIndex);
             Guid selectedOpId = selectedOp?.Id ?? Guid.Empty;
-            int firstDisplayedRow = -1;
+            int firstVisibleRow = -1;
             if (grid != null && grid.OperationCount > 0)
             {
                 try
                 {
-                    firstDisplayedRow = grid.CurrentIndex;
+                    firstVisibleRow = grid.FirstVisibleIndex;
                 }
                 catch (InvalidOperationException)
                 {
@@ -750,12 +748,14 @@ namespace Automation
                 bindingSource.DataSource = null;
                 if (grid != null)
                 {
+                    grid.SetFlowContext(-1, -1, null);
                     grid.DataSource = null;
                 }
                 return;
             }
             if (SelectedStepNum >= 0 && SelectedStepNum < procsList[SelectedProcNum].steps.Count)
             {
+                grid?.SetFlowContext(SelectedProcNum, SelectedStepNum, procsList[SelectedProcNum]);
                 bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
                 if (SF.frmPropertyGrid != null && !SF.frmPropertyGrid.IsDisposed)
                 {
@@ -764,6 +764,7 @@ namespace Automation
             }
             else
             {
+                grid?.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
                 bindingSource.DataSource = null;
                 if (SF.frmPropertyGrid != null && !SF.frmPropertyGrid.IsDisposed)
                 {
@@ -785,11 +786,11 @@ namespace Automation
                         SF.frmDataGrid.iSelectedRow = selectedRowIndex;
                     }
                 }
-                if (firstDisplayedRow >= 0 && firstDisplayedRow < grid.OperationCount)
+                if (firstVisibleRow >= 0 && firstVisibleRow < grid.OperationCount)
                 {
                     try
                     {
-                        grid.EnsureIndexVisible(firstDisplayedRow);
+                        grid.SetFirstVisibleIndex(firstVisibleRow);
                     }
                     catch (InvalidOperationException)
                     {
@@ -981,6 +982,7 @@ namespace Automation
                         SelectedProcNum = -1;
                         SelectedStepNum = -1;
                         bindingSource.DataSource = null;
+                        SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
                         SF.frmDataGrid.dataGridView1.DataSource = null;
                         SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
                         return;
@@ -990,10 +992,15 @@ namespace Automation
                         MessageBox.Show("步骤索引无效，无法加载指令。");
                         SelectedStepNum = -1;
                         bindingSource.DataSource = null;
+                        SF.frmDataGrid.dataGridView1.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
                         SF.frmDataGrid.dataGridView1.DataSource = null;
                         SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
                         return;
                     }
+                    SF.frmDataGrid.dataGridView1.SetFlowContext(
+                        SelectedProcNum,
+                        SelectedStepNum,
+                        procsList[SelectedProcNum]);
                     bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
 
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject =procsList[SelectedProcNum].steps[SF.frmProc.SelectedStepNum];
@@ -1011,10 +1018,15 @@ namespace Automation
                         MessageBox.Show("流程索引无效，无法加载。");
                         SelectedProcNum = -1;
                         bindingSource.DataSource = null;
+                        SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
                         SF.frmDataGrid.dataGridView1.DataSource = null;
                         SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
                         return;
                     }
+                    SF.frmDataGrid.dataGridView1.SetFlowContext(
+                        SelectedProcNum,
+                        -1,
+                        procsList[SelectedProcNum]);
                     bindingSource.DataSource = null;
 
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject = procsList[SelectedProcNum].head;
@@ -1125,6 +1137,7 @@ namespace Automation
                     SF.frmDataGrid.iSelectedRow = -1;
                     SF.frmDataGrid.OperationTemp = null;
                     bindingSource.DataSource = null;
+                    SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
                     SF.frmDataGrid.dataGridView1.DataSource = null;
                     SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
                 }
@@ -1796,6 +1809,42 @@ namespace Automation
             return new Tuple<int, int, int>(-1, -1, -1);
         }
 
+    }
+
+    internal static class ProcessPageFont
+    {
+        private static readonly string FamilyName = ResolveFamilyName();
+
+        public static Font Create(float size, FontStyle style)
+        {
+            try
+            {
+                return new Font(FamilyName, size, style, GraphicsUnit.Point);
+            }
+            catch
+            {
+                return new Font("Microsoft YaHei UI", size, style, GraphicsUnit.Point);
+            }
+        }
+
+        private static string ResolveFamilyName()
+        {
+            string[] preferredFamilies = { "Noto Sans SC", "Microsoft YaHei UI", "DengXian" };
+            try
+            {
+                using (var fonts = new System.Drawing.Text.InstalledFontCollection())
+                {
+                    var installedNames = new HashSet<string>(
+                        fonts.Families.Select(family => family.Name),
+                        StringComparer.OrdinalIgnoreCase);
+                    return preferredFamilies.First(installedNames.Contains);
+                }
+            }
+            catch
+            {
+                return "Microsoft YaHei UI";
+            }
+        }
     }
 
 }

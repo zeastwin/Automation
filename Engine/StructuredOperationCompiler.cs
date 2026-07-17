@@ -397,13 +397,6 @@ namespace Automation
 
             if (!(operation is Goto jump)) return;
 
-            // Goto 构造函数为 PropertyGrid 预放了一个空分支；结构化输入未提供 Params 时不能把该占位项带入运行时。
-            if (!preserveUnspecified
-                && fields.Property(nameof(Goto.Params), StringComparison.Ordinal) == null)
-            {
-                jump.Params = new OperationTypePartial.CustomList<GotoParam>();
-                jump.Count = "0";
-            }
             if (jump.Params == null || jump.Params.Count == 0)
             {
                 return;
