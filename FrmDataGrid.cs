@@ -61,6 +61,7 @@ namespace Automation
             contextMenuStrip2.KeyDown += contextMenuStrip2_KeyDown;
             contextMenuStrip2.Opening += contextMenuStrip2_Opening;
             dataGridView1.SelectedIndexChanged += dataGridView1_SelectedIndexChanged;
+            dataGridView1.JumpLinkClicked += dataGridView1_JumpLinkClicked;
         }
 
         private void dataGridView1_SelectedIndexChanged(object sender, EventArgs e)
@@ -73,6 +74,63 @@ namespace Automation
                 && !SF.frmPropertyGrid.IsDisposed)
             {
                 ShowOperationProperties(rowIndex);
+            }
+        }
+
+        private void dataGridView1_JumpLinkClicked(
+            object sender,
+            InstructionListView.JumpLinkClickedEventArgs e)
+        {
+            if (SF.frmProc == null
+                || SF.frmProc.IsDisposed
+                || e.ProcIndex < 0
+                || e.ProcIndex >= SF.frmProc.procsList.Count
+                || e.ProcIndex != SF.frmProc.SelectedProcNum)
+            {
+                return;
+            }
+
+            int targetStepIndex = e.IsOutgoing ? e.TargetStepIndex : e.SourceStepIndex;
+            int targetOpIndex = e.IsOutgoing ? e.TargetOpIndex : e.SourceOpIndex;
+            Proc proc = SF.frmProc.procsList[e.ProcIndex];
+            if (targetStepIndex < 0
+                || targetStepIndex >= (proc?.steps?.Count ?? 0)
+                || targetOpIndex < 0
+                || targetOpIndex >= (proc.steps[targetStepIndex]?.Ops?.Count ?? 0))
+            {
+                return;
+            }
+
+            FrmPropertyGrid propertyEditor = SF.frmPropertyGrid;
+            propertyEditor?.BeginVisualUpdate();
+            try
+            {
+                dataGridView1.BeginLinkedNavigation();
+                try
+                {
+                    if (SF.frmProc.SelectedStepNum != targetStepIndex)
+                    {
+                        SelectChildNode(e.ProcIndex, targetStepIndex);
+                    }
+                    if (SF.frmProc.SelectedProcNum != e.ProcIndex
+                        || SF.frmProc.SelectedStepNum != targetStepIndex
+                        || targetOpIndex >= dataGridView1.OperationCount)
+                    {
+                        return;
+                    }
+
+                    dataGridView1.SelectSingle(targetOpIndex);
+                    iSelectedRow = targetOpIndex;
+                    dataGridView1.EnsureIndexVisible(targetOpIndex);
+                }
+                finally
+                {
+                    dataGridView1.EndLinkedNavigation();
+                }
+            }
+            finally
+            {
+                propertyEditor?.EndVisualUpdate();
             }
         }
 
@@ -942,7 +1000,6 @@ namespace Automation
                     SF.frmProc.proc_treeView.SelectedNode = parentNode.Nodes[childIndex];
 
                 }));
-                dataGridView1.ClearSelection();
             }
 
         }
@@ -1139,6 +1196,7 @@ namespace Automation
         private void FrmDataGrid_Disposed(object sender, EventArgs e)
         {
             dataGridView1.SelectedIndexChanged -= dataGridView1_SelectedIndexChanged;
+            dataGridView1.JumpLinkClicked -= dataGridView1_JumpLinkClicked;
             if (gridFlashTimer != null)
             {
                 gridFlashTimer.Stop();
@@ -1557,19 +1615,29 @@ namespace Automation
             {
                 return;
             }
+            FrmPropertyGrid propertyEditor = SF.frmPropertyGrid;
             OperationTemp = (OperationType)operation.Clone();
-            SF.frmPropertyGrid.propertyGrid1.SelectedObject = OperationTemp;
-            OperationTemp.evtRP();
-            SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmPropertyGrid.propertyGrid1.SelectedObject;
-            foreach (OperationType item in SF.frmPropertyGrid.OperationType.Items)
+            propertyEditor.BeginVisualUpdate();
+            try
             {
-                if (string.Equals(item.OperaType, operation.OperaType, StringComparison.Ordinal))
+                OperationTemp.evtRP();
+                TypeDescriptor.Refresh(OperationTemp);
+                propertyEditor.propertyGrid1.SelectedObject = null;
+                propertyEditor.propertyGrid1.SelectedObject = OperationTemp;
+                foreach (OperationType item in propertyEditor.OperationType.Items)
                 {
-                    SF.frmPropertyGrid.OperationType.SelectedItem = item;
-                    break;
+                    if (string.Equals(item.OperaType, operation.OperaType, StringComparison.Ordinal))
+                    {
+                        propertyEditor.OperationType.SelectedItem = item;
+                        break;
+                    }
                 }
+                propertyEditor.propertyGrid1.ExpandAllGridItems();
             }
-            SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
+            finally
+            {
+                propertyEditor.EndVisualUpdate();
+            }
         }
 
         private void dataGridView1_DragDrop(object sender, DragEventArgs e)
@@ -1667,6 +1735,11 @@ namespace Automation
                         targetIndex = selectedRow;
                     }
                     ProcessEditingService.RewriteGotoTargets(before, procDraft, procIndex);
+                    if (isAdd)
+                    {
+                        ProcessEditingService.RewriteAddedOperationGotoTargetsFromPreviousLayout(
+                            draft, before, procDraft, procIndex);
+                    }
                     if (!ProcessEditingService.TryCommitProcDraft(procIndex, procDraft, out string commitError))
                     {
                         throw new InvalidOperationException(commitError);

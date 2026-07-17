@@ -1459,15 +1459,23 @@ namespace Automation
         {
             if (frm != null && panel != null)
             {
-                frm.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
-                frm.ShowIcon = false;
-                frm.ShowInTaskbar = false;
-                frm.TopLevel = false;
-                frm.Dock = DockStyle.Fill;
-                panel.Controls.Add(frm);
-                frm.BringToFront();
-                frm.Show();
-                frm.Focus();
+                panel.SuspendLayout();
+                try
+                {
+                    frm.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
+                    frm.ShowIcon = false;
+                    frm.ShowInTaskbar = false;
+                    frm.TopLevel = false;
+                    frm.Dock = DockStyle.Fill;
+                    panel.Controls.Add(frm);
+                    frm.BringToFront();
+                    frm.Show();
+                    frm.Focus();
+                }
+                finally
+                {
+                    panel.ResumeLayout(true);
+                }
             }
         }
 

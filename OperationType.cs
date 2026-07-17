@@ -264,13 +264,23 @@ namespace Automation
         //更改某个参数的显示名称
         public void SetDisplayName(Type propertyType, string PropertyName, string disPlayName)
         {
-            object obj;
-            obj = Convert.ChangeType(SF.frmPropertyGrid.propertyGrid1.SelectedObject, propertyType);
+            object obj = propertyType.IsInstanceOfType(this) ? this : null;
+            if (obj == null)
+            {
+                return;
+            }
             PropertyDescriptor descriptor = TypeDescriptor.GetProperties(obj)[PropertyName];
+            if (descriptor == null)
+            {
+                return;
+            }
             DisplayNameAttribute attribute = descriptor.Attributes[typeof(DisplayNameAttribute)] as DisplayNameAttribute;
+            if (attribute == null)
+            {
+                return;
+            }
             FieldInfo field = attribute.GetType().GetField("_displayName", BindingFlags.NonPublic | BindingFlags.Instance);
-            field.SetValue(attribute, disPlayName);
-            SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmPropertyGrid.propertyGrid1.SelectedObject;
+            field?.SetValue(attribute, disPlayName);
         }
 
     }

@@ -6,6 +6,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Automation
@@ -19,10 +20,21 @@ namespace Automation
         private const int FlowColumnWidth = 112;
         private const int JumpLaneSpacing = 9;
         private const int JumpVisibleLaneCount = 3;
+        private const int LvmSetExtendedListViewStyle = 0x1036;
+        private const int LvsExDoubleBuffer = 0x00010000;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(
+            IntPtr windowHandle,
+            int message,
+            IntPtr wordParameter,
+            IntPtr longParameter);
+
         private readonly ImageList rowHeightImages;
         private readonly Bitmap rowHeightBitmap;
         private readonly Font contentFont;
         private readonly Font headerFont;
+        private readonly Timer jumpFlowTimer;
         private readonly Dictionary<int, Color> rowBackColors = new Dictionary<int, Color>();
         private Color allRowsBackColor = Color.Empty;
         private BindingSource bindingSource;
@@ -31,14 +43,16 @@ namespace Automation
         private int runtimeIndex = -1;
         private ProcRunState runtimeState = ProcRunState.Stopped;
         private bool runtimeBreakpoint;
-        private bool pulseVisible;
-        private readonly Timer pulseTimer;
-        private readonly Timer jumpFlowTimer;
-        private float jumpFlowPhase;
         private readonly List<JumpLink> jumpLinks = new List<JumpLink>();
         private Proc flowProc;
         private int flowProcIndex = -1;
         private int flowStepIndex = -1;
+        private int linkedNavigationDepth;
+        private int selectionUpdateDepth;
+        private bool selectionChangedPending;
+        private float jumpFlowPhase;
+
+        public event EventHandler<JumpLinkClickedEventArgs> JumpLinkClicked;
 
         private enum JumpKind
         {
@@ -73,6 +87,32 @@ namespace Automation
             public bool IsCrossStep => SourceStepIndex != TargetStepIndex;
         }
 
+        public sealed class JumpLinkClickedEventArgs : EventArgs
+        {
+            public JumpLinkClickedEventArgs(
+                int procIndex,
+                int sourceStepIndex,
+                int sourceOpIndex,
+                int targetStepIndex,
+                int targetOpIndex,
+                bool isOutgoing)
+            {
+                ProcIndex = procIndex;
+                SourceStepIndex = sourceStepIndex;
+                SourceOpIndex = sourceOpIndex;
+                TargetStepIndex = targetStepIndex;
+                TargetOpIndex = targetOpIndex;
+                IsOutgoing = isOutgoing;
+            }
+
+            public int ProcIndex { get; }
+            public int SourceStepIndex { get; }
+            public int SourceOpIndex { get; }
+            public int TargetStepIndex { get; }
+            public int TargetOpIndex { get; }
+            public bool IsOutgoing { get; }
+        }
+
         private enum VisualState
         {
             None,
@@ -93,7 +133,7 @@ namespace Automation
             FullRowSelect = true;
             MultiSelect = true;
             HideSelection = false;
-            ShowItemToolTips = true;
+            ShowItemToolTips = false;
             HeaderStyle = ColumnHeaderStyle.Nonclickable;
             GridLines = false;
             BorderStyle = BorderStyle.None;
@@ -128,13 +168,21 @@ namespace Automation
             DrawSubItem += InstructionListView_DrawSubItem;
             Resize += (sender, args) => RecalculateColumnWidths();
 
-            pulseTimer = new Timer { Interval = 520 };
-            pulseTimer.Tick += PulseTimer_Tick;
-            pulseTimer.Start();
-
             jumpFlowTimer = new Timer { Interval = 55 };
             jumpFlowTimer.Tick += JumpFlowTimer_Tick;
             jumpFlowTimer.Start();
+
+            // 状态图标保持静止，仅同步骤跳转虚线展示流动方向。
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            SendMessage(
+                Handle,
+                LvmSetExtendedListViewStyle,
+                new IntPtr(LvsExDoubleBuffer),
+                new IntPtr(LvsExDoubleBuffer));
         }
 
         [Browsable(false)]
@@ -149,7 +197,6 @@ namespace Automation
                 bool operationSourceChanged = !ReferenceEquals(nextOperationSource, operationSource);
                 if (!bindingChanged && !operationSourceChanged)
                 {
-                    RefreshOperations(false);
                     return;
                 }
                 ClearSelection();
@@ -178,7 +225,36 @@ namespace Automation
             flowStepIndex = stepIndex;
             flowProc = proc;
             RebuildJumpLinks();
-            Invalidate();
+            if (linkedNavigationDepth == 0)
+            {
+                Invalidate();
+            }
+        }
+
+        internal void BeginLinkedNavigation()
+        {
+            linkedNavigationDepth++;
+            BeginUpdate();
+        }
+
+        internal void EndLinkedNavigation()
+        {
+            if (linkedNavigationDepth <= 0)
+            {
+                return;
+            }
+            try
+            {
+                EndUpdate();
+            }
+            finally
+            {
+                linkedNavigationDepth--;
+                if (linkedNavigationDepth == 0)
+                {
+                    Invalidate();
+                }
+            }
         }
 
         public OperationType GetOperation(int index)
@@ -249,15 +325,37 @@ namespace Automation
 
         public void ClearSelection()
         {
-            foreach (int index in SelectedIndices.Cast<int>().ToArray())
+            int[] selectedIndexes = SelectedIndices.Cast<int>().ToArray();
+            int focusedIndex = FocusedItem?.Index ?? -1;
+            if (selectedIndexes.Length == 0 && focusedIndex < 0)
             {
-                Items[index].Selected = false;
+                return;
             }
-            if (FocusedItem != null)
+
+            selectionUpdateDepth++;
+            try
             {
-                FocusedItem.Focused = false;
+                foreach (int index in selectedIndexes)
+                {
+                    Items[index].Selected = false;
+                }
+                if (FocusedItem != null)
+                {
+                    FocusedItem.Focused = false;
+                }
             }
-            Invalidate();
+            finally
+            {
+                EndSelectionUpdate();
+            }
+
+            if (linkedNavigationDepth == 0)
+            {
+                foreach (int index in selectedIndexes.Append(focusedIndex).Where(index => index >= 0).Distinct())
+                {
+                    InvalidateRow(index);
+                }
+            }
         }
 
         public void SelectSingle(int index)
@@ -267,10 +365,84 @@ namespace Automation
                 ClearSelection();
                 return;
             }
-            ClearSelection();
-            Items[index].Selected = true;
-            Items[index].Focused = true;
-            InvalidateRow(index);
+
+            int[] previousIndexes = SelectedIndices.Cast<int>().ToArray();
+            int previousFocusedIndex = FocusedItem?.Index ?? -1;
+            if (previousIndexes.Length == 1
+                && previousIndexes[0] == index
+                && previousFocusedIndex == index)
+            {
+                return;
+            }
+
+            selectionUpdateDepth++;
+            try
+            {
+                foreach (int selectedIndex in previousIndexes)
+                {
+                    if (selectedIndex != index)
+                    {
+                        Items[selectedIndex].Selected = false;
+                    }
+                }
+                Items[index].Selected = true;
+                Items[index].Focused = true;
+            }
+            finally
+            {
+                EndSelectionUpdate();
+            }
+
+            if (linkedNavigationDepth == 0)
+            {
+                foreach (int changedIndex in previousIndexes
+                    .Append(previousFocusedIndex)
+                    .Append(index)
+                    .Where(changedIndex => changedIndex >= 0)
+                    .Distinct())
+                {
+                    InvalidateRow(changedIndex);
+                }
+            }
+        }
+
+        protected override void OnMouseClick(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left
+                && TryGetCrossStepJump(e.Location, out JumpLink link, out bool isOutgoing))
+            {
+                JumpLinkClicked?.Invoke(
+                    this,
+                    new JumpLinkClickedEventArgs(
+                        flowProcIndex,
+                        link.SourceStepIndex,
+                        link.SourceOpIndex,
+                        link.TargetStepIndex,
+                        link.TargetOpIndex,
+                        isOutgoing));
+            }
+            base.OnMouseClick(e);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            Cursor nextCursor = TryGetCrossStepJump(e.Location, out _, out _)
+                ? Cursors.Hand
+                : Cursors.Default;
+            if (!ReferenceEquals(Cursor, nextCursor))
+            {
+                Cursor = nextCursor;
+            }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            if (!ReferenceEquals(Cursor, Cursors.Default))
+            {
+                Cursor = Cursors.Default;
+            }
+            base.OnMouseLeave(e);
         }
 
         public int IndexFromPoint(Point point)
@@ -388,9 +560,6 @@ namespace Automation
             if (disposing)
             {
                 DetachBindingSource();
-                pulseTimer.Stop();
-                pulseTimer.Tick -= PulseTimer_Tick;
-                pulseTimer.Dispose();
                 jumpFlowTimer.Stop();
                 jumpFlowTimer.Tick -= JumpFlowTimer_Tick;
                 jumpFlowTimer.Dispose();
@@ -403,8 +572,32 @@ namespace Automation
 
         protected override void OnSelectedIndexChanged(EventArgs e)
         {
+            if (selectionUpdateDepth > 0)
+            {
+                selectionChangedPending = true;
+                return;
+            }
             base.OnSelectedIndexChanged(e);
-            Invalidate();
+            InvalidateFlowColumn();
+        }
+
+        private void EndSelectionUpdate()
+        {
+            selectionUpdateDepth--;
+            if (selectionUpdateDepth == 0 && selectionChangedPending)
+            {
+                selectionChangedPending = false;
+                base.OnSelectedIndexChanged(EventArgs.Empty);
+                InvalidateFlowColumn();
+            }
+        }
+
+        private void InvalidateFlowColumn()
+        {
+            if (linkedNavigationDepth == 0 && base.Columns.Count > 0)
+            {
+                Invalidate(new Rectangle(0, 0, base.Columns[0].Width, ClientSize.Height));
+            }
         }
 
         private void BindingSource_ListChanged(object sender, ListChangedEventArgs e)
@@ -427,7 +620,8 @@ namespace Automation
         private void RefreshOperations(bool resetViewport)
         {
             int selectedIndex = resetViewport ? -1 : CurrentIndex;
-            int firstVisibleIndex = resetViewport ? 0 : FirstVisibleIndex;
+            int previousFirstVisibleIndex = FirstVisibleIndex;
+            int firstVisibleIndex = resetViewport ? 0 : previousFirstVisibleIndex;
             int previousVirtualListSize = VirtualListSize;
             BeginUpdate();
             try
@@ -450,13 +644,20 @@ namespace Automation
             {
                 EndUpdate();
             }
-            if ((resetViewport || previousVirtualListSize != OperationCount)
+            int visibleRowCount = Math.Max(
+                1,
+                (ClientSize.Height - 28) / Math.Max(1, rowHeightImages.ImageSize.Height));
+            int maxTopIndex = Math.Max(0, OperationCount - visibleRowCount);
+            bool nativeViewportOutOfRange = previousFirstVisibleIndex > maxTopIndex;
+            if (linkedNavigationDepth == 0
+                && previousVirtualListSize != OperationCount
+                && nativeViewportOutOfRange
                 && OperationCount > 0
                 && IsHandleCreated)
             {
                 // WinForms 的虚拟 ListView 在同一控件上换成更短的列表后，
                 // 原生滚动原点可能仍停留在旧列表，导致首行悬在中部或部分行不绘制。
-                // 仅在列表实例或数量真正变化时重建句柄，彻底清除旧的虚拟视口状态。
+                // 仅当旧滚动原点超出新列表可用范围时重建句柄，普通步骤切换直接复用现有句柄。
                 RecreateHandle();
             }
             if (OperationCount > 0)
@@ -471,7 +672,10 @@ namespace Automation
             {
                 ClearSelection();
             }
-            Invalidate();
+            if (linkedNavigationDepth == 0)
+            {
+                Invalidate();
+            }
         }
 
         private void RecalculateColumnWidths()
@@ -659,125 +863,18 @@ namespace Automation
             }
         }
 
-        private void PulseTimer_Tick(object sender, EventArgs e)
-        {
-            pulseVisible = !pulseVisible;
-            if (runtimeIndex >= 0
-                && (runtimeState == ProcRunState.Running || runtimeState == ProcRunState.SingleStep))
-            {
-                InvalidateRow(runtimeIndex);
-            }
-        }
-
         private void InstructionListView_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
         {
             OperationType operation = GetOperation(e.ItemIndex);
             var item = new ListViewItem(string.Empty)
             {
-                Tag = operation,
-                ToolTipText = BuildToolTip(operation, e.ItemIndex)
+                Tag = operation
             };
             item.SubItems.Add(operation?.Num.ToString() ?? e.ItemIndex.ToString());
             item.SubItems.Add(operation?.Name ?? string.Empty);
             item.SubItems.Add(operation?.OperaType ?? string.Empty);
             item.SubItems.Add(operation?.Note ?? string.Empty);
             e.Item = item;
-        }
-
-        private string BuildToolTip(OperationType operation, int index)
-        {
-            if (operation == null)
-            {
-                return string.Empty;
-            }
-            var descriptions = new List<string>();
-            if (operation.Disable)
-            {
-                descriptions.Add("该指令已禁用，运行时不会执行");
-            }
-            if (operation.isStopPoint)
-            {
-                descriptions.Add("该指令设有断点");
-            }
-            if (index == runtimeIndex)
-            {
-                descriptions.Add($"当前状态：{GetStateText(GetRuntimeVisualState())}");
-            }
-            foreach (JumpLink link in jumpLinks.Where(link =>
-                link.SourceStepIndex == flowStepIndex && link.SourceOpIndex == index))
-            {
-                descriptions.Add($"{GetJumpLabel(link)} 跳转到 {FormatLocation(link.TargetStepIndex, link.TargetOpIndex)}");
-            }
-            foreach (JumpLink link in jumpLinks.Where(link =>
-                link.TargetStepIndex == flowStepIndex && link.TargetOpIndex == index))
-            {
-                descriptions.Add($"{GetJumpLabel(link)} 来自 {FormatLocation(link.SourceStepIndex, link.SourceOpIndex)}");
-            }
-            if (jumpLinks.Any(link => IsEndpointOnCurrentStep(link, index)))
-            {
-                descriptions.Add("选中后左侧显示输出路径，右侧显示输入路径");
-            }
-            if (jumpLinks.Any(link => link.IsCrossStep
-                && link.SourceStepIndex == flowStepIndex
-                && link.SourceOpIndex == index))
-            {
-                descriptions.Add("左侧紫色外箭头表示跳到其他步骤");
-            }
-            if (jumpLinks.Any(link => link.IsCrossStep
-                && link.TargetStepIndex == flowStepIndex
-                && link.TargetOpIndex == index))
-            {
-                descriptions.Add("右侧青色内箭头表示由其他步骤跳入");
-            }
-            return string.Join("；", descriptions);
-        }
-
-        private string FormatLocation(int stepIndex, int opIndex)
-        {
-            string stepName = stepIndex >= 0 && stepIndex < (flowProc?.steps?.Count ?? 0)
-                ? flowProc.steps[stepIndex]?.Name
-                : null;
-            OperationType operation = stepIndex >= 0 && stepIndex < (flowProc?.steps?.Count ?? 0)
-                && opIndex >= 0 && opIndex < (flowProc.steps[stepIndex]?.Ops?.Count ?? 0)
-                ? flowProc.steps[stepIndex].Ops[opIndex]
-                : null;
-            string location = $"步骤{stepIndex}";
-            if (!string.IsNullOrWhiteSpace(stepName))
-            {
-                location += $"“{stepName}”";
-            }
-            location += $" · 指令{opIndex}";
-            if (!string.IsNullOrWhiteSpace(operation?.Name))
-            {
-                location += $"“{operation.Name}”";
-            }
-            return location;
-        }
-
-        private static string GetJumpLabel(JumpLink link)
-        {
-            string kinds = string.Join("/", link.Kinds.Select(GetJumpKindText));
-            return link.IsCrossStep
-                ? $"J{link.CrossId} · {kinds}"
-                : kinds;
-        }
-
-        private static string GetJumpKindText(JumpKind kind)
-        {
-            switch (kind)
-            {
-                case JumpKind.Automatic: return "自动处理跳转";
-                case JumpKind.Confirm: return "确定跳转";
-                case JumpKind.Reject: return "否跳转";
-                case JumpKind.Cancel: return "取消跳转";
-                case JumpKind.True: return "True跳转";
-                case JumpKind.False: return "False跳转";
-                case JumpKind.Default: return "默认跳转";
-                case JumpKind.Success: return "成功跳转";
-                case JumpKind.Failure: return "失败跳转";
-                case JumpKind.Match: return "匹配跳转";
-                default: return "跳转";
-            }
         }
 
         private static Color GetJumpKindColor(JumpKind kind)
@@ -863,7 +960,7 @@ namespace Automation
 
             if (e.ColumnIndex == 0)
             {
-                DrawStatusCell(e.Graphics, e.Bounds, operation, index, isRuntime, selected);
+                DrawStatusCell(e.Graphics, e.Bounds, operation, index, isRuntime);
                 return;
             }
 
@@ -911,8 +1008,7 @@ namespace Automation
             Rectangle bounds,
             OperationType operation,
             int index,
-            bool isRuntime,
-            bool selected)
+            bool isRuntime)
         {
             VisualState state = operation?.Disable == true
                 ? VisualState.Disabled
@@ -960,7 +1056,7 @@ namespace Automation
                 link.TargetStepIndex == flowStepIndex && link.TargetOpIndex == index);
             if (state == VisualState.None)
             {
-                DrawFlowStateNode(graphics, centerX, centerY, selected, outgoingKinds, hasIncoming);
+                DrawFlowStateNode(graphics, centerX, centerY, outgoingKinds, hasIncoming);
                 DrawCrossStepMarker(graphics, centerX, centerY, endpointLinks);
                 graphics.Restore(savedState);
                 return;
@@ -971,13 +1067,7 @@ namespace Automation
                 bounds.Top + (bounds.Height - 24) / 2,
                 24,
                 24);
-            DrawStateIcon(
-                graphics,
-                iconBounds,
-                state,
-                GetStateColor(state),
-                GetStateBackColor(state),
-                isRuntime && pulseVisible);
+            DrawStateIcon(graphics, iconBounds, state, GetStateColor(state), GetStateBackColor(state));
             if (operation?.isStopPoint == true && state != VisualState.Breakpoint)
             {
                 using (SolidBrush markerBrush = new SolidBrush(Color.FromArgb(205, 58, 68)))
@@ -1022,19 +1112,14 @@ namespace Automation
             Graphics graphics,
             int centerX,
             int centerY,
-            bool selected,
             IReadOnlyList<JumpKind> outgoingKinds,
             bool hasIncoming)
         {
             bool hasOutgoing = outgoingKinds.Count > 0;
-            Color borderColor = selected
-                ? Color.FromArgb(42, 139, 190)
-                : Color.FromArgb(151, 171, 182);
-            Color fillColor = selected
-                ? Color.FromArgb(225, 243, 251)
-                : Color.White;
+            Color borderColor = Color.FromArgb(151, 171, 182);
+            Color fillColor = Color.White;
             using (SolidBrush fillBrush = new SolidBrush(fillColor))
-            using (Pen borderPen = new Pen(borderColor, selected ? 1.8F : 1.4F))
+            using (Pen borderPen = new Pen(borderColor, 1.4F))
             using (SolidBrush centerBrush = new SolidBrush(borderColor))
             {
                 if (!hasOutgoing)
@@ -1045,7 +1130,7 @@ namespace Automation
                 }
                 if (hasOutgoing)
                 {
-                    DrawJumpOperationMarker(graphics, centerX, centerY, selected, outgoingKinds);
+                    DrawJumpOperationMarker(graphics, centerX, centerY, outgoingKinds);
                 }
                 else if (hasIncoming)
                 {
@@ -1055,20 +1140,6 @@ namespace Automation
                 {
                     graphics.FillEllipse(centerBrush, centerX - 1, centerY - 1, 3, 3);
                 }
-            }
-        }
-
-        private void JumpFlowTimer_Tick(object sender, EventArgs e)
-        {
-            int focusRow = GetJumpFocusRow();
-            if (focusRow < 0 || !jumpLinks.Any(link => IsEndpointOnCurrentStep(link, focusRow)))
-            {
-                return;
-            }
-            jumpFlowPhase = (jumpFlowPhase + 0.9F) % 18F;
-            if (base.Columns.Count > 0)
-            {
-                Invalidate(new Rectangle(0, 0, base.Columns[0].Width, ClientSize.Height));
             }
         }
 
@@ -1155,13 +1226,13 @@ namespace Automation
                         PointF verticalEnd = link.TargetOpIndex > link.SourceOpIndex
                             ? new PointF(laneX, verticalBottom)
                             : new PointF(laneX, verticalTop);
-                        DrawAnimatedSegment(graphics, basePen, flowPens, verticalStart, verticalEnd);
+                        DrawFlowSegment(graphics, basePen, flowPens, verticalStart, verticalEnd);
                         if (rowIndex == link.SourceOpIndex)
                         {
                             PointF sourceEdge = new PointF(
                                 centerX + (isOutput ? -7 : 7),
                                 centerY);
-                            DrawAnimatedSegment(
+                            DrawFlowSegment(
                                 graphics,
                                 basePen,
                                 flowPens,
@@ -1173,7 +1244,7 @@ namespace Automation
                             PointF targetEdge = new PointF(
                                 centerX + (isOutput ? -7 : 7),
                                 centerY);
-                            DrawAnimatedSegment(
+                            DrawFlowSegment(
                                 graphics,
                                 basePen,
                                 flowPens,
@@ -1193,6 +1264,24 @@ namespace Automation
             }
         }
 
+        private void JumpFlowTimer_Tick(object sender, EventArgs e)
+        {
+            if (!Visible || !IsHandleCreated || linkedNavigationDepth > 0)
+            {
+                return;
+            }
+            int focusRow = GetJumpFocusRow();
+            if (focusRow < 0 || !jumpLinks.Any(link =>
+                    !link.IsCrossStep
+                    && ((link.SourceStepIndex == flowStepIndex && link.SourceOpIndex == focusRow)
+                        || (link.TargetStepIndex == flowStepIndex && link.TargetOpIndex == focusRow))))
+            {
+                return;
+            }
+            jumpFlowPhase = (jumpFlowPhase + 0.9F) % 18F;
+            InvalidateFlowColumn();
+        }
+
         private List<Pen> CreateFlowPens(IReadOnlyList<JumpKind> kinds)
         {
             List<JumpKind> distinctKinds = kinds.Distinct().ToList();
@@ -1205,15 +1294,14 @@ namespace Automation
             for (int i = 0; i < distinctKinds.Count; i++)
             {
                 Color color = ControlPaint.Light(GetJumpKindColor(distinctKinds[i]), 0.55F);
-                var pen = new Pen(color, 2.4F)
+                pens.Add(new Pen(color, 2.4F)
                 {
                     StartCap = LineCap.Round,
                     EndCap = LineCap.Round,
                     DashCap = DashCap.Round,
                     DashPattern = new[] { 1.1F, gap },
                     DashOffset = -jumpFlowPhase - i * 3.2F
-                };
-                pens.Add(pen);
+                });
             }
             return pens;
         }
@@ -1227,7 +1315,7 @@ namespace Automation
             return -6F + 12F * laneIndex / (laneCount - 1F);
         }
 
-        private static void DrawAnimatedSegment(
+        private static void DrawFlowSegment(
             Graphics graphics,
             Pen basePen,
             IReadOnlyList<Pen> flowPens,
@@ -1272,7 +1360,6 @@ namespace Automation
             Graphics graphics,
             int centerX,
             int centerY,
-            bool selected,
             IReadOnlyList<JumpKind> kinds)
         {
             List<Color> colors = kinds.Distinct().Select(GetJumpKindColor).ToList();
@@ -1281,13 +1368,6 @@ namespace Automation
                 colors.Add(GetJumpKindColor(JumpKind.Generic));
             }
             Rectangle marker = new Rectangle(centerX - 8, centerY - 8, 16, 16);
-            if (selected)
-            {
-                using (Pen halo = new Pen(Color.FromArgb(92, colors[0]), 3F))
-                {
-                    graphics.DrawEllipse(halo, Rectangle.Inflate(marker, 2, 2));
-                }
-            }
             Color fillColor = colors.Count == 1 ? colors[0] : Color.FromArgb(62, 73, 80);
             using (SolidBrush fill = new SolidBrush(fillColor))
             using (Pen glyph = new Pen(Color.White, 1.7F)
@@ -1342,68 +1422,156 @@ namespace Automation
             int centerY,
             IReadOnlyCollection<JumpLink> endpointLinks)
         {
-            bool hasCrossOutput = endpointLinks.Any(link => link.IsCrossStep
-                && link.SourceStepIndex == flowStepIndex);
-            bool hasCrossInput = endpointLinks.Any(link => link.IsCrossStep
-                && link.TargetStepIndex == flowStepIndex);
-            if (!hasCrossOutput && !hasCrossInput)
+            List<JumpLink> outgoingLinks = endpointLinks
+                .Where(link => link.IsCrossStep && link.SourceStepIndex == flowStepIndex)
+                .OrderBy(link => link.CrossId)
+                .ToList();
+            List<JumpLink> incomingLinks = endpointLinks
+                .Where(link => link.IsCrossStep && link.TargetStepIndex == flowStepIndex)
+                .OrderBy(link => link.CrossId)
+                .ToList();
+            if (outgoingLinks.Count == 0 && incomingLinks.Count == 0)
             {
                 return;
             }
 
-            if (hasCrossOutput)
+            for (int i = 0; i < outgoingLinks.Count; i++)
             {
-                Color outputColor = Color.FromArgb(133, 83, 183);
-                Rectangle outputBadge = new Rectangle(centerX - 25, centerY - 7, 14, 14);
-                using (SolidBrush brush = new SolidBrush(outputColor))
-                using (Pen connector = new Pen(Color.FromArgb(165, outputColor), 1.8F))
-                using (Pen border = new Pen(Color.White, 1.2F))
-                using (Pen glyph = new Pen(Color.White, 1.55F)
-                {
-                    StartCap = LineCap.Round,
-                    EndCap = LineCap.Round
-                })
-                {
-                    graphics.DrawLine(connector, outputBadge.Right, centerY, centerX - 8, centerY);
-                    graphics.FillEllipse(brush, outputBadge);
-                    graphics.DrawEllipse(border, outputBadge);
-                    graphics.DrawLine(
-                        glyph,
-                        outputBadge.Right - 3,
-                        outputBadge.Bottom - 3,
-                        outputBadge.Left + 3,
-                        outputBadge.Top + 3);
-                    graphics.DrawLine(glyph, outputBadge.Left + 3, outputBadge.Top + 3, outputBadge.Left + 7, outputBadge.Top + 3);
-                    graphics.DrawLine(glyph, outputBadge.Left + 3, outputBadge.Top + 3, outputBadge.Left + 3, outputBadge.Top + 7);
-                }
+                DrawCrossStepBadge(graphics, centerX, centerY, true, i);
             }
 
-            if (hasCrossInput)
+            for (int i = 0; i < incomingLinks.Count; i++)
             {
-                Color inputColor = Color.FromArgb(24, 151, 166);
-                Rectangle inputBadge = new Rectangle(centerX + 11, centerY - 7, 14, 14);
-                using (SolidBrush brush = new SolidBrush(inputColor))
-                using (Pen connector = new Pen(Color.FromArgb(165, inputColor), 1.8F))
-                using (Pen border = new Pen(Color.White, 1.2F))
-                using (Pen glyph = new Pen(Color.White, 1.55F)
+                DrawCrossStepBadge(graphics, centerX, centerY, false, i);
+            }
+        }
+
+        private static void DrawCrossStepBadge(
+            Graphics graphics,
+            int centerX,
+            int centerY,
+            bool isOutgoing,
+            int laneIndex)
+        {
+            Color color = isOutgoing
+                ? Color.FromArgb(133, 83, 183)
+                : Color.FromArgb(24, 151, 166);
+            Rectangle badge = GetCrossStepBadgeBounds(centerX, centerY, isOutgoing, laneIndex);
+            using (SolidBrush brush = new SolidBrush(color))
+            using (Pen connector = new Pen(Color.FromArgb(165, color), 1.8F))
+            using (Pen border = new Pen(Color.White, 1.2F))
+            using (Pen glyph = new Pen(Color.White, 1.55F)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round
+            })
+            {
+                if (isOutgoing)
                 {
-                    StartCap = LineCap.Round,
-                    EndCap = LineCap.Round
-                })
+                    graphics.DrawLine(connector, badge.Right, centerY, centerX - 8, centerY);
+                    graphics.FillEllipse(brush, badge);
+                    graphics.DrawEllipse(border, badge);
+                    graphics.DrawLine(glyph, badge.Right - 3, badge.Bottom - 3, badge.Left + 3, badge.Top + 3);
+                    graphics.DrawLine(glyph, badge.Left + 3, badge.Top + 3, badge.Left + 7, badge.Top + 3);
+                    graphics.DrawLine(glyph, badge.Left + 3, badge.Top + 3, badge.Left + 3, badge.Top + 7);
+                }
+                else
                 {
-                    graphics.DrawLine(connector, centerX + 8, centerY, inputBadge.Left, centerY);
-                    graphics.FillEllipse(brush, inputBadge);
-                    graphics.DrawEllipse(border, inputBadge);
-                    graphics.DrawLine(
-                        glyph,
-                        inputBadge.Right - 3,
-                        inputBadge.Top + 3,
-                        inputBadge.Left + 3,
-                        inputBadge.Bottom - 3);
-                    graphics.DrawLine(glyph, inputBadge.Left + 3, inputBadge.Bottom - 7, inputBadge.Left + 3, inputBadge.Bottom - 3);
-                    graphics.DrawLine(glyph, inputBadge.Left + 3, inputBadge.Bottom - 3, inputBadge.Left + 7, inputBadge.Bottom - 3);
+                    graphics.DrawLine(connector, centerX + 8, centerY, badge.Left, centerY);
+                    graphics.FillEllipse(brush, badge);
+                    graphics.DrawEllipse(border, badge);
+                    graphics.DrawLine(glyph, badge.Right - 3, badge.Top + 3, badge.Left + 3, badge.Bottom - 3);
+                    graphics.DrawLine(glyph, badge.Left + 3, badge.Bottom - 7, badge.Left + 3, badge.Bottom - 3);
+                    graphics.DrawLine(glyph, badge.Left + 3, badge.Bottom - 3, badge.Left + 7, badge.Bottom - 3);
                 }
             }
+        }
+
+        private static Rectangle GetCrossStepBadgeBounds(
+            int centerX,
+            int centerY,
+            bool isOutgoing,
+            int laneIndex)
+        {
+            int x = isOutgoing
+                ? centerX - 25 - laneIndex * 16
+                : centerX + 11 + laneIndex * 16;
+            return new Rectangle(x, centerY - 7, 14, 14);
+        }
+
+        private bool TryGetCrossStepJump(Point point, out JumpLink link, out bool isOutgoing)
+        {
+            link = null;
+            isOutgoing = false;
+            int rowIndex = IndexFromPoint(point);
+            if (rowIndex < 0 || rowIndex >= OperationCount || base.Columns.Count == 0
+                || point.X < 0 || point.X >= base.Columns[0].Width)
+            {
+                return false;
+            }
+
+            Rectangle rowBounds;
+            try
+            {
+                rowBounds = GetItemRect(rowIndex);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return false;
+            }
+            int centerX = GetRailCenterX(new Rectangle(0, rowBounds.Top, base.Columns[0].Width, rowBounds.Height));
+            int centerY = rowBounds.Top + rowBounds.Height / 2;
+            List<JumpLink> outgoingLinks = jumpLinks
+                .Where(item => item.IsCrossStep
+                    && item.SourceStepIndex == flowStepIndex
+                    && item.SourceOpIndex == rowIndex)
+                .OrderBy(item => item.CrossId)
+                .ToList();
+            List<JumpLink> incomingLinks = jumpLinks
+                .Where(item => item.IsCrossStep
+                    && item.TargetStepIndex == flowStepIndex
+                    && item.TargetOpIndex == rowIndex)
+                .OrderBy(item => item.CrossId)
+                .ToList();
+
+            for (int i = 0; i < outgoingLinks.Count; i++)
+            {
+                Rectangle badge = GetCrossStepBadgeBounds(centerX, centerY, true, i);
+                if (IsCrossStepHit(point, badge, badge.Right, centerX - 8, centerY))
+                {
+                    link = outgoingLinks[i];
+                    isOutgoing = true;
+                    return true;
+                }
+            }
+            for (int i = 0; i < incomingLinks.Count; i++)
+            {
+                Rectangle badge = GetCrossStepBadgeBounds(centerX, centerY, false, i);
+                if (IsCrossStepHit(point, badge, centerX + 8, badge.Left, centerY))
+                {
+                    link = incomingLinks[i];
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsCrossStepHit(
+            Point point,
+            Rectangle badge,
+            int segmentStartX,
+            int segmentEndX,
+            int centerY)
+        {
+            if (Rectangle.Inflate(badge, 3, 3).Contains(point))
+            {
+                return true;
+            }
+            int left = Math.Min(segmentStartX, segmentEndX);
+            int right = Math.Max(segmentStartX, segmentEndX);
+            return point.X >= left
+                && point.X <= right
+                && Math.Abs(point.Y - centerY) <= 5;
         }
 
         private VisualState GetRuntimeVisualState()
@@ -1454,21 +1622,6 @@ namespace Automation
             }
         }
 
-        private static string GetStateText(VisualState state)
-        {
-            switch (state)
-            {
-                case VisualState.Running: return "执行中";
-                case VisualState.Paused: return "已暂停";
-                case VisualState.SingleStep: return "单步";
-                case VisualState.Breakpoint: return "断点";
-                case VisualState.Alarming: return "报警";
-                case VisualState.Stopping: return "停止中";
-                case VisualState.Disabled: return "已禁用";
-                default: return string.Empty;
-            }
-        }
-
         private static Color GetStateColor(VisualState state)
         {
             switch (state)
@@ -1504,8 +1657,7 @@ namespace Automation
             Rectangle bounds,
             VisualState state,
             Color accent,
-            Color backColor,
-            bool pulse)
+            Color backColor)
         {
             Rectangle shadowBounds = bounds;
             shadowBounds.Offset(0, 1);
@@ -1518,13 +1670,6 @@ namespace Automation
                 graphics.DrawEllipse(outline, bounds);
             }
             Rectangle glyph = new Rectangle(bounds.Left + 6, bounds.Top + 6, 12, 12);
-            if (pulse)
-            {
-                using (Pen halo = new Pen(Color.FromArgb(72, accent), 2F))
-                {
-                    graphics.DrawEllipse(halo, Rectangle.Inflate(bounds, 2, 2));
-                }
-            }
             using (Pen pen = new Pen(accent, 1.6F) { StartCap = LineCap.Round, EndCap = LineCap.Round })
             using (SolidBrush brush = new SolidBrush(accent))
             {

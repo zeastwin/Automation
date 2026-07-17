@@ -6,6 +6,7 @@ using System.Data;
 using System.Drawing;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -19,7 +20,17 @@ namespace Automation
 {
     public partial class FrmPropertyGrid : Form
     {
+        private const int WmSetRedraw = 0x000B;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(
+            IntPtr windowHandle,
+            int message,
+            IntPtr wordParameter,
+            IntPtr longParameter);
+
         private ToolStripDropDown activeOperationTypePicker;
+        private int visualUpdateDepth;
 
         public List<object> OperationTypeList = new List<object>();
 
@@ -185,6 +196,56 @@ namespace Automation
                 "DoubleBuffered",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             doubleBufferedProperty?.SetValue(propertyGrid1, true, null);
+        }
+
+        internal void BeginVisualUpdate()
+        {
+            if (IsDisposed || propertyGrid1.IsDisposed)
+            {
+                return;
+            }
+            visualUpdateDepth++;
+            if (visualUpdateDepth != 1)
+            {
+                return;
+            }
+            SuspendLayout();
+            propertyGrid1.SuspendLayout();
+            SetRedraw(propertyGrid1, false);
+        }
+
+        internal void EndVisualUpdate()
+        {
+            if (visualUpdateDepth <= 0)
+            {
+                return;
+            }
+            visualUpdateDepth--;
+            if (visualUpdateDepth != 0)
+            {
+                return;
+            }
+            propertyGrid1.ResumeLayout(false);
+            ResumeLayout(false);
+            SetRedraw(propertyGrid1, true);
+            propertyGrid1.Refresh();
+            panel1.Invalidate();
+        }
+
+        private static void SetRedraw(Control control, bool enabled)
+        {
+            if (control == null || control.IsDisposed)
+            {
+                return;
+            }
+            if (control.IsHandleCreated)
+            {
+                SendMessage(
+                    control.Handle,
+                    WmSetRedraw,
+                    enabled ? new IntPtr(1) : IntPtr.Zero,
+                    IntPtr.Zero);
+            }
         }
 
         private void ShowOperationTypePicker(Control anchorControl)
@@ -649,13 +710,23 @@ namespace Automation
 
             draft.Num = num;
             SF.frmDataGrid.OperationTemp = draft;
-            propertyGrid1.SelectedObject = draft;
-            draft.evtRP?.Invoke();
-            if (SF.ActiveEditSession != null)
+            BeginVisualUpdate();
+            try
             {
-                SF.ReplaceActiveEditDraft(draft);
+                draft.evtRP?.Invoke();
+                TypeDescriptor.Refresh(draft);
+                propertyGrid1.SelectedObject = null;
+                propertyGrid1.SelectedObject = draft;
+                if (SF.ActiveEditSession != null)
+                {
+                    SF.ReplaceActiveEditDraft(draft);
+                }
+                propertyGrid1.ExpandAllGridItems();
             }
-            propertyGrid1.ExpandAllGridItems();
+            finally
+            {
+                EndVisualUpdate();
+            }
         }
         //展开特定的组
         public void ExpandGroup(PropertyGrid propertyGrid, string groupName)
@@ -691,15 +762,24 @@ namespace Automation
             {
                 return;
             }
-            TypeDescriptor.Refresh(selected);
-            propertyGrid1.SelectedObject = selected;
-            propertyGrid1.Refresh();
+            BeginVisualUpdate();
+            try
+            {
+                TypeDescriptor.Refresh(selected);
+                propertyGrid1.SelectedObject = selected;
+            }
+            finally
+            {
+                EndVisualUpdate();
+            }
         }
 
         private void Address_Click(object sender, EventArgs e)
         {
             var obj = SF.frmDataGrid.OperationTemp;
-
+            BeginVisualUpdate();
+            try
+            {
             foreach (var propertyInfo in obj.GetType().GetProperties())
             {
                 var markedAttribute = propertyInfo.GetCustomAttribute<ItemTypeAttribute>();
@@ -760,7 +840,6 @@ namespace Automation
                                             SetPropertyAttribute(parentInstance, listItemPropertyName, typeof(BrowsableAttribute), "browsable", false);
                                         }
                                         
-                                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmPropertyGrid.propertyGrid1.SelectedObject;
                                     }
                                 }
                             }
@@ -771,6 +850,13 @@ namespace Automation
                     }
                 }
 
+            }
+                TypeDescriptor.Refresh(obj);
+                propertyGrid1.SelectedObject = propertyGrid1.SelectedObject;
+            }
+            finally
+            {
+                EndVisualUpdate();
             }
         }
         public void SetPropertyAttribute(object obj, string propertyName, Type attrType, string attrField, object value)

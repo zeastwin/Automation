@@ -8,6 +8,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -20,6 +21,16 @@ namespace Automation
 {
     public partial class FrmProc : Form
     {
+        private const int TvmSetExtendedStyle = 0x112C;
+        private const int TvsExDoubleBuffer = 0x0004;
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SendMessage(
+            IntPtr windowHandle,
+            int message,
+            IntPtr wordParameter,
+            IntPtr longParameter);
+
         //存放所有流程信息
         public List<Proc> procsList = new List<Proc> ();
         public int SelectedProcNum { get; set; }
@@ -51,6 +62,7 @@ namespace Automation
             InitializeComponent();
             ConfigureProcTreeAppearance();
             Disposed += FrmProc_Disposed;
+            proc_treeView.HandleCreated += ProcTreeView_HandleCreated;
             this.proc_treeView.HideSelection = false;
             typeof(Control).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(proc_treeView, true, null);
@@ -69,6 +81,7 @@ namespace Automation
             procFlashNode = null;
             procStateImages?.Dispose();
             procStateImages = null;
+            proc_treeView.HandleCreated -= ProcTreeView_HandleCreated;
             procNodeFont?.Dispose();
             procNodeFont = null;
             stepNodeFont?.Dispose();
@@ -110,6 +123,25 @@ namespace Automation
             AddProcStateImage("step-single", ProcTreeIconKind.StepSingle);
             AddProcStateImage("step-alarm", ProcTreeIconKind.StepAlarming);
             proc_treeView.ImageList = procStateImages;
+            ApplyNativeTreeDoubleBuffer();
+        }
+
+        private void ProcTreeView_HandleCreated(object sender, EventArgs e)
+        {
+            ApplyNativeTreeDoubleBuffer();
+        }
+
+        private void ApplyNativeTreeDoubleBuffer()
+        {
+            if (!proc_treeView.IsHandleCreated || proc_treeView.IsDisposed)
+            {
+                return;
+            }
+            SendMessage(
+                proc_treeView.Handle,
+                TvmSetExtendedStyle,
+                new IntPtr(TvsExDoubleBuffer),
+                new IntPtr(TvsExDoubleBuffer));
         }
 
         private void AddProcStateImage(string key, ProcTreeIconKind kind)
@@ -726,6 +758,10 @@ namespace Automation
                 return;
             }
             InstructionListView grid = SF.frmDataGrid?.dataGridView1;
+            FrmPropertyGrid propertyEditor = SF.frmPropertyGrid;
+            propertyEditor?.BeginVisualUpdate();
+            try
+            {
             OperationType selectedOp = grid?.GetOperation(grid.CurrentIndex);
             Guid selectedOpId = selectedOp?.Id ?? Guid.Empty;
             int firstVisibleRow = -1;
@@ -739,17 +775,12 @@ namespace Automation
                 {
                 }
             }
-            if (grid != null && !grid.IsDisposed)
-            {
-                grid.DataSource = null;
-            }
             if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
             {
                 bindingSource.DataSource = null;
                 if (grid != null)
                 {
                     grid.SetFlowContext(-1, -1, null);
-                    grid.DataSource = null;
                 }
                 return;
             }
@@ -774,7 +805,10 @@ namespace Automation
             bindingSource.ResetBindings(false);
             if (grid != null && !grid.IsDisposed)
             {
-                grid.DataSource = bindingSource;
+                if (!ReferenceEquals(grid.DataSource, bindingSource))
+                {
+                    grid.DataSource = bindingSource;
+                }
                 if (selectedOpId != Guid.Empty)
                 {
                     int selectedRowIndex = Enumerable.Range(0, grid.OperationCount)
@@ -796,7 +830,11 @@ namespace Automation
                     {
                     }
                 }
-                grid.Invalidate();
+            }
+            }
+            finally
+            {
+                propertyEditor?.EndVisualUpdate();
             }
         }
 

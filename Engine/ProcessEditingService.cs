@@ -49,6 +49,33 @@ namespace Automation
             return result;
         }
 
+        /// <summary>
+        /// 将手工新增指令中基于插入前列表选择的跳转地址，按目标指令 ID 重定位到插入后的地址。
+        /// AI ChangeSet 中新增指令继续使用最终草稿语义；本方法仅用于手工新增编辑会话。
+        /// </summary>
+        public static GotoRewriteResult RewriteAddedOperationGotoTargetsFromPreviousLayout(
+            OperationType addedOperation,
+            Proc before,
+            Proc after,
+            int procIndex)
+        {
+            var result = new GotoRewriteResult();
+            if (addedOperation == null || before == null || after == null)
+            {
+                return result;
+            }
+
+            Dictionary<Guid, OperationLocation> newLocations = BuildOperationLocationMap(after);
+            RewriteGotoTargetsRecursive(
+                addedOperation,
+                addedOperation,
+                before,
+                procIndex,
+                newLocations,
+                result);
+            return result;
+        }
+
         public static bool TryCommitProcDraft(int procIndex, Proc draft, out string error)
         {
             error = null;
