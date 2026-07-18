@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using Newtonsoft.Json;
 using static Automation.OperationTypePartial;
 
 namespace Automation
@@ -44,10 +45,35 @@ namespace Automation
         public bool HasPlcCatalog { get; }
 
         public IReadOnlyDictionary<string, DicValue> VariableDefinitions { get; }
+
+        public bool TryGetVariableForProcess(string name, Guid procId, out DicValue value)
+        {
+            value = null;
+            return !string.IsNullOrWhiteSpace(name)
+                && VariableDefinitions.TryGetValue(name, out value)
+                && ValueConfigStore.CanProcessAccess(value, procId);
+        }
+
+        public bool TryGetVariableForProcess(int index, Guid procId, out DicValue value)
+        {
+            value = VariableDefinitions.Values.FirstOrDefault(item => item != null && item.Index == index);
+            return value != null && ValueConfigStore.CanProcessAccess(value, procId);
+        }
     }
 
     public static class ProcessDefinitionService
     {
+        public static JsonSerializerSettings CreateStrictJsonSettings()
+        {
+            return new JsonSerializerSettings
+            {
+                TypeNameHandling = TypeNameHandling.Auto,
+                SerializationBinder = AutomationConfigSerializationBinder.Instance,
+                ObjectCreationHandling = ObjectCreationHandling.Replace,
+                MissingMemberHandling = MissingMemberHandling.Error
+            };
+        }
+
         internal const string DeletedGotoPrefix = "#DELETED-GOTO#";
         internal const string PendingGotoPrefix = "#PENDING-GOTO#";
 
@@ -246,7 +272,131 @@ namespace Automation
             var errors = new List<string>();
             ValidateCommunicationOperation(operation, errors, location, validationContext);
             ValidatePlcOperation(operation, errors, location, validationContext);
+            ValidateCoordinatedStationMotion(operation, errors, location);
+            ValidateIoOutputOperation(operation, errors, location);
+            ValidateIoLogicGoto(operation, errors, location);
             return errors;
+        }
+
+        private static void ValidateIoLogicGoto(
+            OperationType operation,
+            List<string> errors,
+            string location)
+        {
+            if (!(operation is IoLogicGoto ioLogicGoto)
+                || ioLogicGoto.IoParams == null
+                || SF.frmIO?.DicIO == null)
+            {
+                return;
+            }
+            foreach (IoLogicGotoParam condition in ioLogicGoto.IoParams)
+            {
+                if (condition == null || string.IsNullOrWhiteSpace(condition.IoName)
+                    || !SF.frmIO.DicIO.TryGetValue(condition.IoName, out IO io)
+                    || io == null)
+                {
+                    errors.Add($"{location} 的输入IO不存在：{condition?.IoName ?? string.Empty}。");
+                    continue;
+                }
+                if (!string.Equals(io.IOType, "通用输入", StringComparison.Ordinal))
+                {
+                    errors.Add($"{location} 的IO逻辑跳转只能引用通用输入：{condition.IoName}。");
+                }
+            }
+        }
+
+        private static void ValidateIoOutputOperation(OperationType operation, List<string> errors,
+            string location)
+        {
+            CustomList<IoOutParam> outputs = operation is IoOperate ioOperate
+                ? ioOperate.IoParams
+                : (operation is IoGroup ioGroup ? ioGroup.OutIoParams : null);
+            if (outputs == null || outputs.Count == 0 || SF.frmIO?.DicIO == null)
+            {
+                return;
+            }
+
+            int? cardNum = null;
+            var indexes = new HashSet<int>();
+            foreach (IoOutParam output in outputs)
+            {
+                if (output == null || string.IsNullOrWhiteSpace(output.IoName)
+                    || !SF.frmIO.DicIO.TryGetValue(output.IoName, out IO io) || io == null)
+                {
+                    errors.Add($"{location} 的输出IO不存在：{output?.IoName ?? string.Empty}。");
+                    continue;
+                }
+                if (io.IOType != "通用输出")
+                {
+                    errors.Add($"{location} 只能引用通用输出：{output.IoName}。");
+                }
+                if (cardNum.HasValue && cardNum.Value != io.CardNum)
+                {
+                    errors.Add($"{location} 的全部输出IO必须位于同一张控制卡。");
+                }
+                cardNum = io.CardNum;
+                if (!int.TryParse(io.IOIndex, out int index) || index < 0 || index > 31)
+                {
+                    errors.Add($"{location} 的输出IO端口索引必须在0..31内：{output.IoName}-{io.IOIndex}。");
+                }
+                else if (!indexes.Add(index))
+                {
+                    errors.Add($"{location} 包含重复输出索引：{output.IoName}-{io.IOIndex}。");
+                }
+            }
+        }
+
+        private static void ValidateCoordinatedStationMotion(OperationType operation, List<string> errors,
+            string location)
+        {
+            string stationName;
+            StationRunPos stationRunPos = operation as StationRunPos;
+            if (stationRunPos != null)
+            {
+                stationName = stationRunPos.StationName;
+            }
+            else if (operation is StationRunRel stationRunRel)
+            {
+                stationName = stationRunRel.StationName;
+            }
+            else
+            {
+                return;
+            }
+            DataStation station = SF.frmCard?.dataStation?
+                .FirstOrDefault(item => item != null && string.Equals(item.Name, stationName, StringComparison.Ordinal));
+            if (station == null)
+            {
+                return;
+            }
+            if (station.CoordinateSystem > 1)
+            {
+                errors.Add($"{location} 引用工站[{stationName}]的坐标系无效:{station.CoordinateSystem}。");
+            }
+            List<AxisConfig> axisConfigs = station.dataAxis?.axisConfigs;
+            if (axisConfigs == null)
+            {
+                return;
+            }
+            var cards = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < axisConfigs.Count && i < 6; i++)
+            {
+                AxisConfig axis = axisConfigs[i];
+                if (axis == null || axis.AxisName == "-1")
+                {
+                    continue;
+                }
+                if (stationRunPos != null && stationRunPos.IsDisableAxis == "有禁用"
+                    && stationRunPos.GetAllValues()[i])
+                {
+                    continue;
+                }
+                cards.Add(axis.CardNum ?? string.Empty);
+            }
+            if (cards.Count > 1)
+            {
+                errors.Add($"{location} 的协调直线运动参与轴必须位于同一张控制卡。");
+            }
         }
 
         private static void ValidatePlcOperation(OperationType operation, List<string> errors,
@@ -279,8 +429,8 @@ namespace Automation
                 }
                 if (!TryGetVariable(name, out DicValue value))
                 {
-                    errors.Add($"{location} 的 {field} 引用的变量不存在：{name}。");
-                    return false;
+                    // 变量可晚于流程结构补齐；启动闸门负责报告 missing/incomplete。
+                    return true;
                 }
                 string expected = dataType == PlcDataType.String ? "string" : "double";
                 if (!string.Equals(value.Type, expected, StringComparison.OrdinalIgnoreCase))
@@ -320,10 +470,11 @@ namespace Automation
 
             if (readWrite.Action == PlcAccessAction.Read && readWrite.Mode == PlcAccessMode.Items)
             {
-                if (readWrite.ReadItemCount < 1 || readWrite.ReadItemCount > 100
-                    || readWrite.ReadItems == null || readWrite.ReadItems.Count != readWrite.ReadItemCount)
+                if (readWrite.ReadItems == null
+                    || readWrite.ReadItems.Count < 1
+                    || readWrite.ReadItems.Count > 100)
                 {
-                    errors.Add($"{location} 的PLC按项读取数量必须为1..100，并与读取项数量一致。");
+                    errors.Add($"{location} 的PLC按项读取项数量必须为1..100。");
                     return;
                 }
                 var unique = new HashSet<string>(StringComparer.Ordinal);
@@ -348,10 +499,11 @@ namespace Automation
 
             if (readWrite.Action == PlcAccessAction.Write && readWrite.Mode == PlcAccessMode.Items)
             {
-                if (readWrite.WriteItemCount < 1 || readWrite.WriteItemCount > 100
-                    || readWrite.WriteItems == null || readWrite.WriteItems.Count != readWrite.WriteItemCount)
+                if (readWrite.WriteItems == null
+                    || readWrite.WriteItems.Count < 1
+                    || readWrite.WriteItems.Count > 100)
                 {
-                    errors.Add($"{location} 的PLC按项写入数量必须为1..100，并与写入项数量一致。");
+                    errors.Add($"{location} 的PLC按项写入项数量必须为1..100。");
                     return;
                 }
                 for (int index = 0; index < readWrite.WriteItems.Count; index++)
@@ -452,7 +604,6 @@ namespace Automation
             {
                 if (!TryGetVariable(firstVariableName, out DicValue firstVariable))
                 {
-                    errors.Add($"{location} 的PLC{fieldName}不存在：{firstVariableName ?? string.Empty}。");
                     return;
                 }
                 var continuousVariables = new HashSet<string>(StringComparer.Ordinal);
@@ -470,7 +621,6 @@ namespace Automation
                     }
                     if (variable == null)
                     {
-                        errors.Add($"{location} 从变量[{firstVariableName}]开始的第{offset + 1}个连续变量不存在。");
                         continue;
                     }
                     ValidateVariable(variable.Name, dataType, continuousVariables, $"连续变量[{offset}]");
@@ -486,10 +636,7 @@ namespace Automation
                 return;
             }
 
-            bool HasValue(string name) => !string.IsNullOrWhiteSpace(name)
-                && (validationContext != null
-                    ? validationContext.VariableNames.Contains(name)
-                    : SF.valueStore != null && SF.valueStore.TryGetValueByName(name, out _));
+            bool HasValue(string name) => !string.IsNullOrWhiteSpace(name);
             bool HasTcp(string name) => !string.IsNullOrWhiteSpace(name)
                 && (validationContext != null
                     ? validationContext.TcpNames.Contains(name)
@@ -519,7 +666,7 @@ namespace Automation
             if (operation is WaitTcp waitTcp)
             {
                 if (waitTcp.Params == null || waitTcp.Params.Count == 0
-                    || waitTcp.Params.Any(item => item == null || !HasTcp(item.Name) || item.TimeOut <= 0))
+                    || waitTcp.Params.Any(item => item == null || !HasTcp(item.Name) || item.TimeoutMs <= 0))
                 {
                     errors.Add($"{location} 等待TCP配置无效");
                 }
@@ -527,33 +674,33 @@ namespace Automation
             }
             if (operation is SendTcpMsg sendTcp)
             {
-                if (!HasTcp(sendTcp.ID))
+                if (!HasTcp(sendTcp.ConnectionName))
                 {
-                    errors.Add($"{location} TCP对象不存在：{sendTcp.ID ?? string.Empty}");
+                    errors.Add($"{location} TCP对象不存在：{sendTcp.ConnectionName ?? string.Empty}");
                 }
                 if (!HasValue(sendTcp.Msg))
                 {
                     errors.Add($"{location} TCP发送变量不存在：{sendTcp.Msg ?? string.Empty}");
                 }
-                if (sendTcp.TimeOut <= 0)
+                if (sendTcp.TimeoutMs <= 0)
                 {
-                    errors.Add($"{location} TCP发送超时必须大于0：{sendTcp.TimeOut}");
+                    errors.Add($"{location} TCP发送超时必须大于0：{sendTcp.TimeoutMs}");
                 }
                 return;
             }
-            if (operation is ReceoveTcpMsg receiveTcp)
+            if (operation is ReceiveTcpMsg receiveTcp)
             {
-                if (!HasTcp(receiveTcp.ID))
+                if (!HasTcp(receiveTcp.ConnectionName))
                 {
-                    errors.Add($"{location} TCP对象不存在：{receiveTcp.ID ?? string.Empty}");
+                    errors.Add($"{location} TCP对象不存在：{receiveTcp.ConnectionName ?? string.Empty}");
                 }
                 if (!HasValue(receiveTcp.MsgSaveValue))
                 {
                     errors.Add($"{location} TCP接收保存变量不存在：{receiveTcp.MsgSaveValue ?? string.Empty}");
                 }
-                if (receiveTcp.TImeOut <= 0)
+                if (receiveTcp.TimeoutMs <= 0)
                 {
-                    errors.Add($"{location} TCP接收超时必须大于0：{receiveTcp.TImeOut}");
+                    errors.Add($"{location} TCP接收超时必须大于0：{receiveTcp.TimeoutMs}");
                 }
                 return;
             }
@@ -570,7 +717,7 @@ namespace Automation
             if (operation is WaitSerialPort waitSerial)
             {
                 if (waitSerial.Params == null || waitSerial.Params.Count == 0
-                    || waitSerial.Params.Any(item => item == null || !HasSerial(item.Name) || item.TimeOut <= 0))
+                    || waitSerial.Params.Any(item => item == null || !HasSerial(item.Name) || item.TimeoutMs <= 0))
                 {
                     errors.Add($"{location} 等待串口配置无效");
                 }
@@ -578,26 +725,26 @@ namespace Automation
             }
             if (operation is SendSerialPortMsg sendSerial)
             {
-                if (!HasSerial(sendSerial.ID) || !HasValue(sendSerial.Msg) || sendSerial.TimeOut <= 0)
+                if (!HasSerial(sendSerial.ConnectionName) || !HasValue(sendSerial.Msg) || sendSerial.TimeoutMs <= 0)
                 {
                     errors.Add($"{location} 串口发送配置无效");
                 }
                 return;
             }
-            if (operation is ReceoveSerialPortMsg receiveSerial)
+            if (operation is ReceiveSerialPortMsg receiveSerial)
             {
-                if (!HasSerial(receiveSerial.ID) || !HasValue(receiveSerial.MsgSaveValue) || receiveSerial.TImeOut <= 0)
+                if (!HasSerial(receiveSerial.ConnectionName) || !HasValue(receiveSerial.MsgSaveValue) || receiveSerial.TimeoutMs <= 0)
                 {
                     errors.Add($"{location} 串口接收配置无效");
                 }
                 return;
             }
-            if (operation is SendReceoveCommMsg request)
+            if (operation is SendReceiveCommMsg request)
             {
                 bool validChannel = request.CommType == "TCP"
-                    ? HasTcp(request.ID)
-                    : request.CommType == "串口" && HasSerial(request.ID);
-                if (!validChannel || !HasValue(request.SendMsg) || request.TimeOut <= 0
+                    ? HasTcp(request.ConnectionName)
+                    : request.CommType == "串口" && HasSerial(request.ConnectionName);
+                if (!validChannel || !HasValue(request.SendMsg) || request.TimeoutMs <= 0
                     || (!string.IsNullOrWhiteSpace(request.ReceiveSaveValue) && !HasValue(request.ReceiveSaveValue)))
                 {
                     errors.Add($"{location} 通讯请求响应配置无效");

@@ -12,11 +12,19 @@ namespace Automation
         PlatformEditor = 1
     }
 
+    public enum ProcessExecutionMode
+    {
+        Normal = 0,
+        HighPerformance = 1
+    }
+
     public sealed class AppConfig
     {
         public int CommMaxMessageQueueSize { get; set; }
         public AutomationRuntimeMode RuntimeMode { get; set; }
         public AutomationStartupView StartupView { get; set; }
+        public ProcessExecutionMode ProcessExecutionMode { get; set; }
+        public bool EnablePerformanceAnalysis { get; set; }
     }
 
     public static class AppConfigStorage
@@ -26,6 +34,8 @@ namespace Automation
         public const string CommMaxMessageQueueSizeKey = "CommMaxMessageQueueSize";
         public const string RuntimeModeKey = "RuntimeMode";
         public const string StartupViewKey = "StartupView";
+        public const string ProcessExecutionModeKey = "ProcessExecutionMode";
+        public const string EnablePerformanceAnalysisKey = "EnablePerformanceAnalysis";
         public const int DefaultCommMaxMessageQueueSize = 1000;
         private static readonly object cacheLock = new object();
         private static AppConfig cachedConfig;
@@ -43,7 +53,9 @@ namespace Automation
                 {
                     CommMaxMessageQueueSize = DefaultCommMaxMessageQueueSize,
                     RuntimeMode = AutomationRuntimeMode.Hardware,
-                    StartupView = AutomationStartupView.Hmi
+                    StartupView = AutomationStartupView.Hmi,
+                    ProcessExecutionMode = ProcessExecutionMode.Normal,
+                    EnablePerformanceAnalysis = true
                 };
                 if (!TrySave(defaultConfig, out string saveError))
                 {
@@ -73,50 +85,62 @@ namespace Automation
                     error = $"队列长度配置无效:{value}";
                     return false;
                 }
-                AutomationRuntimeMode runtimeMode;
-                bool addDefaultRuntimeMode = false;
                 if (!obj.TryGetValue(RuntimeModeKey, StringComparison.Ordinal, out token))
                 {
-                    runtimeMode = AutomationRuntimeMode.Hardware;
-                    addDefaultRuntimeMode = true;
+                    error = $"配置缺少字段:{RuntimeModeKey}";
+                    return false;
                 }
-                else if (token.Type != JTokenType.Integer || (token.Value<int>() != (int)AutomationRuntimeMode.Hardware && token.Value<int>() != (int)AutomationRuntimeMode.Simulation))
+                if (token.Type != JTokenType.Integer || (token.Value<int>() != (int)AutomationRuntimeMode.Hardware && token.Value<int>() != (int)AutomationRuntimeMode.Simulation))
                 {
                     error = $"运行模式配置无效:{token}";
                     return false;
                 }
-                else
-                {
-                    runtimeMode = (AutomationRuntimeMode)token.Value<int>();
-                }
-                AutomationStartupView startupView;
-                bool addDefaultStartupView = false;
+                AutomationRuntimeMode runtimeMode = (AutomationRuntimeMode)token.Value<int>();
                 if (!obj.TryGetValue(StartupViewKey, StringComparison.Ordinal, out token))
                 {
-                    startupView = AutomationStartupView.Hmi;
-                    addDefaultStartupView = true;
+                    error = $"配置缺少字段:{StartupViewKey}";
+                    return false;
                 }
-                else if (token.Type != JTokenType.Integer
+                if (token.Type != JTokenType.Integer
                     || (token.Value<int>() != (int)AutomationStartupView.Hmi
                         && token.Value<int>() != (int)AutomationStartupView.PlatformEditor))
                 {
                     error = $"启动界面配置无效:{token}";
                     return false;
                 }
-                else
+                AutomationStartupView startupView = (AutomationStartupView)token.Value<int>();
+                if (!obj.TryGetValue(ProcessExecutionModeKey, StringComparison.Ordinal, out token))
                 {
-                    startupView = (AutomationStartupView)token.Value<int>();
+                    error = $"配置缺少字段:{ProcessExecutionModeKey}";
+                    return false;
                 }
+                if (token.Type != JTokenType.Integer
+                    || (token.Value<int>() != (int)ProcessExecutionMode.Normal
+                        && token.Value<int>() != (int)ProcessExecutionMode.HighPerformance))
+                {
+                    error = $"流程执行模式配置无效:{token}";
+                    return false;
+                }
+                ProcessExecutionMode processExecutionMode = (ProcessExecutionMode)token.Value<int>();
+                if (!obj.TryGetValue(EnablePerformanceAnalysisKey, StringComparison.Ordinal, out token))
+                {
+                    error = $"配置缺少字段:{EnablePerformanceAnalysisKey}";
+                    return false;
+                }
+                if (token.Type != JTokenType.Boolean)
+                {
+                    error = $"性能分析开关配置无效:{token}";
+                    return false;
+                }
+                bool enablePerformanceAnalysis = token.Value<bool>();
                 config = new AppConfig
                 {
                     CommMaxMessageQueueSize = value,
                     RuntimeMode = runtimeMode,
-                    StartupView = startupView
+                    StartupView = startupView,
+                    ProcessExecutionMode = processExecutionMode,
+                    EnablePerformanceAnalysis = enablePerformanceAnalysis
                 };
-                if ((addDefaultRuntimeMode || addDefaultStartupView) && !TrySave(config, out error))
-                {
-                    return false;
-                }
                 SetCache(config);
                 return true;
             }
@@ -167,11 +191,19 @@ namespace Automation
                 error = $"启动界面配置无效:{config.StartupView}";
                 return false;
             }
+            if (config.ProcessExecutionMode != ProcessExecutionMode.Normal
+                && config.ProcessExecutionMode != ProcessExecutionMode.HighPerformance)
+            {
+                error = $"流程执行模式配置无效:{config.ProcessExecutionMode}";
+                return false;
+            }
             JObject obj = new JObject
             {
                 [CommMaxMessageQueueSizeKey] = config.CommMaxMessageQueueSize,
                 [RuntimeModeKey] = (int)config.RuntimeMode,
-                [StartupViewKey] = (int)config.StartupView
+                [StartupViewKey] = (int)config.StartupView,
+                [ProcessExecutionModeKey] = (int)config.ProcessExecutionMode,
+                [EnablePerformanceAnalysisKey] = config.EnablePerformanceAnalysis
             };
             string json = obj.ToString(Formatting.Indented);
             string path = ConfigPath;
@@ -205,7 +237,9 @@ namespace Automation
             {
                 CommMaxMessageQueueSize = config.CommMaxMessageQueueSize,
                 RuntimeMode = config.RuntimeMode,
-                StartupView = config.StartupView
+                StartupView = config.StartupView,
+                ProcessExecutionMode = config.ProcessExecutionMode,
+                EnablePerformanceAnalysis = config.EnablePerformanceAnalysis
             };
         }
     }

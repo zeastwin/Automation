@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using Automation.MotionControl;
 
 namespace Automation
 {
@@ -17,31 +19,48 @@ namespace Automation
                 MarkAlarm(evt, "运动控制未初始化");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            int time;
+            var commands = new List<IoOutputCommand>(ioOperate.IoParams.Count);
+            var ioIndexes = new HashSet<int>();
+            int? cardNum = null;
             foreach (IoOutParam ioParam in ioOperate.IoParams)
             {
-                time = ioParam.delayBefore;
-                if (time <= 0 && !string.IsNullOrEmpty(ioParam.delayBeforeV))
+                if (ioParam == null || string.IsNullOrWhiteSpace(ioParam.IoName))
                 {
-                    time = (int)Context.ValueStore.GetValueByName(ioParam.delayBeforeV).GetDValue();
-                }
-                Delay(time, evt);
-                if (Context?.IoMap == null || !Context.IoMap.TryGetValue(ioParam.IOName, out IO io) || io == null)
-                {
-                    MarkAlarm(evt, $"IO映射不存在:{ioParam.IOName}");
+                    MarkAlarm(evt, "IO输出名称为空");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.Io.SetIO(io, ioParam.value))
+                if (Context?.IoMap == null || !Context.IoMap.TryGetValue(ioParam.IoName, out IO io) || io == null)
                 {
-                    MarkAlarm(evt, $"IO输出失败:{ioParam.IOName}");
+                    MarkAlarm(evt, $"IO映射不存在:{ioParam.IoName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                time = ioParam.delayAfter;
-                if (time <= 0 && !string.IsNullOrEmpty(ioParam.delayAfterV))
+                if (io.IOType != "通用输出")
                 {
-                    time = (int)Context.ValueStore.GetValueByName(ioParam.delayAfterV).GetDValue();
+                    MarkAlarm(evt, $"IO操作仅支持通用输出:{ioParam.IoName}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                Delay(time, evt);
+                if (cardNum.HasValue && cardNum.Value != io.CardNum)
+                {
+                    MarkAlarm(evt, "同一条IO操作的全部输出必须位于同一张控制卡");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                cardNum = io.CardNum;
+                if (!int.TryParse(io.IOIndex, out int ioIndex) || ioIndex < 0 || ioIndex > 31)
+                {
+                    MarkAlarm(evt, $"IO输出索引超出批量写入端口范围:{ioParam.IoName}-{io.IOIndex}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (!ioIndexes.Add(ioIndex))
+                {
+                    MarkAlarm(evt, $"IO操作包含重复输出索引:{ioParam.IoName}-{io.IOIndex}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                commands.Add(new IoOutputCommand(io, ioParam.TargetState));
+            }
+            if (!Context.Io.SetOutputs(commands))
+            {
+                MarkAlarm(evt, $"IO批量输出失败:卡{cardNum}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             return true;
         }
@@ -56,10 +75,10 @@ namespace Automation
                 MarkAlarm(evt, "IO检测参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            timeOut = ioCheck.timeOutC.TimeOut;
-            if (timeOut <= 0 && !string.IsNullOrEmpty(ioCheck.timeOutC.TimeOutValue))
+            timeOut = ioCheck.Timeout.TimeoutMs;
+            if (timeOut <= 0 && !string.IsNullOrEmpty(ioCheck.Timeout.TimeoutVariableName))
             {
-                timeOut = (int)Context.ValueStore.GetValueByName(ioCheck.timeOutC.TimeOutValue).GetDValue();
+                timeOut = (int)Context.ValueStore.GetValueByNameForProcess(ioCheck.Timeout.TimeoutVariableName, evt.procId).GetDValue();
             }
             if (timeOut <= 0)
             {
@@ -75,9 +94,9 @@ namespace Automation
                     bool isCheckOff = true;
                     foreach (IoCheckParam ioParam in ioCheck.IoParams)
                     {
-                        if (Context?.IoMap == null || !Context.IoMap.TryGetValue(ioParam.IOName, out IO io) || io == null)
+                        if (Context?.IoMap == null || !Context.IoMap.TryGetValue(ioParam.IoName, out IO io) || io == null)
                         {
-                            MarkAlarm(evt, $"IO映射不存在:{ioParam.IOName}");
+                            MarkAlarm(evt, $"IO映射不存在:{ioParam.IoName}");
                             throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
                         bool ok;
@@ -91,15 +110,15 @@ namespace Automation
                         }
                         else
                         {
-                            MarkAlarm(evt, $"IO类型无效:{ioParam.IOName}");
+                            MarkAlarm(evt, $"IO类型无效:{ioParam.IoName}");
                             throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
                         if (!ok)
                         {
-                            MarkAlarm(evt, $"IO读取失败:{ioParam.IOName}");
+                            MarkAlarm(evt, $"IO读取失败:{ioParam.IoName}");
                             throw CreateAlarmException(evt, evt?.alarmMsg);
                         }
-                        if (value != ioParam.value)
+                        if (value != ioParam.ExpectedState)
                         {
                             isCheckOff = false;
                             Delay(2, evt);
@@ -144,37 +163,37 @@ namespace Automation
             }
             foreach (IoOutParam ioParam in ioGroup.OutIoParams)
             {
-                if (ioParam == null || string.IsNullOrWhiteSpace(ioParam.IOName))
+                if (ioParam == null || string.IsNullOrWhiteSpace(ioParam.IoName))
                 {
                     MarkAlarm(evt, "IO组输出名称为空");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.IoMap.TryGetValue(ioParam.IOName, out IO io) || io == null)
+                if (!Context.IoMap.TryGetValue(ioParam.IoName, out IO io) || io == null)
                 {
-                    MarkAlarm(evt, $"IO映射不存在:{ioParam.IOName}");
+                    MarkAlarm(evt, $"IO映射不存在:{ioParam.IoName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 if (io.IOType != "通用输出")
                 {
-                    MarkAlarm(evt, $"IO组输出仅支持通用输出:{ioParam.IOName}");
+                    MarkAlarm(evt, $"IO组输出仅支持通用输出:{ioParam.IoName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
             foreach (IoCheckParam ioParam in ioGroup.CheckIoParams)
             {
-                if (ioParam == null || string.IsNullOrWhiteSpace(ioParam.IOName))
+                if (ioParam == null || string.IsNullOrWhiteSpace(ioParam.IoName))
                 {
                     MarkAlarm(evt, "IO组检测名称为空");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.IoMap.TryGetValue(ioParam.IOName, out IO io) || io == null)
+                if (!Context.IoMap.TryGetValue(ioParam.IoName, out IO io) || io == null)
                 {
-                    MarkAlarm(evt, $"IO映射不存在:{ioParam.IOName}");
+                    MarkAlarm(evt, $"IO映射不存在:{ioParam.IoName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 if (io.IOType != "通用输入")
                 {
-                    MarkAlarm(evt, $"IO组检测仅支持通用输入:{ioParam.IOName}");
+                    MarkAlarm(evt, $"IO组检测仅支持通用输入:{ioParam.IoName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
@@ -197,7 +216,7 @@ namespace Automation
                 return RunIoCheck(evt, new IoCheck
                 {
                     IoParams = ioGroup.CheckIoParams,
-                    timeOutC = ioGroup.timeOutC ?? new TimeOutC()
+                    Timeout = ioGroup.Timeout ?? new TimeoutSetting()
                 });
             }
             catch (Exception ex)
@@ -224,6 +243,19 @@ namespace Automation
                 MarkAlarm(evt, $"失效延时无效:{ioLogicGoto.InvalidDelayMs}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
+            BranchRuntimeBinding binding = ioLogicGoto.RuntimeBinding as BranchRuntimeBinding;
+            string bindError = null;
+            if (binding == null && (evt?.Proc == null
+                || !ProcessRuntimeBinder.TryBind(
+                    evt.Proc, evt.procNum, Context?.ValueStore, out bindError)))
+            {
+                throw CreateAlarmException(evt, bindError ?? "IO逻辑跳转运行计划未编译");
+            }
+            binding = binding ?? ioLogicGoto.RuntimeBinding as BranchRuntimeBinding;
+            if (binding == null)
+            {
+                throw CreateAlarmException(evt, "IO逻辑跳转运行计划未编译");
+            }
 
             bool EvaluateLogic()
             {
@@ -231,33 +263,25 @@ namespace Automation
                 bool output = false;
                 foreach (IoLogicGotoParam ioParam in ioLogicGoto.IoParams)
                 {
-                    if (string.IsNullOrWhiteSpace(ioParam.IOName))
+                    if (string.IsNullOrWhiteSpace(ioParam.IoName))
                     {
                         throw CreateAlarmException(evt, "IO名称为空");
                     }
-                    if (Context?.IoMap == null || !Context.IoMap.TryGetValue(ioParam.IOName, out IO io) || io == null)
+                    if (Context?.IoMap == null || !Context.IoMap.TryGetValue(ioParam.IoName, out IO io) || io == null)
                     {
-                        MarkAlarm(evt, $"IO映射不存在:{ioParam.IOName}");
+                        MarkAlarm(evt, $"IO映射不存在:{ioParam.IoName}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                    }
+                    if (!string.Equals(io.IOType, "通用输入", StringComparison.Ordinal))
+                    {
+                        MarkAlarm(evt, $"IO逻辑跳转仅支持通用输入:{ioParam.IoName}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     bool value = false;
-                    bool ok;
-                    if (io.IOType == "通用输入")
-                    {
-                        ok = Context.Io != null && Context.Io.GetInIO(io, ref value);
-                    }
-                    else if (io.IOType == "通用输出")
-                    {
-                        ok = Context.Io != null && Context.Io.GetOutIO(io, ref value);
-                    }
-                    else
-                    {
-                        MarkAlarm(evt, $"IO类型无效:{ioParam.IOName}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
+                    bool ok = Context.Io != null && Context.Io.GetInIO(io, ref value);
                     if (!ok)
                     {
-                        MarkAlarm(evt, $"IO读取失败:{ioParam.IOName}");
+                        MarkAlarm(evt, $"IO读取失败:{ioParam.IoName}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
 
@@ -292,8 +316,8 @@ namespace Automation
                 result = EvaluateLogic();
             }
 
-            string gotoTarget = result ? ioLogicGoto.TrueGoto : ioLogicGoto.FalseGoto;
-            if (!TryExecuteGoto(gotoTarget, evt, out string gotoError))
+            RuntimeGotoTarget gotoTarget = result ? binding.TrueTarget : binding.FalseTarget;
+            if (!gotoTarget.TryApply(evt, out string gotoError))
             {
                 MarkAlarm(evt, gotoError);
                 throw CreateAlarmException(evt, evt?.alarmMsg);

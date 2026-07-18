@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Design;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Reflection;
@@ -55,6 +56,44 @@ namespace Automation
 
         public string DisplayName { get; }
         public string Category { get; }
+        public int MinItems { get; set; }
+        public int MaxItems { get; set; } = int.MaxValue;
+    }
+
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    public sealed class NumericRangeAttribute : Attribute
+    {
+        public NumericRangeAttribute(double minimum)
+            : this(minimum, double.PositiveInfinity)
+        {
+        }
+
+        public NumericRangeAttribute(double minimum, double maximum)
+        {
+            Minimum = minimum;
+            Maximum = maximum;
+        }
+
+        public double Minimum { get; }
+        public double Maximum { get; }
+
+        public bool Contains(object value)
+        {
+            if (value == null)
+            {
+                return true;
+            }
+            double number = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+            return !double.IsNaN(number) && !double.IsInfinity(number)
+                && number >= Minimum && number <= Maximum;
+        }
+
+        public string Describe()
+        {
+            return double.IsPositiveInfinity(Maximum)
+                ? $"不小于 {Minimum.ToString(CultureInfo.InvariantCulture)}"
+                : $"{Minimum.ToString(CultureInfo.InvariantCulture)}..{Maximum.ToString(CultureInfo.InvariantCulture)}";
+        }
     }
 
     [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
@@ -80,8 +119,9 @@ namespace Automation
     [Serializable]
     public class DataStructC
     {
-        [DisplayName("数据结构索引"), Category("参数"), Description("数据结构索引；用于按索引定位结构体。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string DataStructIndex { get; set; }
+        [DisplayName("数据结构索引"), Category("参数"), Description("数据结构索引；用于按索引定位结构体。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int DataStructIndex { get; set; }
 
         [DisplayName("数据结构名称"), Category("参数"), Description("数据结构名称；用于按名称定位结构体。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
         public string DataStructName { get; set; }
@@ -92,14 +132,15 @@ namespace Automation
     }
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
-    public class TimeOutC
+    public class TimeoutSetting
     {
         public const int DefaultTimeoutMs = 3000;
 
         [DisplayName("超时"), Category("参数"), Description("超时时间（ms）；超过该时长仍未满足条件会触发报警。"), ReadOnly(false)]
-        public int TimeOut { get; set; } = DefaultTimeoutMs;
+        [NumericRange(0)]
+        public int TimeoutMs { get; set; } = DefaultTimeoutMs;
         [DisplayName("超时变量"), Category("参数"), Description("超时时间变量名；当固定超时小于等于0时从该变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string TimeOutValue { get; set; }
+        public string TimeoutVariableName { get; set; }
 
         public override string ToString()
         {
@@ -121,6 +162,17 @@ namespace Automation
         [Browsable(false)]
         [JsonIgnore]
         public EventRefreshInspector RefreshInspector;
+
+        [NonSerialized]
+        private object runtimeBinding;
+
+        [Browsable(false)]
+        [JsonIgnore]
+        internal object RuntimeBinding
+        {
+            get => runtimeBinding;
+            set => runtimeBinding = value;
+        }
 
         [Browsable(false)]
         public Guid Id { get; set; }
@@ -163,42 +215,42 @@ namespace Automation
         {
             if (this.alarmType == "报警停止")
             {
-                SetPropertyAttribute(this, "AlarmInfoID", typeof(BrowsableAttribute), "browsable", false);
+                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", false);
                 SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", false);
                 SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", false);
                 SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", false);
             }
             else if (this.alarmType == "报警忽略")
             {
-                SetPropertyAttribute(this, "AlarmInfoID", typeof(BrowsableAttribute), "browsable", false);
+                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", false);
                 SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", false);
                 SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", false);
                 SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", false);
             }
             else if (this.alarmType == "自动处理")
             {
-                SetPropertyAttribute(this, "AlarmInfoID", typeof(BrowsableAttribute), "browsable", false);
+                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", false);
                 SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", true);
                 SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", false);
                 SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", false);
             }
             else if (this.alarmType == "弹框确定")
             {
-                SetPropertyAttribute(this, "AlarmInfoID", typeof(BrowsableAttribute), "browsable", true);
+                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", true);
                 SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", true);
                 SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", false);
                 SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", false);
             }
             else if (this.alarmType == "弹框确定与否")
             {
-                SetPropertyAttribute(this, "AlarmInfoID", typeof(BrowsableAttribute), "browsable", true);
+                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", true);
                 SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", true);
                 SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", true);
                 SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", false);
             }
             else if (this.alarmType == "弹框确定与否与取消")
             {
-                SetPropertyAttribute(this, "AlarmInfoID", typeof(BrowsableAttribute), "browsable", true);
+                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", true);
                 SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", true);
                 SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", true);
                 SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", true);
@@ -206,7 +258,7 @@ namespace Automation
         }
         [DisplayName("报警信息ID"), Category(GeneralCategory), Description("弹框报警时使用的报警信息编号；仅在弹框类报警策略下生效。"), ReadOnly(false), TypeConverter(typeof(AlarmInfoItem))]
         [Browsable(false)]
-        public string AlarmInfoID { get; set; }
+        public string AlarmInfoId { get; set; }
         [Browsable(false)]
         [DisplayName("确定跳转"), Category(GeneralCategory), Description("在弹框或自动处理选择“确定”后跳转到的目标位置。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
         [MarkedGoto("标识的跳转属性")]
@@ -224,7 +276,7 @@ namespace Automation
         public string Note { get; set; }
         [Browsable(true)]
         [DisplayName("断点"), Category(GeneralCategory), Description("启用后流程运行到该指令会进入断点状态，便于调试。"), ReadOnly(false)]
-        public bool isStopPoint { get; set; }
+        public bool IsBreakpoint { get; set; }
 
         [Browsable(true)]
         [DisplayName("禁用"), Category(GeneralCategory), Description("启用后该指令会被跳过执行，用于临时屏蔽逻辑。"), ReadOnly(false)]
@@ -234,6 +286,19 @@ namespace Automation
         {
             return ObjectGraphCloner.Clone(this);
         }
+
+        protected static double ValidatePercentage(double value, string propertyName)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value) || value < 0 || value > 100)
+            {
+                throw new ArgumentOutOfRangeException(
+                    propertyName,
+                    value,
+                    "百分比必须在0到100之间。");
+            }
+            return value;
+        }
+
         public void SetPropertyAttribute(object obj, string propertyName, Type attrType, string attrField, object value)
         {
             if (obj == null || string.IsNullOrEmpty(propertyName) || attrType == null)
@@ -290,8 +355,8 @@ namespace Automation
         {
             OperaType = "自定义方法";
         }
-        [TypeConverter(typeof(funcNameItem))]
-        public override string Name { get; set; }
+        [DisplayName("函数名称"), Category("参数"), Description("通过平台公开接口注册的自定义函数精确名称。"), ReadOnly(false), TypeConverter(typeof(funcNameItem))]
+        public string FunctionName { get; set; }
 
     }
     [Serializable]
@@ -303,26 +368,10 @@ namespace Automation
             ParamListConverter<IoOutParam>.Name = "IO";
             IoParams = new CustomList<IoOutParam>
             {
-                new IoOutParam { delayAfter = -1, delayBefore = -1 }
+                new IoOutParam()
             };
         }
-        private string iOCount = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
-        public string IOCount
-        {
-            get { return iOCount; }
-            set
-            {
-                iOCount = value;
-                int num = int.Parse(IOCount);
-                IoParams = EditableCollection.Resize(
-                    IoParams,
-                    num,
-                    () => new IoOutParam { delayAfter = -1, delayBefore = -1 });
-            }
-        }
-
-        [DisplayName("IO设置"), Category("参数"), Description("IO输出项配置入口；每一项定义一个输出点及前后延时。"), ReadOnly(false)]
+        [DisplayName("IO设置"), Category("参数"), Description("同一卡输出项配置入口；全部输出通过一次端口写入同步切换。"), ReadOnly(false)]
         [InlineList("IO", "参数")]
         [TypeConverter(typeof(ParamListConverter<IoOutParam>))]
 
@@ -333,23 +382,10 @@ namespace Automation
     public class IoOutParam
     {
 
-        [DisplayName("名称"), Category("IO参数"), Description("IO点名称；运行时按该名称匹配输入/输出点。"), ReadOnly(false), TypeConverter(typeof(IoOutItem))]
-        public string IOName { get; set; }
+        [DisplayName("名称"), Category("IO参数"), Description("输出IO点名称；运行时向该输出点写入目标状态。"), ReadOnly(false), TypeConverter(typeof(IoOutItem))]
+        public string IoName { get; set; }
         [DisplayName("写入值"), Category("IO参数"), Description("IO输出目标状态（开/关）。"), ReadOnly(false)]
-        public bool value { get; set; }
-        [DisplayName("操作前延时"), Category("IO参数"), Description("执行IO动作前的延时（ms），用于设备预留响应时间。"), ReadOnly(false)]
-        public int delayBefore { get; set; }
-        [DisplayName("操作前延时变量"), Category("IO参数"), Description("IO前延时变量名；固定前延时小于等于0时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        [Browsable(true)]
-        public string delayBeforeV { get; set; }
-        [Browsable(true)]
-        [DisplayName("操作后延时"), Category("IO参数"), Description("执行IO动作后的延时（ms），用于等待信号稳定。"), ReadOnly(false)]
-        public int delayAfter { get; set; }
-
-        [DisplayName("操作后延时变量"), Category("IO参数"), Description("IO后延时变量名；固定后延时小于等于0时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        [Browsable(true)]
-        public string delayAfterV { get; set; }
-
+        public bool TargetState { get; set; }
         public override string ToString()
         {
             return "";
@@ -368,21 +404,9 @@ namespace Automation
                 new IoCheckParam()
             };
         }
-        private string iOCount = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
-        public string IOCount
-        {
-            get { return iOCount; }
-            set
-            {
-                iOCount = value;
-                int num = int.Parse(IOCount);
-                IoParams = EditableCollection.Resize(IoParams, num, () => new IoCheckParam());
-            }
-        }
         [DisplayName("超时设置"), Category("参数"), Description("超时参数组，用于配置固定超时或变量超时来源。"), ReadOnly(true)]
         [InlineGroup("超时设置", "参数")]
-        public TimeOutC timeOutC { get; set; } = new TimeOutC();
+        public TimeoutSetting Timeout { get; set; } = new TimeoutSetting();
         [DisplayName("IO设置"), Category("参数"), Description("IO检测项配置入口；每一项定义一个输入点及期望状态。"), ReadOnly(false)]
         [InlineList("IO", "参数")]
         [TypeConverter(typeof(ParamListConverter<IoCheckParam>))]
@@ -401,7 +425,7 @@ namespace Automation
             ParamListConverter<IoCheckParam>.Name = "IO";
             OutIoParams = new CustomList<IoOutParam>
             {
-                new IoOutParam { delayAfter = -1, delayBefore = -1 }
+                new IoOutParam()
             };
             CheckIoParams = new CustomList<IoCheckParam>
             {
@@ -409,43 +433,11 @@ namespace Automation
             };
         }
 
-        private string outIOCount = "1";
-        [DisplayName("输出数量"), Category("参数"), Description("输出子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
-        public string OutIOCount
-        {
-            get { return outIOCount; }
-            set
-            {
-                outIOCount = value;
-                int num = int.Parse(OutIOCount);
-                OutIoParams = EditableCollection.Resize(
-                    OutIoParams,
-                    num,
-                    () => new IoOutParam { delayAfter = -1, delayBefore = -1 });
-            }
-        }
-
-        private string checkIOCount = "1";
-        [DisplayName("检测数量"), Category("参数"), Description("检测子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
-        public string CheckIOCount
-        {
-            get { return checkIOCount; }
-            set
-            {
-                checkIOCount = value;
-                int num = int.Parse(CheckIOCount);
-                CheckIoParams = EditableCollection.Resize(
-                    CheckIoParams,
-                    num,
-                    () => new IoCheckParam());
-            }
-        }
-
         [DisplayName("超时设置"), Category("参数"), Description("超时参数组，用于配置固定超时或变量超时来源。"), ReadOnly(true)]
         [InlineGroup("超时设置", "参数")]
-        public TimeOutC timeOutC { get; set; } = new TimeOutC();
+        public TimeoutSetting Timeout { get; set; } = new TimeoutSetting();
 
-        [DisplayName("输出设置"), Category("参数"), Description("IO组输出子项配置入口；用于定义输出点与动作时序。"), ReadOnly(false)]
+        [DisplayName("输出设置"), Category("参数"), Description("IO组同一卡输出配置；全部输出通过一次端口写入同步切换。"), ReadOnly(false)]
         [InlineList("输出IO", "参数")]
         [TypeConverter(typeof(ParamListConverter<IoOutParam>))]
         public CustomList<IoOutParam> OutIoParams { get; set; }
@@ -469,20 +461,8 @@ namespace Automation
             };
         }
 
-        private string iOCount = "1";
-        [DisplayName("IO数量"), Category("B判断参数"), Description("判断IO条目数量；调整时保留已有条件，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
-        public string IOCount
-        {
-            get { return iOCount; }
-            set
-            {
-                iOCount = value;
-                int num = int.Parse(IOCount);
-                IoParams = EditableCollection.Resize(IoParams, num, () => new IoLogicGotoParam());
-            }
-        }
-
         [DisplayName("失败延时(ms)"), Category("B判断参数"), Description("判断失败后的重试延时（ms），用于控制循环检测节奏。"), ReadOnly(false)]
+        [NumericRange(0)]
         public int InvalidDelayMs { get; set; }
 
         [DisplayName("IO设置"), Category("B判断参数"), Description("IO判断项配置入口。"), ReadOnly(false)]
@@ -503,8 +483,8 @@ namespace Automation
     [Serializable]
     public class IoLogicGotoParam
     {
-        [DisplayName("名称"), Category("IO参数"), Description("IO点名称；运行时按该名称匹配输入/输出点。"), ReadOnly(false), TypeConverter(typeof(IoItem))]
-        public string IOName { get; set; }
+        [DisplayName("名称"), Category("IO参数"), Description("输入IO点名称；运行时读取该输入点的逻辑状态。"), ReadOnly(false), TypeConverter(typeof(IoInItem))]
+        public string IoName { get; set; }
 
         [DisplayName("目标"), Category("IO参数"), Description("逻辑判断目标值。"), ReadOnly(false)]
         public bool Target { get; set; }
@@ -521,22 +501,10 @@ namespace Automation
     [Serializable]
     public class IoCheckParam
     {
-        [DisplayName("名称"), Category("IO参数"), Description("IO点名称；运行时按该名称匹配输入/输出点。"), ReadOnly(false), TypeConverter(typeof(IoInItem))]
-        public string IOName { get; set; }
+        [DisplayName("名称"), Category("IO参数"), Description("输入IO点名称；运行时读取该输入点的逻辑状态。"), ReadOnly(false), TypeConverter(typeof(IoInItem))]
+        public string IoName { get; set; }
         [DisplayName("检测状态"), Category("IO参数"), Description("期望输入状态；达到该状态判定检测通过。"), ReadOnly(false)]
-        public bool value { get; set; }
-        //[DisplayName("检测前延时"), Category("IO参数"), Description(""), ReadOnly(false)]
-        //public int delayBefore { get; set; }
-        //[DisplayName("操作前延时变量"), Category("IO参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        //[Browsable(true)]
-        //public string delayBeforeV { get; set; }
-        //[DisplayName("检测后延时"), Category("IO参数"), Description(""), ReadOnly(false)]
-
-        //public int delayAfter { get; set; }
-        //[DisplayName("操作后延时变量"), Category("IO参数"), Description(""), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        //[Browsable(true)]
-        //public string delayAfterV { get; set; }
-
+        public bool ExpectedState { get; set; }
         public override string ToString()
         {
             return "";
@@ -549,37 +517,22 @@ namespace Automation
         public ProcOps()
         {
             OperaType = "流程操作";
-            ParamListConverter<procParam>.Name = "流程";
-            procParams = new CustomList<procParam>
+            ParamListConverter<ProcParam>.Name = "流程";
+            Params = new CustomList<ProcParam>
             {
-                new procParam { delayAfter = -1 }
+                new ProcParam { DelayAfterMs = -1 }
             };
-        }
-        private string procCount = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(ProcItemCount))]
-        public string ProcCount
-        {
-            get { return procCount; }
-            set
-            {
-                procCount = value;
-                int num = int.Parse(procCount);
-                procParams = EditableCollection.Resize(
-                    procParams,
-                    num,
-                    () => new procParam { delayAfter = -1 });
-            }
         }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("流程", "参数")]
-        [TypeConverter(typeof(ParamListConverter<procParam>))]
+        [TypeConverter(typeof(ParamListConverter<ProcParam>))]
 
-        public CustomList<procParam> procParams { get; set; }
+        public CustomList<ProcParam> Params { get; set; }
 
     }
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
-    public class procParam
+    public class ProcParam
     {
         [DisplayName("流程名称"), Category("参数"), Description("目标流程名称；运行时按名称定位对应流程。"), ReadOnly(false), TypeConverter(typeof(ProcItem))]
         public string ProcName { get; set; }
@@ -587,13 +540,13 @@ namespace Automation
         public string ProcValue { get; set; }
 
         [DisplayName("操作类型"), Category("参数"), Description("目标状态类型（如运行/停止）；用于流程协同判定。"), ReadOnly(false), TypeConverter(typeof(ProcItemOps))]
-        public string value { get; set; }
+        public string TargetState { get; set; }
 
         [DisplayName("操作后延时"), Category("参数"), Description("当前操作完成后的附加延时（ms），用于等待状态稳定。"), ReadOnly(false)]
-        public int delayAfter { get; set; }
+        public int DelayAfterMs { get; set; }
         [DisplayName("操作后延时变量"), Category("参数"), Description("附加延时变量名；固定延时小于等于0时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(true)]
-        public string delayAfterV { get; set; }
+        public string DelayAfterVariableName { get; set; }
 
         public override string ToString()
         {
@@ -612,27 +565,15 @@ namespace Automation
                 new WaitProcParam()
             };
         }
-        private string procCount = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(ProcItemCount))]
-        public string ProcCount
-        {
-            get { return procCount; }
-            set
-            {
-                procCount = value;
-                int num = int.Parse(procCount);
-                Params = EditableCollection.Resize(Params, num, () => new WaitProcParam());
-            }
-        }
         [DisplayName("操作后延时"), Category("参数"), Description("当前操作完成后的附加延时（ms），用于等待状态稳定。"), ReadOnly(false)]
-        public int delayAfter { get; set; }
+        public int DelayAfterMs { get; set; }
         [DisplayName("操作后延时变量"), Category("参数"), Description("附加延时变量名；固定延时小于等于0时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(true)]
-        public string delayAfterV { get; set; }
+        public string DelayAfterVariableName { get; set; }
 
         [DisplayName("超时设置"), Category("参数"), Description("超时参数组，用于配置固定超时或变量超时来源。"), ReadOnly(false)]
         [InlineGroup("超时设置", "参数")]
-        public TimeOutC timeOutC { get; set; } = new TimeOutC();
+        public TimeoutSetting Timeout { get; set; } = new TimeoutSetting();
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("流程", "参数")]
         [TypeConverter(typeof(ParamListConverter<WaitProcParam>))]
@@ -650,7 +591,7 @@ namespace Automation
         public string ProcValue { get; set; }
 
         [DisplayName("操作类型"), Category("参数"), Description("目标状态类型（如运行/停止）；用于流程协同判定。"), ReadOnly(false), TypeConverter(typeof(ProcItemOps))]
-        public string value { get; set; }
+        public string TargetState { get; set; }
 
         public override string ToString()
         {
@@ -678,19 +619,6 @@ namespace Automation
 
         [DisplayName("变量名称二级"), Category("参数"), Description("二级变量名称；用于嵌套对象或二维结构的第二层定位。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string ValueName2Index { get; set; }
-
-        private string count = "0";
-        [DisplayName("匹配数量"), Category("参数"), Description("条件分支数量；决定匹配列表项数。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new GotoParam());
-            }
-        }
 
         [DisplayName("默认跳转"), Category("参数"), Description("未命中任何条件时使用的默认跳转位置。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
         [MarkedGoto("标识的跳转属性")]
@@ -741,27 +669,15 @@ namespace Automation
         }
         [DisplayName("成功跳转"), Category("参数"), Description("条件成立时跳转到的目标位置。必须填写三段式数字地址 procIndex-stepIndex-opIndex；界面显示的步骤名或指令名不是可写值。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
         [MarkedGoto("标识的跳转属性")]
-        public string goto1 { get; set; }
+        public string TrueGoto { get; set; }
 
         [DisplayName("失败跳转"), Category("参数"), Description("条件不成立时跳转到的目标位置。必须填写三段式数字地址 procIndex-stepIndex-opIndex；若需继续下一条指令，也要填写下一条指令的地址。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
         [MarkedGoto("标识的跳转属性")]
-        public string goto2 { get; set; }
+        public string FalseGoto { get; set; }
 
         [DisplayName("失败延时(ms)"), Category("参数"), Description("条件不满足时的重试间隔（ms），用于降低轮询压力。"), ReadOnly(false)]
-        public string failDelay { get; set; }
-
-        private string count = "1";
-        [DisplayName("匹配数量"), Category("参数"), Description("条件分支数量；决定匹配列表项数。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new ParamGotoParam());
-            }
-        }
+        [NumericRange(0)]
+        public int InvalidDelayMs { get; set; }
 
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("条件", "参数")]
@@ -786,7 +702,7 @@ namespace Automation
         [DisplayName("变量名称二级"), Category("参数"), Description("二级变量名称；用于嵌套对象或二维结构的第二层定位。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string ValueName2Index { get; set; }
 
-        [DisplayName("判断模式"), Category("参数"), Description("值在区间左：equal=true 时变量值<=Down，否则<Down；值在区间右：equal=true 时变量值>=Down，否则>Down；值在区间内：equal=true 时 Down<=变量值<=Up，否则 Down<变量值<Up；等于特征字符：变量文本等于 keyString。"), ReadOnly(false), TypeConverter(typeof(JudgeMode))]
+        [DisplayName("判断模式"), Category("参数"), Description("值在区间左：IncludeBoundary=true 时变量值<=Down，否则<Down；值在区间右：IncludeBoundary=true 时变量值>=Down，否则>Down；值在区间内：IncludeBoundary=true 时 Down<=变量值<=Up，否则 Down<变量值<Up；等于特征字符：变量文本等于 ExpectedText。"), ReadOnly(false), TypeConverter(typeof(JudgeMode))]
         public string JudgeMode { get; set; } = "值在区间内";
 
         [DisplayName("上限"), Category("参数"), Description("区间判断上限值。"), ReadOnly(false)]
@@ -796,10 +712,10 @@ namespace Automation
         public double Down { get; set; }
 
         [DisplayName("特征字符"), Category("参数"), Description("字符匹配模式下的目标特征串。"), ReadOnly(false)]
-        public string keyString { get; set; }
+        public string ExpectedText { get; set; }
 
         [DisplayName("带等号"), Category("参数"), Description("区间判断时是否包含边界值。"), ReadOnly(false)]
-        public bool equal { get; set; }
+        public bool IncludeBoundary { get; set; }
 
         [DisplayName("运算符"), Category("参数"), Description("比较运算符（=、!=、>、<等）。"), ReadOnly(false), TypeConverter(typeof(Operator))]
         public string Operator { get; set; } = "且";
@@ -817,10 +733,11 @@ namespace Automation
             OperaType = "延时";
         }
         [DisplayName("延时时间(ms)"), Category("参数"), Description("固定延时时长（ms）。"), ReadOnly(false)]
-        public string timeMiniSecond { get; set; }
+        [NumericRange(0)]
+        public int? DelayMs { get; set; }
 
         [DisplayName("延时时间变量"), Category("参数"), Description("延时时间变量名；用于运行时动态延时。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string timeMiniSecondV { get; set; }
+        public string DelayVariableName { get; set; }
 
     }
     [Serializable]
@@ -934,7 +851,7 @@ namespace Automation
 
         [Browsable(false)]
         [DisplayName("报警信息ID"), Category("弹框信息设置"), Description("报警信息表编号；按编号加载弹框提示内容。"), ReadOnly(false), TypeConverter(typeof(AlarmInfoItem))]
-        public string PopupAlarmInfoID { get; set; }
+        public string PopupAlarmInfoId { get; set; }
 
         [Browsable(true)]
         [DisplayName("延时后关闭"), Category("弹框操作"), Description("启用后弹框会在指定时间到达后自动关闭。"), ReadOnly(false)]
@@ -956,6 +873,7 @@ namespace Automation
 
         [Browsable(false)]
         [DisplayName("延时关闭时间(ms)"), Category("弹框操作"), Description("弹框自动关闭等待时间（ms）。"), ReadOnly(false)]
+        [NumericRange(0)]
         public int DelayCloseTimeMs { get; set; }
 
         [DisplayName("保存到报警文件"), Category("弹框操作"), Description("启用后将本次弹框信息写入报警记录文件。"), ReadOnly(false)]
@@ -1017,6 +935,7 @@ namespace Automation
 
         [Browsable(false)]
         [DisplayName("蜂鸣时间(ms)"), Category("蜂鸣时间设置"), Description("蜂鸣持续时间（ms）。"), ReadOnly(false)]
+        [NumericRange(0)]
         public int BuzzerTimeMs { get; set; } = 1000;
 
         private bool delayClose;
@@ -1032,7 +951,7 @@ namespace Automation
             SetPropertyAttribute(this, "PopupGoto2", typeof(BrowsableAttribute), "browsable", isTwoButton);
             SetPropertyAttribute(this, "PopupGoto3", typeof(BrowsableAttribute), "browsable", isThreeButton);
 
-            SetPropertyAttribute(this, "PopupAlarmInfoID", typeof(BrowsableAttribute), "browsable", useAlarmInfo);
+            SetPropertyAttribute(this, "PopupAlarmInfoId", typeof(BrowsableAttribute), "browsable", useAlarmInfo);
             SetPropertyAttribute(this, "PopupMessage", typeof(BrowsableAttribute), "browsable", useCustomInfo);
             SetPropertyAttribute(this, "PopupMessageValue", typeof(BrowsableAttribute), "browsable", useValueInfo);
 
@@ -1066,19 +985,6 @@ namespace Automation
                 new GetValueParam()
             };
         }
-        private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new GetValueParam());
-            }
-        }
-
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("变量", "参数")]
         [TypeConverter(typeof(ParamListConverter<GetValueParam>))]
@@ -1135,10 +1041,10 @@ namespace Automation
 
         [DisplayName("原变量取反"), Category("参数"), Description("启用后先对原变量值取反，再参与后续修改计算。"), ReadOnly(false)]
 
-        public bool sourceR { get; set; }
+        public bool NegateSource { get; set; }
 
         [DisplayName("修改值取反"), Category("参数"), Description("启用后先对修改值取反，再与原变量进行运算。"), ReadOnly(false)]
-        public bool ChangeR { get; set; }
+        public bool NegateOperand { get; set; }
 
 
         [DisplayName("源变量索引"), Category("A源变量"), Description("源变量索引地址；用于读取待处理值。"), ReadOnly(false)]
@@ -1205,18 +1111,6 @@ namespace Automation
         public string OutputValueIndex { get; set; }
         [DisplayName("存储变量"), Category("参数"), Description("存储变量名称；用于保存计算结果。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string OutputValueName { get; set; }
-        private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new StringFormatParam());
-            }
-        }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("变量", "参数")]
         [TypeConverter(typeof(ParamListConverter<StringFormatParam>))]
@@ -1250,12 +1144,14 @@ namespace Automation
 
         public char SplitMark { get; set; }
 
-        [DisplayName("分割起始索引"), Category("参数"), Description("分割结果起始下标（从0开始）。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
+        [DisplayName("分割起始索引"), Category("参数"), Description("分割结果起始下标（从0开始）。"), ReadOnly(false)]
 
-        public string startIndex { get; set; }
+        [NumericRange(0)]
+        public int StartIndex { get; set; }
 
-        [DisplayName("分割数量"), Category("参数"), Description("从起始下标开始提取的分段数量。"), ReadOnly(false), TypeConverter(typeof(Count))]
-        public string Count { get; set; }
+        [DisplayName("分割数量"), Category("参数"), Description("从起始下标开始提取的分段数量；null 表示使用分割结果总数。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int? Count { get; set; }
         [DisplayName("源变量索引"), Category("参数"), Description("源变量索引地址；用于读取输入值。"), ReadOnly(false)]
         public string SourceValueIndex { get; set; }
         [DisplayName("源变量"), Category("参数"), Description("源变量名称；用于读取输入值。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
@@ -1296,13 +1192,15 @@ namespace Automation
         [Browsable(true)]
         public string NewStrV { get; set; }
 
-        [DisplayName("替换起始索引"), Category("参数"), Description("替换起始位置（从0开始）。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
+        [DisplayName("替换起始索引"), Category("参数"), Description("替换起始位置（从0开始）。"), ReadOnly(false)]
         [Browsable(true)]
-        public string StartIndex { get; set; }
+        [NumericRange(0)]
+        public int StartIndex { get; set; }
 
-        [DisplayName("替换数量"), Category("参数"), Description("连续替换的字符数量。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
+        [DisplayName("替换数量"), Category("参数"), Description("连续替换的字符数量。"), ReadOnly(false)]
         [Browsable(true)]
-        public string Count { get; set; }
+        [NumericRange(0)]
+        public int? Count { get; set; }
 
         private string replaceType = "替换指定字符";
         [DisplayName("替换类型"), Category("参数"), Description("替换模式（按内容/按位置等）。"), ReadOnly(false), TypeConverter(typeof(ReplaceType))]
@@ -1369,24 +1267,13 @@ namespace Automation
                 new SetDataStructItemParam()
             };
         }
-        [DisplayName("结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string StructIndex { get; set; }
+        [DisplayName("结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int StructIndex { get; set; }
 
-        [DisplayName("数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string ItemIndex { get; set; }
-
-        private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new SetDataStructItemParam());
-            }
-        }
+        [DisplayName("数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int ItemIndex { get; set; }
 
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("数据", "参数")]
@@ -1399,11 +1286,12 @@ namespace Automation
     [Serializable]
     public class SetDataStructItemParam
     {
-        [DisplayName("值索引"), Category("参数"), Description("值来源索引地址。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string valueIndex { get; set; }
+        [DisplayName("值索引"), Category("参数"), Description("值来源索引地址。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int FieldIndex { get; set; }
 
         [DisplayName("值"), Category("参数"), Description("固定值内容。"), ReadOnly(false)]
-        public string value { get; set; }
+        public string Value { get; set; }
 
         public override string ToString()
         {
@@ -1425,27 +1313,16 @@ namespace Automation
         [DisplayName("是否获取所有项"), Category("参数"), Description("启用后按数量连续读取多个数据项。"), ReadOnly(false)]
         public bool IsAllItem { get; set; }
 
-        [DisplayName("起始变量值"), Category("参数"), Description("批量读取时结果保存起始变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string StartValue { get; set; }
+        [DisplayName("首个结果变量"), Category("参数"), Description("批量读取时结果保存的首个变量，后续字段写入连续变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string FirstResultVariableName { get; set; }
 
-        [DisplayName("结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string StructIndex { get; set; }
+        [DisplayName("结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int StructIndex { get; set; }
 
-        [DisplayName("数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string ItemIndex { get; set; }
-
-        private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new GetDataStructItemParam());
-            }
-        }
+        [DisplayName("数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int ItemIndex { get; set; }
 
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("数据", "参数")]
@@ -1459,20 +1336,15 @@ namespace Automation
     public class GetDataStructItemParam
     {
 
-        [DisplayName("数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string valueIndex { get; set; }
+        [DisplayName("数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int FieldIndex { get; set; }
 
-        [DisplayName("变量索引"), Category("参数"), Description("变量索引地址；运行时按索引读取或写入数据。"), ReadOnly(false)]
-        public string ValueIndex { get; set; }
+        [DisplayName("结果变量索引"), Category("参数"), Description("当前结构体字段直接写入的目标变量索引。"), ReadOnly(false)]
+        public string OutputValueIndex { get; set; }
 
-        [DisplayName("变量索引二级"), Category("参数"), Description("二级变量索引；用于嵌套对象或二维结构的第二层定位。"), ReadOnly(false)]
-        public string ValueIndex2Index { get; set; }
-
-        [DisplayName("变量名称"), Category("参数"), Description("变量名称；运行时按名称读取或写入数据。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string ValueName { get; set; }
-
-        [DisplayName("变量名称二级"), Category("参数"), Description("二级变量名称；用于嵌套对象或二维结构的第二层定位。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string ValueName2Index { get; set; }
+        [DisplayName("结果变量名称"), Category("参数"), Description("当前结构体字段直接写入的目标变量名称。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string OutputValueName { get; set; }
 
         public override string ToString()
         {
@@ -1494,30 +1366,21 @@ namespace Automation
         [DisplayName("是否复制所有项"), Category("参数"), Description("启用后从起始项开始按数量连续复制。"), ReadOnly(false)]
         public bool IsAllValue { get; set; }
 
-        [DisplayName("源结构体索引"), Category("参数"), Description("源结构体索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string SourceStructIndex { get; set; }
+        [DisplayName("源结构体索引"), Category("参数"), Description("源结构体索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int SourceStructIndex { get; set; }
 
-        [DisplayName("源数据项索引"), Category("参数"), Description("源数据项索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string SourceItemIndex { get; set; }
+        [DisplayName("源数据项索引"), Category("参数"), Description("源数据项索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int SourceItemIndex { get; set; }
 
-        [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string TargetStructIndex { get; set; }
+        [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int TargetStructIndex { get; set; }
 
-        [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string TargetItemIndex { get; set; }
-
-        private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new CopyDataStructItemParam());
-            }
-        }
+        [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int TargetItemIndex { get; set; }
 
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("数据", "参数")]
@@ -1531,11 +1394,13 @@ namespace Automation
     public class CopyDataStructItemParam
     {
 
-        [DisplayName("源数据项索引"), Category("参数"), Description("源数据项索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string SourcevalueIndex { get; set; }
+        [DisplayName("源数据项索引"), Category("参数"), Description("源数据项索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int SourceFieldIndex { get; set; }
 
-        [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string Targetvalue { get; set; }
+        [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int TargetFieldIndex { get; set; }
 
         public override string ToString()
         {
@@ -1555,27 +1420,16 @@ namespace Automation
             };
         }
 
-        [DisplayName("目标结构体名称"), Category("参数"), Description("目标结构体名称；用于按名称定位结构体。"), ReadOnly(false)]
-        public override string Name { get; set; }
+        [DisplayName("数据项名称"), Category("参数"), Description("插入后新数据项的名称。"), ReadOnly(false)]
+        public string ItemName { get; set; }
 
-        [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string TargetStructIndex { get; set; }
+        [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int TargetStructIndex { get; set; }
 
-        [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string TargetItemIndex { get; set; }
-
-        private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new InsertDataStructItemParam());
-            }
-        }
+        [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int TargetItemIndex { get; set; }
 
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("数据", "参数")]
@@ -1592,7 +1446,7 @@ namespace Automation
         public string Type { get; set; }
 
         [DisplayName("数据变量"), Category("参数"), Description("数据来源变量名。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string ValueItem { get; set; }
+        public string ValueVariableName { get; set; }
 
         [DisplayName("数据值"), Category("参数"), Description("固定数据值。"), ReadOnly(false)]
         public string Value { get; set; }
@@ -1610,11 +1464,13 @@ namespace Automation
             OperaType = "删除结构体数据项";
         }
 
-        [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string TargetStructIndex { get; set; }
+        [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int TargetStructIndex { get; set; }
 
-        [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string TargetItemIndex { get; set; }
+        [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int TargetItemIndex { get; set; }
     }
 
     [Serializable]
@@ -1625,20 +1481,21 @@ namespace Automation
             OperaType = "查找结构体数据项";
         }
 
-        [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string TargetStructIndex { get; set; }
+        [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int TargetStructIndex { get; set; }
 
-        //[DisplayName("目标结构项索引"), Category("参数"), Description(""), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        //public string TargetItemIndex { get; set; }
+        //[DisplayName("目标结构项索引"), Category("参数"), Description(""), ReadOnly(false)]
+        //public int TargetItemIndex { get; set; }
 
         [DisplayName("查找类型"), Category("参数"), Description("查找匹配模式（按值/按条件）。"), ReadOnly(false), TypeConverter(typeof(FindType))]
         public string Type { get; set; }
 
         [DisplayName("目标关键字"), Category("参数"), Description("查找关键字内容。"), ReadOnly(false)]
-        public string key { get; set; }
+        public string Key { get; set; }
 
         [DisplayName("结果保存地址"), Category("参数"), Description("查找结果保存变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string save { get; set; }
+        public string ResultVariableName { get; set; }
 
     }
 
@@ -1650,15 +1507,16 @@ namespace Automation
             OperaType = "获取结构体数量";
         }
 
-        [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false), TypeConverter(typeof(MathcCount))]
-        public string TargetStructIndex { get; set; }
+        [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public int TargetStructIndex { get; set; }
 
 
         [DisplayName("结构体数量保存地址"), Category("参数"), Description("结构体数量结果保存变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string StructCount { get; set; }
+        public string StructCountVariableName { get; set; }
 
         [DisplayName("结构项数量保存地址"), Category("参数"), Description("结构项数量结果保存变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string ItemCount { get; set; }
+        public string ItemCountVariableName { get; set; }
 
     }
 
@@ -1675,18 +1533,6 @@ namespace Automation
             };
         }
 
-        private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new TcpOpsParam());
-            }
-        }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("网口", "参数")]
         [TypeConverter(typeof(ParamListConverter<TcpOpsParam>))]
@@ -1723,18 +1569,6 @@ namespace Automation
             };
         }
 
-        private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new WaitTcpParam());
-            }
-        }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("网口", "参数")]
         [TypeConverter(typeof(ParamListConverter<WaitTcpParam>))]
@@ -1748,7 +1582,7 @@ namespace Automation
     {
         public WaitTcpParam()
         {
-            TimeOut = TimeOutC.DefaultTimeoutMs;
+            TimeoutMs = TimeoutSetting.DefaultTimeoutMs;
         }
 
         [DisplayName("对象名称"), Category("参数"), Description("通讯对象名称；运行时按名称定位TCP/串口通道。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
@@ -1757,7 +1591,8 @@ namespace Automation
 
         [DisplayName("超时"), Category("参数"), Description("超时时间（ms）；超过该时长仍未满足条件会触发报警。"), ReadOnly(false)]
 
-        public int TimeOut { get; set; }
+        [NumericRange(0)]
+        public int TimeoutMs { get; set; }
         public override string ToString()
         {
             return "";
@@ -1770,46 +1605,46 @@ namespace Automation
         public SendTcpMsg()
         {
             OperaType = "发送TCP通讯消息";
-            TimeOut = 3000;
+            TimeoutMs = 3000;
         }
 
-        [DisplayName("ID"), Category("参数"), Description("通讯对象标识；用于绑定具体发送/接收通道。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
-
-        public string ID { get; set; }
+        [DisplayName("通讯对象"), Category("参数"), Description("TCP通讯对象名称；用于绑定具体发送通道。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
+        public string ConnectionName { get; set; }
 
         [DisplayName("发送信息"), Category("参数"), Description("发送内容来源变量；运行时读取变量值并下发。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string Msg { get; set; }
 
         [DisplayName("是否16进制发送"), Category("参数"), Description("启用后按16进制格式发送数据；关闭则按文本发送。"), ReadOnly(false)]
-        public bool isConVert { get; set; }
+        public bool UseHexEncoding { get; set; }
 
         [DisplayName("超时"), Category("参数"), Description("超时时间（ms）；超过该时长仍未满足条件会触发报警。"), ReadOnly(false)]
-        public int TimeOut { get; set; }
+        [NumericRange(0)]
+        public int TimeoutMs { get; set; }
 
     }
 
 
     [Serializable]
-    public class ReceoveTcpMsg : OperationType
+    public class ReceiveTcpMsg : OperationType
     {
-        public ReceoveTcpMsg()
+        public ReceiveTcpMsg()
         {
             OperaType = "接收TCP通讯消息";
-            TImeOut = TimeOutC.DefaultTimeoutMs;
+            TimeoutMs = TimeoutSetting.DefaultTimeoutMs;
         }
 
-        [DisplayName("ID"), Category("参数"), Description("通讯对象标识；用于绑定具体发送/接收通道。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
-
-        public string ID { get; set; }
+        [DisplayName("通讯对象"), Category("参数"), Description("TCP通讯对象名称；用于绑定具体接收通道。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
+        public string ConnectionName { get; set; }
 
         [DisplayName("接收信息"), Category("参数"), Description("接收结果保存变量；收到数据后写入该变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string MsgSaveValue { get; set; }
 
         [DisplayName("是否16进制接收"), Category("参数"), Description("启用后按16进制解析接收数据；关闭则按文本解析。"), ReadOnly(false)]
-        public bool isConVert { get; set; }
+        public bool UseHexEncoding { get; set; }
 
         [DisplayName("超时时间"), Category("参数"), Description("超时时间（ms）；用于发送/接收等待上限控制。"), ReadOnly(false)]
-        public int TImeOut { get; set; }
+        [NumericRange(0)]
+        public int TimeoutMs { get; set; }
 
 
     }
@@ -1827,18 +1662,6 @@ namespace Automation
             };
         }
 
-        private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new SerialPortOpsParam());
-            }
-        }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("串口", "参数")]
         [TypeConverter(typeof(ParamListConverter<SerialPortOpsParam>))]
@@ -1875,18 +1698,6 @@ namespace Automation
             };
         }
 
-        private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
-        public string Count
-        {
-            get { return count; }
-            set
-            {
-                count = value;
-                int num = int.Parse(count);
-                Params = EditableCollection.Resize(Params, num, () => new WaitSerialPortParam());
-            }
-        }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("串口", "参数")]
         [TypeConverter(typeof(ParamListConverter<WaitSerialPortParam>))]
@@ -1900,7 +1711,7 @@ namespace Automation
     {
         public WaitSerialPortParam()
         {
-            TimeOut = TimeOutC.DefaultTimeoutMs;
+            TimeoutMs = TimeoutSetting.DefaultTimeoutMs;
         }
 
         [DisplayName("对象名称"), Category("参数"), Description("通讯对象名称；运行时按名称定位TCP/串口通道。"), ReadOnly(false), TypeConverter(typeof(SerialPortItem))]
@@ -1909,7 +1720,8 @@ namespace Automation
 
         [DisplayName("超时"), Category("参数"), Description("超时时间（ms）；超过该时长仍未满足条件会触发报警。"), ReadOnly(false)]
 
-        public int TimeOut { get; set; }
+        [NumericRange(0)]
+        public int TimeoutMs { get; set; }
         public override string ToString()
         {
             return "";
@@ -1922,65 +1734,65 @@ namespace Automation
         public SendSerialPortMsg()
         {
             OperaType = "发送串口通讯消息";
-            TimeOut = 3000;
+            TimeoutMs = 3000;
         }
 
-        [DisplayName("ID"), Category("参数"), Description("通讯对象标识；用于绑定具体发送/接收通道。"), ReadOnly(false), TypeConverter(typeof(SerialPortItem))]
-
-        public string ID { get; set; }
+        [DisplayName("通讯对象"), Category("参数"), Description("串口通讯对象名称；用于绑定具体发送通道。"), ReadOnly(false), TypeConverter(typeof(SerialPortItem))]
+        public string ConnectionName { get; set; }
 
         [DisplayName("发送信息"), Category("参数"), Description("发送内容来源变量；运行时读取变量值并下发。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string Msg { get; set; }
 
         [DisplayName("是否16进制发送"), Category("参数"), Description("启用后按16进制格式发送数据；关闭则按文本发送。"), ReadOnly(false)]
-        public bool isConVert { get; set; }
+        public bool UseHexEncoding { get; set; }
 
         [DisplayName("超时"), Category("参数"), Description("超时时间（ms）；超过该时长仍未满足条件会触发报警。"), ReadOnly(false)]
-        public int TimeOut { get; set; }
+        [NumericRange(0)]
+        public int TimeoutMs { get; set; }
 
     }
 
 
     [Serializable]
-    public class ReceoveSerialPortMsg : OperationType
+    public class ReceiveSerialPortMsg : OperationType
     {
-        public ReceoveSerialPortMsg()
+        public ReceiveSerialPortMsg()
         {
             OperaType = "接收串口通讯消息";
-            TImeOut = TimeOutC.DefaultTimeoutMs;
+            TimeoutMs = TimeoutSetting.DefaultTimeoutMs;
         }
 
-        [DisplayName("ID"), Category("参数"), Description("通讯对象标识；用于绑定具体发送/接收通道。"), ReadOnly(false), TypeConverter(typeof(SerialPortItem))]
-
-        public string ID { get; set; }
+        [DisplayName("通讯对象"), Category("参数"), Description("串口通讯对象名称；用于绑定具体接收通道。"), ReadOnly(false), TypeConverter(typeof(SerialPortItem))]
+        public string ConnectionName { get; set; }
 
         [DisplayName("接收信息"), Category("参数"), Description("接收结果保存变量；收到数据后写入该变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string MsgSaveValue { get; set; }
 
         [DisplayName("是否16进制接收"), Category("参数"), Description("启用后按16进制解析接收数据；关闭则按文本解析。"), ReadOnly(false)]
-        public bool isConVert { get; set; }
+        public bool UseHexEncoding { get; set; }
 
         [DisplayName("超时时间"), Category("参数"), Description("超时时间（ms）；用于发送/接收等待上限控制。"), ReadOnly(false)]
-        public int TImeOut { get; set; }
+        [NumericRange(0)]
+        public int TimeoutMs { get; set; }
 
 
     }
 
     [Serializable]
-    public class SendReceoveCommMsg : OperationType
+    public class SendReceiveCommMsg : OperationType
     {
-        public SendReceoveCommMsg()
+        public SendReceiveCommMsg()
         {
             OperaType = "发送与接收";
             CommType = "TCP";
-            TimeOut = 3000;
+            TimeoutMs = 3000;
         }
 
-        [DisplayName("通讯类型"), Category("参数"), Description("通讯类型（TCP/串口）选择，决定ID可选范围。"), ReadOnly(false), TypeConverter(typeof(CommType))]
+        [DisplayName("通讯类型"), Category("参数"), Description("通讯类型（TCP/串口）选择，决定通讯对象可选范围。"), ReadOnly(false), TypeConverter(typeof(CommType))]
         public string CommType { get; set; }
 
-        [DisplayName("ID"), Category("参数"), Description("通讯对象标识；用于绑定具体发送/接收通道。"), ReadOnly(false), TypeConverter(typeof(CommItem))]
-        public string ID { get; set; }
+        [DisplayName("通讯对象"), Category("参数"), Description("通讯对象名称；用于绑定具体发送/接收通道。"), ReadOnly(false), TypeConverter(typeof(CommItem))]
+        public string ConnectionName { get; set; }
 
         [DisplayName("发送信息"), Category("参数"), Description("发送内容来源变量；运行时读取变量值并下发。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string SendMsg { get; set; }
@@ -1995,7 +1807,8 @@ namespace Automation
         public bool ReceiveConvert { get; set; }
 
         [DisplayName("超时时间"), Category("参数"), Description("超时时间（ms）；用于发送/接收等待上限控制。"), ReadOnly(false)]
-        public int TimeOut { get; set; }
+        [NumericRange(0)]
+        public int TimeoutMs { get; set; }
     }
 
     [Serializable]
@@ -2004,8 +1817,6 @@ namespace Automation
         public const int CurrentModelVersion = 2;
         private PlcAccessAction action;
         private PlcAccessMode mode;
-        private int readItemCount = 1;
-        private int writeItemCount = 1;
 
         public PlcReadWrite()
         {
@@ -2047,28 +1858,8 @@ namespace Automation
         }
 
         [Browsable(true)]
-        [DisplayName("读取项数量"), Category("D.按项读取"), Description("独立地址读取项数量，范围1..100。"), ReadOnly(false), RefreshProperties(RefreshProperties.All)]
-        public int ReadItemCount
-        {
-            get => readItemCount;
-            set
-            {
-                if (value < 1 || value > 100)
-                {
-                    throw new ArgumentOutOfRangeException(
-                        nameof(ReadItemCount),
-                        "读取项数量必须在1到100之间。");
-                }
-                readItemCount = value;
-                if (ReadItems == null) ReadItems = new CustomList<PlcReadItem>();
-                while (ReadItems.Count < value) ReadItems.Add(new PlcReadItem());
-                while (ReadItems.Count > value) ReadItems.RemoveAt(ReadItems.Count - 1);
-            }
-        }
-
-        [Browsable(true)]
         [DisplayName("读取项设置"), Category("D.按项读取"), Description("每项分别配置PLC地址、数据类型和保存变量。"), ReadOnly(false)]
-        [InlineList("读取项", "D.按项读取")]
+        [InlineList("读取项", "D.按项读取", MinItems = 1, MaxItems = 100)]
         [TypeConverter(typeof(ParamListConverter<PlcReadItem>))]
         public CustomList<PlcReadItem> ReadItems { get; set; }
 
@@ -2079,28 +1870,8 @@ namespace Automation
         public PlcReadBatch ReadBatch { get; set; }
 
         [Browsable(false)]
-        [DisplayName("写入项数量"), Category("D.按项写入"), Description("独立地址写入项数量，范围1..100。"), ReadOnly(false), RefreshProperties(RefreshProperties.All)]
-        public int WriteItemCount
-        {
-            get => writeItemCount;
-            set
-            {
-                if (value < 1 || value > 100)
-                {
-                    throw new ArgumentOutOfRangeException(
-                        nameof(WriteItemCount),
-                        "写入项数量必须在1到100之间。");
-                }
-                writeItemCount = value;
-                if (WriteItems == null) WriteItems = new CustomList<PlcWriteItem>();
-                while (WriteItems.Count < value) WriteItems.Add(new PlcWriteItem());
-                while (WriteItems.Count > value) WriteItems.RemoveAt(WriteItems.Count - 1);
-            }
-        }
-
-        [Browsable(false)]
         [DisplayName("写入项设置"), Category("D.按项写入"), Description("每项分别配置PLC地址、数据类型和写入来源。"), ReadOnly(false)]
-        [InlineList("写入项", "D.按项写入")]
+        [InlineList("写入项", "D.按项写入", MinItems = 1, MaxItems = 100)]
         [TypeConverter(typeof(ParamListConverter<PlcWriteItem>))]
         public CustomList<PlcWriteItem> WriteItems { get; set; }
 
@@ -2116,12 +1887,10 @@ namespace Automation
             bool items = mode == PlcAccessMode.Items;
             switch (propertyName)
             {
-                case nameof(ReadItemCount):
                 case nameof(ReadItems):
                     return read && items;
                 case nameof(ReadBatch):
                     return read && !items;
-                case nameof(WriteItemCount):
                 case nameof(WriteItems):
                     return !read && items;
                 case nameof(WriteBatch):
@@ -2264,12 +2033,15 @@ namespace Automation
         public string StationName { get; set; }
 
         [DisplayName("料盘ID"), Category("料盘参数设置"), Description("料盘模板标识ID，用于区分不同料盘模型。"), ReadOnly(false)]
+        [NumericRange(0)]
         public int TrayId { get; set; }
 
         [DisplayName("行数"), Category("料盘参数设置"), Description("料盘行数；与列数共同确定点位总数。"), ReadOnly(false)]
+        [NumericRange(0)]
         public int RowCount { get; set; }
 
         [DisplayName("列数"), Category("料盘参数设置"), Description("料盘列数；与行数共同确定点位总数。"), ReadOnly(false)]
+        [NumericRange(0)]
         public int ColCount { get; set; }
 
         [DisplayName("左上"), Category("料盘格点设置"), Description("料盘左上角参考点。"), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
@@ -2297,6 +2069,7 @@ namespace Automation
         public string StationName { get; set; }
 
         [DisplayName("固定料盘号"), Category("C.料盘号-固定值"), Description("直接填写目标料盘号；如使用变量读取料盘号，此处必须保持 0。"), ReadOnly(false)]
+        [NumericRange(0)]
         public int TrayId { get; set; }
 
         [DisplayName("料盘号变量索引"), Category("D.料盘号-变量读取"), Description("按变量索引读取目标料盘号；与固定料盘号二选一。"), ReadOnly(false)]
@@ -2312,6 +2085,7 @@ namespace Automation
         public string TrayIdValueName2Index { get; set; }
 
         [DisplayName("固定料盘位置"), Category("E.料盘位置-固定值"), Description("直接填写目标料盘位置，必须大于 0；如使用变量读取料盘位置，此处必须保持 0。"), ReadOnly(false)]
+        [NumericRange(0)]
         public int TrayPos { get; set; }
 
         [DisplayName("料盘位置变量索引"), Category("F.料盘位置-变量读取"), Description("按变量索引读取目标料盘位置；与固定料盘位置二选一。"), ReadOnly(false)]
@@ -2327,7 +2101,7 @@ namespace Automation
         public string TrayPosValueName2Index { get; set; }
 
         [DisplayName("不等待完成"), Category("G.执行选项"), Description("启用后下发动作后不等待运动完成即继续执行。"), ReadOnly(false)]
-        public bool isUnWait { get; set; }
+        public bool ContinueWithoutWaiting { get; set; }
     }
 
     [Serializable]
@@ -2349,7 +2123,7 @@ namespace Automation
         public string StationHomeType { get; set; }
 
         [DisplayName("不等待"), Category("参数"), Description("启用后动作下发后不等待完成，立即继续后续指令。"), ReadOnly(false)]
-        public bool isUnWait { get; set; }
+        public bool ContinueWithoutWaiting { get; set; }
 
     }
 
@@ -2361,7 +2135,7 @@ namespace Automation
             OperaType = "工站走点";
             RefreshInspector += RefleshPropertyName;
             RefreshInspector += RefleshPropertyVel;
-            timeOut = 120000;
+            TimeoutMs = 120000;
         }
         [DisplayName("工站名称"), Category("参数"), Description("目标工站名称；运行时按名称定位工站对象。"), ReadOnly(false), TypeConverter(typeof(StationtItem))]
 
@@ -2377,16 +2151,17 @@ namespace Automation
         public int PosIndex { get; set; } = -1;
 
         [DisplayName("不等待"), Category("参数"), Description("启用后动作下发后不等待完成，立即继续后续指令。"), ReadOnly(false)]
-        public bool isUnWait { get; set; }
+        public bool ContinueWithoutWaiting { get; set; }
 
         [DisplayName("检测到位"), Category("参数"), Description("启用后将等待到位信号确认后再继续。"), ReadOnly(false)]
-        public bool isCheckInPos { get; set; }
+        public bool CheckInPosition { get; set; }
 
         [DisplayName("超时时间(ms)"), Category("参数"), Description("等待超时时间（ms）；超时后按报警策略处理。"), ReadOnly(false)]
-        public int timeOut { get; set; }
+        [NumericRange(0)]
+        public int TimeoutMs { get; set; }
 
         [DisplayName("超时时间(ms)变量"), Category("参数"), Description("等待超时时间变量名；固定超时无效时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string timeOutV { get; set; }
+        public string TimeoutVariableName { get; set; }
 
         private string isDisableAxis = "无禁用";
         [DisplayName("轴设置"), Category("轴设置"), Description("轴使能/参与设置；决定该轴是否参与本次动作。"), ReadOnly(false), TypeConverter(typeof(AxisDisableParam))]
@@ -2458,16 +2233,11 @@ namespace Automation
         private double vel = 0; 
         [Browsable(false)]
         [DisplayName("生产速度能力(%)"), Category("速度设置"), Description("自动生产运动速度百分比，必须在1到100之间。"), ReadOnly(false)]
+        [NumericRange(0, 100)]
         public double Vel
         {
             get { return vel; }
-            set
-            {
-                if (value >= 0 && value <= 100)
-                {
-                    vel = value;
-                }
-            }
+            set { vel = ValidatePercentage(value, nameof(Vel)); }
         }
         [DisplayName("速度变量"), Category("速度设置"), Description("速度变量名；用于运行时动态设定速度。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(false)]
@@ -2476,16 +2246,11 @@ namespace Automation
         private double acc = 0;
         [Browsable(false)]
         [DisplayName("生产加速能力(%)"), Category("速度设置"), Description("自动生产加速能力百分比；数值越小，加速时间越长。"), ReadOnly(false)]
+        [NumericRange(0, 100)]
         public double Acc
         {
             get { return acc; }
-            set
-            {
-                if (value >= 0 && value <= 100)
-                {
-                    acc = value;
-                }
-            }
+            set { acc = ValidatePercentage(value, nameof(Acc)); }
         }
         [DisplayName("加速度变量"), Category("速度设置"), Description("加速度变量名；用于运行时动态设定加速度。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(false)]
@@ -2494,16 +2259,11 @@ namespace Automation
         private double dec = 0;
         [Browsable(false)]
         [DisplayName("生产减速能力(%)"), Category("速度设置"), Description("自动生产减速能力百分比；数值越小，减速时间越长。"), ReadOnly(false)]
+        [NumericRange(0, 100)]
         public double Dec
         {
             get { return dec; }
-            set
-            {
-                if (value >= 0 && value <= 100)
-                {
-                    dec = value;
-                }
-            }
+            set { dec = ValidatePercentage(value, nameof(Dec)); }
         }
         [DisplayName("减速度变量"), Category("速度设置"), Description("减速度变量名；用于运行时动态设定减速度。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(false)]
@@ -2837,7 +2597,7 @@ namespace Automation
             OperaType = "偏移量";
             RefreshInspector += RefleshPropertyName;
             RefreshInspector += RefleshPropertyVel;
-            timeOut = 120000;
+            TimeoutMs = 120000;
         }
         private string stationName;
         [DisplayName("工站名称"), Category("参数"), Description("目标工站名称；运行时按名称定位工站对象。"), ReadOnly(false), TypeConverter(typeof(StationtItem))]
@@ -2864,16 +2624,17 @@ namespace Automation
         //public string StationHomeType { get; set; }
 
         [DisplayName("不等待"), Category("参数"), Description("启用后动作下发后不等待完成，立即继续后续指令。"), ReadOnly(false)]
-        public bool isUnWait { get; set; }
+        public bool ContinueWithoutWaiting { get; set; }
 
         [DisplayName("检测到位"), Category("参数"), Description("启用后将等待到位信号确认后再继续。"), ReadOnly(false)]
-        public bool isCheckInPos { get; set; }
+        public bool CheckInPosition { get; set; }
 
         [DisplayName("超时时间(ms)"), Category("参数"), Description("等待超时时间（ms）；超时后按报警策略处理。"), ReadOnly(false)]
-        public int timeOut { get; set; }
+        [NumericRange(0)]
+        public int TimeoutMs { get; set; }
 
         [DisplayName("超时时间(ms)变量"), Category("参数"), Description("等待超时时间变量名；固定超时无效时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string timeOutV { get; set; }
+        public string TimeoutVariableName { get; set; }
 
         public List<double> GetAllValues()
         {
@@ -2952,16 +2713,11 @@ namespace Automation
         private double vel = 0;
         [Browsable(false)]
         [DisplayName("生产速度能力(%)"), Category("速度设置"), Description("自动生产运动速度百分比，必须在1到100之间。"), ReadOnly(false)]
+        [NumericRange(0, 100)]
         public double Vel
         {
             get { return vel; }
-            set
-            {
-                if (value >= 0 && value <= 100)
-                {
-                    vel = value;
-                }
-            }
+            set { vel = ValidatePercentage(value, nameof(Vel)); }
         }
         [DisplayName("速度变量"), Category("速度设置"), Description("速度变量名；用于运行时动态设定速度。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(false)]
@@ -2969,16 +2725,11 @@ namespace Automation
         private double acc = 0;
         [Browsable(false)]
         [DisplayName("生产加速能力(%)"), Category("速度设置"), Description("自动生产加速能力百分比；数值越小，加速时间越长。"), ReadOnly(false)]
+        [NumericRange(0, 100)]
         public double Acc
         {
             get { return acc; }
-            set
-            {
-                if (value >= 0 && value <= 100)
-                {
-                    acc = value;
-                }
-            }
+            set { acc = ValidatePercentage(value, nameof(Acc)); }
         }
         [DisplayName("加速度变量"), Category("速度设置"), Description("加速度变量名；用于运行时动态设定加速度。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(false)]
@@ -2986,16 +2737,11 @@ namespace Automation
         private double dec = 0;
         [Browsable(false)]
         [DisplayName("生产减速能力(%)"), Category("速度设置"), Description("自动生产减速能力百分比；数值越小，减速时间越长。"), ReadOnly(false)]
+        [NumericRange(0, 100)]
         public double Dec
         {
             get { return dec; }
-            set
-            {
-                if (value >= 0 && value <= 100)
-                {
-                    dec = value;
-                }
-            }
+            set { dec = ValidatePercentage(value, nameof(Dec)); }
         }
         [DisplayName("减速度变量"), Category("速度设置"), Description("减速度变量名；用于运行时动态设定减速度。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(false)]
@@ -3094,16 +2840,11 @@ namespace Automation
         private double vel = 0;
         [Browsable(true)]
         [DisplayName("生产速度能力(%)"), Category("速度设置"), Description("持续作用于目标物理轴的自动生产速度百分比，必须在1到100之间。"), ReadOnly(false)]
+        [NumericRange(0, 100)]
         public double Vel
         {
             get { return vel; }
-            set
-            {
-                if (value >= 0 && value <= 100)
-                {
-                    vel = value;
-                }
-            }
+            set { vel = ValidatePercentage(value, nameof(Vel)); }
         }
         [DisplayName("速度变量"), Category("速度设置"), Description("速度变量名；用于运行时动态设定速度。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(true)]
@@ -3111,16 +2852,11 @@ namespace Automation
         private double acc = 0;
         [Browsable(true)]
         [DisplayName("生产加速能力(%)"), Category("速度设置"), Description("持续作用于目标物理轴；数值越小，加速时间越长。"), ReadOnly(false)]
+        [NumericRange(0, 100)]
         public double Acc
         {
             get { return acc; }
-            set
-            {
-                if (value >= 0 && value <= 100)
-                {
-                    acc = value;
-                }
-            }
+            set { acc = ValidatePercentage(value, nameof(Acc)); }
         }
         [DisplayName("加速度变量"), Category("速度设置"), Description("加速度变量名；用于运行时动态设定加速度。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(true)]
@@ -3128,16 +2864,11 @@ namespace Automation
         private double dec = 0;
         [Browsable(true)]
         [DisplayName("生产减速能力(%)"), Category("速度设置"), Description("持续作用于目标物理轴；数值越小，减速时间越长。"), ReadOnly(false)]
+        [NumericRange(0, 100)]
         public double Dec
         {
             get { return dec; }
-            set
-            {
-                if (value >= 0 && value <= 100)
-                {
-                    dec = value;
-                }
-            }
+            set { dec = ValidatePercentage(value, nameof(Dec)); }
         }
         [DisplayName("减速度变量"), Category("速度设置"), Description("减速度变量名；用于运行时动态设定减速度。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(true)]
@@ -3186,7 +2917,7 @@ namespace Automation
             return allValues;
         }
         [DisplayName("是否整体工站停止"), Category("工站设置"), Description("启用后以整站方式停止；关闭则按轴设置逐轴停止。"), ReadOnly(false)]
-        public bool isAllStop { get; set; }
+        public bool StopEntireStation { get; set; }
         [Browsable(false)]
         [DisplayName("轴设置"), Category("轴设置"), Description("轴使能/参与设置；决定该轴是否参与本次动作。"), ReadOnly(false)]
         public bool Axis1 { get; set; }
@@ -3255,7 +2986,7 @@ namespace Automation
         public WaitStationStop()
         {
             OperaType = "等待运动";
-            timeOut = 120000;
+            TimeoutMs = 120000;
         }
         [DisplayName("工站名称"), Category("参数"), Description("目标工站名称；运行时按名称定位工站对象。"), ReadOnly(false), TypeConverter(typeof(StationtItem))]
 
@@ -3264,11 +2995,12 @@ namespace Automation
 
         public int StationIndex { get; set; } = -1;
         [DisplayName("是否等待回零"), Category("工站设置"), Description("启用后等待工站回零完成状态；关闭则等待普通停止状态。"), ReadOnly(false)]
-        public bool isWaitHome { get; set; }
+        public bool WaitForHomeCompleted { get; set; }
 
         [DisplayName("超时时间(ms)"), Category("参数"), Description("等待超时时间（ms）；超时后按报警策略处理。"), ReadOnly(false)]
-        public int timeOut { get; set; }
+        [NumericRange(0)]
+        public int TimeoutMs { get; set; }
         [DisplayName("超时时间(ms)变量"), Category("参数"), Description("等待超时时间变量名；固定超时无效时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string timeOutV { get; set; }
+        public string TimeoutVariableName { get; set; }
     }
 }

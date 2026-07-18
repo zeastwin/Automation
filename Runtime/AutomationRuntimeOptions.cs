@@ -12,15 +12,21 @@ namespace Automation
     public sealed class AutomationRuntimeOptions
     {
         private static readonly object sync = new object();
-        private static AutomationRuntimeOptions current = new AutomationRuntimeOptions(AutomationRuntimeMode.Hardware);
+        private static AutomationRuntimeOptions current = new AutomationRuntimeOptions(
+            AutomationRuntimeMode.Hardware, ProcessExecutionMode.Normal, true);
 
-        private AutomationRuntimeOptions(AutomationRuntimeMode mode)
+        private AutomationRuntimeOptions(AutomationRuntimeMode mode, ProcessExecutionMode processExecutionMode,
+            bool performanceAnalysisEnabled)
         {
             Mode = mode;
+            ProcessExecutionMode = processExecutionMode;
+            PerformanceAnalysisEnabled = performanceAnalysisEnabled;
         }
 
         public AutomationRuntimeMode Mode { get; }
         public bool IsSimulation => Mode != AutomationRuntimeMode.Hardware;
+        public ProcessExecutionMode ProcessExecutionMode { get; }
+        public bool PerformanceAnalysisEnabled { get; }
         public static AutomationRuntimeOptions Current { get { lock (sync) return current; } }
 
         public static bool TryConfigure(string[] args, AppConfig appConfig, out AutomationRuntimeOptions options, out string error)
@@ -38,8 +44,15 @@ namespace Automation
                 return false;
             }
             AutomationRuntimeMode mode = appConfig.RuntimeMode;
+            if (appConfig.ProcessExecutionMode != ProcessExecutionMode.Normal
+                && appConfig.ProcessExecutionMode != ProcessExecutionMode.HighPerformance)
+            {
+                error = "程序设置中的流程执行模式无效。";
+                return false;
+            }
 
-            options = new AutomationRuntimeOptions(mode);
+            options = new AutomationRuntimeOptions(
+                mode, appConfig.ProcessExecutionMode, appConfig.EnablePerformanceAnalysis);
             lock (sync) current = options;
             return true;
         }

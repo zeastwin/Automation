@@ -1,4 +1,5 @@
 using Automation.Bridge;
+using Automation.Protocol;
 using Markdig;
 using Microsoft.Web.WebView2.WinForms;
 using Newtonsoft.Json;
@@ -2217,6 +2218,12 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 PushWebAppState();
                 return false;
             }
+            if (!GooseRuntimeEnvironment.TryValidate(config.GooseExecutablePath, out error))
+            {
+                ShowWebToast(error);
+                PushWebAppState();
+                return false;
+            }
 
             GooseFileAttachment invalidAttachment = fileAttachments.FirstOrDefault(item =>
                 !string.IsNullOrWhiteSpace(item.Error)
@@ -2630,6 +2637,17 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 + JsonConvert.SerializeObject(prompt ?? string.Empty)
                 + ";if(window.autoGrowPrompt){window.autoGrowPrompt();}};");
             PushWebAppState();
+        }
+
+        public bool PreparePrompt(string prompt)
+        {
+            if (standardTestRunning || taskRuntimes.Values.Any(runtime => runtime?.Running == true))
+            {
+                ShowWebToast("当前 AI 任务仍在运行，未覆盖输入框内容。");
+                return false;
+            }
+            RestoreComposerAfterFailedSend(prompt ?? string.Empty);
+            return true;
         }
 
         private void LoadConversationHistory()
@@ -3170,17 +3188,37 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                             case "variable.create":
                                 type = "创建变量";
                                 obj = change["name"]?.Value<string>() ?? "";
-                                field = change["valueType"]?.Value<string>() ?? "";
+                                location = string.Equals(
+                                    change["scope"]?.Value<string>(), "process", StringComparison.Ordinal)
+                                    ? $"process / {change["ownerProcName"]?.Value<string>() ?? change["ownerProcId"]?.Value<string>() ?? ""}"
+                                    : change["scope"]?.Value<string>() ?? "";
+                                field = $"{change["valueType"]?.Value<string>() ?? ""} / 槽位{change["index"]?.Value<int>() ?? -1}";
                                 newVal = FormatJsonValue(change["newValue"]);
                                 rowColor = Color.FromArgb(235, 255, 235);
                                 break;
                             case "variable.update":
                                 type = "更新变量";
                                 obj = change["name"]?.Value<string>() ?? "";
-                                field = change["valueType"]?.Value<string>() ?? "";
+                                location = string.Equals(
+                                    change["scope"]?.Value<string>(), "process", StringComparison.Ordinal)
+                                    ? $"process / {change["ownerProcName"]?.Value<string>() ?? change["ownerProcId"]?.Value<string>() ?? ""}"
+                                    : change["scope"]?.Value<string>() ?? "";
+                                field = $"{change["valueType"]?.Value<string>() ?? ""} / 槽位{change["index"]?.Value<int>() ?? -1}";
                                 oldVal = FormatJsonValue(change["oldValue"]);
                                 newVal = FormatJsonValue(change["newValue"]);
                                 rowColor = Color.FromArgb(255, 248, 235);
+                                break;
+                            case "variable.delete":
+                                type = "删除变量";
+                                obj = change["name"]?.Value<string>() ?? "";
+                                location = string.Equals(
+                                    change["scope"]?.Value<string>(), "process", StringComparison.Ordinal)
+                                    ? $"process / {change["ownerProcName"]?.Value<string>() ?? change["ownerProcId"]?.Value<string>() ?? ""}"
+                                    : change["scope"]?.Value<string>() ?? "";
+                                field = $"{change["valueType"]?.Value<string>() ?? ""} / 槽位{change["index"]?.Value<int>() ?? -1}";
+                                oldVal = "已定义";
+                                newVal = "已删除";
+                                rowColor = Color.FromArgb(255, 235, 235);
                                 break;
                         }
 
@@ -3721,7 +3759,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
         }
 
-        // 流程读取直接使用工具返回；提交结果按 affectedProcesses 回读当前内存中的正式对象。
+        // 聊天卡片统一消费图快照；旧流程读取和提交结果也先转为同一快照，避免重复推断线性结构。
         private void CaptureFlowVisualizationEvent(GooseAcpEvent item)
         {
             JObject update = item?.Raw?["params"]?["update"] as JObject
@@ -3740,6 +3778,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 bool capturesFlow = string.Equals(extensionName, "automation", StringComparison.OrdinalIgnoreCase)
                     && (string.Equals(toolName, "get_proc_overview", StringComparison.Ordinal)
                         || string.Equals(toolName, "get_proc_detail", StringComparison.Ordinal)
+                        || string.Equals(toolName, "get_flow_graph", StringComparison.Ordinal)
                         || string.Equals(toolName, "apply_change_set", StringComparison.Ordinal));
                 if (string.IsNullOrWhiteSpace(callId) || !capturesFlow)
                 {
@@ -3767,10 +3806,21 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 }
 
                 string resultType = result["type"]?.Value<string>();
+                if (string.Equals(resultType, "proc.flow_graph", StringComparison.Ordinal))
+                {
+                    flowVisualizationProcesses.RemoveAll();
+                    foreach (JObject process in BuildFlowVisualizationFromGraph(data))
+                    {
+                        UpsertFlowVisualizationProcess(process);
+                    }
+                    return;
+                }
                 if (string.Equals(resultType, "proc.overview", StringComparison.Ordinal)
                     || string.Equals(resultType, "proc.detail", StringComparison.Ordinal))
                 {
-                    UpsertFlowVisualizationProcess(BuildReadFlowVisualization(data));
+                    int procIndex = data["procIndex"]?.Value<int?>() ?? -1;
+                    JObject process = BuildUnifiedFlowVisualization(procIndex);
+                    if (process != null) UpsertFlowVisualizationProcess(process);
                     return;
                 }
 
@@ -3785,7 +3835,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     .OfType<JObject>())
                 {
                     int procIndex = affected["procIndex"]?.Value<int?>() ?? -1;
-                    JObject process = BuildCommittedFlowVisualization(procIndex);
+                    JObject process = BuildUnifiedFlowVisualization(procIndex);
                     if (process != null)
                     {
                         UpsertFlowVisualizationProcess(process);
@@ -3799,46 +3849,20 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
         }
 
-        private static JObject BuildCommittedFlowVisualization(int procIndex)
+        private static JObject BuildUnifiedFlowVisualization(int procIndex)
         {
             if (SF.frmProc == null || procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
             {
                 return null;
             }
-            Proc proc = SF.frmProc.procsList[procIndex];
-            if (proc == null)
-            {
-                return null;
-            }
-            var steps = new JArray();
-            foreach (Step step in proc.steps ?? new List<Step>())
-            {
-                var operations = new JArray();
-                foreach (OperationType operation in step?.Ops ?? new List<OperationType>())
-                {
-                    if (operation == null) continue;
-                    operations.Add(new JObject
-                    {
-                        ["kind"] = "platform.operation",
-                        ["name"] = operation.Name ?? string.Empty,
-                        ["operaType"] = operation.OperaType ?? string.Empty,
-                        ["summary"] = operation.OperaType ?? string.Empty
-                    });
-                }
-                steps.Add(new JObject
-                {
-                    ["name"] = step?.Name ?? "未命名步骤",
-                    ["operations"] = operations
-                });
-            }
-            return new JObject
-            {
-                ["action"] = "committed",
-                ["procIndex"] = procIndex,
-                ["name"] = proc.head?.Name ?? "未命名流程",
-                ["state"] = SF.DR?.GetSnapshot(procIndex)?.State.ToString() ?? string.Empty,
-                ["steps"] = steps
-            };
+            ProcessFlowGraphSnapshot graph = ProcessFlowGraphService.BuildProcess(
+                SF.frmProc.procsList,
+                procIndex,
+                index => SF.DR?.GetSnapshot(index));
+            JObject data = ProcessFlowGraphService.ToJObject(graph);
+            JObject process = BuildFlowVisualizationFromGraph(data).FirstOrDefault();
+            if (process != null) process["action"] = "committed";
+            return process;
         }
 
         private void UpsertFlowVisualizationProcess(JObject process)
@@ -3868,41 +3892,98 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             flowVisualizationProcesses.Add(process.DeepClone());
         }
 
-        private static JObject BuildReadFlowVisualization(JObject data)
+        private static IEnumerable<JObject> BuildFlowVisualizationFromGraph(JObject data)
         {
+            if (data?["graphAvailable"]?.Value<bool?>() == false)
+            {
+                yield break;
+            }
+            string scope = data?["scope"]?.Value<string>();
+            JArray nodes = data?["nodes"] as JArray ?? new JArray();
+            JArray edges = data?["edges"] as JArray ?? new JArray();
+            if (string.Equals(scope, "project", StringComparison.Ordinal))
+            {
+                var names = nodes.OfType<JObject>().ToDictionary(
+                    node => node["id"]?.Value<string>() ?? Guid.NewGuid().ToString("N"),
+                    node => node["label"]?.Value<string>() ?? "未知节点",
+                    StringComparer.Ordinal);
+                var relations = new JArray();
+                foreach (JObject edge in edges.OfType<JObject>())
+                {
+                    string sourceId = edge["sourceId"]?.Value<string>();
+                    string targetId = edge["targetId"]?.Value<string>();
+                    relations.Add(new JObject
+                    {
+                        ["kind"] = "flow.relation",
+                        ["name"] = edge["label"]?.Value<string>() ?? edge["kind"]?.Value<string>() ?? "关系",
+                        ["summary"] = $"{ReadName(names, sourceId)} → {ReadName(names, targetId)}"
+                    });
+                }
+                yield return new JObject
+                {
+                    ["action"] = "inspect",
+                    ["name"] = data["name"]?.Value<string>() ?? "项目流程总览",
+                    ["hasLoop"] = edges.OfType<JObject>().Any(edge => edge["loop"]?.Value<bool>() == true),
+                    ["steps"] = new JArray(new JObject
+                    {
+                        ["name"] = "跨流程关系",
+                        ["operations"] = relations
+                    })
+                };
+                yield break;
+            }
+
             var process = new JObject
             {
                 ["action"] = "inspect",
-                ["procIndex"] = data["procIndex"]?.DeepClone(),
-                ["name"] = data["name"]?.Value<string>() ?? "未命名流程",
-                ["state"] = data["state"]?.Value<string>() ?? string.Empty
+                ["procIndex"] = data?["procIndex"]?.DeepClone(),
+                ["name"] = data?["name"]?.Value<string>() ?? "未命名流程",
+                ["hasLoop"] = edges.OfType<JObject>().Any(edge => edge["loop"]?.Value<bool>() == true)
             };
             var visualSteps = new JArray();
-            foreach (JObject step in (data["steps"] as JArray ?? new JArray()).OfType<JObject>())
+            var labels = nodes.OfType<JObject>().ToDictionary(
+                node => node["id"]?.Value<string>() ?? Guid.NewGuid().ToString("N"),
+                node => node["label"]?.Value<string>() ?? "未知节点",
+                StringComparer.Ordinal);
+            foreach (JObject group in (data?["groups"] as JArray ?? new JArray()).OfType<JObject>()
+                .OrderBy(item => item["stepIndex"]?.Value<int?>() ?? int.MaxValue))
             {
-                int stepIndex = step["stepIndex"]?.Value<int?>() ?? visualSteps.Count;
+                string groupId = group["id"]?.Value<string>();
+                int stepIndex = group["stepIndex"]?.Value<int?>() ?? visualSteps.Count;
                 var visualOperations = new JArray();
-                foreach (JObject operation in (step["ops"] as JArray ?? new JArray()).OfType<JObject>())
+                foreach (JObject node in nodes.OfType<JObject>()
+                    .Where(item => string.Equals(item["groupId"]?.Value<string>(), groupId, StringComparison.Ordinal))
+                    .OrderBy(item => item["opIndex"]?.Value<int?>() ?? int.MaxValue))
                 {
+                    string nodeId = node["id"]?.Value<string>();
+                    string branches = string.Join("；", edges.OfType<JObject>()
+                        .Where(edge => string.Equals(edge["sourceId"]?.Value<string>(), nodeId, StringComparison.Ordinal)
+                            && !string.Equals(edge["kind"]?.Value<string>(), "sequence", StringComparison.Ordinal))
+                        .Select(edge => $"{edge["label"]?.Value<string>() ?? edge["kind"]?.Value<string>()}→{ReadName(labels, edge["targetId"]?.Value<string>())}"));
+                    string summary = node["summary"]?.Value<string>() ?? node["operaType"]?.Value<string>() ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(branches)) summary += "｜" + branches;
                     visualOperations.Add(new JObject
                     {
                         ["kind"] = "platform.operation",
-                        ["name"] = operation["name"]?.Value<string>() ?? string.Empty,
-                        ["operaType"] = operation["operaType"]?.Value<string>() ?? string.Empty,
-                        ["summary"] = operation["summary"]?.Value<string>()
-                            ?? operation["operaType"]?.Value<string>()
-                            ?? string.Empty
+                        ["name"] = node["label"]?.Value<string>() ?? string.Empty,
+                        ["operaType"] = node["operaType"]?.Value<string>() ?? string.Empty,
+                        ["summary"] = summary
                     });
                 }
                 visualSteps.Add(new JObject
                 {
                     ["key"] = "步骤" + stepIndex,
-                    ["name"] = step["name"]?.Value<string>() ?? "未命名步骤",
+                    ["name"] = group["label"]?.Value<string>() ?? "未命名步骤",
                     ["operations"] = visualOperations
                 });
             }
             process["steps"] = visualSteps;
-            return process;
+            yield return process;
+        }
+
+        private static string ReadName(IReadOnlyDictionary<string, string> names, string nodeId)
+        {
+            return !string.IsNullOrWhiteSpace(nodeId) && names.TryGetValue(nodeId, out string name) ? name : "未知节点";
         }
 
 
@@ -4030,6 +4111,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 .Replace("get_semantic_operation_schema", "获取语义指令结构")
                 .Replace("preview_change_set", "预演变更阶段")
                 .Replace("apply_change_set", "提交配置阶段")
+                .Replace("get_flow_graph", "获取流程图")
                 .Replace("discard_change_set_preview", "结束变更预演")
                 .Replace("get_proc_overview", "获取流程概览")
                 .Replace("get_proc_detail", "获取流程详情")
@@ -4092,7 +4174,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             JArray steps = process["steps"] as JArray ?? new JArray();
             int operationCount = steps.OfType<JObject>()
                 .Sum(step => (step["operations"] as JArray)?.Count ?? 0);
-            bool hasBackEdge = HasBackEdge(steps);
+            bool hasBackEdge = process["hasLoop"]?.Value<bool>() == true || HasBackEdge(steps);
             string actionText;
             switch (action)
             {
@@ -4213,9 +4295,12 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 case "flow.end":
                     return "正常结束当前流程";
                 case "io.write":
-                    return $"输出 {operation["io"]?.Value<string>() ?? "IO"} = {operation["state"]?.Value<bool>()}";
+                    JArray outputs = operation["outputs"] as JArray;
+                    return outputs == null
+                        ? "同步设置IO输出"
+                        : $"同步设置 {outputs.Count} 个IO输出：{string.Join("、", outputs.OfType<JObject>().Select(item => item["io"]?.Value<string>()).Where(name => !string.IsNullOrWhiteSpace(name)))}";
                 case "io.wait":
-                    return $"等待 {operation["io"]?.Value<string>() ?? "IO"} = {operation["state"]?.Value<bool>()}";
+                    return $"等待 {(operation["conditions"] as JArray)?.Count ?? 0} 个IO条件成立";
                 case "process.control":
                     return $"{operation["action"]?.Value<string>() ?? "控制"}流程 {operation["process"]?.Value<string>() ?? ""}";
                 case "process.wait":
@@ -5234,10 +5319,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         private static bool TryResolveGooseExecutablePath(string configuredPath, out string resolvedPath)
         {
             resolvedPath = null;
-            const string machineGoosePath = @"D:\AutomationTools\Goose\goose.exe";
-            if (File.Exists(machineGoosePath))
+            if (File.Exists(GooseRuntimeEnvironment.MachineGooseExecutablePath))
             {
-                resolvedPath = machineGoosePath;
+                resolvedPath = GooseRuntimeEnvironment.MachineGooseExecutablePath;
                 return true;
             }
             return false;

@@ -79,6 +79,15 @@
     <Reference Include="Microsoft.Bcl.HashCode">
       <HintPath>packages\Microsoft.Bcl.HashCode.6.0.0\lib\net462\Microsoft.Bcl.HashCode.dll</HintPath>
     </Reference>
+    <Reference Include="Microsoft.Msagl">
+      <HintPath>packages\Microsoft.Msagl.1.1.6\lib\netstandard2.0\Microsoft.Msagl.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Msagl.Drawing">
+      <HintPath>packages\Microsoft.Msagl.Drawing.1.1.6\lib\netstandard2.0\Microsoft.Msagl.Drawing.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Msagl.GraphViewerGdi">
+      <HintPath>packages\Microsoft.Msagl.GraphViewerGDI.1.1.7\lib\net472\Microsoft.Msagl.GraphViewerGdi.dll</HintPath>
+    </Reference>
     <Reference Include="Microsoft.Web.WebView2.Core, Version=1.0.4078.44, Culture=neutral, PublicKeyToken=2a8ab48044d2601e, processorArchitecture=MSIL">
       <HintPath>packages\Microsoft.Web.WebView2.1.0.4078.44\lib\net462\Microsoft.Web.WebView2.Core.dll</HintPath>
     </Reference>
@@ -133,6 +142,9 @@
     <Compile Include="Communication\\CommunicationHub.cs" />
     <Compile Include="Communication\\CommunicationModels.cs" />
     <Compile Include="Engine\ValueRef.cs" />
+    <Compile Include="Engine\VariableReferenceCatalog.cs" />
+    <Compile Include="Engine\ProcessVariableLifecycleService.cs" />
+    <Compile Include="Engine\ProcessRuntimeBinder.cs" />
     <Compile Include="Engine\ProcessEditingService.cs" />
     <Compile Include="Engine\AiChangeSetCompiler.cs" />
     <Compile Include="Engine\AiOperationCompilerRegistry.cs" />
@@ -140,8 +152,10 @@
     <Compile Include="Engine\ProcessReadinessService.cs" />
     <Compile Include="Engine\OperationDefinitionRegistry.cs" />
     <Compile Include="Engine\ProcessDefinitionService.cs" />
+    <Compile Include="Engine\ProcessFlowGraphService.cs" />
     <Compile Include="Engine\ProcessModels.cs" />
     <Compile Include="Engine\OperationBehaviorCatalog.cs" />
+    <Compile Include="Engine\OperationGotoReferenceCatalog.cs" />
     <Compile Include="Stores\\AlarmInfoStore.cs" />
     <Compile Include="Stores\\AtomicJsonFileStore.cs" />
     <Compile Include="Stores\\CardConfigStore.cs" />
@@ -149,7 +163,6 @@
     <Compile Include="Stores\\AiConfigurationTransaction.cs" />
     <Compile Include="Stores\\CommunicationConfigStore.cs" />
     <Compile Include="Engine\CustomFunc.cs" />
-    <Compile Include="Engine\EditableCollection.cs" />
     <Compile Include="Engine\\ProcessEngine.Core.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Comm.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Custom.cs" />
@@ -176,6 +189,8 @@
     <Compile Include="Stores\\TrayPointStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="Runtime\\AppConfigStorage.cs" />
+    <Compile Include="Runtime\\HighResolutionWaiter.cs" />
+    <Compile Include="Runtime\\ProcessPerformanceAnalyzer.cs" />
     <Compile Include="Runtime\\RuntimeExceptionLogger.cs" />
     <Compile Include="Runtime\\StructuredAuditLogger.cs" />
     <Compile Include="Runtime\\AiAnalysisLogger.cs" />
@@ -191,6 +206,7 @@
     <Compile Include="Runtime\\HmiDevelopmentSourceLocator.cs" />
     <Compile Include="Runtime\\AutomationRuntimeOptions.cs" />
     <Compile Include="Runtime\\GooseConfigStorage.cs" />
+    <Compile Include="Runtime\\GooseRuntimeEnvironment.cs" />
     <Compile Include="Runtime\\GooseRuntimeProvisioner.cs" />
     <Compile Include="Runtime\\UiBranding.cs" />
     <Compile Include="Runtime\\AiProviderSecretStorage.cs" />
@@ -315,6 +331,9 @@
     <Compile Include="FrmPlc.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="FrmProcessFlow.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="FrmMenu.Designer.cs">
       <DependentUpon>FrmMenu.cs</DependentUpon>
     </Compile>
@@ -334,6 +353,9 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Inspector\InspectorDefinitions.cs" />
+    <Compile Include="Inspector\InspectorSelectionPickerPanel.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="Inspector\OperationTypePickerPanel.cs">
       <SubType>UserControl</SubType>
     </Compile>

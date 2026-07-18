@@ -16,6 +16,7 @@ namespace Automation.MotionControl
 
         public delegate ushort InitCardHandler();
         public delegate bool SetIOHandler(IO io, bool isOpen);
+        public delegate bool SetOutputsHandler(IReadOnlyList<IoOutputCommand> commands);
         public delegate bool GetOutIOHandler(IO io, ref bool value);
         public delegate bool GetInIOHandler(IO io, ref bool value);
         public delegate void SettHomeParamHandler(ushort card,ushort axis, ushort dir, ushort speed, ushort homeMode);
@@ -24,6 +25,9 @@ namespace Automation.MotionControl
         public delegate double GetAxisPosHandler(ushort card, ushort axis);
         public delegate void SetMovParamHandler(ushort card,ushort axis, double minVel, double dMaxVel, double acc, double dec, double dStopVel, double dS_para,int equiv);
         public delegate void MovHandler(ushort card, ushort axis, double dDist, ushort sPosi_mode, bool wait);
+        public delegate void MoveCoordinatedLinearHandler(CoordinatedLinearMoveRequest request);
+        public delegate bool IsCoordinatedLinearDoneHandler(ushort card, ushort coordinateSystem);
+        public delegate void StopCoordinatedLinearHandler(ushort card, ushort coordinateSystem, ushort stopMode);
         public delegate void JogHandler(ushort card, ushort axis, ushort sDir);
         public delegate void StopOneAxisHandler(ushort card, ushort axis, ushort stop_mode);
         public delegate void StopConnectHandler();
@@ -41,6 +45,7 @@ namespace Automation.MotionControl
 
         public event InitCardHandler initCard;
         public event SetIOHandler setIO;
+        public event SetOutputsHandler setOutputs;
         public event GetOutIOHandler getOutIO;
         public event GetInIOHandler getInIO;
         public event SettHomeParamHandler settHomeParam;
@@ -49,6 +54,9 @@ namespace Automation.MotionControl
         public event GetAxisPosHandler getAxisPos;
         public event SetMovParamHandler setMovParam;
         public event MovHandler mov;
+        public event MoveCoordinatedLinearHandler moveCoordinatedLinear;
+        public event IsCoordinatedLinearDoneHandler isCoordinatedLinearDone;
+        public event StopCoordinatedLinearHandler stopCoordinatedLinear;
         public event JogHandler jog;
         public event StopOneAxisHandler stopOneAxis;
         public event StopConnectHandler stopConnect;
@@ -235,6 +243,10 @@ namespace Automation.MotionControl
         {
             return (bool)setIO?.Invoke(io, isOpen);
         }
+        public bool SetOutputs(IReadOnlyList<IoOutputCommand> commands)
+        {
+            return setOutputs?.Invoke(commands) == true;
+        }
         public bool GetOutIO(IO io, ref bool value)
         {
             return (bool)getOutIO?.Invoke(io, ref value);
@@ -359,6 +371,42 @@ namespace Automation.MotionControl
                 SF.DR?.ReleaseManualMotionResource(card, axis);
                 throw;
             }
+        }
+
+        public void MoveCoordinatedLinear(CoordinatedLinearMoveRequest request)
+        {
+            EnsureCardInitialized();
+            if (!EnsureResetCompleted())
+            {
+                return;
+            }
+            if (request?.Axes == null || request.Positions == null || request.Axes.Count == 0
+                || request.Axes.Count != request.Positions.Count)
+            {
+                throw new ArgumentException("协调直线运动轴或位置列表无效。", nameof(request));
+            }
+            for (int i = 0; i < request.Axes.Count; i++)
+            {
+                EnsureCommandValidated(request.Card, request.Axes[i], AxisCommandKind.Motion, false);
+            }
+            (moveCoordinatedLinear
+                ?? throw new InvalidOperationException("协调直线运动接口未初始化"))
+                .Invoke(request);
+        }
+
+        public bool IsCoordinatedLinearDone(ushort card, ushort coordinateSystem)
+        {
+            EnsureCardInitialized();
+            return isCoordinatedLinearDone?.Invoke(card, coordinateSystem)
+                ?? throw new InvalidOperationException("协调直线运动状态接口未初始化");
+        }
+
+        public void StopCoordinatedLinear(ushort card, ushort coordinateSystem, ushort stopMode)
+        {
+            EnsureCardInitialized();
+            (stopCoordinatedLinear
+                ?? throw new InvalidOperationException("协调直线运动停止接口未初始化"))
+                .Invoke(card, coordinateSystem, stopMode);
         }
 
         private async Task MonitorManualMoveCompletionAsync(ushort card, ushort axis)
@@ -503,6 +551,7 @@ namespace Automation.MotionControl
             ls = new LS();
             initCard = ls.InitCard;
             setIO = ls.SetIO;
+            setOutputs = ls.SetOutputs;
             getInIO = ls.GetInIO;
             getOutIO = ls.GetOutIO;
             settHomeParam = ls.SettHomeParam;
@@ -512,6 +561,9 @@ namespace Automation.MotionControl
             getAxisPos = ls.GetAxisPosEncoder;
             setMovParam = ls.SetMovParam;
             mov = ls.Mov;
+            moveCoordinatedLinear = ls.MoveCoordinatedLinear;
+            isCoordinatedLinearDone = ls.IsCoordinatedLinearDone;
+            stopCoordinatedLinear = ls.StopCoordinatedLinear;
             jog = ls.Jog;
             stopOneAxis = ls.StopOneAxis;
             stopConnect = ls.StopConnect;

@@ -77,10 +77,24 @@ namespace Automation
         private long appliedRevision;
         private int cooperativeOperationCount;
         private long cooperativeSliceStartTimestamp;
+        private int stepNumber;
+        private int operationNumber;
+        private int cachedSourceStep = int.MinValue;
+        private int cachedSourceOperation = int.MinValue;
+        private string cachedOperationSource;
+        private long lastProgressSnapshotTimestamp;
 
         public int procNum;
-        public int stepNum;
-        public int opsNum;
+        public int stepNum
+        {
+            get => Volatile.Read(ref stepNumber);
+            set => Volatile.Write(ref stepNumber, value);
+        }
+        public int opsNum
+        {
+            get => Volatile.Read(ref operationNumber);
+            set => Volatile.Write(ref operationNumber, value);
+        }
 
         public string procName;
         public Guid procId;
@@ -121,6 +135,7 @@ namespace Automation
         internal ProcessControl Control { get; set; }
         public ConcurrentBag<Task> RunningTasks { get; } = new ConcurrentBag<Task>();
         internal ConcurrentDictionary<long, byte> OwnedAxes { get; } = new ConcurrentDictionary<long, byte>();
+        internal ConcurrentDictionary<long, byte> OwnedCoordinateSystems { get; } = new ConcurrentDictionary<long, byte>();
         public bool PauseBySignal
         {
             get => Volatile.Read(ref pauseBySignalFlag) == 1;
@@ -152,6 +167,136 @@ namespace Automation
             set => cooperativeSliceStartTimestamp = value;
         }
 
+        internal ProcessPerformanceState Performance { get; set; }
+
+        internal ProcessRunMetrics RunMetrics { get; set; }
+
+        internal long LastProgressSnapshotTimestamp
+        {
+            get => Interlocked.Read(ref lastProgressSnapshotTimestamp);
+            set => Interlocked.Exchange(ref lastProgressSnapshotTimestamp, value);
+        }
+
+        internal HighResolutionWaiter Waiter { get; set; }
+
+        internal string GetOperationSource()
+        {
+            int currentStep = stepNum;
+            int currentOperation = opsNum;
+            if (cachedOperationSource == null || cachedSourceStep != currentStep
+                || cachedSourceOperation != currentOperation)
+            {
+                cachedSourceStep = currentStep;
+                cachedSourceOperation = currentOperation;
+                cachedOperationSource = $"{procNum}-{currentStep}-{currentOperation}";
+            }
+            return cachedOperationSource;
+        }
+    }
+
+    internal sealed class ProcessRunMetrics
+    {
+        public const int DurationSamplingInterval = 128;
+        private long operationCount;
+        private long failedCount;
+        private long durationSampleCount;
+        private long totalSampledOperationTicks;
+        private long maxSampledOperationTicks;
+        private int durationSequence;
+
+        public bool ShouldMeasureDuration()
+        {
+            return (durationSequence++ & (DurationSamplingInterval - 1)) == 0;
+        }
+
+        public void RecordOperation(long elapsedTicks, bool durationMeasured, bool failed)
+        {
+            operationCount++;
+            if (failed)
+            {
+                failedCount++;
+            }
+            if (!durationMeasured)
+            {
+                return;
+            }
+            long normalizedTicks = Math.Max(0L, elapsedTicks);
+            durationSampleCount++;
+            totalSampledOperationTicks += normalizedTicks;
+            if (normalizedTicks > maxSampledOperationTicks)
+            {
+                maxSampledOperationTicks = normalizedTicks;
+            }
+        }
+
+        public ProcessRunAuditSnapshot CreateSnapshot(int procIndex, Guid procId)
+        {
+            return new ProcessRunAuditSnapshot(
+                procIndex,
+                procId,
+                operationCount,
+                failedCount,
+                durationSampleCount,
+                totalSampledOperationTicks,
+                maxSampledOperationTicks,
+                DurationSamplingInterval);
+        }
+    }
+
+    internal readonly struct ProcessRunAuditSnapshot
+    {
+        public ProcessRunAuditSnapshot(int procIndex, Guid procId, long operationCount, long failedCount,
+            long durationSampleCount, long totalSampledOperationTicks, long maxSampledOperationTicks,
+            int durationSamplingInterval)
+        {
+            ProcIndex = procIndex;
+            ProcId = procId;
+            OperationCount = operationCount;
+            FailedCount = failedCount;
+            DurationSampleCount = durationSampleCount;
+            TotalSampledOperationTicks = totalSampledOperationTicks;
+            MaxSampledOperationTicks = maxSampledOperationTicks;
+            DurationSamplingInterval = durationSamplingInterval;
+        }
+
+        public int ProcIndex { get; }
+        public Guid ProcId { get; }
+        public long OperationCount { get; }
+        public long FailedCount { get; }
+        public long DurationSampleCount { get; }
+        public long TotalSampledOperationTicks { get; }
+        public long MaxSampledOperationTicks { get; }
+        public int DurationSamplingInterval { get; }
+    }
+
+    internal readonly struct OperationFailureEntry
+    {
+        public OperationFailureEntry(int procIndex, Guid procId, int stepIndex, int opIndex,
+            Guid operationId, string operationType, string operationName, string alarmMessage,
+            long elapsedTicks, bool durationMeasured)
+        {
+            ProcIndex = procIndex;
+            ProcId = procId;
+            StepIndex = stepIndex;
+            OpIndex = opIndex;
+            OperationId = operationId;
+            OperationType = operationType;
+            OperationName = operationName;
+            AlarmMessage = alarmMessage;
+            ElapsedTicks = elapsedTicks;
+            DurationMeasured = durationMeasured;
+        }
+
+        public int ProcIndex { get; }
+        public Guid ProcId { get; }
+        public int StepIndex { get; }
+        public int OpIndex { get; }
+        public Guid OperationId { get; }
+        public string OperationType { get; }
+        public string OperationName { get; }
+        public string AlarmMessage { get; }
+        public long ElapsedTicks { get; }
+        public bool DurationMeasured { get; }
     }
     public enum EngineCommandType
     {
@@ -260,24 +405,8 @@ namespace Automation
         public long UpdateTicks { get; }
         public long PublishedRevision { get; }
         public long AppliedRevision { get; }
-        public bool HasPendingUpdate => PublishedRevision > AppliedRevision;
         public ProcTerminationReason TerminationReason { get; }
-    }
-
-    public sealed class OperationTraceEntry
-    {
-        public DateTime Timestamp { get; set; }
-        public string Phase { get; set; }
-        public int ProcIndex { get; set; }
-        public Guid ProcId { get; set; }
-        public int StepIndex { get; set; }
-        public int OpIndex { get; set; }
-        public Guid OperationId { get; set; }
-        public string OperationType { get; set; }
-        public string OperationName { get; set; }
-        public bool IsAlarm { get; set; }
-        public string AlarmMessage { get; set; }
-        public long ElapsedMs { get; set; }
+        public ProcessPerformanceSnapshot Performance { get; internal set; }
     }
 
     public enum AlarmTypeKind

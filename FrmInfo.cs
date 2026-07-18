@@ -969,6 +969,15 @@ namespace Automation
             string stateText = GetStateText(snapshot.State);
             string positionText = GetPositionText(snapshot);
             string opName = GetOpName(snapshot.ProcIndex, snapshot.StepIndex, snapshot.OpIndex);
+            bool performanceAbnormal = snapshot.Performance?.AbnormalCpuLoopDetected == true;
+            if (snapshot.Performance?.Enabled == true)
+            {
+                opName = $"{opName} | CPU {snapshot.Performance.ThreadCpuPercent:F1}% | {snapshot.Performance.OperationsPerSecond:F0} 指令/s";
+                if (performanceAbnormal)
+                {
+                    opName += " | 性能异常：持续占满单核";
+                }
+            }
             Color stateColor = GetStateColor(snapshot.State);
             Color stateBackColor = GetStateBackColor(snapshot.State);
 
@@ -980,6 +989,7 @@ namespace Automation
             if (!string.Equals(cache.StateText, stateText, StringComparison.Ordinal))
             {
                 row.Cells[baseColumn + 1].Value = stateText;
+                row.Cells[baseColumn + 1].ToolTipText = stateText;
                 cache.StateText = stateText;
             }
             if (!string.Equals(cache.PositionText, positionText, StringComparison.Ordinal))
@@ -990,7 +1000,15 @@ namespace Automation
             if (!string.Equals(cache.OpName, opName, StringComparison.Ordinal))
             {
                 row.Cells[baseColumn + 3].Value = opName;
+                row.Cells[baseColumn + 3].ToolTipText = opName;
                 cache.OpName = opName;
+            }
+            if (cache.PerformanceAbnormal != performanceAbnormal)
+            {
+                row.Cells[baseColumn + 3].Style.ForeColor = performanceAbnormal
+                    ? Color.FromArgb(188, 52, 48)
+                    : Color.Empty;
+                cache.PerformanceAbnormal = performanceAbnormal;
             }
             if (cache.StateColor != stateColor)
             {
@@ -1350,6 +1368,7 @@ namespace Automation
             public string OpName;
             public Color StateColor = Color.Empty;
             public Color StateBackColor = Color.Empty;
+            public bool PerformanceAbnormal;
         }
 
         private enum StatusColumnKind

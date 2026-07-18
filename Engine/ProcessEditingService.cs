@@ -89,6 +89,13 @@ namespace Automation
                 error = $"系统已安全锁定：{SF.SecurityLockReason}";
                 return false;
             }
+            if (SF.MaintenanceActive)
+            {
+                error = string.IsNullOrWhiteSpace(SF.MaintenanceReason)
+                    ? "系统正在执行配置维护，禁止提交流程编辑。"
+                    : $"系统正在执行配置维护：{SF.MaintenanceReason}";
+                return false;
+            }
             if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count || draft == null)
             {
                 error = $"流程草稿或索引无效：{procIndex}。";
@@ -218,17 +225,17 @@ namespace Automation
             }
         }
 
-        public static void AdaptGotoProcIndexes(IList<Proc> processes, int startIndex)
+        public static void AdaptGotoProcIndexes(IList<Proc> processes, int StartIndex)
         {
             if (processes == null || processes.Count == 0)
             {
                 return;
             }
-            if (startIndex < 0 || startIndex > processes.Count)
+            if (StartIndex < 0 || StartIndex > processes.Count)
             {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), "流程重排起始索引超出范围");
+                throw new ArgumentOutOfRangeException(nameof(StartIndex), "流程重排起始索引超出范围");
             }
-            for (int i = startIndex; i < processes.Count; i++)
+            for (int i = StartIndex; i < processes.Count; i++)
             {
                 AdaptGotoProcIndex(processes[i], i);
             }

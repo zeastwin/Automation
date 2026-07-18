@@ -263,7 +263,7 @@ namespace Automation
                         ?? new List<OperationType>();
                     Delay delay = operations
                         .OfType<Delay>().FirstOrDefault(op => string.Equals(op.Name, "等待检测结果", StringComparison.Ordinal));
-                    result.Check(delay?.timeMiniSecond == "5000", "目标延时已精确改为5000ms", "目标延时没有变为5000ms。");
+                    result.Check(delay?.DelayMs == 5000, "目标延时已精确改为5000ms", "目标延时没有变为5000ms。");
                     int delayIndex = delay == null ? -1 : operations.IndexOf(delay);
                     result.Check(delayIndex >= 0 && delayIndex + 1 < operations.Count
                         && operations[delayIndex + 1] is PopupDialog,
@@ -398,8 +398,10 @@ namespace Automation
                     new VariableChange
                     {
                         Name = ResultVariableName,
+                        Scope = VariableScopeContract.Process,
+                        OwnerProcess = new ProcessSelector { Key = "product" },
                         Type = "double",
-                        InitialValue = "0",
+                        Value = "0",
                         Policy = "reuse",
                         Note = "AI标准测试夹具"
                     }

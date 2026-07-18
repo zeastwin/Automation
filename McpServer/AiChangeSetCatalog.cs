@@ -67,6 +67,18 @@ namespace Automation.McpServer
             {
                 if (variable == null || string.IsNullOrWhiteSpace(variable.Name))
                     return $"variables[{index}].name 不能为空。";
+                if (!VariableScopeContract.IsValid(variable.Scope))
+                    return $"variables[{index}].scope 必须是 public、process 或 system。";
+                bool processScope = string.Equals(
+                    variable.Scope, VariableScopeContract.Process, StringComparison.Ordinal);
+                if (processScope && variable.OwnerProcess == null)
+                    return $"variables[{index}].scope=process 时 ownerProcess 必填。";
+                if (!processScope && variable.OwnerProcess != null)
+                    return $"variables[{index}].scope={variable.Scope} 时不能携带 ownerProcess。";
+                if (variable.Index.HasValue
+                    && (variable.Index.Value < 0
+                        || variable.Index.Value >= VariableIndexContract.NormalValueCapacity))
+                    return $"variables[{index}].index 必须位于普通变量区 {VariableIndexContract.NormalValueIndexRange}。";
                 string type = string.IsNullOrWhiteSpace(variable.Type) ? "double" : variable.Type;
                 if (!string.Equals(type, "double", StringComparison.Ordinal)
                     && !string.Equals(type, "string", StringComparison.Ordinal))
@@ -193,9 +205,7 @@ namespace Automation.McpServer
                         ? "config.placeholder.message 不能为空。"
                         : null!;
                 case "io.write":
-                    if (string.IsNullOrWhiteSpace(operation.Io) || !operation.State.HasValue)
-                        return "io.write 必须提供 io/state。";
-                    return null!;
+                    return ValidateIoOutputs(operation.Outputs, "io.write.outputs");
                 case "io.wait":
                     string waitConditionError = ValidateIoConditions(operation.Conditions, "io.wait.conditions");
                     if (waitConditionError != null) return waitConditionError;
@@ -245,6 +255,23 @@ namespace Automation.McpServer
                     return $"{path}[{index}] 必须提供 io/state。";
                 if (!names.Add(condition.Io.Trim()))
                     return $"{path} 包含重复IO：{condition.Io.Trim()}。";
+                index++;
+            }
+            return null!;
+        }
+
+        private static string ValidateIoOutputs(IReadOnlyCollection<IoOutputState> outputs, string path)
+        {
+            if (outputs == null || outputs.Count == 0)
+                return $"{path} 至少包含一个输出IO。";
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            int index = 0;
+            foreach (IoOutputState output in outputs)
+            {
+                if (output == null || string.IsNullOrWhiteSpace(output.Io) || !output.State.HasValue)
+                    return $"{path}[{index}] 必须提供 io/state。";
+                if (!names.Add(output.Io.Trim()))
+                    return $"{path} 包含重复IO：{output.Io.Trim()}。";
                 index++;
             }
             return null!;

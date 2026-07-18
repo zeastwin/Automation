@@ -26,10 +26,10 @@ namespace Automation
             this.templates = templates;
             AutoScaleMode = AutoScaleMode.None;
             AutoScroll = false;
-            BackColor = Color.White;
+            BackColor = InspectorPalette.Surface;
             DoubleBuffered = true;
-            Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Regular);
-            categoryFont = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            Font = InspectorFonts.Regular85;
+            categoryFont = new Font(InspectorFonts.Bold9, FontStyle.Bold);
             TabStop = true;
             BuildPicker();
             SizeChanged += (sender, args) => RefreshPickerLayout();
@@ -58,40 +58,32 @@ namespace Automation
                 var categoryLabel = new Label
                 {
                     AutoEllipsis = true,
-                    BackColor = Color.FromArgb(238, 243, 248),
+                    BackColor = InspectorPalette.SurfaceSubtle,
                     Font = categoryFont,
-                    ForeColor = Color.FromArgb(48, 63, 78),
-                    Padding = new Padding(8, 0, 4, 0),
+                    ForeColor = InspectorPalette.TextPrimary,
+                    Padding = new Padding(30, 0, 4, 0),
                     Text = categoryName,
                     TextAlign = ContentAlignment.MiddleLeft
                 };
-                categoryLabel.Paint += (sender, args) =>
-                {
-                    using (SolidBrush accent = new SolidBrush(Color.FromArgb(38, 126, 186)))
-                    {
-                        args.Graphics.FillRectangle(
-                            accent,
-                            0,
-                            3,
-                            3,
-                            Math.Max(1, categoryLabel.Height - 6));
-                    }
-                };
+                categoryLabel.Paint += (sender, args) => InspectorIcons.Draw(
+                    args.Graphics,
+                    new Rectangle(9, 3, 15, 15),
+                    GetCategoryIcon(categoryName),
+                    InspectorPalette.Brand);
                 Controls.Add(categoryLabel);
 
                 var group = new PickerGroup(categoryLabel);
                 foreach (OperationType operation in categoryOperations)
                 {
-                    bool alternate = group.Buttons.Count % 2 == 1;
                     var button = new Button
                     {
                         AccessibleName = operation.OperaType,
                         AutoEllipsis = true,
-                        BackColor = alternate ? Color.FromArgb(248, 250, 252) : Color.White,
+                        BackColor = InspectorPalette.Surface,
                         Cursor = Cursors.Hand,
                         FlatStyle = FlatStyle.Flat,
                         Font = Font,
-                        ForeColor = Color.FromArgb(48, 63, 78),
+                        ForeColor = InspectorPalette.TextSecondary,
                         Padding = new Padding(8, 0, 6, 0),
                         TabStop = true,
                         Tag = operation,
@@ -100,8 +92,8 @@ namespace Automation
                         UseVisualStyleBackColor = false
                     };
                     button.FlatAppearance.BorderSize = 0;
-                    button.FlatAppearance.MouseOverBackColor = Color.FromArgb(217, 234, 250);
-                    button.FlatAppearance.MouseDownBackColor = Color.FromArgb(205, 225, 243);
+                    button.FlatAppearance.MouseOverBackColor = InspectorPalette.BrandSoft;
+                    button.FlatAppearance.MouseDownBackColor = Color.FromArgb(226, 233, 255);
                     button.Paint += (sender, args) =>
                     {
                         TextRenderer.DrawText(
@@ -119,7 +111,7 @@ namespace Automation
                                 | TextFormatFlags.SingleLine
                                 | TextFormatFlags.EndEllipsis
                                 | TextFormatFlags.NoPadding);
-                        using (Pen separator = new Pen(Color.FromArgb(222, 228, 234)))
+                        using (Pen separator = new Pen(InspectorPalette.Stroke))
                         {
                             args.Graphics.DrawLine(
                                 separator,
@@ -166,8 +158,8 @@ namespace Automation
             const int outerPadding = 8;
             const int columnGap = 8;
             const int rowGap = 1;
-            const int itemHeight = 22;
-            const int categoryHeight = 19;
+            const int itemHeight = 23;
+            const int categoryHeight = 21;
             const int groupGap = 4;
             layoutColumns = 3;
             int availableWidth = Math.Max(360, ClientSize.Width - outerPadding * 2);
@@ -297,12 +289,12 @@ namespace Automation
             if (operation is TcpOps
                 || operation is WaitTcp
                 || operation is SendTcpMsg
-                || operation is ReceoveTcpMsg
+                || operation is ReceiveTcpMsg
                 || operation is SerialPortOps
                 || operation is WaitSerialPort
                 || operation is SendSerialPortMsg
-                || operation is ReceoveSerialPortMsg
-                || operation is SendReceoveCommMsg
+                || operation is ReceiveSerialPortMsg
+                || operation is SendReceiveCommMsg
                 || operation is PlcReadWrite
                 || operation is PlcMappingControl)
             {
@@ -319,6 +311,27 @@ namespace Automation
                 return "数据结构";
             }
             return "其他";
+        }
+
+        private static InspectorIconKind GetCategoryIcon(string category)
+        {
+            switch (category)
+            {
+                case "流程控制":
+                    return InspectorIconKind.Process;
+                case "变量与文本":
+                case "数据结构":
+                    return InspectorIconKind.Data;
+                case "IO":
+                    return InspectorIconKind.InputOutput;
+                case "运动控制":
+                case "料盘":
+                    return InspectorIconKind.Motion;
+                case "通讯":
+                    return InspectorIconKind.Communication;
+                default:
+                    return InspectorIconKind.Settings;
+            }
         }
 
         private static string GetOperationPickerDescription(OperationType operation)

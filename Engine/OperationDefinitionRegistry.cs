@@ -1,6 +1,9 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using Newtonsoft.Json.Linq;
 
 namespace Automation
 {
@@ -41,12 +44,12 @@ namespace Automation
             () => new TcpOps(),
             () => new WaitTcp(),
             () => new SendTcpMsg(),
-            () => new ReceoveTcpMsg(),
+            () => new ReceiveTcpMsg(),
             () => new SerialPortOps(),
             () => new WaitSerialPort(),
             () => new SendSerialPortMsg(),
-            () => new ReceoveSerialPortMsg(),
-            () => new SendReceoveCommMsg(),
+            () => new ReceiveSerialPortMsg(),
+            () => new SendReceiveCommMsg(),
             () => new PlcReadWrite(),
             () => new PlcMappingControl(),
             () => new GetDataStructCount(),
@@ -93,9 +96,138 @@ namespace Automation
                 {
                     throw new InvalidOperationException($"指令类型重复注册：{operation.OperaType}");
                 }
+                ValidateModel(operation);
+                ValidateBehaviorContract(operation);
                 result.Add(operation.OperaType, factory);
             }
             return result;
+        }
+
+        private static void ValidateModel(OperationType operation)
+        {
+            PropertyInfo[] properties = operation.GetType().GetProperties(
+                BindingFlags.Instance | BindingFlags.Public);
+            ValidatePropertyNames(operation.GetType(), operation.OperaType, new HashSet<Type>());
+            IGrouping<string, PropertyInfo> duplicate = properties
+                .GroupBy(property => property.Name, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(group => group.Count() > 1);
+            if (duplicate != null)
+            {
+                throw new InvalidOperationException(
+                    $"指令类型[{operation.OperaType}]存在仅大小写不同的属性："
+                    + string.Join("/", duplicate.Select(property => property.Name)));
+            }
+
+            foreach (PropertyInfo property in properties)
+            {
+                InlineListAttribute list = property.GetCustomAttribute<InlineListAttribute>();
+                if (list == null)
+                {
+                    continue;
+                }
+                if (!typeof(IList).IsAssignableFrom(property.PropertyType)
+                    || !property.PropertyType.IsGenericType)
+                {
+                    throw new InvalidOperationException(
+                        $"指令类型[{operation.OperaType}]的列表字段[{property.Name}]必须是泛型 IList。");
+                }
+                if (list.MinItems < 0 || list.MaxItems < list.MinItems)
+                {
+                    throw new InvalidOperationException(
+                        $"指令类型[{operation.OperaType}]的列表字段[{property.Name}]数量边界无效。");
+                }
+                if (!(property.GetValue(operation) is IList items))
+                {
+                    throw new InvalidOperationException(
+                        $"指令类型[{operation.OperaType}]的列表字段[{property.Name}]必须由构造函数初始化。");
+                }
+                if (items.Count < list.MinItems || items.Count > list.MaxItems)
+                {
+                    throw new InvalidOperationException(
+                        $"指令类型[{operation.OperaType}]的列表字段[{property.Name}]默认数量超出边界。");
+                }
+            }
+        }
+
+        private static void ValidatePropertyNames(Type type, string path, HashSet<Type> visited)
+        {
+            if (type == null || !visited.Add(type))
+            {
+                return;
+            }
+            PropertyInfo[] properties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
+            IGrouping<string, PropertyInfo> duplicate = properties
+                .GroupBy(property => property.Name, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(group => group.Count() > 1);
+            if (duplicate != null)
+            {
+                throw new InvalidOperationException(
+                    $"指令模型[{path}]存在仅大小写不同的属性："
+                    + string.Join("/", duplicate.Select(property => property.Name)));
+            }
+            foreach (PropertyInfo property in properties)
+            {
+                if (string.IsNullOrEmpty(property.Name) || !char.IsUpper(property.Name[0]))
+                {
+                    throw new InvalidOperationException(
+                        $"指令模型[{path}]的属性[{property.Name}]必须使用 PascalCase。");
+                }
+                NumericRangeAttribute range = property.GetCustomAttribute<NumericRangeAttribute>();
+                if (range != null)
+                {
+                    Type valueType = Nullable.GetUnderlyingType(property.PropertyType)
+                        ?? property.PropertyType;
+                    TypeCode typeCode = Type.GetTypeCode(valueType);
+                    bool numeric = typeCode == TypeCode.Byte || typeCode == TypeCode.SByte
+                        || typeCode == TypeCode.Int16 || typeCode == TypeCode.UInt16
+                        || typeCode == TypeCode.Int32 || typeCode == TypeCode.UInt32
+                        || typeCode == TypeCode.Int64 || typeCode == TypeCode.UInt64
+                        || typeCode == TypeCode.Single || typeCode == TypeCode.Double
+                        || typeCode == TypeCode.Decimal;
+                    if (!numeric || double.IsNaN(range.Minimum) || double.IsNaN(range.Maximum)
+                        || range.Maximum < range.Minimum)
+                    {
+                        throw new InvalidOperationException(
+                            $"指令模型[{path}]的属性[{property.Name}]数值范围无效。");
+                    }
+                }
+                InlineListAttribute list = property.GetCustomAttribute<InlineListAttribute>();
+                if (list != null && property.PropertyType.IsGenericType)
+                {
+                    ValidatePropertyNames(
+                        property.PropertyType.GetGenericArguments()[0],
+                        path + "." + property.Name + "[]",
+                        visited);
+                }
+                else if (property.GetCustomAttribute<InlineGroupAttribute>() != null)
+                {
+                    ValidatePropertyNames(property.PropertyType, path + "." + property.Name, visited);
+                }
+            }
+        }
+
+        private static void ValidateBehaviorContract(OperationType operation)
+        {
+            JObject contract = OperationBehaviorCatalog.BuildContract(operation);
+            if (!string.Equals(contract?["coverage"]?.ToString(), "specialized", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"指令类型[{operation.OperaType}]缺少专用运行行为契约。");
+            }
+            JObject fieldRules = contract["fieldRules"] as JObject;
+            if (fieldRules == null)
+            {
+                throw new InvalidOperationException(
+                    $"指令类型[{operation.OperaType}]的运行行为契约缺少 fieldRules。");
+            }
+            foreach (JProperty fieldRule in fieldRules.Properties())
+            {
+                if (operation.GetType().GetProperty(fieldRule.Name) == null)
+                {
+                    throw new InvalidOperationException(
+                        $"指令类型[{operation.OperaType}]的行为字段[{fieldRule.Name}]不存在。");
+                }
+            }
         }
     }
 }

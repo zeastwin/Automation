@@ -12,9 +12,9 @@ namespace Automation.McpServer
         private static readonly HashSet<string> KnowledgeAndReadTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "get_platform_development_context", "get_process_design_guide",
-            "list_procs", "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_step_detail",
+            "list_procs", "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_flow_graph", "get_step_detail",
             "get_op_detail", "get_op_details",
-            "get_operation_references", "get_proc_references", "trace_resource",
+            "get_operation_references", "get_proc_references", "trace_resource", "find_variable_usages",
             "list_operation_types", "get_native_operation_schemas",
             "get_semantic_operation_schema", "get_operation_guide",
             "get_snapshot", "validate_proc",
@@ -31,7 +31,7 @@ namespace Automation.McpServer
         private static readonly HashSet<string> DiagnosticAnalysisTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "search_ops", "diagnose_issue", "get_operation_schema",
-            "search_operation_fields", "find_references", "find_variable_usages",
+            "search_operation_fields", "find_references",
             "get_operation_context", "audit_proc_batch",
             "get_info_log_tail", "diagnose_proc",
             "list_io"
@@ -112,6 +112,24 @@ namespace Automation.McpServer
                 else if (string.Equals(toolName, "add_variable", StringComparison.Ordinal))
                 {
                     ApplyToolNumericRange(tool, "index", 0, VariableIndexContract.MaximumNormalValueIndex);
+                    ApplyToolStringEnum(tool, "scope", VariableScopeContract.Public, VariableScopeContract.Process);
+                }
+                else if (string.Equals(toolName, "update_variable", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "index", 0, VariableIndexContract.MaximumNormalValueIndex);
+                    ApplyToolStringEnum(tool, "scope", VariableScopeContract.Public, VariableScopeContract.Process);
+                }
+                else if (string.Equals(toolName, "list_variables", StringComparison.Ordinal))
+                {
+                    ApplyToolStringEnum(tool, "scope",
+                        VariableScopeContract.Public,
+                        VariableScopeContract.Process,
+                        VariableScopeContract.System);
+                }
+                else if (string.Equals(toolName, "get_variable_by_index", StringComparison.Ordinal)
+                    || string.Equals(toolName, "set_variable_by_index", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "index", 0, VariableIndexContract.MaximumValueIndex);
                 }
                 tools.Add(tool);
             }
@@ -174,6 +192,20 @@ namespace Automation.McpServer
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
         }
 
+        private static void ApplyToolStringEnum(
+            McpServerTool tool, string propertyName, params string[] allowedValues)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            if (root?["properties"] is not JsonObject properties
+                || properties[propertyName] is not JsonObject propertySchema)
+            {
+                throw new InvalidOperationException($"{tool.ProtocolTool.Name} 参数Schema缺少字段：{propertyName}");
+            }
+            propertySchema["enum"] = new JsonArray(
+                allowedValues.Select(value => JsonValue.Create(value)).ToArray());
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
         private static void ApplyChangeActionDiscriminator(McpServerTool tool)
         {
             JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
@@ -200,11 +232,12 @@ namespace Automation.McpServer
             ApplyPositionSchema(positionSchema);
             ApplyNumericRange(operationSchema, "milliseconds", 0, 86400000);
             ApplyNumericRange(operationSchema, "autoCloseMs", 1, 3600000);
-            ApplyNumericRange(operationSchema, "beforeMs", 0, 3600000);
             ApplyNumericRange(operationSchema, "afterMs", 0, 3600000);
             ApplyNumericRange(operationSchema, "timeoutMs", 1, 86400000);
             ApplyIoConditionsSchema(operationSchema);
+            ApplyIoOutputsSchema(operationSchema);
             ApplyStringEnum(operationSchema, "conditionLogic", "all", "any");
+            ApplyVariableChangeScopeSchema(root);
 
             operationSchema["oneOf"] = new JsonArray
             {
@@ -226,7 +259,7 @@ namespace Automation.McpServer
                 SemanticShape(operationProperties, "popup.variable", new[] { "variable" },
                     "buttonText", "autoCloseMs", "target"),
                 SemanticShape(operationProperties, "config.placeholder", new[] { "message" }),
-                SemanticShape(operationProperties, "io.write", new[] { "io", "state" }, "beforeMs", "afterMs"),
+                SemanticShape(operationProperties, "io.write", new[] { "outputs" }),
                 SemanticShape(operationProperties, "io.wait", new[] { "conditions", "timeoutMs" }, "onFailure"),
                 SemanticShape(operationProperties, "process.control", Array.Empty<string>(), "process", "action", "afterMs"),
                 SemanticShape(operationProperties, "process.wait", Array.Empty<string>(), "process", "expectedState", "timeoutMs", "afterMs"),
@@ -263,6 +296,123 @@ namespace Automation.McpServer
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
         }
 
+        private static void ApplyVariableChangeScopeSchema(JsonObject root)
+        {
+            JsonObject? variableSchema = FindVariableChangeSchema(root);
+            if (variableSchema?["properties"] is not JsonObject properties
+                || properties["scope"] is not JsonObject scopeSchema)
+            {
+                throw new InvalidOperationException("preview_change_set 生成Schema缺少变量scope定义。");
+            }
+            scopeSchema["enum"] = new JsonArray(
+                VariableScopeContract.Public,
+                VariableScopeContract.Process,
+                VariableScopeContract.System);
+            JsonArray required = variableSchema["required"] as JsonArray ?? new JsonArray();
+            if (!required.Any(item => string.Equals(item?.GetValue<string>(), "scope", StringComparison.Ordinal)))
+            {
+                required.Add("scope");
+            }
+            variableSchema["required"] = required;
+            variableSchema["allOf"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["if"] = new JsonObject
+                    {
+                        ["properties"] = new JsonObject { ["scope"] = new JsonObject { ["const"] = VariableScopeContract.Process } },
+                        ["required"] = new JsonArray("scope")
+                    },
+                    ["then"] = new JsonObject { ["required"] = new JsonArray("ownerProcess") }
+                },
+                new JsonObject
+                {
+                    ["if"] = new JsonObject
+                    {
+                        ["properties"] = new JsonObject
+                        {
+                            ["scope"] = new JsonObject
+                            {
+                                ["enum"] = new JsonArray(VariableScopeContract.Public, VariableScopeContract.System)
+                            }
+                        },
+                        ["required"] = new JsonArray("scope")
+                    },
+                    ["then"] = new JsonObject
+                    {
+                        ["not"] = new JsonObject { ["required"] = new JsonArray("ownerProcess") }
+                    }
+                }
+            };
+            JsonObject? processSelectorSchema = FindProcessSelectorSchema(root);
+            if (processSelectorSchema == null)
+            {
+                throw new InvalidOperationException("preview_change_set 生成Schema缺少流程选择器定义。");
+            }
+            processSelectorSchema.Remove("required");
+            processSelectorSchema["oneOf"] = new JsonArray(
+                new JsonObject { ["required"] = new JsonArray("procId") },
+                new JsonObject { ["required"] = new JsonArray("name") },
+                new JsonObject { ["required"] = new JsonArray("key") });
+        }
+
+        private static JsonObject? FindProcessSelectorSchema(JsonNode? node)
+        {
+            if (node is JsonObject obj)
+            {
+                if (obj["properties"] is JsonObject properties
+                    && properties.ContainsKey("procId")
+                    && properties.ContainsKey("name")
+                    && properties.ContainsKey("key"))
+                {
+                    return obj;
+                }
+                foreach (KeyValuePair<string, JsonNode?> property in obj)
+                {
+                    JsonObject? found = FindProcessSelectorSchema(property.Value);
+                    if (found != null) return found;
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (JsonNode? item in array)
+                {
+                    JsonObject? found = FindProcessSelectorSchema(item);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
+        private static JsonObject? FindVariableChangeSchema(JsonNode? node)
+        {
+            if (node is JsonObject obj)
+            {
+                if (obj["properties"] is JsonObject properties
+                    && properties.ContainsKey("policy")
+                    && properties.ContainsKey("name")
+                    && properties.ContainsKey("scope")
+                    && properties.ContainsKey("ownerProcess"))
+                {
+                    return obj;
+                }
+                foreach (KeyValuePair<string, JsonNode?> property in obj)
+                {
+                    JsonObject? found = FindVariableChangeSchema(property.Value);
+                    if (found != null) return found;
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (JsonNode? item in array)
+                {
+                    JsonObject? found = FindVariableChangeSchema(item);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
         private static void ApplyNumericRange(
             JsonObject operationSchema, string fieldName, int minimum, int maximum)
         {
@@ -284,6 +434,19 @@ namespace Automation.McpServer
                 throw new InvalidOperationException("preview_change_set 参数Schema缺少conditions字段定义。");
             }
             conditionsSchema["minItems"] = 1;
+            itemSchema["required"] = new JsonArray("io", "state");
+            itemSchema["additionalProperties"] = false;
+        }
+
+        private static void ApplyIoOutputsSchema(JsonObject operationSchema)
+        {
+            if (operationSchema["properties"] is not JsonObject properties
+                || properties["outputs"] is not JsonObject outputsSchema
+                || outputsSchema["items"] is not JsonObject itemSchema)
+            {
+                throw new InvalidOperationException("preview_change_set 参数Schema缺少outputs字段定义。");
+            }
+            outputsSchema["minItems"] = 1;
             itemSchema["required"] = new JsonArray("io", "state");
             itemSchema["additionalProperties"] = false;
         }

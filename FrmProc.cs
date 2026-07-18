@@ -37,7 +37,6 @@ namespace Automation
         public int SelectedStepNum { get; set; }
 
         private static readonly Color DisabledNodeColor = Color.Gainsboro;
-        private const string DisabledTag = "[禁用]";
         private readonly object procNodeMapLock = new object();
         private readonly Dictionary<Guid, TreeNode> procNodeMap = new Dictionary<Guid, TreeNode>();
         private readonly Dictionary<Guid, int> procIndexMap = new Dictionary<Guid, int>();
@@ -288,8 +287,12 @@ namespace Automation
             AddProcStateImage("proc-alarm", ProcTreeIconKind.Alarming);
             AddProcStateImage("proc-pausing", ProcTreeIconKind.Pausing);
             AddProcStateImage("proc-stopping", ProcTreeIconKind.Stopping);
+            AddProcStateImage("proc-empty", ProcTreeIconKind.EmptyProc);
+            AddProcStateImage("proc-empty-disabled", ProcTreeIconKind.EmptyProcDisabled);
             AddProcStateImage("disabled", ProcTreeIconKind.Disabled);
             AddProcStateImage("step", ProcTreeIconKind.Step);
+            AddProcStateImage("step-empty", ProcTreeIconKind.EmptyStep);
+            AddProcStateImage("step-empty-disabled", ProcTreeIconKind.EmptyStepDisabled);
             AddProcStateImage("step-running", ProcTreeIconKind.StepRunning);
             AddProcStateImage("step-paused", ProcTreeIconKind.StepPaused);
             AddProcStateImage("step-single", ProcTreeIconKind.StepSingle);
@@ -341,9 +344,14 @@ namespace Automation
 
         private static string GetProcImageKey(Proc proc, EngineSnapshot snapshot)
         {
+            bool empty = (proc?.steps?.Count ?? 0) == 0;
             if (proc?.head?.Disable == true)
             {
-                return "disabled";
+                return empty ? "proc-empty-disabled" : "disabled";
+            }
+            if (empty)
+            {
+                return "proc-empty";
             }
             switch (snapshot?.State ?? ProcRunState.Stopped)
             {
@@ -366,13 +374,14 @@ namespace Automation
 
         private static string GetStepImageKey(Proc proc, Step step, int stepIndex, EngineSnapshot snapshot)
         {
+            bool empty = (step?.Ops?.Count ?? 0) == 0;
             if (proc?.head?.Disable == true || step?.Disable == true)
             {
-                return "disabled";
+                return empty ? "step-empty-disabled" : "disabled";
             }
             if (snapshot == null || snapshot.State == ProcRunState.Stopped || snapshot.StepIndex != stepIndex)
             {
-                return "step";
+                return empty ? "step-empty" : "step";
             }
             switch (snapshot.State)
             {
@@ -487,9 +496,9 @@ namespace Automation
             }
             return true;
         }
-        public bool RebuildWorkConfig(int startIndex = 0)
+        public bool RebuildWorkConfig(int StartIndex = 0)
         {
-            bool success = ProcessConfigStore.Rebuild(SF.workPath, procsList, startIndex,
+            bool success = ProcessConfigStore.Rebuild(SF.workPath, procsList, StartIndex,
                 out string error, out bool rollbackFailed);
             if (!success)
             {
@@ -571,7 +580,10 @@ namespace Automation
                 Proc proc = null;
                 if (indexMap.ContainsKey(i))
                 {
-                    proc = AtomicJsonFileStore.Read<Proc>(SF.workPath, i.ToString());
+                    proc = AtomicJsonFileStore.Read<Proc>(
+                        SF.workPath,
+                        i.ToString(),
+                        ProcessDefinitionService.CreateStrictJsonSettings());
                 }
                 if (proc == null)
                 {
@@ -613,7 +625,7 @@ namespace Automation
                     for (int j = 0; j < proc.steps.Count; j++)
                     {
                         Step step = proc.steps[j];
-                        TreeNode chnode = new TreeNode(BuildStepNodeText(i, j, proc, step))
+                        TreeNode chnode = new TreeNode(BuildStepNodeText(i, j, step))
                         {
                             NodeFont = stepNodeFont
                         };
@@ -668,6 +680,7 @@ namespace Automation
                 SF.StopAllProcs(reason);
                 MessageBox.Show(reason, "流程配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+            SF.mainfrm?.RefreshProcessFlowGraph();
         }
 
         /// <summary>
@@ -722,7 +735,7 @@ namespace Automation
                     for (int i = 0; i < stepCount; i++)
                     {
                         Step step = proc.steps[i];
-                        var stepNode = new TreeNode(BuildStepNodeText(procIndex, i, proc, step))
+                        var stepNode = new TreeNode(BuildStepNodeText(procIndex, i, step))
                         {
                             Tag = step?.Id ?? Guid.Empty,
                             NodeFont = stepNodeFont,
@@ -738,7 +751,7 @@ namespace Automation
                     for (int i = 0; i < stepCount; i++)
                     {
                         Step step = proc.steps[i];
-                        procNode.Nodes[i].Text = BuildStepNodeText(procIndex, i, proc, step);
+                        procNode.Nodes[i].Text = BuildStepNodeText(procIndex, i, step);
                         procNode.Nodes[i].NodeFont = stepNodeFont;
                         procNode.Nodes[i].ForeColor = proc?.head?.Disable == true || step?.Disable == true
                             ? DisabledNodeColor
@@ -770,6 +783,7 @@ namespace Automation
                 RefreshCurrentBinding();
             }
             UpdateProcStateIcons(procIndex, SF.DR?.GetSnapshot(procIndex));
+            SF.mainfrm?.RefreshProcessFlowGraph();
         }
 
         private void RestoreTreeState(Guid selectedProcId, Guid selectedStepId, Guid topProcId, HashSet<Guid> expandedProcIds)
@@ -1095,10 +1109,20 @@ namespace Automation
                 {
                     procName = $"索引{procIndex}";
                 }
+                Guid procId = procsList[procIndex]?.head?.Id ?? Guid.Empty;
+                List<DicValue> ownedVariables = SF.valueStore?.GetValuesSnapshot()
+                    .Where(value => value != null
+                        && ValueConfigStore.IsProcessValue(value)
+                        && value.OwnerProcId == procId)
+                    .ToList() ?? new List<DicValue>();
+                string ownedVariableText = ownedVariables.Count == 0
+                    ? string.Empty
+                    : $"\r\n同时删除{ownedVariables.Count}个私有变量："
+                        + string.Join("、", ownedVariables.Select(value => value.Name));
                 bool confirmed = false;
                 new Message(
                     "删除流程",
-                    $"确定删除流程【{procName}】？\r\n删除后无法恢复。",
+                    $"确定删除流程【{procName}】？{ownedVariableText}\r\n删除后无法恢复。",
                     () => confirmed = true,
                     null,
                     "删除",
@@ -1112,9 +1136,16 @@ namespace Automation
                 {
                     return;
                 }
-                procsList.RemoveAt(procIndex);
-                if (!RebuildWorkConfig(procIndex))
+                List<Proc> draftProcesses = procsList.Select(ObjectGraphCloner.Clone).ToList();
+                Guid deletedProcId = draftProcesses[procIndex]?.head?.Id ?? Guid.Empty;
+                draftProcesses.RemoveAt(procIndex);
+                Dictionary<string, DicValue> draftVariables = SF.valueStore.BuildSaveData();
+                ProcessVariableLifecycleService.RemoveOwnedVariables(
+                    draftVariables, new[] { deletedProcId });
+                if (!TryCommitProcessVariableConfiguration(
+                    draftProcesses, draftVariables, "删除流程", out string deleteError))
                 {
+                    MessageBox.Show(deleteError, "删除流程失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
             }
@@ -1424,6 +1455,11 @@ namespace Automation
                     return;
                 }
                 int procIndex = SelectedProcNum;
+                if (!SF.DR.TryValidateProcessStopped(procIndex, out string stateError))
+                {
+                    MessageBox.Show(stateError, "流程尚未结束", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
                 string procName = procsList[procIndex]?.head?.Name;
                 if (string.IsNullOrWhiteSpace(procName))
                 {
@@ -1431,7 +1467,17 @@ namespace Automation
                 }
                 string message = $"确认启动流程：{procIndex}-{procName}";
                 Message confirmForm = new Message("启动确认", message,
-                    () => SF.DR.StartProc(null, procIndex),
+                    () =>
+                    {
+                        if (SF.DR.StartProc(null, procIndex))
+                        {
+                            return;
+                        }
+                        string error = SF.DR.TryValidateProcessStopped(procIndex, out string stoppedError)
+                            ? "流程启动请求未被内核接受，请查看流程日志。"
+                            : stoppedError;
+                        MessageBox.Show(error, "流程启动失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    },
                     () => { },
                     "启动", "取消", false);
                 confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
@@ -1569,6 +1615,18 @@ namespace Automation
                 insertIndex = procsList.Count;
             }
             ProcessEditingService.AdaptGotoProcIndex(newProc, insertIndex);
+            Dictionary<string, DicValue> draftVariables = SF.valueStore.BuildSaveData();
+            ProcessVariableCopyResult variableCopy;
+            try
+            {
+                variableCopy = ProcessVariableLifecycleService.CopyPrivateVariables(
+                    clipboardProc.head.Id, newProc.head.Id, newProc, draftVariables);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "复制流程失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
             List<string> errors = new List<string>();
             ProcessDefinitionService.NormalizeProc(insertIndex, newProc, errors);
             if (errors.Count > 0)
@@ -1576,12 +1634,81 @@ namespace Automation
                 MessageBox.Show(string.Join("\r\n", errors.Distinct()));
                 return;
             }
-            procsList.Insert(insertIndex, newProc);
-            if (!RebuildWorkConfig(insertIndex))
+            if (variableCopy.Mappings.Count > 0)
             {
+                string mappingText = string.Join("\r\n", variableCopy.Mappings.Select(mapping =>
+                    $"{mapping.SourceName}[{mapping.SourceIndex}] → {mapping.Name}[{mapping.Index}]"));
+                string warningText = variableCopy.Warnings.Count == 0
+                    ? string.Empty
+                    : "\r\n\r\n警告：\r\n" + string.Join("\r\n", variableCopy.Warnings);
+                if (MessageBox.Show(
+                    "将复制以下私有变量并改写可确定引用：\r\n" + mappingText + warningText,
+                    "确认复制流程变量",
+                    MessageBoxButtons.OKCancel,
+                    variableCopy.Warnings.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning)
+                    != DialogResult.OK)
+                {
+                    return;
+                }
+            }
+            List<Proc> draftProcesses = procsList.Select(ObjectGraphCloner.Clone).ToList();
+            draftProcesses.Insert(insertIndex, newProc);
+            if (!TryCommitProcessVariableConfiguration(
+                draftProcesses, draftVariables, "复制流程", out string copyError))
+            {
+                MessageBox.Show(copyError, "复制流程失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             SelectProcNode(insertIndex, -1);
+        }
+
+        private bool TryCommitProcessVariableConfiguration(
+            IList<Proc> processes,
+            IDictionary<string, DicValue> variables,
+            string actionName,
+            out string error)
+        {
+            error = null;
+            List<Proc> oldProcesses = procsList.Select(ObjectGraphCloner.Clone).ToList();
+            Dictionary<string, DicValue> oldVariables = SF.valueStore.BuildSaveData();
+            if (!AiConfigurationTransaction.Commit(
+                SF.ConfigPath, processes, variables, out error, out bool rollbackFailed))
+            {
+                if (rollbackFailed) SF.SetSecurityLock(error);
+                return false;
+            }
+            try
+            {
+                RefreshProcList();
+                ValueConfigStore.ValidateProcessOwners(variables.Values, procsList);
+                SF.valueStore.ReplaceConfiguration(variables);
+                SF.frmValue?.FreshFrmValue();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                bool diskRestored = AiConfigurationTransaction.Commit(
+                    SF.ConfigPath, oldProcesses, oldVariables,
+                    out string restoreError, out bool restoreRollbackFailed);
+                bool memoryRestored = true;
+                try
+                {
+                    RefreshProcList();
+                    SF.valueStore.ReplaceConfiguration(oldVariables);
+                    SF.frmValue?.FreshFrmValue();
+                }
+                catch
+                {
+                    memoryRestored = false;
+                }
+                error = $"{actionName}提交后刷新失败：{ex.Message}";
+                if (!diskRestored || !memoryRestored || restoreRollbackFailed)
+                {
+                    error += $"；回滚不完整：{restoreError}";
+                    SF.SetSecurityLock(error);
+                }
+                return false;
+            }
         }
 
         private void PasteStep()
@@ -1883,8 +2010,7 @@ namespace Automation
                 return string.Empty;
             }
             Step step = procsList[procIndex].steps[stepIndex];
-            Proc proc = procsList[procIndex];
-            return BuildStepNodeText(procIndex, stepIndex, proc, step);
+            return BuildStepNodeText(procIndex, stepIndex, step);
         }
 
         private string BuildProcNodeText(int procIndex, Proc proc)
@@ -1894,8 +2020,7 @@ namespace Automation
                 return string.Empty;
             }
             string procName = ResolveProcName(procIndex, proc, null);
-            bool disabled = proc?.head?.Disable == true;
-            return BuildProcNodeTextCore(procIndex, procName, disabled, string.Empty);
+            return BuildProcNodeTextCore(procIndex, procName, string.Empty);
         }
 
         internal string BuildProcNodeTextWithState(int procIndex, Proc proc, EngineSnapshot snapshot)
@@ -1905,17 +2030,8 @@ namespace Automation
                 return string.Empty;
             }
             string procName = ResolveProcName(procIndex, proc, snapshot);
-            bool disabled = proc?.head?.Disable == true;
-            string suffix = string.Empty;
-            if (snapshot != null)
-            {
-                suffix = $"|{GetProcStateText(snapshot.State)}";
-                if (snapshot.IsBreakpoint)
-                {
-                    suffix += "|断点";
-                }
-            }
-            return BuildProcNodeTextCore(procIndex, procName, disabled, suffix);
+            string suffix = snapshot?.IsBreakpoint == true ? "|断点" : string.Empty;
+            return BuildProcNodeTextCore(procIndex, procName, suffix);
         }
 
         internal bool TryGetProcNode(Guid procId, out TreeNode node, out int procIndex)
@@ -1939,15 +2055,14 @@ namespace Automation
             return false;
         }
 
-        private string BuildProcNodeTextCore(int procIndex, string procName, bool disabled, string suffix)
+        private string BuildProcNodeTextCore(int procIndex, string procName, string suffix)
         {
             if (procIndex < 0)
             {
                 return string.Empty;
             }
             string safeName = string.IsNullOrWhiteSpace(procName) ? $"流程{procIndex}" : procName;
-            string tag = disabled ? DisabledTag : string.Empty;
-            string text = $"{procIndex}：{tag}{safeName}";
+            string text = $"{procIndex}：{safeName}";
             if (!string.IsNullOrWhiteSpace(suffix))
             {
                 text += suffix;
@@ -1965,39 +2080,14 @@ namespace Automation
             return name;
         }
 
-        private static string GetProcStateText(ProcRunState state)
-        {
-            switch (state)
-            {
-                case ProcRunState.Stopped:
-                    return "停止";
-                case ProcRunState.Paused:
-                    return "暂停";
-                case ProcRunState.SingleStep:
-                    return "单步";
-                case ProcRunState.Running:
-                    return "运行";
-                case ProcRunState.Alarming:
-                    return "报警中";
-                case ProcRunState.Pausing:
-                    return "暂停中";
-                case ProcRunState.Stopping:
-                    return "停止中";
-                default:
-                    return "未知";
-            }
-        }
-
-        private string BuildStepNodeText(int procIndex, int stepIndex, Proc proc, Step step)
+        private string BuildStepNodeText(int procIndex, int stepIndex, Step step)
         {
             if (procIndex < 0 || stepIndex < 0)
             {
                 return string.Empty;
             }
             string stepName = string.IsNullOrWhiteSpace(step?.Name) ? $"步骤{stepIndex}" : step.Name;
-            bool disabled = proc?.head?.Disable == true || step?.Disable == true;
-            string tag = disabled ? DisabledTag : string.Empty;
-            return $"{stepIndex}：{tag}{stepName}";
+            return $"{stepIndex}：{stepName}";
         }
         public Tuple<int, int, int> FindOperationTypeIndex(OperationType hash)
         {

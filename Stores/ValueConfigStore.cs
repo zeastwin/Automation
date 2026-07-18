@@ -27,11 +27,12 @@ namespace Automation
         private readonly Dictionary<string, int> nameIndex = new Dictionary<string, int>();
         private volatile Dictionary<string, int> nameIndexSnapshot = new Dictionary<string, int>();
         private readonly object monitorLock = new object();
-        private readonly bool[] monitorFlags = new bool[ValueCapacity];
+        private readonly HashSet<Guid> monitoredVariableIds = new HashSet<Guid>();
         private volatile bool monitorEnabled;
 
-        private sealed class RuntimeValueState
+        private sealed class CurrentValueState
         {
+            public Guid Id { get; set; }
             public string Value { get; set; }
             public DateTime LastChangedAt { get; set; }
             public string LastChangedBy { get; set; }
@@ -40,6 +41,8 @@ namespace Automation
         }
 
         public event EventHandler<ValueChangedEventArgs> ValueChanged;
+
+        public bool ConfigurationFaulted { get; private set; }
 
         public ValueConfigStore()
         {
@@ -56,15 +59,39 @@ namespace Automation
             return VariableIndexContract.IsSystemIndex(index);
         }
 
+        public static bool IsProcessValue(DicValue value)
+        {
+            return value != null
+                && string.Equals(value.Scope, VariableScopeContract.Process, StringComparison.Ordinal);
+        }
+
+        public static bool CanProcessAccess(DicValue value, Guid procId)
+        {
+            if (value == null)
+            {
+                return false;
+            }
+            return !IsProcessValue(value) || procId != Guid.Empty && value.OwnerProcId == procId;
+        }
+
         public void SetMonitorFlag(int index, bool isMonitored)
         {
             if (index < 0 || index >= ValueCapacity)
             {
                 return;
             }
+            Guid id;
+            lock (valueLock) id = values[index]?.Id ?? Guid.Empty;
+            SetMonitorFlag(id, isMonitored);
+        }
+
+        public void SetMonitorFlag(Guid variableId, bool isMonitored)
+        {
+            if (variableId == Guid.Empty) return;
             lock (monitorLock)
             {
-                monitorFlags[index] = isMonitored;
+                if (isMonitored) monitoredVariableIds.Add(variableId);
+                else monitoredVariableIds.Remove(variableId);
             }
         }
 
@@ -79,14 +106,14 @@ namespace Automation
             {
                 return false;
             }
-            lock (monitorLock)
-            {
-                return monitorFlags[index];
-            }
+            Guid id;
+            lock (valueLock) id = values[index]?.Id ?? Guid.Empty;
+            lock (monitorLock) return id != Guid.Empty && monitoredVariableIds.Contains(id);
         }
 
-        public bool Load(string configPath)
+        public bool Load(string configPath, IEnumerable<Proc> processes = null)
         {
+            ConfigurationFaulted = false;
             if (!Directory.Exists(configPath))
             {
                 Directory.CreateDirectory(configPath);
@@ -97,6 +124,7 @@ namespace Automation
                 ResetValues();
                 if (!Save(configPath))
                 {
+                    ConfigurationFaulted = true;
                     SF.SetSecurityLock("变量配置初始化保存失败");
                 }
                 return false;
@@ -107,14 +135,18 @@ namespace Automation
                 Dictionary<string, DicValue> temp = AtomicJsonFileStore.Read<Dictionary<string, DicValue>>(configPath, "value");
                 if (temp == null)
                 {
+                    ConfigurationFaulted = true;
                     SF.SetSecurityLock("变量配置及其备份均无法读取，已保留原文件并禁止继续运行");
                     return false;
                 }
-                LoadFromDictionary(temp);
+                Dictionary<string, DicValue> snapshot = CreateValidatedConfigurationSnapshot(temp);
+                ValidateProcessOwners(snapshot.Values, processes);
+                LoadFromDictionary(snapshot);
                 return true;
             }
             catch (Exception e)
             {
+                ConfigurationFaulted = true;
                 SF.DR?.Logger?.Log($"变量配置加载失败:{e}", LogLevel.Error);
                 SF.SetSecurityLock($"变量配置加载失败:{e.Message}");
                 return false;
@@ -143,9 +175,11 @@ namespace Automation
                 {
                     Index = i,
                     Type = "double",
-                    ConfigValue = "0"
+                    Value = "0",
+                    Scope = IsSystemValueIndex(i)
+                        ? VariableScopeContract.System
+                        : VariableScopeContract.Public
                 };
-                values[i].ResetRuntimeFromConfig();
             }
             nameIndex.Clear();
             nameIndexSnapshot = new Dictionary<string, int>();
@@ -153,7 +187,7 @@ namespace Automation
 
         private void LoadFromDictionary(
             Dictionary<string, DicValue> source,
-            IReadOnlyDictionary<string, RuntimeValueState> preservedRuntimeValues = null)
+            IReadOnlyDictionary<string, CurrentValueState> preservedCurrentValues = null)
         {
             lock (valueLock)
             {
@@ -182,6 +216,7 @@ namespace Automation
                         throw new InvalidDataException(
                             $"系统保留变量[{item.Key}]必须位于索引范围 [{SystemValueStartIndex}, {ValueCapacity})。");
                     }
+                    ValidateScope(item.Key, item.Value);
                     if (!string.IsNullOrEmpty(values[index].Name))
                     {
                         continue;
@@ -191,15 +226,15 @@ namespace Automation
                     {
                         item.Value.Type = "string";
                     }
-                    item.Value.ResetRuntimeFromConfig();
-                    if (preservedRuntimeValues != null
-                        && preservedRuntimeValues.TryGetValue(item.Key, out RuntimeValueState runtimeState))
+                    if (preservedCurrentValues != null
+                        && item.Value.Id != Guid.Empty
+                        && preservedCurrentValues.TryGetValue(item.Value.Id.ToString("D"), out CurrentValueState currentState))
                     {
-                        item.Value.Value = runtimeState.Value;
-                        item.Value.LastChangedAt = runtimeState.LastChangedAt;
-                        item.Value.LastChangedBy = runtimeState.LastChangedBy;
-                        item.Value.LastChangedOldValue = runtimeState.LastChangedOldValue;
-                        item.Value.LastChangedNewValue = runtimeState.LastChangedNewValue;
+                        item.Value.Value = currentState.Value;
+                        item.Value.LastChangedAt = currentState.LastChangedAt;
+                        item.Value.LastChangedBy = currentState.LastChangedBy;
+                        item.Value.LastChangedOldValue = currentState.LastChangedOldValue;
+                        item.Value.LastChangedNewValue = currentState.LastChangedNewValue;
                     }
                     values[index] = item.Value;
                     nameIndex[item.Key] = index;
@@ -236,6 +271,28 @@ namespace Automation
             return GetValueByIndex(index);
         }
 
+        public DicValue GetValueByNameForProcess(string key, Guid procId)
+        {
+            DicValue value = GetValueByName(key);
+            if (!CanProcessAccess(value, procId))
+            {
+                throw new InvalidOperationException(
+                    $"流程无权访问其他流程的私有变量:{key}");
+            }
+            return value;
+        }
+
+        public DicValue GetValueByIndexForProcess(int index, Guid procId)
+        {
+            DicValue value = GetValueByIndex(index);
+            if (!CanProcessAccess(value, procId))
+            {
+                throw new InvalidOperationException(
+                    $"流程无权访问其他流程的私有变量索引:{index}");
+            }
+            return value;
+        }
+
         public bool TryGetValueByIndex(int index, out DicValue value)
         {
             value = null;
@@ -267,6 +324,26 @@ namespace Automation
             return TryGetValueByIndex(index, out value);
         }
 
+        public bool TryGetValueByNameForProcess(string key, Guid procId, out DicValue value)
+        {
+            if (!TryGetValueByName(key, out value) || !CanProcessAccess(value, procId))
+            {
+                value = null;
+                return false;
+            }
+            return true;
+        }
+
+        public bool TryGetValueByIndexForProcess(int index, Guid procId, out DicValue value)
+        {
+            if (!TryGetValueByIndex(index, out value) || !CanProcessAccess(value, procId))
+            {
+                value = null;
+                return false;
+            }
+            return true;
+        }
+
         public List<string> GetValueNames()
         {
             Dictionary<string, int> snapshot = nameIndexSnapshot;
@@ -291,10 +368,22 @@ namespace Automation
             return data;
         }
 
+        public List<DicValue> GetValuesSnapshot()
+        {
+            lock (valueLock)
+            {
+                return nameIndex.Values
+                    .Select(index => values[index])
+                    .Where(value => value != null && !string.IsNullOrEmpty(value.Name))
+                    .Select(ObjectGraphCloner.Clone)
+                    .OrderBy(value => value.Index)
+                    .ToList();
+            }
+        }
+
         /// <summary>
         /// 在配置事务已经落盘后，用同一份已校验快照替换内存变量表。
-        /// 同一变量保留当前运行值，防止配置编辑把整张变量表重置到配置值。
-        /// initialValue 只属于配置；新建、改名、改类型或改索引的变量才从新配置初始化运行值。
+        /// 同一变量按稳定ID保留当前值，名称、类型、作用域、归属和索引变化不改变该值。
         /// 不在此方法内保存文件，避免把事务拆成第二次独立写入。
         /// </summary>
         public void ReplaceConfiguration(IDictionary<string, DicValue> source)
@@ -302,24 +391,23 @@ namespace Automation
             Dictionary<string, DicValue> snapshot = CreateValidatedConfigurationSnapshot(source);
             lock (valueLock)
             {
-                var preservedRuntimeValues = new Dictionary<string, RuntimeValueState>(StringComparer.Ordinal);
-                foreach (KeyValuePair<string, DicValue> item in snapshot)
+                var preservedCurrentValues = new Dictionary<string, CurrentValueState>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, int> currentEntry in nameIndex)
                 {
-                    if (!nameIndex.TryGetValue(item.Key, out int currentIndex))
-                    {
-                        continue;
-                    }
-                    DicValue current = values[currentIndex];
-                    DicValue incoming = item.Value;
+                    DicValue current = values[currentEntry.Value];
                     if (current == null
-                        || current.Index != incoming.Index
-                        || !string.Equals(current.Name, item.Key, StringComparison.Ordinal)
-                        || !string.Equals(current.Type, incoming.Type, StringComparison.Ordinal))
+                        || current.Id == Guid.Empty)
                     {
                         continue;
                     }
-                    preservedRuntimeValues[item.Key] = new RuntimeValueState
+                    DicValue incoming = snapshot.Values.FirstOrDefault(value => value != null && value.Id == current.Id);
+                    if (incoming == null)
                     {
+                        continue;
+                    }
+                    preservedCurrentValues[current.Id.ToString("D")] = new CurrentValueState
+                    {
+                        Id = current.Id,
                         Value = current.Value,
                         LastChangedAt = current.LastChangedAt,
                         LastChangedBy = current.LastChangedBy,
@@ -327,7 +415,7 @@ namespace Automation
                         LastChangedNewValue = current.LastChangedNewValue
                     };
                 }
-                LoadFromDictionary(snapshot, preservedRuntimeValues);
+                LoadFromDictionary(snapshot, preservedCurrentValues);
             }
         }
 
@@ -339,23 +427,24 @@ namespace Automation
             string configPath,
             IDictionary<string, DicValue> source,
             out string error,
-            IReadOnlyDictionary<string, string> runtimeValueOverrides = null,
-            string runtimeValueSource = null)
+            IReadOnlyDictionary<string, string> currentValueOverrides = null,
+            string currentValueSource = null)
         {
             error = null;
             Dictionary<string, DicValue> snapshot;
             try
             {
                 snapshot = CreateValidatedConfigurationSnapshot(source);
-                if (runtimeValueOverrides != null)
+                ValidateProcessOwners(snapshot.Values, SF.frmProc?.procsList);
+                if (currentValueOverrides != null)
                 {
-                    foreach (KeyValuePair<string, string> item in runtimeValueOverrides)
+                    foreach (KeyValuePair<string, string> item in currentValueOverrides)
                     {
                         if (!snapshot.TryGetValue(item.Key, out DicValue variable))
                         {
-                            throw new InvalidDataException($"运行值目标变量不存在：{item.Key}");
+                            throw new InvalidDataException($"当前值目标变量不存在：{item.Key}");
                         }
-                        if (!TryValidateRuntimeValue(variable, item.Value, out string validationError))
+                        if (!TryValidateCurrentValue(variable, item.Value, out string validationError))
                         {
                             throw new InvalidDataException(validationError);
                         }
@@ -369,7 +458,7 @@ namespace Automation
             }
 
             Dictionary<string, DicValue> oldConfiguration = BuildSaveData();
-            Dictionary<string, RuntimeValueState> oldRuntimeValues = CaptureRuntimeValueStates();
+            Dictionary<string, CurrentValueState> oldCurrentValues = CaptureCurrentValueStates();
             if (!AtomicJsonFileStore.Save(configPath, "value", snapshot))
             {
                 error = "变量配置写入磁盘失败。";
@@ -378,16 +467,17 @@ namespace Automation
             try
             {
                 ReplaceConfiguration(snapshot);
-                if (runtimeValueOverrides != null)
+                if (currentValueOverrides != null)
                 {
-                    foreach (KeyValuePair<string, string> item in runtimeValueOverrides)
+                    foreach (KeyValuePair<string, string> item in currentValueOverrides)
                     {
-                        if (!setValueByName(item.Key, item.Value, runtimeValueSource))
+                        if (!setValueByName(item.Key, item.Value, currentValueSource))
                         {
-                            throw new InvalidOperationException($"变量[{item.Key}]运行值更新失败。");
+                            throw new InvalidOperationException($"变量[{item.Key}]当前值更新失败。");
                         }
                     }
                 }
+                ConfigurationFaulted = false;
                 return true;
             }
             catch (Exception ex)
@@ -397,7 +487,7 @@ namespace Automation
                 try
                 {
                     ReplaceConfiguration(oldConfiguration);
-                    RestoreRuntimeValueStates(oldRuntimeValues);
+                    RestoreCurrentValueStates(oldCurrentValues);
                 }
                 catch
                 {
@@ -412,9 +502,9 @@ namespace Automation
             }
         }
 
-        private Dictionary<string, RuntimeValueState> CaptureRuntimeValueStates()
+        private Dictionary<string, CurrentValueState> CaptureCurrentValueStates()
         {
-            var snapshot = new Dictionary<string, RuntimeValueState>(StringComparer.Ordinal);
+            var snapshot = new Dictionary<string, CurrentValueState>(StringComparer.Ordinal);
             lock (valueLock)
             {
                 foreach (KeyValuePair<string, int> item in nameIndex)
@@ -424,8 +514,13 @@ namespace Automation
                     {
                         continue;
                     }
-                    snapshot[item.Key] = new RuntimeValueState
+                    if (value.Id == Guid.Empty)
                     {
+                        continue;
+                    }
+                    snapshot[value.Id.ToString("D")] = new CurrentValueState
+                    {
+                        Id = value.Id,
                         Value = value.Value,
                         LastChangedAt = value.LastChangedAt,
                         LastChangedBy = value.LastChangedBy,
@@ -437,7 +532,7 @@ namespace Automation
             return snapshot;
         }
 
-        private void RestoreRuntimeValueStates(IReadOnlyDictionary<string, RuntimeValueState> source)
+        private void RestoreCurrentValueStates(IReadOnlyDictionary<string, CurrentValueState> source)
         {
             if (source == null)
             {
@@ -445,14 +540,16 @@ namespace Automation
             }
             lock (valueLock)
             {
-                foreach (KeyValuePair<string, RuntimeValueState> item in source)
+                foreach (KeyValuePair<string, CurrentValueState> item in source)
                 {
-                    if (!nameIndex.TryGetValue(item.Key, out int index))
+                    DicValue value = values.FirstOrDefault(candidate =>
+                        candidate != null && !string.IsNullOrEmpty(candidate.Name)
+                        && candidate.Id == item.Value.Id);
+                    if (value == null)
                     {
                         continue;
                     }
-                    DicValue value = values[index];
-                    RuntimeValueState state = item.Value;
+                    CurrentValueState state = item.Value;
                     value.Value = state.Value;
                     value.LastChangedAt = state.LastChangedAt;
                     value.LastChangedBy = state.LastChangedBy;
@@ -468,6 +565,7 @@ namespace Automation
             if (source == null) throw new ArgumentNullException(nameof(source));
             var snapshot = new Dictionary<string, DicValue>(StringComparer.Ordinal);
             var indexes = new HashSet<int>();
+            var ids = new HashSet<Guid>();
             foreach (KeyValuePair<string, DicValue> item in source)
             {
                 if (string.IsNullOrWhiteSpace(item.Key) || item.Value == null)
@@ -478,6 +576,20 @@ namespace Automation
                 {
                     throw new InvalidDataException($"变量[{item.Key}]索引超出范围：{item.Value.Index}");
                 }
+                if (item.Value.Id == Guid.Empty)
+                {
+                    throw new InvalidDataException($"变量[{item.Key}]缺少稳定ID。");
+                }
+                if (!string.Equals(item.Value.Name, item.Key, StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        $"变量字典键[{item.Key}]与对象名称[{item.Value.Name ?? "空"}]不一致。");
+                }
+                if (!ids.Add(item.Value.Id))
+                {
+                    throw new InvalidDataException($"变量配置包含重复稳定ID：{item.Value.Id:D}");
+                }
+                ValidateScope(item.Key, item.Value);
                 if (ProtectedValueNames.Contains(item.Key) && !IsSystemValueIndex(item.Value.Index))
                 {
                     throw new InvalidDataException(
@@ -492,10 +604,14 @@ namespace Automation
                 {
                     throw new InvalidDataException($"变量[{item.Key}]类型无效：{item.Value.Type}");
                 }
-                if (string.Equals(item.Value.Type, "double", StringComparison.Ordinal)
-                    && !double.TryParse(item.Value.ConfigValue, out _))
+                if (item.Value.Value == null)
                 {
-                    throw new InvalidDataException($"变量[{item.Key}]配置值不是有效数字：{item.Value.ConfigValue}");
+                    throw new InvalidDataException($"变量[{item.Key}]当前值不能为null。");
+                }
+                if (string.Equals(item.Value.Type, "double", StringComparison.Ordinal)
+                    && !double.TryParse(item.Value.Value, out _))
+                {
+                    throw new InvalidDataException($"变量[{item.Key}]当前值不是有效数字：{item.Value.Value}");
                 }
                 DicValue clone = ObjectGraphCloner.Clone(item.Value);
                 clone.Name = item.Key;
@@ -504,7 +620,66 @@ namespace Automation
             return snapshot;
         }
 
-        public bool TrySetValue(int index, string name, string type, string value, string note, string source = null)
+        public static void ValidateProcessOwners(
+            IEnumerable<DicValue> variables, IEnumerable<Proc> processes)
+        {
+            var processIds = new HashSet<Guid>((processes ?? Enumerable.Empty<Proc>())
+                .Select(proc => proc?.head?.Id ?? Guid.Empty)
+                .Where(id => id != Guid.Empty));
+            foreach (DicValue variable in variables ?? Enumerable.Empty<DicValue>())
+            {
+                if (!IsProcessValue(variable))
+                {
+                    continue;
+                }
+                if (!variable.OwnerProcId.HasValue
+                    || !processIds.Contains(variable.OwnerProcId.Value))
+                {
+                    throw new InvalidDataException(
+                        $"流程私有变量[{variable.Name}]所属流程不存在："
+                        + $"{variable.OwnerProcId?.ToString("D") ?? "空"}");
+                }
+            }
+        }
+
+        private static void ValidateScope(string name, DicValue value)
+        {
+            if (value == null || !VariableScopeContract.IsValid(value.Scope))
+            {
+                throw new InvalidDataException(
+                    $"变量[{name}]作用域无效：{value?.Scope ?? "空"}。");
+            }
+            bool systemIndex = IsSystemValueIndex(value.Index);
+            if (string.Equals(value.Scope, VariableScopeContract.System, StringComparison.Ordinal))
+            {
+                if (!systemIndex || value.OwnerProcId.HasValue)
+                {
+                    throw new InvalidDataException(
+                        $"系统变量[{name}]必须位于系统变量区且不能设置OwnerProcId。");
+                }
+                return;
+            }
+            if (systemIndex)
+            {
+                throw new InvalidDataException(
+                    $"变量[{name}]位于系统变量区，Scope必须为system。");
+            }
+            if (string.Equals(value.Scope, VariableScopeContract.Process, StringComparison.Ordinal))
+            {
+                if (!value.OwnerProcId.HasValue || value.OwnerProcId.Value == Guid.Empty)
+                {
+                    throw new InvalidDataException($"流程私有变量[{name}]必须设置OwnerProcId。");
+                }
+                return;
+            }
+            if (value.OwnerProcId.HasValue)
+            {
+                throw new InvalidDataException($"公共变量[{name}]不能设置OwnerProcId。");
+            }
+        }
+
+        public bool TrySetValue(int index, string name, string type, string value, string note, string source = null,
+            string scope = VariableScopeContract.Public, Guid? ownerProcId = null)
         {
             name = name?.Trim();
             if (index < 0 || index >= ValueCapacity || string.IsNullOrEmpty(name)
@@ -517,11 +692,31 @@ namespace Automation
             {
                 return false;
             }
+            if (IsSystemValueIndex(index))
+            {
+                scope = VariableScopeContract.System;
+                ownerProcId = null;
+            }
+            try
+            {
+                ValidateScope(name, new DicValue
+                {
+                    Index = index,
+                    Scope = scope,
+                    OwnerProcId = ownerProcId
+                });
+            }
+            catch (InvalidDataException)
+            {
+                return false;
+            }
             if (string.Equals(type, "double", StringComparison.Ordinal)
                 && (string.IsNullOrWhiteSpace(value) || !double.TryParse(value, out _)))
             {
                 return false;
             }
+            DicValue changedValue = null;
+            string oldRuntime = null;
             lock (valueLock)
             {
                 if (nameIndex.TryGetValue(name, out int existIndex) && existIndex != index)
@@ -536,25 +731,37 @@ namespace Automation
                 {
                     return false;
                 }
-                string oldRuntime = currentValue.Value;
-                if (!string.IsNullOrEmpty(currentValue.Name) && currentValue.Name != name)
+                lock (currentValue.SyncRoot)
                 {
-                    nameIndex.Remove(currentValue.Name);
+                    oldRuntime = currentValue.Value;
+                    if (!string.IsNullOrEmpty(currentValue.Name) && currentValue.Name != name)
+                    {
+                        nameIndex.Remove(currentValue.Name);
+                    }
+                    currentValue.Name = name;
+                    if (currentValue.Id == Guid.Empty)
+                    {
+                        currentValue.Id = Guid.NewGuid();
+                    }
+                    currentValue.Index = index;
+                    currentValue.Type = type;
+                    currentValue.Scope = scope;
+                    currentValue.OwnerProcId = ownerProcId;
+                    currentValue.Note = note;
+                    currentValue.Value = value;
+                    nameIndex[name] = index;
+                    nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
+                    if (!string.Equals(oldRuntime, value, StringComparison.Ordinal))
+                    {
+                        changedValue = currentValue;
+                    }
                 }
-                currentValue.Name = name;
-                currentValue.Index = index;
-                currentValue.Type = type;
-                currentValue.Note = note;
-                currentValue.ConfigValue = value;
-                currentValue.Value = value;
-                nameIndex[name] = index;
-                nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
-                if (!string.Equals(oldRuntime, value, StringComparison.Ordinal))
-                {
-                    RaiseValueChanged(currentValue, oldRuntime, value, source);
-                }
-                return true;
             }
+            if (changedValue != null)
+            {
+                RaiseValueChanged(changedValue, oldRuntime, value, source);
+            }
+            return true;
         }
 
         public bool ClearValueByIndex(int index, string source = null)
@@ -563,6 +770,8 @@ namespace Automation
             {
                 return false;
             }
+            DicValue changedValue = null;
+            string oldRuntime = null;
             lock (valueLock)
             {
                 DicValue currentValue = values[index];
@@ -574,25 +783,36 @@ namespace Automation
                 {
                     return false;
                 }
-                string oldName = currentValue.Name;
-                string oldRuntime = currentValue.Value;
-                if (!string.IsNullOrEmpty(oldName))
+                lock (currentValue.SyncRoot)
                 {
-                    nameIndex.Remove(oldName);
+                    string oldName = currentValue.Name;
+                    oldRuntime = currentValue.Value;
+                    if (!string.IsNullOrEmpty(oldName))
+                    {
+                        nameIndex.Remove(oldName);
+                    }
+                    currentValue.Name = string.Empty;
+                    currentValue.Id = Guid.Empty;
+                    currentValue.Type = "double";
+                    currentValue.Scope = IsSystemValueIndex(index)
+                        ? VariableScopeContract.System
+                        : VariableScopeContract.Public;
+                    currentValue.OwnerProcId = null;
+                    currentValue.Note = string.Empty;
+                    currentValue.Value = "0";
+                    currentValue.isMark = false;
+                    nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
+                    if (!string.IsNullOrEmpty(oldRuntime))
+                    {
+                        changedValue = currentValue;
+                    }
                 }
-                currentValue.Name = string.Empty;
-                currentValue.Type = "double";
-                currentValue.Note = string.Empty;
-                currentValue.ConfigValue = "0";
-                currentValue.Value = "0";
-                currentValue.isMark = false;
-                nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
-                if (!string.IsNullOrEmpty(oldRuntime))
-                {
-                    RaiseValueChanged(currentValue, oldRuntime, currentValue.Value, source);
-                }
-                return true;
             }
+            if (changedValue != null)
+            {
+                RaiseValueChanged(changedValue, oldRuntime, "0", source);
+            }
+            return true;
         }
 
         public bool IsMarked(int index)
@@ -656,7 +876,7 @@ namespace Automation
 
         }
 
-        private bool TryValidateRuntimeValue(DicValue value, string runtimeValue, out string error)
+        private bool TryValidateCurrentValue(DicValue value, string currentValue, out string error)
         {
             error = null;
             if (value == null || string.IsNullOrEmpty(value.Name))
@@ -664,16 +884,16 @@ namespace Automation
                 error = "变量不存在";
                 return false;
             }
-            if (runtimeValue == null)
+            if (currentValue == null)
             {
-                error = "运行值为空";
+                error = "当前值为空";
                 return false;
             }
             if (string.Equals(value.Type, "double", StringComparison.OrdinalIgnoreCase))
             {
-                if (string.IsNullOrWhiteSpace(runtimeValue) || !double.TryParse(runtimeValue, out _))
+                if (string.IsNullOrWhiteSpace(currentValue) || !double.TryParse(currentValue, out _))
                 {
-                    error = $"变量{value.Name}运行值不是有效数字";
+                    error = $"变量{value.Name}当前值不是有效数字";
                     return false;
                 }
                 return true;
@@ -705,10 +925,16 @@ namespace Automation
                 error = $"未找到索引变量:{index}";
                 return false;
             }
-            lock (valueLock)
+            string current;
+            string updated;
+            lock (value.SyncRoot)
             {
-                string current = value.Value;
-                string updated;
+                if (string.IsNullOrEmpty(value.Name))
+                {
+                    error = $"未找到索引变量:{index}";
+                    return false;
+                }
+                current = value.Value;
                 try
                 {
                     updated = updater(current);
@@ -722,14 +948,14 @@ namespace Automation
                 {
                     return true;
                 }
-                if (!TryValidateRuntimeValue(value, updated, out error))
+                if (!TryValidateCurrentValue(value, updated, out error))
                 {
                     return false;
                 }
                 value.Value = updated;
-                RaiseValueChanged(value, current, updated, source);
-                return true;
             }
+            RaiseValueChanged(value, current, updated, source);
+            return true;
         }
 
         public bool setValueByName(string key, object newValue, string source = null)
@@ -740,6 +966,26 @@ namespace Automation
             }
             Dictionary<string, int> snapshot = nameIndexSnapshot;
             if (!snapshot.TryGetValue(key, out int index))
+            {
+                return false;
+            }
+            return setValueByIndex(index, newValue, source);
+        }
+
+        public bool SetValueByNameForProcess(
+            string key, object newValue, Guid procId, string source = null)
+        {
+            if (!TryGetValueByNameForProcess(key, procId, out DicValue value))
+            {
+                return false;
+            }
+            return setValueByIndex(value.Index, newValue, source);
+        }
+
+        public bool SetValueByIndexForProcess(
+            int index, object newValue, Guid procId, string source = null)
+        {
+            if (!TryGetValueByIndexForProcess(index, procId, out _))
             {
                 return false;
             }
@@ -757,22 +1003,27 @@ namespace Automation
             {
                 return false;
             }
-            string runtimeValue = newValue.ToString();
-            lock (valueLock)
+            string currentValue = newValue.ToString();
+            string current;
+            lock (value.SyncRoot)
             {
-                string current = value.Value;
-                if (string.Equals(current, runtimeValue, StringComparison.Ordinal))
-                {
-                    return true;
-                }
-                if (!TryValidateRuntimeValue(value, runtimeValue, out _))
+                if (string.IsNullOrEmpty(value.Name))
                 {
                     return false;
                 }
-                value.Value = runtimeValue;
-                RaiseValueChanged(value, current, runtimeValue, source);
-                return true;
+                current = value.Value;
+                if (string.Equals(current, currentValue, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+                if (!TryValidateCurrentValue(value, currentValue, out _))
+                {
+                    return false;
+                }
+                value.Value = currentValue;
             }
+            RaiseValueChanged(value, current, currentValue, source);
+            return true;
         }
 
         private void RaiseValueChanged(DicValue value, string oldValue, string newValue, string source)
@@ -800,8 +1051,11 @@ namespace Automation
             {
                 handler.Invoke(this, new ValueChangedEventArgs
                 {
+                    Id = value.Id,
                     Index = value.Index,
                     Name = value.Name,
+                    Scope = value.Scope,
+                    OwnerProcId = value.OwnerProcId,
                     OldValue = oldValue,
                     NewValue = newValue,
                     Source = resolvedSource,
@@ -856,24 +1110,48 @@ namespace Automation
 
     public class DicValue
     {
+        [JsonIgnore]
+        internal object SyncRoot { get; } = new object();
+
+        public Guid Id { get; set; }
+
         public int Index { get; set; }
 
         public string Type { get; set; }
 
         public string Name { get; set; }
 
-        [JsonProperty("Value")]
-        public string ConfigValue { get; set; }
+        public string Scope { get; set; }
 
-        [JsonIgnore]
+        public Guid? OwnerProcId { get; set; }
+
+        [JsonProperty("Value")]
         public string Value
         {
-            get => Volatile.Read(ref runtimeValue);
-            set => Volatile.Write(ref runtimeValue, value);
+            get => Volatile.Read(ref currentValue);
+            set
+            {
+                if (double.TryParse(value, out double parsed))
+                {
+                    Interlocked.Exchange(ref currentDoubleBits, BitConverter.DoubleToInt64Bits(parsed));
+                    Volatile.Write(ref hasCurrentDouble, 1);
+                }
+                else
+                {
+                    Volatile.Write(ref hasCurrentDouble, 0);
+                }
+                Volatile.Write(ref currentValue, value);
+            }
         }
 
         [JsonIgnore]
-        private string runtimeValue;
+        private string currentValue;
+
+        [JsonIgnore]
+        private long currentDoubleBits;
+
+        [JsonIgnore]
+        private int hasCurrentDouble;
 
         public string Note { get; set; }
         public bool isMark { get; set; }
@@ -890,16 +1168,15 @@ namespace Automation
         [JsonIgnore]
         public string LastChangedNewValue { get; set; }
 
-        public void ResetRuntimeFromConfig()
-        {
-            Value = ConfigValue;
-        }
-
         public double GetDValue()
         {
             if (!string.Equals(Type, "double", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException($"变量{DisplayName()}类型不是double");
+            }
+            if (Volatile.Read(ref hasCurrentDouble) == 1)
+            {
+                return BitConverter.Int64BitsToDouble(Interlocked.Read(ref currentDoubleBits));
             }
             string current = Value;
             if (string.IsNullOrWhiteSpace(current))
@@ -935,8 +1212,11 @@ namespace Automation
 
     public sealed class ValueChangedEventArgs : EventArgs
     {
+        public Guid Id { get; set; }
         public int Index { get; set; }
         public string Name { get; set; }
+        public string Scope { get; set; }
+        public Guid? OwnerProcId { get; set; }
         public string OldValue { get; set; }
         public string NewValue { get; set; }
         public string Source { get; set; }

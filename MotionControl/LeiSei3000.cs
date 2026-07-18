@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Automation.MotionControl;
 using csLTDMC;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using static Automation.FrmCard;
@@ -19,6 +20,7 @@ namespace Automation
     {
         public bool IsCardInitialized { get; private set; }
         private readonly object profileLock = new object();
+        private readonly object ioOutputLock = new object();
         private readonly Dictionary<long, MotionProfile> appliedProfiles = new Dictionary<long, MotionProfile>();
 
         private sealed class MotionProfile
@@ -146,6 +148,62 @@ namespace Automation
                 Application.DoEvents();
                 Thread.Sleep(1);
             }
+        }
+
+        public void MoveCoordinatedLinear(CoordinatedLinearMoveRequest request)
+        {
+            if (request == null || request.Axes == null || request.Positions == null
+                || request.Axes.Count == 0 || request.Axes.Count != request.Positions.Count
+                || request.Axes.Count > 6 || request.CoordinateSystem > 1
+                || request.MaxVelocity <= 0 || request.AccelerationTime <= 0 || request.DecelerationTime <= 0
+                || double.IsNaN(request.MaxVelocity) || double.IsInfinity(request.MaxVelocity)
+                || double.IsNaN(request.AccelerationTime) || double.IsInfinity(request.AccelerationTime)
+                || double.IsNaN(request.DecelerationTime) || double.IsInfinity(request.DecelerationTime)
+                || (request.PositionMode != 0 && request.PositionMode != 1))
+            {
+                throw new ArgumentException("协调直线运动参数无效。", nameof(request));
+            }
+            ushort[] axes = request.Axes.ToArray();
+            double[] positions = request.Positions.ToArray();
+            if (axes.Distinct().Count() != axes.Length)
+            {
+                throw new ArgumentException("协调直线运动轴配置重复。", nameof(request));
+            }
+            for (int i = 0; i < positions.Length; i++)
+            {
+                if (double.IsNaN(positions[i]) || double.IsInfinity(positions[i]))
+                {
+                    throw new ArgumentException($"协调直线运动位置无效:轴{axes[i]}", nameof(request));
+                }
+            }
+            EnsureSuccess(LTDMC.dmc_set_vector_profile_unit(request.Card, request.CoordinateSystem,
+                0, request.MaxVelocity, request.AccelerationTime, request.DecelerationTime, 0),
+                "设置协调直线运动参数", request.Card, request.CoordinateSystem);
+            EnsureSuccess(LTDMC.dmc_set_vector_s_profile(request.Card, request.CoordinateSystem, 0, 0),
+                "设置协调直线S曲线", request.Card, request.CoordinateSystem);
+            EnsureSuccess(LTDMC.dmc_line_unit(request.Card, request.CoordinateSystem,
+                (ushort)axes.Length, axes, positions, request.PositionMode),
+                "启动协调直线运动", request.Card, request.CoordinateSystem);
+        }
+
+        public bool IsCoordinatedLinearDone(ushort card, ushort coordinateSystem)
+        {
+            short result = LTDMC.dmc_check_done_multicoor(card, coordinateSystem);
+            if (result == 0)
+            {
+                return false;
+            }
+            if (result == 1)
+            {
+                return true;
+            }
+            throw new InvalidOperationException($"读取协调直线运动状态失败:卡{card},坐标系{coordinateSystem},返回值{result}");
+        }
+
+        public void StopCoordinatedLinear(ushort card, ushort coordinateSystem, ushort stopMode)
+        {
+            EnsureSuccess(LTDMC.dmc_stop_multicoor(card, coordinateSystem, stopMode),
+                "停止协调直线运动", card, coordinateSystem);
         }
         //连续运动
         public void Jog(ushort card, ushort axis, ushort sDir)
@@ -307,8 +365,52 @@ namespace Automation
             try
             {
                 ushort b = (ushort)(isOpen == true ? 0 : 1);
-                LTDMC.dmc_write_outbit((ushort)io.CardNum, ushort.Parse(io.IOIndex), b); 
-                return true;
+                lock (ioOutputLock)
+                {
+                    return LTDMC.dmc_write_outbit((ushort)io.CardNum, ushort.Parse(io.IOIndex), b) == 0;
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public bool SetOutputs(IReadOnlyList<IoOutputCommand> commands)
+        {
+            if (commands == null || commands.Count == 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                int card = commands[0].Io.CardNum;
+                var indexes = new HashSet<int>();
+                foreach (IoOutputCommand command in commands)
+                {
+                    IO io = command?.Io;
+                    if (io == null || io.CardNum != card || io.IOType != "通用输出"
+                        || !int.TryParse(io.IOIndex, out int index) || index < 0 || index > 31
+                        || !indexes.Add(index))
+                    {
+                        return false;
+                    }
+                }
+
+                lock (ioOutputLock)
+                {
+                    uint outputValue = LTDMC.dmc_read_outport((ushort)card, 0);
+                    foreach (IoOutputCommand command in commands)
+                    {
+                        int index = int.Parse(command.Io.IOIndex);
+                        uint mask = 1u << index;
+                        outputValue = command.TargetState
+                            ? outputValue & ~mask
+                            : outputValue | mask;
+                    }
+                    return LTDMC.dmc_write_outport((ushort)card, 0, outputValue) == 0;
+                }
             }
             catch (Exception)
             {

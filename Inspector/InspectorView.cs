@@ -3,46 +3,1110 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Automation
 {
+    internal static class InspectorPalette
+    {
+        public static readonly Color Background = Color.FromArgb(247, 248, 250);
+        public static readonly Color Surface = Color.White;
+        public static readonly Color SurfaceSubtle = Color.FromArgb(248, 249, 251);
+        public static readonly Color Input = Color.FromArgb(243, 245, 248);
+        public static readonly Color InputFocused = Color.FromArgb(237, 242, 255);
+        public static readonly Color TextPrimary = Color.FromArgb(36, 45, 58);
+        public static readonly Color TextSecondary = Color.FromArgb(94, 106, 122);
+        public static readonly Color TextDisabled = Color.FromArgb(142, 151, 163);
+        public static readonly Color Stroke = Color.FromArgb(226, 230, 236);
+        public static readonly Color Brand = Color.FromArgb(79, 107, 237);
+        public static readonly Color BrandHover = Color.FromArgb(66, 91, 219);
+        public static readonly Color BrandSoft = Color.FromArgb(238, 242, 255);
+        public static readonly Color Danger = Color.FromArgb(190, 52, 48);
+    }
+
+    internal static class InspectorShapes
+    {
+        public static GraphicsPath CreateRoundedPath(Rectangle bounds, int radius)
+        {
+            var path = new GraphicsPath();
+            if (bounds.Width <= 1 || bounds.Height <= 1 || radius <= 0)
+            {
+                path.AddRectangle(bounds);
+                return path;
+            }
+            int diameter = Math.Min(radius * 2, Math.Min(bounds.Width, bounds.Height));
+            var arc = new Rectangle(bounds.X, bounds.Y, diameter, diameter);
+            path.AddArc(arc, 180, 90);
+            arc.X = bounds.Right - diameter;
+            path.AddArc(arc, 270, 90);
+            arc.Y = bounds.Bottom - diameter;
+            path.AddArc(arc, 0, 90);
+            arc.X = bounds.X;
+            path.AddArc(arc, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        public static void DrawRoundedBorder(
+            Graphics graphics,
+            Rectangle bounds,
+            int radius,
+            Color color)
+        {
+            if (bounds.Width <= 1 || bounds.Height <= 1)
+            {
+                return;
+            }
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (GraphicsPath path = CreateRoundedPath(bounds, radius))
+            using (var pen = new Pen(color))
+            {
+                graphics.DrawPath(pen, path);
+            }
+        }
+    }
+
+    internal enum InspectorIconKind
+    {
+        None,
+        Process,
+        Step,
+        Operation,
+        Settings,
+        Timing,
+        Run,
+        Warning,
+        InputOutput,
+        Motion,
+        Communication,
+        Data,
+        Add,
+        Save,
+        Cancel,
+        Edit,
+        MoveUp,
+        MoveDown,
+        Delete
+    }
+
+    internal static class InspectorIcons
+    {
+        public static InspectorIconKind FromSectionTitle(string title)
+        {
+            string value = title ?? string.Empty;
+            if (value.Contains("异常") || value.Contains("报警"))
+            {
+                return InspectorIconKind.Warning;
+            }
+            if (value.Contains("超时") || value.Contains("延时") || value.Contains("等待"))
+            {
+                return InspectorIconKind.Timing;
+            }
+            if (value.Contains("运行") || value.Contains("执行") || value.Contains("调试"))
+            {
+                return InspectorIconKind.Run;
+            }
+            if (value.IndexOf("IO", StringComparison.OrdinalIgnoreCase) >= 0
+                || value.Contains("输入") || value.Contains("输出"))
+            {
+                return InspectorIconKind.InputOutput;
+            }
+            if (value.Contains("运动") || value.Contains("轴")
+                || value.Contains("速度") || value.Contains("位置")
+                || value.Contains("工站") || value.Contains("料盘"))
+            {
+                return InspectorIconKind.Motion;
+            }
+            if (value.Contains("通讯") || value.Contains("串口")
+                || value.Contains("网络") || value.Contains("PLC"))
+            {
+                return InspectorIconKind.Communication;
+            }
+            if (value.Contains("数据") || value.Contains("变量")
+                || value.Contains("文本") || value.Contains("结构"))
+            {
+                return InspectorIconKind.Data;
+            }
+            if (value.Contains("流程") || value.Contains("跳转"))
+            {
+                return InspectorIconKind.Process;
+            }
+            return InspectorIconKind.Settings;
+        }
+
+        public static void Draw(
+            Graphics graphics,
+            Rectangle bounds,
+            InspectorIconKind kind,
+            Color color)
+        {
+            if (graphics == null || bounds.Width < 4 || bounds.Height < 4
+                || kind == InspectorIconKind.None)
+            {
+                return;
+            }
+
+            GraphicsState state = graphics.Save();
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.TranslateTransform(bounds.X, bounds.Y);
+            graphics.ScaleTransform(bounds.Width / 16F, bounds.Height / 16F);
+            using (var pen = new Pen(color, 1.45F)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round,
+                LineJoin = LineJoin.Round
+            })
+            using (var brush = new SolidBrush(color))
+            {
+                switch (kind)
+                {
+                    case InspectorIconKind.Process:
+                        DrawProcess(graphics, pen, brush);
+                        break;
+                    case InspectorIconKind.Step:
+                        DrawStep(graphics, pen, brush);
+                        break;
+                    case InspectorIconKind.Operation:
+                        DrawOperation(graphics, pen, brush);
+                        break;
+                    case InspectorIconKind.Settings:
+                        DrawSettings(graphics, pen, brush);
+                        break;
+                    case InspectorIconKind.Timing:
+                        graphics.DrawEllipse(pen, 2.5F, 2.5F, 11F, 11F);
+                        graphics.DrawLine(pen, 8F, 5F, 8F, 8.2F);
+                        graphics.DrawLine(pen, 8F, 8.2F, 10.4F, 9.5F);
+                        break;
+                    case InspectorIconKind.Run:
+                        graphics.DrawEllipse(pen, 2.5F, 2.5F, 11F, 11F);
+                        graphics.FillPolygon(brush, new[]
+                        {
+                            new PointF(6.5F, 5.3F),
+                            new PointF(11F, 8F),
+                            new PointF(6.5F, 10.7F)
+                        });
+                        break;
+                    case InspectorIconKind.Warning:
+                        DrawWarning(graphics, pen, brush);
+                        break;
+                    case InspectorIconKind.InputOutput:
+                        graphics.DrawRectangle(pen, 1.8F, 4F, 4F, 8F);
+                        graphics.DrawRectangle(pen, 10.2F, 4F, 4F, 8F);
+                        graphics.DrawLine(pen, 5.8F, 6.2F, 10.2F, 6.2F);
+                        graphics.DrawLine(pen, 5.8F, 9.8F, 10.2F, 9.8F);
+                        break;
+                    case InspectorIconKind.Motion:
+                        graphics.DrawLine(pen, 3F, 13F, 3F, 3F);
+                        graphics.DrawLine(pen, 3F, 13F, 13F, 13F);
+                        graphics.DrawLine(pen, 3F, 13F, 11.5F, 4.5F);
+                        graphics.DrawLine(pen, 8.7F, 4.5F, 11.5F, 4.5F);
+                        graphics.DrawLine(pen, 11.5F, 4.5F, 11.5F, 7.3F);
+                        break;
+                    case InspectorIconKind.Communication:
+                        DrawCommunication(graphics, pen);
+                        break;
+                    case InspectorIconKind.Data:
+                        DrawData(graphics, pen);
+                        break;
+                    case InspectorIconKind.Add:
+                        graphics.DrawLine(pen, 8F, 3F, 8F, 13F);
+                        graphics.DrawLine(pen, 3F, 8F, 13F, 8F);
+                        break;
+                    case InspectorIconKind.Save:
+                        DrawSave(graphics, pen);
+                        break;
+                    case InspectorIconKind.Cancel:
+                        graphics.DrawLine(pen, 3.5F, 3.5F, 12.5F, 12.5F);
+                        graphics.DrawLine(pen, 12.5F, 3.5F, 3.5F, 12.5F);
+                        break;
+                    case InspectorIconKind.Edit:
+                        graphics.DrawLine(pen, 3F, 12.8F, 5.8F, 12.2F);
+                        graphics.DrawLine(pen, 3.2F, 10.2F, 10.5F, 2.9F);
+                        graphics.DrawLine(pen, 5.8F, 12.2F, 13.1F, 4.9F);
+                        graphics.DrawLine(pen, 10.5F, 2.9F, 13.1F, 4.9F);
+                        break;
+                    case InspectorIconKind.MoveUp:
+                        DrawArrow(graphics, pen, true);
+                        break;
+                    case InspectorIconKind.MoveDown:
+                        DrawArrow(graphics, pen, false);
+                        break;
+                    case InspectorIconKind.Delete:
+                        graphics.DrawRectangle(pen, 4.3F, 5.1F, 7.4F, 8F);
+                        graphics.DrawLine(pen, 3.2F, 4F, 12.8F, 4F);
+                        graphics.DrawLine(pen, 6.2F, 2.4F, 9.8F, 2.4F);
+                        graphics.DrawLine(pen, 6.7F, 7F, 6.7F, 11F);
+                        graphics.DrawLine(pen, 9.3F, 7F, 9.3F, 11F);
+                        break;
+                }
+            }
+            graphics.Restore(state);
+        }
+
+        private static void DrawProcess(Graphics graphics, Pen pen, Brush brush)
+        {
+            graphics.DrawLine(pen, 4F, 4F, 8F, 8F);
+            graphics.DrawLine(pen, 8F, 8F, 12F, 4F);
+            graphics.DrawLine(pen, 8F, 8F, 12F, 12F);
+            graphics.FillEllipse(brush, 2.3F, 2.3F, 3.4F, 3.4F);
+            graphics.FillEllipse(brush, 6.3F, 6.3F, 3.4F, 3.4F);
+            graphics.FillEllipse(brush, 10.3F, 2.3F, 3.4F, 3.4F);
+            graphics.FillEllipse(brush, 10.3F, 10.3F, 3.4F, 3.4F);
+        }
+
+        private static void DrawStep(Graphics graphics, Pen pen, Brush brush)
+        {
+            for (int index = 0; index < 3; index++)
+            {
+                float y = 4F + index * 4F;
+                graphics.FillEllipse(brush, 2.2F, y - 1F, 2F, 2F);
+                graphics.DrawLine(pen, 6F, y, 13.5F, y);
+            }
+        }
+
+        private static void DrawOperation(Graphics graphics, Pen pen, Brush brush)
+        {
+            graphics.DrawRectangle(pen, 2.2F, 3F, 11.6F, 10F);
+            graphics.FillPolygon(brush, new[]
+            {
+                new PointF(6.5F, 5.4F),
+                new PointF(10.7F, 8F),
+                new PointF(6.5F, 10.6F)
+            });
+        }
+
+        private static void DrawSettings(Graphics graphics, Pen pen, Brush brush)
+        {
+            graphics.DrawLine(pen, 2F, 4F, 14F, 4F);
+            graphics.DrawLine(pen, 2F, 8F, 14F, 8F);
+            graphics.DrawLine(pen, 2F, 12F, 14F, 12F);
+            graphics.FillEllipse(brush, 5F, 2.4F, 3.2F, 3.2F);
+            graphics.FillEllipse(brush, 9F, 6.4F, 3.2F, 3.2F);
+            graphics.FillEllipse(brush, 4F, 10.4F, 3.2F, 3.2F);
+        }
+
+        private static void DrawWarning(Graphics graphics, Pen pen, Brush brush)
+        {
+            var path = new GraphicsPath();
+            path.AddPolygon(new[]
+            {
+                new PointF(8F, 2F),
+                new PointF(14F, 13F),
+                new PointF(2F, 13F)
+            });
+            path.CloseFigure();
+            graphics.DrawPath(pen, path);
+            path.Dispose();
+            graphics.DrawLine(pen, 8F, 5.3F, 8F, 9F);
+            graphics.FillEllipse(brush, 7.2F, 10.6F, 1.6F, 1.6F);
+        }
+
+        private static void DrawCommunication(Graphics graphics, Pen pen)
+        {
+            graphics.DrawLine(pen, 2.5F, 5F, 12.5F, 5F);
+            graphics.DrawLine(pen, 10F, 2.5F, 12.5F, 5F);
+            graphics.DrawLine(pen, 10F, 7.5F, 12.5F, 5F);
+            graphics.DrawLine(pen, 13.5F, 11F, 3.5F, 11F);
+            graphics.DrawLine(pen, 6F, 8.5F, 3.5F, 11F);
+            graphics.DrawLine(pen, 6F, 13.5F, 3.5F, 11F);
+        }
+
+        private static void DrawData(Graphics graphics, Pen pen)
+        {
+            graphics.DrawEllipse(pen, 3F, 2.5F, 10F, 4F);
+            graphics.DrawArc(pen, 3F, 6F, 10F, 4F, 0F, 180F);
+            graphics.DrawArc(pen, 3F, 9.5F, 10F, 4F, 0F, 180F);
+            graphics.DrawLine(pen, 3F, 4.5F, 3F, 11.5F);
+            graphics.DrawLine(pen, 13F, 4.5F, 13F, 11.5F);
+        }
+
+        private static void DrawSave(Graphics graphics, Pen pen)
+        {
+            graphics.DrawRectangle(pen, 2.5F, 2.5F, 11F, 11F);
+            graphics.DrawRectangle(pen, 5F, 2.5F, 5.5F, 3.6F);
+            graphics.DrawRectangle(pen, 5F, 9F, 6F, 4.5F);
+        }
+
+        private static void DrawArrow(Graphics graphics, Pen pen, bool up)
+        {
+            float top = up ? 3F : 13F;
+            float bottom = up ? 13F : 3F;
+            graphics.DrawLine(pen, 8F, bottom, 8F, top);
+            graphics.DrawLine(pen, 8F, top, 4.5F, up ? 6.5F : 9.5F);
+            graphics.DrawLine(pen, 8F, top, 11.5F, up ? 6.5F : 9.5F);
+        }
+    }
+
+    internal sealed class InspectorIconButton : Button
+    {
+        private bool pointerOver;
+        private bool pointerDown;
+
+        public InspectorIconButton()
+        {
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 0;
+            UseVisualStyleBackColor = false;
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw
+                | ControlStyles.UserPaint,
+                true);
+        }
+
+        public InspectorIconKind IconKind { get; set; }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            pointerOver = true;
+            Invalidate();
+            base.OnMouseEnter(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            pointerOver = false;
+            pointerDown = false;
+            Invalidate();
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            pointerDown = true;
+            Invalidate();
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            pointerDown = false;
+            Invalidate();
+            base.OnMouseUp(e);
+        }
+
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            Invalidate();
+            base.OnEnabledChanged(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.Clear(Parent?.BackColor ?? InspectorPalette.Surface);
+            Color fillColor = BackColor;
+            if (Enabled && pointerDown && FlatAppearance.MouseDownBackColor != Color.Empty)
+            {
+                fillColor = FlatAppearance.MouseDownBackColor;
+            }
+            else if (Enabled && pointerOver && FlatAppearance.MouseOverBackColor != Color.Empty)
+            {
+                fillColor = FlatAppearance.MouseOverBackColor;
+            }
+            using (GraphicsPath path = InspectorShapes.CreateRoundedPath(
+                new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1)),
+                5))
+            using (var brush = new SolidBrush(fillColor))
+            {
+                e.Graphics.FillPath(brush, path);
+            }
+
+            Color contentColor = Enabled ? ForeColor : InspectorPalette.TextDisabled;
+            Size textSize = string.IsNullOrEmpty(Text)
+                ? Size.Empty
+                : TextRenderer.MeasureText(e.Graphics, Text, Font, Size.Empty, TextFormatFlags.NoPadding);
+            int iconSize = IconKind == InspectorIconKind.None ? 0 : Math.Min(15, Height - 8);
+            int gap = iconSize > 0 && textSize.Width > 0 ? 5 : 0;
+            int groupWidth = iconSize + gap + textSize.Width;
+            int startX = TextAlign == ContentAlignment.MiddleLeft
+                ? Padding.Left
+                : Math.Max(3, (Width - groupWidth) / 2);
+            if (iconSize > 0)
+            {
+                InspectorIcons.Draw(
+                    e.Graphics,
+                    new Rectangle(startX, (Height - iconSize) / 2, iconSize, iconSize),
+                    IconKind,
+                    contentColor);
+            }
+            if (textSize.Width > 0)
+            {
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    Text,
+                    Font,
+                    new Rectangle(startX + iconSize + gap, 0,
+                        Math.Max(1, Width - startX - iconSize - gap - 4), Height),
+                    contentColor,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                        | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                        | TextFormatFlags.NoPadding);
+            }
+            if (Focused && ShowFocusCues)
+            {
+                ControlPaint.DrawFocusRectangle(e.Graphics, new Rectangle(2, 2, Width - 5, Height - 5));
+            }
+        }
+    }
+
+    internal sealed class InspectorSectionButton : Button
+    {
+        private bool pointerOver;
+        private bool pointerDown;
+        private bool expanded = true;
+
+        public InspectorSectionButton()
+        {
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 0;
+            UseVisualStyleBackColor = false;
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw
+                | ControlStyles.UserPaint,
+                true);
+        }
+
+        public InspectorIconKind IconKind { get; set; }
+
+        public bool Expanded
+        {
+            get => expanded;
+            set
+            {
+                if (expanded == value)
+                {
+                    return;
+                }
+                expanded = value;
+                Invalidate();
+            }
+        }
+
+        public bool ShowDivider { get; set; } = true;
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            pointerOver = true;
+            Invalidate();
+            base.OnMouseEnter(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            pointerOver = false;
+            pointerDown = false;
+            Invalidate();
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            pointerDown = true;
+            Invalidate();
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            pointerDown = false;
+            Invalidate();
+            base.OnMouseUp(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Color background = BackColor;
+            if (pointerDown && FlatAppearance.MouseDownBackColor != Color.Empty)
+            {
+                background = FlatAppearance.MouseDownBackColor;
+            }
+            else if (pointerOver && FlatAppearance.MouseOverBackColor != Color.Empty)
+            {
+                background = FlatAppearance.MouseOverBackColor;
+            }
+            using (var brush = new SolidBrush(background))
+            {
+                e.Graphics.FillRectangle(brush, ClientRectangle);
+            }
+
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            int centerY = Height / 2;
+            using (var chevron = new Pen(InspectorPalette.TextSecondary, 1.35F)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round
+            })
+            {
+                if (expanded)
+                {
+                    e.Graphics.DrawLine(chevron, 10F, centerY - 2F, 14F, centerY + 2F);
+                    e.Graphics.DrawLine(chevron, 14F, centerY + 2F, 18F, centerY - 2F);
+                }
+                else
+                {
+                    e.Graphics.DrawLine(chevron, 12F, centerY - 4F, 16F, centerY);
+                    e.Graphics.DrawLine(chevron, 16F, centerY, 12F, centerY + 4F);
+                }
+            }
+
+            int textLeft = 28;
+            if (IconKind != InspectorIconKind.None)
+            {
+                const int iconSize = 16;
+                InspectorIcons.Draw(
+                    e.Graphics,
+                    new Rectangle(27, (Height - iconSize) / 2, iconSize, iconSize),
+                    IconKind,
+                    InspectorPalette.Brand);
+                textLeft = 50;
+            }
+            TextRenderer.DrawText(
+                e.Graphics,
+                Text,
+                Font,
+                new Rectangle(textLeft, 0, Math.Max(1, Width - textLeft - 8), Height),
+                Enabled ? ForeColor : InspectorPalette.TextDisabled,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                    | TextFormatFlags.NoPadding);
+
+            if (ShowDivider)
+            {
+                using (var divider = new Pen(InspectorPalette.Stroke))
+                {
+                    e.Graphics.DrawLine(divider, 9, Height - 1, Math.Max(9, Width - 9), Height - 1);
+                }
+            }
+            if (Focused && ShowFocusCues)
+            {
+                ControlPaint.DrawFocusRectangle(
+                    e.Graphics,
+                    new Rectangle(3, 3, Math.Max(1, Width - 7), Math.Max(1, Height - 7)));
+            }
+        }
+    }
+
+    internal sealed class InspectorFlowPanel : FlowLayoutPanel
+    {
+        public InspectorFlowPanel()
+        {
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw,
+                true);
+        }
+    }
+
+    internal sealed class InspectorTextBox : TextBox
+    {
+        private const int EmSetMargins = 0xD3;
+        private const int EmSetRectNp = 0xB4;
+        private const int EcLeftMargin = 0x1;
+        private const int EcRightMargin = 0x2;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeRectangle
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(
+            IntPtr windowHandle,
+            int message,
+            IntPtr wordParameter,
+            IntPtr longParameter);
+
+        [DllImport("user32.dll", EntryPoint = "SendMessage")]
+        private static extern IntPtr SendMessageRectangle(
+            IntPtr windowHandle,
+            int message,
+            IntPtr wordParameter,
+            ref NativeRectangle rectangle);
+
+        public InspectorTextBox()
+        {
+            AutoSize = false;
+            BorderStyle = BorderStyle.None;
+            BackColor = InspectorPalette.Input;
+            ForeColor = InspectorPalette.TextPrimary;
+            Font = InspectorFonts.Regular9;
+            Multiline = true;
+            AcceptsReturn = false;
+            WordWrap = false;
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            int margins = 6 | (6 << 16);
+            SendMessage(
+                Handle,
+                EmSetMargins,
+                new IntPtr(EcLeftMargin | EcRightMargin),
+                new IntPtr(margins));
+            UpdateFormattingRectangle();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            UpdateFormattingRectangle();
+        }
+
+        protected override void OnFontChanged(EventArgs e)
+        {
+            base.OnFontChanged(e);
+            UpdateFormattingRectangle();
+        }
+
+        protected override void OnEnter(EventArgs e)
+        {
+            base.OnEnter(e);
+            BackColor = InspectorPalette.InputFocused;
+            Invalidate();
+        }
+
+        protected override void OnLeave(EventArgs e)
+        {
+            BackColor = ReadOnly ? InspectorPalette.SurfaceSubtle : InspectorPalette.Input;
+            base.OnLeave(e);
+            Invalidate();
+        }
+
+        protected override void OnReadOnlyChanged(EventArgs e)
+        {
+            BackColor = ReadOnly ? InspectorPalette.SurfaceSubtle : InspectorPalette.Input;
+            ForeColor = ReadOnly ? InspectorPalette.TextSecondary : InspectorPalette.TextPrimary;
+            base.OnReadOnlyChanged(e);
+            Invalidate();
+        }
+
+        protected override void WndProc(ref System.Windows.Forms.Message message)
+        {
+            base.WndProc(ref message);
+            if ((message.Msg == 0x000F || message.Msg == 0x0085)
+                && IsHandleCreated && Width > 2 && Height > 2)
+            {
+                using (Graphics graphics = Graphics.FromHwnd(Handle))
+                {
+                    InspectorShapes.DrawRoundedBorder(
+                        graphics,
+                        new Rectangle(0, 0, Width - 1, Height - 1),
+                        4,
+                        Focused && !ReadOnly ? InspectorPalette.Brand : InspectorPalette.Stroke);
+                }
+            }
+        }
+
+        private void UpdateFormattingRectangle()
+        {
+            if (!IsHandleCreated || ClientSize.Width <= 12 || ClientSize.Height <= 4)
+            {
+                return;
+            }
+            int textHeight = TextRenderer.MeasureText(
+                "中Ag",
+                Font,
+                Size.Empty,
+                TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Height;
+            int top = Math.Max(1, (ClientSize.Height - textHeight) / 2);
+            var rectangle = new NativeRectangle
+            {
+                Left = 6,
+                Top = top,
+                Right = Math.Max(7, ClientSize.Width - 6),
+                Bottom = Math.Min(ClientSize.Height - 1, top + textHeight + 1)
+            };
+            SendMessageRectangle(Handle, EmSetRectNp, IntPtr.Zero, ref rectangle);
+        }
+    }
+
+    internal sealed class InspectorComboBox : ComboBox
+    {
+        private const int CbSetItemHeight = 0x0153;
+        private const int CbShowDropDown = 0x014F;
+        private bool selectionPickerRequestPending;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(
+            IntPtr windowHandle,
+            int message,
+            IntPtr wordParameter,
+            IntPtr longParameter);
+
+        public InspectorComboBox()
+        {
+            BackColor = InspectorPalette.Input;
+            ForeColor = InspectorPalette.TextPrimary;
+            FlatStyle = FlatStyle.Flat;
+            Font = InspectorFonts.Regular9;
+            DrawMode = DrawMode.OwnerDrawFixed;
+            ItemHeight = 24;
+        }
+
+        internal bool UseSelectionPicker { get; set; }
+
+        internal event EventHandler SelectionPickerRequested;
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            SendMessage(Handle, CbSetItemHeight, new IntPtr(-1), new IntPtr(26));
+            ClearTextSelection();
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            if (e.Index < 0)
+            {
+                return;
+            }
+            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+            Color backColor = selected ? InspectorPalette.BrandSoft : InspectorPalette.Surface;
+            Color foreColor = Enabled ? InspectorPalette.TextPrimary : InspectorPalette.TextDisabled;
+            using (var brush = new SolidBrush(backColor))
+            {
+                e.Graphics.FillRectangle(brush, e.Bounds);
+            }
+            TextRenderer.DrawText(
+                e.Graphics,
+                GetItemText(Items[e.Index]),
+                Font,
+                new Rectangle(e.Bounds.X + 6, e.Bounds.Y, Math.Max(1, e.Bounds.Width - 8), e.Bounds.Height),
+                foreColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                    | TextFormatFlags.NoPadding);
+            if ((e.State & DrawItemState.Focus) == DrawItemState.Focus)
+            {
+                e.DrawFocusRectangle();
+            }
+        }
+
+        protected override void OnEnter(EventArgs e)
+        {
+            base.OnEnter(e);
+            BackColor = InspectorPalette.Input;
+            Invalidate();
+            ClearTextSelection();
+        }
+
+        protected override void OnLeave(EventArgs e)
+        {
+            ClearTextSelection();
+            BackColor = InspectorPalette.Input;
+            base.OnLeave(e);
+            Invalidate();
+        }
+
+        protected override void OnDropDownClosed(EventArgs e)
+        {
+            base.OnDropDownClosed(e);
+            ClearTextSelection();
+        }
+
+        protected override void OnSelectionChangeCommitted(EventArgs e)
+        {
+            base.OnSelectionChangeCommitted(e);
+            ClearTextSelection();
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            if (SelectionLength == (Text?.Length ?? 0))
+            {
+                ClearTextSelection();
+            }
+        }
+
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            BackColor = Enabled ? InspectorPalette.Input : InspectorPalette.SurfaceSubtle;
+            ForeColor = Enabled ? InspectorPalette.TextPrimary : InspectorPalette.TextDisabled;
+            base.OnEnabledChanged(e);
+            Invalidate();
+        }
+
+        protected override void WndProc(ref System.Windows.Forms.Message message)
+        {
+            if (message.Msg == CbShowDropDown
+                && message.WParam != IntPtr.Zero
+                && UseSelectionPicker
+                && SelectionPickerRequested != null)
+            {
+                message.Result = IntPtr.Zero;
+                if (!selectionPickerRequestPending && IsHandleCreated && !IsDisposed)
+                {
+                    selectionPickerRequestPending = true;
+                    BeginInvoke((Action)(() =>
+                    {
+                        selectionPickerRequestPending = false;
+                        if (!IsDisposed)
+                        {
+                            SelectionPickerRequested?.Invoke(this, EventArgs.Empty);
+                        }
+                    }));
+                }
+                return;
+            }
+            base.WndProc(ref message);
+            if ((message.Msg == 0x000F || message.Msg == 0x0085)
+                && IsHandleCreated && Width > 24 && Height > 2)
+            {
+                using (Graphics graphics = Graphics.FromHwnd(Handle))
+                {
+                    graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                    Color background = !Enabled
+                        ? InspectorPalette.SurfaceSubtle
+                        : InspectorPalette.Input;
+                    int arrowLeft = Width - 23;
+                    using (var brush = new SolidBrush(background))
+                    {
+                        graphics.FillRectangle(brush, arrowLeft, 1, 22, Height - 2);
+                    }
+                    using (var pen = new Pen(InspectorPalette.TextSecondary, 1.4F))
+                    {
+                        int centerX = arrowLeft + 11;
+                        int centerY = Height / 2;
+                        graphics.DrawLine(pen, centerX - 3, centerY - 1, centerX, centerY + 2);
+                        graphics.DrawLine(pen, centerX, centerY + 2, centerX + 3, centerY - 1);
+                    }
+                    InspectorShapes.DrawRoundedBorder(
+                        graphics,
+                        new Rectangle(0, 0, Width - 1, Height - 1),
+                        4,
+                        Focused ? InspectorPalette.Brand : InspectorPalette.Stroke);
+                }
+            }
+        }
+
+        internal void ClearTextSelection()
+        {
+            if (DropDownStyle == ComboBoxStyle.DropDownList || IsDisposed)
+            {
+                return;
+            }
+            SelectionStart = Text?.Length ?? 0;
+            SelectionLength = 0;
+        }
+    }
+
+    internal sealed class InspectorToggle : CheckBox
+    {
+        private bool pointerOver;
+
+        public InspectorToggle()
+        {
+            AutoSize = false;
+            Cursor = Cursors.Hand;
+            Font = InspectorFonts.Regular9;
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw
+                | ControlStyles.UserPaint,
+                true);
+        }
+
+        protected override void OnMouseEnter(EventArgs eventArgs)
+        {
+            pointerOver = true;
+            Invalidate();
+            base.OnMouseEnter(eventArgs);
+        }
+
+        protected override void OnMouseLeave(EventArgs eventArgs)
+        {
+            pointerOver = false;
+            Invalidate();
+            base.OnMouseLeave(eventArgs);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.Clear(Parent?.BackColor ?? InspectorPalette.Surface);
+            var track = new Rectangle(2, Math.Max(2, (Height - 18) / 2), 32, 18);
+            Color trackColor;
+            if (!Enabled)
+            {
+                trackColor = Color.FromArgb(211, 216, 223);
+            }
+            else if (Checked)
+            {
+                trackColor = pointerOver ? InspectorPalette.BrandHover : InspectorPalette.Brand;
+            }
+            else
+            {
+                trackColor = pointerOver
+                    ? Color.FromArgb(165, 175, 188)
+                    : Color.FromArgb(185, 193, 203);
+            }
+            using (GraphicsPath trackPath = InspectorShapes.CreateRoundedPath(track, 8))
+            using (var trackBrush = new SolidBrush(trackColor))
+            {
+                e.Graphics.FillPath(trackBrush, trackPath);
+            }
+            int thumbX = Checked ? track.Right - 16 : track.Left + 2;
+            using (var thumbBrush = new SolidBrush(Color.White))
+            {
+                e.Graphics.FillEllipse(thumbBrush, thumbX, track.Y + 2, 14, 14);
+            }
+            if (Focused && ShowFocusCues)
+            {
+                ControlPaint.DrawFocusRectangle(e.Graphics, new Rectangle(0, 0, Width - 1, Height - 1));
+            }
+        }
+    }
+
     internal static class InspectorFonts
     {
-        public static readonly Font Regular85 = new Font("Microsoft YaHei UI", 8.5F);
-        public static readonly Font Regular9 = new Font("Microsoft YaHei UI", 9F);
-        public static readonly Font Regular95 = new Font("Microsoft YaHei UI", 9.5F);
-        public static readonly Font Regular10 = new Font("Microsoft YaHei UI", 10F);
-        public static readonly Font Bold9 = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-        public static readonly Font Bold95 = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
+        private const string FontDirectory = @"D:\AutomationTools\Fonts\MiSans";
+        private static readonly PrivateFontCollection PrivateFonts
+            = new PrivateFontCollection();
+
+        public static readonly string LoadFailureMessage;
+        public static readonly Font Regular85;
+        public static readonly Font Regular9;
+        public static readonly Font Regular95;
+        public static readonly Font Regular10;
+        public static readonly Font Bold9;
+        public static readonly Font Bold95;
+
+        static InspectorFonts()
+        {
+            try
+            {
+                LoadFontFile("MiSans-Regular.ttf");
+                LoadFontFile("MiSans-Semibold.ttf");
+                FontFamily regularFamily = GetFamily("MiSans");
+                FontFamily semiboldFamily = GetFamily("MiSans Semibold");
+                Regular85 = CreateFont(regularFamily, 10F);
+                Regular9 = CreateFont(regularFamily, 10.5F);
+                Regular95 = CreateFont(regularFamily, 10.75F);
+                Regular10 = CreateFont(regularFamily, 11.25F);
+                Bold9 = CreateFont(semiboldFamily, 10.5F);
+                Bold95 = CreateFont(semiboldFamily, 11.25F);
+            }
+            catch (Exception ex)
+            {
+                LoadFailureMessage = "Inspector 字体资源异常：" + ex.Message;
+                FontFamily emergencyFamily = SystemFonts.MessageBoxFont.FontFamily;
+                Regular85 = CreateFont(emergencyFamily, 10F);
+                Regular9 = CreateFont(emergencyFamily, 10.5F);
+                Regular95 = CreateFont(emergencyFamily, 10.75F);
+                Regular10 = CreateFont(emergencyFamily, 11.25F);
+                Bold9 = CreateFont(emergencyFamily, 10.5F, FontStyle.Bold);
+                Bold95 = CreateFont(emergencyFamily, 11.25F, FontStyle.Bold);
+                try
+                {
+                    var logger = new LocalFileLogger(@"D:\AutomationLogs\RuntimeExceptions");
+                    logger.Log(LoadFailureMessage + Environment.NewLine + ex, LogLevel.Error);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static Font CreateFont(
+            FontFamily family,
+            float size,
+            FontStyle style = FontStyle.Regular)
+        {
+            FontStyle availableStyle = family.IsStyleAvailable(style)
+                ? style
+                : FontStyle.Regular;
+            return new Font(family, size, availableStyle, GraphicsUnit.Point);
+        }
+
+        private static void LoadFontFile(string fileName)
+        {
+            string path = System.IO.Path.Combine(FontDirectory, fileName);
+            if (!System.IO.File.Exists(path))
+            {
+                throw new System.IO.FileNotFoundException(
+                    "Inspector 字体资源缺失：" + path,
+                    path);
+            }
+            PrivateFonts.AddFontFile(path);
+        }
+
+        private static FontFamily GetFamily(string familyName)
+        {
+            FontFamily family = PrivateFonts.Families.FirstOrDefault(item => string.Equals(
+                item.Name,
+                familyName,
+                StringComparison.OrdinalIgnoreCase));
+            if (family == null)
+            {
+                throw new InvalidOperationException(
+                    "Inspector 无法加载内置字体：" + familyName);
+            }
+            return family;
+        }
     }
 
     internal sealed class InspectorView : UserControl
     {
-        private readonly FlowLayoutPanel content = new FlowLayoutPanel();
+        private const int MaxCachedPages = 8;
+        private const int WmSetRedraw = 0x000B;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(
+            IntPtr windowHandle,
+            int message,
+            IntPtr wordParameter,
+            IntPtr longParameter);
+
+        private readonly InspectorFlowPanel content = new InspectorFlowPanel();
         private readonly Label emptyLabel = new Label();
+        private readonly ToolTip descriptionToolTip = new ToolTip
+        {
+            AutoPopDelay = 10000,
+            InitialDelay = 450,
+            ReshowDelay = 100,
+            ShowAlways = true
+        };
         private readonly List<InspectorSectionControl> sectionControls
             = new List<InspectorSectionControl>();
+        private readonly Dictionary<string, CachedInspectorPage> pageCache
+            = new Dictionary<string, CachedInspectorPage>(StringComparer.Ordinal);
         private InspectorDocument document;
         private object selectedObject;
         private bool editable;
-        private string filterText = string.Empty;
+        private long cacheSequence;
         private int updateDepth;
         private bool refreshPending;
+        private bool redrawSuspended;
+        private bool layoutRequired;
 
         public InspectorView()
         {
-            BackColor = Color.FromArgb(246, 249, 251);
+            BackColor = InspectorPalette.Background;
             DoubleBuffered = true;
 
             content.AutoScroll = true;
             content.BackColor = BackColor;
             content.Dock = DockStyle.Fill;
             content.FlowDirection = FlowDirection.TopDown;
-            content.Padding = new Padding(8, 8, 8, 16);
+            content.Padding = new Padding(6);
             content.WrapContents = false;
             Controls.Add(content);
 
@@ -50,7 +1114,7 @@ namespace Automation
             emptyLabel.BackColor = BackColor;
             emptyLabel.Dock = DockStyle.Fill;
             emptyLabel.Font = InspectorFonts.Regular10;
-            emptyLabel.ForeColor = Color.FromArgb(113, 128, 140);
+            emptyLabel.ForeColor = InspectorPalette.TextSecondary;
             emptyLabel.Text = "选择流程、步骤、指令或配置对象后，\r\n可在这里查看和编辑参数。";
             emptyLabel.TextAlign = ContentAlignment.MiddleCenter;
             Controls.Add(emptyLabel);
@@ -69,7 +1133,15 @@ namespace Automation
             editable = allowEdit;
             if (objectChanged || document == null)
             {
-                Rebuild();
+                InspectorDocument next = InspectorDefinitionBuilder.Build(selectedObject);
+                if (CanRebind(next))
+                {
+                    Rebind(next);
+                }
+                else
+                {
+                    Rebuild(next);
+                }
                 return;
             }
             SetEditable(allowEdit);
@@ -85,21 +1157,16 @@ namespace Automation
             }
         }
 
-        public void SetFilter(string value)
-        {
-            filterText = value?.Trim() ?? string.Empty;
-            foreach (InspectorSectionControl section in sectionControls)
-            {
-                section.ApplyFilter(filterText);
-            }
-            UpdateContentWidths();
-        }
-
         public void BeginUpdate()
         {
             updateDepth++;
             if (updateDepth == 1)
             {
+                if (IsHandleCreated)
+                {
+                    SendMessage(Handle, WmSetRedraw, IntPtr.Zero, IntPtr.Zero);
+                    redrawSuspended = true;
+                }
                 SuspendLayout();
                 content.SuspendLayout();
             }
@@ -116,8 +1183,36 @@ namespace Automation
             {
                 return;
             }
-            content.ResumeLayout(true);
-            ResumeLayout(true);
+            try
+            {
+                content.ResumeLayout(false);
+                ResumeLayout(false);
+                if (layoutRequired)
+                {
+                    bool scrollWasVisible = content.VerticalScroll.Visible;
+                    UpdateContentWidths();
+                    content.PerformLayout();
+                    if (scrollWasVisible != content.VerticalScroll.Visible)
+                    {
+                        UpdateContentWidths();
+                        content.PerformLayout();
+                    }
+                    PerformLayout();
+                }
+            }
+            finally
+            {
+                layoutRequired = false;
+                if (redrawSuspended)
+                {
+                    if (IsHandleCreated)
+                    {
+                        SendMessage(Handle, WmSetRedraw, new IntPtr(1), IntPtr.Zero);
+                        Invalidate(true);
+                    }
+                    redrawSuspended = false;
+                }
+            }
         }
 
         public void RefreshDocument()
@@ -136,34 +1231,16 @@ namespace Automation
                 Rebuild(next);
                 return;
             }
-            document = next;
-            RefreshValues();
-        }
-
-        public bool FocusFirstEditableField()
-        {
-            foreach (InspectorSectionControl section in sectionControls)
-            {
-                if (section.FocusFirstEditableField())
-                {
-                    return true;
-                }
-            }
-            return false;
+            Rebind(next, false);
         }
 
         private void Rebuild(InspectorDocument next = null)
         {
-            Point scrollPosition = content.AutoScrollPosition;
             BeginUpdate();
             try
             {
-                foreach (Control control in content.Controls.Cast<Control>().ToArray())
-                {
-                    control.Dispose();
-                }
-                content.Controls.Clear();
-                sectionControls.Clear();
+                layoutRequired = true;
+                StoreCurrentPage();
                 document = next ?? InspectorDefinitionBuilder.Build(selectedObject);
                 emptyLabel.Visible = selectedObject == null || document.Sections.Count == 0;
                 content.Visible = !emptyLabel.Visible;
@@ -173,26 +1250,201 @@ namespace Automation
                     return;
                 }
 
+                if (TryRestorePage(document, out CachedInspectorPage page))
+                {
+                    sectionControls.AddRange(page.Sections);
+                    int restoredWidth = GetContentWidth();
+                    for (int index = 0; index < sectionControls.Count; index++)
+                    {
+                        sectionControls[index].Width = restoredWidth;
+                        sectionControls[index].Rebind(document.Sections[index], editable);
+                    }
+                    content.Controls.AddRange(sectionControls.Cast<Control>().ToArray());
+                    content.AutoScrollPosition = page.ScrollPosition;
+                    return;
+                }
+
+                var builtSections = new List<Control>();
+                int targetWidth = GetContentWidth();
                 foreach (InspectorSectionDefinition section in document.Sections)
                 {
                     if (section.Fields.Count == 0)
                     {
                         continue;
                     }
-                    var sectionControl = new InspectorSectionControl(section, editable);
-                    sectionControl.FieldValueChanged += Editor_FieldValueChanged;
+                    InspectorSectionControl sectionControl;
+                    if (TryRestoreSection(section, out InspectorSectionControl restoredSection))
+                    {
+                        sectionControl = restoredSection;
+                        sectionControl.Rebind(section, editable);
+                    }
+                    else
+                    {
+                        sectionControl = new InspectorSectionControl(
+                            section,
+                            editable,
+                            descriptionToolTip);
+                        sectionControl.FieldValueChanged += Editor_FieldValueChanged;
+                        sectionControl.SizeChanged += SectionControl_SizeChanged;
+                    }
+                    sectionControl.Width = targetWidth;
                     sectionControls.Add(sectionControl);
-                    content.Controls.Add(sectionControl);
+                    builtSections.Add(sectionControl);
                 }
-                content.AutoScrollPosition = new Point(
-                    Math.Abs(scrollPosition.X),
-                    Math.Abs(scrollPosition.Y));
-                SetFilter(filterText);
+                content.Controls.AddRange(builtSections.ToArray());
+                content.AutoScrollPosition = Point.Empty;
             }
             finally
             {
                 EndUpdate();
-                UpdateContentWidths();
+            }
+        }
+
+        private bool CanRebind(InspectorDocument next)
+        {
+            if (document == null || next == null
+                || !string.Equals(document.Signature, next.Signature, StringComparison.Ordinal)
+                || sectionControls.Count != next.Sections.Count)
+            {
+                return false;
+            }
+            for (int index = 0; index < sectionControls.Count; index++)
+            {
+                if (!sectionControls[index].CanRebind(next.Sections[index]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void Rebind(InspectorDocument next, bool suspendRedraw = true)
+        {
+            if (suspendRedraw)
+            {
+                BeginUpdate();
+            }
+            try
+            {
+                document = next;
+                for (int index = 0; index < sectionControls.Count; index++)
+                {
+                    sectionControls[index].Rebind(next.Sections[index], editable);
+                }
+            }
+            finally
+            {
+                if (suspendRedraw)
+                {
+                    EndUpdate();
+                }
+            }
+        }
+
+        private void StoreCurrentPage()
+        {
+            Point scrollPosition = new Point(
+                Math.Abs(content.AutoScrollPosition.X),
+                Math.Abs(content.AutoScrollPosition.Y));
+            content.Controls.Clear();
+            if (document == null || string.IsNullOrEmpty(document.Signature)
+                || sectionControls.Count == 0)
+            {
+                DisposeSections(sectionControls);
+                sectionControls.Clear();
+                return;
+            }
+
+            if (pageCache.TryGetValue(document.Signature, out CachedInspectorPage duplicate))
+            {
+                pageCache.Remove(document.Signature);
+                DisposeSections(duplicate.Sections);
+            }
+            pageCache[document.Signature] = new CachedInspectorPage(
+                document.Signature,
+                sectionControls.ToList(),
+                scrollPosition,
+                ++cacheSequence);
+            sectionControls.Clear();
+
+            while (pageCache.Count > MaxCachedPages)
+            {
+                CachedInspectorPage oldest = pageCache.Values
+                    .OrderBy(page => page.LastUsed).First();
+                pageCache.Remove(oldest.Signature);
+                DisposeSections(oldest.Sections);
+            }
+        }
+
+        private bool TryRestorePage(
+            InspectorDocument next,
+            out CachedInspectorPage page)
+        {
+            var candidates = new List<CachedInspectorPage>();
+            if (pageCache.TryGetValue(next.Signature, out CachedInspectorPage exact))
+            {
+                candidates.Add(exact);
+            }
+            candidates.AddRange(pageCache.Values
+                .Where(candidate => !ReferenceEquals(candidate, exact))
+                .OrderByDescending(candidate => candidate.LastUsed));
+            foreach (CachedInspectorPage candidate in candidates)
+            {
+                if (candidate.Sections.Count != next.Sections.Count)
+                {
+                    continue;
+                }
+                bool compatible = true;
+                for (int index = 0; index < candidate.Sections.Count; index++)
+                {
+                    if (!candidate.Sections[index].CanRebind(next.Sections[index]))
+                    {
+                        compatible = false;
+                        break;
+                    }
+                }
+                if (compatible)
+                {
+                    pageCache.Remove(candidate.Signature);
+                    page = candidate;
+                    page.LastUsed = ++cacheSequence;
+                    return true;
+                }
+            }
+            page = null;
+            return false;
+        }
+
+        private bool TryRestoreSection(
+            InspectorSectionDefinition definition,
+            out InspectorSectionControl section)
+        {
+            foreach (CachedInspectorPage page in pageCache.Values
+                .OrderByDescending(candidate => candidate.LastUsed).ToList())
+            {
+                section = page.Sections.FirstOrDefault(candidate =>
+                    candidate.CanRebind(definition));
+                if (section == null)
+                {
+                    continue;
+                }
+                page.Sections.Remove(section);
+                page.LastUsed = ++cacheSequence;
+                if (page.Sections.Count == 0)
+                {
+                    pageCache.Remove(page.Signature);
+                }
+                return true;
+            }
+            section = null;
+            return false;
+        }
+
+        private static void DisposeSections(IEnumerable<InspectorSectionControl> sections)
+        {
+            foreach (InspectorSectionControl section in sections)
+            {
+                section.Dispose();
             }
         }
 
@@ -224,61 +1476,122 @@ namespace Automation
 
         private void UpdateContentWidths()
         {
-            int width = Math.Max(220, content.ClientSize.Width - content.Padding.Horizontal
-                - (content.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0));
+            int width = GetContentWidth();
             foreach (InspectorSectionControl section in sectionControls)
             {
                 section.Width = width;
             }
         }
+
+        private int GetContentWidth()
+        {
+            return Math.Max(220, content.ClientSize.Width - content.Padding.Horizontal
+                - (content.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                foreach (CachedInspectorPage page in pageCache.Values)
+                {
+                    DisposeSections(page.Sections);
+                }
+                pageCache.Clear();
+                descriptionToolTip.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        private void SectionControl_SizeChanged(object sender, EventArgs e)
+        {
+            if (updateDepth > 0)
+            {
+                layoutRequired = true;
+            }
+        }
+
+        private sealed class CachedInspectorPage
+        {
+            public CachedInspectorPage(
+                string signature,
+                List<InspectorSectionControl> sections,
+                Point scrollPosition,
+                long lastUsed)
+            {
+                Signature = signature;
+                Sections = sections;
+                ScrollPosition = scrollPosition;
+                LastUsed = lastUsed;
+            }
+
+            public string Signature { get; }
+            public List<InspectorSectionControl> Sections { get; }
+            public Point ScrollPosition { get; }
+            public long LastUsed { get; set; }
+        }
     }
 
     internal sealed class InspectorSectionControl : UserControl
     {
-        private readonly Button headerButton = new Button();
-        private readonly FlowLayoutPanel body = new FlowLayoutPanel();
+        private const int HeaderHeight = 32;
+        private readonly InspectorSectionButton headerButton = new InspectorSectionButton();
+        private readonly InspectorFlowPanel body = new InspectorFlowPanel();
         private readonly List<InspectorFieldControl> fields = new List<InspectorFieldControl>();
         private bool expanded = true;
+        private bool updatingLayout;
 
-        public InspectorSectionControl(InspectorSectionDefinition definition, bool editable)
+        public InspectorSectionControl(
+            InspectorSectionDefinition definition,
+            bool editable,
+            ToolTip descriptionToolTip)
         {
             AutoSize = false;
-            BackColor = Color.White;
-            Margin = new Padding(0, 0, 0, 8);
+            BackColor = InspectorPalette.Surface;
+            Margin = new Padding(0, 0, 0, 5);
             Padding = Padding.Empty;
 
             headerButton.AutoSize = false;
-            headerButton.BackColor = Color.FromArgb(238, 244, 248);
+            headerButton.BackColor = InspectorPalette.Surface;
             headerButton.Cursor = Cursors.Hand;
             headerButton.FlatAppearance.BorderSize = 0;
+            headerButton.FlatAppearance.MouseOverBackColor = InspectorPalette.SurfaceSubtle;
+            headerButton.FlatAppearance.MouseDownBackColor = InspectorPalette.BrandSoft;
             headerButton.FlatStyle = FlatStyle.Flat;
-            headerButton.Font = InspectorFonts.Bold95;
-            headerButton.ForeColor = Color.FromArgb(46, 67, 82);
-            headerButton.Height = 36;
-            headerButton.Padding = new Padding(8, 0, 0, 0);
-            headerButton.Text = "▾  " + definition.Title;
-            headerButton.TextAlign = ContentAlignment.MiddleLeft;
+            headerButton.Font = InspectorFonts.Bold9;
+            headerButton.ForeColor = InspectorPalette.TextPrimary;
+            headerButton.Height = HeaderHeight;
+            headerButton.IconKind = InspectorIcons.FromSectionTitle(definition.Title);
+            headerButton.Expanded = expanded;
+            headerButton.Text = definition.Title;
             headerButton.Click += (sender, args) => ToggleExpanded();
             Controls.Add(headerButton);
 
             body.AutoSize = false;
-            body.BackColor = Color.White;
+            body.BackColor = InspectorPalette.Surface;
             body.FlowDirection = FlowDirection.TopDown;
-            body.Padding = new Padding(10, 5, 10, 8);
+            body.Padding = new Padding(8, 3, 8, 5);
             body.WrapContents = false;
             Controls.Add(body);
             body.BringToFront();
 
+            var editors = new List<Control>();
             foreach (InspectorFieldDefinition field in definition.Fields)
             {
-                InspectorFieldControl editor = CreateEditor(field, editable);
+                InspectorFieldControl editor = CreateEditor(
+                    field,
+                    editable,
+                    descriptionToolTip);
                 editor.FieldValueChanged += (sender, args) => FieldValueChanged?.Invoke(this, EventArgs.Empty);
                 editor.SizeChanged += (sender, args) => UpdateWidths();
                 fields.Add(editor);
-                body.Controls.Add(editor);
+                editors.Add(editor);
             }
-            Resize += (sender, args) => UpdateWidths();
-            UpdateWidths();
+            body.Controls.AddRange(editors.ToArray());
+            Resize += (sender, args) =>
+            {
+                UpdateWidths();
+            };
         }
 
         public event EventHandler FieldValueChanged;
@@ -299,152 +1612,285 @@ namespace Automation
             }
         }
 
-        public void ApplyFilter(string filter)
+        public bool CanRebind(InspectorSectionDefinition definition)
         {
-            bool hasFilter = !string.IsNullOrWhiteSpace(filter);
-            bool anyVisible = false;
-            foreach (InspectorFieldControl field in fields)
+            if (definition == null || fields.Count != definition.Fields.Count)
             {
-                bool visible = !hasFilter || field.Matches(filter);
-                field.Visible = visible;
-                anyVisible |= visible;
+                return false;
             }
-            Visible = anyVisible;
-            if (hasFilter && anyVisible && !expanded)
+            for (int index = 0; index < fields.Count; index++)
             {
-                expanded = true;
-                body.Visible = true;
-                headerButton.Text = headerButton.Text.Replace("▸", "▾");
+                if (!fields[index].CanRebind(definition.Fields[index]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        public void Rebind(InspectorSectionDefinition definition, bool editable)
+        {
+            headerButton.IconKind = InspectorIcons.FromSectionTitle(definition.Title);
+            headerButton.Text = definition.Title;
+            for (int index = 0; index < fields.Count; index++)
+            {
+                fields[index].Rebind(definition.Fields[index], editable);
             }
             UpdateWidths();
         }
 
-        public bool FocusFirstEditableField()
-        {
-            foreach (InspectorFieldControl field in fields.Where(item => item.Visible))
-            {
-                if (field.FocusEditor())
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         private static InspectorFieldControl CreateEditor(
             InspectorFieldDefinition definition,
-            bool editable)
+            bool editable,
+            ToolTip descriptionToolTip)
         {
             if (definition is InspectorValueReferenceFieldDefinition reference)
             {
-                return new InspectorValueReferenceFieldControl(reference, editable);
+                return new InspectorValueReferenceFieldControl(
+                    reference,
+                    editable,
+                    descriptionToolTip);
             }
             if (definition is InspectorCollectionFieldDefinition collection)
             {
-                return new InspectorCollectionFieldControl(collection, editable);
+                return new InspectorCollectionFieldControl(
+                    collection,
+                    editable,
+                    descriptionToolTip);
             }
-            return new InspectorScalarFieldControl((InspectorScalarFieldDefinition)definition, editable);
+            return new InspectorScalarFieldControl(
+                (InspectorScalarFieldDefinition)definition,
+                editable,
+                descriptionToolTip);
         }
 
         private void ToggleExpanded()
         {
             expanded = !expanded;
             body.Visible = expanded;
-            if (expanded)
-            {
-                headerButton.Text = headerButton.Text.Replace("▸", "▾");
-            }
-            else
-            {
-                headerButton.Text = headerButton.Text.Replace("▾", "▸");
-            }
+            headerButton.Expanded = expanded;
             UpdateWidths();
         }
 
         private void UpdateWidths()
         {
-            int width = Math.Max(180, ClientSize.Width);
-            headerButton.SetBounds(0, 0, width, 36);
-            body.Width = width;
-            int fieldWidth = Math.Max(180, body.ClientSize.Width - body.Padding.Horizontal);
-            foreach (InspectorFieldControl field in fields)
+            if (updatingLayout)
             {
-                field.Width = fieldWidth;
+                return;
             }
-            int bodyHeight = body.GetPreferredSize(new Size(width, 0)).Height;
-            body.SetBounds(0, 36, width, bodyHeight);
-            Height = 36 + (expanded ? bodyHeight : 0);
+            updatingLayout = true;
+            try
+            {
+                int width = Math.Max(180, ClientSize.Width);
+                headerButton.SetBounds(0, 0, width, HeaderHeight);
+                body.Width = width;
+                int fieldWidth = Math.Max(180, body.ClientSize.Width - body.Padding.Horizontal);
+                foreach (InspectorFieldControl field in fields)
+                {
+                    field.Width = fieldWidth;
+                }
+                int bodyHeight = body.GetPreferredSize(new Size(width, 0)).Height;
+                body.SetBounds(0, HeaderHeight, width, bodyHeight);
+                Height = HeaderHeight + (expanded ? bodyHeight : 0);
+            }
+            finally
+            {
+                updatingLayout = false;
+            }
         }
     }
 
     internal abstract class InspectorFieldControl : UserControl
     {
-        protected readonly InspectorFieldDefinition Definition;
+        protected InspectorFieldDefinition Definition;
+        protected readonly ToolTip DescriptionToolTip;
         protected bool Editable;
+        private readonly HashSet<Control> descriptionControls = new HashSet<Control>();
 
-        protected InspectorFieldControl(InspectorFieldDefinition definition, bool editable)
+        protected InspectorFieldControl(
+            InspectorFieldDefinition definition,
+            bool editable,
+            ToolTip descriptionToolTip)
         {
             Definition = definition;
+            DescriptionToolTip = descriptionToolTip;
             Editable = editable;
             AutoSize = false;
-            BackColor = Color.White;
-            Margin = new Padding(0, 4, 0, 6);
+            BackColor = InspectorPalette.Surface;
+            Margin = new Padding(0, 0, 0, 1);
         }
 
         public event EventHandler FieldValueChanged;
 
-        public bool Matches(string filter)
-        {
-            return Definition.SearchText.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
         public abstract void SetEditable(bool editable);
         public abstract void RefreshValue();
         public abstract bool FocusEditor();
+        public abstract void Rebind(InspectorFieldDefinition definition, bool editable);
+
+        public virtual bool CanRebind(InspectorFieldDefinition definition)
+        {
+            return definition != null
+                && Definition.GetType() == definition.GetType();
+        }
 
         protected void OnFieldValueChanged()
         {
             FieldValueChanged?.Invoke(this, EventArgs.Empty);
         }
+
+        protected void AttachDescription(params Control[] controls)
+        {
+            if (DescriptionToolTip == null)
+            {
+                return;
+            }
+            string description = Definition.Description ?? string.Empty;
+            foreach (Control control in controls.Where(control => control != null))
+            {
+                control.AccessibleDescription = description;
+                if (descriptionControls.Add(control))
+                {
+                    control.MouseEnter += DescriptionControl_MouseEnter;
+                }
+            }
+        }
+
+        private void DescriptionControl_MouseEnter(object sender, EventArgs e)
+        {
+            if (!(sender is Control control))
+            {
+                return;
+            }
+            string description = control.AccessibleDescription ?? string.Empty;
+            if (!string.Equals(
+                DescriptionToolTip.GetToolTip(control),
+                description,
+                StringComparison.Ordinal))
+            {
+                DescriptionToolTip.SetToolTip(control, description);
+            }
+        }
+
+        protected static int GetLabelWidth(int availableWidth)
+        {
+            return Math.Min(96, Math.Max(76, availableWidth * 28 / 100));
+        }
+
+        protected static void PopulateStandardValues(
+            InspectorComboBox comboBox,
+            object owner,
+            PropertyDescriptor property,
+            object currentValue,
+            bool includeOptions)
+        {
+            comboBox.BeginUpdate();
+            try
+            {
+                comboBox.Items.Clear();
+                if (includeOptions)
+                {
+                    foreach (InspectorStandardValue option
+                        in InspectorValueConversion.GetStandardValues(owner, property))
+                    {
+                        comboBox.Items.Add(option);
+                    }
+                }
+                InspectorStandardValue selected = comboBox.Items
+                    .Cast<InspectorStandardValue>()
+                    .FirstOrDefault(option => Equals(option.Value, currentValue));
+                if (selected != null)
+                {
+                    comboBox.SelectedItem = selected;
+                    return;
+                }
+
+                string displayText = InspectorValueConversion.ToDisplayText(
+                    owner,
+                    property,
+                    currentValue);
+                comboBox.SelectedIndex = -1;
+                if (comboBox.DropDownStyle == ComboBoxStyle.DropDownList)
+                {
+                    if (!string.IsNullOrEmpty(displayText))
+                    {
+                        var current = new InspectorStandardValue(currentValue, displayText);
+                        comboBox.Items.Add(current);
+                        comboBox.SelectedItem = current;
+                    }
+                }
+                else
+                {
+                    comboBox.Text = displayText;
+                }
+            }
+            finally
+            {
+                comboBox.EndUpdate();
+                comboBox.ClearTextSelection();
+            }
+        }
     }
 
     internal sealed class InspectorScalarFieldControl : InspectorFieldControl
     {
-        private readonly InspectorScalarFieldDefinition definition;
-        private readonly Label label = new Label();
-        private readonly Label message = new Label();
+        private InspectorScalarFieldDefinition definition;
         private readonly Control editor;
+        private string validationMessage = string.Empty;
         private bool refreshing;
+        private bool standardValuesLoaded;
+        private bool gotoDropConfigured;
+        private bool selectionPickerConfigured;
+        private ToolStripDropDown activeSelectionPicker;
 
-        public InspectorScalarFieldControl(InspectorScalarFieldDefinition definition, bool editable)
-            : base(definition, editable)
+        public InspectorScalarFieldControl(
+            InspectorScalarFieldDefinition definition,
+            bool editable,
+            ToolTip descriptionToolTip)
+            : base(definition, editable, descriptionToolTip)
         {
             this.definition = definition;
-            label.AutoEllipsis = true;
-            label.Font = InspectorFonts.Regular95;
-            label.ForeColor = Color.FromArgb(55, 70, 82);
-            label.Height = 24;
-            label.Text = definition.Label;
-            label.TextAlign = ContentAlignment.MiddleLeft;
-            Controls.Add(label);
+            AccessibleName = definition.Label;
+            DoubleBuffered = true;
 
             editor = CreateEditor();
             editor.TabIndex = 0;
             Controls.Add(editor);
 
-            message.AutoEllipsis = true;
-            message.Font = InspectorFonts.Regular85;
-            message.ForeColor = Color.FromArgb(105, 120, 132);
-            message.Height = string.IsNullOrWhiteSpace(definition.Description) ? 0 : 22;
-            message.Text = definition.Description;
-            message.TextAlign = ContentAlignment.MiddleLeft;
-            message.Visible = message.Height > 0;
-            Controls.Add(message);
+            AttachDescription(this, editor);
 
             Resize += (sender, args) => LayoutControls();
             SetEditable(editable);
             RefreshValue();
             LayoutControls();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            int width = Math.Max(120, ClientSize.Width);
+            int labelWidth = GetLabelWidth(width);
+            TextRenderer.DrawText(
+                e.Graphics,
+                definition.Label,
+                InspectorFonts.Regular9,
+                new Rectangle(0, 0, labelWidth, 28),
+                InspectorPalette.TextSecondary,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                    | TextFormatFlags.NoPadding);
+            if (!string.IsNullOrEmpty(validationMessage))
+            {
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    validationMessage,
+                    InspectorFonts.Regular85,
+                    new Rectangle(labelWidth + 6, 29,
+                        Math.Max(48, width - labelWidth - 6), 20),
+                    InspectorPalette.Danger,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                        | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                        | TextFormatFlags.NoPadding);
+            }
         }
 
         public override void SetEditable(bool editable)
@@ -454,7 +1900,7 @@ namespace Automation
             if (editor is TextBox textBox)
             {
                 textBox.ReadOnly = !allow;
-                textBox.BackColor = allow ? Color.White : Color.FromArgb(246, 248, 250);
+                textBox.BackColor = allow ? InspectorPalette.Input : InspectorPalette.SurfaceSubtle;
             }
             else
             {
@@ -464,7 +1910,12 @@ namespace Automation
 
         public override void RefreshValue()
         {
-            if (editor.Focused)
+            RefreshValue(false);
+        }
+
+        private void RefreshValue(bool force)
+        {
+            if (!force && editor.Focused)
             {
                 return;
             }
@@ -475,11 +1926,19 @@ namespace Automation
                 if (editor is CheckBox checkBox)
                 {
                     checkBox.Checked = value is bool flag && flag;
-                    checkBox.Text = checkBox.Checked ? "已启用" : "未启用";
+                    checkBox.Text = string.Empty;
+                    checkBox.AccessibleName = definition.Label;
+                    checkBox.AccessibleDescription = checkBox.Checked ? "已开启" : "已关闭";
                 }
-                else if (editor is ComboBox comboBox)
+                else if (editor is InspectorComboBox comboBox)
                 {
-                    FillComboBox(comboBox, value);
+                    standardValuesLoaded = false;
+                    PopulateStandardValues(
+                        comboBox,
+                        definition.Owner,
+                        definition.Property,
+                        value,
+                        false);
                 }
                 else if (editor is TextBox textBox)
                 {
@@ -510,20 +1969,60 @@ namespace Automation
             return true;
         }
 
+        public override bool CanRebind(InspectorFieldDefinition next)
+        {
+            if (!base.CanRebind(next))
+            {
+                return false;
+            }
+            var scalar = (InspectorScalarFieldDefinition)next;
+            Type type = Nullable.GetUnderlyingType(scalar.Property.PropertyType)
+                ?? scalar.Property.PropertyType;
+            if (editor is InspectorToggle)
+            {
+                return type == typeof(bool);
+            }
+            bool usesComboBox = InspectorValueConversion.HasStandardValues(
+                scalar.Owner,
+                scalar.Property) || type.IsEnum;
+            return editor is InspectorComboBox ? usesComboBox : !usesComboBox;
+        }
+
+        public override void Rebind(InspectorFieldDefinition next, bool editable)
+        {
+            definition = (InspectorScalarFieldDefinition)next;
+            Definition = next;
+            AccessibleName = definition.Label;
+            standardValuesLoaded = false;
+            if (editor is InspectorComboBox comboBox)
+            {
+                comboBox.DropDownStyle = InspectorValueConversion.StandardValuesExclusive(
+                    definition.Owner,
+                    definition.Property)
+                    ? ComboBoxStyle.DropDownList
+                    : ComboBoxStyle.DropDown;
+                ConfigureSelectionPicker(comboBox);
+            }
+            ConfigureGotoDrop(editor);
+            AttachDescription(this, editor);
+            SetEditable(editable);
+            RefreshValue(true);
+            Invalidate();
+        }
+
         private Control CreateEditor()
         {
             Type type = Nullable.GetUnderlyingType(definition.Property.PropertyType)
                 ?? definition.Property.PropertyType;
             if (type == typeof(bool))
             {
-                var checkBox = new CheckBox
+                var checkBox = new InspectorToggle
                 {
                     AutoSize = false,
-                    BackColor = Color.FromArgb(247, 249, 251),
-                    Font = InspectorFonts.Regular95,
-                    ForeColor = Color.FromArgb(44, 76, 94),
-                    Height = 34,
-                    Padding = new Padding(8, 0, 0, 0),
+                    BackColor = InspectorPalette.Surface,
+                    Font = InspectorFonts.Regular9,
+                    ForeColor = InspectorPalette.TextSecondary,
+                    Height = 28,
                     TextAlign = ContentAlignment.MiddleLeft,
                     UseVisualStyleBackColor = false
                 };
@@ -540,10 +2039,10 @@ namespace Automation
             if (InspectorValueConversion.HasStandardValues(definition.Owner, definition.Property)
                 || type.IsEnum)
             {
-                var comboBox = new ComboBox
+                var comboBox = new InspectorComboBox
                 {
                     DropDownHeight = 320,
-                    Font = InspectorFonts.Regular95,
+                    Font = InspectorFonts.Regular9,
                     IntegralHeight = false
                 };
                 comboBox.DropDownStyle = InspectorValueConversion.StandardValuesExclusive(
@@ -551,6 +2050,8 @@ namespace Automation
                     definition.Property)
                     ? ComboBoxStyle.DropDownList
                     : ComboBoxStyle.DropDown;
+                comboBox.DropDown += (sender, args) =>
+                    EnsureStandardValuesLoaded(comboBox);
                 comboBox.SelectionChangeCommitted += (sender, args) => CommitComboBox(comboBox);
                 comboBox.Validated += (sender, args) =>
                 {
@@ -560,13 +2061,13 @@ namespace Automation
                     }
                 };
                 ConfigureGotoDrop(comboBox);
+                ConfigureSelectionPicker(comboBox);
                 return comboBox;
             }
 
-            var textEditor = new TextBox
+            var textEditor = new InspectorTextBox
             {
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = InspectorFonts.Regular95
+                Font = InspectorFonts.Regular9
             };
             textEditor.Validated += (sender, args) => CommitText(textEditor);
             textEditor.KeyDown += (sender, args) =>
@@ -584,20 +2085,27 @@ namespace Automation
 
         private void ConfigureGotoDrop(Control control)
         {
-            if (!(definition.Property.Attributes[typeof(MarkedGotoAttribute)] is MarkedGotoAttribute))
+            bool marked = definition.Property.Attributes[typeof(MarkedGotoAttribute)]
+                is MarkedGotoAttribute;
+            control.AllowDrop = marked;
+            if (gotoDropConfigured)
             {
                 return;
             }
-            control.AllowDrop = true;
+            gotoDropConfigured = true;
             control.DragEnter += (sender, args) =>
             {
-                args.Effect = args.Data != null
+                args.Effect = control.AllowDrop && args.Data != null
                     && args.Data.GetDataPresent(FrmDataGrid.OperationAddressDragFormat)
                     ? DragDropEffects.Copy
                     : DragDropEffects.None;
             };
             control.DragDrop += (sender, args) =>
             {
+                if (!control.AllowDrop)
+                {
+                    return;
+                }
                 string address = args.Data?.GetData(FrmDataGrid.OperationAddressDragFormat) as string;
                 if (string.IsNullOrWhiteSpace(address))
                 {
@@ -616,36 +2124,61 @@ namespace Automation
             };
         }
 
-        private void FillComboBox(ComboBox comboBox, object currentValue)
+        private void ConfigureSelectionPicker(InspectorComboBox comboBox)
         {
-            comboBox.BeginUpdate();
+            comboBox.UseSelectionPicker = InspectorSelectionPickerResolver.TryResolve(
+                definition.Property,
+                out InspectorSelectionPickerKind _);
+            if (selectionPickerConfigured)
+            {
+                return;
+            }
+            selectionPickerConfigured = true;
+            comboBox.SelectionPickerRequested += (sender, args) =>
+                ShowSelectionPicker(comboBox);
+        }
+
+        private void ShowSelectionPicker(InspectorComboBox comboBox)
+        {
+            if (!Editable || definition.IsReadOnly
+                || !InspectorSelectionPickerResolver.TryResolve(
+                    definition.Property,
+                    out InspectorSelectionPickerKind kind))
+            {
+                return;
+            }
+            activeSelectionPicker?.Close();
+            activeSelectionPicker = InspectorSelectionPickerDropDown.Show(
+                comboBox,
+                kind,
+                definition.Owner,
+                definition.Property,
+                Convert.ToString(definition.GetValue(), CultureInfo.CurrentCulture),
+                selectedValue => CommitValue(selectedValue),
+                () => activeSelectionPicker = null);
+        }
+
+        private void EnsureStandardValuesLoaded(InspectorComboBox comboBox)
+        {
+            if (standardValuesLoaded)
+            {
+                return;
+            }
+            bool wasRefreshing = refreshing;
+            refreshing = true;
             try
             {
-                comboBox.Items.Clear();
-                foreach (InspectorStandardValue item in InspectorValueConversion.GetStandardValues(
+                PopulateStandardValues(
+                    comboBox,
                     definition.Owner,
-                    definition.Property))
-                {
-                    comboBox.Items.Add(item);
-                }
-                InspectorStandardValue selected = comboBox.Items.Cast<InspectorStandardValue>()
-                    .FirstOrDefault(item => Equals(item.Value, currentValue));
-                if (selected != null)
-                {
-                    comboBox.SelectedItem = selected;
-                }
-                else
-                {
-                    comboBox.SelectedIndex = -1;
-                    comboBox.Text = InspectorValueConversion.ToDisplayText(
-                        definition.Owner,
-                        definition.Property,
-                        currentValue);
-                }
+                    definition.Property,
+                    definition.GetValue(),
+                    true);
+                standardValuesLoaded = true;
             }
             finally
             {
-                comboBox.EndUpdate();
+                refreshing = wasRefreshing;
             }
         }
 
@@ -709,22 +2242,28 @@ namespace Automation
 
         private void ShowMessage(string text, bool error)
         {
-            message.ForeColor = error
-                ? Color.FromArgb(182, 55, 45)
-                : Color.FromArgb(105, 120, 132);
-            message.Text = text ?? string.Empty;
-            message.Visible = !string.IsNullOrWhiteSpace(message.Text);
-            message.Height = message.Visible ? 22 : 0;
+            string nextMessage = error ? text ?? string.Empty : string.Empty;
+            if (string.Equals(validationMessage, nextMessage, StringComparison.Ordinal))
+            {
+                return;
+            }
+            validationMessage = nextMessage;
             LayoutControls();
+            Invalidate();
         }
 
         private void LayoutControls()
         {
             int width = Math.Max(120, ClientSize.Width);
-            label.SetBounds(0, 0, width, 24);
-            editor.SetBounds(0, 24, width, 34);
-            message.SetBounds(0, 60, width, message.Height);
-            Height = 60 + message.Height;
+            int labelWidth = GetLabelWidth(width);
+            int editorLeft = labelWidth + 6;
+            int editorTop = editor is InspectorComboBox ? 1 : 0;
+            editor.SetBounds(
+                editorLeft,
+                editorTop,
+                editor is InspectorToggle ? 38 : Math.Max(48, width - editorLeft),
+                28);
+            Height = 29 + (string.IsNullOrEmpty(validationMessage) ? 0 : 20);
         }
 
         private static Exception Unwrap(Exception exception)
@@ -733,49 +2272,86 @@ namespace Automation
                 ? invocation.InnerException
                 : exception;
         }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                activeSelectionPicker?.Dispose();
+                activeSelectionPicker = null;
+            }
+            base.Dispose(disposing);
+        }
     }
 
     internal sealed class InspectorValueReferenceFieldControl : InspectorFieldControl
     {
-        private readonly InspectorValueReferenceFieldDefinition definition;
-        private readonly Label label = new Label();
-        private readonly ComboBox kind = new ComboBox();
-        private readonly ComboBox value = new ComboBox();
-        private readonly Label message = new Label();
+        private InspectorValueReferenceFieldDefinition definition;
+        private readonly InspectorComboBox kind = new InspectorComboBox();
+        private readonly InspectorComboBox value = new InspectorComboBox();
+        private string validationMessage = string.Empty;
         private bool refreshing;
+        private bool valueOptionsLoaded;
+        private ToolStripDropDown activeSelectionPicker;
 
         public InspectorValueReferenceFieldControl(
             InspectorValueReferenceFieldDefinition definition,
-            bool editable)
-            : base(definition, editable)
+            bool editable,
+            ToolTip descriptionToolTip)
+            : base(definition, editable, descriptionToolTip)
         {
             this.definition = definition;
-            label.Font = InspectorFonts.Regular95;
-            label.ForeColor = Color.FromArgb(55, 70, 82);
-            label.Text = definition.Label;
-            label.TextAlign = ContentAlignment.MiddleLeft;
-            Controls.Add(label);
+            AccessibleName = definition.Label;
+            DoubleBuffered = true;
 
             kind.DropDownStyle = ComboBoxStyle.DropDownList;
             kind.Font = InspectorFonts.Regular9;
             kind.SelectionChangeCommitted += Kind_SelectionChangeCommitted;
             Controls.Add(kind);
 
-            value.Font = InspectorFonts.Regular95;
+            value.Font = InspectorFonts.Regular9;
             value.IntegralHeight = false;
             value.DropDownHeight = 320;
+            value.DropDown += (sender, args) => EnsureValueOptionsLoaded();
+            value.SelectionPickerRequested += (sender, args) => ShowSelectionPicker();
             value.SelectionChangeCommitted += (sender, args) => CommitValue();
             value.Validated += (sender, args) => CommitValue();
             Controls.Add(value);
 
-            message.Font = InspectorFonts.Regular85;
-            message.ForeColor = Color.FromArgb(105, 120, 132);
-            message.Text = definition.Description;
-            Controls.Add(message);
+            AttachDescription(this, kind, value);
 
             Resize += (sender, args) => LayoutControls();
             SetEditable(editable);
             RefreshValue();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            int width = Math.Max(180, ClientSize.Width);
+            int labelWidth = GetLabelWidth(width);
+            TextRenderer.DrawText(
+                e.Graphics,
+                definition.Label,
+                InspectorFonts.Regular9,
+                new Rectangle(0, 0, labelWidth, 28),
+                InspectorPalette.TextSecondary,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                    | TextFormatFlags.NoPadding);
+            if (!string.IsNullOrEmpty(validationMessage))
+            {
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    validationMessage,
+                    InspectorFonts.Regular85,
+                    new Rectangle(labelWidth + 6, 29,
+                        Math.Max(80, width - labelWidth - 6), 20),
+                    InspectorPalette.Danger,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                        | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                        | TextFormatFlags.NoPadding);
+            }
         }
 
         public override void SetEditable(bool editable)
@@ -788,7 +2364,12 @@ namespace Automation
 
         public override void RefreshValue()
         {
-            if (value.Focused)
+            RefreshValue(false);
+        }
+
+        private void RefreshValue(bool force)
+        {
+            if (!force && value.Focused)
             {
                 return;
             }
@@ -835,6 +2416,18 @@ namespace Automation
             return true;
         }
 
+        public override void Rebind(InspectorFieldDefinition next, bool editable)
+        {
+            definition = (InspectorValueReferenceFieldDefinition)next;
+            Definition = next;
+            AccessibleName = definition.Label;
+            valueOptionsLoaded = false;
+            AttachDescription(this, kind, value);
+            SetEditable(editable);
+            RefreshValue(true);
+            Invalidate();
+        }
+
         private void Kind_SelectionChangeCommitted(object sender, EventArgs e)
         {
             if (refreshing || !(kind.SelectedItem is InspectorReferenceKindItem selected)
@@ -858,43 +2451,99 @@ namespace Automation
         private void ConfigureValueEditor(InspectorValueReferenceKind selectedKind)
         {
             PropertyDescriptor property = definition.GetActiveProperty(selectedKind);
-            value.BeginUpdate();
+            valueOptionsLoaded = false;
+            if (property == null)
+            {
+                value.UseSelectionPicker = false;
+                value.Items.Clear();
+                value.Text = string.Empty;
+                value.Enabled = false;
+                return;
+            }
+            value.DropDownStyle = InspectorValueConversion.StandardValuesExclusive(
+                definition.Owner,
+                property)
+                ? ComboBoxStyle.DropDownList
+                : ComboBoxStyle.DropDown;
+            value.UseSelectionPicker = InspectorSelectionPickerResolver.TryResolve(
+                property,
+                out InspectorSelectionPickerKind _);
+            PopulateStandardValues(
+                value,
+                definition.Owner,
+                property,
+                definition.GetValue(selectedKind),
+                false);
+            value.Enabled = Editable && !definition.IsReadOnly;
+        }
+
+        private void ShowSelectionPicker()
+        {
+            InspectorValueReferenceKind selectedKind = CurrentKind();
+            PropertyDescriptor property = definition.GetActiveProperty(selectedKind);
+            if (!Editable || definition.IsReadOnly || property == null
+                || !InspectorSelectionPickerResolver.TryResolve(
+                    property,
+                    out InspectorSelectionPickerKind kind))
+            {
+                return;
+            }
+            activeSelectionPicker?.Close();
+            activeSelectionPicker = InspectorSelectionPickerDropDown.Show(
+                value,
+                kind,
+                definition.Owner,
+                property,
+                Convert.ToString(
+                    definition.GetValue(selectedKind),
+                    CultureInfo.CurrentCulture),
+                selectedValue => CommitPickerValue(selectedKind, selectedValue),
+                () => activeSelectionPicker = null);
+        }
+
+        private void CommitPickerValue(
+            InspectorValueReferenceKind selectedKind,
+            string selectedValue)
+        {
             try
             {
-                value.Items.Clear();
-                if (property == null)
-                {
-                    value.Text = string.Empty;
-                    value.Enabled = false;
-                    return;
-                }
-                value.DropDownStyle = InspectorValueConversion.StandardValuesExclusive(
+                definition.SetValue(selectedKind, selectedValue);
+                ShowMessage(definition.Description, false);
+                OnFieldValueChanged();
+            }
+            catch (Exception ex)
+            {
+                ShowMessage(ex.Message, true);
+            }
+        }
+
+        private void EnsureValueOptionsLoaded()
+        {
+            if (valueOptionsLoaded)
+            {
+                return;
+            }
+            InspectorValueReferenceKind selectedKind = CurrentKind();
+            PropertyDescriptor property = definition.GetActiveProperty(selectedKind);
+            if (property == null)
+            {
+                return;
+            }
+            bool wasRefreshing = refreshing;
+            refreshing = true;
+            try
+            {
+                PopulateStandardValues(
+                    value,
                     definition.Owner,
-                    property)
-                    ? ComboBoxStyle.DropDownList
-                    : ComboBoxStyle.DropDown;
-                object currentValue = definition.GetValue(selectedKind);
-                foreach (InspectorStandardValue option in InspectorValueConversion.GetStandardValues(
-                    definition.Owner,
-                    property))
-                {
-                    value.Items.Add(option);
-                }
-                InspectorStandardValue selected = value.Items.Cast<InspectorStandardValue>()
-                    .FirstOrDefault(item => Equals(item.Value, currentValue));
-                value.SelectedItem = selected;
-                if (selected == null)
-                {
-                    value.Text = InspectorValueConversion.ToDisplayText(
-                        definition.Owner,
-                        property,
-                        currentValue);
-                }
-                value.Enabled = Editable && !definition.IsReadOnly;
+                    property,
+                    definition.GetValue(selectedKind),
+                    true);
+                valueOptionsLoaded = true;
             }
             finally
             {
-                value.EndUpdate();
+                refreshing = wasRefreshing;
             }
         }
 
@@ -938,24 +2587,31 @@ namespace Automation
 
         private void ShowMessage(string text, bool error)
         {
-            message.ForeColor = error
-                ? Color.FromArgb(182, 55, 45)
-                : Color.FromArgb(105, 120, 132);
-            message.Text = text ?? string.Empty;
-            message.Visible = !string.IsNullOrWhiteSpace(message.Text);
+            string nextMessage = error ? text ?? string.Empty : string.Empty;
+            if (string.Equals(validationMessage, nextMessage, StringComparison.Ordinal))
+            {
+                return;
+            }
+            validationMessage = nextMessage;
             LayoutControls();
+            Invalidate();
         }
 
         private void LayoutControls()
         {
             int width = Math.Max(180, ClientSize.Width);
-            int kindWidth = Math.Min(105, Math.Max(88, width / 3));
-            label.SetBounds(0, 0, width, 24);
-            kind.SetBounds(0, 24, kindWidth, 34);
-            value.SetBounds(kindWidth + 6, 24, Math.Max(80, width - kindWidth - 6), 34);
-            int messageHeight = message.Visible ? 22 : 0;
-            message.SetBounds(0, 60, width, messageHeight);
-            Height = 60 + messageHeight;
+            int labelWidth = GetLabelWidth(width);
+            int editorLeft = labelWidth + 6;
+            int editorWidth = Math.Max(80, width - editorLeft);
+            int kindWidth = Math.Min(92, Math.Max(72, editorWidth * 40 / 100));
+            kind.SetBounds(editorLeft, 1, kindWidth, 28);
+            value.SetBounds(
+                editorLeft + kindWidth + 4,
+                1,
+                Math.Max(48, editorWidth - kindWidth - 4),
+                28);
+            int messageHeight = string.IsNullOrEmpty(validationMessage) ? 0 : 20;
+            Height = 29 + messageHeight;
         }
 
         private sealed class InspectorReferenceKindItem
@@ -970,54 +2626,58 @@ namespace Automation
             public string Text { get; }
             public override string ToString() => Text;
         }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                activeSelectionPicker?.Dispose();
+                activeSelectionPicker = null;
+            }
+            base.Dispose(disposing);
+        }
     }
 
     internal sealed class InspectorCollectionFieldControl : InspectorFieldControl
     {
-        private readonly InspectorCollectionFieldDefinition definition;
+        private InspectorCollectionFieldDefinition definition;
         private readonly Label title = new Label();
-        private readonly Button addButton = new Button();
-        private readonly ComboBox countEditor = new ComboBox();
-        private readonly FlowLayoutPanel itemsPanel = new FlowLayoutPanel();
-        private readonly PropertyDescriptor countProperty;
-        private bool refreshingCount;
+        private readonly InspectorIconButton addButton = new InspectorIconButton();
+        private readonly InspectorFlowPanel itemsPanel = new InspectorFlowPanel();
         private bool showAddButton;
-        private bool showCountEditor;
+        private bool updatingLayout;
 
         public InspectorCollectionFieldControl(
             InspectorCollectionFieldDefinition definition,
-            bool editable)
-            : base(definition, editable)
+            bool editable,
+            ToolTip descriptionToolTip)
+            : base(definition, editable, descriptionToolTip)
         {
             this.definition = definition;
-            countProperty = InspectorDefinitionBuilder.FindCollectionCountProperty(
-                definition.Owner,
-                definition.Property);
-            title.Font = InspectorFonts.Bold95;
-            title.ForeColor = Color.FromArgb(51, 73, 87);
+            title.AutoEllipsis = true;
+            title.Font = InspectorFonts.Bold9;
+            title.ForeColor = InspectorPalette.TextPrimary;
             title.TextAlign = ContentAlignment.MiddleLeft;
             Controls.Add(title);
 
-            addButton.BackColor = Color.White;
+            addButton.BackColor = InspectorPalette.BrandSoft;
             addButton.Cursor = Cursors.Hand;
-            addButton.FlatAppearance.BorderColor = Color.FromArgb(196, 210, 220);
+            addButton.FlatAppearance.BorderSize = 0;
+            addButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(226, 233, 255);
+            addButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(216, 225, 253);
             addButton.FlatStyle = FlatStyle.Flat;
-            addButton.Font = InspectorFonts.Regular9;
-            addButton.ForeColor = Color.FromArgb(33, 105, 145);
-            addButton.Text = "+ 添加";
+            addButton.Font = InspectorFonts.Regular85;
+            addButton.ForeColor = InspectorPalette.Brand;
+            addButton.IconKind = InspectorIconKind.Add;
+            addButton.AccessibleName = "添加" + definition.Label;
+            addButton.Text = "添加";
             addButton.Click += (sender, args) => AddItem();
             Controls.Add(addButton);
 
-            countEditor.AccessibleName = definition.Label + "数量";
-            countEditor.DropDownHeight = 260;
-            countEditor.Font = InspectorFonts.Regular9;
-            countEditor.IntegralHeight = false;
-            countEditor.SelectionChangeCommitted += (sender, args) => CommitCount();
-            countEditor.Validated += (sender, args) => CommitCount();
-            Controls.Add(countEditor);
+            AttachDescription(title, addButton);
 
             itemsPanel.AutoSize = false;
-            itemsPanel.BackColor = Color.White;
+            itemsPanel.BackColor = InspectorPalette.Surface;
             itemsPanel.FlowDirection = FlowDirection.TopDown;
             itemsPanel.WrapContents = false;
             Controls.Add(itemsPanel);
@@ -1031,9 +2691,8 @@ namespace Automation
         {
             Editable = editable;
             showAddButton = editable && !definition.IsReadOnly && CanCreateItem();
-            showCountEditor = editable && !definition.IsReadOnly && countProperty != null;
             addButton.Visible = showAddButton;
-            countEditor.Visible = showCountEditor;
+            addButton.Enabled = definition.Items == null || definition.Items.Count < MaxItems;
             foreach (InspectorCollectionItemControl item in itemsPanel.Controls
                 .OfType<InspectorCollectionItemControl>())
             {
@@ -1045,7 +2704,6 @@ namespace Automation
         public override void RefreshValue()
         {
             IList items = definition.Items;
-            RefreshCountEditor(items?.Count ?? 0);
             if (itemsPanel.Controls.Count != (items?.Count ?? 0))
             {
                 RebuildItems();
@@ -1066,6 +2724,84 @@ namespace Automation
             return first?.FocusFirstEditor() == true;
         }
 
+        public override bool CanRebind(InspectorFieldDefinition next)
+        {
+            if (!base.CanRebind(next))
+            {
+                return false;
+            }
+            IList items = ((InspectorCollectionFieldDefinition)next).Items;
+            List<InspectorCollectionItemControl> itemControls = itemsPanel.Controls
+                .OfType<InspectorCollectionItemControl>().ToList();
+            if (items == null || itemControls.Count != items.Count)
+            {
+                return false;
+            }
+            for (int index = 0; index < items.Count; index++)
+            {
+                if (!itemControls[index].CanRebind(items[index]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        public override void Rebind(InspectorFieldDefinition next, bool editable)
+        {
+            definition = (InspectorCollectionFieldDefinition)next;
+            Definition = next;
+            addButton.AccessibleName = "添加" + definition.Label;
+            AttachDescription(title, addButton);
+            Editable = editable;
+            bool nextShowAddButton = editable && !definition.IsReadOnly && CanCreateItem();
+            bool layoutChanged = showAddButton != nextShowAddButton;
+            showAddButton = nextShowAddButton;
+            addButton.Visible = showAddButton;
+            addButton.Enabled = definition.Items == null || definition.Items.Count < MaxItems;
+            if (!TryRebindItems())
+            {
+                RebuildItems();
+                return;
+            }
+            if (layoutChanged)
+            {
+                LayoutControls();
+            }
+        }
+
+        private bool TryRebindItems()
+        {
+            IList items = definition.Items;
+            List<InspectorCollectionItemControl> itemControls = itemsPanel.Controls
+                .OfType<InspectorCollectionItemControl>().ToList();
+            if (items == null || itemControls.Count != items.Count)
+            {
+                return false;
+            }
+            itemsPanel.SuspendLayout();
+            try
+            {
+                for (int index = 0; index < items.Count; index++)
+                {
+                    if (!itemControls[index].TryRebind(
+                        definition.Label,
+                        index,
+                        items[index],
+                        Editable && !definition.IsReadOnly))
+                    {
+                        return false;
+                    }
+                }
+                title.Text = $"{definition.Label}（{items.Count}）";
+                return true;
+            }
+            finally
+            {
+                itemsPanel.ResumeLayout(false);
+            }
+        }
+
         private void RebuildItems()
         {
             itemsPanel.SuspendLayout();
@@ -1078,11 +2814,12 @@ namespace Automation
                 itemsPanel.Controls.Clear();
                 IList items = definition.Items;
                 title.Text = $"{definition.Label}（{items?.Count ?? 0}）";
-                RefreshCountEditor(items?.Count ?? 0);
+                addButton.Enabled = items == null || items.Count < MaxItems;
                 if (items == null)
                 {
                     return;
                 }
+                var itemControls = new List<Control>(items.Count);
                 for (int index = 0; index < items.Count; index++)
                 {
                     object item = items[index];
@@ -1091,13 +2828,15 @@ namespace Automation
                         index,
                         item,
                         Editable && !definition.IsReadOnly,
-                        items.Count <= 6 || index == 0);
+                        items.Count <= 6 || index == 0,
+                        DescriptionToolTip);
                     itemControl.DeleteRequested += (sender, args) => DeleteItem(itemControl.ItemIndex);
                     itemControl.MoveRequested += (sender, offset) => MoveItem(itemControl.ItemIndex, offset);
                     itemControl.FieldValueChanged += (sender, args) => OnFieldValueChanged();
                     itemControl.SizeChanged += (sender, args) => LayoutControls();
-                    itemsPanel.Controls.Add(itemControl);
+                    itemControls.Add(itemControl);
                 }
+                itemsPanel.Controls.AddRange(itemControls.ToArray());
             }
             finally
             {
@@ -1126,8 +2865,11 @@ namespace Automation
             {
                 object item = Activator.CreateInstance(itemType);
                 ApplyItemDefaults(item);
+                if (items.Count >= MaxItems)
+                {
+                    throw new InvalidOperationException($"{definition.Label}最多允许 {MaxItems} 项。");
+                }
                 items.Add(item);
-                SynchronizeCount(items.Count);
                 RebuildItems();
                 OnFieldValueChanged();
             }
@@ -1153,11 +2895,19 @@ namespace Automation
             {
                 return;
             }
+            if (items.Count <= MinItems)
+            {
+                MessageBox.Show(
+                    $"{definition.Label}至少需要 {MinItems} 项。",
+                    "删除配置项失败",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
             object removed = items[index];
             items.RemoveAt(index);
             try
             {
-                SynchronizeCount(items.Count);
                 RebuildItems();
                 OnFieldValueChanged();
             }
@@ -1189,88 +2939,23 @@ namespace Automation
             OnFieldValueChanged();
         }
 
-        private void SynchronizeCount(int count)
+        private int MinItems
         {
-            if (countProperty == null)
+            get
             {
-                return;
-            }
-            object converted = countProperty.PropertyType == typeof(string)
-                ? count.ToString(CultureInfo.InvariantCulture)
-                : Convert.ChangeType(count, countProperty.PropertyType, CultureInfo.InvariantCulture);
-            countProperty.SetValue(definition.Owner, converted);
-        }
-
-        private void RefreshCountEditor(int itemCount, bool force = false)
-        {
-            if (countProperty == null || (!force && countEditor.Focused))
-            {
-                return;
-            }
-            refreshingCount = true;
-            try
-            {
-                countEditor.Items.Clear();
-                countEditor.DropDownStyle = InspectorValueConversion.StandardValuesExclusive(
-                    definition.Owner,
-                    countProperty)
-                    ? ComboBoxStyle.DropDownList
-                    : ComboBoxStyle.DropDown;
-                object currentValue = countProperty.GetValue(definition.Owner);
-                foreach (InspectorStandardValue option in InspectorValueConversion.GetStandardValues(
-                    definition.Owner,
-                    countProperty))
-                {
-                    countEditor.Items.Add(option);
-                }
-                InspectorStandardValue selected = countEditor.Items.Cast<InspectorStandardValue>()
-                    .FirstOrDefault(option => Equals(option.Value, currentValue));
-                countEditor.SelectedItem = selected;
-                if (selected == null)
-                {
-                    countEditor.Text = InspectorValueConversion.ToDisplayText(
-                        definition.Owner,
-                        countProperty,
-                        currentValue ?? itemCount);
-                }
-            }
-            finally
-            {
-                refreshingCount = false;
+                InlineListAttribute attribute = definition.Property.Attributes[typeof(InlineListAttribute)]
+                    as InlineListAttribute;
+                return Math.Max(0, attribute?.MinItems ?? 0);
             }
         }
 
-        private void CommitCount()
+        private int MaxItems
         {
-            if (refreshingCount || !showCountEditor || countProperty == null)
+            get
             {
-                return;
-            }
-            try
-            {
-                object converted = countEditor.SelectedItem is InspectorStandardValue option
-                    ? option.Value
-                    : InspectorValueConversion.FromText(
-                        definition.Owner,
-                        countProperty,
-                        countEditor.Text);
-                object current = countProperty.GetValue(definition.Owner);
-                if (Equals(current, converted))
-                {
-                    return;
-                }
-                countProperty.SetValue(definition.Owner, converted);
-                RebuildItems();
-                OnFieldValueChanged();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    Unwrap(ex).Message,
-                    "调整配置项数量失败",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-                RefreshCountEditor(definition.Items?.Count ?? 0, true);
+                InlineListAttribute attribute = definition.Property.Attributes[typeof(InlineListAttribute)]
+                    as InlineListAttribute;
+                return Math.Max(MinItems, attribute?.MaxItems ?? int.MaxValue);
             }
         }
 
@@ -1283,86 +2968,102 @@ namespace Automation
 
         private static void ApplyItemDefaults(object item)
         {
-            if (item is IoOutParam io)
+            if (item is ProcParam process)
             {
-                io.delayBefore = -1;
-                io.delayAfter = -1;
-            }
-            else if (item is procParam process)
-            {
-                process.delayAfter = -1;
+                process.DelayAfterMs = -1;
             }
         }
 
         private void LayoutControls()
         {
-            int width = Math.Max(180, ClientSize.Width);
-            int right = width;
-            if (showAddButton)
+            if (updatingLayout)
             {
-                addButton.SetBounds(Math.Max(0, right - 78), 2, 78, 28);
-                right -= 84;
+                return;
             }
-            if (showCountEditor)
+            updatingLayout = true;
+            try
             {
-                countEditor.SetBounds(Math.Max(0, right - 62), 3, 62, 27);
-                right -= 68;
+                int width = Math.Max(180, ClientSize.Width);
+                int right = width;
+                if (showAddButton)
+                {
+                    addButton.SetBounds(Math.Max(0, right - 64), 1, 64, 27);
+                    right -= 68;
+                }
+                title.SetBounds(0, 0, Math.Max(70, right), 29);
+                foreach (InspectorCollectionItemControl item in itemsPanel.Controls
+                    .OfType<InspectorCollectionItemControl>())
+                {
+                    item.Width = width;
+                }
+                int itemsHeight = itemsPanel.GetPreferredSize(new Size(width, 0)).Height;
+                itemsPanel.SetBounds(0, 31, width, itemsHeight);
+                Height = 31 + itemsHeight;
             }
-            title.SetBounds(0, 0, Math.Max(70, right), 32);
-            foreach (InspectorCollectionItemControl item in itemsPanel.Controls
-                .OfType<InspectorCollectionItemControl>())
+            finally
             {
-                item.Width = width;
+                updatingLayout = false;
             }
-            int itemsHeight = itemsPanel.GetPreferredSize(new Size(width, 0)).Height;
-            itemsPanel.SetBounds(0, 36, width, itemsHeight);
-            Height = 36 + itemsHeight;
         }
     }
 
     internal sealed class InspectorCollectionItemControl : UserControl
     {
-        private readonly Button header = new Button();
-        private readonly Button delete = new Button();
-        private readonly Button moveUp = new Button();
-        private readonly Button moveDown = new Button();
-        private readonly FlowLayoutPanel fieldsPanel = new FlowLayoutPanel();
+        private const int HeaderHeight = 30;
+        private readonly InspectorSectionButton header = new InspectorSectionButton();
+        private readonly InspectorIconButton delete = new InspectorIconButton();
+        private readonly InspectorIconButton moveUp = new InspectorIconButton();
+        private readonly InspectorIconButton moveDown = new InspectorIconButton();
+        private readonly InspectorFlowPanel fieldsPanel = new InspectorFlowPanel();
         private readonly List<InspectorFieldControl> fieldControls = new List<InspectorFieldControl>();
-        private readonly object item;
+        private object item;
+        private string itemLabel;
+        private readonly ToolTip descriptionToolTip;
         private bool expanded;
         private bool editable;
+        private bool updatingLayout;
 
         public InspectorCollectionItemControl(
             string label,
             int index,
             object item,
             bool editable,
-            bool expanded)
+            bool expanded,
+            ToolTip descriptionToolTip)
         {
             ItemIndex = index;
             this.item = item;
+            itemLabel = label;
+            this.descriptionToolTip = descriptionToolTip;
             this.editable = editable;
             this.expanded = expanded;
             AutoSize = false;
-            BackColor = Color.FromArgb(249, 251, 252);
-            Margin = new Padding(0, 0, 0, 6);
+            BackColor = InspectorPalette.Stroke;
+            Margin = new Padding(0, 0, 0, 3);
             Padding = new Padding(1);
 
-            header.BackColor = Color.FromArgb(242, 246, 249);
+            header.BackColor = InspectorPalette.SurfaceSubtle;
+            header.AutoEllipsis = true;
             header.Cursor = Cursors.Hand;
             header.FlatAppearance.BorderSize = 0;
+            header.FlatAppearance.MouseOverBackColor = InspectorPalette.BrandSoft;
+            header.FlatAppearance.MouseDownBackColor = Color.FromArgb(226, 233, 255);
             header.FlatStyle = FlatStyle.Flat;
             header.Font = InspectorFonts.Bold9;
-            header.ForeColor = Color.FromArgb(62, 80, 92);
-            header.Padding = new Padding(8, 0, 0, 0);
-            header.Text = (expanded ? "▾  " : "▸  ") + label + " " + (index + 1);
-            header.TextAlign = ContentAlignment.MiddleLeft;
+            header.ForeColor = InspectorPalette.TextPrimary;
+            header.Expanded = expanded;
+            header.ShowDivider = false;
             header.Click += (sender, args) => ToggleExpanded();
             Controls.Add(header);
 
-            ConfigureMiniButton(moveUp, "↑");
-            ConfigureMiniButton(moveDown, "↓");
-            ConfigureMiniButton(delete, "×");
+            ConfigureMiniButton(moveUp, InspectorIconKind.MoveUp);
+            ConfigureMiniButton(moveDown, InspectorIconKind.MoveDown);
+            ConfigureMiniButton(delete, InspectorIconKind.Delete);
+            moveUp.AccessibleName = "上移配置项";
+            moveDown.AccessibleName = "下移配置项";
+            delete.AccessibleName = "删除配置项";
+            delete.ForeColor = InspectorPalette.Danger;
+            delete.FlatAppearance.MouseOverBackColor = Color.FromArgb(253, 238, 237);
             moveUp.Click += (sender, args) => MoveRequested?.Invoke(this, -1);
             moveDown.Click += (sender, args) => MoveRequested?.Invoke(this, 1);
             delete.Click += (sender, args) => DeleteRequested?.Invoke(this, EventArgs.Empty);
@@ -1371,20 +3072,24 @@ namespace Automation
             Controls.Add(delete);
 
             fieldsPanel.AutoSize = false;
-            fieldsPanel.BackColor = Color.White;
+            fieldsPanel.BackColor = InspectorPalette.Surface;
             fieldsPanel.FlowDirection = FlowDirection.TopDown;
-            fieldsPanel.Padding = new Padding(9, 4, 9, 6);
+            fieldsPanel.Padding = new Padding(6, 2, 6, 3);
             fieldsPanel.WrapContents = false;
             fieldsPanel.Visible = expanded;
             Controls.Add(fieldsPanel);
 
             BuildFields();
-            Resize += (sender, args) => LayoutControls();
+            UpdateHeaderText();
+            Resize += (sender, args) =>
+            {
+                LayoutControls();
+            };
             SetEditable(editable);
             LayoutControls();
         }
 
-        public int ItemIndex { get; }
+        public int ItemIndex { get; private set; }
         public event EventHandler DeleteRequested;
         public event Action<object, int> MoveRequested;
         public event EventHandler FieldValueChanged;
@@ -1408,6 +3113,7 @@ namespace Automation
             {
                 field.RefreshValue();
             }
+            UpdateHeaderText();
         }
 
         public bool FocusFirstEditor()
@@ -1419,75 +3125,173 @@ namespace Automation
             return fieldControls.Any(field => field.FocusEditor());
         }
 
+        public bool TryRebind(
+            string label,
+            int index,
+            object nextItem,
+            bool allowEdit)
+        {
+            IReadOnlyList<InspectorFieldDefinition> definitions
+                = InspectorDefinitionBuilder.BuildItemFields(nextItem, "item");
+            if (definitions.Count != fieldControls.Count)
+            {
+                return false;
+            }
+            for (int fieldIndex = 0; fieldIndex < definitions.Count; fieldIndex++)
+            {
+                if (!fieldControls[fieldIndex].CanRebind(definitions[fieldIndex]))
+                {
+                    return false;
+                }
+            }
+
+            itemLabel = label;
+            ItemIndex = index;
+            item = nextItem;
+            bool layoutChanged = editable != allowEdit;
+            for (int fieldIndex = 0; fieldIndex < definitions.Count; fieldIndex++)
+            {
+                fieldControls[fieldIndex].Rebind(definitions[fieldIndex], allowEdit);
+            }
+            editable = allowEdit;
+            moveUp.Visible = allowEdit;
+            moveDown.Visible = allowEdit;
+            delete.Visible = allowEdit;
+            UpdateHeaderText();
+            if (layoutChanged)
+            {
+                LayoutControls();
+            }
+            return true;
+        }
+
+        public bool CanRebind(object nextItem)
+        {
+            IReadOnlyList<InspectorFieldDefinition> definitions
+                = InspectorDefinitionBuilder.BuildItemFields(nextItem, "item");
+            if (definitions.Count != fieldControls.Count)
+            {
+                return false;
+            }
+            for (int index = 0; index < definitions.Count; index++)
+            {
+                if (!fieldControls[index].CanRebind(definitions[index]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         private void BuildFields()
         {
             IReadOnlyList<InspectorFieldDefinition> definitions
                 = InspectorDefinitionBuilder.BuildItemFields(item, "item");
+            var builtFields = new List<Control>(definitions.Count);
             foreach (InspectorFieldDefinition definition in definitions)
             {
                 InspectorFieldControl field;
                 if (definition is InspectorValueReferenceFieldDefinition reference)
                 {
-                    field = new InspectorValueReferenceFieldControl(reference, editable);
+                    field = new InspectorValueReferenceFieldControl(
+                        reference,
+                        editable,
+                        descriptionToolTip);
                 }
                 else if (definition is InspectorCollectionFieldDefinition collection)
                 {
-                    field = new InspectorCollectionFieldControl(collection, editable);
+                    field = new InspectorCollectionFieldControl(
+                        collection,
+                        editable,
+                        descriptionToolTip);
                 }
                 else
                 {
                     field = new InspectorScalarFieldControl(
                         (InspectorScalarFieldDefinition)definition,
-                        editable);
+                        editable,
+                        descriptionToolTip);
                 }
-                field.FieldValueChanged += (sender, args) => FieldValueChanged?.Invoke(this, EventArgs.Empty);
+                field.FieldValueChanged += (sender, args) =>
+                {
+                    UpdateHeaderText();
+                    FieldValueChanged?.Invoke(this, EventArgs.Empty);
+                };
                 field.SizeChanged += (sender, args) => LayoutControls();
                 fieldControls.Add(field);
-                fieldsPanel.Controls.Add(field);
+                builtFields.Add(field);
             }
+            fieldsPanel.Controls.AddRange(builtFields.ToArray());
         }
 
         private void ToggleExpanded()
         {
             expanded = !expanded;
             fieldsPanel.Visible = expanded;
-            header.Text = header.Text.Replace(expanded ? "▸" : "▾", expanded ? "▾" : "▸");
+            header.Expanded = expanded;
+            UpdateHeaderText();
             LayoutControls();
         }
 
-        private static void ConfigureMiniButton(Button button, string text)
+        private void UpdateHeaderText()
         {
-            button.BackColor = Color.FromArgb(242, 246, 249);
+            header.Text = itemLabel + " " + (ItemIndex + 1);
+        }
+
+        private static void ConfigureMiniButton(
+            InspectorIconButton button,
+            InspectorIconKind iconKind)
+        {
+            button.BackColor = InspectorPalette.SurfaceSubtle;
             button.Cursor = Cursors.Hand;
             button.FlatAppearance.BorderSize = 0;
+            button.FlatAppearance.MouseOverBackColor = InspectorPalette.BrandSoft;
+            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(226, 233, 255);
             button.FlatStyle = FlatStyle.Flat;
             button.Font = InspectorFonts.Regular9;
-            button.ForeColor = Color.FromArgb(82, 101, 114);
-            button.Text = text;
+            button.ForeColor = InspectorPalette.TextSecondary;
+            button.IconKind = iconKind;
+            button.Text = string.Empty;
         }
 
         private void LayoutControls()
         {
-            int width = Math.Max(170, ClientSize.Width);
-            header.SetBounds(1, 1, width - 2, 32);
-            int right = width - 4;
-            if (editable)
+            if (updatingLayout)
             {
-                delete.SetBounds(right - 26, 4, 24, 26);
-                right -= 27;
-                moveDown.SetBounds(right - 26, 4, 24, 26);
-                right -= 27;
-                moveUp.SetBounds(right - 26, 4, 24, 26);
+                return;
             }
-            fieldsPanel.Width = width - 2;
-            int fieldWidth = Math.Max(150, fieldsPanel.ClientSize.Width - fieldsPanel.Padding.Horizontal);
-            foreach (InspectorFieldControl field in fieldControls)
+            updatingLayout = true;
+            try
             {
-                field.Width = fieldWidth;
+                int width = Math.Max(170, ClientSize.Width);
+                int right = width - 4;
+                if (editable)
+                {
+                    delete.SetBounds(right - 23, 4, 22, 23);
+                    right -= 24;
+                    moveDown.SetBounds(right - 23, 4, 22, 23);
+                    right -= 24;
+                    moveUp.SetBounds(right - 23, 4, 22, 23);
+                }
+                header.SetBounds(1, 1, Math.Max(80, right - 1), HeaderHeight);
+                fieldsPanel.Width = width - 2;
+                int fieldWidth = Math.Max(
+                    150,
+                    fieldsPanel.ClientSize.Width - fieldsPanel.Padding.Horizontal);
+                foreach (InspectorFieldControl field in fieldControls)
+                {
+                    field.Width = fieldWidth;
+                }
+                int fieldsHeight = fieldsPanel.GetPreferredSize(new Size(width - 2, 0)).Height;
+                fieldsPanel.SetBounds(1, HeaderHeight + 2, width - 2, fieldsHeight);
+                Height = expanded
+                    ? HeaderHeight + 2 + fieldsHeight + 1
+                    : HeaderHeight + 2;
             }
-            int fieldsHeight = fieldsPanel.GetPreferredSize(new Size(width - 2, 0)).Height;
-            fieldsPanel.SetBounds(1, 34, width - 2, fieldsHeight);
-            Height = expanded ? 34 + fieldsHeight + 1 : 34;
+            finally
+            {
+                updatingLayout = false;
+            }
         }
     }
 
@@ -1612,15 +3416,27 @@ namespace Automation
                 return null;
             }
             var context = new InspectorTypeDescriptorContext(owner, property);
+            object value;
             if (property.Converter?.CanConvertFrom(context, typeof(string)) == true)
             {
-                return property.Converter.ConvertFromString(context, CultureInfo.CurrentCulture, text);
+                value = property.Converter.ConvertFromString(context, CultureInfo.CurrentCulture, text);
             }
-            if (targetType.IsEnum)
+            else if (targetType.IsEnum)
             {
-                return Enum.Parse(targetType, text, true);
+                value = Enum.Parse(targetType, text, true);
             }
-            return Convert.ChangeType(text, targetType, CultureInfo.CurrentCulture);
+            else
+            {
+                value = Convert.ChangeType(text, targetType, CultureInfo.CurrentCulture);
+            }
+            NumericRangeAttribute range = property.Attributes[typeof(NumericRangeAttribute)]
+                as NumericRangeAttribute;
+            if (range != null && !range.Contains(value))
+            {
+                throw new InvalidOperationException(
+                    $"{property.DisplayName}必须为{range.Describe()}的数值。");
+            }
+            return value;
         }
     }
 }

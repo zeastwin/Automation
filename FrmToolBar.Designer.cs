@@ -56,8 +56,6 @@ namespace Automation
             this.ToolBar_Panel.Controls.Add(this.btnIOMonitor);
             this.ToolBar_Panel.Controls.Add(this.button1);
             this.ToolBar_Panel.Controls.Add(this.btnAppConfig);
-            this.ToolBar_Panel.Controls.Add(this.btnCancel);
-            this.ToolBar_Panel.Controls.Add(this.btnSave);
             this.ToolBar_Panel.Dock = System.Windows.Forms.DockStyle.Fill;
             this.ToolBar_Panel.Location = new System.Drawing.Point(0, 0);
             this.ToolBar_Panel.Name = "ToolBar_Panel";

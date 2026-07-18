@@ -39,7 +39,7 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             ValueConfigStore valueStore = Context?.ValueStore;
-            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+            string source = evt?.GetOperationSource();
             List<string> values = new List<string>();
             foreach (var item in stringFormat.Params)
             {
@@ -47,7 +47,7 @@ namespace Automation
                 {
                     throw CreateAlarmException(evt, sourceError);
                 }
-                if (!sourceRef.TryResolveValue(valueStore, "源变量", out DicValue sourceItem, out string sourceResolveError))
+                if (!sourceRef.TryResolveValue(valueStore, "源变量", evt.procId, out DicValue sourceItem, out string sourceResolveError))
                 {
                     throw CreateAlarmException(evt, sourceResolveError);
                 }
@@ -61,11 +61,11 @@ namespace Automation
                 {
                     throw CreateAlarmException(evt, outputError);
                 }
-                if (!outputRef.TryResolveValue(valueStore, "存储变量", out DicValue outputItem, out string outputResolveError))
+                if (!outputRef.TryResolveValue(valueStore, "存储变量", evt.procId, out DicValue outputItem, out string outputResolveError))
                 {
                     throw CreateAlarmException(evt, outputResolveError);
                 }
-                if (!valueStore.setValueByIndex(outputItem.Index, formattedStr, source))
+                if (!valueStore.SetValueByIndexForProcess(outputItem.Index, formattedStr, evt.procId, source))
                 {
                     string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputItem.Index}" : outputItem.Name;
                     throw CreateAlarmException(evt, $"格式化结果保存失败:{outputName}");
@@ -84,7 +84,7 @@ namespace Automation
         public bool RunSplit(ProcHandle evt, Split split)
         {
             ValueConfigStore valueStore = Context?.ValueStore;
-            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+            string source = evt?.GetOperationSource();
             if (split == null)
             {
                 MarkAlarm(evt, "字符串分割参数为空");
@@ -94,7 +94,7 @@ namespace Automation
             {
                 throw CreateAlarmException(evt, sourceError);
             }
-            if (!sourceRef.TryResolveValue(valueStore, "源变量", out DicValue sourceItem, out string sourceResolveError))
+            if (!sourceRef.TryResolveValue(valueStore, "源变量", evt.procId, out DicValue sourceItem, out string sourceResolveError))
             {
                 throw CreateAlarmException(evt, sourceResolveError);
             }
@@ -102,9 +102,10 @@ namespace Automation
 
             string[] splitArray = SourceValue.Split(split.SplitMark);
 
-            if (!int.TryParse(split.startIndex, out int Startindex) || Startindex < 0)
+            int startIndex = split.StartIndex;
+            if (startIndex < 0)
             {
-                MarkAlarm(evt, $"分割起始索引无效:{split.startIndex}");
+                MarkAlarm(evt, $"分割起始索引无效:{split.StartIndex}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -113,37 +114,30 @@ namespace Automation
             {
                 throw CreateAlarmException(evt, outputError);
             }
-            if (!outputRef.TryResolveValue(valueStore, "结果变量", out DicValue outputItem, out string outputResolveError))
+            if (!outputRef.TryResolveValue(valueStore, "结果变量", evt.procId, out DicValue outputItem, out string outputResolveError))
             {
                 throw CreateAlarmException(evt, outputResolveError);
             }
             SaveIndex = outputItem.Index;
-            int Count = 0;
-            if(!string.IsNullOrEmpty(split.Count))
+            int count = split.Count ?? splitArray.Length;
+            if (count < 0)
             {
-                if (!int.TryParse(split.Count, out Count) || Count < 0)
-                {
-                    MarkAlarm(evt, $"分割数量无效:{split.Count}");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
-                }
-            }
-            else
-            {
-                Count = splitArray.Length;
-            }
-            if (Startindex >= splitArray.Length)
-            {
-                MarkAlarm(evt, $"分割起始索引越界:{Startindex}");
+                MarkAlarm(evt, $"分割数量无效:{count}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (Startindex + Count > splitArray.Length)
+            if (startIndex >= splitArray.Length)
             {
-                MarkAlarm(evt, $"分割数量越界:起始{Startindex},数量{Count}");
+                MarkAlarm(evt, $"分割起始索引越界:{startIndex}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            for (int i = SaveIndex; i < SaveIndex + Count; i++)
+            if (startIndex + count > splitArray.Length)
             {
-                if (!valueStore.setValueByIndex(i, splitArray[Startindex + i - SaveIndex], source))
+                MarkAlarm(evt, $"分割数量越界:起始{startIndex},数量{count}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            for (int i = SaveIndex; i < SaveIndex + count; i++)
+            {
+                if (!valueStore.SetValueByIndexForProcess(i, splitArray[startIndex + i - SaveIndex], evt.procId, source))
                 {
                     MarkAlarm(evt, $"保存变量失败:索引{i}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -155,7 +149,7 @@ namespace Automation
         public bool RunReplace(ProcHandle evt, Replace replace)
         {
             ValueConfigStore valueStore = Context?.ValueStore;
-            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+            string source = evt?.GetOperationSource();
             if (replace == null)
             {
                 MarkAlarm(evt, "字符串替换参数为空");
@@ -165,7 +159,7 @@ namespace Automation
             {
                 throw CreateAlarmException(evt, sourceError);
             }
-            if (!sourceRef.TryResolveValue(valueStore, "源变量", out DicValue sourceItem, out string sourceResolveError))
+            if (!sourceRef.TryResolveValue(valueStore, "源变量", evt.procId, out DicValue sourceItem, out string sourceResolveError))
             {
                 throw CreateAlarmException(evt, sourceResolveError);
             }
@@ -191,7 +185,7 @@ namespace Automation
                 {
                     throw CreateAlarmException(evt, refError);
                 }
-                if (!valueRef.TryResolveValue(valueStore, label, out DicValue valueItem, out string resolveError))
+                if (!valueRef.TryResolveValue(valueStore, label, evt.procId, out DicValue valueItem, out string resolveError))
                 {
                     throw CreateAlarmException(evt, resolveError);
                 }
@@ -218,16 +212,18 @@ namespace Automation
             }
             else if (replace.ReplaceType == "替换指定区间")
             {
-                if (!int.TryParse(replace.StartIndex, out int startIndex) || startIndex < 0)
+                int startIndex = replace.StartIndex;
+                if (startIndex < 0)
                 {
                     MarkAlarm(evt, $"替换起始索引无效:{replace.StartIndex}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!int.TryParse(replace.Count, out int count) || count < 0)
+                if (!replace.Count.HasValue || replace.Count.Value < 0)
                 {
                     MarkAlarm(evt, $"替换长度无效:{replace.Count}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
+                int count = replace.Count.Value;
                 if (startIndex > SourceValue.Length || startIndex + count > SourceValue.Length)
                 {
                     MarkAlarm(evt, $"替换区间越界:起始{startIndex},长度{count}");
@@ -243,11 +239,11 @@ namespace Automation
             {
                 throw CreateAlarmException(evt, outputError);
             }
-            if (!outputRef.TryResolveValue(valueStore, "结果变量", out DicValue outputItem, out string outputResolveError))
+            if (!outputRef.TryResolveValue(valueStore, "结果变量", evt.procId, out DicValue outputItem, out string outputResolveError))
             {
                 throw CreateAlarmException(evt, outputResolveError);
             }
-            if (!valueStore.setValueByIndex(outputItem.Index, str, source))
+            if (!valueStore.SetValueByIndexForProcess(outputItem.Index, str, evt.procId, source))
             {
                 string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputItem.Index}" : outputItem.Name;
                 throw CreateAlarmException(evt, $"保存变量失败:{outputName}");

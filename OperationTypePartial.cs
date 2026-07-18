@@ -39,21 +39,6 @@ namespace Automation
                 return true;
             }
         }
-        public class IoItem : StringConverter
-        {
-            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
-            {
-                return true;
-            }
-            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
-            {
-                return new StandardValuesCollection(SF.frmIO.IoItems);
-            }
-            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
-            {
-                return true;
-            }
-        }
         public class funcNameItem : StringConverter
         {
             public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
@@ -70,40 +55,6 @@ namespace Automation
                 return true;
             }
         }
-        public class IOCountItem : StringConverter
-        {
-            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
-            {
-                return true;
-            }
-
-            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
-            {
-                return new StandardValuesCollection(new List<string>() { "1", "2", "3", "4", "5", "6" });
-            }
-            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
-            {
-                return false;
-            }
-        }
-
-        public class PauseCountItem : StringConverter
-        {
-            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
-            {
-                return true;
-            }
-
-            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
-            {
-                return new StandardValuesCollection(new List<string>() { "0", "1", "2", "3", "4", "5", "6" });
-            }
-            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
-            {
-                return false;
-            }
-        }
-
         public class AlarmItem : StringConverter
         {
             public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
@@ -257,23 +208,6 @@ namespace Automation
                 return true;
             }
         }
-        public class ProcItemCount : StringConverter
-        {
-            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
-            {
-                return true;
-            }
-
-            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
-            {
-                return new StandardValuesCollection(Enumerable.Range(1, SF.frmProc?.procsList?.Count ?? 0)
-                    .Select(index => index.ToString()).ToList());
-            }
-            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
-            {
-                return true;
-            }
-        }
         public class ProcItem : StringConverter
         {
             public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
@@ -359,7 +293,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                if (context?.Instance is SendReceoveCommMsg commMsg)
+                if (context?.Instance is SendReceiveCommMsg commMsg)
                 {
                     if (string.Equals(commMsg.CommType, "TCP", StringComparison.OrdinalIgnoreCase))
                     {
@@ -483,23 +417,6 @@ namespace Automation
                 return true;
             }
         }
-        public class MathcCount : StringConverter
-        {
-            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
-            {
-                return true;
-            }
-
-            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
-            {
-                return new StandardValuesCollection(new List<string>() { "0","1", "2", "3", "4", "5", "6" });
-            }
-            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
-            {
-                return false;
-            }
-        }
-
         public class FindType : StringConverter
         {
             public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
@@ -510,22 +427,6 @@ namespace Automation
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
                 return new StandardValuesCollection(new List<string>() { "名称等于key", "字符串等于key", "数值等于key"});
-            }
-            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
-            {
-                return false;
-            }
-        }
-        public class Count : StringConverter
-        {
-            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
-            {
-                return true;
-            }
-
-            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
-            {
-                return new StandardValuesCollection(new List<string>() { "1", "2", "3", "4", "5", "6" });
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {

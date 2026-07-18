@@ -29,33 +29,38 @@ namespace Automation
         public bool RunGetValue(ProcHandle evt, GetValue getValue)
         {
             ValueConfigStore valueStore = Context?.ValueStore;
-            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+            string source = evt?.GetOperationSource();
             if (getValue == null || getValue.Params == null || getValue.Params.Count == 0)
             {
                 MarkAlarm(evt, "获取变量参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            foreach (var item in getValue.Params)
+            GetValueRuntimeBinding binding = getValue.RuntimeBinding as GetValueRuntimeBinding;
+            string bindError = null;
+            if (binding == null && (evt?.Proc == null
+                || !ProcessRuntimeBinder.TryBind(
+                    evt.Proc, evt.procNum, Context?.ValueStore, out bindError)))
             {
-                if (!ValueRef.TryCreate(item.ValueSourceIndex, item.ValueSourceIndex2Index, item.ValueSourceName, item.ValueSourceName2Index, false, "源变量", out ValueRef sourceRef, out string sourceError))
-                {
-                    throw CreateAlarmException(evt, sourceError);
-                }
-                if (!sourceRef.TryResolveValue(valueStore, "源变量", out DicValue sourceItem, out string sourceResolveError))
+                throw CreateAlarmException(evt, bindError ?? "获取变量运行计划未编译");
+            }
+            binding = binding ?? getValue.RuntimeBinding as GetValueRuntimeBinding;
+            if (binding == null || binding.Sources.Length != getValue.Params.Count)
+            {
+                throw CreateAlarmException(evt, "获取变量运行计划未编译");
+            }
+            for (int paramIndex = 0; paramIndex < getValue.Params.Count; paramIndex++)
+            {
+                if (!binding.Sources[paramIndex].TryResolveValue(valueStore, "源变量", evt.procId, out DicValue sourceItem, out string sourceResolveError))
                 {
                     throw CreateAlarmException(evt, sourceResolveError);
                 }
                 string value = sourceItem.Value;
 
-                if (!ValueRef.TryCreate(item.ValueSaveIndex, item.ValueSaveIndex2Index, item.ValueSaveName, item.ValueSaveName2Index, false, "存储变量", out ValueRef saveRef, out string saveError))
-                {
-                    throw CreateAlarmException(evt, saveError);
-                }
-                if (!saveRef.TryResolveValue(valueStore, "存储变量", out DicValue saveItem, out string saveResolveError))
+                if (!binding.Destinations[paramIndex].TryResolveValue(valueStore, "存储变量", evt.procId, out DicValue saveItem, out string saveResolveError))
                 {
                     throw CreateAlarmException(evt, saveResolveError);
                 }
-                if (!valueStore.setValueByIndex(saveItem.Index, value, source))
+                if (!valueStore.SetValueByIndexForProcess(saveItem.Index, value, evt.procId, source))
                 {
                     string saveName = string.IsNullOrWhiteSpace(saveItem.Name) ? $"索引{saveItem.Index}" : saveItem.Name;
                     throw CreateAlarmException(evt, $"保存变量失败:{saveName}");
@@ -67,12 +72,21 @@ namespace Automation
         public bool RunModifyValue(ProcHandle evt, ModifyValue ops)
         {
             ValueConfigStore valueStore = Context?.ValueStore;
-            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
-            if (!ValueRef.TryCreate(ops.ValueSourceIndex, ops.ValueSourceIndex2Index, ops.ValueSourceName, ops.ValueSourceName2Index, false, "源变量", out ValueRef sourceRef, out string sourceError))
+            string source = evt?.GetOperationSource();
+            ModifyValueRuntimeBinding binding = ops?.RuntimeBinding as ModifyValueRuntimeBinding;
+            string bindError = null;
+            if (binding == null && (evt?.Proc == null
+                || !ProcessRuntimeBinder.TryBind(
+                    evt.Proc, evt.procNum, Context?.ValueStore, out bindError)))
             {
-                throw CreateAlarmException(evt, sourceError);
+                throw CreateAlarmException(evt, bindError ?? "修改变量运行计划未编译");
             }
-            if (!sourceRef.TryResolveValue(valueStore, "源变量", out DicValue sourceItem, out string sourceResolveError))
+            binding = binding ?? ops?.RuntimeBinding as ModifyValueRuntimeBinding;
+            if (binding == null)
+            {
+                throw CreateAlarmException(evt, "修改变量运行计划未编译");
+            }
+            if (!binding.Source.TryResolveValue(valueStore, "源变量", evt.procId, out DicValue sourceItem, out string sourceResolveError))
             {
                 throw CreateAlarmException(evt, sourceResolveError);
             }
@@ -86,26 +100,13 @@ namespace Automation
             string changeValue = null;
             int changeIndex = -1;
             DicValue changeItem = null;
-            bool hasChangeLiteral = !string.IsNullOrEmpty(ops.ChangeValue);
-            bool hasChangeRef = !string.IsNullOrEmpty(ops.ChangeValueIndex)
-                || !string.IsNullOrEmpty(ops.ChangeValueIndex2Index)
-                || !string.IsNullOrEmpty(ops.ChangeValueName)
-                || !string.IsNullOrEmpty(ops.ChangeValueName2Index);
-            if (hasChangeLiteral && hasChangeRef)
-            {
-                throw CreateAlarmException(evt, "修改值配置冲突");
-            }
-            if (hasChangeLiteral)
+            if (binding.UsesLiteralChangeValue)
             {
                 changeValue = ops.ChangeValue;
             }
             else
             {
-                if (!ValueRef.TryCreate(ops.ChangeValueIndex, ops.ChangeValueIndex2Index, ops.ChangeValueName, ops.ChangeValueName2Index, false, "修改值", out ValueRef changeRef, out string changeError))
-                {
-                    throw CreateAlarmException(evt, changeError);
-                }
-                if (!changeRef.TryResolveValue(valueStore, "修改值", out changeItem, out string changeResolveError))
+                if (!binding.ChangeValue.TryResolveValue(valueStore, "修改值", evt.procId, out changeItem, out string changeResolveError))
                 {
                     throw CreateAlarmException(evt, changeResolveError);
                 }
@@ -146,11 +147,7 @@ namespace Automation
                 }
             }
 
-            if (!ValueRef.TryCreate(ops.OutputValueIndex, ops.OutputValueIndex2Index, ops.OutputValueName, ops.OutputValueName2Index, false, "结果变量", out ValueRef outputRef, out string outputError))
-            {
-                throw CreateAlarmException(evt, outputError);
-            }
-            if (!outputRef.TryResolveValue(valueStore, "结果变量", out DicValue outputItem, out string outputResolveError))
+            if (!binding.Output.TryResolveValue(valueStore, "结果变量", evt.procId, out DicValue outputItem, out string outputResolveError))
             {
                 throw CreateAlarmException(evt, outputResolveError);
             }
@@ -177,24 +174,24 @@ namespace Automation
 
                 if (ops.ModifyType == "叠加")
                 {
-                    double sourceR = ops.sourceR ? -1 : 1;
-                    double changeR = ops.ChangeR ? -1 : 1;
+                    double negateSource = ops.NegateSource ? -1 : 1;
+                    double operandSign = ops.NegateOperand ? -1 : 1;
 
-                    return (sourceR * sourceNumber + changeR * changeNumber).ToString();
+                    return (negateSource * sourceNumber + operandSign * changeNumber).ToString();
                 }
                 if (ops.ModifyType == "乘法")
                 {
-                    double sourceR = ops.sourceR ? -1 : 1;
-                    double changeR = ops.ChangeR ? -1 : 1;
+                    double negateSource = ops.NegateSource ? -1 : 1;
+                    double operandSign = ops.NegateOperand ? -1 : 1;
 
-                    return (sourceR * sourceNumber * changeR * changeNumber).ToString();
+                    return (negateSource * sourceNumber * operandSign * changeNumber).ToString();
                 }
                 if (ops.ModifyType == "除法")
                 {
-                    double sourceR = ops.sourceR ? -1 : 1;
-                    double changeR = ops.ChangeR ? -1 : 1;
+                    double negateSource = ops.NegateSource ? -1 : 1;
+                    double operandSign = ops.NegateOperand ? -1 : 1;
 
-                    return ((sourceR * sourceNumber) / (changeR * changeNumber)).ToString();
+                    return ((negateSource * sourceNumber) / (operandSign * changeNumber)).ToString();
                 }
                 if (ops.ModifyType == "求余")
                 {
@@ -222,7 +219,7 @@ namespace Automation
             string output = CalculateOutput(sourceValue, changeValue);
             if (outputIndex >= 0)
             {
-                if (!valueStore.setValueByIndex(outputIndex, output, source))
+                if (!valueStore.SetValueByIndexForProcess(outputIndex, output, evt.procId, source))
                 {
                     string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputIndex}" : outputItem.Name;
                     throw CreateAlarmException(evt, $"保存变量失败:{outputName}");

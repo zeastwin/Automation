@@ -14,7 +14,8 @@ namespace Automation
         {
             TypeNameHandling = TypeNameHandling.Auto,
             SerializationBinder = new OperationTypeBinder(),
-            ObjectCreationHandling = ObjectCreationHandling.Replace
+            ObjectCreationHandling = ObjectCreationHandling.Replace,
+            MissingMemberHandling = MissingMemberHandling.Error
         };
 
         public static string Serialize(IEnumerable<OperationType> operations)

@@ -5,7 +5,7 @@ namespace Automation.DeviceSdk
 {
     public static class PlatformApiInfo
     {
-        public const string ApiVersion = "1.0";
+        public const string ApiVersion = "4.0";
     }
 
     public enum PlatformRuntimeStatus
@@ -31,17 +31,25 @@ namespace Automation.DeviceSdk
 
     public sealed class ValueSnapshot
     {
+        public Guid Id { get; set; }
         public int Index { get; set; }
         public string Name { get; set; }
         public string Type { get; set; }
         public string Value { get; set; }
+        public string Scope { get; set; }
+        public Guid? OwnerProcId { get; set; }
+        public string OwnerProcName { get; set; }
         public string Note { get; set; }
     }
 
     public sealed class ValueChangedEventArgs : EventArgs
     {
+        public Guid Id { get; set; }
         public int Index { get; set; }
         public string Name { get; set; }
+        public string Scope { get; set; }
+        public Guid? OwnerProcId { get; set; }
+        public string OwnerProcName { get; set; }
         public string OldValue { get; set; }
         public string NewValue { get; set; }
         public string Source { get; set; }
@@ -60,6 +68,16 @@ namespace Automation.DeviceSdk
         public bool IsAlarm { get; set; }
         public string AlarmMessage { get; set; }
         public DateTime UpdatedAt { get; set; }
+        public bool PerformanceAnalysisEnabled { get; set; }
+        public string ProcessExecutionMode { get; set; }
+        public long OperationCount { get; set; }
+        public double OperationsPerSecond { get; set; }
+        public double ThreadCpuPercent { get; set; }
+        public double AverageOperationMicroseconds { get; set; }
+        public double MaxOperationMicroseconds { get; set; }
+        public long OperationDurationSampleCount { get; set; }
+        public int OperationDurationSamplingInterval { get; set; }
+        public bool AbnormalCpuLoopDetected { get; set; }
     }
 
     public sealed class ProcessChangedEventArgs : EventArgs
@@ -82,6 +100,7 @@ namespace Automation.DeviceSdk
 
     public interface IValueStore
     {
+        /// <summary>变量变化事件在平台 UI 线程触发，可直接刷新 WinForms 控件。</summary>
         event EventHandler<ValueChangedEventArgs> Changed;
 
         IReadOnlyList<string> GetNames();
@@ -92,11 +111,14 @@ namespace Automation.DeviceSdk
 
         bool Set(string name, object value, out string error);
 
+        bool Set(int index, object value, out string error);
+
         bool Monitor(string name, bool enabled, out string error);
     }
 
     public interface IProcessStore
     {
+        /// <summary>流程状态事件在平台 UI 线程触发，可直接刷新 WinForms 控件。</summary>
         event EventHandler<ProcessChangedEventArgs> Changed;
 
         IReadOnlyList<ProcessSnapshot> GetAll();
@@ -114,6 +136,7 @@ namespace Automation.DeviceSdk
 
     public interface IAutomationPlatform : IDisposable
     {
+        /// <summary>平台状态事件在平台 UI 线程触发，可直接刷新 WinForms 控件。</summary>
         event EventHandler<PlatformRuntimeStatusChangedEventArgs> RuntimeStatusChanged;
 
         PlatformRuntimeStatus RuntimeStatus { get; }

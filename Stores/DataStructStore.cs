@@ -17,6 +17,7 @@ namespace Automation
         private readonly object dataLock = new object();
         private readonly List<DataStruct> dataStructs = new List<DataStruct>();
         private readonly List<int> structVersions = new List<int>();
+        private volatile DataStructItem[][] runtimeItems = Array.Empty<DataStructItem[]>();
         private int version = 0;
 
         public int Version
@@ -164,6 +165,7 @@ namespace Automation
             {
                 dataStructs.Clear();
                 structVersions.Clear();
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
             }
         }
@@ -189,6 +191,7 @@ namespace Automation
                     dataStructs.Add(dataStruct);
                     structVersions.Add(0);
                 }
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
             }
         }
@@ -197,8 +200,30 @@ namespace Automation
         {
             lock (dataLock)
             {
-                return dataStructs.Select(dataStruct => (DataStruct)dataStruct.Clone()).ToList();
+                return dataStructs.Select(CloneDataStruct).ToList();
             }
+        }
+
+        private static DataStruct CloneDataStruct(DataStruct source)
+        {
+            var clone = new DataStruct { Name = source?.Name };
+            if (source?.dataStructItems == null)
+            {
+                return clone;
+            }
+            foreach (DataStructItem item in source.dataStructItems)
+            {
+                if (item == null)
+                {
+                    clone.dataStructItems.Add(null);
+                    continue;
+                }
+                lock (item.SyncRoot)
+                {
+                    clone.dataStructItems.Add(item.Clone());
+                }
+            }
+            return clone;
         }
 
         private static bool ValidateLoadedData(List<DataStruct> source, out string error)
@@ -386,7 +411,7 @@ namespace Automation
         {
             lock (dataLock)
             {
-                return dataStructs.Select(dataStruct => (DataStruct)dataStruct.Clone()).ToList();
+                return dataStructs.Select(CloneDataStruct).ToList();
             }
         }
 
@@ -404,7 +429,7 @@ namespace Automation
                 {
                     return false;
                 }
-                dataStruct = (DataStruct)target.Clone();
+                dataStruct = CloneDataStruct(target);
                 return true;
             }
         }
@@ -418,7 +443,7 @@ namespace Automation
                 {
                     return false;
                 }
-                dataStruct = (DataStruct)dataStructs[index].Clone();
+                dataStruct = CloneDataStruct(dataStructs[index]);
                 return true;
             }
         }
@@ -500,6 +525,7 @@ namespace Automation
                 }
                 dataStructs.Add(new DataStruct { Name = name });
                 structVersions.Add(0);
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structVersions.Count - 1);
                 return true;
@@ -549,6 +575,7 @@ namespace Automation
                 {
                     structVersions.RemoveAt(index);
                 }
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
                 return true;
             }
@@ -592,6 +619,7 @@ namespace Automation
                 }
                 dataStruct.dataStructItems.Insert(insertIndex, item);
                 itemIndex = insertIndex;
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -664,6 +692,7 @@ namespace Automation
                     return false;
                 }
                 dataStruct.dataStructItems.RemoveAt(itemIndex);
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -692,49 +721,51 @@ namespace Automation
                     return false;
                 }
                 NormalizeItem(item);
+                lock (item.SyncRoot)
+                {
+                    HashSet<int> used = new HashSet<int>();
+                    used.UnionWith(item.FieldNames.Keys);
+                    used.UnionWith(item.FieldTypes.Keys);
+                    used.UnionWith(item.str.Keys);
+                    used.UnionWith(item.num.Keys);
 
-                HashSet<int> used = new HashSet<int>();
-                used.UnionWith(item.FieldNames.Keys);
-                used.UnionWith(item.FieldTypes.Keys);
-                used.UnionWith(item.str.Keys);
-                used.UnionWith(item.num.Keys);
+                    if (index < 0)
+                    {
+                        int candidate = 0;
+                        while (used.Contains(candidate))
+                        {
+                            candidate++;
+                        }
+                        actualIndex = candidate;
+                    }
+                    else
+                    {
+                        if (used.Contains(index))
+                        {
+                            error = "字段索引已存在";
+                            return false;
+                        }
+                        actualIndex = index;
+                    }
 
-                if (index < 0)
-                {
-                    int candidate = 0;
-                    while (used.Contains(candidate))
+                    if (fieldType == DataStructValueType.Number)
                     {
-                        candidate++;
+                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+                        {
+                            error = "数值格式错误";
+                            return false;
+                        }
+                        item.num[actualIndex] = number;
+                        item.str.Remove(actualIndex);
                     }
-                    actualIndex = candidate;
-                }
-                else
-                {
-                    if (used.Contains(index))
+                    else
                     {
-                        error = "字段索引已存在";
-                        return false;
+                        item.str[actualIndex] = value;
+                        item.num.Remove(actualIndex);
                     }
-                    actualIndex = index;
+                    item.FieldNames[actualIndex] = fieldName.Trim();
+                    item.FieldTypes[actualIndex] = fieldType;
                 }
-
-                if (fieldType == DataStructValueType.Number)
-                {
-                    if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
-                    {
-                        error = "数值格式错误";
-                        return false;
-                    }
-                    item.num[actualIndex] = number;
-                    item.str.Remove(actualIndex);
-                }
-                else
-                {
-                    item.str[actualIndex] = value;
-                    item.num.Remove(actualIndex);
-                }
-                item.FieldNames[actualIndex] = fieldName.Trim();
-                item.FieldTypes[actualIndex] = fieldType;
 
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
@@ -758,12 +789,15 @@ namespace Automation
                     return false;
                 }
                 NormalizeItem(item);
-                if (!item.FieldNames.ContainsKey(fieldIndex))
+                lock (item.SyncRoot)
                 {
-                    error = "字段不存在";
-                    return false;
+                    if (!item.FieldNames.ContainsKey(fieldIndex))
+                    {
+                        error = "字段不存在";
+                        return false;
+                    }
+                    item.FieldNames[fieldIndex] = newFieldName.Trim();
                 }
-                item.FieldNames[fieldIndex] = newFieldName.Trim();
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -781,42 +815,45 @@ namespace Automation
                     return false;
                 }
                 NormalizeItem(item);
-                if (!item.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType oldType))
+                lock (item.SyncRoot)
                 {
-                    message = "字段不存在";
-                    return false;
-                }
-                if (oldType == newType)
-                {
-                    return true;
-                }
-
-                if (newType == DataStructValueType.Text)
-                {
-                    if (item.num.TryGetValue(fieldIndex, out double number))
+                    if (!item.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType oldType))
                     {
-                        item.str[fieldIndex] = number.ToString("0.######");
-                        item.num.Remove(fieldIndex);
+                        message = "字段不存在";
+                        return false;
                     }
-                }
-                else
-                {
-                    if (item.str.TryGetValue(fieldIndex, out string strValue))
+                    if (oldType == newType)
                     {
-                        if (double.TryParse(strValue, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+                        return true;
+                    }
+
+                    if (newType == DataStructValueType.Text)
+                    {
+                        if (item.num.TryGetValue(fieldIndex, out double number))
                         {
-                            item.num[fieldIndex] = number;
-                        }
-                        else
-                        {
+                            item.str[fieldIndex] = number.ToString("0.######");
                             item.num.Remove(fieldIndex);
-                            message = "文本无法转换为数值，已清空字段值";
                         }
-                        item.str.Remove(fieldIndex);
                     }
-                }
+                    else
+                    {
+                        if (item.str.TryGetValue(fieldIndex, out string strValue))
+                        {
+                            if (double.TryParse(strValue, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+                            {
+                                item.num[fieldIndex] = number;
+                            }
+                            else
+                            {
+                                item.num.Remove(fieldIndex);
+                                message = "文本无法转换为数值，已清空字段值";
+                            }
+                            item.str.Remove(fieldIndex);
+                        }
+                    }
 
-                item.FieldTypes[fieldIndex] = newType;
+                    item.FieldTypes[fieldIndex] = newType;
+                }
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -839,31 +876,34 @@ namespace Automation
                     return false;
                 }
                 NormalizeItem(item);
-                if (!item.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType existType))
+                lock (item.SyncRoot)
                 {
-                    error = "字段不存在";
-                    return false;
-                }
-                if (existType != type)
-                {
-                    error = "字段类型不一致";
-                    return false;
-                }
-
-                if (type == DataStructValueType.Number)
-                {
-                    if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+                    if (!item.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType existType))
                     {
-                        error = "数值格式错误";
+                        error = "字段不存在";
                         return false;
                     }
-                    item.num[fieldIndex] = number;
-                    item.str.Remove(fieldIndex);
-                }
-                else
-                {
-                    item.str[fieldIndex] = value;
-                    item.num.Remove(fieldIndex);
+                    if (existType != type)
+                    {
+                        error = "字段类型不一致";
+                        return false;
+                    }
+
+                    if (type == DataStructValueType.Number)
+                    {
+                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+                        {
+                            error = "数值格式错误";
+                            return false;
+                        }
+                        item.num[fieldIndex] = number;
+                        item.str.Remove(fieldIndex);
+                    }
+                    else
+                    {
+                        item.str[fieldIndex] = value;
+                        item.num.Remove(fieldIndex);
+                    }
                 }
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
@@ -882,15 +922,18 @@ namespace Automation
                     return false;
                 }
                 NormalizeItem(item);
-                if (!item.FieldNames.ContainsKey(fieldIndex) && !item.FieldTypes.ContainsKey(fieldIndex))
+                lock (item.SyncRoot)
                 {
-                    error = "字段不存在";
-                    return false;
+                    if (!item.FieldNames.ContainsKey(fieldIndex) && !item.FieldTypes.ContainsKey(fieldIndex))
+                    {
+                        error = "字段不存在";
+                        return false;
+                    }
+                    item.FieldNames.Remove(fieldIndex);
+                    item.FieldTypes.Remove(fieldIndex);
+                    item.str.Remove(fieldIndex);
+                    item.num.Remove(fieldIndex);
                 }
-                item.FieldNames.Remove(fieldIndex);
-                item.FieldTypes.Remove(fieldIndex);
-                item.str.Remove(fieldIndex);
-                item.num.Remove(fieldIndex);
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -917,6 +960,7 @@ namespace Automation
                 {
                     return false;
                 }
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -941,32 +985,32 @@ namespace Automation
                 {
                     return false;
                 }
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
             }
         }
 
-        public bool TrySetItemValueByIndex(int structIndex, int itemIndex, int valueIndex, string value)
+        public bool TrySetItemValueByIndex(int structIndex, int itemIndex, int ValueIndex, string value)
         {
-            return TrySetItemValueByIndex(structIndex, itemIndex, valueIndex, value, null);
+            return TrySetItemValueByIndex(structIndex, itemIndex, ValueIndex, value, null);
         }
 
-        public bool TrySetItemValueByIndex(int structIndex, int itemIndex, int valueIndex, string value, DataStructValueType? valueType)
+        public bool TrySetItemValueByIndex(int structIndex, int itemIndex, int ValueIndex, string value, DataStructValueType? valueType)
         {
             if (value == null)
             {
                 return false;
             }
-            lock (dataLock)
+            if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem item))
             {
-                if (!TryGetItemNoLock(structIndex, itemIndex, out DataStructItem item))
-                {
-                    return false;
-                }
-                NormalizeItem(item);
-                if (!item.FieldTypes.TryGetValue(valueIndex, out DataStructValueType existType)
-                    || !item.FieldNames.ContainsKey(valueIndex)
+                return false;
+            }
+            lock (item.SyncRoot)
+            {
+                if (!item.FieldTypes.TryGetValue(ValueIndex, out DataStructValueType existType)
+                    || !item.FieldNames.ContainsKey(ValueIndex)
                     || valueType.HasValue && valueType.Value != existType)
                 {
                     return false;
@@ -977,41 +1021,39 @@ namespace Automation
                     {
                         return false;
                     }
-                    item.num[valueIndex] = number;
-                    item.str.Remove(valueIndex);
+                    item.num[ValueIndex] = number;
+                    item.str.Remove(ValueIndex);
                 }
                 else
                 {
-                    item.str[valueIndex] = value;
-                    item.num.Remove(valueIndex);
+                    item.str[ValueIndex] = value;
+                    item.num.Remove(ValueIndex);
                 }
-                MarkChangedNoLock();
-                MarkStructChangedNoLock(structIndex);
                 return true;
             }
         }
 
-        public bool TryGetItemValueByIndex(int structIndex, int itemIndex, int valueIndex, out object value)
+        public bool TryGetItemValueByIndex(int structIndex, int itemIndex, int ValueIndex, out object value)
         {
             value = null;
-            lock (dataLock)
+            if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem item))
             {
-                if (!TryGetItemNoLock(structIndex, itemIndex, out DataStructItem item))
-                {
-                    return false;
-                }
-                if (item.FieldTypes.TryGetValue(valueIndex, out DataStructValueType type))
+                return false;
+            }
+            lock (item.SyncRoot)
+            {
+                if (item.FieldTypes.TryGetValue(ValueIndex, out DataStructValueType type))
                 {
                     if (type == DataStructValueType.Number)
                     {
-                        if (item.num.TryGetValue(valueIndex, out double number))
+                        if (item.num.TryGetValue(ValueIndex, out double number))
                         {
                             value = number;
                             return true;
                         }
                         return false;
                     }
-                    if (item.str.TryGetValue(valueIndex, out string strValue))
+                    if (item.str.TryGetValue(ValueIndex, out string strValue))
                     {
                         value = strValue;
                         return true;
@@ -1022,29 +1064,29 @@ namespace Automation
             }
         }
 
-        public bool TryGetItemValueByIndex(int structIndex, int itemIndex, int valueIndex, out object value, out DataStructValueType valueType)
+        public bool TryGetItemValueByIndex(int structIndex, int itemIndex, int ValueIndex, out object value, out DataStructValueType valueType)
         {
             value = null;
             valueType = DataStructValueType.Text;
-            lock (dataLock)
+            if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem item))
             {
-                if (!TryGetItemNoLock(structIndex, itemIndex, out DataStructItem item))
-                {
-                    return false;
-                }
-                if (item.FieldTypes.TryGetValue(valueIndex, out DataStructValueType type))
+                return false;
+            }
+            lock (item.SyncRoot)
+            {
+                if (item.FieldTypes.TryGetValue(ValueIndex, out DataStructValueType type))
                 {
                     valueType = type;
                     if (type == DataStructValueType.Number)
                     {
-                        if (item.num.TryGetValue(valueIndex, out double number))
+                        if (item.num.TryGetValue(ValueIndex, out double number))
                         {
                             value = number;
                             return true;
                         }
                         return false;
                     }
-                    if (item.str.TryGetValue(valueIndex, out string strValue))
+                    if (item.str.TryGetValue(ValueIndex, out string strValue))
                     {
                         value = strValue;
                         return true;
@@ -1057,12 +1099,12 @@ namespace Automation
 
         public int GetItemValueCount(int structIndex, int itemIndex)
         {
-            lock (dataLock)
+            if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem item))
             {
-                if (!TryGetItemNoLock(structIndex, itemIndex, out DataStructItem item))
-                {
-                    return 0;
-                }
+                return 0;
+            }
+            lock (item.SyncRoot)
+            {
                 HashSet<int> indexes = new HashSet<int>();
                 indexes.UnionWith(item.FieldNames.Keys);
                 indexes.UnionWith(item.FieldTypes.Keys);
@@ -1108,6 +1150,7 @@ namespace Automation
                     return false;
                 }
                 dataStruct.dataStructItems.Insert(itemIndex, item);
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -1126,13 +1169,18 @@ namespace Automation
                 {
                     return false;
                 }
-                DataStructItem copy = sourceItem.Clone();
+                DataStructItem copy;
+                lock (sourceItem.SyncRoot)
+                {
+                    copy = sourceItem.Clone();
+                }
                 DataStruct targetStruct = dataStructs[targetStructIndex];
                 NormalizeStruct(targetStruct);
                 if (!TryInsertOrReplaceItem(targetStruct, targetItemIndex, copy))
                 {
                     return false;
                 }
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(targetStructIndex);
                 return true;
@@ -1153,6 +1201,7 @@ namespace Automation
                     return false;
                 }
                 dataStruct.dataStructItems.RemoveAt(itemIndex);
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -1173,6 +1222,7 @@ namespace Automation
                     return false;
                 }
                 dataStruct.dataStructItems.RemoveAt(0);
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -1193,6 +1243,7 @@ namespace Automation
                     return false;
                 }
                 dataStruct.dataStructItems.RemoveAt(dataStruct.dataStructItems.Count - 1);
+                RebuildRuntimeItemsNoLock();
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
                 return true;
@@ -1238,16 +1289,23 @@ namespace Automation
                 bool found = false;
                 foreach (DataStructItem item in dataStructs[structIndex].dataStructItems)
                 {
-                    if (item.str == null || !item.str.ContainsValue(key))
+                    if (item == null)
                     {
                         continue;
                     }
-                    foreach (KeyValuePair<int, string> kvp in item.str)
+                    lock (item.SyncRoot)
                     {
-                        if (kvp.Value == key)
+                        if (item.str == null || !item.str.ContainsValue(key))
                         {
-                            value = kvp.Value;
-                            found = true;
+                            continue;
+                        }
+                        foreach (KeyValuePair<int, string> kvp in item.str)
+                        {
+                            if (kvp.Value == key)
+                            {
+                                value = kvp.Value;
+                                found = true;
+                            }
                         }
                     }
                 }
@@ -1267,16 +1325,23 @@ namespace Automation
                 bool found = false;
                 foreach (DataStructItem item in dataStructs[structIndex].dataStructItems)
                 {
-                    if (item.num == null || !item.num.ContainsValue(key))
+                    if (item == null)
                     {
                         continue;
                     }
-                    foreach (KeyValuePair<int, double> kvp in item.num)
+                    lock (item.SyncRoot)
                     {
-                        if (kvp.Value == key)
+                        if (item.num == null || !item.num.ContainsValue(key))
                         {
-                            value = kvp.Value;
-                            found = true;
+                            continue;
+                        }
+                        foreach (KeyValuePair<int, double> kvp in item.num)
+                        {
+                            if (kvp.Value == key)
+                            {
+                                value = kvp.Value;
+                                found = true;
+                            }
                         }
                     }
                 }
@@ -1324,8 +1389,7 @@ namespace Automation
                 return false;
             }
             DataStruct dataStruct = dataStructs[structIndex];
-            NormalizeStruct(dataStruct);
-            if (itemIndex < 0 || itemIndex >= dataStruct.dataStructItems.Count)
+            if (dataStruct?.dataStructItems == null || itemIndex < 0 || itemIndex >= dataStruct.dataStructItems.Count)
             {
                 return false;
             }
@@ -1334,12 +1398,35 @@ namespace Automation
             {
                 return false;
             }
-            NormalizeItem(item);
-            if (!ValidateItem(item, out _))
+            return true;
+        }
+
+        private bool TryGetRuntimeItem(int structIndex, int itemIndex, out DataStructItem item)
+        {
+            item = null;
+            DataStructItem[][] snapshot = runtimeItems;
+            if (structIndex < 0 || structIndex >= snapshot.Length)
             {
                 return false;
             }
-            return true;
+            DataStructItem[] items = snapshot[structIndex];
+            if (items == null || itemIndex < 0 || itemIndex >= items.Length)
+            {
+                return false;
+            }
+            item = items[itemIndex];
+            return item != null;
+        }
+
+        private void RebuildRuntimeItemsNoLock()
+        {
+            var next = new DataStructItem[dataStructs.Count][];
+            for (int i = 0; i < dataStructs.Count; i++)
+            {
+                List<DataStructItem> items = dataStructs[i]?.dataStructItems;
+                next[i] = items?.ToArray() ?? Array.Empty<DataStructItem>();
+            }
+            runtimeItems = next;
         }
 
         private void MarkChangedNoLock()

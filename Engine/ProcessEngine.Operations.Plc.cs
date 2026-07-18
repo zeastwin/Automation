@@ -28,11 +28,11 @@ namespace Automation
                     batch.ElementCount, batch.StringByteLength, false, "流程连续读取",
                     out PlcMapConfig request, out string error)) return FailPlc(evt, error);
                 if (!ResolveConsecutiveVariables(batch.FirstVariableName, batch.ElementCount,
-                    batch.DataType, out List<string> variableNames, out error)) return FailPlc(evt, error);
+                    batch.DataType, evt.procId, out List<string> variableNames, out error)) return FailPlc(evt, error);
                 request.VariableNames = variableNames.ToList();
                 if (!Context.PlcRuntime.TryRead(operation.DeviceName, request, out object[] values, out error))
                     return FailPlc(evt, $"PLC读取失败:{error}");
-                if (!SetReadVariables(batch.DataType, variableNames, values, out error)) return FailPlc(evt, error);
+                if (!SetReadVariables(batch.DataType, variableNames, values, evt.procId, out error)) return FailPlc(evt, error);
                 return true;
             }
 
@@ -44,7 +44,7 @@ namespace Automation
             if (!TryBuildRequest(writeBatch.Area, writeBatch.StartAddress, writeBatch.DataType,
                 writeBatch.ElementCount, writeBatch.StringByteLength, true, "流程连续写入",
                 out PlcMapConfig writeRequest, out string writeError)) return FailPlc(evt, writeError);
-            if (!TryGetBatchWriteValues(writeBatch, out object[] writeValues, out writeError))
+            if (!TryGetBatchWriteValues(writeBatch, evt.procId, out object[] writeValues, out writeError))
                 return FailPlc(evt, writeError);
             if (!Context.PlcRuntime.TryWrite(operation.DeviceName, writeRequest, writeValues, out writeError))
                 return FailPlc(evt, $"PLC写入失败:{writeError}");
@@ -79,12 +79,13 @@ namespace Automation
 
         private bool RunPlcDiscreteRead(ProcHandle evt, PlcReadWrite operation)
         {
-            if (operation.ReadItemCount < 1 || operation.ReadItemCount > 100
-                || operation.ReadItems == null || operation.ReadItems.Count != operation.ReadItemCount)
-                return FailPlc(evt, "PLC按项读取数量必须为1..100，并与读取项数量一致。");
+            if (operation.ReadItems == null
+                || operation.ReadItems.Count < 1
+                || operation.ReadItems.Count > 100)
+                return FailPlc(evt, "PLC按项读取项数量必须为1..100。");
 
-            var requests = new List<PlcMapConfig>(operation.ReadItemCount);
-            var variableNames = new List<string>(operation.ReadItemCount);
+            var requests = new List<PlcMapConfig>(operation.ReadItems.Count);
+            var variableNames = new List<string>(operation.ReadItems.Count);
             var uniqueVariables = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < operation.ReadItems.Count; i++)
             {
@@ -94,7 +95,7 @@ namespace Automation
                     item.StringByteLength, false, $"流程按项读取{i + 1}", out PlcMapConfig request,
                     out string error)) return FailPlc(evt, $"PLC读取项{i + 1}:{error}");
                 request.Id = $"direct-item-{i}";
-                if (!ValidateVariable(item.VariableName, item.DataType, uniqueVariables, out error))
+                if (!ValidateVariable(item.VariableName, item.DataType, uniqueVariables, evt.procId, out error))
                     return FailPlc(evt, $"PLC读取项{i + 1}:{error}");
                 request.VariableNames = new List<string> { item.VariableName };
                 requests.Add(request);
@@ -110,16 +111,17 @@ namespace Automation
                 if (!results.TryGetValue(requests[i].Id, out object[] values) || values == null || values.Length != 1)
                     return FailPlc(evt, $"PLC读取项{i + 1}返回数量异常。");
                 if (!SetReadVariables(operation.ReadItems[i].DataType,
-                    new[] { variableNames[i] }, values, out string error)) return FailPlc(evt, error);
+                    new[] { variableNames[i] }, values, evt.procId, out string error)) return FailPlc(evt, error);
             }
             return true;
         }
 
         private bool RunPlcDiscreteWrite(ProcHandle evt, PlcReadWrite operation)
         {
-            if (operation.WriteItemCount < 1 || operation.WriteItemCount > 100
-                || operation.WriteItems == null || operation.WriteItems.Count != operation.WriteItemCount)
-                return FailPlc(evt, "PLC按项写入数量必须为1..100，并与写入项数量一致。");
+            if (operation.WriteItems == null
+                || operation.WriteItems.Count < 1
+                || operation.WriteItems.Count > 100)
+                return FailPlc(evt, "PLC按项写入项数量必须为1..100。");
 
             for (int index = 0; index < operation.WriteItems.Count; index++)
             {
@@ -129,7 +131,7 @@ namespace Automation
                     item.StringByteLength, true, $"流程按项写入{index + 1}",
                     out PlcMapConfig request, out string error))
                     return FailPlc(evt, $"PLC写入项{index + 1}:{error}");
-                if (!TryGetWriteItemValue(item, out object value, out error))
+                if (!TryGetWriteItemValue(item, evt.procId, out object value, out error))
                     return FailPlc(evt, $"PLC写入项{index + 1}:{error}");
                 if (!Context.PlcRuntime.TryWrite(operation.DeviceName, request,
                     new[] { value }, out error))
@@ -163,30 +165,30 @@ namespace Automation
         }
 
         private bool ResolveConsecutiveVariables(string firstVariableName, int count, PlcDataType dataType,
-            out List<string> variableNames, out string error)
+            Guid procId, out List<string> variableNames, out string error)
         {
             variableNames = new List<string>();
             error = null;
             if (Context.ValueStore == null) { error = "平台变量库未初始化。"; return false; }
-            if (!Context.ValueStore.TryGetValueByName(firstVariableName, out DicValue first))
+            if (!Context.ValueStore.TryGetValueByNameForProcess(firstVariableName, procId, out DicValue first))
             { error = $"首保存变量不存在:{firstVariableName}"; return false; }
             var unique = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < count; i++)
             {
-                if (!Context.ValueStore.TryGetValueByIndex(first.Index + i, out DicValue value))
+                if (!Context.ValueStore.TryGetValueByIndexForProcess(first.Index + i, procId, out DicValue value))
                 { error = $"从变量[{firstVariableName}]开始的第{i + 1}个连续变量不存在。"; return false; }
-                if (!ValidateVariable(value.Name, dataType, unique, out error)) return false;
+                if (!ValidateVariable(value.Name, dataType, unique, procId, out error)) return false;
                 variableNames.Add(value.Name);
             }
             return true;
         }
 
-        private bool ValidateVariable(string name, PlcDataType dataType, HashSet<string> unique, out string error)
+        private bool ValidateVariable(string name, PlcDataType dataType, HashSet<string> unique, Guid procId, out string error)
         {
             error = null;
             if (string.IsNullOrWhiteSpace(name) || !unique.Add(name))
             { error = "PLC保存变量为空或重复。"; return false; }
-            if (Context.ValueStore == null || !Context.ValueStore.TryGetValueByName(name, out DicValue value))
+            if (Context.ValueStore == null || !Context.ValueStore.TryGetValueByNameForProcess(name, procId, out DicValue value))
             { error = $"PLC变量不存在:{name}"; return false; }
             string expectedType = dataType == PlcDataType.String ? "string" : "double";
             if (!string.Equals(value.Type, expectedType, StringComparison.OrdinalIgnoreCase))
@@ -194,7 +196,7 @@ namespace Automation
             return true;
         }
 
-        private bool TryGetWriteItemValue(PlcWriteItem item, out object value, out string error)
+        private bool TryGetWriteItemValue(PlcWriteItem item, Guid procId, out object value, out string error)
         {
             error = null;
             value = null;
@@ -212,7 +214,7 @@ namespace Automation
             }
 
             if (Context.ValueStore == null
-                || !Context.ValueStore.TryGetValueByName(item.VariableName, out DicValue variable))
+                || !Context.ValueStore.TryGetValueByNameForProcess(item.VariableName, procId, out DicValue variable))
             {
                 error = $"PLC来源变量不存在:{item.VariableName ?? string.Empty}";
                 return false;
@@ -222,7 +224,7 @@ namespace Automation
                 item.DataType, new[] { value }, out _, out error);
         }
 
-        private bool TryGetBatchWriteValues(PlcWriteBatch batch, out object[] values, out string error)
+        private bool TryGetBatchWriteValues(PlcWriteBatch batch, Guid procId, out object[] values, out string error)
         {
             error = null;
             values = null;
@@ -239,18 +241,18 @@ namespace Automation
             }
 
             if (!ResolveConsecutiveVariables(batch.FirstVariableName, batch.ElementCount,
-                batch.DataType, out List<string> variableNames, out error)) return false;
+                batch.DataType, procId, out List<string> variableNames, out error)) return false;
             values = new object[variableNames.Count];
             for (int index = 0; index < variableNames.Count; index++)
             {
-                DicValue variable = Context.ValueStore.GetValueByName(variableNames[index]);
+                DicValue variable = Context.ValueStore.GetValueByNameForProcess(variableNames[index], procId);
                 values[index] = variable.Value ?? string.Empty;
             }
             return HslModbusAdapter.TryNormalizeValues(batch.DataType, values, out _, out error);
         }
 
         private bool SetReadVariables(PlcDataType dataType, IReadOnlyList<string> variableNames,
-            IReadOnlyList<object> values, out string error)
+            IReadOnlyList<object> values, Guid procId, out string error)
         {
             error = null;
             if (values == null || values.Count != variableNames.Count)
@@ -262,7 +264,7 @@ namespace Automation
                     : dataType == PlcDataType.Boolean
                         ? ((bool)values[i] ? 1d : 0d)
                         : Convert.ToDouble(values[i], CultureInfo.InvariantCulture);
-                if (!Context.ValueStore.setValueByName(variableNames[i], value, "PLC读写"))
+                if (!Context.ValueStore.SetValueByNameForProcess(variableNames[i], value, procId, "PLC读写"))
                 { error = $"PLC读取结果写入变量失败:{variableNames[i]}"; return false; }
             }
             return true;

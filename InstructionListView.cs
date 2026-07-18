@@ -852,10 +852,6 @@ namespace Automation
                     return JumpKind.False;
                 case "DefaultGoto":
                     return JumpKind.Default;
-                case "goto1":
-                    return JumpKind.Success;
-                case "goto2":
-                    return JumpKind.Failure;
                 case "Goto" when owner is GotoParam:
                     return JumpKind.Match;
                 default:
@@ -1013,7 +1009,7 @@ namespace Automation
             VisualState state = operation?.Disable == true
                 ? VisualState.Disabled
                 : isRuntime ? GetRuntimeVisualState()
-                : operation?.isStopPoint == true ? VisualState.Breakpoint
+                : operation?.IsBreakpoint == true ? VisualState.Breakpoint
                 : VisualState.None;
             GraphicsState savedState = graphics.Save();
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -1068,7 +1064,7 @@ namespace Automation
                 24,
                 24);
             DrawStateIcon(graphics, iconBounds, state, GetStateColor(state), GetStateBackColor(state));
-            if (operation?.isStopPoint == true && state != VisualState.Breakpoint)
+            if (operation?.IsBreakpoint == true && state != VisualState.Breakpoint)
             {
                 using (SolidBrush markerBrush = new SolidBrush(Color.FromArgb(205, 58, 68)))
                 using (Pen markerBorder = new Pen(Color.White, 1.5F))

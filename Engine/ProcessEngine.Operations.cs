@@ -35,19 +35,11 @@ namespace Automation
                 return false;
             }
             OperationType typedOperation = operation as OperationType;
-            Stopwatch traceStopwatch = Stopwatch.StartNew();
-            RaiseOperationTrace(new OperationTraceEntry
-            {
-                Timestamp = DateTime.Now,
-                Phase = "Started",
-                ProcIndex = evt?.procNum ?? -1,
-                ProcId = evt?.procId ?? Guid.Empty,
-                StepIndex = evt?.stepNum ?? -1,
-                OpIndex = evt?.opsNum ?? -1,
-                OperationId = typedOperation?.Id ?? Guid.Empty,
-                OperationType = operation.GetType().Name,
-                OperationName = typedOperation?.Name
-            });
+            bool analyzePerformance = evt?.Performance?.Enabled == true;
+            bool durationMeasured = evt?.RunMetrics != null
+                ? evt.RunMetrics.ShouldMeasureDuration()
+                : analyzePerformance;
+            long traceStarted = durationMeasured ? Stopwatch.GetTimestamp() : 0;
             try
             {
                 if ((operation is HomeRun || operation is StationRunPos
@@ -141,17 +133,17 @@ namespace Automation
                     case SendTcpMsg sendTcpMsg:
                         return RunSendTcpMsg(evt, sendTcpMsg);
 
-                    case ReceoveTcpMsg receoveTcpMsg:
-                        return RunReceoveTcpMsg(evt, receoveTcpMsg);
+                    case ReceiveTcpMsg receoveTcpMsg:
+                        return RunReceiveTcpMsg(evt, receoveTcpMsg);
 
                     case SendSerialPortMsg sendSerialPortMsg:
                         return RunSendSerialPortMsg(evt, sendSerialPortMsg);
 
-                    case ReceoveSerialPortMsg receoveSerialPortMsg:
-                        return RunReceoveSerialPortMsg(evt, receoveSerialPortMsg);
+                    case ReceiveSerialPortMsg receoveSerialPortMsg:
+                        return RunReceiveSerialPortMsg(evt, receoveSerialPortMsg);
 
-                    case SendReceoveCommMsg sendReceoveCommMsg:
-                        return RunSendReceoveCommMsg(evt, sendReceoveCommMsg);
+                    case SendReceiveCommMsg sendReceoveCommMsg:
+                        return RunSendReceiveCommMsg(evt, sendReceoveCommMsg);
 
                     case PlcReadWrite plcReadWrite:
                         return RunPlcReadWrite(evt, plcReadWrite);
@@ -210,22 +202,29 @@ namespace Automation
             }
             finally
             {
-                traceStopwatch.Stop();
-                RaiseOperationTrace(new OperationTraceEntry
+                long elapsedTicks = durationMeasured
+                    ? Math.Max(0L, Stopwatch.GetTimestamp() - traceStarted)
+                    : 0;
+                bool failed = evt?.HasAlarm == true;
+                evt?.RunMetrics?.RecordOperation(elapsedTicks, durationMeasured, failed);
+                if (analyzePerformance)
                 {
-                    Timestamp = DateTime.Now,
-                    Phase = evt?.HasAlarm == true ? "Failed" : "Completed",
-                    ProcIndex = evt?.procNum ?? -1,
-                    ProcId = evt?.procId ?? Guid.Empty,
-                    StepIndex = evt?.stepNum ?? -1,
-                    OpIndex = evt?.opsNum ?? -1,
-                    OperationId = typedOperation?.Id ?? Guid.Empty,
-                    OperationType = operation.GetType().Name,
-                    OperationName = typedOperation?.Name,
-                    IsAlarm = evt?.HasAlarm == true,
-                    AlarmMessage = evt?.alarmMsg,
-                    ElapsedMs = traceStopwatch.ElapsedMilliseconds
-                });
+                    evt.Performance.RecordOperation(elapsedTicks, durationMeasured);
+                }
+                if (failed)
+                {
+                    RaiseOperationFailed(new OperationFailureEntry(
+                        evt?.procNum ?? -1,
+                        evt?.procId ?? Guid.Empty,
+                        evt?.stepNum ?? -1,
+                        evt?.opsNum ?? -1,
+                        typedOperation?.Id ?? Guid.Empty,
+                        operation.GetType().Name,
+                        typedOperation?.Name,
+                        evt?.alarmMsg,
+                        elapsedTicks,
+                        durationMeasured));
+                }
             }
         }
 

@@ -28,7 +28,7 @@ namespace Automation
     {
         public bool RunProcOps(ProcHandle evt, ProcOps procOps)
         {
-            if (procOps == null || procOps.procParams == null || procOps.procParams.Count == 0)
+            if (procOps == null || procOps.Params == null || procOps.Params.Count == 0)
             {
                 MarkAlarm(evt, "流程操作参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -39,21 +39,21 @@ namespace Automation
                 MarkAlarm(evt, "流程列表为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            foreach (procParam procParam in procOps.procParams)
+            foreach (ProcParam procParam in procOps.Params)
             {
                 Proc proc = null;
                 if(!string.IsNullOrEmpty(procParam.ProcName))
                 proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
                 else if (!string.IsNullOrEmpty(procParam.ProcValue))
                 {
-                    proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == Context.ValueStore.GetValueByName(procParam.ProcValue).GetCValue());
+                    proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == Context.ValueStore.GetValueByNameForProcess(procParam.ProcValue, evt.procId).GetCValue());
                 }
                 if(proc == null)
                 {
                     MarkAlarm(evt, "找不到流程");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (procParam.value == "运行")
+                if (procParam.TargetState == "运行")
                 {
                     int index = procs.IndexOf(proc);
                     if (index < 0)
@@ -94,7 +94,7 @@ namespace Automation
                     }
                     Stop(index);
                 }
-                Delay(procParam.delayAfter, evt);
+                Delay(procParam.DelayAfterMs, evt);
             }
             return true;
         }
@@ -112,10 +112,10 @@ namespace Automation
                 MarkAlarm(evt, "流程列表为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            timeOut = waitProc.timeOutC.TimeOut;
-            if (timeOut <= 0 && !string.IsNullOrEmpty(waitProc.timeOutC.TimeOutValue))
+            timeOut = waitProc.Timeout.TimeoutMs;
+            if (timeOut <= 0 && !string.IsNullOrEmpty(waitProc.Timeout.TimeoutVariableName))
             {
-                timeOut = (int)Context.ValueStore.GetValueByName(waitProc.timeOutC.TimeOutValue).GetDValue();
+                timeOut = (int)Context.ValueStore.GetValueByNameForProcess(waitProc.Timeout.TimeoutVariableName, evt.procId).GetDValue();
             }
             if (timeOut <= 0)
             {
@@ -123,10 +123,10 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             int DelayAfter;
-            DelayAfter = waitProc.delayAfter;
-            if (DelayAfter <= 0 && !string.IsNullOrEmpty(waitProc.delayAfterV))
+            DelayAfter = waitProc.DelayAfterMs;
+            if (DelayAfter <= 0 && !string.IsNullOrEmpty(waitProc.DelayAfterVariableName))
             {
-                DelayAfter = (int)Context.ValueStore.GetValueByName(waitProc.delayAfterV).GetDValue();
+                DelayAfter = (int)Context.ValueStore.GetValueByNameForProcess(waitProc.DelayAfterVariableName, evt.procId).GetDValue();
             }
             Stopwatch stopwatch = Stopwatch.StartNew();
             while (!evt.CancellationToken.IsCancellationRequested)
@@ -145,7 +145,7 @@ namespace Automation
                         proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
                     else if (!string.IsNullOrEmpty(procParam.ProcValue))
                     {
-                        proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == Context.ValueStore.GetValueByName(procParam.ProcValue).GetCValue());
+                        proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == Context.ValueStore.GetValueByNameForProcess(procParam.ProcValue, evt.procId).GetCValue());
                     }
                     if (proc == null)
                     {
@@ -158,7 +158,7 @@ namespace Automation
                         MarkAlarm(evt, "流程索引无效");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    if (procParam.value == "运行")
+                    if (procParam.TargetState == "运行")
                     {
                         if (GetProcState(index) == ProcRunState.Stopped)
                         {
@@ -166,7 +166,7 @@ namespace Automation
                             break;
                         }
                     }
-                    else if (procParam.value == "停止")
+                    else if (procParam.TargetState == "停止")
                     {
                         if (GetProcState(index) != ProcRunState.Stopped)
                         {
@@ -191,14 +191,23 @@ namespace Automation
                 MarkAlarm(evt, "跳转参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (gotoParam.Params != null && gotoParam.Params.Count > 0)
+            GotoRuntimeBinding binding = gotoParam.RuntimeBinding as GotoRuntimeBinding;
+            string bindError = null;
+            if (binding == null && (evt?.Proc == null
+                || !ProcessRuntimeBinder.TryBind(
+                    evt.Proc, evt.procNum, Context?.ValueStore, out bindError)))
+            {
+                throw CreateAlarmException(evt, bindError ?? "跳转运行计划未编译");
+            }
+            binding = binding ?? gotoParam.RuntimeBinding as GotoRuntimeBinding;
+            if (binding == null)
+            {
+                throw CreateAlarmException(evt, "跳转运行计划未编译");
+            }
+            if (binding.Cases.Length > 0)
             {
                 ValueConfigStore valueStore = Context?.ValueStore;
-                if (!ValueRef.TryCreate(gotoParam.ValueIndex, gotoParam.ValueIndex2Index, gotoParam.ValueName, gotoParam.ValueName2Index, false, "跳转变量", out ValueRef sourceRef, out string sourceError))
-                {
-                    throw CreateAlarmException(evt, sourceError);
-                }
-                if (!sourceRef.TryResolveValue(valueStore, "跳转变量", out DicValue sourceItem, out string sourceResolveError))
+                if (!binding.Source.TryResolveValue(valueStore, "跳转变量", evt.procId, out DicValue sourceItem, out string sourceResolveError))
                 {
                     throw CreateAlarmException(evt, sourceResolveError);
                 }
@@ -207,27 +216,12 @@ namespace Automation
                 {
                     throw CreateAlarmException(evt, "匹配不到变量");
                 }
-                foreach (var item in gotoParam.Params)
+                foreach (GotoCaseRuntimeBinding item in binding.Cases)
                 {
-                    string itemValue = null;
-                    bool hasMatchLiteral = !string.IsNullOrEmpty(item.MatchValue);
-                    bool hasMatchRef = !string.IsNullOrEmpty(item.MatchValueIndex)
-                        || !string.IsNullOrEmpty(item.MatchValueV);
-                    if (hasMatchLiteral && hasMatchRef)
+                    string itemValue = item.Literal;
+                    if (item.UsesValueRef)
                     {
-                        throw CreateAlarmException(evt, "匹配值配置冲突");
-                    }
-                    if (hasMatchLiteral)
-                    {
-                        itemValue = item.MatchValue;
-                    }
-                    else
-                    {
-                        if (!ValueRef.TryCreate(item.MatchValueIndex, null, item.MatchValueV, null, false, "匹配值", out ValueRef matchRef, out string matchError))
-                        {
-                            throw CreateAlarmException(evt, matchError);
-                        }
-                        if (!matchRef.TryResolveValue(valueStore, "匹配值", out DicValue matchItem, out string matchResolveError))
+                        if (!item.ValueRef.TryResolveValue(valueStore, "匹配值", evt.procId, out DicValue matchItem, out string matchResolveError))
                         {
                             throw CreateAlarmException(evt, matchResolveError);
                         }
@@ -239,7 +233,7 @@ namespace Automation
                     }
                     if (value == itemValue)
                     {
-                        if (!TryExecuteGoto(item.Goto, evt, out string gotoError))
+                        if (!item.Target.TryApply(evt, out string gotoError))
                         {
                             MarkAlarm(evt, gotoError);
                             throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -249,9 +243,9 @@ namespace Automation
                     }
                 }
             }
-            if (!string.IsNullOrWhiteSpace(gotoParam.DefaultGoto))
+            if (binding.HasDefaultTarget)
             {
-                if (!TryExecuteGoto(gotoParam.DefaultGoto, evt, out string defaultGotoError))
+                if (!binding.DefaultTarget.TryApply(evt, out string defaultGotoError))
                 {
                     MarkAlarm(evt, defaultGotoError);
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -269,21 +263,36 @@ namespace Automation
                 MarkAlarm(evt, "逻辑判断参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
+            if (paramGoto.InvalidDelayMs < 0)
+            {
+                MarkAlarm(evt, $"失败延时不能为负数:{paramGoto.InvalidDelayMs}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            ParamGotoRuntimeBinding binding = paramGoto.RuntimeBinding as ParamGotoRuntimeBinding;
+            string bindError = null;
+            if (binding == null && (evt?.Proc == null
+                || !ProcessRuntimeBinder.TryBind(
+                    evt.Proc, evt.procNum, Context?.ValueStore, out bindError)))
+            {
+                throw CreateAlarmException(evt, bindError ?? "逻辑判断运行计划未编译");
+            }
+            binding = binding ?? paramGoto.RuntimeBinding as ParamGotoRuntimeBinding;
+            if (binding == null || binding.Conditions.Length != paramGoto.Params.Count)
+            {
+                throw CreateAlarmException(evt, "逻辑判断运行计划未编译");
+            }
             if (paramGoto.Params != null)
             {
                 bool isFirst = true;
                 bool outPut = true;
                 ValueConfigStore valueStore = Context?.ValueStore;
-                foreach (var item in paramGoto.Params)
+                for (int conditionIndex = 0; conditionIndex < paramGoto.Params.Count; conditionIndex++)
                 {
+                    ParamGotoParam item = paramGoto.Params[conditionIndex];
                     bool isNumericJudge = item.JudgeMode != "等于特征字符";
                     double numericValue = 0;
                     string textValue = null;
-                    if (!ValueRef.TryCreate(item.ValueIndex, item.ValueIndex2Index, item.ValueName, item.ValueName2Index, false, "判断变量", out ValueRef valueRef, out string valueError))
-                    {
-                        throw CreateAlarmException(evt, valueError);
-                    }
-                    if (!valueRef.TryResolveValue(valueStore, "判断变量", out DicValue valueItem, out string valueResolveError))
+                    if (!binding.Conditions[conditionIndex].TryResolveValue(valueStore, "判断变量", evt.procId, out DicValue valueItem, out string valueResolveError))
                     {
                         throw CreateAlarmException(evt, valueResolveError);
                     }
@@ -312,7 +321,7 @@ namespace Automation
                     bool tempValue = false;
                     if (item.JudgeMode == "值在区间左")
                     {
-                        if (item.equal)
+                        if (item.IncludeBoundary)
                         {
                             tempValue = item.Down >= numericValue ? true : false;
                         }
@@ -323,7 +332,7 @@ namespace Automation
                     }
                     else if (item.JudgeMode == "值在区间右")
                     {
-                        if (item.equal)
+                        if (item.IncludeBoundary)
                         {
                             tempValue = item.Down <= numericValue ? true : false;
                         }
@@ -334,7 +343,7 @@ namespace Automation
                     }
                     else if (item.JudgeMode == "值在区间内")
                     {
-                        if (item.equal)
+                        if (item.IncludeBoundary)
                         {
                             tempValue = item.Down <= numericValue && numericValue <= item.Up ? true : false;
                         }
@@ -345,7 +354,7 @@ namespace Automation
                     }
                     else if (item.JudgeMode == "等于特征字符")
                     {
-                        tempValue = textValue == item.keyString ? true : false;
+                        tempValue = textValue == item.ExpectedText ? true : false;
                     }
                     if (isFirst)
                     {
@@ -364,17 +373,12 @@ namespace Automation
                         }
                     }
                 }
-                if (!outPut && !string.IsNullOrEmpty(paramGoto.failDelay))
+                if (!outPut && paramGoto.InvalidDelayMs > 0)
                 {
-                    if (!int.TryParse(paramGoto.failDelay, out int delayMs) || delayMs < 0)
-                    {
-                        MarkAlarm(evt, $"失败延时无效:{paramGoto.failDelay}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-                    Delay(delayMs, evt);
+                    Delay(paramGoto.InvalidDelayMs, evt);
                 }
-                string gotoTarget = outPut ? paramGoto.goto1 : paramGoto.goto2;
-                if (!TryExecuteGoto(gotoTarget, evt, out string gotoError))
+                RuntimeGotoTarget gotoTarget = outPut ? binding.TrueTarget : binding.FalseTarget;
+                if (!gotoTarget.TryApply(evt, out string gotoError))
                 {
                     MarkAlarm(evt, gotoError);
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -391,24 +395,32 @@ namespace Automation
                 MarkAlarm(evt, "延时参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!string.IsNullOrEmpty(delay.timeMiniSecond))
+            bool hasFixedDelay = delay.DelayMs.HasValue;
+            bool hasVariableDelay = !string.IsNullOrWhiteSpace(delay.DelayVariableName);
+            if (hasFixedDelay && hasVariableDelay)
             {
-                if (!int.TryParse(delay.timeMiniSecond, out time) || time < 0)
-                {
-                    MarkAlarm(evt, $"延时时间无效:{delay.timeMiniSecond}");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
-                }
+                MarkAlarm(evt, "固定延时与延时变量不能同时配置");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            else if (!string.IsNullOrEmpty(delay.timeMiniSecondV))
+            if (hasFixedDelay)
             {
-                string valueText = Context.ValueStore.GetValueByName(delay.timeMiniSecondV).Value;
+                time = delay.DelayMs.Value;
+            }
+            else if (hasVariableDelay)
+            {
+                string valueText = Context.ValueStore.GetValueByNameForProcess(delay.DelayVariableName, evt.procId).Value;
                 if (!int.TryParse(valueText, out time) || time < 0)
                 {
-                    MarkAlarm(evt, $"延时变量无效:{delay.timeMiniSecondV}");
+                    MarkAlarm(evt, $"延时变量无效:{delay.DelayVariableName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
-         
+            if (time < 0)
+            {
+                MarkAlarm(evt, $"延时时间不能为负数:{time}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
             Delay(time,evt);
             return true;
         }

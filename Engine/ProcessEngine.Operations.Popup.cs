@@ -122,27 +122,27 @@ namespace Automation
                     MarkAlarm(evt, "报警信息库未初始化");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (string.IsNullOrWhiteSpace(popup.PopupAlarmInfoID))
+                if (string.IsNullOrWhiteSpace(popup.PopupAlarmInfoId))
                 {
                     MarkAlarm(evt, "报警信息ID为空");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!int.TryParse(popup.PopupAlarmInfoID, out int alarmIndex))
+                if (!int.TryParse(popup.PopupAlarmInfoId, out int alarmIndex))
                 {
-                    MarkAlarm(evt, $"报警信息ID无效:{popup.PopupAlarmInfoID}");
+                    MarkAlarm(evt, $"报警信息ID无效:{popup.PopupAlarmInfoId}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 if (!Context.AlarmInfoStore.TryGetByIndex(alarmIndex, out alarmInfo)
                     || alarmInfo == null
                     || string.IsNullOrWhiteSpace(alarmInfo.Name))
                 {
-                    MarkAlarm(evt, $"报警信息不存在:{popup.PopupAlarmInfoID}");
+                    MarkAlarm(evt, $"报警信息不存在:{popup.PopupAlarmInfoId}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 messageText = alarmInfo.Note;
                 if (string.IsNullOrWhiteSpace(messageText))
                 {
-                    MarkAlarm(evt, $"报警信息内容为空:{popup.PopupAlarmInfoID}");
+                    MarkAlarm(evt, $"报警信息内容为空:{popup.PopupAlarmInfoId}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 btn1Text = string.IsNullOrWhiteSpace(alarmInfo.Btn1) ? "确定" : alarmInfo.Btn1;
@@ -170,7 +170,7 @@ namespace Automation
                     MarkAlarm(evt, "提示变量为空");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.ValueStore.TryGetValueByName(popup.PopupMessageValue, out DicValue value) || value == null)
+                if (!Context.ValueStore.TryGetValueByNameForProcess(popup.PopupMessageValue, evt.procId, out DicValue value) || value == null)
                 {
                     MarkAlarm(evt, $"提示变量不存在:{popup.PopupMessageValue}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);

@@ -2,34 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Automation
 {
     public sealed class FrmInspector : Form
     {
-        private const int EmSetCueBanner = 0x1501;
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern IntPtr SendMessage(
-            IntPtr windowHandle,
-            int message,
-            IntPtr wordParameter,
-            string longParameter);
-
         private readonly Panel header = new Panel();
-        private readonly Label objectTitle = new Label();
-        private readonly Label objectPath = new Label();
-        private readonly Button operationTypeButton = new Button();
-        private readonly TextBox searchBox = new TextBox();
+        private readonly InspectorIconButton operationTypeButton = new InspectorIconButton();
         private readonly InspectorView inspectorView = new InspectorView();
-        private readonly Panel footer = new Panel();
-        private readonly Label editStatus = new Label();
-        private readonly Button cancelButton = new Button();
-        private readonly Button saveButton = new Button();
+        private readonly Panel actionBar = new Panel();
         private readonly IReadOnlyList<OperationType> operationTemplates;
         private ToolStripDropDown activeOperationTypePicker;
+        private Button saveButton;
+        private Button cancelButton;
+        private bool fontWarningShown;
         private bool editing;
 
         public FrmInspector()
@@ -42,6 +29,26 @@ namespace Automation
         }
 
         public object SelectedObject => inspectorView.SelectedObject;
+
+        public void AttachEditActions(Button saveAction, Button cancelAction)
+        {
+            if (saveAction == null)
+            {
+                throw new ArgumentNullException(nameof(saveAction));
+            }
+            if (cancelAction == null)
+            {
+                throw new ArgumentNullException(nameof(cancelAction));
+            }
+            saveButton = saveAction;
+            cancelButton = cancelAction;
+            ConfigureActionButton(saveButton, true);
+            ConfigureActionButton(cancelButton, false);
+            actionBar.Controls.Add(saveButton);
+            actionBar.Controls.Add(cancelButton);
+            UpdateActionBar();
+            LayoutControls();
+        }
 
         public void ShowObject(object value)
         {
@@ -84,226 +91,194 @@ namespace Automation
             ResumeLayout(true);
         }
 
-        public void ShowValidationError(string error)
-        {
-            editStatus.ForeColor = Color.FromArgb(181, 52, 43);
-            editStatus.Text = string.IsNullOrWhiteSpace(error) ? "配置校验失败" : error;
-            editStatus.AutoEllipsis = true;
-            editStatus.Refresh();
-            inspectorView.FocusFirstEditableField();
-        }
-
-        public void ClearValidationError()
-        {
-            UpdateEditStatus();
-        }
-
         private void InitializeLayout()
         {
             AutoScaleMode = AutoScaleMode.Dpi;
-            BackColor = Color.FromArgb(246, 249, 251);
-            Font = new Font("Microsoft YaHei UI", 9F);
+            BackColor = InspectorPalette.Background;
+            Font = InspectorFonts.Regular9;
             MinimumSize = new Size(320, 320);
             Text = "配置检查器";
 
-            header.BackColor = Color.White;
-            header.Dock = DockStyle.Top;
-            header.Height = 142;
+            header.BackColor = InspectorPalette.Surface;
+            header.Dock = DockStyle.None;
+            header.Height = 0;
+            header.Visible = false;
             header.Paint += (sender, args) =>
             {
-                using (var pen = new Pen(Color.FromArgb(220, 228, 233)))
+                using (var pen = new Pen(InspectorPalette.Stroke))
                 {
                     args.Graphics.DrawLine(pen, 0, header.Height - 1, header.Width, header.Height - 1);
                 }
             };
             Controls.Add(header);
 
-            objectTitle.AutoEllipsis = true;
-            objectTitle.Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
-            objectTitle.ForeColor = Color.FromArgb(35, 52, 64);
-            objectTitle.Text = "未选择对象";
-            header.Controls.Add(objectTitle);
-
-            objectPath.AutoEllipsis = true;
-            objectPath.Font = new Font("Microsoft YaHei UI", 8.5F);
-            objectPath.ForeColor = Color.FromArgb(103, 118, 128);
-            header.Controls.Add(objectPath);
-
             operationTypeButton.AutoEllipsis = true;
-            operationTypeButton.BackColor = Color.White;
+            operationTypeButton.BackColor = InspectorPalette.BrandSoft;
             operationTypeButton.Cursor = Cursors.Hand;
-            operationTypeButton.FlatAppearance.BorderColor = Color.FromArgb(201, 213, 222);
-            operationTypeButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(238, 247, 252);
+            operationTypeButton.FlatAppearance.BorderSize = 0;
+            operationTypeButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(226, 233, 255);
+            operationTypeButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(216, 225, 253);
             operationTypeButton.FlatStyle = FlatStyle.Flat;
-            operationTypeButton.Font = new Font("Microsoft YaHei UI", 9.5F);
-            operationTypeButton.ForeColor = Color.FromArgb(42, 86, 110);
+            operationTypeButton.Font = InspectorFonts.Regular9;
+            operationTypeButton.ForeColor = InspectorPalette.Brand;
+            operationTypeButton.IconKind = InspectorIconKind.Edit;
+            operationTypeButton.Padding = new Padding(9, 0, 6, 0);
             operationTypeButton.TextAlign = ContentAlignment.MiddleLeft;
             operationTypeButton.Click += OperationTypeButton_Click;
             header.Controls.Add(operationTypeButton);
 
-            searchBox.BorderStyle = BorderStyle.FixedSingle;
-            searchBox.AutoSize = false;
-            searchBox.Font = new Font("Microsoft YaHei UI", 9.5F);
-            searchBox.ForeColor = Color.FromArgb(65, 79, 89);
-            searchBox.HandleCreated += (sender, args) => SendMessage(
-                searchBox.Handle,
-                EmSetCueBanner,
-                new IntPtr(1),
-                "搜索参数、说明或字段名…");
-            searchBox.TextChanged += (sender, args) => inspectorView.SetFilter(searchBox.Text);
-            header.Controls.Add(searchBox);
-
-            inspectorView.Dock = DockStyle.Fill;
+            inspectorView.Dock = DockStyle.None;
             inspectorView.FieldValueChanged += (sender, args) =>
             {
-                ClearValidationError();
                 UpdatePresentation(inspectorView.SelectedObject);
             };
             Controls.Add(inspectorView);
             inspectorView.BringToFront();
 
-            footer.BackColor = Color.White;
-            footer.Dock = DockStyle.Bottom;
-            footer.Height = 56;
-            footer.Paint += (sender, args) =>
+            actionBar.BackColor = InspectorPalette.Surface;
+            actionBar.Dock = DockStyle.None;
+            actionBar.Height = 46;
+            actionBar.Visible = false;
+            actionBar.Paint += (sender, args) =>
             {
-                using (var pen = new Pen(Color.FromArgb(220, 228, 233)))
+                using (var pen = new Pen(InspectorPalette.Stroke))
                 {
-                    args.Graphics.DrawLine(pen, 0, 0, footer.Width, 0);
+                    args.Graphics.DrawLine(
+                        pen,
+                        0,
+                        actionBar.Height - 1,
+                        actionBar.Width,
+                        actionBar.Height - 1);
                 }
             };
-            Controls.Add(footer);
-
-            editStatus.AutoEllipsis = true;
-            editStatus.Font = new Font("Microsoft YaHei UI", 8.5F);
-            editStatus.ForeColor = Color.FromArgb(101, 116, 126);
-            editStatus.TextAlign = ContentAlignment.MiddleLeft;
-            footer.Controls.Add(editStatus);
-
-            ConfigureFooterButton(cancelButton, "取消", false);
-            cancelButton.Click += (sender, args) => SF.frmToolBar?.btnCancel.PerformClick();
-            footer.Controls.Add(cancelButton);
-
-            ConfigureFooterButton(saveButton, "保存", true);
-            saveButton.Click += (sender, args) => SF.frmToolBar?.btnSave.PerformClick();
-            footer.Controls.Add(saveButton);
+            Controls.Add(actionBar);
+            Controls.SetChildIndex(actionBar, 0);
+            Controls.SetChildIndex(header, 1);
 
             Resize += (sender, args) => LayoutControls();
             LayoutControls();
             UpdatePresentation(null);
         }
 
-        private static void ConfigureFooterButton(Button button, string text, bool primary)
+        private static void ConfigureActionButton(Button button, bool primary)
         {
-            button.BackColor = primary ? Color.FromArgb(35, 121, 166) : Color.White;
             button.Cursor = Cursors.Hand;
-            button.FlatAppearance.BorderColor = primary
-                ? Color.FromArgb(35, 121, 166)
-                : Color.FromArgb(196, 208, 217);
+            button.FlatAppearance.BorderSize = 0;
+            button.FlatAppearance.MouseOverBackColor = primary
+                ? InspectorPalette.BrandHover
+                : Color.FromArgb(237, 240, 244);
+            button.FlatAppearance.MouseDownBackColor = primary
+                ? Color.FromArgb(57, 79, 196)
+                : Color.FromArgb(229, 233, 239);
             button.FlatStyle = FlatStyle.Flat;
-            button.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            button.ForeColor = primary ? Color.White : Color.FromArgb(61, 79, 91);
-            button.Text = text;
+            button.Font = InspectorFonts.Bold9;
+            button.ImageAlign = ContentAlignment.MiddleCenter;
+            button.TextAlign = ContentAlignment.MiddleCenter;
+            button.TextImageRelation = TextImageRelation.ImageBeforeText;
+            button.Padding = Padding.Empty;
+            button.Margin = Padding.Empty;
+            button.TabStop = true;
+            button.UseVisualStyleBackColor = false;
+            button.EnabledChanged += (sender, args) =>
+                UpdateActionButtonAppearance(button, primary);
+            UpdateActionButtonAppearance(button, primary);
+        }
+
+        private static void UpdateActionButtonAppearance(Button button, bool primary)
+        {
+            bool enabled = button.Enabled;
+            button.BackColor = enabled && primary
+                ? InspectorPalette.Brand
+                : InspectorPalette.SurfaceSubtle;
+            button.ForeColor = enabled
+                ? primary ? Color.White : InspectorPalette.TextPrimary
+                : InspectorPalette.TextDisabled;
+            Image previousImage = button.Image;
+            button.Image = UiIconFactory.Create(
+                primary ? UiIconKind.Save : UiIconKind.Cancel,
+                enabled
+                    ? primary ? Color.White : InspectorPalette.TextSecondary
+                    : InspectorPalette.TextDisabled,
+                17);
+            previousImage?.Dispose();
         }
 
         private void LayoutControls()
         {
             int width = ClientSize.Width;
-            objectTitle.SetBounds(12, 10, Math.Max(80, width - 24), 26);
-            objectPath.SetBounds(12, 36, Math.Max(80, width - 24), 20);
-            operationTypeButton.SetBounds(12, 62, Math.Max(100, width - 24), 32);
-            searchBox.SetBounds(12, 102, Math.Max(100, width - 24), 28);
+            int contentTop = 0;
+            bool showActionBar = saveButton != null && cancelButton != null;
+            if (showActionBar)
+            {
+                actionBar.SetBounds(0, contentTop, width, 46);
+                contentTop += 46;
+            }
+            if (inspectorView.SelectedObject is OperationType)
+            {
+                header.SetBounds(0, contentTop, width, 38);
+                contentTop += 38;
+            }
+            inspectorView.SetBounds(
+                0,
+                contentTop,
+                width,
+                Math.Max(0, ClientSize.Height - contentTop));
+            if (inspectorView.SelectedObject is OperationType)
+            {
+                operationTypeButton.SetBounds(8, 4, Math.Max(100, width - 16), 30);
+            }
 
-            int footerRight = footer.ClientSize.Width - 10;
-            saveButton.SetBounds(Math.Max(0, footerRight - 72), 11, 72, 34);
-            cancelButton.SetBounds(Math.Max(0, footerRight - 150), 11, 70, 34);
-            editStatus.SetBounds(10, 8, Math.Max(40, footerRight - 164), 40);
+            if (saveButton != null && cancelButton != null)
+            {
+                const int padding = 6;
+                const int gap = 6;
+                int available = Math.Max(100, actionBar.ClientSize.Width - padding * 2 - gap);
+                int saveWidth = available / 2;
+                int cancelWidth = available - saveWidth;
+                saveButton.SetBounds(padding, 6, saveWidth, 34);
+                cancelButton.SetBounds(padding + saveWidth + gap, 6, cancelWidth, 34);
+            }
         }
 
         private void UpdatePresentation(object value)
         {
-            objectTitle.Text = GetObjectTitle(value);
-            objectPath.Text = GetObjectPath(value);
             bool operation = value is OperationType;
+            header.Visible = operation;
             operationTypeButton.Visible = operation;
             operationTypeButton.Enabled = operation && editing;
+            operationTypeButton.IconKind = editing
+                ? InspectorIconKind.Edit
+                : InspectorIconKind.Operation;
             operationTypeButton.Text = operation
-                ? ((OperationType)value).OperaType + (editing ? "    更换类型…" : string.Empty)
+                ? ((OperationType)value).OperaType
                 : string.Empty;
-            searchBox.Top = operation ? 102 : 66;
-            header.Height = operation ? 142 : 106;
-            UpdateEditStatus();
+            operationTypeButton.AccessibleName = operation ? "更换指令类型" : string.Empty;
+            header.Height = operation ? 38 : 0;
+            header.Invalidate();
+            UpdateActionBar();
             LayoutControls();
         }
 
-        private void UpdateEditStatus()
+        private void UpdateActionBar()
         {
-            editStatus.ForeColor = editing
-                ? Color.FromArgb(40, 116, 80)
-                : Color.FromArgb(101, 116, 126);
-            editStatus.Text = editing ? "正在编辑草稿，保存后提交配置" : "只读查看";
-            saveButton.Visible = editing;
-            cancelButton.Visible = editing;
+            actionBar.Visible = saveButton != null && cancelButton != null;
         }
 
-        private static string GetObjectTitle(object value)
+        protected override void OnShown(EventArgs e)
         {
-            if (value == null)
+            base.OnShown(e);
+            if (fontWarningShown
+                || string.IsNullOrWhiteSpace(InspectorFonts.LoadFailureMessage))
             {
-                return "未选择对象";
+                return;
             }
-            if (value is ProcHead process)
-            {
-                return string.IsNullOrWhiteSpace(process.Name) ? "流程" : process.Name;
-            }
-            if (value is Step step)
-            {
-                return string.IsNullOrWhiteSpace(step.Name) ? "步骤" : step.Name;
-            }
-            if (value is OperationType operation)
-            {
-                return string.IsNullOrWhiteSpace(operation.Name)
-                    ? operation.OperaType
-                    : operation.Name;
-            }
-            if (value is DataStation station)
-            {
-                return string.IsNullOrWhiteSpace(station.Name) ? "工站" : station.Name;
-            }
-            if (value is IO io)
-            {
-                return string.IsNullOrWhiteSpace(io.Name) ? "IO" : io.Name;
-            }
-            if (value is FrmCard.Axis axis)
-            {
-                return string.IsNullOrWhiteSpace(axis.AxisName) ? "运动轴" : axis.AxisName;
-            }
-            if (value is FrmCard.CardHead)
-            {
-                return "运动控制卡";
-            }
-            return value.GetType().Name;
-        }
-
-        private static string GetObjectPath(object value)
-        {
-            if (value is OperationType operation)
-            {
-                int procIndex = SF.frmProc?.SelectedProcNum ?? -1;
-                int stepIndex = SF.frmProc?.SelectedStepNum ?? -1;
-                return procIndex >= 0 && stepIndex >= 0
-                    ? $"流程 {procIndex} / 步骤 {stepIndex} / 指令 {operation.Num}"
-                    : "指令配置";
-            }
-            if (value is Step)
-            {
-                return $"流程 {SF.frmProc?.SelectedProcNum ?? -1} / 步骤配置";
-            }
-            if (value is ProcHead)
-            {
-                return $"流程 {SF.frmProc?.SelectedProcNum ?? -1} / 流程配置";
-            }
-            return value == null ? string.Empty : "配置对象 / " + value.GetType().Name;
+            fontWarningShown = true;
+            MessageBox.Show(
+                this,
+                InspectorFonts.LoadFailureMessage,
+                "Inspector 字体资源异常",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
         }
 
         private void OperationTypeButton_Click(object sender, EventArgs e)
@@ -349,7 +324,7 @@ namespace Automation
             {
                 AutoClose = true,
                 AutoSize = false,
-                BackColor = Color.White,
+                BackColor = InspectorPalette.Surface,
                 DropShadowEnabled = true,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty,
@@ -420,16 +395,15 @@ namespace Automation
             }
             if (e.Control && e.KeyCode == Keys.Enter)
             {
-                saveButton.PerformClick();
+                saveButton?.PerformClick();
                 e.Handled = true;
                 e.SuppressKeyPress = true;
             }
             else if (e.KeyCode == Keys.Escape)
             {
-                cancelButton.PerformClick();
+                cancelButton?.PerformClick();
                 e.Handled = true;
             }
         }
     }
 }
-

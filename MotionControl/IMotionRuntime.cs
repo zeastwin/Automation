@@ -23,9 +23,34 @@ namespace Automation.MotionControl
         }
     }
 
+    public sealed class CoordinatedLinearMoveRequest
+    {
+        public ushort Card { get; set; }
+        public ushort CoordinateSystem { get; set; }
+        public IReadOnlyList<ushort> Axes { get; set; }
+        public IReadOnlyList<double> Positions { get; set; }
+        public ushort PositionMode { get; set; }
+        public double MaxVelocity { get; set; }
+        public double AccelerationTime { get; set; }
+        public double DecelerationTime { get; set; }
+    }
+
+    public sealed class IoOutputCommand
+    {
+        public IO Io { get; }
+        public bool TargetState { get; }
+
+        public IoOutputCommand(IO io, bool targetState)
+        {
+            Io = io ?? throw new ArgumentNullException(nameof(io));
+            TargetState = targetState;
+        }
+    }
+
     public interface IIoRuntime
     {
         bool SetIO(IO io, bool isOpen);
+        bool SetOutputs(IReadOnlyList<IoOutputCommand> commands);
         bool GetOutIO(IO io, ref bool value);
         bool GetInIO(IO io, ref bool value);
     }
@@ -42,6 +67,9 @@ namespace Automation.MotionControl
         void SetMovParam(ushort card, ushort axis, double minVel, double maxVel, double acc, double dec, double stopVel, double sPara, int equiv);
         void StageManualMotionParameters(ushort card, ushort axis, double minVel, double maxVel, double acc, double dec, double stopVel, double sPara, int equiv);
         void Mov(ushort card, ushort axis, double distance, ushort positionMode, bool wait);
+        void MoveCoordinatedLinear(CoordinatedLinearMoveRequest request);
+        bool IsCoordinatedLinearDone(ushort card, ushort coordinateSystem);
+        void StopCoordinatedLinear(ushort card, ushort coordinateSystem, ushort stopMode);
         void Jog(ushort card, ushort axis, ushort direction);
         void StopOneAxis(ushort card, ushort axis, ushort stopMode);
         void StopConnect();

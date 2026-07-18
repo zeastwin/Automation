@@ -1,7 +1,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using Newtonsoft.Json.Serialization;
 using Automation.Protocol;
+using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -92,6 +92,7 @@ namespace Automation.Bridge
         private void NotifyProcChanged(int procIndex, ProcChangeKind kind, List<(int stepIndex, int opIndex, ProcChangeKind kind)> affectedOps = null)
         {
             diagnosticIndexes.Remove(procIndex);
+            SF.mainfrm?.RefreshProcessFlowGraph();
             try
             {
                 SF.frmProc?.FlashProcNode(procIndex, kind);
@@ -159,6 +160,8 @@ namespace Automation.Bridge
                         return WrapResponse("proc.overview", ExecuteOnUiThread(() => HandleGetProcOverview(request)));
                     case "/bridge/proc/detail":
                         return WrapResponse("proc.detail", ExecuteOnUiThread(() => HandleGetProcDetail(request)));
+                    case "/bridge/proc/flow_graph":
+                        return WrapResponse("proc.flow_graph", ExecuteOnUiThread(() => HandleGetFlowGraph(request)));
                     case "/bridge/proc/op_detail":
                         return WrapResponse("proc.op_detail", ExecuteOnUiThread(() => HandleGetOperationDetail(request)));
                     case "/bridge/proc/op_details":
@@ -586,6 +589,70 @@ namespace Automation.Bridge
             }
             detail["detailUtf8Bytes"] = detailBytes;
             return detail;
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
+        private JObject HandleGetFlowGraph(JObject request)
+        {
+            string scope = ReadRequiredString(request, "scope").Trim();
+            ProcessFlowGraphSnapshot graph;
+            if (string.Equals(scope, "project", StringComparison.OrdinalIgnoreCase))
+            {
+                graph = ProcessFlowGraphService.BuildProject(
+                    SF.frmProc.procsList,
+                    index => SF.DR?.GetSnapshot(index));
+            }
+            else if (string.Equals(scope, "process", StringComparison.OrdinalIgnoreCase))
+            {
+                int procIndex = ReadRequiredInt(request, "procIndex");
+                if (!TryGetProcByIndexForRead(procIndex, out _, out JObject error))
+                {
+                    return error;
+                }
+                graph = ProcessFlowGraphService.BuildProcess(
+                    SF.frmProc.procsList,
+                    procIndex,
+                    index => SF.DR?.GetSnapshot(index));
+            }
+            else
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "scope 只支持 project 或 process。");
+            }
+
+            JObject payload = ProcessFlowGraphService.ToJObject(graph);
+            payload["graphAvailable"] = true;
+            payload["graphUtf8ByteLimit"] = MaxProcDetailUtf8Bytes;
+            payload["graphUtf8Bytes"] = 0;
+            int graphBytes = 0;
+            for (int measurement = 0; measurement < 3; measurement++)
+            {
+                graphBytes = Encoding.UTF8.GetByteCount(payload.ToString(Formatting.None));
+                payload["graphUtf8Bytes"] = graphBytes;
+            }
+            if (graphBytes <= MaxProcDetailUtf8Bytes)
+            {
+                return payload;
+            }
+
+            return new JObject
+            {
+                ["graphAvailable"] = false,
+                ["scope"] = graph.Scope,
+                ["procIndex"] = graph.ProcIndex,
+                ["procId"] = graph.ProcId,
+                ["name"] = graph.Name,
+                ["nodeCount"] = graph.Nodes.Count,
+                ["edgeCount"] = graph.Edges.Count,
+                ["diagnosticCount"] = graph.Diagnostics.Count,
+                ["graphUtf8Bytes"] = graphBytes,
+                ["graphUtf8ByteLimit"] = MaxProcDetailUtf8Bytes,
+                ["groups"] = payload["groups"]?.DeepClone() ?? new JArray(),
+                ["reason"] = $"流程图序列化后为{graphBytes}字节，超过当前模型上下文单对象边界{MaxProcDetailUtf8Bytes}字节。",
+                ["nextReadOptions"] = new JArray(
+                    "调用 get_proc_overview 获取轻量流程目录",
+                    "按明确步骤调用 get_step_detail",
+                    "按明确 opId 调用 get_op_details")
+            };
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
@@ -1075,15 +1142,24 @@ namespace Automation.Bridge
             switch (action)
             {
                 case "start":
-                    if (currentState == ProcRunState.Running || currentState == ProcRunState.Paused)
+                    if (currentState != ProcRunState.Stopped)
                     {
-                        return BridgeError(409, "PROC_ALREADY_RUNNING", $"流程 {procIndex} 已在运行或暂停状态。");
+                        return BridgeError(409, "PROC_NOT_STOPPED",
+                            $"流程 {procIndex} 尚未结束，当前状态为 {currentState}。请排查流程未结束原因后再启动。");
                     }
                     if (!SF.DR.StartProc(proc, procIndex))
                     {
-                        string startError = SF.DR.TryValidateProcessStart(proc, procIndex, out string gateError)
-                            ? "流程启动请求未被内核接受，详见流程日志。"
-                            : gateError;
+                        string startError;
+                        if (!SF.DR.TryValidateProcessStopped(procIndex, out string stoppedError))
+                        {
+                            startError = stoppedError;
+                        }
+                        else
+                        {
+                            startError = SF.DR.TryValidateProcessStart(proc, procIndex, out string gateError)
+                                ? "流程启动请求未被内核接受，详见流程日志。"
+                                : gateError;
+                        }
                         return BridgeError(409, "START_GATE_REJECTED", startError);
                     }
                     break;
@@ -1237,12 +1313,24 @@ namespace Automation.Bridge
             Proc source = GetProcByIndex(procIndex);
 
             Proc copy = ObjectGraphCloner.Clone(source);
-            copy.head = new ProcHead
+            copy.head.Id = Guid.NewGuid();
+            copy.head.Name = ResolveCopiedProcessName(source.head?.Name, newName);
+            copy.head.AutoStart = false;
+            Dictionary<string, DicValue> draftVariables = SF.valueStore.BuildSaveData();
+            ProcessVariableCopyResult variableCopy = ProcessVariableLifecycleService.CopyPrivateVariables(
+                source.head.Id, copy.head.Id, copy, draftVariables);
+            JArray variableMappings = new JArray(variableCopy.Mappings.Select(mapping => new JObject
             {
-                Name = string.IsNullOrWhiteSpace(newName) ? (source.head?.Name + "_副本") : newName,
-                AutoStart = false,
-                Disable = source.head?.Disable ?? false
-            };
+                ["sourceVariableId"] = mapping.SourceVariableId,
+                ["variableId"] = mapping.VariableId,
+                ["sourceName"] = mapping.SourceName,
+                ["name"] = mapping.Name,
+                ["sourceIndex"] = mapping.SourceIndex,
+                ["index"] = mapping.Index,
+                ["scope"] = VariableScopeContract.Process,
+                ["ownerProcId"] = copy.head.Id,
+                ["ownerProcName"] = copy.head.Name
+            }));
 
             int targetIndex = SF.frmProc.procsList.Count;
             JObject preview = new JObject
@@ -1253,6 +1341,8 @@ namespace Automation.Bridge
                 ["targetIndex"] = targetIndex,
                 ["newProcName"] = copy.head.Name,
                 ["stepCount"] = copy.steps?.Count ?? 0,
+                ["variableMappings"] = variableMappings,
+                ["warnings"] = new JArray(variableCopy.Warnings),
                 ["messages"] = new JArray { $"将复制流程 {procIndex}「{source.head?.Name}」到索引 {targetIndex}，新名称「{copy.head.Name}」" }
             };
 
@@ -1473,8 +1563,20 @@ namespace Automation.Bridge
             }
 
             ValidateObjectArray(changeSet["variables"], "changeSet.variables", variable =>
+            {
                 EnsureOnlyProperties(variable, "changeSet.variables[]",
-                    "name", "type", "initialValue", "note", "policy"));
+                    "name", "scope", "ownerProcess", "index", "type", "value", "note", "policy");
+                if (variable["ownerProcess"] is JObject owner)
+                {
+                    EnsureOnlyProperties(owner, "changeSet.variables[].ownerProcess", "procId", "name", "key");
+                }
+                else if (variable["ownerProcess"] != null
+                    && variable["ownerProcess"].Type != JTokenType.Null)
+                {
+                    throw new BridgeRequestException(
+                        400, "CHANGE_SET_INVALID", "changeSet.variables[].ownerProcess 必须是对象。");
+                }
+            });
             ValidateObjectArray(changeSet["processes"], "changeSet.processes", process =>
             {
                 EnsureOnlyProperties(process, "changeSet.processes[]", "key", "action", "targetProcId", "targetName",
@@ -1568,6 +1670,10 @@ namespace Automation.Bridge
             if (allowed.Contains("conditions", StringComparer.Ordinal))
             {
                 ValidateIoConditionArray(operation["conditions"], $"语义指令 {kind}.conditions");
+            }
+            if (allowed.Contains("outputs", StringComparer.Ordinal))
+            {
+                ValidateIoConditionArray(operation["outputs"], $"语义指令 {kind}.outputs");
             }
             if (string.Equals(kind, "native.operation", StringComparison.Ordinal))
             {
@@ -1917,14 +2023,19 @@ namespace Automation.Bridge
 
         private static AiResourceSnapshot BuildAiResourceSnapshot()
         {
-            var ioTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+            var ioResources = new Dictionary<string, AiIoResource>(StringComparer.Ordinal);
             if (SF.frmIO?.DicIO != null)
             {
                 foreach (KeyValuePair<string, IO> item in SF.frmIO.DicIO)
                 {
                     if (!string.IsNullOrWhiteSpace(item.Key) && item.Value != null)
                     {
-                        ioTypes[item.Key] = item.Value.IOType ?? string.Empty;
+                        ioResources[item.Key] = new AiIoResource
+                        {
+                            IoType = item.Value.IOType ?? string.Empty,
+                            CardNum = item.Value.CardNum,
+                            IoIndex = item.Value.IOIndex ?? string.Empty
+                        };
                     }
                 }
             }
@@ -1951,7 +2062,7 @@ namespace Automation.Bridge
                 ["alarm.infoId"] = alarmInfoIds,
                 ["plc.device"] = plcNames
             };
-            return new AiResourceSnapshot(ioTypes, references);
+            return new AiResourceSnapshot(ioResources, references);
         }
 
         private JObject HandleApplyChangeSet(JObject request)
@@ -1993,25 +2104,31 @@ namespace Automation.Bridge
             RemovePreview(previewId);
             var createdProcesses = new JArray();
             var affectedProcesses = new JArray();
-            foreach (JObject change in changes.OfType<JObject>()
-                .Where(change => string.Equals(change["type"]?.Value<string>(), "process.create", StringComparison.Ordinal)
-                    || string.Equals(change["type"]?.Value<string>(), "process.replace", StringComparison.Ordinal)
-                    || string.Equals(change["type"]?.Value<string>(), "process.modify", StringComparison.Ordinal)))
+            var createdProcIds = new HashSet<string>(
+                (draft.CreatedObjects?["processes"] as JArray ?? new JArray())
+                    .OfType<JObject>()
+                    .Select(item => item["procId"]?.Value<string>())
+                    .Where(value => !string.IsNullOrEmpty(value)),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (JObject analysis in (draft.ProcessAnalyses ?? new JArray()).OfType<JObject>())
             {
-                string changeType = change["type"]?.Value<string>() ?? string.Empty;
-                string name = change["name"]?.Value<string>() ?? string.Empty;
-                int procIndex = change["procIndex"]?.Value<int>() ?? draft.Processes.FindIndex(proc =>
-                    string.Equals(proc?.head?.Name, name, StringComparison.Ordinal));
+                int procIndex = analysis["procIndex"]?.Value<int>() ?? -1;
                 if (procIndex >= 0)
                 {
+                    string procId = analysis["procId"]?.Value<string>() ?? string.Empty;
+                    string changeType = createdProcIds.Contains(procId)
+                        ? "process.create"
+                        : "configuration.affected";
                     var item = new JObject
                     {
                         ["procIndex"] = procIndex,
-                        ["procId"] = draft.Processes[procIndex].head?.Id.ToString("D") ?? string.Empty,
-                        ["name"] = name,
+                        ["procId"] = procId,
+                        ["name"] = analysis["name"]?.Value<string>() ?? string.Empty,
                         ["changeType"] = changeType,
-                        ["readinessStatus"] = change["readinessStatus"]?.Value<string>() ?? "ready",
-                        ["runnable"] = change["runnable"]?.Value<bool>() ?? true
+                        ["readinessStatus"] = analysis["readinessStatus"]?.Value<string>() ?? "ready",
+                        ["runnable"] = analysis["runnable"]?.Value<bool>() ?? true,
+                        ["warnings"] = analysis["warnings"]?.DeepClone() ?? new JArray(),
+                        ["runBlockers"] = analysis["runBlockers"]?.DeepClone() ?? new JArray()
                     };
                     affectedProcesses.Add(item);
                     if (string.Equals(changeType, "process.create", StringComparison.Ordinal))
@@ -2266,6 +2383,13 @@ namespace Automation.Bridge
         {
             EnsureRuntimeReady();
             EnsureAllProcsStoppedForAiStructureCommit("提交语义变更集");
+            if (SF.MaintenanceActive)
+            {
+                throw new BridgeRequestException(423, "CONFIG_MAINTENANCE_ACTIVE",
+                    string.IsNullOrWhiteSpace(SF.MaintenanceReason)
+                        ? "系统正在执行配置维护。"
+                        : $"系统正在执行配置维护：{SF.MaintenanceReason}");
+            }
             if (SF.SecurityLocked)
             {
                 throw new BridgeRequestException(423, "SECURITY_LOCKED", $"系统已安全锁定：{SF.SecurityLockReason}");
@@ -2273,8 +2397,23 @@ namespace Automation.Bridge
 
             List<Proc> oldProcesses = SF.frmProc.procsList.Select(ObjectGraphCloner.Clone).ToList();
             Dictionary<string, DicValue> oldVariables = SF.valueStore.BuildSaveData();
+            Dictionary<string, DicValue> commitVariables = draft.Variables
+                .ToDictionary(item => item.Key, item => ObjectGraphCloner.Clone(item.Value), StringComparer.Ordinal);
+            var currentById = oldVariables.Values
+                .Where(value => value != null && value.Id != Guid.Empty)
+                .ToDictionary(value => value.Id);
+            ISet<Guid> explicitValueIds = new HashSet<Guid>(
+                draft.VariableValueOverrides?.Keys ?? Enumerable.Empty<Guid>());
+            foreach (DicValue variable in commitVariables.Values)
+            {
+                if (variable != null && !explicitValueIds.Contains(variable.Id)
+                    && currentById.TryGetValue(variable.Id, out DicValue current))
+                {
+                    variable.Value = current.Value;
+                }
+            }
             if (!AiConfigurationTransaction.Commit(
-                SF.ConfigPath, draft.Processes, draft.Variables,
+                SF.ConfigPath, draft.Processes, commitVariables,
                 out string commitError, out bool rollbackFailed))
             {
                 if (rollbackFailed) SF.SetSecurityLock(commitError);
@@ -2295,8 +2434,22 @@ namespace Automation.Bridge
             }
             try
             {
-                SF.valueStore.ReplaceConfiguration(draft.Variables);
                 SF.frmProc.RefreshProcList();
+                ValueConfigStore.ValidateProcessOwners(
+                    commitVariables.Values, SF.frmProc.procsList);
+                SF.valueStore.ReplaceConfiguration(commitVariables);
+                foreach (KeyValuePair<Guid, string> valueOverride in
+                    draft.VariableValueOverrides ?? new Dictionary<Guid, string>())
+                {
+                    DicValue target = commitVariables.Values.FirstOrDefault(value =>
+                        value != null && value.Id == valueOverride.Key);
+                    if (target == null
+                        || !SF.valueStore.setValueByName(target.Name, valueOverride.Value, "ChangeSet变量值提交"))
+                    {
+                        throw new InvalidOperationException(
+                            $"变量当前值提交失败：{target?.Name ?? valueOverride.Key.ToString("D")}");
+                    }
+                }
                 SF.frmValue?.FreshFrmValue();
             }
             catch (Exception ex)
@@ -2307,8 +2460,8 @@ namespace Automation.Bridge
                 bool memoryRestored = true;
                 try
                 {
-                    SF.valueStore.ReplaceConfiguration(oldVariables);
                     SF.frmProc.RefreshProcList();
+                    SF.valueStore.ReplaceConfiguration(oldVariables);
                     SF.frmValue?.FreshFrmValue();
                 }
                 catch
@@ -2444,25 +2597,38 @@ namespace Automation.Bridge
             var sortedIndexes = indexes.Select(t => t.Value<int>()).OrderByDescending(i => i).ToList();
             EnsureAllProcsStoppedForAiStructureCommit("删除流程");
 
+            List<Proc> draftProcesses = SF.frmProc.procsList
+                .Select(ObjectGraphCloner.Clone).ToList();
+            Dictionary<string, DicValue> draftVariables = SF.valueStore.BuildSaveData();
             var deleted = new JArray();
+            var deletedProcIds = new List<Guid>();
             foreach (int procIndex in sortedIndexes)
             {
-                if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+                if (procIndex < 0 || procIndex >= draftProcesses.Count)
                 {
                     continue;
                 }
-                Proc proc = SF.frmProc.procsList[procIndex];
+                Proc proc = draftProcesses[procIndex];
                 string procName = proc?.head?.Name ?? procIndex.ToString();
-                SF.frmProc.procsList.RemoveAt(procIndex);
-                deleted.Add(new JObject { ["procIndex"] = procIndex, ["procName"] = procName });
+                Guid procId = proc?.head?.Id ?? Guid.Empty;
+                if (procId != Guid.Empty) deletedProcIds.Add(procId);
+                draftProcesses.RemoveAt(procIndex);
+                deleted.Add(new JObject
+                {
+                    ["procIndex"] = procIndex,
+                    ["procId"] = procId,
+                    ["procName"] = procName
+                });
             }
 
-            // 重建工作配置文件
             int minDeleted = sortedIndexes.Min();
-            if (!SF.frmProc.RebuildWorkConfig(minDeleted))
+            int deletedPrivateVariableCount = ProcessVariableLifecycleService.RemoveOwnedVariables(
+                draftVariables, deletedProcIds);
+            CommitChangeSet(new AiChangeSetCompileResult
             {
-                throw new BridgeRequestException(500, "SAVE_FAILED", "删除流程失败，原流程配置已恢复。");
-            }
+                Processes = draftProcesses,
+                Variables = draftVariables
+            });
             // 删除后原 procIndex 节点已不存在，闪烁剩余列表中同索引位置（若有效）作为视觉提示。
             if (minDeleted < SF.frmProc.procsList.Count)
             {
@@ -2477,6 +2643,7 @@ namespace Automation.Bridge
             {
                 ["action"] = "delete_procs",
                 ["deleted"] = deleted,
+                ["deletedPrivateVariableCount"] = deletedPrivateVariableCount,
                 ["remainingCount"] = SF.frmProc.procsList.Count,
                 ["messages"] = new JArray { $"已删除 {deleted.Count} 个流程，剩余 {SF.frmProc.procsList.Count} 个" }
             };
@@ -2553,41 +2720,66 @@ namespace Automation.Bridge
             int procIndex = ReadRequiredInt(request, "procIndex");
             string newName = ReadOptionalString(request, "newName");
             Proc source = GetProcByIndex(procIndex);
+            EnsureAllProcsStoppedForAiStructureCommit("复制流程");
 
             Proc copy = ObjectGraphCloner.Clone(source);
-            copy.head = new ProcHead
+            copy.head.Id = Guid.NewGuid();
+            copy.head.Name = ResolveCopiedProcessName(source.head?.Name, newName);
+            copy.head.AutoStart = false;
+            if (SF.frmProc.procsList.Any(proc => string.Equals(
+                proc?.head?.Name, copy.head.Name, StringComparison.Ordinal)))
             {
-                Name = string.IsNullOrWhiteSpace(newName) ? (source.head?.Name + "_副本") : newName,
-                AutoStart = false,
-                Disable = source.head?.Disable ?? false
-            };
+                throw new BridgeRequestException(409, "PROC_NAME_EXISTS", $"流程名称已存在：{copy.head.Name}");
+            }
 
             int newProcIndex = SF.frmProc.procsList.Count;
             // 重置流程内步骤和指令的 Id，避免重复
             ResetProcStepOpIds(copy);
 
-            SF.frmProc.procsList.Add(copy);
+            List<Proc> draftProcesses = SF.frmProc.procsList
+                .Select(ObjectGraphCloner.Clone).ToList();
+            Dictionary<string, DicValue> draftVariables = SF.valueStore.BuildSaveData();
+            ProcessVariableCopyResult variableCopy = ProcessVariableLifecycleService.CopyPrivateVariables(
+                source.head.Id, copy.head.Id, copy, draftVariables);
+            draftProcesses.Add(copy);
 
             List<string> errors = new List<string>();
             ProcessDefinitionService.NormalizeProc(newProcIndex, copy, errors);
             if (errors.Count > 0)
             {
-                SF.frmProc.procsList.RemoveAt(newProcIndex);
                 throw new BridgeRequestException(400, "PROC_VALIDATE_FAILED", "流程复制校验失败。", string.Join("\r\n", errors.Distinct()));
             }
 
-            if (!SF.frmProc.RebuildWorkConfig(newProcIndex))
+            CommitChangeSet(new AiChangeSetCompileResult
             {
-                throw new BridgeRequestException(500, "SAVE_FAILED", "复制流程失败，原流程配置已恢复。");
-            }
+                Processes = draftProcesses,
+                Variables = draftVariables
+            });
             NotifyProcChanged(newProcIndex, ProcChangeKind.Added);
+
+            JArray variableMappings = new JArray(variableCopy.Mappings.Select(mapping => new JObject
+            {
+                ["sourceVariableId"] = mapping.SourceVariableId,
+                ["variableId"] = mapping.VariableId,
+                ["sourceName"] = mapping.SourceName,
+                ["name"] = mapping.Name,
+                ["sourceIndex"] = mapping.SourceIndex,
+                ["index"] = mapping.Index,
+                ["scope"] = VariableScopeContract.Process,
+                ["ownerProcId"] = copy.head.Id,
+                ["ownerProcName"] = copy.head.Name
+            }));
 
             return new JObject
             {
                 ["action"] = "copy_proc",
                 ["sourceProcIndex"] = procIndex,
                 ["newProcIndex"] = newProcIndex,
+                ["newProcId"] = copy.head.Id,
                 ["newProcName"] = copy.head.Name,
+                ["variableMappings"] = variableMappings,
+                ["warnings"] = new JArray(variableCopy.Warnings),
+                ["readiness"] = BuildProcessReadinessJObject(newProcIndex),
                 ["messages"] = new JArray { $"已复制流程 {procIndex}「{source.head?.Name}」到索引 {newProcIndex}，新名称「{copy.head.Name}」" }
             };
         }
@@ -2608,6 +2800,37 @@ namespace Automation.Bridge
                     }
                 }
             }
+        }
+
+        private static string ResolveCopiedProcessName(string sourceName, string requestedName)
+        {
+            if (!string.IsNullOrWhiteSpace(requestedName)) return requestedName.Trim();
+            string basis = string.IsNullOrWhiteSpace(sourceName) ? "流程" : sourceName;
+            for (int number = 1; ; number++)
+            {
+                string candidate = basis + (number == 1 ? "_副本" : "_副本" + number);
+                if (!(SF.frmProc?.procsList ?? new List<Proc>()).Any(proc =>
+                    string.Equals(proc?.head?.Name, candidate, StringComparison.Ordinal)))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        private static JObject BuildProcessReadinessJObject(int procIndex)
+        {
+            Proc proc = procIndex >= 0 && procIndex < (SF.frmProc?.procsList?.Count ?? 0)
+                ? SF.frmProc.procsList[procIndex]
+                : null;
+            ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
+                procIndex, proc, SF.frmProc?.procsList);
+            return new JObject
+            {
+                ["readinessStatus"] = readiness.ReadinessStatus,
+                ["runnable"] = readiness.Runnable,
+                ["warnings"] = new JArray(readiness.Warnings),
+                ["runBlockers"] = new JArray(readiness.RunBlockers)
+            };
         }
 
         // 流程结构操作的预演记录，复用 previewLock 保证线程安全。
@@ -3001,7 +3224,9 @@ namespace Automation.Bridge
                     OperaType = operation.OperaType ?? string.Empty,
                     Field = fieldPath,
                     DisplayName = descriptor.DisplayName,
-                    ReferenceType = GetReferenceType(descriptor.Converter?.GetType().Name),
+                    ReferenceType = IsVariableIndexDescriptor(descriptor)
+                        ? "value.index"
+                        : GetReferenceType(descriptor.Converter?.GetType().Name),
                     Value = ConvertFieldValueToText(fieldValue) ?? string.Empty
                 });
 
@@ -3143,7 +3368,8 @@ namespace Automation.Bridge
                 ["name"] = name,
                 ["requestedKind"] = resourceKind,
                 ["resolvedReferenceTypes"] = new JArray(resolvedTypes),
-                ["ambiguous"] = resolvedTypes.Count > 1
+                ["ambiguous"] = resolvedTypes.Count > 1,
+                ["variable"] = result["variable"]?.DeepClone()
             };
             return result;
         }
@@ -3205,6 +3431,11 @@ namespace Automation.Bridge
                 referenceType.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries)
                     .Select(item => item.Trim()), StringComparer.OrdinalIgnoreCase);
             string value = ReadRequiredString(request, "value").Trim();
+            DicValue tracedVariable = null;
+            if (referenceTypes.Contains("value"))
+            {
+                SF.valueStore?.TryGetValueByName(value, out tracedVariable);
+            }
             string fieldName = ReadOptionalString(request, "fieldName")?.Trim();
             int procOffset = ReadOptionalInt(request, "procOffset") ?? 0;
             int procLimit = ReadOptionalInt(request, "procLimit") ?? 20;
@@ -3229,10 +3460,33 @@ namespace Automation.Bridge
                     {
                         continue;
                     }
-                    if (!referenceTypes.Any(expected => IsMatchingReferenceType(expected, field.ReferenceType))) continue;
-                    if (!string.Equals(field.Value.Trim(), value, StringComparison.Ordinal)) continue;
+                    bool nameReference = referenceTypes.Any(expected =>
+                        IsMatchingReferenceType(expected, field.ReferenceType))
+                        && string.Equals(field.Value.Trim(), value, StringComparison.Ordinal);
+                    bool indexReference = tracedVariable != null
+                        && string.Equals(field.ReferenceType, "value.index", StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(field.Value.Trim(), tracedVariable.Index.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
+                    if (!nameReference && !indexReference) continue;
                     totalMatchesInBatch++;
-                    if (matches.Count < resultLimit) matches.Add(BuildDiagnosticMatch(field, false));
+                    if (matches.Count < resultLimit)
+                    {
+                        JObject match = BuildDiagnosticMatch(field, false);
+                        if (tracedVariable != null)
+                        {
+                            Guid procId = proc?.head?.Id ?? Guid.Empty;
+                            match["referenceKind"] = indexReference ? "index" : "name";
+                            match["variableId"] = tracedVariable.Id.ToString("D");
+                            match["variableName"] = tracedVariable.Name;
+                            match["variableIndex"] = tracedVariable.Index;
+                            match["scope"] = tracedVariable.Scope;
+                            match["ownerProcId"] = tracedVariable.OwnerProcId?.ToString("D");
+                            match["ownerProcName"] = ResolveProcessName(tracedVariable.OwnerProcId);
+                            match["accessStatus"] = ValueConfigStore.CanProcessAccess(tracedVariable, procId)
+                                ? "accessible"
+                                : "inaccessible_other_process_private";
+                        }
+                        matches.Add(match);
+                    }
                 }
             }
             return new JObject
@@ -3250,7 +3504,16 @@ namespace Automation.Bridge
                 ["truncatedMatches"] = totalMatchesInBatch > matches.Count,
                 ["hasMoreProcs"] = procEnd < procCount,
                 ["nextProcOffset"] = procEnd < procCount ? procEnd : (JToken)JValue.CreateNull(),
-                ["matches"] = matches
+                ["matches"] = matches,
+                ["variable"] = tracedVariable == null ? null : new JObject
+                {
+                    ["variableId"] = tracedVariable.Id,
+                    ["name"] = tracedVariable.Name,
+                    ["index"] = tracedVariable.Index,
+                    ["scope"] = tracedVariable.Scope,
+                    ["ownerProcId"] = tracedVariable.OwnerProcId?.ToString("D"),
+                    ["ownerProcName"] = ResolveProcessName(tracedVariable.OwnerProcId)
+                }
             };
         }
 
@@ -3478,7 +3741,7 @@ namespace Automation.Bridge
                     ["name"] = op?.Name ?? string.Empty,
                     ["operaType"] = op?.OperaType ?? string.Empty,
                     ["disable"] = op?.Disable ?? false,
-                    ["isJump"] = IsJumpOperation(op?.OperaType),
+                    ["isJump"] = IsJumpOperation(op),
                     ["summary"] = op == null ? string.Empty : BuildOperationSummary(op),
                     ["fields"] = oi == opIndex && op != null ? BuildWritableOperationFields(op) : null
                 });
@@ -3502,6 +3765,11 @@ namespace Automation.Bridge
             return new JObject
             {
                 ["procIndex"] = field.ProcIndex,
+                ["procId"] = (SF.frmProc?.procsList != null
+                    && field.ProcIndex >= 0
+                    && field.ProcIndex < SF.frmProc.procsList.Count)
+                    ? SF.frmProc.procsList[field.ProcIndex]?.head?.Id.ToString("D") ?? string.Empty
+                    : string.Empty,
                 ["procName"] = field.ProcName,
                 ["stepIndex"] = field.StepIndex,
                 ["stepId"] = field.StepId.ToString("D"),
@@ -3816,10 +4084,8 @@ namespace Automation.Bridge
             OperationType op,
             IReadOnlyList<string> gotoErrors)
         {
-            bool isJump = IsJumpOperation(op?.OperaType);
-            string flow = isJump
-                ? "条件跳转（不自动流向下一条）"
-                : (opIndex < (step?.Ops?.Count ?? 0) - 1 ? $"执行后自动流向[{opIndex + 1}]" : "执行后步骤完成");
+            bool isJump = IsJumpOperation(op);
+            string flow = BuildFlowDescription(op, opIndex, step?.Ops?.Count ?? 0);
             var gotoIssues = new JArray();
             if (isJump && gotoErrors != null)
             {
@@ -3846,7 +4112,7 @@ namespace Automation.Bridge
                 ["name"] = op?.Name ?? string.Empty,
                 ["operaType"] = op?.OperaType ?? string.Empty,
                 ["disable"] = op?.Disable ?? false,
-                ["isStopPoint"] = op?.isStopPoint ?? false,
+                ["IsBreakpoint"] = op?.IsBreakpoint ?? false,
                 ["isJump"] = isJump,
                 ["flow"] = flow,
                 ["summary"] = op == null ? string.Empty : BuildOperationSummary(op),
@@ -3951,10 +4217,8 @@ namespace Automation.Bridge
                 for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
                 {
                     OperationType op = step.Ops[opIndex];
-                    bool isJump = IsJumpOperation(op?.OperaType);
-                    string flow = isJump
-                        ? "条件跳转（不自动流向下一条）"
-                        : (opIndex < step.Ops.Count - 1 ? $"执行后自动流向[{opIndex + 1}]" : "执行后步骤完成");
+                    bool isJump = IsJumpOperation(op);
+                    string flow = BuildFlowDescription(op, opIndex, step.Ops.Count);
                     opDetails.Add(new JObject
                     {
                         ["opIndex"] = opIndex,
@@ -4279,18 +4543,24 @@ namespace Automation.Bridge
             }
             string typeFilter = request["type"]?.Value<string>();
             string nameLike = request["nameLike"]?.Value<string>();
+            string scopeFilter = request["scope"]?.Value<string>();
+            Guid? ownerProcIdFilter = ReadOptionalGuid(request, "ownerProcId");
+            if (!string.IsNullOrEmpty(scopeFilter) && !VariableScopeContract.IsValid(scopeFilter))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", $"scope 必须是 public、process 或 system，当前：{scopeFilter}");
+            }
             int offset = request["offset"]?.Value<int>() ?? 0;
             int limit = request["limit"]?.Value<int>() ?? 0;
             if (offset < 0) offset = 0;
             if (limit <= 0) limit = 1000;
 
-            List<string> allNames = store.GetValueNames() ?? new List<string>();
             var items = new List<JObject>();
             int matched = 0;
             int skipped = 0;
             int taken = 0;
-            foreach (string name in allNames)
+            foreach (DicValue val in store.GetValuesSnapshot())
             {
+                string name = val?.Name;
                 if (string.IsNullOrEmpty(name))
                 {
                     continue;
@@ -4300,12 +4570,17 @@ namespace Automation.Bridge
                 {
                     continue;
                 }
-                if (!store.TryGetValueByName(name, out DicValue val))
+                if (!string.IsNullOrEmpty(typeFilter)
+                    && !string.Equals(val.Type, typeFilter, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
-                if (!string.IsNullOrEmpty(typeFilter)
-                    && !string.Equals(val.Type, typeFilter, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrEmpty(scopeFilter)
+                    && !string.Equals(val.Scope, scopeFilter, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (ownerProcIdFilter.HasValue && val.OwnerProcId != ownerProcIdFilter)
                 {
                     continue;
                 }
@@ -4431,7 +4706,7 @@ namespace Automation.Bridge
             {
                 ["ok"] = true,
                 ["variable"] = BuildVariableJObject(updated ?? val),
-                ["message"] = $"变量[{val.Name}] 运行时值已更新为 {newValue}。"
+                ["message"] = $"变量[{val.Name}] 当前值已更新为 {newValue}。"
             };
         }
 
@@ -4466,11 +4741,7 @@ namespace Automation.Bridge
             return new JObject
             {
                 ["ok"] = true,
-                ["deleted"] = new JObject
-                {
-                    ["index"] = target.Index,
-                    ["name"] = target.Name
-                },
+                ["deleted"] = BuildVariableJObject(target),
                 ["message"] = $"变量[{target.Name}]已删除，原槽位 index={target.Index} 保持为空。"
             };
         }
@@ -4503,17 +4774,38 @@ namespace Automation.Bridge
             {
                 return BridgeError(400, "INVALID_ARGUMENT", $"type 只能是 double 或 string，当前：{type}");
             }
-            string value = request["initialValue"]?.Value<string>();
+            string value = request["value"]?.Value<string>();
             if (value == null)
             {
                 value = string.Equals(type, "double", StringComparison.OrdinalIgnoreCase) ? "0" : "";
             }
             if (string.Equals(type, "double", StringComparison.OrdinalIgnoreCase) && !double.TryParse(value, out _))
             {
-                return BridgeError(400, "INVALID_ARGUMENT", $"type=double 时 initialValue 必须是有效数字，当前：{value}");
+                return BridgeError(400, "INVALID_ARGUMENT", $"type=double 时 value 必须是有效数字，当前：{value}");
             }
             string note = request["note"]?.Value<string>() ?? string.Empty;
             int? requestedIndex = request["index"]?.Value<int>();
+            string scope = request["scope"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(scope) || !VariableScopeContract.IsValid(scope))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "scope 为必填项，且必须是 public 或 process。");
+            }
+            if (string.Equals(scope, VariableScopeContract.System, StringComparison.Ordinal))
+            {
+                return BridgeError(409, "SYSTEM_VARIABLE_CONFIG_READ_ONLY", "系统变量区配置对 AI 只读。");
+            }
+            Guid? ownerProcId = ReadOptionalGuid(request, "ownerProcId");
+            if (string.Equals(scope, VariableScopeContract.Process, StringComparison.Ordinal))
+            {
+                if (!ownerProcId.HasValue || !ProcessExists(ownerProcId.Value))
+                {
+                    return BridgeError(400, "INVALID_ARGUMENT", "scope=process 时 ownerProcId 必填且必须指向现有流程。");
+                }
+            }
+            else if (ownerProcId.HasValue)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "scope=public 时不能携带 ownerProcId。");
+            }
 
             // 名称查重
             if (store.TryGetValueByName(name, out DicValue existing))
@@ -4560,10 +4852,12 @@ namespace Automation.Bridge
             Dictionary<string, DicValue> draft = store.BuildSaveData();
             draft[name] = new DicValue
             {
+                Id = Guid.NewGuid(),
                 Index = targetIndex,
                 Name = name,
                 Type = type,
-                ConfigValue = value,
+                Scope = scope,
+                OwnerProcId = ownerProcId,
                 Value = value,
                 Note = note
             };
@@ -4602,30 +4896,18 @@ namespace Automation.Bridge
 
             bool hasNewName = request.Property("newName", StringComparison.Ordinal) != null;
             bool hasType = request.Property("type", StringComparison.Ordinal) != null;
-            bool hasInitialValue = request.Property("initialValue", StringComparison.Ordinal) != null;
+            bool hasValue = request.Property("value", StringComparison.Ordinal) != null;
             bool hasNote = request.Property("note", StringComparison.Ordinal) != null;
-            bool hasApplyInitialValueToRuntime =
-                request.Property("applyInitialValueToRuntime", StringComparison.Ordinal) != null;
-            if (hasApplyInitialValueToRuntime
-                && request["applyInitialValueToRuntime"]?.Type != JTokenType.Boolean)
-            {
-                return BridgeError(400, "INVALID_ARGUMENT", "applyInitialValueToRuntime 必须是布尔值。");
-            }
-            bool applyInitialValueToRuntime = hasApplyInitialValueToRuntime
-                && request["applyInitialValueToRuntime"].Value<bool>();
-            if (applyInitialValueToRuntime && !hasInitialValue)
+            bool hasScope = request.Property("scope", StringComparison.Ordinal) != null;
+            bool hasOwnerProcId = request.Property("ownerProcId", StringComparison.Ordinal) != null;
+            bool hasIndex = request.Property("index", StringComparison.Ordinal) != null;
+            if (!hasNewName && !hasType && !hasValue && !hasNote
+                && !hasScope && !hasOwnerProcId && !hasIndex)
             {
                 return BridgeError(
                     400,
                     "INVALID_ARGUMENT",
-                    "applyInitialValueToRuntime=true 时必须同时提供 initialValue。");
-            }
-            if (!hasNewName && !hasType && !hasInitialValue && !hasNote)
-            {
-                return BridgeError(
-                    400,
-                    "INVALID_ARGUMENT",
-                    "至少提供 newName、type、initialValue 或 note 之一。");
+                    "至少提供 newName、type、value、note、scope、ownerProcId 或 index 之一。");
             }
 
             string newName = hasNewName ? request["newName"]?.Value<string>()?.Trim() : target.Name;
@@ -4639,18 +4921,51 @@ namespace Automation.Bridge
             {
                 return BridgeError(400, "INVALID_ARGUMENT", $"type 只能是 double 或 string，当前：{type}");
             }
-            string initialValue = hasInitialValue
-                ? request["initialValue"]?.Value<string>()
-                : target.ConfigValue;
-            if (initialValue == null)
+            string value = hasValue
+                ? request["value"]?.Value<string>()
+                : target.Value;
+            if (value == null)
             {
-                return BridgeError(400, "INVALID_ARGUMENT", "initialValue 不能为 null。");
+                return BridgeError(400, "INVALID_ARGUMENT", "value 不能为 null。");
             }
-            if (string.Equals(type, "double", StringComparison.Ordinal) && !double.TryParse(initialValue, out _))
+            if (string.Equals(type, "double", StringComparison.Ordinal) && !double.TryParse(value, out _))
             {
-                return BridgeError(400, "INVALID_ARGUMENT", $"type=double 时 initialValue 必须是有效数字，当前：{initialValue}");
+                return BridgeError(400, "INVALID_ARGUMENT", $"type=double 时 value 必须是有效数字，当前：{value}");
             }
             string note = hasNote ? request["note"]?.Value<string>() ?? string.Empty : target.Note ?? string.Empty;
+            string scope = hasScope ? request["scope"]?.Value<string>() : target.Scope;
+            if (!VariableScopeContract.IsValid(scope)
+                || string.Equals(scope, VariableScopeContract.System, StringComparison.Ordinal))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "scope 只能修改为 public 或 process。");
+            }
+            Guid? ownerProcId = hasOwnerProcId
+                ? ReadOptionalGuid(request, "ownerProcId")
+                : target.OwnerProcId;
+            if (string.Equals(scope, VariableScopeContract.Process, StringComparison.Ordinal))
+            {
+                if (!ownerProcId.HasValue || !ProcessExists(ownerProcId.Value))
+                {
+                    return BridgeError(400, "INVALID_ARGUMENT", "scope=process 时 ownerProcId 必填且必须指向现有流程。");
+                }
+            }
+            else
+            {
+                if (hasOwnerProcId && ownerProcId.HasValue)
+                {
+                    return BridgeError(400, "INVALID_ARGUMENT", "scope=public 时不能携带 ownerProcId。");
+                }
+                ownerProcId = null;
+            }
+            int index = hasIndex ? request["index"].Value<int>() : target.Index;
+            if (index < 0 || index >= ValueConfigStore.NormalValueCapacity)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", $"index 必须位于普通变量区 [0, {ValueConfigStore.NormalValueCapacity})。");
+            }
+            if (index != target.Index && store.TryGetValueByIndex(index, out DicValue indexOwner))
+            {
+                return BridgeError(409, "SLOT_OCCUPIED", $"index={index} 已被变量[{indexOwner.Name}]占用。");
+            }
 
             Dictionary<string, DicValue> draft = store.BuildSaveData();
             if (!string.Equals(newName, target.Name, StringComparison.Ordinal)
@@ -4662,17 +4977,20 @@ namespace Automation.Bridge
             DicValue updated = ObjectGraphCloner.Clone(target);
             updated.Name = newName;
             updated.Type = type;
-            updated.ConfigValue = initialValue;
+            updated.Scope = scope;
+            updated.OwnerProcId = ownerProcId;
+            updated.Index = index;
+            updated.Value = value;
             updated.Note = note;
             draft[newName] = updated;
-            IReadOnlyDictionary<string, string> runtimeValueOverrides = applyInitialValueToRuntime
-                ? new Dictionary<string, string>(StringComparer.Ordinal) { [newName] = initialValue }
+            IReadOnlyDictionary<string, string> valueOverrides = hasValue
+                ? new Dictionary<string, string>(StringComparer.Ordinal) { [newName] = value }
                 : null;
             if (!store.TryCommitConfiguration(
                 SF.ConfigPath,
                 draft,
                 out string commitError,
-                runtimeValueOverrides,
+                valueOverrides,
                 "AI变量配置更新"))
             {
                 return BridgeError(500, "VARIABLE_COMMIT_FAILED", commitError);
@@ -4683,10 +5001,9 @@ namespace Automation.Bridge
             {
                 ["ok"] = true,
                 ["variable"] = BuildVariableJObject(committed),
-                ["runtimeSynchronized"] = applyInitialValueToRuntime,
-                ["message"] = applyInitialValueToRuntime
-                    ? $"变量[{target.Name}]配置和运行值已更新。"
-                    : $"变量[{target.Name}]配置已更新。"
+                ["message"] = hasValue
+                    ? $"变量[{target.Name}]当前值和属性已更新。"
+                    : $"变量[{target.Name}]属性已更新，当前值保持不变。"
             };
         }
 
@@ -4806,6 +5123,7 @@ namespace Automation.Bridge
                 {
                     ["stationIndex"] = i,
                     ["name"] = station.Name ?? string.Empty,
+                    ["coordinateSystem"] = station.CoordinateSystem,
                     ["manualSpeedPercent"] = station.ManualSpeedPercent,
                     ["pointCount"] = namedCount
                 });
@@ -4836,6 +5154,7 @@ namespace Automation.Bridge
             {
                 ["stationIndex"] = stationIndex,
                 ["name"] = station.Name ?? string.Empty,
+                ["coordinateSystem"] = station.CoordinateSystem,
                 ["manualSpeedPercent"] = station.ManualSpeedPercent,
                 ["points"] = points
             };
@@ -4855,6 +5174,11 @@ namespace Automation.Bridge
                 return BridgeError(400, "INVALID_ARGUMENT", "缺少 name 字段或 name 为空。");
             }
             double? manualSpeedPercent = request["manualSpeedPercent"]?.Value<double>();
+            int coordinateSystem = request["coordinateSystem"]?.Value<int>() ?? 0;
+            if (coordinateSystem < 0 || coordinateSystem > 1)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", $"坐标系无效:{coordinateSystem}。");
+            }
             List<DataStation> list = SF.frmCard.dataStation;
             foreach (DataStation s in list)
             {
@@ -4865,7 +5189,8 @@ namespace Automation.Bridge
             }
             DataStation station = new DataStation(false)
             {
-                Name = name
+                Name = name,
+                CoordinateSystem = (ushort)coordinateSystem
             };
             if (manualSpeedPercent.HasValue) station.ManualSpeedPercent = manualSpeedPercent.Value;
             list.Add(station);
@@ -4908,6 +5233,11 @@ namespace Automation.Bridge
             DataStation station = ResolveStation(stationIndex);
             string name = request["name"]?.Value<string>();
             double? manualSpeedPercent = request["manualSpeedPercent"]?.Value<double>();
+            int? coordinateSystem = request["coordinateSystem"]?.Value<int>();
+            if (coordinateSystem.HasValue && (coordinateSystem.Value < 0 || coordinateSystem.Value > 1))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", $"坐标系无效:{coordinateSystem.Value}。");
+            }
             bool changed = false;
             if (!string.IsNullOrWhiteSpace(name))
             {
@@ -4929,9 +5259,14 @@ namespace Automation.Bridge
                 station.ManualSpeedPercent = manualSpeedPercent.Value;
                 changed = true;
             }
+            if (coordinateSystem.HasValue)
+            {
+                station.CoordinateSystem = (ushort)coordinateSystem.Value;
+                changed = true;
+            }
             if (!changed)
             {
-                return BridgeError(400, "INVALID_ARGUMENT", "至少提供 name 或 manualSpeedPercent 之一。");
+                return BridgeError(400, "INVALID_ARGUMENT", "至少提供 name、manualSpeedPercent 或 coordinateSystem 之一。");
             }
             SaveStationAndRefresh();
             return new JObject
@@ -5130,17 +5465,68 @@ namespace Automation.Bridge
             if (val == null) return new JObject();
             return new JObject
             {
+                ["variableId"] = val.Id,
                 ["index"] = val.Index,
                 ["name"] = val.Name ?? string.Empty,
                 ["type"] = val.Type ?? string.Empty,
-                ["runtimeValue"] = val.Value ?? string.Empty,
-                ["configValue"] = val.ConfigValue ?? string.Empty,
+                ["scope"] = val.Scope ?? string.Empty,
+                ["ownerProcId"] = val.OwnerProcId.HasValue ? JToken.FromObject(val.OwnerProcId.Value) : JValue.CreateNull(),
+                ["ownerProcName"] = ResolveProcessName(val.OwnerProcId),
+                ["value"] = val.Value ?? string.Empty,
                 ["note"] = val.Note ?? string.Empty,
                 ["isMark"] = val.isMark,
                 ["lastChangedAt"] = val.LastChangedAt == default(DateTime) ? string.Empty : val.LastChangedAt.ToString("yyyy-MM-dd HH:mm:ss"),
                 ["lastChangedBy"] = val.LastChangedBy ?? string.Empty,
                 ["oldValue"] = val.LastChangedOldValue ?? string.Empty,
-                ["newValue"] = val.LastChangedNewValue ?? string.Empty
+                ["newValue"] = val.LastChangedNewValue ?? string.Empty,
+                ["referenceImpact"] = BuildVariableReferenceImpact(val)
+            };
+        }
+
+        private static bool ProcessExists(Guid procId)
+        {
+            return procId != Guid.Empty && (SF.frmProc?.procsList ?? new List<Proc>())
+                .Any(proc => proc?.head?.Id == procId);
+        }
+
+        private static string ResolveProcessName(Guid? procId)
+        {
+            if (!procId.HasValue) return string.Empty;
+            return (SF.frmProc?.procsList ?? new List<Proc>())
+                .FirstOrDefault(proc => proc?.head?.Id == procId.Value)?.head?.Name ?? string.Empty;
+        }
+
+        private static JObject BuildVariableReferenceImpact(DicValue variable)
+        {
+            int nameReferences = 0;
+            int indexReferences = 0;
+            int inaccessibleReferences = 0;
+            foreach (Proc proc in SF.frmProc?.procsList ?? new List<Proc>())
+            {
+                Guid procId = proc?.head?.Id ?? Guid.Empty;
+                foreach (OperationType operation in (proc?.steps ?? new List<Step>())
+                    .Where(step => step?.Ops != null)
+                    .SelectMany(step => step.Ops)
+                    .Where(operation => operation != null))
+                {
+                    foreach (VariableReferenceRecord reference in VariableReferenceCatalog.Enumerate(operation))
+                    {
+                        bool matched = reference.Kind == VariableReferenceKind.Name
+                            ? string.Equals(reference.Value, variable.Name, StringComparison.Ordinal)
+                            : int.TryParse(reference.Value, out int index) && index == variable.Index;
+                        if (!matched) continue;
+                        if (reference.Kind == VariableReferenceKind.Name) nameReferences++;
+                        else indexReferences++;
+                        if (!ValueConfigStore.CanProcessAccess(variable, procId)) inaccessibleReferences++;
+                    }
+                }
+            }
+            return new JObject
+            {
+                ["total"] = nameReferences + indexReferences,
+                ["nameReferences"] = nameReferences,
+                ["indexReferences"] = indexReferences,
+                ["inaccessibleReferences"] = inaccessibleReferences
             };
         }
 
@@ -6998,7 +7384,7 @@ namespace Automation.Bridge
             }
 
             // AI 可以读取和预演运行中的流程，但正式提交不得改变设备运行状态，
-            // 也不得把新流程热更新到正在执行的 agent。停止流程必须由操作员显式执行。
+            // 也不得替换正在执行的流程对象。停止流程必须由操作员显式执行。
             EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
             if (snapshot != null && snapshot.State != ProcRunState.Stopped)
             {
@@ -7965,10 +8351,8 @@ namespace Automation.Bridge
                         for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
                         {
                             OperationType op = step.Ops[opIndex];
-                            bool isJump = IsJumpOperation(op?.OperaType);
-                            string flow = isJump
-                                ? "条件跳转（不自动流向下一条）"
-                                : (opIndex < step.Ops.Count - 1 ? $"执行后自动流向[{opIndex + 1}]" : "执行后步骤完成");
+                            bool isJump = IsJumpOperation(op);
+                            string flow = BuildFlowDescription(op, opIndex, step.Ops.Count);
                             opDetails.Add(new JObject
                             {
                                 ["opIndex"] = opIndex,
@@ -8077,8 +8461,8 @@ namespace Automation.Bridge
                         field["allowDisplayText"] = false;
                         field["writeRule"] = "只能写三段式非负整数地址；下拉框显示的步骤名、指令名或“步骤：完成结束”等文字仅供界面展示，禁止作为字段值写入。";
                         field["required"] = op is ParamGoto
-                            && (string.Equals(descriptor.Name, "goto1", StringComparison.Ordinal)
-                                || string.Equals(descriptor.Name, "goto2", StringComparison.Ordinal));
+                            && (string.Equals(descriptor.Name, "TrueGoto", StringComparison.Ordinal)
+                                || string.Equals(descriptor.Name, "FalseGoto", StringComparison.Ordinal));
                     }
 
                     if (behaviorRule != null)
@@ -8175,17 +8559,35 @@ namespace Automation.Bridge
             };
         }
 
-        // 跳转类指令：执行后按条件跳转，不会自动流向 opIndex+1。
-        // 非跳转类指令：执行后自动流向 opIndex+1（默认顺序执行规则）。
-        // 此分类用于在 get_proc_detail 返回中标注每条指令的 flow 字段，帮助 AI 理解执行流。
-        private static readonly HashSet<string> jumpOperaTypes = new HashSet<string>(StringComparer.Ordinal)
+        private static bool IsJumpOperation(OperationType operation)
         {
-            "IO逻辑跳转", "逻辑判断", "跳转"
-        };
+            return OperationGotoReferenceCatalog.HasBusinessGoto(operation);
+        }
 
-        private static bool IsJumpOperation(string operaType)
+        private static string BuildFlowDescription(OperationType operation, int opIndex, int operationCount)
         {
-            return !string.IsNullOrWhiteSpace(operaType) && jumpOperaTypes.Contains(operaType);
+            JObject controlFlow = OperationBehaviorCatalog.BuildContract(operation)?["controlFlow"] as JObject;
+            if (controlFlow?["known"]?.Value<bool?>() == false)
+            {
+                return "控制流尚无确定契约";
+            }
+            if (controlFlow?["terminal"]?.Value<bool?>() == true)
+            {
+                return "执行后结束当前流程";
+            }
+            bool fallThrough = controlFlow?["fallThrough"]?.Value<bool?>() == true;
+            bool hasGoto = IsJumpOperation(operation);
+            if (hasGoto && fallThrough)
+            {
+                return opIndex < operationCount - 1
+                    ? $"满足分支时跳转；未跳转时自动流向[{opIndex + 1}]"
+                    : "满足分支时跳转；未跳转时步骤完成";
+            }
+            if (hasGoto)
+            {
+                return "由配置分支决定后续流向（不自动流向下一条）";
+            }
+            return opIndex < operationCount - 1 ? $"执行后自动流向[{opIndex + 1}]" : "执行后步骤完成";
         }
 
         private string BuildOperationSummary(OperationType op)
@@ -8215,7 +8617,7 @@ namespace Automation.Bridge
                         || string.Equals(descriptor.Name, "Num", StringComparison.Ordinal)
                         || string.Equals(descriptor.Name, "Note", StringComparison.Ordinal)
                         || string.Equals(descriptor.Name, "Disable", StringComparison.Ordinal)
-                        || string.Equals(descriptor.Name, "isStopPoint", StringComparison.Ordinal))
+                        || string.Equals(descriptor.Name, "IsBreakpoint", StringComparison.Ordinal))
                     {
                         continue;
                     }
@@ -8310,10 +8712,8 @@ namespace Automation.Bridge
                     ["isBreakpoint"] = false,
                     ["isAlarm"] = false,
                     ["alarmMessage"] = string.Empty,
-                    ["publishedRevision"] = 0,
-                    ["appliedRevision"] = 0,
-                    ["hasPendingUpdate"] = false,
                     ["terminationReason"] = ProcTerminationReason.None.ToString(),
+                    ["performance"] = JValue.CreateNull(),
                     ["updateTime"] = JValue.CreateNull()
                 };
             }
@@ -8329,12 +8729,24 @@ namespace Automation.Bridge
                 ["isBreakpoint"] = snapshot.IsBreakpoint,
                 ["isAlarm"] = snapshot.IsAlarm,
                 ["alarmMessage"] = snapshot.AlarmMessage ?? string.Empty,
-                ["publishedRevision"] = snapshot.PublishedRevision,
-                ["appliedRevision"] = snapshot.AppliedRevision,
-                ["hasPendingUpdate"] = snapshot.HasPendingUpdate,
                 ["terminationReason"] = snapshot.TerminationReason.ToString(),
                 ["updateTime"] = snapshot.UpdateTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture),
-                ["updateTicks"] = snapshot.UpdateTicks
+                ["updateTicks"] = snapshot.UpdateTicks,
+                ["performance"] = snapshot.Performance == null
+                    ? JValue.CreateNull()
+                    : new JObject
+                    {
+                        ["enabled"] = snapshot.Performance.Enabled,
+                        ["executionMode"] = snapshot.Performance.ExecutionMode.ToString(),
+                        ["operationCount"] = snapshot.Performance.OperationCount,
+                        ["operationsPerSecond"] = snapshot.Performance.OperationsPerSecond,
+                        ["threadCpuPercent"] = snapshot.Performance.ThreadCpuPercent,
+                        ["averageOperationMicroseconds"] = snapshot.Performance.AverageOperationMicroseconds,
+                        ["maxOperationMicroseconds"] = snapshot.Performance.MaxOperationMicroseconds,
+                        ["operationDurationSampleCount"] = snapshot.Performance.OperationDurationSampleCount,
+                        ["operationDurationSamplingInterval"] = snapshot.Performance.OperationDurationSamplingInterval,
+                        ["abnormalCpuLoopDetected"] = snapshot.Performance.AbnormalCpuLoopDetected
+                    }
             };
         }
 
@@ -8799,6 +9211,21 @@ namespace Automation.Bridge
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
+        private static Guid? ReadOptionalGuid(JObject request, string fieldName)
+        {
+            string value = ReadOptionalString(request, fieldName);
+            if (value == null)
+            {
+                return null;
+            }
+            if (!Guid.TryParse(value, out Guid parsed) || parsed == Guid.Empty)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"字段 {fieldName} 必须是非空 Guid。");
+            }
+            return parsed;
+        }
+
+        [System.Diagnostics.DebuggerNonUserCode]
         private static bool? ReadOptionalBoolean(JObject request, string fieldName)
         {
             if (!request.TryGetValue(fieldName, out JToken token) || token == null || token.Type == JTokenType.Null)
@@ -9107,7 +9534,7 @@ namespace Automation.Bridge
             // 自定义函数源码与流程配置允许在平台运行期间一起准备。新函数只有在用户手动编译并
             // 启动新版本后才会进入运行时列表；ProcessEngine 启动闸门会阻止旧版本执行该流程。
             if (descriptor.ComponentType == typeof(CallCustomFunc)
-                && string.Equals(fieldName, nameof(CallCustomFunc.Name), StringComparison.Ordinal)
+                && string.Equals(fieldName, nameof(CallCustomFunc.FunctionName), StringComparison.Ordinal)
                 && !string.IsNullOrWhiteSpace(value.ToString()))
             {
                 return;
@@ -9289,8 +9716,6 @@ namespace Automation.Bridge
                     return "io.output";
                 case "IoInItem":
                     return "io.input";
-                case "IoItem":
-                    return "io.all";
                 case "AlarmInfoItem":
                     return "alarm.infoId";
                 case "DataStItem":
@@ -9322,6 +9747,16 @@ namespace Automation.Bridge
                 default:
                     return string.Empty;
             }
+        }
+
+        private static bool IsVariableIndexDescriptor(PropertyDescriptor descriptor)
+        {
+            if (descriptor == null) return false;
+            string displayName = descriptor.DisplayName ?? string.Empty;
+            string description = descriptor.Description ?? string.Empty;
+            return displayName.IndexOf("变量", StringComparison.Ordinal) >= 0
+                && displayName.IndexOf("索引", StringComparison.Ordinal) >= 0
+                || description.IndexOf("变量索引", StringComparison.Ordinal) >= 0;
         }
 
         private static JArray BuildStandardValues(PropertyDescriptor descriptor)

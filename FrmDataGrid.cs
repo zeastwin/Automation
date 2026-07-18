@@ -517,8 +517,8 @@ namespace Automation
                 selectedOperation = dataGridView1.GetOperation(rowIndex);
                 if (selectedOperation != null)
                 {
-                    SetStopPoint.Text = selectedOperation.isStopPoint ? "取消断点" : "设置断点";
-                    SetStopPoint.Checked = selectedOperation.isStopPoint;
+                    SetStopPoint.Text = selectedOperation.IsBreakpoint ? "取消断点" : "设置断点";
+                    SetStopPoint.Checked = selectedOperation.IsBreakpoint;
                     Enable.Text = selectedOperation.Disable ? "启用指令" : "禁用指令";
                     Enable.Checked = false;
                 }
@@ -566,7 +566,7 @@ namespace Automation
             CallCustomFunc customFunction = iSelectedRow >= 0
                 ? dataGridView1.GetOperation(iSelectedRow) as CallCustomFunc
                 : null;
-            if (customFunction == null || string.IsNullOrWhiteSpace(customFunction.Name))
+            if (customFunction == null || string.IsNullOrWhiteSpace(customFunction.FunctionName))
             {
                 MessageBox.Show("当前指令未指定已注册的自定义函数。", "查看代码",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -636,7 +636,7 @@ namespace Automation
                 ShowInTaskbar = false,
                 Size = new Size(920, 680),
                 StartPosition = FormStartPosition.CenterParent,
-                Text = "自定义函数代码 - " + customFunction.Name
+                Text = "自定义函数代码 - " + customFunction.FunctionName
             };
             viewer.Controls.Add(codeBox);
             viewer.Controls.Add(sourceLabel);
@@ -645,7 +645,7 @@ namespace Automation
             code = codeBox.Text;
 
             int registrationIndex = code.IndexOf(
-                "RegisterCustomFunction(\"" + customFunction.Name + "\"",
+                "RegisterCustomFunction(\"" + customFunction.FunctionName + "\"",
                 StringComparison.Ordinal);
             if (registrationIndex >= 0)
             {
@@ -653,12 +653,12 @@ namespace Automation
             }
             else
             {
-                registrationIndex = code.IndexOf("\"" + customFunction.Name + "\"", StringComparison.Ordinal);
+                registrationIndex = code.IndexOf("\"" + customFunction.FunctionName + "\"", StringComparison.Ordinal);
             }
             if (registrationIndex >= 0)
             {
                 int targetIndex = registrationIndex;
-                string targetDescription = customFunction.Name + " 的注册语句";
+                string targetDescription = customFunction.FunctionName + " 的注册语句";
                 int statementEnd = code.IndexOf(';', registrationIndex);
                 statementEnd = statementEnd < 0
                     ? Math.Min(code.Length, registrationIndex + 2000)
@@ -690,7 +690,7 @@ namespace Automation
                     if (methodDeclaration.Success)
                     {
                         targetIndex = methodDeclaration.Index;
-                        targetDescription = customFunction.Name + " 的实现方法 " + methodName;
+                        targetDescription = customFunction.FunctionName + " 的实现方法 " + methodName;
                     }
                 }
 
@@ -740,7 +740,7 @@ namespace Automation
             }
             else
             {
-                sourceLabel.Text = "未在内嵌源码中找到 " + customFunction.Name + " 的注册语句";
+                sourceLabel.Text = "未在内嵌源码中找到 " + customFunction.FunctionName + " 的注册语句";
                 sourceLabel.ForeColor = Color.FromArgb(168, 75, 36);
             }
             using (viewer)
@@ -820,7 +820,7 @@ namespace Automation
             if (e.KeyCode == Keys.X)
             {
                 SetStopPoint_Click(sender, EventArgs.Empty);
-                string action = dataItem.isStopPoint ? "已设置断点" : "已取消断点";
+                string action = dataItem.IsBreakpoint ? "已设置断点" : "已取消断点";
                 string opName = string.IsNullOrWhiteSpace(dataItem.Name) ? "未命名" : dataItem.Name;
                 if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
                 {
@@ -1460,7 +1460,7 @@ namespace Automation
                     && iSelectedRow < draft.steps[stepIndex].Ops.Count)
                 {
                     OperationType operation = draft.steps[stepIndex].Ops[iSelectedRow];
-                    operation.isStopPoint = !operation.isStopPoint;
+                    operation.IsBreakpoint = !operation.IsBreakpoint;
                     if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string error))
                     {
                         MessageBox.Show(error, "断点修改失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1706,6 +1706,25 @@ namespace Automation
             {
                 inspector.EndUpdate();
             }
+        }
+
+        public bool SelectOperationForNavigation(Guid opId)
+        {
+            if (opId == Guid.Empty)
+            {
+                return false;
+            }
+            int rowIndex = Enumerable.Range(0, dataGridView1.OperationCount)
+                .FirstOrDefault(index => dataGridView1.GetOperation(index)?.Id == opId);
+            if (rowIndex < 0 || rowIndex >= dataGridView1.OperationCount
+                || dataGridView1.GetOperation(rowIndex)?.Id != opId)
+            {
+                return false;
+            }
+            iSelectedRow = rowIndex;
+            dataGridView1.SelectSingle(rowIndex);
+            ShowOperationProperties(rowIndex);
+            return true;
         }
 
         private void dataGridView1_DragDrop(object sender, DragEventArgs e)

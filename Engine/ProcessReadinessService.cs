@@ -27,7 +27,8 @@ namespace Automation
 
         public static ProcessReadinessAnalysis Analyze(
             int procIndex, Proc proc, IList<Proc> allProcesses = null,
-            ProcessDefinitionValidationContext validationContext = null)
+            ProcessDefinitionValidationContext validationContext = null,
+            ValueConfigStore valueStore = null)
         {
             var warnings = new List<string>();
             var blockers = new List<string>();
@@ -45,6 +46,17 @@ namespace Automation
             if (proc.head?.Disable == true)
             {
                 blockers.Add("流程已禁用。");
+            }
+
+            foreach (PauseValueParam pause in proc.head?.PauseValueParams ?? new CustomList<PauseValueParam>())
+            {
+                string pauseError = "变量名称为空。";
+                if (pause == null || !TryResolveVariable(
+                    pause.ValueName, null, proc.head.Id, validationContext, valueStore, out _, out pauseError))
+                {
+                    incomplete = true;
+                    blockers.Add("流程暂停变量不可用：" + (pauseError ?? "变量名称为空。"));
+                }
             }
 
             if (proc.steps == null || proc.steps.Count == 0)
@@ -113,6 +125,16 @@ namespace Automation
                         {
                             incomplete = true;
                         }
+                        if (AddVariableReferenceBlockers(
+                            proc.head.Id, operation, validationContext, valueStore, location, blockers))
+                        {
+                            incomplete = true;
+                        }
+                        if (AddContinuousVariableBlockers(
+                            proc.head.Id, operation, validationContext, valueStore, location, blockers))
+                        {
+                            incomplete = true;
+                        }
                         if (AddModifyValueBlockers(operation, location, blockers))
                         {
                             incomplete = true;
@@ -147,6 +169,168 @@ namespace Automation
             if (gotoErrors.Count > 0) invalid = true;
             blockers.AddRange(gotoErrors);
             return Build(warnings, blockers, invalid ? "invalid" : incomplete ? "incomplete" : "ready");
+        }
+
+        private static bool AddVariableReferenceBlockers(
+            Guid procId,
+            OperationType operation,
+            ProcessDefinitionValidationContext validationContext,
+            ValueConfigStore valueStore,
+            string location,
+            ICollection<string> blockers)
+        {
+            bool incomplete = false;
+            foreach (VariableReferenceRecord reference in VariableReferenceCatalog.Enumerate(operation))
+            {
+                string name = reference.Kind == VariableReferenceKind.Name ? reference.Value : null;
+                int? index = null;
+                if (reference.Kind == VariableReferenceKind.Index)
+                {
+                    if (!int.TryParse(reference.Value,
+                        System.Globalization.NumberStyles.None,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out int parsedIndex))
+                    {
+                        blockers.Add($"{location} 的 {reference.Path} 变量索引无效：{reference.Value}。");
+                        incomplete = true;
+                        continue;
+                    }
+                    index = parsedIndex;
+                }
+                if (TryResolveVariable(
+                    name, index, procId, validationContext, valueStore,
+                    out DicValue resolvedVariable, out string error))
+                {
+                    if (reference.IsIndirect)
+                    {
+                        if (!int.TryParse(
+                            resolvedVariable.Value,
+                            System.Globalization.NumberStyles.None,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out int targetIndex))
+                        {
+                            blockers.Add(
+                                $"{location} 的 {reference.Path} 二级索引当前值无效：{resolvedVariable.Value}。");
+                            incomplete = true;
+                        }
+                        else if (!TryResolveVariable(
+                            null, targetIndex, procId, validationContext, valueStore,
+                            out _, out string targetError))
+                        {
+                            blockers.Add(
+                                $"{location} 的 {reference.Path} 二级索引目标{targetError}");
+                            incomplete = true;
+                        }
+                    }
+                    continue;
+                }
+                blockers.Add($"{location} 的 {reference.Path} {error}");
+                incomplete = true;
+            }
+            return incomplete;
+        }
+
+        private static bool AddContinuousVariableBlockers(
+            Guid procId,
+            OperationType operation,
+            ProcessDefinitionValidationContext validationContext,
+            ValueConfigStore valueStore,
+            string location,
+            ICollection<string> blockers)
+        {
+            if (!(operation is PlcReadWrite plc)) return false;
+            string firstName = null;
+            int count = 0;
+            if (plc.Action == PlcAccessAction.Read && plc.Mode == PlcAccessMode.ContinuousBatch)
+            {
+                firstName = plc.ReadBatch?.FirstVariableName;
+                count = plc.ReadBatch?.ElementCount ?? 0;
+            }
+            else if (plc.Action == PlcAccessAction.Write
+                && plc.Mode == PlcAccessMode.ContinuousBatch
+                && plc.WriteBatch?.Source == PlcValueSource.Variable)
+            {
+                firstName = plc.WriteBatch.FirstVariableName;
+                count = plc.WriteBatch.ElementCount;
+            }
+            if (string.IsNullOrWhiteSpace(firstName) || count < 2
+                || !TryResolveVariable(
+                    firstName, null, procId, validationContext, valueStore,
+                    out DicValue firstVariable, out _))
+            {
+                return false;
+            }
+            bool incomplete = false;
+            for (int offset = 1; offset < count; offset++)
+            {
+                int index = firstVariable.Index + offset;
+                if (TryResolveVariable(
+                    null, index, procId, validationContext, valueStore, out _, out string error))
+                {
+                    continue;
+                }
+                blockers.Add($"{location} 从变量[{firstName}]开始的第{offset + 1}个连续变量{error}");
+                incomplete = true;
+            }
+            return incomplete;
+        }
+
+        private static bool TryResolveVariable(
+            string name,
+            int? index,
+            Guid procId,
+            ProcessDefinitionValidationContext validationContext,
+            ValueConfigStore valueStore,
+            out DicValue value,
+            out string error)
+        {
+            value = null;
+            error = null;
+            bool exists;
+            bool accessible;
+            if (validationContext != null)
+            {
+                if (index.HasValue)
+                {
+                    value = validationContext.VariableDefinitions.Values.FirstOrDefault(item =>
+                        item != null && item.Index == index.Value);
+                    exists = value != null;
+                    accessible = exists && ValueConfigStore.CanProcessAccess(value, procId);
+                }
+                else
+                {
+                    exists = !string.IsNullOrWhiteSpace(name)
+                        && validationContext.VariableDefinitions.TryGetValue(name, out value);
+                    accessible = exists && ValueConfigStore.CanProcessAccess(value, procId);
+                }
+            }
+            else if (index.HasValue)
+            {
+                ValueConfigStore store = valueStore ?? SF.valueStore;
+                exists = store != null
+                    && store.TryGetValueByIndex(index.Value, out value);
+                accessible = exists && ValueConfigStore.CanProcessAccess(value, procId);
+            }
+            else
+            {
+                ValueConfigStore store = valueStore ?? SF.valueStore;
+                exists = !string.IsNullOrWhiteSpace(name)
+                    && store != null
+                    && store.TryGetValueByName(name, out value);
+                accessible = exists && ValueConfigStore.CanProcessAccess(value, procId);
+            }
+            string target = index.HasValue ? "索引" + index.Value : name ?? string.Empty;
+            if (!exists)
+            {
+                error = $"引用的变量不存在：{target}。";
+                return false;
+            }
+            if (!accessible)
+            {
+                error = $"引用了其他流程的私有变量：{target}。";
+                return false;
+            }
+            return true;
         }
 
         public static bool IsPlaceholder(OperationType operation)
@@ -301,18 +485,18 @@ namespace Automation
             string location, List<string> blockers)
         {
             var references = new List<KeyValuePair<string, string>>();
-            if (OperationBehaviorCatalog.IsFieldRequired(operation, nameof(OperationType.AlarmInfoID))
-                && !string.IsNullOrWhiteSpace(operation.AlarmInfoID))
+            if (OperationBehaviorCatalog.IsFieldRequired(operation, nameof(OperationType.AlarmInfoId))
+                && !string.IsNullOrWhiteSpace(operation.AlarmInfoId))
             {
                 references.Add(new KeyValuePair<string, string>(
-                    nameof(OperationType.AlarmInfoID), operation.AlarmInfoID));
+                    nameof(OperationType.AlarmInfoId), operation.AlarmInfoId));
             }
             if (operation is PopupDialog popup
-                && OperationBehaviorCatalog.IsFieldRequired(operation, nameof(PopupDialog.PopupAlarmInfoID))
-                && !string.IsNullOrWhiteSpace(popup.PopupAlarmInfoID))
+                && OperationBehaviorCatalog.IsFieldRequired(operation, nameof(PopupDialog.PopupAlarmInfoId))
+                && !string.IsNullOrWhiteSpace(popup.PopupAlarmInfoId))
             {
                 references.Add(new KeyValuePair<string, string>(
-                    nameof(PopupDialog.PopupAlarmInfoID), popup.PopupAlarmInfoID));
+                    nameof(PopupDialog.PopupAlarmInfoId), popup.PopupAlarmInfoId));
             }
 
             bool incomplete = false;
@@ -385,9 +569,9 @@ namespace Automation
             bool incomplete = false;
             if (operation is ProcOps controls)
             {
-                foreach (procParam item in controls.procParams ?? new CustomList<procParam>())
+                foreach (ProcParam item in controls.Params ?? new CustomList<ProcParam>())
                 {
-                    if (item == null || (item.value != "运行" && item.value != "停止"))
+                    if (item == null || (item.TargetState != "运行" && item.TargetState != "停止"))
                     {
                         blockers.Add($"{location} 尚未配置流程动作。");
                         incomplete = true;
@@ -407,7 +591,7 @@ namespace Automation
                         incomplete = true;
                     }
                     else if (targetProcess != null
-                        && string.Equals(item.value, "运行", StringComparison.Ordinal))
+                        && string.Equals(item.TargetState, "运行", StringComparison.Ordinal))
                     {
                         bool targetHasExecutableOperation = targetProcess.head?.Disable != true
                             && (targetProcess.steps ?? new List<Step>()).Any(step => step != null
@@ -423,7 +607,7 @@ namespace Automation
                         }
                     }
                     if (string.Equals(item.ProcName, current?.head?.Name, StringComparison.Ordinal)
-                        && string.Equals(item.value, "运行", StringComparison.Ordinal))
+                        && string.Equals(item.TargetState, "运行", StringComparison.Ordinal))
                     {
                         blockers.Add($"{location} 不能启动当前流程自身。");
                         incomplete = true;
@@ -432,16 +616,16 @@ namespace Automation
             }
             else if (operation is WaitProc waits)
             {
-                if (waits.timeOutC == null
-                    || waits.timeOutC.TimeOut <= 0
-                        && string.IsNullOrWhiteSpace(waits.timeOutC.TimeOutValue))
+                if (waits.Timeout == null
+                    || waits.Timeout.TimeoutMs <= 0
+                        && string.IsNullOrWhiteSpace(waits.Timeout.TimeoutVariableName))
                 {
                     blockers.Add($"{location} 尚未配置有效等待超时。");
                     incomplete = true;
                 }
                 foreach (WaitProcParam item in waits.Params ?? new CustomList<WaitProcParam>())
                 {
-                    if (item == null || (item.value != "运行" && item.value != "停止"))
+                    if (item == null || (item.TargetState != "运行" && item.TargetState != "停止"))
                     {
                         blockers.Add($"{location} 尚未配置等待状态。");
                         incomplete = true;

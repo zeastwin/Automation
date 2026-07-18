@@ -90,7 +90,7 @@
         "opId": "op-guid",
         "expectedOperaType": "延时",
         "fieldChanges": {
-          "timeMiniSecond": "300"
+          "DelayMs": 300
         }
       },
       "exampleIntent": {
@@ -101,7 +101,9 @@
         "opId": "op-guid",
         "expectedOperaType": "IO检测",
         "fieldChanges": {
-          "timeOutC_TimeOut": 5000
+          "Timeout": {
+            "TimeoutMs": 5000
+          }
         }
       }
     },
@@ -241,7 +243,7 @@
         "stepId": "step-guid",
         "operaType": "延时",
         "fieldValues": {
-          "timeMiniSecond": "500"
+          "DelayMs": 500
         }
       },
       "exampleIntent": {
@@ -280,7 +282,7 @@
         "insertIndex": 1,
         "operaType": "延时",
         "fieldValues": {
-          "timeMiniSecond": "300"
+          "DelayMs": 300
         }
       },
       "exampleIntent": {
@@ -291,7 +293,9 @@
         "insertIndex": 3,
         "operaType": "IO检测",
         "fieldValues": {
-          "timeOutC_TimeOut": 5000
+          "Timeout": {
+            "TimeoutMs": 5000
+          }
         }
       }
     },

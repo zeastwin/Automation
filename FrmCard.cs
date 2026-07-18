@@ -762,6 +762,10 @@ namespace Automation
         [DisplayName("站名"), Category("A基本参数"), Description(""), ReadOnly(false)]
         public string Name { get; set; }
 
+        [DisplayName("坐标系"), Category("A基本参数"), Description("协调直线运动使用的控制器坐标系编号。"), ReadOnly(false)]
+        [NumericRange(0, 1)]
+        public ushort CoordinateSystem { get; set; }
+
         [DisplayName("轴配置"), Category("B工站配置"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
 
         public DataAxis dataAxis { get; set; }

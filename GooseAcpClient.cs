@@ -523,6 +523,10 @@ namespace Automation
             {
                 return;
             }
+            if (!GooseRuntimeEnvironment.TryValidate(config.GooseExecutablePath, out string runtimeError))
+            {
+                throw new InvalidOperationException(runtimeError);
+            }
             if (!GooseRuntimeProvisioner.IsManagedContextAvailable)
             {
                 throw new InvalidOperationException("EW-AI 受管上下文未通过启动校验，当前会话不可用。");
@@ -544,12 +548,7 @@ namespace Automation
                 StandardErrorEncoding = Encoding.UTF8
             };
 
-            const string machineGitCommandPath = @"D:\AutomationTools\Git\cmd";
-            if (!File.Exists(Path.Combine(machineGitCommandPath, "git.exe")))
-            {
-                throw new InvalidOperationException("未找到固定的 Git 运行环境：D:\\AutomationTools\\Git\\cmd\\git.exe");
-            }
-            startInfo.EnvironmentVariables["PATH"] = machineGitCommandPath + Path.PathSeparator
+            startInfo.EnvironmentVariables["PATH"] = GooseRuntimeEnvironment.MachineGitCommandPath + Path.PathSeparator
                 + (startInfo.EnvironmentVariables["PATH"] ?? Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
             using (Process hostProcess = Process.GetCurrentProcess())
             {

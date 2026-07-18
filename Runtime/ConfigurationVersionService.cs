@@ -206,97 +206,105 @@ namespace Automation
 
         public bool Restore(ConfigurationVersionLayer layer, string commitId, Func<bool> allStopped, Action reloadProcess, Action markRestartRequired, out string error)
         {
-            lock (syncRoot)
+            string layerName = layer == ConfigurationVersionLayer.Process ? "工艺层" : "设备层";
+            if (!SF.TryBeginMaintenance($"正在还原{layerName}配置", out IDisposable maintenanceLease, out error))
             {
-                string operationRoot = null;
-                try
+                return false;
+            }
+            using (maintenanceLease)
+            {
+                lock (syncRoot)
                 {
-                    if (allStopped == null || !allStopped())
+                    string operationRoot = null;
+                    try
                     {
-                        error = "存在未停止、暂停或报警中的流程，拒绝还原版本。";
-                        return false;
-                    }
-
-                    using (Repository repository = OpenRepository(layer))
-                    {
-                        Commit selected = repository.Lookup<Commit>(commitId);
-                        HashSet<string> deleted = ReadDeletedSnapshotIds(repository);
-                        if (selected == null || deleted.Contains(selected.Sha)
-                            || !repository.Head.Commits.Any(item => item.Sha == selected.Sha)
-                            || !IsManualSnapshot(selected.MessageShort))
+                        if (allStopped == null || !allStopped())
                         {
-                            error = "找不到选中的版本。";
+                            error = "存在未停止、暂停或报警中的流程，拒绝还原版本。";
                             return false;
                         }
 
-                        operationRoot = Path.Combine(GetVersionRoot(layer), "Restore", Guid.NewGuid().ToString("N"));
-                        string staging = Path.Combine(operationRoot, "staging");
-                        string backup = Path.Combine(operationRoot, "backup");
-                        Directory.CreateDirectory(staging);
-                        Directory.CreateDirectory(backup);
-                        MaterializeSnapshot(selected.Tree, staging);
-                        ValidateStaging(layer, staging);
-                        CopyCurrentLayer(layer, backup);
-                        ReplaceLayer(layer, staging);
-
-                        if (layer == ConfigurationVersionLayer.Process)
+                        using (Repository repository = OpenRepository(layer))
                         {
-                            if (reloadProcess == null)
+                            Commit selected = repository.Lookup<Commit>(commitId);
+                            HashSet<string> deleted = ReadDeletedSnapshotIds(repository);
+                            if (selected == null || deleted.Contains(selected.Sha)
+                                || !repository.Head.Commits.Any(item => item.Sha == selected.Sha)
+                                || !IsManualSnapshot(selected.MessageShort))
                             {
-                                throw new InvalidOperationException("工艺层重载入口未配置。");
+                                error = "找不到选中的版本。";
+                                return false;
                             }
-                            reloadProcess();
-                            if (SF.ProcConfigFaulted)
-                            {
-                                throw new InvalidOperationException("工艺层重新加载失败。");
-                            }
-                        }
-                        else
-                        {
-                            if (markRestartRequired == null)
-                            {
-                                throw new InvalidOperationException("设备层重启锁定入口未配置。");
-                            }
-                            markRestartRequired();
-                        }
 
-                        error = null;
-                        return true;
+                            operationRoot = Path.Combine(GetVersionRoot(layer), "Restore", Guid.NewGuid().ToString("N"));
+                            string staging = Path.Combine(operationRoot, "staging");
+                            string backup = Path.Combine(operationRoot, "backup");
+                            Directory.CreateDirectory(staging);
+                            Directory.CreateDirectory(backup);
+                            MaterializeSnapshot(selected.Tree, staging);
+                            ValidateStaging(layer, staging);
+                            CopyCurrentLayer(layer, backup);
+                            ReplaceLayer(layer, staging);
+
+                            if (layer == ConfigurationVersionLayer.Process)
+                            {
+                                if (reloadProcess == null)
+                                {
+                                    throw new InvalidOperationException("工艺层重载入口未配置。");
+                                }
+                                reloadProcess();
+                                if (SF.ProcConfigFaulted)
+                                {
+                                    throw new InvalidOperationException("工艺层重新加载失败。");
+                                }
+                            }
+                            else
+                            {
+                                if (markRestartRequired == null)
+                                {
+                                    throw new InvalidOperationException("设备层重启锁定入口未配置。");
+                                }
+                                markRestartRequired();
+                            }
+
+                            error = null;
+                            return true;
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    string restoreError = null;
-                    try
+                    catch (Exception ex)
+                    {
+                        string restoreError = null;
+                        try
+                        {
+                            if (!string.IsNullOrWhiteSpace(operationRoot))
+                            {
+                                string backup = Path.Combine(operationRoot, "backup");
+                                if (Directory.Exists(backup))
+                                {
+                                    ReplaceLayer(layer, backup);
+                                }
+                            }
+                        }
+                        catch (Exception rollbackEx)
+                        {
+                            restoreError = rollbackEx.Message;
+                        }
+
+                        string reason = "版本还原失败：" + ex.Message;
+                        if (!string.IsNullOrWhiteSpace(restoreError))
+                        {
+                            reason += "；恢复原文件失败：" + restoreError;
+                        }
+                        SF.SetSecurityLock(reason);
+                        error = reason;
+                        return false;
+                    }
+                    finally
                     {
                         if (!string.IsNullOrWhiteSpace(operationRoot))
                         {
-                            string backup = Path.Combine(operationRoot, "backup");
-                            if (Directory.Exists(backup))
-                            {
-                                ReplaceLayer(layer, backup);
-                            }
+                            try { Directory.Delete(operationRoot, true); } catch { }
                         }
-                    }
-                    catch (Exception rollbackEx)
-                    {
-                        restoreError = rollbackEx.Message;
-                    }
-
-                    string reason = "版本还原失败：" + ex.Message;
-                    if (!string.IsNullOrWhiteSpace(restoreError))
-                    {
-                        reason += "；恢复原文件失败：" + restoreError;
-                    }
-                    SF.SetSecurityLock(reason);
-                    error = reason;
-                    return false;
-                }
-                finally
-                {
-                    if (!string.IsNullOrWhiteSpace(operationRoot))
-                    {
-                        try { Directory.Delete(operationRoot, true); } catch { }
                     }
                 }
             }
@@ -1102,8 +1110,8 @@ namespace Automation
                 case "AutoStart": return "自动启动";
                 case "OperaType": return "指令类型";
                 case "AlarmType": return "报警类型";
-                case "AlarmInfoID": return "报警信息";
-                case "isStopPoint": return "断点";
+                case "AlarmInfoId": return "报警信息";
+                case "IsBreakpoint": return "断点";
                 case "Goto1": return "确定跳转";
                 case "Goto2": return "否跳转";
                 case "Goto3": return "取消跳转";
@@ -1130,7 +1138,9 @@ namespace Automation
             {
                 foreach (string file in Directory.GetFiles(work, "*.json", SearchOption.TopDirectoryOnly))
                 {
-                    JsonConvert.DeserializeObject<Proc>(File.ReadAllText(file, Encoding.UTF8), new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = AutomationConfigSerializationBinder.Instance, ObjectCreationHandling = ObjectCreationHandling.Replace });
+                    JsonConvert.DeserializeObject<Proc>(
+                        File.ReadAllText(file, Encoding.UTF8),
+                        ProcessDefinitionService.CreateStrictJsonSettings());
                 }
             }
             string valuePath = Path.Combine(staging, "value.json");

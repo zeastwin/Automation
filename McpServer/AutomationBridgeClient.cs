@@ -63,6 +63,16 @@ namespace Automation.McpServer
             return PostAsync("/bridge/proc/detail", payload);
         }
 
+        public Task<string> GetFlowGraphAsync(FlowGraphScope scope, int? procIndex)
+        {
+            var payload = new JsonObject
+            {
+                ["scope"] = scope == FlowGraphScope.Project ? "project" : "process"
+            };
+            if (procIndex.HasValue) payload["procIndex"] = procIndex.Value;
+            return PostAsync("/bridge/proc/flow_graph", payload);
+        }
+
         public Task<string> GetOpDetailAsync(int procIndex, int stepIndex, int opIndex)
         {
             JsonObject payload = new JsonObject
@@ -237,11 +247,14 @@ namespace Automation.McpServer
 
         // ---------- variable 单对象读写 ----------
 
-        public Task<string> ListVariablesAsync(string? type, string? nameLike, int? offset, int? limit)
+        public Task<string> ListVariablesAsync(
+            string? type, string? nameLike, string? scope, string? ownerProcId, int? offset, int? limit)
         {
             JsonObject payload = new JsonObject();
             if (!string.IsNullOrEmpty(type)) payload["type"] = type;
             if (!string.IsNullOrEmpty(nameLike)) payload["nameLike"] = nameLike;
+            if (!string.IsNullOrEmpty(scope)) payload["scope"] = scope;
+            if (!string.IsNullOrEmpty(ownerProcId)) payload["ownerProcId"] = ownerProcId;
             if (offset.HasValue) payload["offset"] = offset.Value;
             if (limit.HasValue) payload["limit"] = limit.Value;
             return PostAsync("/bridge/variable/list", payload);
@@ -270,10 +283,11 @@ namespace Automation.McpServer
         }
 
         public Task<string> AddVariableAsync(
-            string name, string type, string? initialValue, string? note, int? index)
+            string name, string scope, string? ownerProcId, string type, string? value, string? note, int? index)
         {
-            JsonObject payload = new JsonObject { ["name"] = name, ["type"] = type };
-            if (initialValue != null) payload["initialValue"] = initialValue;
+            JsonObject payload = new JsonObject { ["name"] = name, ["scope"] = scope, ["type"] = type };
+            if (!string.IsNullOrEmpty(ownerProcId)) payload["ownerProcId"] = ownerProcId;
+            if (value != null) payload["value"] = value;
             if (note != null) payload["note"] = note;
             if (index.HasValue) payload["index"] = index.Value;
             return PostAsync("/bridge/variable/add", payload);
@@ -283,17 +297,20 @@ namespace Automation.McpServer
             string name,
             string? newName,
             string? type,
-            string? initialValue,
+            string? value,
             string? note,
-            bool? applyInitialValueToRuntime)
+            string? scope,
+            string? ownerProcId,
+            int? index)
         {
             JsonObject payload = new JsonObject { ["name"] = name };
             if (newName != null) payload["newName"] = newName;
             if (type != null) payload["type"] = type;
-            if (initialValue != null) payload["initialValue"] = initialValue;
+            if (value != null) payload["value"] = value;
             if (note != null) payload["note"] = note;
-            if (applyInitialValueToRuntime.HasValue)
-                payload["applyInitialValueToRuntime"] = applyInitialValueToRuntime.Value;
+            if (scope != null) payload["scope"] = scope;
+            if (ownerProcId != null) payload["ownerProcId"] = ownerProcId;
+            if (index.HasValue) payload["index"] = index.Value;
             return PostAsync("/bridge/variable/update", payload);
         }
 

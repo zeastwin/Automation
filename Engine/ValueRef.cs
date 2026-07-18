@@ -16,11 +16,22 @@ namespace Automation
     {
         public ValueRefKind Kind { get; }
         public string Token { get; }
+        private int ParsedIndex { get; }
+        private Guid BoundVariableId { get; }
+        private int BoundIndex { get; }
 
-        private ValueRef(ValueRefKind kind, string token)
+        private ValueRef(
+            ValueRefKind kind,
+            string token,
+            int parsedIndex = -1,
+            Guid boundVariableId = default(Guid),
+            int boundIndex = -1)
         {
             Kind = kind;
             Token = token;
+            ParsedIndex = parsedIndex;
+            BoundVariableId = boundVariableId;
+            BoundIndex = boundIndex;
         }
 
         public bool IsEmpty => Kind == ValueRefKind.Empty;
@@ -108,11 +119,51 @@ namespace Automation
                 return false;
             }
 
-            valueRef = new ValueRef(kind, token);
+            int parsedIndex = -1;
+            if ((kind == ValueRefKind.Index || kind == ValueRefKind.IndexFromIndex)
+                && !TryParseIndex(token, out parsedIndex, out string parseError))
+            {
+                error = $"{labelText}索引无效:{parseError}";
+                return false;
+            }
+            valueRef = new ValueRef(kind, token, parsedIndex);
+            return true;
+        }
+
+        public bool TryBindStatic(
+            ValueConfigStore store,
+            Guid procId,
+            string label,
+            out ValueRef bound,
+            out string error)
+        {
+            bound = this;
+            error = null;
+            if (Kind != ValueRefKind.Index && Kind != ValueRefKind.Name)
+            {
+                return true;
+            }
+            if (!TryResolveValue(store, label, procId, out DicValue variable, out error))
+            {
+                return false;
+            }
+            bound = new ValueRef(Kind, Token, ParsedIndex, variable.Id, variable.Index);
             return true;
         }
 
         public bool TryResolveIndex(ValueConfigStore store, string label, out int index, out string error)
+        {
+            return TryResolveIndex(store, label, null, out index, out error);
+        }
+
+        public bool TryResolveIndex(
+            ValueConfigStore store, string label, Guid procId, out int index, out string error)
+        {
+            return TryResolveIndex(store, label, (Guid?)procId, out index, out error);
+        }
+
+        private bool TryResolveIndex(
+            ValueConfigStore store, string label, Guid? procId, out int index, out string error)
         {
             index = -1;
             error = null;
@@ -124,18 +175,27 @@ namespace Automation
                 return false;
             }
 
+            if (BoundVariableId != Guid.Empty
+                && (Kind == ValueRefKind.Index || Kind == ValueRefKind.Name))
+            {
+                if (!TryGetByIndex(store, BoundIndex, procId, out DicValue boundValue)
+                    || boundValue.Id != BoundVariableId)
+                {
+                    error = $"{labelText}预绑定变量已失效:{Token}";
+                    return false;
+                }
+                index = BoundIndex;
+                return true;
+            }
+
             switch (Kind)
             {
                 case ValueRefKind.Empty:
                     error = $"{labelText}不能为空";
                     return false;
                 case ValueRefKind.Index:
-                    if (!TryParseIndex(Token, out index, out string parseError))
-                    {
-                        error = $"{labelText}索引无效:{parseError}";
-                        return false;
-                    }
-                    if (!store.TryGetValueByIndex(index, out _))
+                    index = ParsedIndex;
+                    if (!TryGetByIndex(store, index, procId, out _))
                     {
                         error = $"{labelText}变量不存在:索引{index}";
                         return false;
@@ -147,7 +207,7 @@ namespace Automation
                         error = $"{labelText}名称为空";
                         return false;
                     }
-                    if (!store.TryGetValueByName(Token, out DicValue nameValue))
+                    if (!TryGetByName(store, Token, procId, out DicValue nameValue))
                     {
                         error = $"{labelText}变量不存在:{Token}";
                         return false;
@@ -155,12 +215,8 @@ namespace Automation
                     index = nameValue.Index;
                     return true;
                 case ValueRefKind.IndexFromIndex:
-                    if (!TryParseIndex(Token, out int sourceIndex, out string sourceIndexError))
-                    {
-                        error = $"{labelText}索引二级无效:{sourceIndexError}";
-                        return false;
-                    }
-                    if (!store.TryGetValueByIndex(sourceIndex, out DicValue sourceValue))
+                    int sourceIndex = ParsedIndex;
+                    if (!TryGetByIndex(store, sourceIndex, procId, out DicValue sourceValue))
                     {
                         error = $"{labelText}索引变量不存在:索引{sourceIndex}";
                         return false;
@@ -170,7 +226,7 @@ namespace Automation
                         error = $"{labelText}索引变量值无效:{FormatDisplayName(sourceValue)}->{targetIndexError}";
                         return false;
                     }
-                    if (!store.TryGetValueByIndex(index, out _))
+                    if (!TryGetByIndex(store, index, procId, out _))
                     {
                         error = $"{labelText}目标变量不存在:索引{index}";
                         return false;
@@ -182,7 +238,7 @@ namespace Automation
                         error = $"{labelText}名称二级为空";
                         return false;
                     }
-                    if (!store.TryGetValueByName(Token, out DicValue nameSource))
+                    if (!TryGetByName(store, Token, procId, out DicValue nameSource))
                     {
                         error = $"{labelText}索引变量不存在:{Token}";
                         return false;
@@ -192,7 +248,7 @@ namespace Automation
                         error = $"{labelText}索引变量值无效:{FormatDisplayName(nameSource)}->{nameTargetError}";
                         return false;
                     }
-                    if (!store.TryGetValueByIndex(index, out _))
+                    if (!TryGetByIndex(store, index, procId, out _))
                     {
                         error = $"{labelText}目标变量不存在:索引{index}";
                         return false;
@@ -206,18 +262,46 @@ namespace Automation
 
         public bool TryResolveValue(ValueConfigStore store, string label, out DicValue value, out string error)
         {
+            return TryResolveValue(store, label, null, out value, out error);
+        }
+
+        public bool TryResolveValue(
+            ValueConfigStore store, string label, Guid procId, out DicValue value, out string error)
+        {
+            return TryResolveValue(store, label, (Guid?)procId, out value, out error);
+        }
+
+        private bool TryResolveValue(
+            ValueConfigStore store, string label, Guid? procId, out DicValue value, out string error)
+        {
             value = null;
             error = null;
-            if (!TryResolveIndex(store, label, out int index, out error))
+            if (!TryResolveIndex(store, label, procId, out int index, out error))
             {
                 return false;
             }
-            if (!store.TryGetValueByIndex(index, out value) || value == null)
+            if (!TryGetByIndex(store, index, procId, out value) || value == null)
             {
                 error = $"{NormalizeLabel(label)}变量不存在:索引{index}";
                 return false;
             }
             return true;
+        }
+
+        private static bool TryGetByName(
+            ValueConfigStore store, string name, Guid? procId, out DicValue value)
+        {
+            return procId.HasValue
+                ? store.TryGetValueByNameForProcess(name, procId.Value, out value)
+                : store.TryGetValueByName(name, out value);
+        }
+
+        private static bool TryGetByIndex(
+            ValueConfigStore store, int index, Guid? procId, out DicValue value)
+        {
+            return procId.HasValue
+                ? store.TryGetValueByIndexForProcess(index, procId.Value, out value)
+                : store.TryGetValueByIndex(index, out value);
         }
 
         private static bool HasToken(string text, out string error)

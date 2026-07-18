@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
+using Newtonsoft.Json.Linq;
 
 namespace Automation
 {
@@ -18,6 +19,7 @@ namespace Automation
     {
         public string Key { get; set; }
         public string Title { get; set; }
+        public int Priority { get; set; }
         public List<InspectorFieldDefinition> Fields { get; } = new List<InspectorFieldDefinition>();
     }
 
@@ -27,9 +29,8 @@ namespace Automation
         public string Label { get; set; }
         public string Description { get; set; }
         public bool IsReadOnly { get; set; }
+        public int Priority { get; set; }
 
-        public string SearchText => string.Join(" ", new[] { Label, Description, Key }
-            .Where(value => !string.IsNullOrWhiteSpace(value)));
     }
 
     internal sealed class InspectorScalarFieldDefinition : InspectorFieldDefinition
@@ -290,9 +291,12 @@ namespace Automation
             if (instance != null)
             {
                 BuildObject(instance, string.Empty, null, sections, 0);
+                OrderForPresentation(instance, sections);
             }
-            string signature = string.Join("|", sections.SelectMany(section => section.Fields)
-                .Select(field => field.GetType().Name + ":" + field.Key));
+            string signature = string.Join("|", sections.Select(section =>
+                "S:" + section.Key + ":" + section.Title + "["
+                + string.Join(",", section.Fields.Select(field =>
+                    field.GetType().Name + ":" + field.Key)) + "]"));
             return new InspectorDocument
             {
                 Instance = instance,
@@ -311,50 +315,6 @@ namespace Automation
             return sections.SelectMany(section => section.Fields).ToList();
         }
 
-        public static PropertyDescriptor FindCollectionCountProperty(
-            object owner,
-            PropertyDescriptor collectionProperty)
-        {
-            if (owner == null || collectionProperty == null)
-            {
-                return null;
-            }
-            string[] candidates;
-            switch (collectionProperty.Name)
-            {
-                case "IoParams":
-                    candidates = new[] { "IOCount", "Count" };
-                    break;
-                case "OutIoParams":
-                    candidates = new[] { "OutIOCount" };
-                    break;
-                case "CheckIoParams":
-                    candidates = new[] { "CheckIOCount" };
-                    break;
-                case "procParams":
-                    candidates = new[] { "ProcCount", "Count" };
-                    break;
-                case "ReadItems":
-                    candidates = new[] { "ReadItemCount" };
-                    break;
-                case "WriteItems":
-                    candidates = new[] { "WriteItemCount" };
-                    break;
-                case "PauseIoParams":
-                    candidates = new[] { "PauseIoCount" };
-                    break;
-                case "PauseValueParams":
-                    candidates = new[] { "PauseValueCount" };
-                    break;
-                default:
-                    candidates = new[] { "Count", "ProcCount" };
-                    break;
-            }
-            PropertyDescriptorCollection properties = TypeDescriptor.GetProperties(owner);
-            return candidates.Select(candidate => properties[candidate])
-                .FirstOrDefault(property => property != null && !property.IsReadOnly);
-        }
-
         private static void BuildObject(
             object instance,
             string path,
@@ -368,7 +328,6 @@ namespace Automation
             }
             PropertyDescriptorCollection descriptors = TypeDescriptor.GetProperties(instance);
             var leaves = new List<Tuple<PropertyDescriptor, string, string>>();
-            var linkedCountProperties = new HashSet<PropertyDescriptor>();
 
             foreach (PropertyDescriptor descriptor in descriptors.Cast<PropertyDescriptor>())
             {
@@ -376,20 +335,11 @@ namespace Automation
                 {
                     continue;
                 }
-                if (IsCollection(descriptor.PropertyType))
+                if (depth == 0 && instance is OperationType
+                    && (string.Equals(descriptor.Name, nameof(OperationType.Num), StringComparison.Ordinal)
+                        || string.Equals(descriptor.Name, nameof(OperationType.OperaType), StringComparison.Ordinal)))
                 {
-                    PropertyDescriptor countProperty = FindCollectionCountProperty(instance, descriptor);
-                    if (countProperty != null)
-                    {
-                        linkedCountProperties.Add(countProperty);
-                    }
-                }
-            }
-
-            foreach (PropertyDescriptor descriptor in descriptors.Cast<PropertyDescriptor>())
-            {
-                if (!IsVisible(instance, descriptor) || linkedCountProperties.Contains(descriptor))
-                {
+                    // 编号和指令类型已在检查器标题区展示，正文不再重复占用两行只读字段。
                     continue;
                 }
                 string propertyPath = string.IsNullOrEmpty(path)
@@ -403,7 +353,9 @@ namespace Automation
                     {
                         continue;
                     }
-                    string sectionTitle = forcedSection ?? NormalizeCategory(
+                    string sectionTitle = forcedSection ?? GetPresentationCategory(
+                        instance,
+                        descriptor,
                         inlineList?.Category ?? descriptor.Category);
                     InspectorSectionDefinition section = GetOrAddSection(
                         sections,
@@ -443,7 +395,10 @@ namespace Automation
                     continue;
                 }
 
-                string category = forcedSection ?? NormalizeCategory(descriptor.Category);
+                string category = forcedSection ?? GetPresentationCategory(
+                    instance,
+                    descriptor,
+                    descriptor.Category);
                 leaves.Add(Tuple.Create(descriptor, propertyPath, category));
             }
 
@@ -574,6 +529,106 @@ namespace Automation
             return section;
         }
 
+        private static void OrderForPresentation(
+            object instance,
+            List<InspectorSectionDefinition> sections)
+        {
+            JObject fieldRules = null;
+            if (instance is OperationType operation)
+            {
+                fieldRules = OperationBehaviorCatalog.BuildContract(operation)?["fieldRules"] as JObject;
+            }
+
+            foreach (InspectorSectionDefinition section in sections)
+            {
+                for (int index = 0; index < section.Fields.Count; index++)
+                {
+                    InspectorFieldDefinition field = section.Fields[index];
+                    string rootName = field.Key?.Split('.')[0] ?? string.Empty;
+                    JToken rule = fieldRules?[rootName];
+                    int priority;
+                    if (rule?["requiredForRun"]?.Value<bool>() == true)
+                    {
+                        priority = 0;
+                    }
+                    else if (rule?["requiredWhenForRun"] != null)
+                    {
+                        priority = 5;
+                    }
+                    else if (field is InspectorCollectionFieldDefinition)
+                    {
+                        priority = 10;
+                    }
+                    else
+                    {
+                        priority = 20;
+                    }
+                    if (field is InspectorScalarFieldDefinition scalar
+                        && scalar.Property.Attributes[typeof(RefreshPropertiesAttribute)]
+                            is RefreshPropertiesAttribute refresh
+                        && refresh.RefreshProperties == RefreshProperties.All)
+                    {
+                        // 会切换后续字段可见性或模式的主控项应先于其依赖配置出现。
+                        priority = Math.Min(priority, 2);
+                    }
+
+                    if (instance is OperationType)
+                    {
+                        switch (rootName)
+                        {
+                            case nameof(OperationType.Name):
+                                priority = 40;
+                                break;
+                            case nameof(OperationType.Disable):
+                                priority = 45;
+                                break;
+                            case nameof(OperationType.IsBreakpoint):
+                                priority = 50;
+                                break;
+                            case nameof(OperationType.Note):
+                                priority = 55;
+                                break;
+                            case nameof(OperationType.AlarmType):
+                                priority = 60;
+                                break;
+                            case nameof(OperationType.AlarmInfoId):
+                            case nameof(OperationType.Goto1):
+                            case nameof(OperationType.Goto2):
+                            case nameof(OperationType.Goto3):
+                                priority = 65;
+                                break;
+                        }
+                    }
+                    if (field.IsReadOnly)
+                    {
+                        priority += 80;
+                    }
+                    field.Priority = priority;
+                }
+
+                List<InspectorFieldDefinition> orderedFields = section.Fields
+                    .Select((field, index) => new { field, index })
+                    .OrderBy(item => item.field.Priority)
+                    .ThenBy(item => item.index)
+                    .Select(item => item.field)
+                    .ToList();
+                section.Fields.Clear();
+                section.Fields.AddRange(orderedFields);
+                section.Priority = section.Fields.Count == 0
+                    ? int.MaxValue
+                    : section.Fields.Min(field => field.Priority);
+            }
+
+            List<InspectorSectionDefinition> orderedSections = sections
+                .Select((section, index) => new { section, index })
+                .OrderBy(item => item.section.Priority)
+                .ThenBy(item => item.index)
+                .Select(item => item.section)
+                .ToList();
+            sections.Clear();
+            sections.AddRange(orderedSections);
+        }
+
         private static bool IsVisible(object instance, PropertyDescriptor descriptor)
         {
             bool visible = descriptor.IsBrowsable;
@@ -604,6 +659,31 @@ namespace Automation
         private static bool IsCollection(Type type)
         {
             return type != typeof(string) && typeof(IList).IsAssignableFrom(type);
+        }
+
+        private static string GetPresentationCategory(
+            object instance,
+            PropertyDescriptor descriptor,
+            string category)
+        {
+            if (instance is OperationType)
+            {
+                switch (descriptor.Name)
+                {
+                    case nameof(OperationType.AlarmType):
+                    case nameof(OperationType.AlarmInfoId):
+                    case nameof(OperationType.Goto1):
+                    case nameof(OperationType.Goto2):
+                    case nameof(OperationType.Goto3):
+                        return "异常处理";
+                    case nameof(OperationType.Name):
+                    case nameof(OperationType.Disable):
+                    case nameof(OperationType.IsBreakpoint):
+                    case nameof(OperationType.Note):
+                        return "运行与调试";
+                }
+            }
+            return NormalizeCategory(category);
         }
 
         private static string NormalizeCategory(string category)

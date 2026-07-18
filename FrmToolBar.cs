@@ -30,10 +30,13 @@ namespace Automation
         private readonly List<int> separatorPositions = new List<int>();
         private readonly System.Windows.Forms.ToolTip toolbarToolTip = new System.Windows.Forms.ToolTip();
         private readonly UiHoverAnimator hoverAnimator = new UiHoverAnimator();
+        private readonly WinFormsButton btnFlowGraph = new WinFormsButton { Text = "流程图" };
 
         public FrmToolBar()
         {
             InitializeComponent();
+            ToolBar_Panel.Controls.Add(btnFlowGraph);
+            btnFlowGraph.Click += (sender, args) => SF.mainfrm?.ShowProcessFlowGraph();
             ConfigureToolbarAppearance();
             btnSave.Enabled = false;
             btnCancel.Enabled = false;
@@ -50,14 +53,13 @@ namespace Automation
             ToolBar_Panel.BackColor = ToolbarBackColor;
             BackColor = ToolbarBackColor;
 
-            ConfigureButton(btnSave, UiIconKind.Save, 78, Color.FromArgb(15, 105, 160), ButtonBackColor, Color.FromArgb(221, 237, 247));
-            ConfigureButton(btnCancel, UiIconKind.Cancel, 78, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnPause, UiIconKind.Pause, 78, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnStop, UiIconKind.Stop, 78, Color.FromArgb(176, 55, 55), ButtonBackColor, Color.FromArgb(248, 229, 229));
             ConfigureButton(SingleRun, UiIconKind.Step, 78, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnLocate, UiIconKind.Locate, 78, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnAlarm, UiIconKind.Alarm, 106, Color.FromArgb(151, 91, 16), ButtonBackColor, Color.FromArgb(252, 239, 213));
             ConfigureButton(btnSearch, UiIconKind.Search, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
+            ConfigureButton(btnFlowGraph, UiIconKind.Process, 92, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnIOMonitor, UiIconKind.Monitor, 104, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(button1, UiIconKind.Folder, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnAppConfig, UiIconKind.Settings, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
@@ -113,8 +115,8 @@ namespace Automation
         {
             return new[]
             {
-                btnSave, btnCancel, btnPause, btnStop, SingleRun, btnLocate,
-                btnAlarm, btnSearch, btnIOMonitor, button1, btnAppConfig, btnStopAll
+                btnPause, btnStop, SingleRun, btnLocate,
+                btnAlarm, btnSearch, btnFlowGraph, btnIOMonitor, button1, btnAppConfig, btnStopAll
             };
         }
 
@@ -123,9 +125,6 @@ namespace Automation
             separatorPositions.Clear();
             int top = Math.Max(3, (ToolBar_Panel.ClientSize.Height - 38) / 2);
             int left = 8;
-            PlaceFromLeft(btnSave, ref left, top, 2);
-            PlaceFromLeft(btnCancel, ref left, top, 16);
-            separatorPositions.Add(left - 8);
 
             bool hasRunGroup = btnPause.Visible || btnStop.Visible || SingleRun.Visible || btnLocate.Visible;
             if (hasRunGroup)
@@ -139,6 +138,7 @@ namespace Automation
 
             PlaceFromLeft(btnAlarm, ref left, top, 2);
             PlaceFromLeft(btnSearch, ref left, top, 2);
+            PlaceFromLeft(btnFlowGraph, ref left, top, 2);
             PlaceFromLeft(btnIOMonitor, ref left, top, 2);
 
             int right = ToolBar_Panel.ClientSize.Width - 8;
@@ -223,11 +223,9 @@ namespace Automation
             {
                 if (!SF.TryCommitEditSession(out string error))
                 {
-                    SF.frmInspector?.ShowValidationError(error);
                     MessageBox.Show(error, "配置校验失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
-                SF.frmInspector?.ClearValidationError();
                 SF.frmDataGrid.dataGridView1.Enabled = true;
                 SF.frmProc.Enabled = true;
             }

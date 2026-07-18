@@ -50,10 +50,14 @@ namespace Automation
 
     public sealed class PlatformValueSnapshot
     {
+        public Guid Id { get; set; }
         public int Index { get; set; }
         public string Name { get; set; }
         public string Type { get; set; }
         public string Value { get; set; }
+        public string Scope { get; set; }
+        public Guid? OwnerProcId { get; set; }
+        public string OwnerProcName { get; set; }
         public string Note { get; set; }
     }
 
@@ -318,6 +322,10 @@ namespace Automation
                 error = $"流程已禁用:{procIndex}";
                 return false;
             }
+            if (!platformEditor.dataRun.TryValidateProcessStopped(procIndex, out error))
+            {
+                return false;
+            }
             ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
                 procIndex, procs[procIndex], procs);
             if (!readiness.Runnable)
@@ -327,7 +335,9 @@ namespace Automation
             }
             if (!SF.procStore.StartProc(procIndex))
             {
-                error = $"流程启动失败:{procIndex}";
+                error = platformEditor.dataRun.TryValidateProcessStopped(procIndex, out string stoppedError)
+                    ? $"流程启动请求未被内核接受:{procIndex}"
+                    : stoppedError;
                 return false;
             }
             return true;
@@ -396,9 +406,13 @@ namespace Automation
             snapshot = new PlatformValueSnapshot
             {
                 Index = value.Index,
+                Id = value.Id,
                 Name = value.Name,
                 Type = value.Type,
                 Value = value.Value,
+                Scope = value.Scope,
+                OwnerProcId = value.OwnerProcId,
+                OwnerProcName = ResolveOwnerProcessName(value.OwnerProcId),
                 Note = value.Note
             };
             return true;
@@ -421,9 +435,13 @@ namespace Automation
             snapshot = new PlatformValueSnapshot
             {
                 Index = value.Index,
+                Id = value.Id,
                 Name = value.Name,
                 Type = value.Type,
                 Value = value.Value,
+                Scope = value.Scope,
+                OwnerProcId = value.OwnerProcId,
+                OwnerProcName = ResolveOwnerProcessName(value.OwnerProcId),
                 Note = value.Note
             };
             return true;
@@ -433,6 +451,13 @@ namespace Automation
         {
             EnsureReadyOrFaulted();
             return SF.valueStore?.GetValueNames() ?? new List<string>();
+        }
+
+        internal static string ResolveOwnerProcessName(Guid? ownerProcId)
+        {
+            if (!ownerProcId.HasValue) return string.Empty;
+            return (SF.frmProc?.procsList ?? new List<Proc>())
+                .FirstOrDefault(proc => proc?.head?.Id == ownerProcId.Value)?.head?.Name ?? string.Empty;
         }
 
         public bool TrySetValue(string name, object value, out string error)
@@ -454,6 +479,30 @@ namespace Automation
             if (SF.valueStore == null || !SF.valueStore.setValueByName(name, value, "HMI 代码"))
             {
                 error = $"变量写入失败:{name}";
+                return false;
+            }
+            return true;
+        }
+
+        public bool TrySetValue(int index, object value, out string error)
+        {
+            if (!CanIssueRuntimeCommand(out error))
+            {
+                return false;
+            }
+            if (index < 0 || index >= ValueConfigStore.ValueCapacity)
+            {
+                error = $"变量索引超出范围:{index}";
+                return false;
+            }
+            if (value == null)
+            {
+                error = "变量值不能为空。";
+                return false;
+            }
+            if (SF.valueStore == null || !SF.valueStore.setValueByIndex(index, value, "HMI 代码"))
+            {
+                error = $"变量写入失败:{index}";
                 return false;
             }
             return true;
@@ -566,6 +615,13 @@ namespace Automation
                 error = $"当前状态禁止控制操作:{state}";
                 return false;
             }
+            if (SF.MaintenanceActive)
+            {
+                error = string.IsNullOrWhiteSpace(SF.MaintenanceReason)
+                    ? "系统正在执行配置维护。"
+                    : $"系统正在执行配置维护:{SF.MaintenanceReason}";
+                return false;
+            }
             if (SF.SecurityLocked)
             {
                 error = string.IsNullOrWhiteSpace(SF.SecurityLockReason)
@@ -596,21 +652,61 @@ namespace Automation
 
         private void OnProcessSnapshotChanged(EngineSnapshot snapshot)
         {
-            ProcessSnapshotChanged?.Invoke(snapshot);
+            DispatchSdkEvent(() => ProcessSnapshotChanged?.Invoke(snapshot));
         }
 
         private void OnValueChanged(object sender, ValueChangedEventArgs e)
         {
-            ValueChanged?.Invoke(this, e);
+            DispatchSdkEvent(() => ValueChanged?.Invoke(this, e));
         }
 
         private void SetState(PlatformRuntimeState nextState, string message)
         {
             state = nextState;
             StateMessage = message ?? string.Empty;
-            RuntimeStateChanged?.Invoke(this, new PlatformRuntimeStateChangedEventArgs(nextState, StateMessage));
-            RuntimeStatusChanged?.Invoke(this, new PlatformRuntimeStatusChangedEventArgs(
-                (PlatformRuntimeStatus)(int)nextState, StateMessage));
+            DispatchSdkEvent(() =>
+            {
+                RuntimeStateChanged?.Invoke(this, new PlatformRuntimeStateChangedEventArgs(nextState, StateMessage));
+                RuntimeStatusChanged?.Invoke(this, new PlatformRuntimeStatusChangedEventArgs(
+                    (PlatformRuntimeStatus)(int)nextState, StateMessage));
+            });
+        }
+
+        private void DispatchSdkEvent(Action callback)
+        {
+            if (callback == null)
+            {
+                return;
+            }
+            void InvokeSafely()
+            {
+                try
+                {
+                    callback();
+                }
+                catch (Exception ex)
+                {
+                    SF.DR?.Logger?.Log($"设备 SDK 事件处理异常:{ex.Message}", LogLevel.Error);
+                }
+            }
+
+            FrmMain dispatcher = platformEditor;
+            if (Thread.CurrentThread.ManagedThreadId == uiThreadId || dispatcher == null)
+            {
+                InvokeSafely();
+                return;
+            }
+            if (dispatcher.IsDisposed || dispatcher.Disposing || !dispatcher.IsHandleCreated)
+            {
+                return;
+            }
+            try
+            {
+                dispatcher.BeginInvoke((Action)InvokeSafely);
+            }
+            catch (InvalidOperationException)
+            {
+            }
         }
 
         private void EnsureReadyOrFaulted()

@@ -49,6 +49,11 @@ namespace Automation
             return platform.TrySetValue(name, value, out error);
         }
 
+        public bool Set(int index, object value, out string error)
+        {
+            return platform.TrySetValue(index, value, out error);
+        }
+
         public bool Monitor(string name, bool enabled, out string error)
         {
             return platform.TryMonitorValue(name, enabled, out error);
@@ -58,8 +63,12 @@ namespace Automation
         {
             Changed?.Invoke(this, new DeviceValueChangedEventArgs
             {
+                Id = e.Id,
                 Index = e.Index,
                 Name = e.Name,
+                Scope = e.Scope,
+                OwnerProcId = e.OwnerProcId,
+                OwnerProcName = AutomationPlatformHost.ResolveOwnerProcessName(e.OwnerProcId),
                 OldValue = e.OldValue,
                 NewValue = e.NewValue,
                 Source = e.Source,
@@ -71,10 +80,14 @@ namespace Automation
         {
             return new ValueSnapshot
             {
+                Id = source.Id,
                 Index = source.Index,
                 Name = source.Name,
                 Type = source.Type,
                 Value = source.Value,
+                Scope = source.Scope,
+                OwnerProcId = source.OwnerProcId,
+                OwnerProcName = source.OwnerProcName,
                 Note = source.Note
             };
         }

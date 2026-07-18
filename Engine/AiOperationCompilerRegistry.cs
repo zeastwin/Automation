@@ -8,17 +8,24 @@ using static Automation.OperationTypePartial;
 
 namespace Automation
 {
+    public sealed class AiIoResource
+    {
+        public string IoType { get; set; }
+        public int CardNum { get; set; }
+        public string IoIndex { get; set; }
+    }
+
     public sealed class AiResourceSnapshot
     {
         public AiResourceSnapshot(
-            IReadOnlyDictionary<string, string> ioTypes = null,
+            IReadOnlyDictionary<string, AiIoResource> ios = null,
             IReadOnlyDictionary<string, IReadOnlyCollection<string>> references = null)
         {
-            IoTypes = ioTypes ?? new Dictionary<string, string>(StringComparer.Ordinal);
+            IoResources = ios ?? new Dictionary<string, AiIoResource>(StringComparer.Ordinal);
             References = references ?? new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal);
         }
 
-        public IReadOnlyDictionary<string, string> IoTypes { get; }
+        public IReadOnlyDictionary<string, AiIoResource> IoResources { get; }
 
         public IReadOnlyDictionary<string, IReadOnlyCollection<string>> References { get; }
     }
@@ -64,18 +71,29 @@ namespace Automation
             _currentStepKey = currentStepKey;
         }
 
-        public string RequireIo(string name, string path, bool outputOnly)
+        public string RequireIo(string name, string path, string requiredIoType = null)
         {
             string exactName = RequireText(name, path);
-            if (!_resources.IoTypes.TryGetValue(exactName, out string ioType))
+            if (!_resources.IoResources.TryGetValue(exactName, out AiIoResource io))
             {
                 throw new InvalidOperationException($"{path} 引用的IO不存在：{exactName}");
             }
-            if (outputOnly && !string.Equals(ioType, "通用输出", StringComparison.Ordinal))
+            if (!string.IsNullOrEmpty(requiredIoType)
+                && !string.Equals(io.IoType, requiredIoType, StringComparison.Ordinal))
             {
-                throw new InvalidOperationException($"{path} 只能引用通用输出：{exactName} 当前类型为 {ioType}");
+                throw new InvalidOperationException(
+                    $"{path} 只能引用{requiredIoType}：{exactName} 当前类型为 {io.IoType}");
             }
             return exactName;
+        }
+
+        public AiIoResource RequireIoResource(
+            string name,
+            string path,
+            string requiredIoType = null)
+        {
+            string exactName = RequireIo(name, path, requiredIoType);
+            return _resources.IoResources[exactName];
         }
 
         public DicValue RequireVariable(string name, string path, string requiredType = null)
@@ -123,14 +141,15 @@ namespace Automation
             }
             if (referenceType.StartsWith("io.", StringComparison.Ordinal))
             {
-                string ioName = RequireIo(text, path,
-                    string.Equals(referenceType, "io.output", StringComparison.Ordinal));
-                if (string.Equals(referenceType, "io.input", StringComparison.Ordinal)
-                    && _resources.IoTypes.TryGetValue(ioName, out string ioType)
-                    && !string.Equals(ioType, "通用输入", StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException($"{path} 只能引用通用输入：{ioName} 当前类型为 {ioType}");
-                }
+                string requiredIoType = string.Equals(
+                    referenceType,
+                    "io.input",
+                    StringComparison.Ordinal)
+                    ? "通用输入"
+                    : (string.Equals(referenceType, "io.output", StringComparison.Ordinal)
+                        ? "通用输出"
+                        : null);
+                RequireIo(text, path, requiredIoType);
                 return;
             }
             if (!_resources.References.TryGetValue(referenceType, out IReadOnlyCollection<string> candidates)) return;
@@ -410,7 +429,7 @@ namespace Automation
             public bool State { get; set; }
         }
 
-        private static List<ResolvedIoCondition> ResolveIoConditions(
+        private static List<ResolvedIoCondition> ResolveInputIoConditions(
             SemanticOperation definition,
             AiOperationCompileContext context,
             string path)
@@ -425,7 +444,10 @@ namespace Automation
             {
                 IoStateCondition condition = definition.Conditions[index]
                     ?? throw new InvalidOperationException($"{path}[{index}] 不能为空。");
-                string io = context.RequireIo(condition.Io, $"{path}[{index}].io", false);
+                string io = context.RequireIo(
+                    condition.Io,
+                    $"{path}[{index}].io",
+                    "通用输入");
                 if (!condition.State.HasValue)
                 {
                     throw new InvalidOperationException($"{path}[{index}].state 必填。");
@@ -613,7 +635,7 @@ namespace Automation
                 {
                     ModifyType = modifyType,
                     ValueSourceName = source.Trim(),
-                    ChangeR = reverseOperand,
+                    NegateOperand = reverseOperand,
                     ChangeValue = semanticOperator == "absolute" || hasLiteral
                         ? (semanticOperator == "absolute" ? "0" : definition.OperandValue.Value.ToString(CultureInfo.InvariantCulture))
                         : null,
@@ -640,7 +662,7 @@ namespace Automation
                 }
                 return new Delay
                 {
-                    timeMiniSecond = definition.Milliseconds.Value.ToString(CultureInfo.InvariantCulture)
+                    DelayMs = definition.Milliseconds.Value
                 };
             }
         }
@@ -659,7 +681,6 @@ namespace Automation
             {
                 return new Goto
                 {
-                    Count = "0",
                     Params = new CustomList<GotoParam>(),
                     DefaultGoto = context.ResolveTarget(definition.Target, "flow.goto.target")
                 };
@@ -703,10 +724,9 @@ namespace Automation
                 }
                 return new ParamGoto
                 {
-                    Count = "1",
-                    failDelay = "10",
-                    goto1 = context.ResolveTarget(definition.WhenTrue, "branch.number_range.whenTrue"),
-                    goto2 = context.ResolveTarget(definition.WhenFalse, "branch.number_range.whenFalse"),
+                    InvalidDelayMs = 10,
+                    TrueGoto = context.ResolveTarget(definition.WhenTrue, "branch.number_range.whenTrue"),
+                    FalseGoto = context.ResolveTarget(definition.WhenFalse, "branch.number_range.whenFalse"),
                     Params = new CustomList<ParamGotoParam>
                     {
                         new ParamGotoParam
@@ -715,7 +735,7 @@ namespace Automation
                             JudgeMode = "值在区间内",
                             Down = definition.Min.Value,
                             Up = definition.Max.Value,
-                            equal = definition.IncludeBounds ?? true,
+                            IncludeBoundary = definition.IncludeBounds ?? true,
                             Operator = "且"
                         }
                     }
@@ -777,10 +797,9 @@ namespace Automation
                     comparison == "ne" ? "branch.number_compare.whenTrue" : "branch.number_compare.whenFalse");
                 return new ParamGoto
                 {
-                    Count = "1",
-                    failDelay = "10",
-                    goto1 = trueGoto,
-                    goto2 = falseGoto,
+                    InvalidDelayMs = 10,
+                    TrueGoto = trueGoto,
+                    FalseGoto = falseGoto,
                     Params = new CustomList<ParamGotoParam>
                     {
                         new ParamGotoParam
@@ -789,7 +808,7 @@ namespace Automation
                             JudgeMode = judgeMode,
                             Down = definition.CompareValue.Value,
                             Up = up,
-                            equal = includeBoundary,
+                            IncludeBoundary = includeBoundary,
                             Operator = "且"
                         }
                     }
@@ -804,14 +823,15 @@ namespace Automation
             public string DefaultName => "IO条件分支";
 
             public JObject BuildContract() => Contract(
-                "立即读取一组IO运行时逻辑状态，并按组合结果双分支跳转",
+                "立即读取一组输入IO的运行时逻辑状态，并按组合结果双分支跳转",
                 new[] { "kind", "conditions" },
                 new[] { "name", "conditionLogic", "whenTrue", "whenFalse" },
                 new JProperty("conditionLogicValues", new JArray("all", "any")),
                 new JProperty("conditionShape", new JObject
                 {
                     ["required"] = new JArray("io", "state"),
-                    ["stateMeaning"] = "运行时逻辑状态，不统一表示安全位或工作位"
+                    ["ioType"] = "通用输入",
+                    ["stateMeaning"] = "输入IO运行时逻辑状态，不统一表示安全位或工作位"
                 }),
                 new JProperty("targetShape", SymbolicTargetContract()),
                 new JProperty("runRequired", new JArray("whenTrue", "whenFalse")),
@@ -819,7 +839,7 @@ namespace Automation
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
-                List<ResolvedIoCondition> conditions = ResolveIoConditions(
+                List<ResolvedIoCondition> conditions = ResolveInputIoConditions(
                     definition, context, "branch.io.conditions");
                 string logic = string.IsNullOrWhiteSpace(definition.ConditionLogic)
                     ? "all"
@@ -835,14 +855,13 @@ namespace Automation
                 {
                     ioParams.Add(new IoLogicGotoParam
                     {
-                        IOName = condition.Io,
+                        IoName = condition.Io,
                         Target = condition.State,
                         Logic = nativeLogic
                     });
                 }
                 return new IoLogicGoto
                 {
-                    IOCount = conditions.Count.ToString(CultureInfo.InvariantCulture),
                     InvalidDelayMs = 0,
                     TrueGoto = context.ResolveTarget(definition.WhenTrue, "branch.io.whenTrue"),
                     FalseGoto = context.ResolveTarget(definition.WhenFalse, "branch.io.whenFalse"),
@@ -995,34 +1014,57 @@ namespace Automation
         private sealed class IoWriteCompiler : IAiOperationCompiler
         {
             public string Kind => "io.write";
-            public string DefaultName => "设置IO输出";
-            public JObject BuildContract() => Contract("设置一个现有输出IO的状态",
-                new[] { "kind", "io", "state" }, new[] { "name", "beforeMs", "afterMs" },
+            public string DefaultName => "同步设置IO输出";
+            public JObject BuildContract() => Contract("通过一次端口写入同步设置同一卡的一个或多个输出IO",
+                new[] { "kind", "outputs" }, new[] { "name" },
                 new JProperty("stateSemantics", new JObject
                 {
                     ["valueDomain"] = "runtime-logical-boolean",
                     ["true"] = "该精确输出IO逻辑激活",
                     ["false"] = "该精确输出IO逻辑未激活",
                     ["componentMeaning"] = "true/false不统一表示安全位或工作位；先确定机构目标，再确定输出逻辑值"
-                }));
+                }),
+                new JProperty("outputShape", new JObject
+                {
+                    ["required"] = new JArray("io", "state"),
+                    ["minimumItems"] = 1,
+                    ["constraints"] = new JArray("IO名称不重复", "全部IO为通用输出", "全部IO位于同一张控制卡", "IOIndex在0..31内且不重复")
+                }),
+                new JProperty("runtimeBehavior", "同一outputs数组编译为一条IO操作，并通过一次端口写入同步下达"));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
-                string io = context.RequireIo(definition.Io, "io.write.io", true);
-                if (!definition.State.HasValue) throw new InvalidOperationException("io.write.state 必填。");
-                int before = definition.BeforeMs ?? 0;
-                int after = definition.AfterMs ?? 0;
-                if (before < 0 || before > 3600000 || after < 0 || after > 3600000)
+                if (definition.Outputs == null || definition.Outputs.Count == 0)
+                    throw new InvalidOperationException("io.write.outputs 至少包含一个输出IO。");
+                var ioParams = new CustomList<IoOutParam>();
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                var indexes = new HashSet<int>();
+                int? cardNum = null;
+                for (int index = 0; index < definition.Outputs.Count; index++)
                 {
-                    throw new InvalidOperationException("io.write.beforeMs/afterMs 必须在 0..3600000 之间。");
+                    IoOutputState output = definition.Outputs[index]
+                        ?? throw new InvalidOperationException($"io.write.outputs[{index}] 不能为空。");
+                    AiIoResource ioResource = context.RequireIoResource(
+                        output.Io,
+                        $"io.write.outputs[{index}].io",
+                        "通用输出");
+                    string io = output.Io.Trim();
+                    if (!output.State.HasValue)
+                        throw new InvalidOperationException($"io.write.outputs[{index}].state 必填。");
+                    if (!names.Add(io))
+                        throw new InvalidOperationException($"io.write.outputs 包含重复IO：{io}");
+                    if (cardNum.HasValue && cardNum.Value != ioResource.CardNum)
+                        throw new InvalidOperationException("io.write.outputs 的全部输出IO必须位于同一张控制卡。");
+                    cardNum = ioResource.CardNum;
+                    if (!int.TryParse(ioResource.IoIndex, out int ioIndex) || ioIndex < 0 || ioIndex > 31)
+                        throw new InvalidOperationException($"io.write.outputs[{index}] 的IOIndex必须在0..31内：{ioResource.IoIndex}");
+                    if (!indexes.Add(ioIndex))
+                        throw new InvalidOperationException($"io.write.outputs 包含重复输出索引：{ioIndex}");
+                    ioParams.Add(new IoOutParam { IoName = io, TargetState = output.State.Value });
                 }
                 return new IoOperate
                 {
-                    IOCount = "1",
-                    IoParams = new CustomList<IoOutParam>
-                    {
-                        new IoOutParam { IOName = io, value = definition.State.Value, delayBefore = before, delayAfter = after }
-                    }
+                    IoParams = ioParams
                 };
             }
         }
@@ -1031,7 +1073,7 @@ namespace Automation
         {
             public string Kind => "io.wait";
             public string DefaultName => "等待IO状态";
-            public JObject BuildContract() => Contract("等待一组现有IO同时达到目标状态；失败时报警停止或进入明确恢复目标",
+            public JObject BuildContract() => Contract("等待一组现有输入IO同时达到目标状态；失败时报警停止或进入明确恢复目标",
                 new[] { "kind", "conditions", "timeoutMs" }, new[] { "name", "onFailure" },
                 new JProperty("stateSemantics", new JObject
                 {
@@ -1043,6 +1085,7 @@ namespace Automation
                 new JProperty("conditionShape", new JObject
                 {
                     ["required"] = new JArray("io", "state"),
+                    ["ioType"] = "通用输入",
                     ["match"] = "全部条件同时成立时正常完成"
                 }),
                 new JProperty("targetShape", SymbolicTargetContract()),
@@ -1055,7 +1098,7 @@ namespace Automation
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
-                List<ResolvedIoCondition> conditions = ResolveIoConditions(
+                List<ResolvedIoCondition> conditions = ResolveInputIoConditions(
                     definition, context, "io.wait.conditions");
                 if (!definition.TimeoutMs.HasValue || definition.TimeoutMs.Value < 1
                     || definition.TimeoutMs.Value > 86400000)
@@ -1065,12 +1108,11 @@ namespace Automation
                 var ioParams = new CustomList<IoCheckParam>();
                 foreach (ResolvedIoCondition condition in conditions)
                 {
-                    ioParams.Add(new IoCheckParam { IOName = condition.Io, value = condition.State });
+                    ioParams.Add(new IoCheckParam { IoName = condition.Io, ExpectedState = condition.State });
                 }
                 var operation = new IoCheck
                 {
-                    IOCount = conditions.Count.ToString(CultureInfo.InvariantCulture),
-                    timeOutC = new TimeOutC { TimeOut = definition.TimeoutMs.Value },
+                    Timeout = new TimeoutSetting { TimeoutMs = definition.TimeoutMs.Value },
                     IoParams = ioParams
                 };
                 if (definition.OnFailure != null)
@@ -1107,10 +1149,9 @@ namespace Automation
                 }
                 return new ProcOps
                 {
-                    ProcCount = "1",
-                    procParams = new CustomList<procParam>
+                    Params = new CustomList<ProcParam>
                     {
-                        new procParam { ProcName = process, value = platformAction, delayAfter = after }
+                        new ProcParam { ProcName = process, TargetState = platformAction, DelayAfterMs = after }
                     }
                 };
             }
@@ -1146,12 +1187,11 @@ namespace Automation
                 }
                 return new WaitProc
                 {
-                    ProcCount = "1",
-                    delayAfter = after,
-                    timeOutC = new TimeOutC { TimeOut = definition.TimeoutMs ?? 0 },
+                    DelayAfterMs = after,
+                    Timeout = new TimeoutSetting { TimeoutMs = definition.TimeoutMs ?? 0 },
                     Params = new CustomList<WaitProcParam>
                     {
-                        new WaitProcParam { ProcName = process, value = platformState }
+                        new WaitProcParam { ProcName = process, TargetState = platformState }
                     }
                 };
             }

@@ -21,6 +21,21 @@ namespace Automation
             InitializeComponent();
             dataGridView1.SelectionMode = DataGridViewSelectionMode.ColumnHeaderSelect;
             dataGridView1.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
+            dataGridView1.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "scope",
+                HeaderText = "作用域",
+                FillWeight = 35F,
+                SortMode = DataGridViewColumnSortMode.NotSortable
+            });
+            dataGridView1.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "ownerProcess",
+                HeaderText = "所属流程",
+                FillWeight = 55F,
+                SortMode = DataGridViewColumnSortMode.NotSortable
+            });
+            Width = 650;
             dataGridView1.RowHeadersVisible = false;
             dataGridView1.AutoGenerateColumns = false;
 
@@ -50,26 +65,26 @@ namespace Automation
                 {
                     continue;
                 }
+                bool matched;
                 if (checkBox1.Checked)
                 {
-                    bool stringsAreEqual = checkBox2.Checked ? obj.Name == textBox1.Text : string.Equals(obj.Name.ToString(), textBox1.Text, StringComparison.OrdinalIgnoreCase);
-                    if (stringsAreEqual)
-                    {
-                        dataGridView1.Rows.Add();
-                        dataGridView1.Rows[dataGridView1.Rows.Count-1].Cells[0].Value = k;
-                        dataGridView1.Rows[dataGridView1.Rows.Count - 1].Cells[1].Value = obj.Name;
-                    }
+                    matched = checkBox2.Checked
+                        ? obj.Name == textBox1.Text
+                        : string.Equals(obj.Name, textBox1.Text, StringComparison.OrdinalIgnoreCase);
                 }
                 else
                 {
-                    bool containsSubstring = checkBox2.Checked ? obj.Name.Contains(textBox1.Text) : obj.Name.ToString().ToLower().Contains(textBox1.Text.ToLower());
-                    if (containsSubstring)
-                    {
-                        dataGridView1.Rows.Add();
-                        dataGridView1.Rows[dataGridView1.Rows.Count - 1].Cells[0].Value = k;
-                        dataGridView1.Rows[dataGridView1.Rows.Count - 1].Cells[1].Value = obj.Name;
-                    }
+                    matched = checkBox2.Checked
+                        ? obj.Name.Contains(textBox1.Text)
+                        : obj.Name.IndexOf(textBox1.Text, StringComparison.OrdinalIgnoreCase) >= 0;
                 }
+                if (!matched) continue;
+                int rowIndex = dataGridView1.Rows.Add();
+                DataGridViewRow row = dataGridView1.Rows[rowIndex];
+                row.Cells[0].Value = k;
+                row.Cells[1].Value = obj.Name;
+                row.Cells[2].Value = obj.Scope;
+                row.Cells[3].Value = AutomationPlatformHost.ResolveOwnerProcessName(obj.OwnerProcId);
             }
 
         }
@@ -84,7 +99,7 @@ namespace Automation
                 {
                     return;
                 }
-                SF.frmValue.dgvValue.FirstDisplayedScrollingRowIndex = rowIndex;
+                SF.frmValue.LocateValueIndex(rowIndex);
             }
         }
 

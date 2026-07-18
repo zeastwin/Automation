@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading;
+using Newtonsoft.Json;
 
 namespace Automation
 {
@@ -22,6 +24,24 @@ namespace Automation
     [Serializable]
     public class DataStructItem
     {
+        [NonSerialized]
+        private object syncRoot;
+
+        [JsonIgnore]
+        internal object SyncRoot
+        {
+            get
+            {
+                object current = Volatile.Read(ref syncRoot);
+                if (current != null)
+                {
+                    return current;
+                }
+                Interlocked.CompareExchange(ref syncRoot, new object(), null);
+                return syncRoot;
+            }
+        }
+
         public string Name { get; set; }
         public Dictionary<int, string> FieldNames { get; set; } = new Dictionary<int, string>();
         public Dictionary<int, DataStructValueType> FieldTypes { get; set; } = new Dictionary<int, DataStructValueType>();

@@ -17,6 +17,8 @@ namespace Automation
 
         public Dictionary<string, DicValue> Variables { get; internal set; }
 
+        public Dictionary<Guid, string> VariableValueOverrides { get; internal set; }
+
         public JArray Changes { get; internal set; }
 
         public int DeletedProcessCount { get; internal set; }
@@ -87,25 +89,32 @@ namespace Automation
             Dictionary<string, DicValue> variables = CloneVariables(currentVariables);
             var changes = new JArray();
             var variableResolutions = new JArray();
+            var variableValueOverrides = new Dictionary<Guid, string>();
+            var createdObjects = new JObject
+            {
+                ["processes"] = new JArray(),
+                ["steps"] = new JArray(),
+                ["operations"] = new JArray(),
+                ["variables"] = new JArray()
+            };
 
             int deletedCount = ApplyProcessDeletion(changeSet.DeleteProcesses, processes, changes);
             if (deletedCount > 0)
             {
                 ProcessEditingService.AdaptGotoProcIndexes(processes, 0);
             }
-            int variableCount = ApplyVariableChanges(
-                changeSet.Variables, variables, changes, variableResolutions);
+            Dictionary<ProcessDefinition, Guid> plannedProcessIds =
+                BuildPlannedProcessIds(changeSet.Processes, processes);
+            int variableCount = RemoveVariablesWithoutOwner(
+                variables, processes, plannedProcessIds.Values, changes, variableResolutions);
+            variableCount += ApplyVariableChanges(
+                changeSet.Variables, variables, processes, plannedProcessIds,
+                changes, variableResolutions, createdObjects, variableValueOverrides);
             int operationCount = 0;
             int replacedCount;
-            var createdObjects = new JObject
-            {
-                ["processes"] = new JArray(),
-                ["steps"] = new JArray(),
-                ["operations"] = new JArray()
-            };
             int createdCount = ApplyProcessDefinitions(
                 changeSet.Processes, processes, variables, resources, changes, ref operationCount,
-                createdObjects, out replacedCount);
+                createdObjects, plannedProcessIds, out replacedCount);
 
             if (deletedCount == 0 && variableCount == 0 && createdCount == 0 && replacedCount == 0)
             {
@@ -151,6 +160,7 @@ namespace Automation
             {
                 Processes = processes,
                 Variables = variables,
+                VariableValueOverrides = variableValueOverrides,
                 Changes = previewChanges,
                 DeletedProcessCount = deletedCount,
                 CreatedProcessCount = createdCount,
@@ -748,10 +758,12 @@ namespace Automation
                 {
                     variableState.Add(new JObject
                     {
+                        ["variableId"] = item.Value?.Id.ToString("D") ?? string.Empty,
                         ["name"] = item.Key,
                         ["index"] = item.Value?.Index ?? -1,
                         ["type"] = item.Value?.Type ?? string.Empty,
-                        ["configValue"] = item.Value?.ConfigValue ?? string.Empty,
+                        ["scope"] = item.Value?.Scope ?? string.Empty,
+                        ["ownerProcId"] = item.Value?.OwnerProcId?.ToString("D"),
                         ["note"] = item.Value?.Note ?? string.Empty
                     });
                 }
@@ -759,7 +771,7 @@ namespace Automation
             var state = new JObject
             {
                 ["processes"] = processes == null ? new JArray() : JArray.FromObject(processes),
-                // 运行值不属于配置版本；仅配置值、类型、索引和说明参与预演并发校验。
+                // 当前值变化不使结构预演过期；稳定ID、名称、类型、作用域、槽位和说明参与并发校验。
                 ["variables"] = variableState
             };
             byte[] bytes = Encoding.UTF8.GetBytes(state.ToString(Formatting.None));
@@ -856,11 +868,82 @@ namespace Automation
             return deleteIndexes.Count;
         }
 
+        private static Dictionary<ProcessDefinition, Guid> BuildPlannedProcessIds(
+            IList<ProcessDefinition> definitions, List<Proc> processes)
+        {
+            var result = new Dictionary<ProcessDefinition, Guid>();
+            foreach (ProcessDefinition definition in definitions ?? Array.Empty<ProcessDefinition>())
+            {
+                if (definition == null)
+                {
+                    continue;
+                }
+                string action = string.IsNullOrWhiteSpace(definition.Action)
+                    ? "create"
+                    : definition.Action.Trim();
+                Guid id = string.Equals(action, "replace", StringComparison.Ordinal)
+                    ? processes[ResolveReplacementProcessIndex(definition, processes)].head.Id
+                    : Guid.NewGuid();
+                result.Add(definition, id);
+            }
+            return result;
+        }
+
+        private static int RemoveVariablesWithoutOwner(
+            Dictionary<string, DicValue> variables,
+            IEnumerable<Proc> processes,
+            IEnumerable<Guid> plannedProcessIds,
+            JArray changes,
+            JArray resolutions)
+        {
+            var validOwnerIds = new HashSet<Guid>((processes ?? Enumerable.Empty<Proc>())
+                .Select(proc => proc?.head?.Id ?? Guid.Empty)
+                .Concat(plannedProcessIds ?? Enumerable.Empty<Guid>())
+                .Where(id => id != Guid.Empty));
+            List<string> removed = variables
+                .Where(item => ValueConfigStore.IsProcessValue(item.Value)
+                    && (!item.Value.OwnerProcId.HasValue
+                        || !validOwnerIds.Contains(item.Value.OwnerProcId.Value)))
+                .Select(item => item.Key)
+                .ToList();
+            foreach (string name in removed)
+            {
+                DicValue variable = variables[name];
+                string ownerProcName = changes.OfType<JObject>()
+                    .FirstOrDefault(change =>
+                        string.Equals(change["type"]?.Value<string>(), "process.delete", StringComparison.Ordinal)
+                        && string.Equals(
+                            change["procId"]?.Value<string>(),
+                            variable.OwnerProcId?.ToString("D"),
+                            StringComparison.OrdinalIgnoreCase))?["name"]?.Value<string>() ?? string.Empty;
+                variables.Remove(name);
+                changes.Add(new JObject
+                {
+                    ["type"] = "variable.delete",
+                    ["name"] = name,
+                    ["variableId"] = variable.Id.ToString("D"),
+                    ["valueType"] = variable.Type,
+                    ["index"] = variable.Index,
+                    ["scope"] = variable.Scope,
+                    ["ownerProcId"] = variable.OwnerProcId?.ToString("D"),
+                    ["ownerProcName"] = ownerProcName,
+                    ["reason"] = "owner_process_deleted"
+                });
+                resolutions.Add(BuildVariableResolution(
+                    name, variable.Type, "delete", "deleted_with_process", true, variable, ownerProcName));
+            }
+            return removed.Count;
+        }
+
         private static int ApplyVariableChanges(
             IList<VariableChange> definitions,
             Dictionary<string, DicValue> variables,
+            List<Proc> processes,
+            Dictionary<ProcessDefinition, Guid> plannedProcessIds,
             JArray changes,
-            JArray resolutions)
+            JArray resolutions,
+            JObject createdObjects,
+            IDictionary<Guid, string> valueOverrides)
         {
             int changed = 0;
             var declaredNames = new HashSet<string>(StringComparer.Ordinal);
@@ -872,6 +955,16 @@ namespace Automation
                 {
                     throw new InvalidOperationException($"changeSet.variables 包含重复声明：{name}");
                 }
+                string scope = RequiredText(definition.Scope, $"变量[{name}].scope");
+                if (!VariableScopeContract.IsValid(scope))
+                {
+                    throw new InvalidOperationException(
+                        $"变量[{name}] scope 只能是 {VariableScopeContract.SupportedScopes}。");
+                }
+                Guid? ownerProcId = ResolveVariableOwner(
+                    definition.OwnerProcess, scope, name, processes, plannedProcessIds);
+                string ownerProcName = ResolveVariableOwnerName(
+                    ownerProcId, processes, plannedProcessIds);
                 string policy = string.IsNullOrWhiteSpace(definition.Policy) ? "reuse" : definition.Policy.Trim();
                 if (ProtectedVariables.Contains(name)
                     && !string.Equals(policy, "reuse", StringComparison.Ordinal)
@@ -879,50 +972,60 @@ namespace Automation
                 {
                     throw new InvalidOperationException($"系统保留变量[{name}]只允许 reuse 或 require 策略。");
                 }
-                string type = string.IsNullOrWhiteSpace(definition.Type) ? "double" : definition.Type.Trim();
+
+                bool exists = variables.TryGetValue(name, out DicValue existing);
+                if (string.Equals(scope, VariableScopeContract.System, StringComparison.Ordinal)
+                    && (!exists || !string.Equals(existing.Scope, VariableScopeContract.System, StringComparison.Ordinal)))
+                {
+                    throw new InvalidOperationException(
+                        $"系统变量[{name}]配置只读，只能对现有系统变量使用 reuse 或 require。");
+                }
+                string type = string.IsNullOrWhiteSpace(definition.Type)
+                    ? existing?.Type ?? "double"
+                    : definition.Type.Trim();
                 if (!string.Equals(type, "double", StringComparison.Ordinal)
                     && !string.Equals(type, "string", StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException($"变量[{name}] type 只能是 double 或 string。");
                 }
-                string initialValue = definition.InitialValue
+                string value = definition.Value
+                    ?? existing?.Value
                     ?? (string.Equals(type, "double", StringComparison.Ordinal) ? "0" : string.Empty);
                 if (string.Equals(type, "double", StringComparison.Ordinal)
-                    && !double.TryParse(initialValue, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
-                    && !double.TryParse(initialValue, out _))
+                    && !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+                    && !double.TryParse(value, out _))
                 {
-                    throw new InvalidOperationException($"变量[{name}]的 initialValue 不是有效数字。");
+                    throw new InvalidOperationException($"变量[{name}]的 value 不是有效数字。");
                 }
-
-                bool exists = variables.TryGetValue(name, out DicValue existing);
-                if (exists) EnsureVariableType(existing, type, name);
                 if (exists
-                    && ValueConfigStore.IsSystemValueIndex(existing.Index)
+                    && string.Equals(existing.Scope, VariableScopeContract.System, StringComparison.Ordinal)
                     && !string.Equals(policy, "reuse", StringComparison.Ordinal)
                     && !string.Equals(policy, "require", StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException(
                         $"系统变量[{name}]配置对 AI 只读，只允许 reuse 或 require 策略。");
                 }
-                if (!exists && ProtectedVariables.Contains(name))
+                if (!exists && (ProtectedVariables.Contains(name)
+                    || string.Equals(scope, VariableScopeContract.System, StringComparison.Ordinal)))
                 {
-                    throw new InvalidOperationException($"系统保留变量不存在，AI 不能创建：{name}。");
+                    throw new InvalidOperationException($"系统变量不存在，AI 不能创建：{name}。");
                 }
-                if (string.Equals(policy, "require", StringComparison.Ordinal))
+                if (string.Equals(policy, "require", StringComparison.Ordinal)
+                    || string.Equals(policy, "reuse", StringComparison.Ordinal) && exists)
                 {
                     if (!exists) throw new InvalidOperationException($"要求复用的变量不存在：{name}");
-                    resolutions.Add(BuildVariableResolution(name, type, policy, "reused", false, existing));
+                    EnsureVariableType(existing, type, name);
+                    EnsureVariableScope(existing, scope, ownerProcId, name);
+                    if (definition.Index.HasValue && definition.Index.Value != existing.Index)
+                    {
+                        throw new InvalidOperationException(
+                            $"变量[{name}]现有槽位为{existing.Index}，与声明的{definition.Index.Value}不一致。");
+                    }
+                    resolutions.Add(BuildVariableResolution(
+                        name, type, policy, "reused", false, existing, ownerProcName));
                     continue;
                 }
-                if (string.Equals(policy, "reuse", StringComparison.Ordinal))
-                {
-                    if (exists)
-                    {
-                        resolutions.Add(BuildVariableResolution(name, type, policy, "reused", false, existing));
-                        continue;
-                    }
-                }
-                else if (string.Equals(policy, "create", StringComparison.Ordinal))
+                if (string.Equals(policy, "create", StringComparison.Ordinal))
                 {
                     if (exists) throw new InvalidOperationException($"变量已存在，create 策略禁止覆盖：{name}");
                 }
@@ -930,38 +1033,170 @@ namespace Automation
                 {
                     if (!exists) throw new InvalidOperationException($"变量不存在，update 策略无法更新：{name}");
                 }
-                else if (!string.Equals(policy, "replace", StringComparison.Ordinal))
+                else if (!string.Equals(policy, "reuse", StringComparison.Ordinal)
+                    && !string.Equals(policy, "replace", StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException($"变量[{name}] policy 只能是 reuse/create/update/replace/require。");
                 }
 
-                int index = exists ? existing.Index : FindFreeVariableIndex(variables);
-                variables[name] = new DicValue
+                int index = definition.Index ?? existing?.Index ?? FindFreeVariableIndex(variables);
+                if (index < 0 || index >= ValueConfigStore.NormalValueCapacity)
                 {
+                    throw new InvalidOperationException(
+                        $"变量[{name}] index 必须位于普通变量区 [0,{ValueConfigStore.NormalValueCapacity})。");
+                }
+                DicValue occupied = variables.Values.FirstOrDefault(value =>
+                    value != null && value.Index == index && (!exists || value.Id != existing.Id));
+                if (occupied != null)
+                {
+                    throw new InvalidOperationException(
+                        $"变量[{name}]目标槽位{index}已被变量[{occupied.Name}]占用。");
+                }
+                var updated = new DicValue
+                {
+                    Id = existing?.Id ?? Guid.NewGuid(),
                     Index = index,
                     Name = name,
                     Type = type,
-                    ConfigValue = initialValue,
-                    Value = initialValue,
-                    Note = definition.Note ?? string.Empty
+                    Scope = scope,
+                    OwnerProcId = ownerProcId,
+                    Value = value,
+                    Note = definition.Note ?? existing?.Note ?? string.Empty
                 };
+                variables[name] = updated;
+                if (!exists || definition.Value != null)
+                {
+                    valueOverrides[updated.Id] = value;
+                }
                 string outcome = exists
                     ? string.Equals(policy, "replace", StringComparison.Ordinal) ? "replaced" : "updated"
                     : "created";
                 resolutions.Add(BuildVariableResolution(
-                    name, type, policy, outcome, true, variables[name]));
+                    name, type, policy, outcome, true, updated, ownerProcName));
+                if (!exists)
+                {
+                    ((JArray)createdObjects["variables"]).Add(BuildVariableResolution(
+                        name, type, policy, outcome, true, updated, ownerProcName));
+                }
                 changed++;
                 changes.Add(new JObject
                 {
                     ["type"] = exists ? "variable.update" : "variable.create",
+                    ["variableId"] = updated.Id.ToString("D"),
                     ["name"] = name,
                     ["valueType"] = type,
-                    ["oldValue"] = exists ? existing.ConfigValue : null,
-                    ["newValue"] = initialValue,
+                    ["scope"] = scope,
+                    ["ownerProcId"] = ownerProcId?.ToString("D"),
+                    ["ownerProcName"] = ownerProcName,
+                    ["index"] = index,
+                    ["oldValue"] = exists ? existing.Value : null,
+                    ["newValue"] = value,
                     ["policy"] = policy
                 });
             }
             return changed;
+        }
+
+        private static Guid? ResolveVariableOwner(
+            ProcessSelector selector,
+            string scope,
+            string variableName,
+            List<Proc> processes,
+            Dictionary<ProcessDefinition, Guid> plannedProcessIds)
+        {
+            if (!string.Equals(scope, VariableScopeContract.Process, StringComparison.Ordinal))
+            {
+                if (selector != null)
+                {
+                    throw new InvalidOperationException(
+                        $"变量[{variableName}]只有 scope=process 时才能提供 ownerProcess。");
+                }
+                return null;
+            }
+            if (selector == null)
+            {
+                throw new InvalidOperationException(
+                    $"流程私有变量[{variableName}]必须提供 ownerProcess。");
+            }
+            int count = (!string.IsNullOrWhiteSpace(selector.ProcId) ? 1 : 0)
+                + (!string.IsNullOrWhiteSpace(selector.Name) ? 1 : 0)
+                + (!string.IsNullOrWhiteSpace(selector.Key) ? 1 : 0);
+            if (count != 1)
+            {
+                throw new InvalidOperationException(
+                    $"变量[{variableName}].ownerProcess 必须且只能使用 procId、name 或 key。");
+            }
+            if (!string.IsNullOrWhiteSpace(selector.ProcId))
+            {
+                Guid id = ParseStableId(selector.ProcId, $"变量[{variableName}].ownerProcess.procId");
+                if (!processes.Any(proc => proc?.head?.Id == id)
+                    && !plannedProcessIds.Values.Contains(id))
+                {
+                    throw new InvalidOperationException($"变量[{variableName}]所属流程不存在：{id:D}");
+                }
+                return id;
+            }
+            if (!string.IsNullOrWhiteSpace(selector.Name))
+            {
+                string name = RequiredName(selector.Name, $"变量[{variableName}].ownerProcess.name");
+                List<Guid> matches = processes
+                    .Where(proc => string.Equals(proc?.head?.Name, name, StringComparison.Ordinal))
+                    .Select(proc => proc.head.Id)
+                    .Concat(plannedProcessIds
+                        .Where(item => string.Equals(item.Key?.Name, name, StringComparison.Ordinal))
+                        .Select(item => item.Value))
+                    .Distinct()
+                    .ToList();
+                if (matches.Count != 1)
+                {
+                    throw new InvalidOperationException(matches.Count == 0
+                        ? $"变量[{variableName}]所属流程不存在：{name}"
+                        : $"变量[{variableName}]所属流程名称不唯一：{name}");
+                }
+                return matches[0];
+            }
+            string key = ValidateLocalKey(selector.Key, $"变量[{variableName}].ownerProcess.key");
+            List<Guid> keyMatches = plannedProcessIds
+                .Where(item => string.Equals(item.Key?.Key, key, StringComparison.Ordinal))
+                .Select(item => item.Value)
+                .ToList();
+            if (keyMatches.Count != 1)
+            {
+                throw new InvalidOperationException($"变量[{variableName}]未找到同阶段流程 key：{key}");
+            }
+            return keyMatches[0];
+        }
+
+        private static string ResolveVariableOwnerName(
+            Guid? ownerProcId,
+            IEnumerable<Proc> processes,
+            IReadOnlyDictionary<ProcessDefinition, Guid> plannedProcessIds)
+        {
+            if (!ownerProcId.HasValue)
+            {
+                return string.Empty;
+            }
+            string existingName = (processes ?? Enumerable.Empty<Proc>())
+                .FirstOrDefault(proc => proc?.head?.Id == ownerProcId.Value)?.head?.Name;
+            if (!string.IsNullOrWhiteSpace(existingName))
+            {
+                return existingName;
+            }
+            return (plannedProcessIds ?? new Dictionary<ProcessDefinition, Guid>())
+                .FirstOrDefault(item => item.Value == ownerProcId.Value).Key?.Name ?? string.Empty;
+        }
+
+        private static void EnsureVariableScope(
+            DicValue variable, string scope, Guid? ownerProcId, string name)
+        {
+            if (!string.Equals(variable?.Scope, scope, StringComparison.Ordinal)
+                || variable?.OwnerProcId != ownerProcId)
+            {
+                throw new InvalidOperationException(
+                    $"变量[{name}]作用域不匹配：现有 {variable?.Scope ?? "空"}/"
+                    + $"{variable?.OwnerProcId?.ToString("D") ?? "无归属"}，声明 {scope}/"
+                    + $"{ownerProcId?.ToString("D") ?? "无归属"}。");
+            }
         }
 
         private static JObject BuildVariableResolution(
@@ -970,17 +1205,22 @@ namespace Automation
             string policy,
             string outcome,
             bool changed,
-            DicValue variable)
+            DicValue variable,
+            string ownerProcName)
         {
             return new JObject
             {
+                ["variableId"] = variable?.Id.ToString("D") ?? string.Empty,
                 ["name"] = name,
                 ["valueType"] = type,
                 ["policy"] = policy,
                 ["outcome"] = outcome,
                 ["changed"] = changed,
                 ["index"] = variable?.Index ?? -1,
-                ["configValue"] = variable?.ConfigValue ?? string.Empty
+                ["scope"] = variable?.Scope ?? string.Empty,
+                ["ownerProcId"] = variable?.OwnerProcId?.ToString("D"),
+                ["ownerProcName"] = ownerProcName ?? string.Empty,
+                ["value"] = variable?.Value ?? string.Empty
             };
         }
 
@@ -992,6 +1232,7 @@ namespace Automation
             JArray changes,
             ref int operationCount,
             JObject createdObjects,
+            Dictionary<ProcessDefinition, Guid> plannedProcessIds,
             out int replaced)
         {
             int created = 0;
@@ -1037,7 +1278,9 @@ namespace Automation
                 {
                     head = new ProcHead
                     {
-                        Id = replacedProcess?.head?.Id ?? Guid.NewGuid(),
+                        Id = plannedProcessIds.TryGetValue(definition, out Guid plannedProcId)
+                            ? plannedProcId
+                            : replacedProcess?.head?.Id ?? Guid.NewGuid(),
                         Name = processName,
                         AutoStart = definition.AutoStart ?? replacedProcess?.head?.AutoStart ?? false,
                         Disable = definition.Disable ?? replacedProcess?.head?.Disable ?? false
@@ -1345,19 +1588,28 @@ namespace Automation
             ProcessDefinitionValidationContext validationContext)
         {
             var analyses = new JArray();
-            foreach (JObject change in changes.OfType<JObject>().Where(item =>
+            List<JObject> processChanges = changes.OfType<JObject>().Where(item =>
                 string.Equals(item["type"]?.Value<string>(), "process.create", StringComparison.Ordinal)
-                || string.Equals(item["type"]?.Value<string>(), "process.replace", StringComparison.Ordinal)))
+                || string.Equals(item["type"]?.Value<string>(), "process.replace", StringComparison.Ordinal)).ToList();
+            bool variableChanged = changes.OfType<JObject>().Any(item =>
+                (item["type"]?.Value<string>() ?? string.Empty).StartsWith("variable.", StringComparison.Ordinal));
+            IEnumerable<int> affectedIndexes = variableChanged
+                ? Enumerable.Range(0, processes.Count)
+                : processChanges.Select(change => change["procIndex"]?.Value<int>() ?? -1).Distinct();
+            foreach (int procIndex in affectedIndexes)
             {
-                int procIndex = change["procIndex"]?.Value<int>() ?? -1;
                 if (procIndex < 0 || procIndex >= processes.Count)
                 {
                     continue;
                 }
                 ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
                     procIndex, processes[procIndex], processes, validationContext);
-                change["readinessStatus"] = readiness.ReadinessStatus;
-                change["runnable"] = readiness.Runnable;
+                foreach (JObject change in processChanges.Where(change =>
+                    change["procIndex"]?.Value<int>() == procIndex))
+                {
+                    change["readinessStatus"] = readiness.ReadinessStatus;
+                    change["runnable"] = readiness.Runnable;
+                }
                 var item = new JObject
                 {
                     ["procIndex"] = procIndex,

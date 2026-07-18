@@ -56,6 +56,20 @@ namespace Automation
         public DateTime Timestamp { get; }
     }
 
+    public sealed class CommFramesDroppedEventArgs : EventArgs
+    {
+        public CommFramesDroppedEventArgs(CommChannelKind kind, string name, long droppedFrames)
+        {
+            Kind = kind;
+            Name = name ?? string.Empty;
+            DroppedFrames = droppedFrames;
+        }
+
+        public CommChannelKind Kind { get; }
+        public string Name { get; }
+        public long DroppedFrames { get; }
+    }
+
     public sealed class CommReceiveResult
     {
         private CommReceiveResult(bool success, string messageText, string messageHex, string remoteEndPoint, string errorMessage)
@@ -264,7 +278,7 @@ namespace Automation
             return frames;
         }
 
-        private static int IndexOf(List<byte> source, byte[] pattern, int startIndex)
+        private static int IndexOf(List<byte> source, byte[] pattern, int StartIndex)
         {
             if (source == null || pattern == null || pattern.Length == 0 || source.Count < pattern.Length)
             {
@@ -272,7 +286,7 @@ namespace Automation
             }
 
             int max = source.Count - pattern.Length;
-            for (int i = Math.Max(0, startIndex); i <= max; i++)
+            for (int i = Math.Max(0, StartIndex); i <= max; i++)
             {
                 bool matched = true;
                 for (int j = 0; j < pattern.Length; j++)
@@ -301,11 +315,13 @@ namespace Automation
         private readonly Queue<long> waiterOrder = new Queue<long>();
         private readonly Queue<ReceivedFrame> pendingFrames = new Queue<ReceivedFrame>();
         private readonly int pendingLimit;
+        private readonly Action<long> framesDropped;
         private long waiterId;
         private bool closed;
         private string closeReason;
         private long droppedFrames;
         private long pendingBytes;
+        private long lastReportedDroppedFrames;
 
         public long DroppedFrames => Interlocked.Read(ref droppedFrames);
 
@@ -329,13 +345,14 @@ namespace Automation
             }
         }
 
-        public ReceiveDispatcher(int pendingLimit)
+        public ReceiveDispatcher(int pendingLimit, Action<long> framesDropped = null)
         {
             if (pendingLimit <= 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(pendingLimit), $"等待队列上限无效:{pendingLimit}");
             }
             this.pendingLimit = pendingLimit;
+            this.framesDropped = framesDropped;
         }
 
         public Task<ReceivedFrame> WaitNextAsync(int timeoutMs, CancellationToken cancellationToken)
@@ -387,6 +404,7 @@ namespace Automation
             }
 
             Waiter target = null;
+            long reportDroppedFrames = 0;
             lock (sync)
             {
                 if (closed)
@@ -414,8 +432,30 @@ namespace Automation
                     }
                     pendingFrames.Enqueue(frame);
                     pendingBytes += frameBytes;
-                    return;
+                    long totalDropped = Interlocked.Read(ref droppedFrames);
+                    if (totalDropped > 0
+                        && (lastReportedDroppedFrames == 0
+                            || totalDropped - lastReportedDroppedFrames >= pendingLimit))
+                    {
+                        lastReportedDroppedFrames = totalDropped;
+                        reportDroppedFrames = totalDropped;
+                    }
                 }
+            }
+            if (target == null)
+            {
+                if (reportDroppedFrames > 0)
+                {
+                    try
+                    {
+                        framesDropped?.Invoke(reportDroppedFrames);
+                    }
+                    catch
+                    {
+                        // 丢帧观察者不能破坏通讯接收线程。
+                    }
+                }
+                return;
             }
             target.Dispose();
             target.Source.TrySetResult(frame);
@@ -489,12 +529,14 @@ namespace Automation
         private Task acceptTask;
         private volatile bool isRunning;
 
-        public TcpChannel(ParsedSocketInfo info, Action<CommLogEventArgs> log, Func<bool> loggingEnabled, int pendingLimit)
+        public TcpChannel(ParsedSocketInfo info, Action<CommLogEventArgs> log, Func<bool> loggingEnabled,
+            Action<CommFramesDroppedEventArgs> framesDropped, int pendingLimit)
         {
             this.info = info;
             this.log = log;
             this.loggingEnabled = loggingEnabled;
-            dispatcher = new ReceiveDispatcher(pendingLimit);
+            dispatcher = new ReceiveDispatcher(pendingLimit,
+                count => framesDropped?.Invoke(new CommFramesDroppedEventArgs(Kind, info.Name, count)));
         }
 
         public bool IsRunning => isRunning;
@@ -960,12 +1002,15 @@ namespace Automation
         private Task readTask;
         private volatile bool isOpen;
 
-        public SerialPortChannel(ParsedSerialInfo info, Action<CommLogEventArgs> log, Func<bool> loggingEnabled, int pendingLimit)
+        public SerialPortChannel(ParsedSerialInfo info, Action<CommLogEventArgs> log, Func<bool> loggingEnabled,
+            Action<CommFramesDroppedEventArgs> framesDropped, int pendingLimit)
         {
             this.info = info;
             this.log = log;
             this.loggingEnabled = loggingEnabled;
-            dispatcher = new ReceiveDispatcher(pendingLimit);
+            dispatcher = new ReceiveDispatcher(pendingLimit,
+                count => framesDropped?.Invoke(new CommFramesDroppedEventArgs(
+                    CommChannelKind.SerialPort, info.Name, count)));
         }
 
         public bool IsOpen => isOpen;
@@ -1248,6 +1293,7 @@ namespace Automation
         private int disposed;
 
         public event EventHandler<CommLogEventArgs> Log;
+        public event EventHandler<CommFramesDroppedEventArgs> FramesDropped;
 
         public async Task StartTcpAsync(SocketInfo info, int connectTimeoutMs = 0,
             CancellationToken cancellationToken = default)
@@ -1269,7 +1315,8 @@ namespace Automation
                     await existing.StopAsync().ConfigureAwait(false);
                 }
 
-                TcpChannel channel = new TcpChannel(parsed, RaiseLog, () => Log != null, RuntimeConfig.PendingReceiverLimit);
+                TcpChannel channel = new TcpChannel(parsed, RaiseLog, () => Log != null,
+                    RaiseFramesDropped, RuntimeConfig.PendingReceiverLimit);
                 tcpChannels[parsed.Name] = channel;
 
                 try
@@ -1622,7 +1669,8 @@ namespace Automation
                     await existing.StopAsync().ConfigureAwait(false);
                 }
 
-                SerialPortChannel channel = new SerialPortChannel(parsed, RaiseLog, () => Log != null, RuntimeConfig.PendingReceiverLimit);
+                SerialPortChannel channel = new SerialPortChannel(parsed, RaiseLog, () => Log != null,
+                    RaiseFramesDropped, RuntimeConfig.PendingReceiverLimit);
                 serialChannels[parsed.Name] = channel;
 
                 try
@@ -1906,6 +1954,26 @@ namespace Automation
                 catch
                 {
                     // 日志观察者不能破坏通讯收发线程。
+                }
+            }
+        }
+
+        private void RaiseFramesDropped(CommFramesDroppedEventArgs args)
+        {
+            EventHandler<CommFramesDroppedEventArgs> handlers = FramesDropped;
+            if (handlers == null)
+            {
+                return;
+            }
+            foreach (EventHandler<CommFramesDroppedEventArgs> handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    handler(this, args);
+                }
+                catch
+                {
+                    // 丢帧观察者不能破坏通讯接收线程。
                 }
             }
         }

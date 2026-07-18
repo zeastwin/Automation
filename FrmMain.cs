@@ -27,6 +27,8 @@ namespace Automation
         public Panel ai_panel;
         private WorkspacePageHost workspacePageHost;
         private Panel editorWorkspacePage;
+        private FrmProcessFlow frmProcessFlow;
+        private bool flowGraphUnavailable;
         public FrmIO  frmIO = new FrmIO();
         public FrmCard  frmCard = new FrmCard();
         public ProcessEngine dataRun;
@@ -56,7 +58,7 @@ namespace Automation
         private volatile bool systemStatusReady;
         private volatile bool systemStatusFaulted;
         private bool processInteractionUiReady;
-        private bool autoStartTriggeredForCurrentReset;
+        private bool autoStartTriggered;
         private int popupAlarmCount;
         private readonly object popupLock = new object();
         private readonly Dictionary<int, List<ProcPopupItem>> procPopups = new Dictionary<int, List<ProcPopupItem>>();
@@ -153,6 +155,7 @@ namespace Automation
             dataRun.SnapshotChanged += CacheSnapshot;
             processTraceAuditSink = new ProcessTraceAuditSink(dataRun);
             SF.plcRuntime.RuntimeEvent += HandlePlcRuntimeEvent;
+            SF.comm.FramesDropped += HandleCommunicationFramesDropped;
             SF.procStore = new ProcessEngineStore(dataRun);
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;
@@ -179,6 +182,7 @@ namespace Automation
             SF.frmSearch4Value = frmSearch4Value;
             SF.frmInfo = frmInfo;
             SF.frmPlc = frmPlc;
+            frmInspector.AttachEditActions(frmToolBar.btnSave, frmToolBar.btnCancel);
             automationBridgeHost = new AutomationBridgeHost(this);
 
             StartPosition = FormStartPosition.CenterScreen;
@@ -304,6 +308,7 @@ namespace Automation
                     SF.SetSecurityLock(changeSetTransactionError);
                     SF.DR?.Logger?.Log($"ChangeSet事务恢复未完成，平台继续初始化并保持安全锁定：{changeSetTransactionError}", LogLevel.Error);
                 }
+                SF.frmProc.RefreshProcList();
                 SF.frmValue.RefreshDic();
                 EnsureSystemStatusVariables();
                 InitializeSystemStatusValues();
@@ -342,7 +347,6 @@ namespace Automation
                     SF.DR.Context.IoMap = SF.frmIO.DicIO;
                     SF.DR.Context.PlcRuntime = SF.plcRuntime;
                 }
-                SF.frmProc.RefreshProcList();
                 if (AutomationRuntimeOptions.Current.IsSimulation)
                 {
                     try
@@ -418,6 +422,27 @@ namespace Automation
             }
             try
             {
+                if (!GooseConfigStorage.TryLoad(out GooseConfig aiConfig, out string aiConfigError))
+                {
+                    ReportAiInfrastructureUnavailable("EW-AI 配置不可用：" + aiConfigError);
+                    return;
+                }
+                if (!GooseRuntimeEnvironment.TryValidate(aiConfig.GooseExecutablePath, out string runtimeError))
+                {
+                    ReportAiInfrastructureUnavailable(runtimeError);
+                    return;
+                }
+                if (!GooseConfigStorage.TryApplyStartupSafetyDefaults(out string aiSafetyError))
+                {
+                    ReportAiInfrastructureUnavailable(aiSafetyError);
+                    return;
+                }
+                if (!GooseRuntimeProvisioner.IsManagedContextAvailable
+                    && !GooseRuntimeProvisioner.TryEnsureManagedContext(out string contextError))
+                {
+                    ReportAiInfrastructureUnavailable(contextError);
+                    return;
+                }
                 automationBridgeHost.Start();
                 StartMcpServerOnStartup();
             }
@@ -428,6 +453,16 @@ namespace Automation
                 {
                     frmInfo.PrintInfo($"AI 基础设施启动失败:{ex.Message}", FrmInfo.Level.Error);
                 }
+            }
+        }
+
+        private void ReportAiInfrastructureUnavailable(string message)
+        {
+            string scopedMessage = "AI 基础设施未启动：" + message;
+            dataRun?.Logger?.Log(scopedMessage, LogLevel.Error);
+            if (frmInfo != null && !frmInfo.IsDisposed && dataRun?.Logger == null)
+            {
+                frmInfo.PrintInfo(scopedMessage, FrmInfo.Level.Error);
             }
         }
         
@@ -534,7 +569,8 @@ namespace Automation
         private void HandleAxisMonitorFailure(Exception ex)
         {
             string message = $"轴IO监视线程异常:{ex.Message}";
-            StopAllProcsForSafety(message);
+            // 轴状态不可验证时保持 HMI 可用，但进入安全锁定，人工排查前禁止再次启动流程。
+            SF.SetSecurityLock(message);
             TryStopMotion();
             dataRun?.Context?.AxisStatuses?.Clear();
             if (IsHandleCreated)
@@ -576,7 +612,7 @@ namespace Automation
             {
                 return;
             }
-            int count = SF.frmProc?.procsList?.Count ?? 0;
+            int count = SF.DR.Context?.Procs?.Count ?? SF.frmProc?.procsList?.Count ?? 0;
             for (int i = 0; i < count; i++)
             {
                 SF.DR.Stop(i);
@@ -729,7 +765,7 @@ namespace Automation
             }
             UpdateHighlightFromCache();
             UpdateSystemStatusValue();
-            TryStartAutoProcessesAfterReset();
+            TryStartAutoProcesses();
         }
 
         private sealed class ProcPopupRequest
@@ -764,22 +800,23 @@ namespace Automation
             }
             processInteractionUiReady = true;
             ShowPendingProcPopups();
-            TryStartAutoProcessesAfterReset();
+            TryStartAutoProcesses();
         }
 
-        private void TryStartAutoProcessesAfterReset()
+        private void TryStartAutoProcesses()
         {
             if (!processInteractionUiReady || !platformInitialized
                 || SF.DR == null || !SF.DR.TryValidateStartGate(out _))
             {
-                autoStartTriggeredForCurrentReset = false;
+                autoStartTriggered = false;
                 return;
             }
-            if (autoStartTriggeredForCurrentReset)
+            if (autoStartTriggered)
             {
                 return;
             }
-            autoStartTriggeredForCurrentReset = true;
+            // AutoStart 表示平台启动后立即运行，运动类指令仍由各自的复位闸门校验。
+            autoStartTriggered = true;
             if (SF.frmProc?.procsList == null)
             {
                 return;
@@ -895,6 +932,11 @@ namespace Automation
 
         private void EnsureSystemStatusVariables()
         {
+            if (SF.valueStore?.ConfigurationFaulted == true)
+            {
+                FailSystemStatus("变量配置格式或归属校验失败，已保留原文件；删除或修复 value.json 后再重新加载。");
+                return;
+            }
             bool createdAny = EnsureSystemValue(ResetStatusValueName, "系统保留变量：复位状态");
             if (!systemStatusFaulted)
             {
@@ -1505,11 +1547,10 @@ namespace Automation
 
         public void ReloadProcessVersionedConfiguration()
         {
-            SF.valueStore.Load(SF.ConfigPath);
+            SF.frmProc.RefreshProcList();
             SF.frmValue.RefreshDic();
             SF.dataStructStore.Load(SF.ConfigPath);
             SF.frmdataStruct.RefreshDataSturctList();
-            SF.frmProc.RefreshProcList();
             if (SF.DR?.Context != null)
             {
                 SF.DR.Context.ValueStore = SF.valueStore;
@@ -1570,6 +1611,65 @@ namespace Automation
             }
             workspacePageHost.ShowPage(page);
             page.Focus();
+        }
+
+        public void ShowProcessFlowGraph()
+        {
+            if (flowGraphUnavailable)
+            {
+                MessageBox.Show(this, "流程图模块当前不可用，请查看运行信息中的报警。", "流程图", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            try
+            {
+                if (frmProcessFlow == null || frmProcessFlow.IsDisposed)
+                {
+                    frmProcessFlow = new FrmProcessFlow(this);
+                }
+                ShowWorkspacePage(frmProcessFlow);
+                frmProcessFlow.ShowProjectGraph();
+            }
+            catch (Exception ex)
+            {
+                flowGraphUnavailable = true;
+                string message = "流程图模块初始化失败，平台其他功能继续可用：" + ex.Message;
+                dataRun?.Logger?.Log(message, LogLevel.Error);
+                frmInfo?.PrintInfo(message, FrmInfo.Level.Error);
+                MessageBox.Show(this, message, "流程图", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        public void RefreshProcessFlowGraph()
+        {
+            if (frmProcessFlow != null && !frmProcessFlow.IsDisposed && frmProcessFlow.Visible)
+            {
+                frmProcessFlow.RefreshCurrentGraph();
+            }
+        }
+
+        public bool NavigateToFlowOperation(Guid procId, Guid stepId, Guid opId)
+        {
+            int procIndex = frmProc.procsList.FindIndex(proc => proc?.head?.Id == procId);
+            if (procIndex < 0)
+            {
+                return false;
+            }
+            int stepIndex = frmProc.procsList[procIndex].steps.FindIndex(step => step?.Id == stepId);
+            if (stepIndex < 0)
+            {
+                return false;
+            }
+            ShowEditorWorkspace();
+            frmProc.SelectAiContext(procIndex, stepIndex);
+            return frmDataGrid.SelectOperationForNavigation(opId);
+        }
+
+        public bool ShowAiAssistantWithPrompt(string prompt)
+        {
+            EnsureAiInfrastructureStarted();
+            frmMenu.ShowAiAssistant();
+            return frmAiAssistant != null && !frmAiAssistant.IsDisposed
+                && frmAiAssistant.PreparePrompt(prompt);
         }
 
         public void RequireRestartAfterMotionConfigurationChange()
@@ -1797,6 +1897,7 @@ namespace Automation
                 // 可能因 TCP 连接未响应而阻塞 UI 线程。放到线程池并加 3 秒超时保护。
                 if (SF.comm != null)
                 {
+                    SF.comm.FramesDropped -= HandleCommunicationFramesDropped;
                     Task commDisposeTask = Task.Run(() =>
                     {
                         try { SF.comm.Dispose(); }
@@ -1849,6 +1950,16 @@ namespace Automation
             }
             if (IsHandleCreated && InvokeRequired) BeginInvoke((Action)Report);
             else Report();
+        }
+
+        private void HandleCommunicationFramesDropped(object sender, CommFramesDroppedEventArgs e)
+        {
+            if (e == null)
+            {
+                return;
+            }
+            string message = $"通讯接收队列发生丢帧：{e.Kind}[{e.Name}]累计丢弃{e.DroppedFrames}帧。请检查消费速度、触发序号和队列容量。";
+            dataRun?.Logger?.Log(message, LogLevel.Error);
         }
     }
 

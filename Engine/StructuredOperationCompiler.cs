@@ -21,8 +21,7 @@ namespace Automation
         private static readonly HashSet<string> OperationManagedProperties = new HashSet<string>(StringComparer.Ordinal)
         {
             nameof(OperationType.Id), nameof(OperationType.AiKey), nameof(OperationType.Num), nameof(OperationType.Name),
-            nameof(OperationType.OperaType), "Count", "IOCount", "OutIOCount", "CheckIOCount", "ProcCount",
-            nameof(PlcReadWrite.ModelVersion), nameof(PlcReadWrite.ReadItemCount), nameof(PlcReadWrite.WriteItemCount)
+            nameof(OperationType.OperaType), nameof(OperationType.IsBreakpoint), nameof(PlcReadWrite.ModelVersion)
         };
 
         public static JObject BuildContract(string operaType)
@@ -38,7 +37,7 @@ namespace Automation
                 ["fields"] = BuildObjectFields(operation.GetType(), 0),
                 ["rules"] = new JArray(
                     "字段名区分大小写，未知字段直接拒绝",
-                    "数组数量字段由编译器计算，禁止手工填写 Count/IOCount/ProcCount/ReadItemCount/WriteItemCount",
+                    "数组长度是子项数量的唯一事实；直接提交完整数组，不另填数量字段",
                     "operation.update 可通过 clearFields 显式清空顶层字符串字段；同一字段不得同时出现在 fields",
                     "operation.update 只修改同一原生类型；改变类型使用 operation.replace 原位替换",
                     "现有目标使用 {operationId}；当前步骤内按 key 定位使用 {operationKey}；跨步骤时再附加 stepId 或 stepKey；禁止填写物理索引字符串")
@@ -69,7 +68,7 @@ namespace Automation
                 .ToArray();
             JObject commonFieldRules = SelectProperties(
                 (JObject)first["behavior"]["fieldRules"],
-                new[] { "AlarmInfoID", "Goto1", "Goto2", "Goto3" });
+                new[] { "AlarmInfoId", "Goto1", "Goto2", "Goto3" });
             var common = new JObject
             {
                 ["purpose"] = first["purpose"].DeepClone(),
@@ -119,7 +118,7 @@ namespace Automation
                 },
                 ["criticalSummary"] = new JObject
                 {
-                    ["caseSensitive"] = "字段名区分大小写；Goto1/Goto2/Goto3 是报警分支，小写 goto1/goto2 等字段是具体指令的业务分支",
+                    ["caseSensitive"] = "字段名区分大小写；业务分支使用契约中明确命名的 TrueGoto/FalseGoto/DefaultGoto 等字段",
                     ["alarmGotoScope"] = common["behavior"]["alarmPolicy"]["gotoScope"].DeepClone(),
                     ["alarmRunRequirements"] = BuildConditionalRequirements(commonFieldRules)
                 },
@@ -536,12 +535,15 @@ namespace Automation
             if (property.GetCustomAttribute<InlineListAttribute>() != null)
             {
                 Type itemType = GetListItemType(property.PropertyType);
+                InlineListAttribute list = property.GetCustomAttribute<InlineListAttribute>();
                 schema["jsonType"] = "array";
                 schema["items"] = new JObject
                 {
                     ["jsonType"] = "object",
                     ["fields"] = BuildObjectFields(itemType, depth)
                 };
+                if (list.MinItems > 0) schema["minItems"] = list.MinItems;
+                if (list.MaxItems < int.MaxValue) schema["maxItems"] = list.MaxItems;
                 return schema;
             }
             if (property.GetCustomAttribute<InlineGroupAttribute>() != null)
@@ -553,12 +555,25 @@ namespace Automation
 
             Type valueType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
             schema["jsonType"] = GetJsonType(valueType);
+            if (Nullable.GetUnderlyingType(property.PropertyType) != null)
+            {
+                schema["nullable"] = true;
+            }
             string referenceType = GetReferenceType(GetPropertyDescriptor(property)?.Converter?.GetType().Name);
             if (!string.IsNullOrEmpty(referenceType)) schema["referenceType"] = referenceType;
             if (valueType == typeof(Color)) schema["format"] = "#RRGGBB 或 .NET 已知颜色名";
             if (valueType == typeof(char)) schema["length"] = 1;
             if (valueType.IsEnum) schema["values"] = new JArray(Enum.GetNames(valueType));
-            JArray values = string.IsNullOrEmpty(referenceType)
+            NumericRangeAttribute range = property.GetCustomAttribute<NumericRangeAttribute>();
+            if (range != null)
+            {
+                schema["minimum"] = range.Minimum;
+                if (!double.IsPositiveInfinity(range.Maximum))
+                {
+                    schema["maximum"] = range.Maximum;
+                }
+            }
+            JArray values = valueType == typeof(string) && string.IsNullOrEmpty(referenceType)
                 ? BuildStandardValues(GetPropertyDescriptor(property))
                 : new JArray();
             if (values.Count > 0) schema["values"] = values;
@@ -598,6 +613,7 @@ namespace Automation
                     continue;
                 }
                 object converted = ConvertScalar(input.Value, property.PropertyType, fieldPath);
+                ValidateNumericRange(property, converted, fieldPath);
                 PropertyDescriptor descriptor = GetPropertyDescriptor(property);
                 context.ValidateReference(GetReferenceType(descriptor?.Converter?.GetType().Name), converted, fieldPath);
                 ValidateStandardValue(descriptor, converted, fieldPath);
@@ -609,6 +625,16 @@ namespace Automation
             AiOperationCompileContext context, int depth)
         {
             if (!(token is JArray array)) throw new InvalidOperationException($"{path} 必须是 JSON 数组。");
+            InlineListAttribute bounds = property.GetCustomAttribute<InlineListAttribute>();
+            int minItems = Math.Max(0, bounds?.MinItems ?? 0);
+            int maxItems = Math.Max(minItems, bounds?.MaxItems ?? int.MaxValue);
+            if (array.Count < minItems || array.Count > maxItems)
+            {
+                string range = maxItems == int.MaxValue
+                    ? $"不少于 {minItems}"
+                    : $"{minItems}..{maxItems}";
+                throw new InvalidOperationException($"{path} 的数组长度必须为 {range}。");
+            }
             Type itemType = GetListItemType(property.PropertyType);
             IList list = (IList)Activator.CreateInstance(property.PropertyType);
             for (int index = 0; index < array.Count; index++)
@@ -620,16 +646,6 @@ namespace Automation
                 list.Add(item);
             }
             property.SetValue(target, list);
-            string countPropertyName = GetCountPropertyName(target.GetType(), property.Name);
-            PropertyInfo countProperty = target.GetType().GetProperty(countPropertyName,
-                BindingFlags.Instance | BindingFlags.Public);
-            if (countProperty != null)
-            {
-                object countValue = countProperty.PropertyType == typeof(int)
-                    ? (object)array.Count
-                    : array.Count.ToString(CultureInfo.InvariantCulture);
-                countProperty.SetValue(target, countValue);
-            }
         }
 
         private static string ResolveSymbolicTarget(JToken token, string path, AiOperationCompileContext context)
@@ -722,6 +738,19 @@ namespace Automation
             throw new InvalidOperationException($"{path} 使用了不支持的字段类型：{actualType.Name}");
         }
 
+        private static void ValidateNumericRange(PropertyInfo property, object value, string path)
+        {
+            NumericRangeAttribute range = property.GetCustomAttribute<NumericRangeAttribute>();
+            if (range == null || value == null)
+            {
+                return;
+            }
+            if (!range.Contains(value))
+            {
+                throw new InvalidOperationException($"{path} 必须为 {range.Describe()} 的数值。");
+            }
+        }
+
         private static Color ParseColor(JToken token, string path)
         {
             if (token.Type != JTokenType.String) throw new InvalidOperationException($"{path} 必须是颜色字符串。");
@@ -752,19 +781,6 @@ namespace Automation
             if (!typeof(IList).IsAssignableFrom(listType) || !listType.IsGenericType)
                 throw new InvalidOperationException($"不支持的嵌套列表类型：{listType.Name}");
             return listType.GetGenericArguments()[0];
-        }
-
-        private static string GetCountPropertyName(Type ownerType, string listName)
-        {
-            if (listName == "IoParams") return "IOCount";
-            if (listName == "OutIoParams") return "OutIOCount";
-            if (listName == "CheckIoParams") return "CheckIOCount";
-            if (listName == "procParams" || ownerType == typeof(WaitProc)) return "ProcCount";
-            if (ownerType == typeof(PlcReadWrite) && listName == nameof(PlcReadWrite.ReadItems))
-                return nameof(PlcReadWrite.ReadItemCount);
-            if (ownerType == typeof(PlcReadWrite) && listName == nameof(PlcReadWrite.WriteItems))
-                return nameof(PlcReadWrite.WriteItemCount);
-            return "Count";
         }
 
         private static PropertyDescriptor GetPropertyDescriptor(PropertyInfo property)
@@ -829,7 +845,6 @@ namespace Automation
             {
                 case "IoOutItem": return "io.output";
                 case "IoInItem": return "io.input";
-                case "IoItem": return "io.all";
                 case "AlarmInfoItem": return "alarm.infoId";
                 case "DataStItem": return "dataStruct";
                 case "ProcItem": return "proc";

@@ -43,43 +43,13 @@ namespace Automation
         [DisplayName("禁用"), Category("流程信息"), Description(""), ReadOnly(false)]
         public bool Disable { get; set; }
 
-        private string pauseIoCount;
-        [DisplayName("暂停IO数"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(PauseCountItem))]
-        public string PauseIoCount
-        {
-            get { return pauseIoCount; }
-            set
-            {
-                pauseIoCount = value;
-                int count = int.Parse(pauseIoCount);
-                PauseIoParams = EditableCollection.Resize(
-                    PauseIoParams,
-                    count,
-                    () => new PauseIoParam());
-            }
-        }
-
         [DisplayName("暂停IO"), Category("暂停信号"), Description(""), ReadOnly(false)]
+        [InlineList("暂停IO", "暂停信号")]
         [TypeConverter(typeof(ParamListConverter<PauseIoParam>))]
         public CustomList<PauseIoParam> PauseIoParams { get; set; }
 
-        private string pauseValueCount;
-        [DisplayName("暂停变量数"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(PauseCountItem))]
-        public string PauseValueCount
-        {
-            get { return pauseValueCount; }
-            set
-            {
-                pauseValueCount = value;
-                int count = int.Parse(pauseValueCount);
-                PauseValueParams = EditableCollection.Resize(
-                    PauseValueParams,
-                    count,
-                    () => new PauseValueParam());
-            }
-        }
-
         [DisplayName("暂停变量"), Category("暂停信号"), Description(""), ReadOnly(false)]
+        [InlineList("暂停变量", "暂停信号")]
         [TypeConverter(typeof(ParamListConverter<PauseValueParam>))]
         public CustomList<PauseValueParam> PauseValueParams { get; set; }
 
@@ -90,7 +60,7 @@ namespace Automation
     public class PauseIoParam
     {
         [DisplayName("名称"), Category("暂停信号"), Description(""), ReadOnly(false), TypeConverter(typeof(IoInItem))]
-        public string IOName { get; set; }
+        public string IoName { get; set; }
 
         public override string ToString()
         {

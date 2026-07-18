@@ -111,8 +111,11 @@ namespace Automation
         public static ConfigurationVersionService versionService;
         public static IEditSession ActiveEditSession { get; private set; }
 
-        private static bool securityLocked;
+        private static volatile bool securityLocked;
         private static string securityLockReason = string.Empty;
+        private static readonly object maintenanceLock = new object();
+        private static bool maintenanceActive;
+        private static string maintenanceReason = string.Empty;
         //编辑状态
         public static ModifyKind isModify = ModifyKind.None;
 
@@ -141,6 +144,64 @@ namespace Automation
 
         public static bool SecurityLocked => securityLocked;
         public static string SecurityLockReason => securityLockReason;
+        public static bool MaintenanceActive
+        {
+            get
+            {
+                lock (maintenanceLock)
+                {
+                    return maintenanceActive;
+                }
+            }
+        }
+        public static string MaintenanceReason
+        {
+            get
+            {
+                lock (maintenanceLock)
+                {
+                    return maintenanceReason;
+                }
+            }
+        }
+
+        public static bool TryBeginMaintenance(string reason, out IDisposable lease, out string error)
+        {
+            lock (maintenanceLock)
+            {
+                if (maintenanceActive)
+                {
+                    lease = null;
+                    error = string.IsNullOrWhiteSpace(maintenanceReason)
+                        ? "系统正在执行配置维护。"
+                        : $"系统正在执行配置维护:{maintenanceReason}";
+                    return false;
+                }
+                maintenanceReason = string.IsNullOrWhiteSpace(reason) ? "配置维护" : reason.Trim();
+                maintenanceActive = true;
+                lease = new MaintenanceLease();
+                error = null;
+                return true;
+            }
+        }
+
+        private sealed class MaintenanceLease : IDisposable
+        {
+            private int disposed;
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref disposed, 1) != 0)
+                {
+                    return;
+                }
+                lock (maintenanceLock)
+                {
+                    maintenanceActive = false;
+                    maintenanceReason = string.Empty;
+                }
+            }
+        }
 
         public static void SetSecurityLock(string reason)
         {
@@ -172,11 +233,11 @@ namespace Automation
                 }
             }
             DR?.StopAllManualMotion();
-            if (DR == null || frmProc?.procsList == null)
+            if (DR == null)
             {
                 return;
             }
-            int count = frmProc.procsList.Count;
+            int count = DR.Context?.Procs?.Count ?? frmProc?.procsList?.Count ?? 0;
             for (int i = 0; i < count; i++)
             {
                 DR.Stop(i);
@@ -185,6 +246,11 @@ namespace Automation
 
         public static bool PublishProc(int procIndex)
         {
+            if (MaintenanceActive)
+            {
+                MessageBox.Show(MaintenanceReason, "系统正在执行配置维护", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
             if (frmProc?.procsList == null)
             {
                 MessageBox.Show("流程数据未就绪，无法发布。");
@@ -224,20 +290,16 @@ namespace Automation
                 }
                 return false;
             }
-            EngineSnapshot snapshot = DR.GetSnapshot(procIndex);
-            if (snapshot != null && snapshot.State != ProcRunState.Stopped
-                && frmInfo != null && !frmInfo.IsDisposed)
-            {
-                string status = snapshot.HasPendingUpdate
-                    ? $"已发布版本{snapshot.PublishedRevision}，等待安全指令边界应用；当前运行版本{snapshot.AppliedRevision}"
-                    : $"版本{snapshot.AppliedRevision}已生效";
-                frmInfo.PrintInfo($"流程{procIndex}热更新：{status}", FrmInfo.Level.Normal);
-            }
             return true;
         }
 
         public static bool CanEditProc(int procIndex)
         {
+            if (MaintenanceActive)
+            {
+                MessageBox.Show(MaintenanceReason, "系统正在执行配置维护", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
             if (SecurityLocked)
             {
                 MessageBox.Show(SecurityLockReason, "系统已安全锁定", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -252,13 +314,17 @@ namespace Automation
                 MessageBox.Show("流程引擎未初始化，禁止编辑流程。", "流程编辑不可用", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return false;
             }
-            // 运行中是否允许本次修改由 ProcessEngine.ValidateProcUpdate 根据草稿内容判定；
-            // 此处仅检查编辑入口的基础状态，禁止用一个粗粒度状态门禁破坏安全热更新。
+            // 编辑器修改草稿；运行实例始终持有启动时的独立流程对象。
             return true;
         }
 
         public static bool CanEditProcStructure()
         {
+            if (MaintenanceActive)
+            {
+                MessageBox.Show(MaintenanceReason, "系统正在执行配置维护", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
             if (frmProc?.procsList == null)
             {
                 return true;

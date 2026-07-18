@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Reflection;
 using System.Windows.Forms;
+using Automation.Protocol;
 
 namespace Automation
 {
@@ -35,6 +37,20 @@ namespace Automation
             public string Type { get; set; }
             public string Value { get; set; }
             public string Note { get; set; }
+        }
+
+        private sealed class VariableScopeSelection
+        {
+            public string Scope { get; set; }
+            public Guid? OwnerProcId { get; set; }
+        }
+
+        private sealed class VariableScopeChoice
+        {
+            public string Text { get; set; }
+            public string Scope { get; set; }
+            public Guid? OwnerProcId { get; set; }
+            public override string ToString() => Text;
         }
 
         private sealed class ValueMonitorForm : Form
@@ -179,11 +195,18 @@ namespace Automation
             }
         }
 
-        private readonly HashSet<int> monitorIndexSet = new HashSet<int>();
+        private readonly HashSet<Guid> monitoredVariableIds = new HashSet<Guid>();
         private ValueClipboardItem clipboardItem;
         private bool isValueStoreHooked;
         private ValueConfigStore hookedValueStore;
         private ValueMonitorForm monitorForm;
+        private readonly TreeView scopeTree;
+        private readonly DataGridViewTextBoxColumn scopeColumn;
+        private readonly DataGridViewTextBoxColumn ownerColumn;
+        private readonly Button btnMoveIndex;
+        private string selectedScope = VariableScopeContract.Public;
+        private Guid? selectedOwnerProcId;
+        private int pendingNewIndex = -1;
         private bool isStructViewAttached;
         private bool isValueGridReady;
         private bool isValueEditValid = true;
@@ -193,6 +216,54 @@ namespace Automation
         public FrmValue()
         {
             InitializeComponent();
+            value.HeaderText = "当前值";
+            scopeColumn = new DataGridViewTextBoxColumn
+            {
+                Name = "variableScope",
+                HeaderText = "作用域",
+                ReadOnly = true,
+                Width = 90,
+                SortMode = DataGridViewColumnSortMode.NotSortable
+            };
+            ownerColumn = new DataGridViewTextBoxColumn
+            {
+                Name = "ownerProcess",
+                HeaderText = "所属流程",
+                ReadOnly = true,
+                Width = 160,
+                SortMode = DataGridViewColumnSortMode.NotSortable
+            };
+            dgvValue.Columns.Add(scopeColumn);
+            dgvValue.Columns.Add(ownerColumn);
+
+            labelCommon.Text = "变量作用域";
+            listCommon.Visible = false;
+            scopeTree = new TreeView
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Microsoft YaHei UI", 10F),
+                HideSelection = false
+            };
+            scopeTree.AfterSelect += ScopeTree_AfterSelect;
+            panelCommon.Controls.Add(scopeTree);
+            scopeTree.BringToFront();
+            labelCommon.BringToFront();
+
+            btnNormalVariables.Text = "新增变量";
+            btnSystemVariables.Visible = false;
+            btnSet.Text = "移动作用域";
+            btnMoveIndex = new Button
+            {
+                Text = "移动槽位",
+                Location = new Point(1302, 6),
+                Size = new Size(100, 36)
+            };
+            btnMoveIndex.Click += btnMoveIndex_Click;
+            panel1.Controls.Add(btnMoveIndex);
+            btnPrevious.Visible = false;
+            BtnNext.Visible = false;
+            btnCancel.Visible = false;
             Disposed += FrmValue_Disposed;
             Font uiFont = new Font("宋体", 12F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
             dgvValue.Font = uiFont;
@@ -249,6 +320,7 @@ namespace Automation
             ApplyButtonStyle(btnClearData, false, true);
             ApplyButtonStyle(btnNormalVariables, false, false);
             ApplyButtonStyle(btnSystemVariables, false, false);
+            ApplyButtonStyle(btnMoveIndex, false, false);
         }
 
         private static void ApplyGridStyle(DataGridView grid)
@@ -363,7 +435,7 @@ namespace Automation
         //从文件更新变量表
         public void RefreshDic()
         {
-            SF.valueStore.Load(SF.ConfigPath);
+            SF.valueStore.Load(SF.ConfigPath, SF.frmProc?.procsList);
             EnsureValueStoreHooked();
 
             RefreshValue();
@@ -385,15 +457,20 @@ namespace Automation
                 dgvValue.Rows[i].Cells[2].Value = DefaultValueType;
                 dgvValue.Rows[i].Cells[3].Value = DefaultValueText;
                 dgvValue.Rows[i].Cells[4].Value = string.Empty;
+                dgvValue.Rows[i].Cells[5].Value = selectedScope;
+                dgvValue.Rows[i].Cells[6].Value = ResolveOwnerProcessName(selectedOwnerProcId);
                 if (SF.valueStore.TryGetValueByIndex(i, out DicValue cachedValue))
                 {
                     dgvValue.Rows[i].Cells[1].Value = cachedValue.Name;
                     dgvValue.Rows[i].Cells[2].Value = cachedValue.Type;
                     dgvValue.Rows[i].Cells[3].Value = cachedValue.Value;
                     dgvValue.Rows[i].Cells[4].Value = cachedValue.Note;
+                    dgvValue.Rows[i].Cells[5].Value = cachedValue.Scope;
+                    dgvValue.Rows[i].Cells[6].Value = ResolveOwnerProcessName(cachedValue.OwnerProcId);
                 }
             }
-            RefreshCommonList();
+            RefreshScopeTree();
+            ApplyScopeFilter();
             RefreshMonitorTitle();
             RefreshMonitorRows();
         }
@@ -418,6 +495,8 @@ namespace Automation
                         dgvValue.Rows[i].Cells[2].Value = cachedValue.Type;
                         dgvValue.Rows[i].Cells[3].Value = cachedValue.Value;
                         dgvValue.Rows[i].Cells[4].Value = cachedValue.Note;
+                        dgvValue.Rows[i].Cells[5].Value = cachedValue.Scope;
+                        dgvValue.Rows[i].Cells[6].Value = ResolveOwnerProcessName(cachedValue.OwnerProcId);
                     }
                     else
                     {
@@ -426,9 +505,12 @@ namespace Automation
                         dgvValue.Rows[i].Cells[2].Value = DefaultValueType;
                         dgvValue.Rows[i].Cells[3].Value = DefaultValueText;
                         dgvValue.Rows[i].Cells[4].Value = string.Empty;
+                        dgvValue.Rows[i].Cells[5].Value = selectedScope;
+                        dgvValue.Rows[i].Cells[6].Value = ResolveOwnerProcessName(selectedOwnerProcId);
                     }
                 }
-                RefreshCommonList();
+                RefreshScopeTree();
+                ApplyScopeFilter();
                 RefreshMonitorTitle();
                 RefreshMonitorRows();
             }
@@ -437,12 +519,145 @@ namespace Automation
                 isValueGridReady = allowRefresh;
             }
         }
+
+        private void RefreshScopeTree()
+        {
+            if (scopeTree == null) return;
+            scopeTree.BeginUpdate();
+            scopeTree.Nodes.Clear();
+            TreeNode publicNode = new TreeNode("公共变量")
+            {
+                Tag = new VariableScopeSelection { Scope = VariableScopeContract.Public }
+            };
+            TreeNode systemNode = new TreeNode("系统变量")
+            {
+                Tag = new VariableScopeSelection { Scope = VariableScopeContract.System }
+            };
+            TreeNode processRoot = new TreeNode("流程私有变量");
+            foreach (Proc proc in SF.frmProc?.procsList ?? new List<Proc>())
+            {
+                if (proc?.head == null || proc.head.Id == Guid.Empty) continue;
+                processRoot.Nodes.Add(new TreeNode(proc.head.Name ?? proc.head.Id.ToString("D"))
+                {
+                    Tag = new VariableScopeSelection
+                    {
+                        Scope = VariableScopeContract.Process,
+                        OwnerProcId = proc.head.Id
+                    }
+                });
+            }
+            scopeTree.Nodes.Add(publicNode);
+            scopeTree.Nodes.Add(processRoot);
+            scopeTree.Nodes.Add(systemNode);
+            processRoot.Expand();
+            TreeNode selectedNode = scopeTree.Nodes.Cast<TreeNode>()
+                .SelectMany(FlattenTree)
+                .FirstOrDefault(node => node.Tag is VariableScopeSelection selection
+                    && string.Equals(selection.Scope, selectedScope, StringComparison.Ordinal)
+                    && selection.OwnerProcId == selectedOwnerProcId)
+                ?? publicNode;
+            scopeTree.SelectedNode = selectedNode;
+            selectedNode.EnsureVisible();
+            scopeTree.EndUpdate();
+        }
+
+        private static IEnumerable<TreeNode> FlattenTree(TreeNode node)
+        {
+            yield return node;
+            foreach (TreeNode child in node.Nodes)
+            {
+                foreach (TreeNode descendant in FlattenTree(child)) yield return descendant;
+            }
+        }
+
+        private void ScopeTree_AfterSelect(object sender, TreeViewEventArgs e)
+        {
+            if (!(e.Node?.Tag is VariableScopeSelection selection)) return;
+            selectedScope = selection.Scope;
+            selectedOwnerProcId = selection.OwnerProcId;
+            pendingNewIndex = -1;
+            ApplyScopeFilter();
+        }
+
+        private void ApplyScopeFilter()
+        {
+            if (dgvValue.Rows.Count == 0) return;
+            dgvValue.CurrentCell = null;
+            int visibleCount = 0;
+            for (int index = 0; index < dgvValue.Rows.Count; index++)
+            {
+                bool visible = index == pendingNewIndex;
+                bool systemReadOnly = false;
+                if (SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+                {
+                    visible = string.Equals(value.Scope, selectedScope, StringComparison.Ordinal)
+                        && (!string.Equals(selectedScope, VariableScopeContract.Process, StringComparison.Ordinal)
+                            || value.OwnerProcId == selectedOwnerProcId);
+                    systemReadOnly = ValueConfigStore.IsSystemValueIndex(value.Index);
+                }
+                DataGridViewRow row = dgvValue.Rows[index];
+                row.Visible = visible;
+                row.ReadOnly = false;
+                if (systemReadOnly)
+                {
+                    for (int column = 0; column < row.Cells.Count; column++)
+                    {
+                        row.Cells[column].ReadOnly = column != 3;
+                    }
+                }
+                else
+                {
+                    for (int column = 0; column < row.Cells.Count; column++)
+                    {
+                        row.Cells[column].ReadOnly = column == 0 || column >= 5;
+                    }
+                }
+                if (visible) visibleCount++;
+            }
+            labelCommon.Text = string.Equals(selectedScope, VariableScopeContract.Process, StringComparison.Ordinal)
+                ? $"{ResolveOwnerProcessName(selectedOwnerProcId)} 私有变量({visibleCount})"
+                : (string.Equals(selectedScope, VariableScopeContract.System, StringComparison.Ordinal)
+                    ? $"系统变量({visibleCount})"
+                    : $"公共变量({visibleCount})");
+        }
+
+        private static string ResolveOwnerProcessName(Guid? ownerProcId)
+        {
+            if (!ownerProcId.HasValue) return string.Empty;
+            return (SF.frmProc?.procsList ?? new List<Proc>())
+                .FirstOrDefault(proc => proc?.head?.Id == ownerProcId.Value)?.head?.Name ?? string.Empty;
+        }
+
+        public void LocateProcessVariables(Guid procId)
+        {
+            if (procId == Guid.Empty) return;
+            selectedScope = VariableScopeContract.Process;
+            selectedOwnerProcId = procId;
+            RefreshScopeTree();
+            ApplyScopeFilter();
+        }
         /*=============================================================================================*/
         private void FrmValue_Load(object sender, EventArgs e)
         {
             EnsureValueStoreHooked();
+            int selectedProcIndex = SF.frmProc?.SelectedProcNum ?? -1;
+            if (selectedProcIndex >= 0 && selectedProcIndex < (SF.frmProc?.procsList?.Count ?? 0))
+            {
+                LocateProcessVariables(SF.frmProc.procsList[selectedProcIndex].head.Id);
+            }
             AttachDataStructView();
             SetDefaultStructPanelRatio();
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (!Visible || SF.frmProc?.procsList == null) return;
+            int selectedProcIndex = SF.frmProc.SelectedProcNum;
+            if (selectedProcIndex >= 0 && selectedProcIndex < SF.frmProc.procsList.Count)
+            {
+                LocateProcessVariables(SF.frmProc.procsList[selectedProcIndex].head.Id);
+            }
         }
 
         private void AttachDataStructView()
@@ -634,6 +849,7 @@ namespace Automation
 
         private void PasteToSelectedValueRow()
         {
+            if (!SF.CanEditProcStructure()) return;
             if (clipboardItem == null)
             {
                 MessageBox.Show("没有可粘贴的数据");
@@ -655,15 +871,19 @@ namespace Automation
                 MessageBox.Show($"粘贴失败:{error}");
                 return;
             }
-            if (!SF.valueStore.TrySetValue(rowIndex, nameToUse, clipboardItem.Type, clipboardItem.Value, clipboardItem.Note, "变量表粘贴"))
+            if (!TryCommitVariableRow(
+                rowIndex, nameToUse, clipboardItem.Type, clipboardItem.Value, clipboardItem.Note,
+                selectedScope, selectedOwnerProcId, out string commitError))
             {
-                MessageBox.Show("粘贴失败:名称已存在或数据无效");
+                MessageBox.Show("粘贴失败:" + commitError);
                 return;
             }
             row.Cells[1].Value = nameToUse;
             row.Cells[2].Value = clipboardItem.Type;
             row.Cells[3].Value = clipboardItem.Value;
             row.Cells[4].Value = clipboardItem.Note;
+            row.Cells[5].Value = selectedScope;
+            row.Cells[6].Value = ResolveOwnerProcessName(selectedOwnerProcId);
         }
 
         private string BuildPasteName(string baseName)
@@ -688,39 +908,44 @@ namespace Automation
 
         private void ClearSelectedValueRows(bool requireConfirm = false)
         {
+            if (!SF.CanEditProcStructure()) return;
             List<int> indexes = GetSelectedRowIndexes();
             if (indexes.Count == 0)
             {
                 MessageBox.Show("没有选定的变量");
                 return;
             }
+            List<DicValue> variables = indexes
+                .Select(index => SF.valueStore.TryGetValueByIndex(index, out DicValue value) ? value : null)
+                .Where(value => value != null)
+                .ToList();
+            if (variables.Any(value => ValueConfigStore.IsSystemValueIndex(value.Index)))
+            {
+                MessageBox.Show("系统变量配置只读。");
+                return;
+            }
             if (requireConfirm)
             {
-                DialogResult result = MessageBox.Show("确认清除选中的变量数据？", "清除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                int usageCount = variables.Sum(CountVariableUsages);
+                DialogResult result = MessageBox.Show(
+                    $"确认删除选中的{variables.Count}个变量？检测到{usageCount}个已知引用；引用文本将保留，受影响流程会变为 incomplete。",
+                    "删除变量确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (result != DialogResult.Yes)
                 {
                     return;
                 }
             }
-            bool hasFailure = false;
-            foreach (int index in indexes)
+            Dictionary<string, DicValue> draft = SF.valueStore.BuildSaveData();
+            foreach (DicValue variable in variables)
             {
-                if (!SF.valueStore.ClearValueByIndex(index, "变量表清除"))
-                {
-                    hasFailure = true;
-                    continue;
-                }
-                DataGridViewRow row = dgvValue.Rows[index];
-                row.Cells[1].Value = string.Empty;
-                row.Cells[2].Value = DefaultValueType;
-                row.Cells[3].Value = DefaultValueText;
-                row.Cells[4].Value = string.Empty;
+                draft.Remove(variable.Name);
             }
-            RefreshCommonList();
-            if (hasFailure)
+            if (!SF.valueStore.TryCommitConfiguration(SF.ConfigPath, draft, out string error))
             {
-                MessageBox.Show("清除数据失败");
+                MessageBox.Show(error, "删除变量失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
             }
+            FreshFrmValue();
         }
 
         private bool TryBuildRowValueForSave(DataGridView dataGridView, int rowIndex, out int num, out string key, out string type, out string value, out string note)
@@ -774,21 +999,63 @@ namespace Automation
                 if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
                 {
                     DataGridView dataGridView = (DataGridView)sender;
+                    if (e.ColumnIndex == 3
+                        && SF.valueStore.TryGetValueByIndex(e.RowIndex, out DicValue existing))
+                    {
+                        string editedValue = dataGridView.Rows[e.RowIndex].Cells[3].Value?.ToString() ?? string.Empty;
+                        if (!SF.valueStore.setValueByIndex(existing.Index, editedValue, "变量页设置当前值"))
+                        {
+                            isValueEditValid = false;
+                            MessageBox.Show($"变量[{existing.Name}]当前值无效。", "设置当前值失败",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            FreshFrmValue();
+                            return;
+                        }
+                        isValueEditValid = true;
+                        return;
+                    }
+                    if (!SF.CanEditProcStructure())
+                    {
+                        isValueEditValid = false;
+                        FreshFrmValue();
+                        return;
+                    }
                     isValueEditValid = !string.IsNullOrWhiteSpace(dataGridView.Rows[e.RowIndex].Cells[1].Value?.ToString());
                     if (!TryBuildRowValueForSave(dataGridView, e.RowIndex, out int num, out string key, out string type, out string value, out string note))
                     {
                         isValueEditValid = false;
                         return;
                     }
-                    if (!SF.valueStore.TrySetValue(num, key, type, value, note, "变量表编辑"))
+                    if (e.ColumnIndex == 1
+                        && SF.valueStore.TryGetValueByIndex(num, out DicValue renamedVariable)
+                        && !string.Equals(renamedVariable.Name, key, StringComparison.Ordinal))
+                    {
+                        int usageCount = CountVariableUsages(renamedVariable);
+                        if (MessageBox.Show(
+                            $"变量[{renamedVariable.Name}]存在{usageCount}个已知引用。重命名后引用文本保持不变，受影响流程会变为 incomplete。是否提交？",
+                            "确认重命名变量", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                        {
+                            isValueEditValid = false;
+                            FreshFrmValue();
+                            return;
+                        }
+                    }
+                    if (!TryCommitVariableRow(
+                        num, key, type, value, note, selectedScope, selectedOwnerProcId,
+                        out string commitError))
                     {
                         isValueEditValid = false;
+                        MessageBox.Show(commitError, "保存变量失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
                     }
                     dataGridView.Rows[e.RowIndex].Cells[1].Value = key;
                     dataGridView.Rows[e.RowIndex].Cells[2].Value = type;
                     dataGridView.Rows[e.RowIndex].Cells[3].Value = value;
                     dataGridView.Rows[e.RowIndex].Cells[4].Value = note;
+                    dataGridView.Rows[e.RowIndex].Cells[5].Value = selectedScope;
+                    dataGridView.Rows[e.RowIndex].Cells[6].Value = ResolveOwnerProcessName(selectedOwnerProcId);
+                    pendingNewIndex = -1;
+                    ApplyScopeFilter();
                     isValueEditValid = true;
                 }
             }
@@ -802,33 +1069,93 @@ namespace Automation
 
         private void btnSet_Click(object sender, EventArgs e)
         {
-            if (dgvValue.CurrentCell != null)
+            if (!SF.CanEditProcStructure()) return;
+            if (!TryGetSingleSelectedRowIndex(out int index)
+                || !SF.valueStore.TryGetValueByIndex(index, out DicValue variable))
             {
-                // 获取当前选定单元格的行列索引
-                int selectedRowIndex = dgvValue.CurrentCell.RowIndex;
-                int selectedColumnIndex = dgvValue.CurrentCell.ColumnIndex;
-                if(selectedColumnIndex == 0 && selectedRowIndex >= 0)
-                {
-                    SF.valueStore.ToggleMark(selectedRowIndex);
-                    SF.valueStore.Save(SF.ConfigPath);
-                    RefreshCommonList();
-                }
+                MessageBox.Show("请选择需要移动作用域的变量。");
+                return;
             }
-            else
+            if (ValueConfigStore.IsSystemValueIndex(variable.Index))
             {
-                MessageBox.Show("没有选定的单元格");
+                MessageBox.Show("系统变量配置只读。");
+                return;
+            }
+            var choices = new List<VariableScopeChoice>
+            {
+                new VariableScopeChoice { Text = "公共变量", Scope = VariableScopeContract.Public }
+            };
+            choices.AddRange((SF.frmProc?.procsList ?? new List<Proc>())
+                .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
+                .Select(proc => new VariableScopeChoice
+                {
+                    Text = $"流程私有变量 / {proc.head.Name}",
+                    Scope = VariableScopeContract.Process,
+                    OwnerProcId = proc.head.Id
+                }));
+            using (var dialog = new Form
+            {
+                Text = "移动变量作用域",
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MinimizeBox = false,
+                MaximizeBox = false,
+                ClientSize = new Size(420, 125)
+            })
+            using (var selector = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Location = new Point(20, 20),
+                Width = 380,
+                DataSource = choices
+            })
+            using (var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, Location = new Point(230, 70), Width = 80 })
+            using (var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Location = new Point(320, 70), Width = 80 })
+            {
+                selector.SelectedItem = choices.FirstOrDefault(choice =>
+                    string.Equals(choice.Scope, variable.Scope, StringComparison.Ordinal)
+                    && choice.OwnerProcId == variable.OwnerProcId) ?? choices[0];
+                dialog.Controls.Add(selector);
+                dialog.Controls.Add(ok);
+                dialog.Controls.Add(cancel);
+                dialog.AcceptButton = ok;
+                dialog.CancelButton = cancel;
+                if (dialog.ShowDialog(this) != DialogResult.OK
+                    || !(selector.SelectedItem is VariableScopeChoice choice)) return;
+
+                int usageCount = CountVariableUsages(variable);
+                if (MessageBox.Show(
+                    $"变量[{variable.Name}]存在{usageCount}个已知引用。移动后引用文本保持不变，不可访问的流程将变为 incomplete。是否提交？",
+                    "确认移动作用域", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                {
+                    return;
+                }
+                Dictionary<string, DicValue> draft = SF.valueStore.BuildSaveData();
+                DicValue updated = ObjectGraphCloner.Clone(draft[variable.Name]);
+                updated.Scope = choice.Scope;
+                updated.OwnerProcId = choice.OwnerProcId;
+                draft[variable.Name] = updated;
+                if (!SF.valueStore.TryCommitConfiguration(SF.ConfigPath, draft, out string error))
+                {
+                    MessageBox.Show(error, "移动作用域失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                selectedScope = choice.Scope;
+                selectedOwnerProcId = choice.OwnerProcId;
+                FreshFrmValue();
+                LocateValueIndex(updated.Index);
             }
         }
         int currentIndex = -1;
         private void btnPrevious_Click(object sender, EventArgs e)
         {
             int previousIndex = -1;
-            int startIndex = currentIndex - 1;
-            if (startIndex < 0)
+            int StartIndex = currentIndex - 1;
+            if (StartIndex < 0)
             {
-                startIndex = ValueConfigStore.ValueCapacity - 1;
+                StartIndex = ValueConfigStore.ValueCapacity - 1;
             }
-            for (int i = startIndex; i >= 0; i--)
+            for (int i = StartIndex; i >= 0; i--)
             {
                 if (SF.valueStore.IsMarked(i))
                 {
@@ -858,12 +1185,12 @@ namespace Automation
         private void BtnNext_Click(object sender, EventArgs e)
         {
             int nextIndex = -1;
-            int startIndex = currentIndex + 1;
-            if (startIndex < 0)
+            int StartIndex = currentIndex + 1;
+            if (StartIndex < 0)
             {
-                startIndex = 0;
+                StartIndex = 0;
             }
-            for (int i = startIndex; i < ValueConfigStore.ValueCapacity; i++)
+            for (int i = StartIndex; i < ValueConfigStore.ValueCapacity; i++)
             {
                 if (SF.valueStore.IsMarked(i))
                 {
@@ -951,20 +1278,113 @@ namespace Automation
 
         private void btnNormalVariables_Click(object sender, EventArgs e)
         {
-            LocateValueIndex(0);
+            if (string.Equals(selectedScope, VariableScopeContract.System, StringComparison.Ordinal))
+            {
+                MessageBox.Show("系统变量配置只读。");
+                return;
+            }
+            for (int index = 0; index < ValueConfigStore.NormalValueCapacity; index++)
+            {
+                if (SF.valueStore.TryGetValueByIndex(index, out _)) continue;
+                pendingNewIndex = index;
+                ApplyScopeFilter();
+                dgvValue.Rows[index].Cells[3].Value = DefaultValueText;
+                dgvValue.Rows[index].Cells[5].Value = selectedScope;
+                dgvValue.Rows[index].Cells[6].Value = ResolveOwnerProcessName(selectedOwnerProcId);
+                dgvValue.CurrentCell = dgvValue.Rows[index].Cells[1];
+                dgvValue.FirstDisplayedScrollingRowIndex = index;
+                dgvValue.BeginEdit(true);
+                return;
+            }
+            MessageBox.Show("普通变量区没有空闲槽位。");
         }
 
         private void btnSystemVariables_Click(object sender, EventArgs e)
         {
-            LocateValueIndex(ValueConfigStore.SystemValueStartIndex);
+            // 按钮已隐藏；系统变量通过左侧作用域树查看。
         }
 
-        private void LocateValueIndex(int index)
+        private void btnMoveIndex_Click(object sender, EventArgs e)
+        {
+            if (!SF.CanEditProcStructure()) return;
+            if (!TryGetSingleSelectedRowIndex(out int currentIndex)
+                || !SF.valueStore.TryGetValueByIndex(currentIndex, out DicValue variable))
+            {
+                MessageBox.Show("请选择需要移动槽位的变量。");
+                return;
+            }
+            if (ValueConfigStore.IsSystemValueIndex(variable.Index))
+            {
+                MessageBox.Show("系统变量配置只读。");
+                return;
+            }
+            using (var dialog = new Form
+            {
+                Text = "移动变量槽位",
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MinimizeBox = false,
+                MaximizeBox = false,
+                ClientSize = new Size(360, 125)
+            })
+            using (var target = new NumericUpDown
+            {
+                Minimum = 0,
+                Maximum = ValueConfigStore.NormalValueCapacity - 1,
+                Value = variable.Index,
+                Location = new Point(20, 20),
+                Width = 320
+            })
+            using (var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, Location = new Point(170, 70), Width = 80 })
+            using (var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Location = new Point(260, 70), Width = 80 })
+            {
+                dialog.Controls.Add(target);
+                dialog.Controls.Add(ok);
+                dialog.Controls.Add(cancel);
+                dialog.AcceptButton = ok;
+                dialog.CancelButton = cancel;
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                int targetIndex = (int)target.Value;
+                if (targetIndex == variable.Index) return;
+                if (SF.valueStore.TryGetValueByIndex(targetIndex, out DicValue occupied))
+                {
+                    MessageBox.Show($"槽位{targetIndex}已被变量[{occupied.Name}]占用。");
+                    return;
+                }
+                int usageCount = CountVariableUsages(variable);
+                if (MessageBox.Show(
+                    $"变量[{variable.Name}]存在{usageCount}个已知引用。移动后索引引用文本保持不变，受影响流程会变为 incomplete。是否提交？",
+                    "确认移动槽位", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                {
+                    return;
+                }
+                Dictionary<string, DicValue> draft = SF.valueStore.BuildSaveData();
+                DicValue updated = ObjectGraphCloner.Clone(draft[variable.Name]);
+                updated.Index = targetIndex;
+                draft[variable.Name] = updated;
+                if (!SF.valueStore.TryCommitConfiguration(SF.ConfigPath, draft, out string error))
+                {
+                    MessageBox.Show(error, "移动槽位失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                FreshFrmValue();
+                LocateValueIndex(targetIndex);
+            }
+        }
+
+        public void LocateValueIndex(int index)
         {
             if (index < 0 || index >= dgvValue.Rows.Count)
             {
                 return;
             }
+            if (SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+            {
+                selectedScope = value.Scope;
+                selectedOwnerProcId = value.OwnerProcId;
+                RefreshScopeTree();
+            }
+            ApplyScopeFilter();
             dgvValue.ClearSelection();
             dgvValue.CurrentCell = dgvValue.Rows[index].Cells[0];
             dgvValue.FirstDisplayedScrollingRowIndex = index;
@@ -973,33 +1393,66 @@ namespace Automation
 
         private void RefreshCommonList()
         {
-            if (listCommon == null)
-            {
-                return;
-            }
-            listCommon.BeginUpdate();
-            listCommon.Items.Clear();
+            ApplyScopeFilter();
+        }
+
+        private static int CountVariableUsages(DicValue variable)
+        {
             int count = 0;
-            for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
+            foreach (Proc proc in SF.frmProc?.procsList ?? new List<Proc>())
             {
-                if (!SF.valueStore.IsMarked(i))
+                foreach (OperationType operation in (proc?.steps ?? new List<Step>())
+                    .Where(step => step?.Ops != null).SelectMany(step => step.Ops))
                 {
-                    continue;
+                    count += VariableReferenceCatalog.Enumerate(operation).Count(reference =>
+                        reference.Kind == VariableReferenceKind.Name
+                            ? string.Equals(reference.Value, variable.Name, StringComparison.Ordinal)
+                            : int.TryParse(reference.Value, out int index) && index == variable.Index);
                 }
-                string name = null;
-                if (SF.valueStore.TryGetValueByIndex(i, out DicValue value))
-                {
-                    name = value?.Name;
-                }
-                listCommon.Items.Add(new CommonValueItem
-                {
-                    Index = i,
-                    Name = name
-                });
-                count++;
             }
-            labelCommon.Text = $"常用变量({count})";
-            listCommon.EndUpdate();
+            return count;
+        }
+
+        private static bool TryCommitVariableRow(
+            int index,
+            string name,
+            string type,
+            string currentValue,
+            string note,
+            string scope,
+            Guid? ownerProcId,
+            out string error)
+        {
+            error = null;
+            Dictionary<string, DicValue> draft = SF.valueStore.BuildSaveData();
+            DicValue current = draft.Values.FirstOrDefault(value => value?.Index == index);
+            if (draft.TryGetValue(name, out DicValue sameName) && sameName.Index != index)
+            {
+                error = $"变量名已存在：{name}";
+                return false;
+            }
+            if (current != null && ValueConfigStore.IsSystemValueIndex(current.Index))
+            {
+                error = "系统变量配置只读。";
+                return false;
+            }
+            if (current != null) draft.Remove(current.Name);
+            DicValue updated = current == null ? new DicValue() : ObjectGraphCloner.Clone(current);
+            if (updated.Id == Guid.Empty) updated.Id = Guid.NewGuid();
+            updated.Index = index;
+            updated.Name = name;
+            updated.Type = type;
+            updated.Scope = scope;
+            updated.OwnerProcId = ownerProcId;
+            updated.Value = currentValue;
+            updated.Note = note;
+            draft[name] = updated;
+            return SF.valueStore.TryCommitConfiguration(
+                SF.ConfigPath,
+                draft,
+                out error,
+                new Dictionary<string, string>(StringComparer.Ordinal) { [name] = currentValue },
+                "变量页保存当前值");
         }
 
         private void EnsureValueStoreHooked()
@@ -1048,7 +1501,7 @@ namespace Automation
             {
                 return;
             }
-            if (!monitorIndexSet.Contains(e.Index))
+            if (!monitoredVariableIds.Contains(e.Id))
             {
                 return;
             }
@@ -1067,6 +1520,7 @@ namespace Automation
             }
             int rowIndex = grid.Rows.Add();
             DataGridViewRow row = grid.Rows[rowIndex];
+            row.Tag = e.Id;
             row.Cells[0].Value = e.Index;
             row.Cells[1].Value = e.Name;
             row.Cells[2].Value = e.NewValue;
@@ -1080,7 +1534,7 @@ namespace Automation
             {
                 return;
             }
-            monitorForm.TitleLabel.Text = $"变量监控({monitorIndexSet.Count})";
+            monitorForm.TitleLabel.Text = $"变量监控({monitoredVariableIds.Count})";
         }
 
         private void RefreshMonitorRows()
@@ -1100,18 +1554,16 @@ namespace Automation
             }
             EnsureMonitorForm();
             DataGridView grid = monitorForm.Grid;
-            if (monitorIndexSet.Contains(index))
-            {
-                return;
-            }
             if (!SF.valueStore.TryGetValueByIndex(index, out DicValue value))
             {
                 return;
             }
+            if (monitoredVariableIds.Contains(value.Id)) return;
             SF.valueStore.SetMonitorFlag(index, true);
-            monitorIndexSet.Add(index);
+            monitoredVariableIds.Add(value.Id);
             int rowIndex = grid.Rows.Add();
             DataGridViewRow row = grid.Rows[rowIndex];
+            row.Tag = value.Id;
             row.Cells[0].Value = index;
             row.Cells[1].Value = value?.Name;
             row.Cells[2].Value = value?.Value;
@@ -1124,29 +1576,31 @@ namespace Automation
 
         private void RemoveMonitor(int index)
         {
-            if (!monitorIndexSet.Contains(index))
-            {
-                return;
-            }
-            monitorIndexSet.Remove(index);
-            SF.valueStore.SetMonitorFlag(index, false);
+            if (!SF.valueStore.TryGetValueByIndex(index, out DicValue value)) return;
+            RemoveMonitor(value.Id);
+        }
+
+        private void RemoveMonitor(Guid variableId)
+        {
+            if (!monitoredVariableIds.Remove(variableId)) return;
+            SF.valueStore.SetMonitorFlag(variableId, false);
             RefreshMonitorTitle();
         }
 
         private void StopAllMonitor()
         {
-            if (monitorIndexSet.Count == 0)
+            if (monitoredVariableIds.Count == 0)
             {
                 RefreshMonitorTitle();
                 SF.valueStore.SetMonitorEnabled(false);
                 return;
             }
-            List<int> indexes = new List<int>(monitorIndexSet);
-            foreach (int index in indexes)
+            List<Guid> variableIds = new List<Guid>(monitoredVariableIds);
+            foreach (Guid variableId in variableIds)
             {
-                SF.valueStore.SetMonitorFlag(index, false);
+                SF.valueStore.SetMonitorFlag(variableId, false);
             }
-            monitorIndexSet.Clear();
+            monitoredVariableIds.Clear();
             if (monitorForm != null && !monitorForm.IsDisposed)
             {
                 monitorForm.Grid.Rows.Clear();
@@ -1211,13 +1665,12 @@ namespace Automation
                 MessageBox.Show("没有选定的监控项");
                 return;
             }
-            object cellValue = grid.CurrentRow.Cells[0].Value;
-            if (cellValue == null || !int.TryParse(cellValue.ToString(), out int index))
+            if (!(grid.CurrentRow.Tag is Guid variableId) || variableId == Guid.Empty)
             {
-                MessageBox.Show("监控项编号无效");
+                MessageBox.Show("监控项稳定ID无效");
                 return;
             }
-            RemoveMonitor(index);
+            RemoveMonitor(variableId);
         }
 
         private void listCommon_SelectedIndexChanged(object sender, EventArgs e)

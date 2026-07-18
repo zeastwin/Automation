@@ -985,7 +985,7 @@ namespace Automation
             return treeView1.Nodes[structIndex];
         }
 
-        private void UpdateItemNodeTexts(TreeNode structNode, DataStruct dataStruct, int startIndex)
+        private void UpdateItemNodeTexts(TreeNode structNode, DataStruct dataStruct, int StartIndex)
         {
             if (structNode == null || dataStruct?.dataStructItems == null)
             {
@@ -993,7 +993,7 @@ namespace Automation
             }
             DataStructNodeTag structTag = structNode.Tag as DataStructNodeTag;
             int structIndex = structTag?.StructIndex ?? -1;
-            for (int i = startIndex; i < dataStruct.dataStructItems.Count; i++)
+            for (int i = StartIndex; i < dataStruct.dataStructItems.Count; i++)
             {
                 if (i >= structNode.Nodes.Count)
                 {

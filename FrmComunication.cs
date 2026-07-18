@@ -1327,14 +1327,14 @@ namespace Automation
                         bool matched = tcp
                             ? (operation is TcpOps tcpOps && tcpOps.Params?.Any(item => IsSameName(item?.Name)) == true)
                                 || (operation is WaitTcp waitTcp && waitTcp.Params?.Any(item => IsSameName(item?.Name)) == true)
-                                || (operation is SendTcpMsg sendTcp && IsSameName(sendTcp.ID))
-                                || (operation is ReceoveTcpMsg receiveTcp && IsSameName(receiveTcp.ID))
-                                || (operation is SendReceoveCommMsg tcpRequest && tcpRequest.CommType == "TCP" && IsSameName(tcpRequest.ID))
+                                || (operation is SendTcpMsg sendTcp && IsSameName(sendTcp.ConnectionName))
+                                || (operation is ReceiveTcpMsg receiveTcp && IsSameName(receiveTcp.ConnectionName))
+                                || (operation is SendReceiveCommMsg tcpRequest && tcpRequest.CommType == "TCP" && IsSameName(tcpRequest.ConnectionName))
                             : (operation is SerialPortOps serialOps && serialOps.Params?.Any(item => IsSameName(item?.Name)) == true)
                                 || (operation is WaitSerialPort waitSerial && waitSerial.Params?.Any(item => IsSameName(item?.Name)) == true)
-                                || (operation is SendSerialPortMsg sendSerial && IsSameName(sendSerial.ID))
-                                || (operation is ReceoveSerialPortMsg receiveSerial && IsSameName(receiveSerial.ID))
-                                || (operation is SendReceoveCommMsg serialRequest && serialRequest.CommType == "串口" && IsSameName(serialRequest.ID));
+                                || (operation is SendSerialPortMsg sendSerial && IsSameName(sendSerial.ConnectionName))
+                                || (operation is ReceiveSerialPortMsg receiveSerial && IsSameName(receiveSerial.ConnectionName))
+                                || (operation is SendReceiveCommMsg serialRequest && serialRequest.CommType == "串口" && IsSameName(serialRequest.ConnectionName));
                         if (matched)
                         {
                             reference = $"流程{procIndex}-步骤{stepIndex}-指令{opIndex}";

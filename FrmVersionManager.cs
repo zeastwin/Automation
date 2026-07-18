@@ -7,6 +7,8 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Automation
@@ -29,6 +31,14 @@ namespace Automation
         private ConfigurationVersionLayer currentLayer = ConfigurationVersionLayer.Process;
         private string selectedCommitId;
         private bool compareWithPrevious;
+        private bool operationInProgress;
+        private int stateRequestVersion;
+
+        private sealed class VersionPageState
+        {
+            public string SelectedCommitId { get; set; }
+            public JObject Payload { get; set; }
+        }
 
         public FrmVersionManager()
         {
@@ -59,7 +69,7 @@ namespace Automation
             }
         }
 
-        private void WebView_WebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+        private async void WebView_WebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             try
             {
@@ -68,31 +78,31 @@ namespace Automation
                 switch (action)
                 {
                     case "ready":
-                        PushState();
+                        await PushStateAsync();
                         break;
                     case "layer":
                         currentLayer = string.Equals(request["layer"]?.Value<string>(), "equipment", StringComparison.OrdinalIgnoreCase)
                             ? ConfigurationVersionLayer.Equipment
                             : ConfigurationVersionLayer.Process;
                         selectedCommitId = null;
-                        PushState();
+                        await PushStateAsync();
                         break;
                     case "select":
                         selectedCommitId = request["commitId"]?.Value<string>();
-                        PushState();
+                        await PushStateAsync();
                         break;
                     case "compare":
                         compareWithPrevious = string.Equals(request["mode"]?.Value<string>(), "previous", StringComparison.OrdinalIgnoreCase);
-                        PushState();
+                        await PushStateAsync();
                         break;
                     case "snapshot":
-                        CreateSnapshot(request["note"]?.Value<string>());
+                        await CreateSnapshotAsync(request["note"]?.Value<string>());
                         break;
                     case "restore":
-                        RestoreSelected();
+                        await RestoreSelectedAsync();
                         break;
                     case "deleteSnapshot":
-                        DeleteSelectedSnapshot();
+                        await DeleteSelectedSnapshotAsync();
                         break;
                 }
             }
@@ -102,19 +112,34 @@ namespace Automation
             }
         }
 
-        private void CreateSnapshot(string note)
+        private async Task CreateSnapshotAsync(string note)
         {
-            if (!SF.versionService.CreateManualSnapshot(currentLayer, note, null, out string error))
+            if (!TryBeginOperation())
             {
-                PushToast(error, true);
                 return;
             }
-            selectedCommitId = null;
-            PushToast("快照已创建。", false);
-            PushState();
+            try
+            {
+                ConfigurationVersionLayer layer = currentLayer;
+                string error = null;
+                bool success = await Task.Run(() =>
+                    SF.versionService.CreateManualSnapshot(layer, note, null, out error));
+                if (!success)
+                {
+                    PushToast(error, true);
+                    return;
+                }
+                selectedCommitId = null;
+                PushToast("快照已创建。", false);
+                await PushStateAsync();
+            }
+            finally
+            {
+                EndOperation();
+            }
         }
 
-        private void DeleteSelectedSnapshot()
+        private async Task DeleteSelectedSnapshotAsync()
         {
             if (string.IsNullOrWhiteSpace(selectedCommitId))
             {
@@ -127,17 +152,33 @@ namespace Automation
             {
                 return;
             }
-            if (!SF.versionService.DeleteSnapshot(currentLayer, selectedCommitId, out string error))
+            if (!TryBeginOperation())
             {
-                PushToast(error, true);
                 return;
             }
-            selectedCommitId = null;
-            PushToast("快照已删除。", false);
-            PushState();
+            try
+            {
+                ConfigurationVersionLayer layer = currentLayer;
+                string commitId = selectedCommitId;
+                string error = null;
+                bool success = await Task.Run(() =>
+                    SF.versionService.DeleteSnapshot(layer, commitId, out error));
+                if (!success)
+                {
+                    PushToast(error, true);
+                    return;
+                }
+                selectedCommitId = null;
+                PushToast("快照已删除。", false);
+                await PushStateAsync();
+            }
+            finally
+            {
+                EndOperation();
+            }
         }
 
-        private void RestoreSelected()
+        private async Task RestoreSelectedAsync()
         {
             if (string.IsNullOrWhiteSpace(selectedCommitId))
             {
@@ -151,47 +192,84 @@ namespace Automation
             {
                 return;
             }
-            bool success = SF.versionService.Restore(currentLayer, selectedCommitId,
-                () => SF.mainfrm.AreAllProcessesStopped(),
-                () => SF.mainfrm.ReloadProcessVersionedConfiguration(),
-                () => SF.mainfrm.RequireRestartAfterEquipmentRestore(),
-                out string error);
-            if (!success)
+            if (!TryBeginOperation())
             {
-                PushToast(error, true);
                 return;
             }
-            PushToast(currentLayer == ConfigurationVersionLayer.Process ? "工艺层已还原并重新加载。" : "设备层已还原，必须重启程序后才能继续操作。", false);
-            PushState();
+            try
+            {
+                ConfigurationVersionLayer layer = currentLayer;
+                string commitId = selectedCommitId;
+                string error = null;
+                bool success = await Task.Run(() => SF.versionService.Restore(layer, commitId,
+                    () => (bool)SF.mainfrm.Invoke(new Func<bool>(SF.mainfrm.AreAllProcessesStopped)),
+                    () => SF.mainfrm.Invoke(new Action(SF.mainfrm.ReloadProcessVersionedConfiguration)),
+                    () => SF.mainfrm.Invoke(new Action(SF.mainfrm.RequireRestartAfterEquipmentRestore)),
+                    out error));
+                if (!success)
+                {
+                    PushToast(error, true);
+                    return;
+                }
+                PushToast(layer == ConfigurationVersionLayer.Process
+                    ? "工艺层已还原并重新加载。"
+                    : "设备层已还原，必须重启程序后才能继续操作。", false);
+                await PushStateAsync();
+            }
+            finally
+            {
+                EndOperation();
+            }
         }
 
-        private void PushState()
+        private async Task PushStateAsync()
         {
             if (webView.CoreWebView2 == null || SF.versionService == null)
             {
                 return;
             }
-            IReadOnlyList<ConfigurationVersionRecord> history = SF.versionService.GetHistory(currentLayer, out bool dirty, out string historyError);
-            if (!history.Any(item => item.CommitId == selectedCommitId))
+            ConfigurationVersionLayer layer = currentLayer;
+            string commitId = selectedCommitId;
+            bool comparePrevious = compareWithPrevious;
+            int requestVersion = Interlocked.Increment(ref stateRequestVersion);
+            VersionPageState result = await Task.Run(() => BuildPageState(layer, commitId, comparePrevious));
+            if (IsDisposed || Disposing || requestVersion != Volatile.Read(ref stateRequestVersion)
+                || layer != currentLayer || comparePrevious != compareWithPrevious)
             {
-                selectedCommitId = history.FirstOrDefault()?.CommitId;
+                return;
+            }
+            selectedCommitId = result.SelectedCommitId;
+            ExecuteScript("setState(" + result.Payload.ToString(Formatting.None) + ");");
+        }
+
+        private static VersionPageState BuildPageState(
+            ConfigurationVersionLayer layer,
+            string selectedCommit,
+            bool comparePrevious)
+        {
+            IReadOnlyList<ConfigurationVersionRecord> history = SF.versionService.GetHistory(
+                layer, out bool dirty, out string historyError);
+            if (!history.Any(item => item.CommitId == selectedCommit))
+            {
+                selectedCommit = history.FirstOrDefault()?.CommitId;
             }
             List<ConfigurationVersionDiffEntry> diff = new List<ConfigurationVersionDiffEntry>();
             string diffError = null;
-            if (!string.IsNullOrWhiteSpace(selectedCommitId))
+            if (!string.IsNullOrWhiteSpace(selectedCommit))
             {
-                diff = SF.versionService.GetStructuredDiff(currentLayer, selectedCommitId, compareWithPrevious, out diffError).ToList();
+                diff = SF.versionService.GetStructuredDiff(
+                    layer, selectedCommit, comparePrevious, out diffError).ToList();
             }
             List<ConfigurationVersionDiffEntry> variableDiff = diff.Where(item => item.Category == "变量").ToList();
             List<ConfigurationVersionDiffEntry> dataStructDiff = diff.Where(item => item.Category == "数据结构").ToList();
             List<ConfigurationVersionDiffEntry> mainDiff = diff.Where(item => item.Category != "变量" && item.Category != "数据结构").ToList();
             JObject state = new JObject
             {
-                ["layer"] = currentLayer == ConfigurationVersionLayer.Process ? "process" : "equipment",
+                ["layer"] = layer == ConfigurationVersionLayer.Process ? "process" : "equipment",
                 ["dirty"] = dirty,
                 ["mustRestart"] = SF.VersionRestartRequired,
-                ["selectedCommitId"] = selectedCommitId,
-                ["compareMode"] = compareWithPrevious ? "previous" : "current",
+                ["selectedCommitId"] = selectedCommit,
+                ["compareMode"] = comparePrevious ? "previous" : "current",
                 ["historyError"] = historyError,
                 ["diffError"] = diffError,
                 ["history"] = JArray.FromObject(history.Select(item => new
@@ -217,11 +295,46 @@ namespace Automation
                     ["alarms"] = diff.Count(item => item.Category == "报警")
                 }
             };
-            ExecuteScript("setState(" + state.ToString(Formatting.None) + ");");
+            return new VersionPageState
+            {
+                SelectedCommitId = selectedCommit,
+                Payload = state
+            };
+        }
+
+        private bool TryBeginOperation()
+        {
+            if (operationInProgress)
+            {
+                PushToast("版本操作正在执行，请稍候。", true);
+                return false;
+            }
+            operationInProgress = true;
+            UseWaitCursor = true;
+            webView.Enabled = false;
+            return true;
+        }
+
+        private void EndOperation()
+        {
+            operationInProgress = false;
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            UseWaitCursor = false;
+            if (!webView.IsDisposed)
+            {
+                webView.Enabled = true;
+            }
         }
 
         private void PushToast(string message, bool isError)
         {
+            if (IsDisposed || Disposing || webView.IsDisposed)
+            {
+                return;
+            }
             ExecuteScript("showToast(" + JsonConvert.SerializeObject(message ?? string.Empty) + "," + (isError ? "true" : "false") + ");");
         }
 
@@ -272,7 +385,7 @@ namespace Automation
     <aside class="sidebar">
       <div class="snapshot-create">
         <div class="section-title">保存当前版本</div>
-        <div class="section-hint">仅在这里手动创建快照</div>
+        <div class="section-hint">快照保存配置与纳入版本的源码，不保存流程运行位置、后台任务或设备实时状态</div>
         <div class="create-row"><input class="note-input" id="note" maxlength="80" placeholder="填写本次修改说明"><button class="primary" onclick="post('snapshot',{note:byId('note').value})">创建快照</button></div>
         <div class="status-line" id="dirtyState"></div>
       </div>
@@ -310,7 +423,7 @@ var state={history:[],diff:[],variableDiff:[],dataStructDiff:[],summary:{}};
 function byId(id){return document.getElementById(id)}
 function post(action,data){window.chrome.webview.postMessage(JSON.stringify(Object.assign({action:action},data||{})))}
 function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]})}
-function setState(next){state=next||{};var process=state.layer==='process';var layerName=process?'工艺层':'设备层';byId('processTab').classList.toggle('active',process);byId('equipmentTab').classList.toggle('active',!process);document.querySelectorAll('.process-only').forEach(function(element){element.hidden=!process});byId('compareTitle').textContent=layerName+' · 改动项对比';byId('currentMode').textContent='与当前'+layerName+'配置';byId('restart').hidden=!state.mustRestart;renderHistory();renderSummary();renderChanges();renderVariables();renderDataStructs();byId('dirtyState').className='status-line '+(state.dirty?'dirty':'clean');byId('dirtyState').textContent=state.dirty?layerName+'当前配置有尚未保存的改动':layerName+'当前配置与最新快照一致';byId('currentMode').classList.toggle('active',state.compareMode==='current');byId('previousMode').classList.toggle('active',state.compareMode==='previous');byId('compareHint').textContent=state.selectedCommitId?(state.compareMode==='previous'?'所选快照相对上一手动快照的变化':'所选快照与当前'+layerName+'配置之间的变化'):'请先创建或选择'+layerName+'快照';var disabled=!state.selectedCommitId;byId('restoreButton').disabled=disabled;byId('deleteButton').disabled=disabled;if(state.historyError)showToast(state.historyError,true);if(state.diffError)showToast(state.diffError,true)}
+function setState(next){state=next||{};var process=state.layer==='process';var layerName=process?'工艺层':'设备层';byId('processTab').classList.toggle('active',process);byId('equipmentTab').classList.toggle('active',!process);document.querySelectorAll('.process-only').forEach(function(element){element.hidden=!process});byId('compareTitle').textContent=layerName+' · 改动项对比';byId('currentMode').textContent='与当前'+layerName+'配置';byId('restart').hidden=!state.mustRestart;renderHistory();renderSummary();renderChanges();renderVariables();renderDataStructs();byId('dirtyState').className='status-line '+(state.dirty?'dirty':'clean');byId('dirtyState').textContent=state.dirty?layerName+'当前配置有尚未纳入快照的改动':layerName+'当前配置与最新快照一致';byId('currentMode').classList.toggle('active',state.compareMode==='current');byId('previousMode').classList.toggle('active',state.compareMode==='previous');byId('compareHint').textContent=state.selectedCommitId?(state.compareMode==='previous'?'所选快照相对上一手动快照的变化':'所选快照与当前'+layerName+'配置之间的变化'):'请先创建或选择'+layerName+'快照';var disabled=!state.selectedCommitId;byId('restoreButton').disabled=disabled;byId('deleteButton').disabled=disabled;if(state.historyError)showToast(state.historyError,true);if(state.diffError)showToast(state.diffError,true)}
 function closeModal(id){byId(id).classList.remove('open')}
 function renderHistory(){var items=state.history||[];byId('historyCount').textContent=items.length+' 个';byId('history').innerHTML=items.length?items.map(function(v){return '<div class="version '+(v.commitId===state.selectedCommitId?'selected':'')+'" onclick="post(\'select\',{commitId:\''+esc(v.commitId)+'\'})"><div class="version-note">'+esc(v.message.replace(/^手动快照[：:]?\s*/,'' )||'未填写说明')+'</div><div class="version-meta"><span>'+esc(v.time)+'</span><span>'+esc(v.commitId.slice(0,8))+'</span></div></div>'}).join(''):'<div class="empty">当前还没有手动快照<br>填写说明后创建第一个快照</div>'}
 function renderSummary(){var s=state.summary||{},process=state.layer==='process';byId('totalMetric').textContent=s.total||0;var metrics=process?[[s.operations,'指令改动'],[s.steps,'步骤改动'],[s.variables,'变量改动'],[s.dataStructs,'数据结构改动']]:[[s.stations,'工站点位改动'],[s.ios,'IO 改动'],[s.cards,'控制卡改动'],[s.alarms,'报警改动']];['One','Two','Three','Four'].forEach(function(name,index){byId('metric'+name).textContent=metrics[index][0]||0;byId('metric'+name+'Label').textContent=metrics[index][1]});byId('variableCount').textContent=s.variables||0;byId('variableButton').disabled=!(s.variables>0);byId('dataStructCount').textContent=s.dataStructs||0;byId('dataStructButton').disabled=!(s.dataStructs>0)}

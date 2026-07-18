@@ -1140,16 +1140,16 @@ namespace Automation
                 return false;
             }
             int dotCount = 0;
-            int startIndex = 0;
+            int StartIndex = 0;
             if (text[0] == '-')
             {
                 if (text.Length == 1)
                 {
                     return false;
                 }
-                startIndex = 1;
+                StartIndex = 1;
             }
-            for (int i = startIndex; i < text.Length; i++)
+            for (int i = StartIndex; i < text.Length; i++)
             {
                 char ch = text[i];
                 if (ch == '.')

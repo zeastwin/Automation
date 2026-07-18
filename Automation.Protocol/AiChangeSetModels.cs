@@ -165,11 +165,20 @@ namespace Automation.Protocol
         [Description("变量精确名称。")]
         public string Name { get; set; }
 
+        [Description("变量作用域：public、process 或 system。单流程内部状态使用process；跨流程、HMI或设备共享状态使用public。")]
+        public string Scope { get; set; }
+
+        [Description("scope=process时必填的所属流程；可使用现有流程procId/name或同一ChangeSet新流程key。其他作用域不得提供。")]
+        public ProcessSelector OwnerProcess { get; set; }
+
+        [Description("可选普通变量全局槽位，范围[0,1000)；省略时新变量自动分配，现有变量保持原槽位。")]
+        public int? Index { get; set; }
+
         [Description("变量类型：double 或 string。复用现有变量时需与现有类型一致。")]
         public string Type { get; set; }
 
-        [Description("变量配置初始值，按type解析；不是运行时当前值。")]
-        public string InitialValue { get; set; }
+        [Description("变量当前值，按type解析；创建时省略则使用double的0或string的空字符串，更新时省略则保持当前值。")]
+        public string Value { get; set; }
 
         [Description("变量说明，可省略。")]
         public string Note { get; set; }
@@ -300,13 +309,10 @@ namespace Automation.Protocol
         [Description("弹框自动关闭时间，范围 1..3600000 毫秒；不需要自动关闭时省略，不能填0。")]
         public int? AutoCloseMs { get; set; }
 
-        [Description("io.write 的输出IO精确名称。")]
-        public string Io { get; set; }
+        [Description("io.write 的同一卡输出集合；至少一项，每项包含输出IO精确名称及运行时逻辑目标值，全部输出通过一次端口写入同步切换。")]
+        public List<IoOutputState> Outputs { get; set; }
 
-        [Description("io.write 写入的运行时逻辑目标值。true表示该精确输出IO逻辑激活，false表示逻辑未激活；它不统一表示安全位或工作位。")]
-        public bool? State { get; set; }
-
-        [Description("branch.io/io.wait 的强类型IO条件集合；每项包含精确IO名称及期望的运行时逻辑值。机构完成证据可在同一集合中同时声明目标反馈和对向反馈。")]
+        [Description("branch.io/io.wait 的强类型输入IO条件集合；每项包含通用输入IO精确名称及期望的运行时逻辑值。机构完成证据可在同一集合中同时声明目标反馈和对向反馈。")]
         public List<IoStateCondition> Conditions { get; set; }
 
         [Description("branch.io 的条件组合方式：all 表示全部条件成立，any 表示任一条件成立；省略时为 all。")]
@@ -315,10 +321,7 @@ namespace Automation.Protocol
         [Description("io.wait 检测失败后的符号目标。提供时，超时、IO映射缺失、IO类型无效或读取失败统一进入该目标；省略时使用安全默认策略“报警停止”。")]
         public OperationTarget OnFailure { get; set; }
 
-        [Description("动作前延时，范围 0..3600000 毫秒；不需要时省略。")]
-        public int? BeforeMs { get; set; }
-
-        [Description("动作后延时，范围 0..3600000 毫秒；不需要时省略。")]
+        [Description("process.control/process.wait 的动作后延时，范围 0..3600000 毫秒；不需要时省略。")]
         public int? AfterMs { get; set; }
 
         [Description("等待超时，提供时范围 1..86400000 毫秒。")]
@@ -345,10 +348,19 @@ namespace Automation.Protocol
 
     public sealed class IoStateCondition
     {
-        [Description("IO精确名称；branch.io/io.wait均可读取输入或输出的运行时逻辑状态。")]
+        [Description("通用输入IO精确名称；branch.io/io.wait只读取输入IO的运行时逻辑状态。")]
         public string Io { get; set; }
 
         [Description("期望的IO运行时逻辑目标值。true表示该精确IO或传感器条件成立，false表示不成立；它不统一表示安全位或工作位。")]
+        public bool? State { get; set; }
+    }
+
+    public sealed class IoOutputState
+    {
+        [Description("通用输出IO精确名称；同一io.write内的全部IO必须位于同一张控制卡。")]
+        public string Io { get; set; }
+
+        [Description("输出IO运行时逻辑目标值。true表示该精确输出IO逻辑激活，false表示逻辑未激活；它不统一表示安全位或工作位。")]
         public bool? State { get; set; }
     }
 

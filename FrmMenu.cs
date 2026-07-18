@@ -284,6 +284,14 @@ namespace Automation
             }
         }
 
+        public void ShowAiAssistant()
+        {
+            if (SF.mainfrm?.ai_panel != null && !SF.mainfrm.ai_panel.Visible)
+            {
+                aiAssistant_Page_Click(aiAssistant_Page, EventArgs.Empty);
+            }
+        }
+
         private void version_Page_Click(object sender, EventArgs e)
         {
             if (SF.frmVersionManager == null || SF.frmVersionManager.IsDisposed)

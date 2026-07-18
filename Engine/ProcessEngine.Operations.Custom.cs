@@ -28,7 +28,7 @@ namespace Automation
     {
         public bool RunCustomFunc(ProcHandle evt, CallCustomFunc callCustomFunc)
         {
-            string funcName = callCustomFunc.Name;
+            string funcName = callCustomFunc.FunctionName;
 
             if (Context.CustomFunc == null)
             {

@@ -82,7 +82,17 @@ namespace Automation
                 Disabled = false,
                 IsAlarm = source.IsAlarm,
                 AlarmMessage = source.AlarmMessage,
-                UpdatedAt = source.UpdateTime
+                UpdatedAt = source.UpdateTime,
+                PerformanceAnalysisEnabled = source.Performance?.Enabled == true,
+                ProcessExecutionMode = source.Performance?.ExecutionMode.ToString() ?? string.Empty,
+                OperationCount = source.Performance?.OperationCount ?? 0,
+                OperationsPerSecond = source.Performance?.OperationsPerSecond ?? 0,
+                ThreadCpuPercent = source.Performance?.ThreadCpuPercent ?? 0,
+                AverageOperationMicroseconds = source.Performance?.AverageOperationMicroseconds ?? 0,
+                MaxOperationMicroseconds = source.Performance?.MaxOperationMicroseconds ?? 0,
+                OperationDurationSampleCount = source.Performance?.OperationDurationSampleCount ?? 0,
+                OperationDurationSamplingInterval = source.Performance?.OperationDurationSamplingInterval ?? 0,
+                AbnormalCpuLoopDetected = source.Performance?.AbnormalCpuLoopDetected == true
             };
         }
 

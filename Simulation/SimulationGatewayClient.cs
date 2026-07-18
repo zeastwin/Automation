@@ -161,6 +161,28 @@ namespace Automation.Simulation
             catch { return false; }
         }
 
+        public bool SetOutputs(IReadOnlyList<IoOutputCommand> commands)
+        {
+            if (commands == null || commands.Count == 0
+                || commands.Any(command => command?.Io == null)
+                || commands.Select(command => command.Io.CardNum).Distinct().Count() != 1)
+            {
+                return false;
+            }
+            try
+            {
+                foreach (IoOutputCommand command in commands)
+                {
+                    if (!SetIO(command.Io, command.TargetState))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            catch { return false; }
+        }
+
         public bool GetOutIO(IO io, ref bool value) => TryGetIo(io, "通用输出", ref value);
         public bool GetInIO(IO io, ref bool value) => TryGetIo(io, "通用输入", ref value);
 
@@ -218,6 +240,21 @@ namespace Automation.Simulation
                 ["position"] = distance,
                 ["absolute"] = positionMode == 1
             }));
+        }
+
+        public void MoveCoordinatedLinear(CoordinatedLinearMoveRequest request)
+        {
+            throw new NotSupportedException("仿真器暂不支持协调直线运动。");
+        }
+
+        public bool IsCoordinatedLinearDone(ushort card, ushort coordinateSystem)
+        {
+            throw new NotSupportedException("仿真器暂不支持协调直线运动。");
+        }
+
+        public void StopCoordinatedLinear(ushort card, ushort coordinateSystem, ushort stopMode)
+        {
+            throw new NotSupportedException("仿真器暂不支持协调直线运动。");
         }
 
         public void Jog(ushort card, ushort axis, ushort direction)

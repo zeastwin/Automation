@@ -11,16 +11,16 @@ namespace Automation
     {
         private static readonly object transactionLock = new object();
 
-        public static bool Rebuild(string workPath, IList<Proc> processes, int startIndex,
+        public static bool Rebuild(string workPath, IList<Proc> processes, int StartIndex,
             out string error, out bool rollbackFailed)
         {
             lock (transactionLock)
             {
-                return RebuildCore(workPath, processes, startIndex, out error, out rollbackFailed);
+                return RebuildCore(workPath, processes, StartIndex, out error, out rollbackFailed);
             }
         }
 
-        private static bool RebuildCore(string workPath, IList<Proc> processes, int startIndex,
+        private static bool RebuildCore(string workPath, IList<Proc> processes, int StartIndex,
             out string error, out bool rollbackFailed)
         {
             error = null;
@@ -47,7 +47,7 @@ namespace Automation
                     Directory.Delete(tempDir, true);
                 }
                 Directory.CreateDirectory(tempDir);
-                ProcessEditingService.AdaptGotoProcIndexes(processes, startIndex);
+                ProcessEditingService.AdaptGotoProcIndexes(processes, StartIndex);
                 for (int i = 0; i < processes.Count; i++)
                 {
                     if (!AtomicJsonFileStore.Save(tempDir, i.ToString(), processes[i]))

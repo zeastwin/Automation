@@ -12,8 +12,12 @@ namespace Automation
         Alarming,
         Pausing,
         Stopping,
+        EmptyProc,
+        EmptyProcDisabled,
         Disabled,
         Step,
+        EmptyStep,
+        EmptyStepDisabled,
         StepRunning,
         StepPaused,
         StepSingle,
@@ -66,11 +70,23 @@ namespace Automation
                     case ProcTreeIconKind.Stopping:
                         DrawTransitionBadge(graphics, StoppingColor, false);
                         break;
+                    case ProcTreeIconKind.EmptyProc:
+                        DrawEmptyProc(graphics, NeutralColor, false);
+                        break;
+                    case ProcTreeIconKind.EmptyProcDisabled:
+                        DrawEmptyProc(graphics, DisabledColor, true);
+                        break;
                     case ProcTreeIconKind.Disabled:
                         DrawDisabled(graphics);
                         break;
                     case ProcTreeIconKind.Step:
                         DrawStepNode(graphics, NeutralColor, false);
+                        break;
+                    case ProcTreeIconKind.EmptyStep:
+                        DrawEmptyStepNode(graphics, NeutralColor, false);
+                        break;
+                    case ProcTreeIconKind.EmptyStepDisabled:
+                        DrawEmptyStepNode(graphics, DisabledColor, true);
                         break;
                     case ProcTreeIconKind.StepRunning:
                         DrawStepNode(graphics, RunningColor, true);
@@ -96,6 +112,21 @@ namespace Automation
             {
                 graphics.DrawEllipse(pen, 3, 3, 14, 14);
                 graphics.DrawRectangle(pen, 7, 7, 6, 6);
+            }
+        }
+
+        private static void DrawEmptyProc(Graphics graphics, Color color, bool disabled)
+        {
+            using (Pen pen = CreatePen(color, 1.8F))
+            {
+                pen.DashStyle = DashStyle.Dot;
+                graphics.DrawEllipse(pen, 3, 3, 14, 14);
+                pen.DashStyle = DashStyle.Solid;
+                graphics.DrawRectangle(pen, 8, 8, 4, 4);
+                if (disabled)
+                {
+                    graphics.DrawLine(pen, 5, 5, 15, 15);
+                }
             }
         }
 
@@ -182,6 +213,23 @@ namespace Automation
                 if (active)
                 {
                     graphics.DrawEllipse(pen, 6, 6, 8, 8);
+                }
+            }
+        }
+
+        private static void DrawEmptyStepNode(Graphics graphics, Color color, bool disabled)
+        {
+            using (Pen pen = CreatePen(color, 1.7F))
+            {
+                pen.DashStyle = DashStyle.Dot;
+                graphics.DrawLine(pen, 4, 10, 16, 10);
+                pen.DashStyle = DashStyle.Solid;
+                graphics.DrawEllipse(pen, 2.5F, 8.5F, 3, 3);
+                graphics.DrawEllipse(pen, 8.5F, 8.5F, 3, 3);
+                graphics.DrawEllipse(pen, 14.5F, 8.5F, 3, 3);
+                if (disabled)
+                {
+                    graphics.DrawLine(pen, 5, 5, 15, 15);
                 }
             }
         }

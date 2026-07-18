@@ -274,10 +274,9 @@ namespace Automation
         public static GooseConfig CreateDefaultConfig()
         {
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-            string machineGoose = @"D:\AutomationTools\Goose\goose.exe";
             return new GooseConfig
             {
-                GooseExecutablePath = machineGoose,
+                GooseExecutablePath = GooseRuntimeEnvironment.MachineGooseExecutablePath,
                 WorkingDirectory = baseDirectory,
                 McpUri = "http://127.0.0.1:8081",
                 SessionName = "automation",

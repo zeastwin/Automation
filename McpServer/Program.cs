@@ -184,6 +184,7 @@ namespace Automation.McpServer
             string[] required =
             {
                 "list_operation_types", "get_native_operation_schemas", "get_semantic_operation_schema", "get_process_design_guide", "preview_change_set",
+                "get_flow_graph",
                 "get_operation_guide", "apply_change_set", "discard_change_set_preview", "validate_proc",
                 "wait_for_proc_state", "run_proc_test", "get_communication",
                 "list_plc_devices", "get_plc_device", "set_alarm", "delete_alarm",
@@ -191,6 +192,7 @@ namespace Automation.McpServer
                 "upsert_data_struct", "delete_data_struct", "get_operation_context", "get_info_log_tail",
                 "list_variables", "get_variable_by_name", "get_variable_by_index",
                 "set_variable_by_name", "set_variable_by_index",
+                "find_variable_usages", "trace_resource",
                 "add_variable", "update_variable", "delete_variable"
             };
             string[] retired =
@@ -215,12 +217,71 @@ namespace Automation.McpServer
             if (missing != null) throw new InvalidOperationException($"Editor Profile 缺少工具：{missing}");
             string? exposed = retired.FirstOrDefault(name => names.Contains(name, StringComparer.Ordinal));
             if (exposed != null) throw new InvalidOperationException($"Editor Profile 意外暴露旧写入工具：{exposed}");
+            McpServerTool flowGraphTool = editorTools.Single(tool =>
+                string.Equals(tool.ProtocolTool.Name, "get_flow_graph", StringComparison.Ordinal));
+            JsonObject? flowGraphSchema = JsonNode.Parse(flowGraphTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            JsonObject? flowGraphProperties = flowGraphSchema?["properties"] as JsonObject;
+            JsonObject? flowGraphScope = flowGraphProperties?["scope"] as JsonObject;
+            if (flowGraphScope?["enum"] is not JsonArray flowScopes
+                || !flowScopes.Any(value => value?.GetValue<string>() == nameof(FlowGraphScope.Project))
+                || !flowScopes.Any(value => value?.GetValue<string>() == nameof(FlowGraphScope.Process))
+                || flowGraphProperties?["procIndex"] == null)
+            {
+                throw new InvalidOperationException("get_flow_graph 未公开强类型 scope 和流程选择参数。");
+            }
+            McpServerTool listVariablesTool = editorTools.Single(tool =>
+                string.Equals(tool.ProtocolTool.Name, "list_variables", StringComparison.Ordinal));
+            JsonObject? listVariablesProperties = (JsonNode.Parse(
+                listVariablesTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject)?["properties"] as JsonObject;
+            JsonArray? listVariableScopes = (listVariablesProperties?["scope"] as JsonObject)?["enum"] as JsonArray;
+            if (listVariableScopes == null
+                || !new[]
+                {
+                    VariableScopeContract.Public,
+                    VariableScopeContract.Process,
+                    VariableScopeContract.System
+                }.All(expected => listVariableScopes.Any(item => item?.GetValue<string>() == expected)))
+            {
+                throw new InvalidOperationException("list_variables 的作用域过滤Schema不完整。");
+            }
+            McpServerTool previewChangeSetTool = editorTools.Single(tool =>
+                string.Equals(tool.ProtocolTool.Name, "preview_change_set", StringComparison.Ordinal));
+            JsonObject? variableChangeSchema = FindSchemaByProperties(
+                JsonNode.Parse(previewChangeSetTool.ProtocolTool.InputSchema.GetRawText()),
+                "name", "scope", "ownerProcess", "policy");
+            JsonArray? changeSetVariableScopes =
+                (variableChangeSchema?["properties"]?["scope"] as JsonObject)?["enum"] as JsonArray;
+            JsonArray? variableRequired = variableChangeSchema?["required"] as JsonArray;
+            JsonObject? processSelectorSchema = FindSchemaByProperties(
+                JsonNode.Parse(previewChangeSetTool.ProtocolTool.InputSchema.GetRawText()),
+                "procId", "name", "key");
+            if (changeSetVariableScopes == null
+                || !new[]
+                {
+                    VariableScopeContract.Public,
+                    VariableScopeContract.Process,
+                    VariableScopeContract.System
+                }.All(expected => changeSetVariableScopes.Any(item => item?.GetValue<string>() == expected))
+                || variableRequired == null
+                || !variableRequired.Any(item => item?.GetValue<string>() == "scope")
+                || variableChangeSchema?["allOf"] is not JsonArray
+                || processSelectorSchema?["oneOf"] is not JsonArray selectorBranches
+                || selectorBranches.Count != 3)
+            {
+                throw new InvalidOperationException("preview_change_set 的变量作用域及owner条件Schema不完整。");
+            }
             McpServerTool addVariableTool = editorTools.Single(tool =>
                 string.Equals(tool.ProtocolTool.Name, "add_variable", StringComparison.Ordinal));
             JsonObject? addVariableSchema = JsonNode.Parse(addVariableTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
-            JsonObject? addVariableIndexSchema = (addVariableSchema?["properties"] as JsonObject)?["index"] as JsonObject;
+            JsonObject? addVariableProperties = addVariableSchema?["properties"] as JsonObject;
+            JsonObject? addVariableIndexSchema = addVariableProperties?["index"] as JsonObject;
+            JsonObject? addVariableScopeSchema = addVariableProperties?["scope"] as JsonObject;
             if (addVariableIndexSchema?["minimum"]?.GetValue<int>() != 0
                 || addVariableIndexSchema?["maximum"]?.GetValue<int>() != VariableIndexContract.MaximumNormalValueIndex
+                || addVariableScopeSchema?["enum"] is not JsonArray addScopes
+                || !addScopes.Any(value => value?.GetValue<string>() == VariableScopeContract.Public)
+                || !addScopes.Any(value => value?.GetValue<string>() == VariableScopeContract.Process)
+                || addVariableProperties?["ownerProcId"] == null
                 || !(addVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
                     "系统变量区配置对 AI 只读", StringComparison.Ordinal))
             {
@@ -230,31 +291,67 @@ namespace Automation.McpServer
                 string.Equals(tool.ProtocolTool.Name, "update_variable", StringComparison.Ordinal));
             JsonObject? updateVariableSchema = JsonNode.Parse(updateVariableTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
             JsonObject? updateVariableProperties = updateVariableSchema?["properties"] as JsonObject;
-            if (updateVariableProperties?["applyInitialValueToRuntime"] == null
+            if (updateVariableProperties?["value"] == null
+                || updateVariableProperties?["scope"] == null
+                || updateVariableProperties?["ownerProcId"] == null
+                || updateVariableProperties?["index"] == null
+                || updateVariableProperties.ContainsKey("initialValue")
+                || updateVariableProperties.ContainsKey("applyInitialValueToRuntime")
+                || updateVariableProperties.ContainsKey("configValue")
                 || updateVariableProperties.ContainsKey("runtimeValue")
                 || !(updateVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "applyInitialValueToRuntime=true时把同一个initialValue同步为当前运行值", StringComparison.Ordinal)
-                || !(updateVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "源Value传给initialValue并启用该开关", StringComparison.Ordinal))
+                    "value修改当前值", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("update_variable 缺少配置值与运行值同步修正契约。");
+                throw new InvalidOperationException("update_variable 未使用单一当前值契约。");
             }
             McpServerTool deleteVariableTool = editorTools.Single(tool =>
                 string.Equals(tool.ProtocolTool.Name, "delete_variable", StringComparison.Ordinal));
+            McpServerTool getVariableByNameTool = editorTools.Single(tool =>
+                string.Equals(tool.ProtocolTool.Name, "get_variable_by_name", StringComparison.Ordinal));
+            McpServerTool getVariableByIndexTool = editorTools.Single(tool =>
+                string.Equals(tool.ProtocolTool.Name, "get_variable_by_index", StringComparison.Ordinal));
             McpServerTool setVariableByNameTool = editorTools.Single(tool =>
                 string.Equals(tool.ProtocolTool.Name, "set_variable_by_name", StringComparison.Ordinal));
             McpServerTool setVariableByIndexTool = editorTools.Single(tool =>
                 string.Equals(tool.ProtocolTool.Name, "set_variable_by_index", StringComparison.Ordinal));
+            JsonObject? getByNameProperties = (JsonNode.Parse(
+                getVariableByNameTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject)?["properties"] as JsonObject;
+            JsonObject? getByIndexProperties = (JsonNode.Parse(
+                getVariableByIndexTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject)?["properties"] as JsonObject;
+            JsonObject? setByNameProperties = (JsonNode.Parse(
+                setVariableByNameTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject)?["properties"] as JsonObject;
+            JsonObject? setByIndexProperties = (JsonNode.Parse(
+                setVariableByIndexTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject)?["properties"] as JsonObject;
             if (!(updateVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
                     "系统变量区配置对 AI 只读", StringComparison.Ordinal)
                 || !(deleteVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
                     "系统变量区配置对 AI 只读", StringComparison.Ordinal)
+                || getByNameProperties?["name"] == null
+                || getByNameProperties.ContainsKey("ownerProcId")
+                || getByIndexProperties?["index"] == null
+                || (getByIndexProperties["index"] as JsonObject)?["minimum"]?.GetValue<int>() != 0
+                || (getByIndexProperties["index"] as JsonObject)?["maximum"]?.GetValue<int>()
+                    != VariableIndexContract.MaximumValueIndex
+                || getByIndexProperties.ContainsKey("ownerProcId")
+                || setByNameProperties?["name"] == null
+                || setByNameProperties?["value"] == null
+                || setByNameProperties.ContainsKey("ownerProcId")
+                || setByIndexProperties?["index"] == null
+                || setByIndexProperties?["value"] == null
+                || (setByIndexProperties["index"] as JsonObject)?["minimum"]?.GetValue<int>() != 0
+                || (setByIndexProperties["index"] as JsonObject)?["maximum"]?.GetValue<int>()
+                    != VariableIndexContract.MaximumValueIndex
+                || setByIndexProperties.ContainsKey("ownerProcId")
+                || !(getVariableByNameTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "私有变量也无需提供所属流程", StringComparison.Ordinal)
+                || !(getVariableByIndexTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "私有变量也无需提供所属流程", StringComparison.Ordinal)
                 || !(setVariableByNameTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "普通变量和系统变量均可使用", StringComparison.Ordinal)
+                    "公共、私有和系统变量均可使用", StringComparison.Ordinal)
                 || !(setVariableByIndexTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "普通变量和系统变量均可使用", StringComparison.Ordinal))
+                    "公共、私有和系统变量均可使用", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("变量配置只读边界或系统变量运行值写入契约不完整。");
+                throw new InvalidOperationException("变量管理边界或按唯一名称/索引直接读写私有变量的契约不完整。");
             }
             string[] retiredRoutingTerms =
             {
@@ -287,7 +384,7 @@ namespace Automation.McpServer
             string[] editorOnlyDiagnosticTools =
             {
                 "search_ops", "diagnose_issue", "get_operation_schema",
-                "search_operation_fields", "find_references", "find_variable_usages",
+                "search_operation_fields", "find_references",
                 "audit_proc_batch", "diagnose_proc", "list_io"
             };
             string? exposedDiagnostic = editorOnlyDiagnosticTools.FirstOrDefault(name =>
@@ -430,6 +527,7 @@ namespace Automation.McpServer
                 || !diagnosticNames.Contains("get_native_operation_schemas", StringComparer.Ordinal)
                 || !diagnosticNames.Contains("get_operation_guide", StringComparer.Ordinal)
                 || !diagnosticNames.Contains("get_process_design_guide", StringComparer.Ordinal)
+                || !diagnosticNames.Contains("get_flow_graph", StringComparer.Ordinal)
                 || editorWriteNames.Any(name => diagnosticNames.Contains(name, StringComparer.Ordinal)))
             {
                 throw new InvalidOperationException("Diagnostic Profile 工具边界错误。");
@@ -508,7 +606,7 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException("ChangeSet 删除选择器组合校验错误。");
             }
-            string invalidLegacyIoWait = AiChangeSetCatalog.Validate(new AiChangeSet
+            string invalidIoWait = AiChangeSetCatalog.Validate(new AiChangeSet
             {
                 Version = 2,
                 Actions = new List<ChangeSetAction>
@@ -519,8 +617,6 @@ namespace Automation.McpServer
                         Operation = new SemanticOperation
                         {
                             Kind = "io.wait",
-                            Io = "气缸原位",
-                            State = true,
                             TimeoutMs = 1000
                         }
                     }
@@ -548,10 +644,34 @@ namespace Automation.McpServer
                     }
                 }
             });
-            if (!(invalidLegacyIoWait ?? string.Empty).Contains("conditions", StringComparison.Ordinal)
+            string validIoWrite = AiChangeSetCatalog.Validate(new AiChangeSet
+            {
+                Version = 2,
+                Actions = new List<ChangeSetAction>
+                {
+                    new ChangeSetAction
+                    {
+                        Type = "operation.append",
+                        Operation = new SemanticOperation
+                        {
+                            Kind = "io.write",
+                            Outputs = new List<IoOutputState>
+                            {
+                                new IoOutputState { Io = "电磁阀A", State = true },
+                                new IoOutputState { Io = "电磁阀B", State = false }
+                            }
+                        }
+                    }
+                }
+            });
+            if (!(invalidIoWait ?? string.Empty).Contains("conditions", StringComparison.Ordinal)
                 || validIoWait != null)
             {
                 throw new InvalidOperationException("io.wait联合条件与失败目标的本地校验错误。");
+            }
+            if (validIoWrite != null)
+            {
+                throw new InvalidOperationException("io.write同卡批量输出的本地校验错误。");
             }
             Console.WriteLine($"Editor Profile 校验通过，共 {names.Length} 个工具；V2 写入链完整，旧写入链未暴露。");
         }
@@ -660,8 +780,10 @@ namespace Automation.McpServer
                 || !waitRequired.Any(value => string.Equals(value?.GetValue<string>(), "timeoutMs", StringComparison.Ordinal)))
                 throw new InvalidOperationException("io.wait未把conditions/timeoutMs声明为必填。");
             JsonObject ioWrite = kindProperties["io.write"];
-            if (!ioWrite.ContainsKey("beforeMs") || !ioWrite.ContainsKey("afterMs"))
-                throw new InvalidOperationException("io.write分支必须包含beforeMs和afterMs。");
+            if (!ioWrite.ContainsKey("outputs") || ioWrite.ContainsKey("io") || ioWrite.ContainsKey("state")
+                || ioWrite.ContainsKey("beforeMs") || ioWrite.ContainsKey("afterMs"))
+                throw new InvalidOperationException("io.write分支必须只使用outputs表达同卡批量输出。");
+            VerifyIoConditionsSchema(ioWrite["outputs"] as JsonObject, "io.write.outputs");
 
             JsonObject native = kindProperties["native.operation"];
             if (native["fields"] is not JsonObject fieldsSchema
@@ -717,6 +839,32 @@ namespace Automation.McpServer
                 foreach (JsonNode? item in array)
                 {
                     JsonObject? found = FindSchemaByMarker(item, markerName, markerValue);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
+        private static JsonObject? FindSchemaByProperties(JsonNode? node, params string[] propertyNames)
+        {
+            if (node is JsonObject obj)
+            {
+                if (obj["properties"] is JsonObject properties
+                    && propertyNames.All(properties.ContainsKey))
+                {
+                    return obj;
+                }
+                foreach (KeyValuePair<string, JsonNode?> property in obj)
+                {
+                    JsonObject? found = FindSchemaByProperties(property.Value, propertyNames);
+                    if (found != null) return found;
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (JsonNode? item in array)
+                {
+                    JsonObject? found = FindSchemaByProperties(item, propertyNames);
                     if (found != null) return found;
                 }
             }

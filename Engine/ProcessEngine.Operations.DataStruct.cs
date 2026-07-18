@@ -33,36 +33,29 @@ namespace Automation
                 MarkAlarm(evt, "数据结构设置参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!int.TryParse(setDataStructItem.StructIndex, out int structIndex))
+            int structIndex = setDataStructItem.StructIndex;
+            if (structIndex < 0)
             {
                 MarkAlarm(evt, $"数据结构索引无效:{setDataStructItem.StructIndex}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!int.TryParse(setDataStructItem.ItemIndex, out int itemIndex))
+            int itemIndex = setDataStructItem.ItemIndex;
+            if (itemIndex < 0)
             {
                 MarkAlarm(evt, $"数据结构项索引无效:{setDataStructItem.ItemIndex}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!int.TryParse(setDataStructItem.Count, out int count) || count < 0)
+            for (int i = 0; i < setDataStructItem.Params.Count; i++)
             {
-                MarkAlarm(evt, $"数据结构数量无效:{setDataStructItem.Count}");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
-            }
-            for (int i = 0; i < count; i++)
-            {
-                if (i >= setDataStructItem.Params.Count)
+                int fieldIndex = setDataStructItem.Params[i].FieldIndex;
+                if (fieldIndex < 0)
                 {
-                    MarkAlarm(evt, "数据结构参数数量不足");
+                    MarkAlarm(evt, $"数据结构值索引无效:{setDataStructItem.Params[i].FieldIndex}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!int.TryParse(setDataStructItem.Params[i].valueIndex, out int valueIndex))
+                if (!Context.DataStructStore.TrySetItemValueByIndex(structIndex, itemIndex, fieldIndex, setDataStructItem.Params[i].Value))
                 {
-                    MarkAlarm(evt, $"数据结构值索引无效:{setDataStructItem.Params[i].valueIndex}");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
-                }
-                if (!Context.DataStructStore.TrySetItemValueByIndex(structIndex, itemIndex, valueIndex, setDataStructItem.Params[i].value))
-                {
-                    MarkAlarm(evt, $"设置数据结构失败:结构{structIndex},项{itemIndex},值{valueIndex}");
+                    MarkAlarm(evt, $"设置数据结构失败:结构{structIndex},项{itemIndex},值{fieldIndex}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
@@ -81,20 +74,22 @@ namespace Automation
                 MarkAlarm(evt, "数据结构读取参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
-            if (!int.TryParse(getDataStructItem.StructIndex, out int structIndex))
+            string source = evt?.GetOperationSource();
+            int structIndex = getDataStructItem.StructIndex;
+            if (structIndex < 0)
             {
                 MarkAlarm(evt, $"数据结构索引无效:{getDataStructItem.StructIndex}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!int.TryParse(getDataStructItem.ItemIndex, out int itemIndex))
+            int itemIndex = getDataStructItem.ItemIndex;
+            if (itemIndex < 0)
             {
                 MarkAlarm(evt, $"数据结构项索引无效:{getDataStructItem.ItemIndex}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
             if (getDataStructItem.IsAllItem)
             {
-                int startIndex = valueStore.GetValueByName(getDataStructItem.StartValue).Index;
+                int startIndex = valueStore.GetValueByNameForProcess(getDataStructItem.FirstResultVariableName, evt.procId).Index;
                 int count = Context.DataStructStore.GetItemValueCount(structIndex, itemIndex);
                 for (int i = 0; i < count; i++)
                 {
@@ -103,7 +98,7 @@ namespace Automation
                         MarkAlarm(evt, $"读取数据结构失败:结构{structIndex},项{itemIndex},值{i}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    if (!valueStore.setValueByIndex(startIndex + i, obj, source))
+                    if (!valueStore.SetValueByIndexForProcess(startIndex + i, obj, evt.procId, source))
                     {
                         MarkAlarm(evt, $"保存变量失败:索引{startIndex + i}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -119,29 +114,32 @@ namespace Automation
                 }
                 for (int i = 0; i < getDataStructItem.Params.Count; i++)
                 {
-                    if (!int.TryParse(getDataStructItem.Params[i].valueIndex, out int valueIndex))
+                    int fieldIndex = getDataStructItem.Params[i].FieldIndex;
+                    if (fieldIndex < 0)
                     {
-                        MarkAlarm(evt, $"数据结构值索引无效:{getDataStructItem.Params[i].valueIndex}");
+                        MarkAlarm(evt, $"数据结构值索引无效:{getDataStructItem.Params[i].FieldIndex}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    if (!Context.DataStructStore.TryGetItemValueByIndex(structIndex, itemIndex, valueIndex, out object obj))
+                    if (!Context.DataStructStore.TryGetItemValueByIndex(structIndex, itemIndex, fieldIndex, out object obj))
                     {
-                        MarkAlarm(evt, $"读取数据结构失败:结构{structIndex},项{itemIndex},值{valueIndex}");
+                        MarkAlarm(evt, $"读取数据结构失败:结构{structIndex},项{itemIndex},值{fieldIndex}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
 
-                    if (!ValueRef.TryCreate(getDataStructItem.Params[i].ValueIndex, null, getDataStructItem.Params[i].ValueName, null, false, "变量名称", out ValueRef nameRef, out string nameError))
+                    if (!ValueRef.TryCreate(getDataStructItem.Params[i].OutputValueIndex, null, getDataStructItem.Params[i].OutputValueName, null, false, "结果变量", out ValueRef outputRef, out string outputError))
                     {
-                        throw CreateAlarmException(evt, nameError);
+                        throw CreateAlarmException(evt, outputError);
                     }
-                    if (!nameRef.TryResolveValue(valueStore, "变量名称", out DicValue nameItem, out string nameResolveError))
+                    if (!outputRef.TryResolveValue(valueStore, "结果变量", evt.procId, out DicValue outputItem, out string outputResolveError))
                     {
-                        throw CreateAlarmException(evt, nameResolveError);
+                        throw CreateAlarmException(evt, outputResolveError);
                     }
-                    string valueName = nameItem.Value;
-                    if (!valueStore.setValueByName(valueName, obj, source))
+                    if (!valueStore.SetValueByIndexForProcess(outputItem.Index, obj, evt.procId, source))
                     {
-                        MarkAlarm(evt, $"保存变量失败:{valueName}");
+                        string outputName = string.IsNullOrWhiteSpace(outputItem.Name)
+                            ? $"索引{outputItem.Index}"
+                            : outputItem.Name;
+                        MarkAlarm(evt, $"保存变量失败:{outputName}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                 }
@@ -157,10 +155,12 @@ namespace Automation
             }
             if (copyDataStructItem.IsAllValue)
             {
-                if (!int.TryParse(copyDataStructItem.SourceStructIndex, out int sourceStructIndex)
-                    || !int.TryParse(copyDataStructItem.SourceItemIndex, out int sourceItemIndex)
-                    || !int.TryParse(copyDataStructItem.TargetStructIndex, out int targetStructIndex)
-                    || !int.TryParse(copyDataStructItem.TargetItemIndex, out int targetItemIndex))
+                int sourceStructIndex = copyDataStructItem.SourceStructIndex;
+                int sourceItemIndex = copyDataStructItem.SourceItemIndex;
+                int targetStructIndex = copyDataStructItem.TargetStructIndex;
+                int targetItemIndex = copyDataStructItem.TargetItemIndex;
+                if (sourceStructIndex < 0 || sourceItemIndex < 0
+                    || targetStructIndex < 0 || targetItemIndex < 0)
                 {
                     MarkAlarm(evt, "数据结构复制索引无效");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -180,35 +180,37 @@ namespace Automation
                 }
                 for (int i = 0; i < copyDataStructItem.Params.Count; i++)
                 {
-                    if (!int.TryParse(copyDataStructItem.SourceStructIndex, out int sourceStructIndex)
-                        || !int.TryParse(copyDataStructItem.SourceItemIndex, out int sourceItemIndex)
-                        || !int.TryParse(copyDataStructItem.Params[i].SourcevalueIndex, out int sourceValueIndex))
+                    int sourceStructIndex = copyDataStructItem.SourceStructIndex;
+                    int sourceItemIndex = copyDataStructItem.SourceItemIndex;
+                    int sourceValueIndex = copyDataStructItem.Params[i].SourceFieldIndex;
+                    if (sourceStructIndex < 0 || sourceItemIndex < 0 || sourceValueIndex < 0)
                     {
                         MarkAlarm(evt, "数据结构复制索引无效");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     if (!Context.DataStructStore.TryGetItemValueByIndex(sourceStructIndex, sourceItemIndex, sourceValueIndex, out object obj, out DataStructValueType valueType))
                     {
-                        MarkAlarm(evt, $"读取数据结构失败:结构{copyDataStructItem.SourceStructIndex},项{copyDataStructItem.SourceItemIndex},值{copyDataStructItem.Params[i].SourcevalueIndex}");
+                        MarkAlarm(evt, $"读取数据结构失败:结构{copyDataStructItem.SourceStructIndex},项{copyDataStructItem.SourceItemIndex},值{copyDataStructItem.Params[i].SourceFieldIndex}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
 
                     if (obj == null)
                     {
-                        MarkAlarm(evt, $"数据结构值为空:结构{copyDataStructItem.SourceStructIndex},项{copyDataStructItem.SourceItemIndex},值{copyDataStructItem.Params[i].SourcevalueIndex}");
+                        MarkAlarm(evt, $"数据结构值为空:结构{copyDataStructItem.SourceStructIndex},项{copyDataStructItem.SourceItemIndex},值{copyDataStructItem.Params[i].SourceFieldIndex}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
 
-                    if (!int.TryParse(copyDataStructItem.TargetStructIndex, out int targetStructIndex)
-                        || !int.TryParse(copyDataStructItem.TargetItemIndex, out int targetItemIndex)
-                        || !int.TryParse(copyDataStructItem.Params[i].Targetvalue, out int targetValueIndex))
+                    int targetStructIndex = copyDataStructItem.TargetStructIndex;
+                    int targetItemIndex = copyDataStructItem.TargetItemIndex;
+                    int targetValueIndex = copyDataStructItem.Params[i].TargetFieldIndex;
+                    if (targetStructIndex < 0 || targetItemIndex < 0 || targetValueIndex < 0)
                     {
                         MarkAlarm(evt, "数据结构复制索引无效");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     if (!Context.DataStructStore.TrySetItemValueByIndex(targetStructIndex, targetItemIndex, targetValueIndex, obj.ToString(), valueType))
                     {
-                        MarkAlarm(evt, $"设置数据结构失败:结构{copyDataStructItem.TargetStructIndex},项{copyDataStructItem.TargetItemIndex},值{copyDataStructItem.Params[i].Targetvalue}");
+                        MarkAlarm(evt, $"设置数据结构失败:结构{copyDataStructItem.TargetStructIndex},项{copyDataStructItem.TargetItemIndex},值{copyDataStructItem.Params[i].TargetFieldIndex}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
 
@@ -225,7 +227,7 @@ namespace Automation
             }
             DataStructItem dataStructItem = new DataStructItem
             {
-                Name = insertDataStructItem.Name ?? string.Empty,
+                Name = insertDataStructItem.ItemName ?? string.Empty,
                 FieldNames = new Dictionary<int, string>(),
                 FieldTypes = new Dictionary<int, DataStructValueType>(),
                 str = new Dictionary<int, string>(),
@@ -236,8 +238,9 @@ namespace Automation
                 if (insertDataStructItem.Params[i].Type == "double")
                 {
                     double num = -1;
-                    if (insertDataStructItem.Params[i].ValueItem != null)
-                        num = Context.ValueStore.get_D_ValueByName(insertDataStructItem.Params[i].ValueItem);
+                    if (insertDataStructItem.Params[i].ValueVariableName != null)
+                        num = Context.ValueStore.GetValueByNameForProcess(
+                            insertDataStructItem.Params[i].ValueVariableName, evt.procId).GetDValue();
                     else
                         if (!double.TryParse(insertDataStructItem.Params[i].Value, out num))
                         {
@@ -251,8 +254,9 @@ namespace Automation
                 else
                 {
                     string str = "";
-                    if (insertDataStructItem.Params[i].ValueItem != null)
-                        str = Context.ValueStore.get_Str_ValueByName(insertDataStructItem.Params[i].ValueItem);
+                    if (insertDataStructItem.Params[i].ValueVariableName != null)
+                        str = Context.ValueStore.GetValueByNameForProcess(
+                            insertDataStructItem.Params[i].ValueVariableName, evt.procId).GetCValue();
                     else
                         str = insertDataStructItem.Params[i].Value.ToString();
                     dataStructItem.str[i] = str;
@@ -260,8 +264,9 @@ namespace Automation
                     dataStructItem.FieldNames[i] = $"字段{i}";
                 }
             }
-            if (!int.TryParse(insertDataStructItem.TargetStructIndex, out int targetStructIndex)
-                || !int.TryParse(insertDataStructItem.TargetItemIndex, out int targetItemIndex))
+            int targetStructIndex = insertDataStructItem.TargetStructIndex;
+            int targetItemIndex = insertDataStructItem.TargetItemIndex;
+            if (targetStructIndex < 0 || targetItemIndex < 0)
             {
                 MarkAlarm(evt, "数据结构插入索引无效");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -282,8 +287,9 @@ namespace Automation
                 MarkAlarm(evt, "数据结构删除参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!int.TryParse(delDataStructItem.TargetStructIndex, out int structIndex)
-                || !int.TryParse(delDataStructItem.TargetItemIndex, out int itemIndex))
+            int structIndex = delDataStructItem.TargetStructIndex;
+            int itemIndex = delDataStructItem.TargetItemIndex;
+            if (structIndex < 0 || itemIndex < 0)
             {
                 MarkAlarm(evt, "数据结构删除索引无效");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -299,7 +305,7 @@ namespace Automation
 
         public bool RunFindDataStructItem(ProcHandle evt, FindDataStructItem findDataStructItem)
         {
-            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+            string source = evt?.GetOperationSource();
             if (findDataStructItem == null)
             {
                 MarkAlarm(evt, "数据结构查找参数为空");
@@ -307,60 +313,63 @@ namespace Automation
             }
             if (findDataStructItem.Type == "名称等于key")
             {
-                if (!int.TryParse(findDataStructItem.TargetStructIndex, out int targetStructIndex))
+                int targetStructIndex = findDataStructItem.TargetStructIndex;
+                if (targetStructIndex < 0)
                 {
                     MarkAlarm(evt, "数据结构查找索引无效");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.DataStructStore.TryFindItemByName(targetStructIndex, findDataStructItem.key, out string value))
+                if (!Context.DataStructStore.TryFindItemByName(targetStructIndex, findDataStructItem.Key, out string value))
                 {
-                    MarkAlarm(evt, $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}");
+                    MarkAlarm(evt, $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.Key}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value, source))
+                if (!Context.ValueStore.SetValueByNameForProcess(findDataStructItem.ResultVariableName, value, evt.procId, source))
                 {
-                    MarkAlarm(evt, $"保存变量失败:{findDataStructItem.save}");
+                    MarkAlarm(evt, $"保存变量失败:{findDataStructItem.ResultVariableName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
             else if (findDataStructItem.Type == "字符串等于key")
             {
-                if (!int.TryParse(findDataStructItem.TargetStructIndex, out int targetStructIndex))
+                int targetStructIndex = findDataStructItem.TargetStructIndex;
+                if (targetStructIndex < 0)
                 {
                     MarkAlarm(evt, "数据结构查找索引无效");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.DataStructStore.TryFindItemByStringValue(targetStructIndex, findDataStructItem.key, out string value))
+                if (!Context.DataStructStore.TryFindItemByStringValue(targetStructIndex, findDataStructItem.Key, out string value))
                 {
-                    MarkAlarm(evt, $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}");
+                    MarkAlarm(evt, $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.Key}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value, source))
+                if (!Context.ValueStore.SetValueByNameForProcess(findDataStructItem.ResultVariableName, value, evt.procId, source))
                 {
-                    MarkAlarm(evt, $"保存变量失败:{findDataStructItem.save}");
+                    MarkAlarm(evt, $"保存变量失败:{findDataStructItem.ResultVariableName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
             else if (findDataStructItem.Type == "数值等于key")
             {
-                if (!double.TryParse(findDataStructItem.key, out double keyValue))
+                if (!double.TryParse(findDataStructItem.Key, out double keyValue))
                 {
-                    MarkAlarm(evt, $"查找数值key无效:{findDataStructItem.key}");
+                    MarkAlarm(evt, $"查找数值key无效:{findDataStructItem.Key}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!int.TryParse(findDataStructItem.TargetStructIndex, out int targetStructIndex))
+                int targetStructIndex = findDataStructItem.TargetStructIndex;
+                if (targetStructIndex < 0)
                 {
                     MarkAlarm(evt, "数据结构查找索引无效");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
                 if (!Context.DataStructStore.TryFindItemByNumberValue(targetStructIndex, keyValue, out double value))
                 {
-                    MarkAlarm(evt, $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.key}");
+                    MarkAlarm(evt, $"查找数据结构失败:结构{findDataStructItem.TargetStructIndex},key{findDataStructItem.Key}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
-                if (!Context.ValueStore.setValueByName(findDataStructItem.save, value, source))
+                if (!Context.ValueStore.SetValueByNameForProcess(findDataStructItem.ResultVariableName, value, evt.procId, source))
                 {
-                    MarkAlarm(evt, $"保存变量失败:{findDataStructItem.save}");
+                    MarkAlarm(evt, $"保存变量失败:{findDataStructItem.ResultVariableName}");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
             }
@@ -369,25 +378,26 @@ namespace Automation
 
         public bool RunGetDataStructCount(ProcHandle evt, GetDataStructCount getDataStructCount)
         {
-            string source = evt == null ? null : $"{evt.procNum}-{evt.stepNum}-{evt.opsNum}";
+            string source = evt?.GetOperationSource();
             if (getDataStructCount == null)
             {
                 MarkAlarm(evt, "数据结构计数参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!Context.ValueStore.setValueByName(getDataStructCount.StructCount, Context.DataStructStore.Count, source))
+            if (!Context.ValueStore.SetValueByNameForProcess(getDataStructCount.StructCountVariableName, Context.DataStructStore.Count, evt.procId, source))
             {
-                MarkAlarm(evt, $"保存变量失败:{getDataStructCount.StructCount}");
+                MarkAlarm(evt, $"保存变量失败:{getDataStructCount.StructCountVariableName}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!int.TryParse(getDataStructCount.TargetStructIndex, out int targetStructIndex))
+            int targetStructIndex = getDataStructCount.TargetStructIndex;
+            if (targetStructIndex < 0)
             {
                 MarkAlarm(evt, "数据结构计数索引无效");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!Context.ValueStore.setValueByName(getDataStructCount.ItemCount, Context.DataStructStore.GetItemCount(targetStructIndex), source))
+            if (!Context.ValueStore.SetValueByNameForProcess(getDataStructCount.ItemCountVariableName, Context.DataStructStore.GetItemCount(targetStructIndex), evt.procId, source))
             {
-                MarkAlarm(evt, $"保存变量失败:{getDataStructCount.ItemCount}");
+                MarkAlarm(evt, $"保存变量失败:{getDataStructCount.ItemCountVariableName}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
