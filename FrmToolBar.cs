@@ -24,28 +24,47 @@ namespace Automation
 {
     public partial class FrmToolBar : Form
     {
-        private static readonly Color ToolbarBackColor = Color.FromArgb(252, 253, 254);
-        private static readonly Color ButtonBackColor = Color.FromArgb(252, 253, 254);
-        private static readonly Color ButtonForeColor = Color.FromArgb(48, 67, 78);
         private readonly List<int> separatorPositions = new List<int>();
         private readonly System.Windows.Forms.ToolTip toolbarToolTip = new System.Windows.Forms.ToolTip();
         private readonly UiHoverAnimator hoverAnimator = new UiHoverAnimator();
-        private readonly WinFormsButton btnFlowGraph = new WinFormsButton { Text = "流程图" };
-        private readonly WinFormsButton btnPerformanceAnalysis = new WinFormsButton { Text = "性能分析" };
+        private readonly WinFormsButton btnNavigateBack = new WinFormsButton();
+        private readonly WinFormsButton btnNavigateForward = new WinFormsButton();
+        private readonly WinFormsButton btnUndo = new WinFormsButton { Text = "撤销" };
+        private readonly WinFormsButton btnRedo = new WinFormsButton { Text = "重做" };
+        private readonly WinFormsButton btnDataBreakpoints = new WinFormsButton();
+        private readonly WinFormsButton btnFlowGraph = new WinFormsButton();
+        private readonly WinFormsButton btnPerformanceAnalysis = new WinFormsButton();
 
         public FrmToolBar()
         {
             InitializeComponent();
+            ToolBar_Panel.Controls.Add(btnNavigateBack);
+            ToolBar_Panel.Controls.Add(btnNavigateForward);
+            ToolBar_Panel.Controls.Add(btnUndo);
+            ToolBar_Panel.Controls.Add(btnRedo);
+            ToolBar_Panel.Controls.Add(btnDataBreakpoints);
             ToolBar_Panel.Controls.Add(btnFlowGraph);
             ToolBar_Panel.Controls.Add(btnPerformanceAnalysis);
+            btnNavigateBack.Click += (sender, args) => SF.mainfrm?.NavigateEditorBack();
+            btnNavigateForward.Click += (sender, args) => SF.mainfrm?.NavigateEditorForward();
+            btnUndo.Click += (sender, args) => ExecuteHistoryAction(true);
+            btnRedo.Click += (sender, args) => ExecuteHistoryAction(false);
+            btnDataBreakpoints.Click += (sender, args) => SF.mainfrm?.ShowDataBreakpoints();
             btnFlowGraph.Click += (sender, args) => SF.mainfrm?.ShowProcessFlowGraph();
             btnPerformanceAnalysis.Click += (sender, args) => SF.mainfrm?.ShowPerformanceAnalysis();
             ConfigureToolbarAppearance();
             btnSave.Enabled = false;
             btnCancel.Enabled = false;
+            btnNavigateBack.Enabled = false;
+            btnNavigateForward.Enabled = false;
+            btnUndo.Enabled = false;
+            btnRedo.Enabled = false;
             btnIOMonitor.Visible = false;
+            SF.EditorHistory.StateChanged += EditorHistory_StateChanged;
+            RefreshHistoryAvailability();
             Disposed += (sender, args) =>
             {
+                SF.EditorHistory.StateChanged -= EditorHistory_StateChanged;
                 hoverAnimator.Dispose();
                 toolbarToolTip.Dispose();
             };
@@ -53,26 +72,44 @@ namespace Automation
 
         private void ConfigureToolbarAppearance()
         {
-            ToolBar_Panel.BackColor = ToolbarBackColor;
-            BackColor = ToolbarBackColor;
+            ToolBar_Panel.BackColor = UiPalette.Surface;
+            BackColor = UiPalette.Surface;
 
-            ConfigureButton(btnPause, UiIconKind.Pause, 78, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
-            ConfigureButton(btnStop, UiIconKind.Stop, 78, Color.FromArgb(176, 55, 55), ButtonBackColor, Color.FromArgb(248, 229, 229));
-            ConfigureButton(SingleRun, UiIconKind.Step, 78, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
-            ConfigureButton(btnLocate, UiIconKind.Locate, 78, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
-            ConfigureButton(btnAlarm, UiIconKind.Alarm, 106, Color.FromArgb(151, 91, 16), ButtonBackColor, Color.FromArgb(252, 239, 213));
-            ConfigureButton(btnSearch, UiIconKind.Search, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
-            ConfigureButton(btnFlowGraph, UiIconKind.Process, 92, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
-            ConfigureButton(btnPerformanceAnalysis, UiIconKind.Monitor, 112, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
-            ConfigureButton(btnIOMonitor, UiIconKind.Monitor, 104, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
-            ConfigureButton(button1, UiIconKind.Folder, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
-            ConfigureButton(btnAppConfig, UiIconKind.Settings, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
-            ConfigureButton(btnStopAll, UiIconKind.StopAll, 110, Color.FromArgb(174, 45, 45), Color.FromArgb(255, 246, 246), Color.FromArgb(249, 224, 224));
+            ConfigureButton(btnNavigateBack, UiIconKind.NavigateBack, 42, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnNavigateForward, UiIconKind.NavigateForward, 42, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnUndo, UiIconKind.Undo, 42, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnRedo, UiIconKind.Redo, 42, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnPause, UiIconKind.Pause, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnStop, UiIconKind.Stop, 44, UiPalette.Danger, UiPalette.Surface, UiPalette.DangerSoft);
+            ConfigureButton(SingleRun, UiIconKind.Step, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnLocate, UiIconKind.Locate, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnDataBreakpoints, UiIconKind.Breakpoint, 44, UiPalette.Breakpoint, UiPalette.Surface, UiPalette.BreakpointSoft);
+            ConfigureButton(btnAlarm, UiIconKind.Alarm, 44, UiPalette.Warning, UiPalette.Surface, UiPalette.WarningSoft);
+            ConfigureButton(btnSearch, UiIconKind.Search, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnFlowGraph, UiIconKind.Process, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnPerformanceAnalysis, UiIconKind.Monitor, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnIOMonitor, UiIconKind.Monitor, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(button1, UiIconKind.Folder, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnAppConfig, UiIconKind.Settings, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnStopAll, UiIconKind.StopAll, 110, UiPalette.DangerHover, UiPalette.DangerSoft, UiPalette.DangerSoft);
             ConfigureIconOnlyButton(btnSearch, "查找");
+            ConfigureIconOnlyButton(btnNavigateBack, "后退（鼠标侧键后退）");
+            ConfigureIconOnlyButton(btnNavigateForward, "前进（鼠标侧键前进）");
+            ConfigureIconOnlyButton(btnUndo, "撤销（Ctrl+Z）");
+            ConfigureIconOnlyButton(btnRedo, "重做（Ctrl+Y）");
+            ConfigureIconOnlyButton(btnPause, "暂停");
+            ConfigureIconOnlyButton(btnStop, "停止");
+            ConfigureIconOnlyButton(SingleRun, "单步");
+            ConfigureIconOnlyButton(btnLocate, "定位");
+            ConfigureIconOnlyButton(btnDataBreakpoints, "数据断点");
+            ConfigureIconOnlyButton(btnAlarm, "报警信息");
+            ConfigureIconOnlyButton(btnFlowGraph, "流程图");
+            ConfigureIconOnlyButton(btnPerformanceAnalysis, "性能分析");
+            ConfigureIconOnlyButton(btnIOMonitor, "IO监视");
             ConfigureIconOnlyButton(button1, "打开程序文件夹");
             ConfigureIconOnlyButton(btnAppConfig, "程序设置");
             btnStopAll.FlatAppearance.BorderSize = 1;
-            btnStopAll.FlatAppearance.BorderColor = Color.FromArgb(218, 148, 148);
+            btnStopAll.FlatAppearance.BorderColor = UiPalette.Danger;
 
             ToolBar_Panel.Resize += (sender, args) => LayoutToolbarButtons();
             ToolBar_Panel.Paint += ToolBar_Panel_Paint;
@@ -96,7 +133,7 @@ namespace Automation
             button.FlatAppearance.MouseDownBackColor = backColor;
             button.UseVisualStyleBackColor = false;
             button.TabStop = false;
-            button.Image = UiIconFactory.Create(icon, foreColor, 20);
+            button.Image = UiIconFactory.Create(icon, foreColor, 28);
             button.ImageAlign = ContentAlignment.MiddleCenter;
             button.TextAlign = ContentAlignment.MiddleCenter;
             button.TextImageRelation = TextImageRelation.ImageBeforeText;
@@ -115,12 +152,32 @@ namespace Automation
             toolbarToolTip.SetToolTip(button, accessibleName);
         }
 
+        internal void SetPauseButtonAction(bool continueAction)
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)(() => SetPauseButtonAction(continueAction)));
+                return;
+            }
+
+            string accessibleName = continueAction ? "继续" : "暂停";
+            btnPause.Text = string.Empty;
+            btnPause.AccessibleName = accessibleName;
+            toolbarToolTip.SetToolTip(btnPause, accessibleName);
+        }
+
         private WinFormsButton[] GetToolbarButtons()
         {
             return new[]
             {
+                btnNavigateBack, btnNavigateForward,
+                btnUndo, btnRedo,
                 btnPause, btnStop, SingleRun, btnLocate,
-                btnAlarm, btnSearch, btnFlowGraph, btnPerformanceAnalysis, btnIOMonitor,
+                btnDataBreakpoints, btnAlarm, btnSearch, btnFlowGraph, btnPerformanceAnalysis, btnIOMonitor,
                 button1, btnAppConfig, btnStopAll
             };
         }
@@ -130,6 +187,22 @@ namespace Automation
             separatorPositions.Clear();
             int top = Math.Max(3, (ToolBar_Panel.ClientSize.Height - 38) / 2);
             int left = 8;
+
+            bool hasNavigationGroup = btnNavigateBack.Visible || btnNavigateForward.Visible;
+            if (hasNavigationGroup)
+            {
+                PlaceFromLeft(btnNavigateBack, ref left, top, 0);
+                PlaceFromLeft(btnNavigateForward, ref left, top, 16);
+                separatorPositions.Add(left - 8);
+            }
+
+            bool hasHistoryGroup = btnUndo.Visible || btnRedo.Visible;
+            if (hasHistoryGroup)
+            {
+                PlaceFromLeft(btnUndo, ref left, top, 0);
+                PlaceFromLeft(btnRedo, ref left, top, 16);
+                separatorPositions.Add(left - 8);
+            }
 
             bool hasRunGroup = btnPause.Visible || btnStop.Visible || SingleRun.Visible || btnLocate.Visible;
             if (hasRunGroup)
@@ -142,9 +215,6 @@ namespace Automation
             }
 
             PlaceFromLeft(btnAlarm, ref left, top, 2);
-            PlaceFromLeft(btnSearch, ref left, top, 2);
-            PlaceFromLeft(btnFlowGraph, ref left, top, 2);
-            PlaceFromLeft(btnPerformanceAnalysis, ref left, top, 2);
             PlaceFromLeft(btnIOMonitor, ref left, top, 2);
 
             int right = ToolBar_Panel.ClientSize.Width - 8;
@@ -155,10 +225,18 @@ namespace Automation
             }
             PlaceFromRight(btnAppConfig, ref right, top, 2);
             PlaceFromRight(button1, ref right, top, 0);
+            PlaceFromRight(btnPerformanceAnalysis, ref right, top, 2);
+            PlaceFromRight(btnFlowGraph, ref right, top, 2);
+            PlaceFromRight(btnSearch, ref right, top, 2);
+            PlaceFromRight(btnDataBreakpoints, ref right, top, 0);
 
             // 极窄窗口中保持所有按钮可见，系统操作跟随左侧内容排列。
             if (button1.Visible && right < left)
             {
+                PlaceFromLeft(btnDataBreakpoints, ref left, top, 2);
+                PlaceFromLeft(btnSearch, ref left, top, 2);
+                PlaceFromLeft(btnFlowGraph, ref left, top, 2);
+                PlaceFromLeft(btnPerformanceAnalysis, ref left, top, 2);
                 PlaceFromLeft(button1, ref left, top, 6);
                 PlaceFromLeft(btnAppConfig, ref left, top, 6);
                 PlaceFromLeft(btnStopAll, ref left, top, 0);
@@ -166,9 +244,91 @@ namespace Automation
             ToolBar_Panel.Invalidate();
         }
 
+        internal void SetNavigationAvailability(bool canNavigateBack, bool canNavigateForward)
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)(() => SetNavigationAvailability(canNavigateBack, canNavigateForward)));
+                return;
+            }
+            btnNavigateBack.Enabled = canNavigateBack;
+            btnNavigateForward.Enabled = canNavigateForward;
+        }
+
+        internal void RefreshHistoryAvailability()
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)RefreshHistoryAvailability);
+                return;
+            }
+
+            IEditSession editSession = SF.ActiveEditSession;
+            bool canUndo = editSession?.CanUndo ?? SF.EditorHistory.CanUndo;
+            bool canRedo = editSession?.CanRedo ?? SF.EditorHistory.CanRedo;
+            string undoDescription = editSession?.Name ?? SF.EditorHistory.UndoDescription;
+            string redoDescription = editSession?.Name ?? SF.EditorHistory.RedoDescription;
+            btnUndo.Enabled = canUndo;
+            btnRedo.Enabled = canRedo;
+            btnUndo.AccessibleName = canUndo
+                ? $"撤销：{undoDescription}"
+                : "撤销";
+            btnRedo.AccessibleName = canRedo
+                ? $"重做：{redoDescription}"
+                : "重做";
+            toolbarToolTip.SetToolTip(
+                btnUndo,
+                canUndo ? $"撤销：{undoDescription}（Ctrl+Z）" : "撤销（Ctrl+Z）");
+            toolbarToolTip.SetToolTip(
+                btnRedo,
+                canRedo ? $"重做：{redoDescription}（Ctrl+Y）" : "重做（Ctrl+Y）");
+        }
+
+        private void EditorHistory_StateChanged(object sender, EventArgs e)
+        {
+            RefreshHistoryAvailability();
+        }
+
+        private void ExecuteHistoryAction(bool undo)
+        {
+            string description;
+            string error;
+            bool success = undo
+                ? SF.TryUndoEditorChange(out description, out error)
+                : SF.TryRedoEditorChange(out description, out error);
+            if (!success)
+            {
+                if (!string.IsNullOrWhiteSpace(error))
+                {
+                    MessageBox.Show(
+                        error,
+                        undo ? "撤销失败" : "重做失败",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                }
+                RefreshHistoryAvailability();
+                return;
+            }
+            if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            {
+                SF.frmInfo.PrintInfo(
+                    $"已{(undo ? "撤销" : "重做")}：{description}",
+                    FrmInfo.Level.Normal);
+            }
+            RefreshHistoryAvailability();
+        }
+
         private void ToolBar_Panel_Paint(object sender, PaintEventArgs e)
         {
-            using (Pen pen = new Pen(Color.FromArgb(208, 216, 222)))
+            using (Pen pen = new Pen(UiPalette.Stroke))
             {
                 int top = Math.Max(8, (ToolBar_Panel.ClientSize.Height - 22) / 2);
                 foreach (int x in separatorPositions)
@@ -176,7 +336,7 @@ namespace Automation
                     e.Graphics.DrawLine(pen, x, top, x, top + 22);
                 }
             }
-            using (Pen borderPen = new Pen(Color.FromArgb(214, 222, 227)))
+            using (Pen borderPen = new Pen(UiPalette.Stroke))
             {
                 e.Graphics.DrawLine(
                     borderPen,
@@ -279,7 +439,8 @@ namespace Automation
                 return;
             }
             bool enabled = SF.frmIO.ToggleIOMonitor();
-            btnIOMonitor.Text = enabled ? "停止监视" : "IO监视";
+            btnIOMonitor.AccessibleName = enabled ? "停止监视" : "IO监视";
+            toolbarToolTip.SetToolTip(btnIOMonitor, btnIOMonitor.AccessibleName);
         }
 
         private async void btnPause_Click(object sender, EventArgs e)
@@ -293,7 +454,7 @@ namespace Automation
             if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
             {
                 SF.DR.Pause(procIndex);
-                btnPause.Text = "继续";
+                SetPauseButtonAction(true);
             }
             else if (snapshot != null && snapshot.State == ProcRunState.Paused)
             {
@@ -343,14 +504,14 @@ namespace Automation
                         "取消",
                         false);
                     confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
-                    confirmForm.txtMsg.ForeColor = Color.Red;
+                    confirmForm.txtMsg.ForeColor = UiPalette.Danger;
                     bool confirmed = await tcs.Task;
                     if (!confirmed)
                     {
                         return;
                     }
                     SF.DR.Resume(procIndex);
-                    btnPause.Text = "暂停";
+                    SetPauseButtonAction(false);
                 }
                 finally
                 {
@@ -434,7 +595,7 @@ namespace Automation
             }
             SF.frmDataGrid.SelectChildNode(procIndex, snapshot.StepIndex);
             SF.frmDataGrid.ScrollRowToCenter(snapshot.OpIndex);
-            SF.frmDataGrid.SetRowColor(snapshot.OpIndex, Color.LightBlue);
+            SF.frmDataGrid.SetRowColor(snapshot.OpIndex, UiPalette.InfoSoft);
         }
     }
 }

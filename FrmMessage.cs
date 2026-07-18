@@ -243,22 +243,22 @@ namespace Automation
         private void ApplyPrimaryButtonStyle(Button button, string text)
         {
             bool danger = IsDangerAction(text);
-            button.BackColor = danger ? Color.FromArgb(194, 57, 52) : Color.FromArgb(34, 111, 183);
-            button.ForeColor = Color.White;
+            button.BackColor = danger ? UiPalette.Danger : UiPalette.Brand;
+            button.ForeColor = UiPalette.TextInverse;
             button.FlatAppearance.BorderSize = 0;
-            button.FlatAppearance.MouseOverBackColor = danger ? Color.FromArgb(211, 70, 64) : Color.FromArgb(43, 126, 201);
-            button.FlatAppearance.MouseDownBackColor = danger ? Color.FromArgb(160, 43, 39) : Color.FromArgb(22, 83, 139);
+            button.FlatAppearance.MouseOverBackColor = danger ? UiPalette.Danger : UiPalette.Focus;
+            button.FlatAppearance.MouseDownBackColor = danger ? UiPalette.DangerHover : UiPalette.BrandPressed;
             button.Font = new Font(button.Font, FontStyle.Bold);
         }
 
         private static void ApplySecondaryButtonStyle(Button button)
         {
-            button.BackColor = Color.White;
-            button.ForeColor = Color.FromArgb(48, 59, 72);
+            button.BackColor = UiPalette.SurfaceStrong;
+            button.ForeColor = UiPalette.TextPrimary;
             button.FlatAppearance.BorderSize = 1;
-            button.FlatAppearance.BorderColor = Color.FromArgb(190, 199, 210);
-            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(237, 240, 244);
-            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(225, 230, 236);
+            button.FlatAppearance.BorderColor = UiPalette.StrokeStrong;
+            button.FlatAppearance.MouseOverBackColor = UiPalette.DisabledSoft;
+            button.FlatAppearance.MouseDownBackColor = UiPalette.Stroke;
             button.Font = new Font(button.Font, FontStyle.Regular);
         }
 

@@ -29,15 +29,6 @@ namespace Automation
     /// </summary>
     internal static class ProcTreeIconFactory
     {
-        private static readonly Color NeutralColor = Color.FromArgb(128, 143, 154);
-        private static readonly Color RunningColor = Color.FromArgb(38, 153, 105);
-        private static readonly Color PausedColor = Color.FromArgb(211, 145, 35);
-        private static readonly Color SingleStepColor = Color.FromArgb(51, 128, 190);
-        private static readonly Color AlarmColor = Color.FromArgb(210, 64, 64);
-        private static readonly Color TransitionColor = Color.FromArgb(223, 116, 37);
-        private static readonly Color StoppingColor = Color.FromArgb(174, 57, 57);
-        private static readonly Color DisabledColor = Color.FromArgb(177, 187, 194);
-
         public static Bitmap Create(ProcTreeIconKind kind, int size)
         {
             Bitmap bitmap = new Bitmap(size, size);
@@ -53,52 +44,52 @@ namespace Automation
                         DrawStopped(graphics);
                         break;
                     case ProcTreeIconKind.Running:
-                        DrawPlayBadge(graphics, RunningColor);
+                        DrawPlayBadge(graphics, UiPalette.Success);
                         break;
                     case ProcTreeIconKind.Paused:
-                        DrawPauseBadge(graphics, PausedColor);
+                        DrawPauseBadge(graphics, UiPalette.Warning);
                         break;
                     case ProcTreeIconKind.SingleStep:
-                        DrawStepBadge(graphics, SingleStepColor);
+                        DrawStepBadge(graphics, UiPalette.Brand);
                         break;
                     case ProcTreeIconKind.Alarming:
-                        DrawAlarm(graphics, AlarmColor);
+                        DrawAlarm(graphics, UiPalette.Danger);
                         break;
                     case ProcTreeIconKind.Pausing:
-                        DrawTransitionBadge(graphics, TransitionColor, true);
+                        DrawTransitionBadge(graphics, UiPalette.Transition, true);
                         break;
                     case ProcTreeIconKind.Stopping:
-                        DrawTransitionBadge(graphics, StoppingColor, false);
+                        DrawTransitionBadge(graphics, UiPalette.Stopping, false);
                         break;
                     case ProcTreeIconKind.EmptyProc:
-                        DrawEmptyProc(graphics, NeutralColor, false);
+                        DrawEmptyProc(graphics, UiPalette.TextMuted, false);
                         break;
                     case ProcTreeIconKind.EmptyProcDisabled:
-                        DrawEmptyProc(graphics, DisabledColor, true);
+                        DrawEmptyProc(graphics, UiPalette.Disabled, true);
                         break;
                     case ProcTreeIconKind.Disabled:
                         DrawDisabled(graphics);
                         break;
                     case ProcTreeIconKind.Step:
-                        DrawStepNode(graphics, NeutralColor, false);
+                        DrawStepNode(graphics, UiPalette.TextMuted, false);
                         break;
                     case ProcTreeIconKind.EmptyStep:
-                        DrawEmptyStepNode(graphics, NeutralColor, false);
+                        DrawEmptyStepNode(graphics, UiPalette.TextMuted, false);
                         break;
                     case ProcTreeIconKind.EmptyStepDisabled:
-                        DrawEmptyStepNode(graphics, DisabledColor, true);
+                        DrawEmptyStepNode(graphics, UiPalette.Disabled, true);
                         break;
                     case ProcTreeIconKind.StepRunning:
-                        DrawStepNode(graphics, RunningColor, true);
+                        DrawStepNode(graphics, UiPalette.Success, true);
                         break;
                     case ProcTreeIconKind.StepPaused:
-                        DrawPauseBadge(graphics, PausedColor);
+                        DrawPauseBadge(graphics, UiPalette.Warning);
                         break;
                     case ProcTreeIconKind.StepSingle:
-                        DrawStepBadge(graphics, SingleStepColor);
+                        DrawStepBadge(graphics, UiPalette.Brand);
                         break;
                     case ProcTreeIconKind.StepAlarming:
-                        DrawAlarm(graphics, AlarmColor);
+                        DrawAlarm(graphics, UiPalette.Danger);
                         break;
                 }
                 graphics.ResetTransform();
@@ -108,7 +99,7 @@ namespace Automation
 
         private static void DrawStopped(Graphics graphics)
         {
-            using (Pen pen = CreatePen(NeutralColor, 1.8F))
+            using (Pen pen = CreatePen(UiPalette.TextMuted, 1.8F))
             {
                 graphics.DrawEllipse(pen, 3, 3, 14, 14);
                 graphics.DrawRectangle(pen, 7, 7, 6, 6);
@@ -133,7 +124,7 @@ namespace Automation
         private static void DrawPlayBadge(Graphics graphics, Color color)
         {
             using (SolidBrush badge = new SolidBrush(color))
-            using (SolidBrush symbol = new SolidBrush(Color.White))
+            using (SolidBrush symbol = new SolidBrush(UiPalette.TextInverse))
             {
                 graphics.FillEllipse(badge, 2, 2, 16, 16);
                 graphics.FillPolygon(symbol, new[] { new PointF(8, 6), new PointF(14, 10), new PointF(8, 14) });
@@ -143,7 +134,7 @@ namespace Automation
         private static void DrawPauseBadge(Graphics graphics, Color color)
         {
             using (SolidBrush badge = new SolidBrush(color))
-            using (SolidBrush symbol = new SolidBrush(Color.White))
+            using (SolidBrush symbol = new SolidBrush(UiPalette.TextInverse))
             {
                 graphics.FillEllipse(badge, 2, 2, 16, 16);
                 graphics.FillRectangle(symbol, 7, 6, 2.3F, 8);
@@ -154,7 +145,7 @@ namespace Automation
         private static void DrawStepBadge(Graphics graphics, Color color)
         {
             using (SolidBrush badge = new SolidBrush(color))
-            using (SolidBrush symbol = new SolidBrush(Color.White))
+            using (SolidBrush symbol = new SolidBrush(UiPalette.TextInverse))
             {
                 graphics.FillEllipse(badge, 2, 2, 16, 16);
                 graphics.FillPolygon(symbol, new[] { new PointF(6, 6), new PointF(12, 10), new PointF(6, 14) });
@@ -194,7 +185,7 @@ namespace Automation
 
         private static void DrawDisabled(Graphics graphics)
         {
-            using (Pen pen = CreatePen(DisabledColor, 1.8F))
+            using (Pen pen = CreatePen(UiPalette.Disabled, 1.8F))
             {
                 graphics.DrawEllipse(pen, 3, 3, 14, 14);
                 graphics.DrawLine(pen, 5, 5, 15, 15);

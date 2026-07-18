@@ -65,7 +65,7 @@
             this.dgvIO.AllowUserToAddRows = false;
             this.dgvIO.AllowUserToResizeRows = false;
             this.dgvIO.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.dgvIO.BackgroundColor = System.Drawing.SystemColors.ControlLight;
+            this.dgvIO.BackgroundColor = global::Automation.UiPalette.SurfaceSubtle;
             this.dgvIO.ColumnHeadersHeight = 22;
             this.dgvIO.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
             this.dgvIO.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {

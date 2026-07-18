@@ -32,7 +32,8 @@ namespace Automation
                 request.VariableNames = variableNames.ToList();
                 if (!Context.PlcRuntime.TryRead(operation.DeviceName, request, out object[] values, out error))
                     return FailPlc(evt, $"PLC读取失败:{error}");
-                if (!SetReadVariables(batch.DataType, variableNames, values, evt.procId, out error)) return FailPlc(evt, error);
+                if (!SetReadVariables(batch.DataType, variableNames, values, evt.procId,
+                    evt.GetOperationSource(), out error)) return FailPlc(evt, error);
                 return true;
             }
 
@@ -111,7 +112,8 @@ namespace Automation
                 if (!results.TryGetValue(requests[i].Id, out object[] values) || values == null || values.Length != 1)
                     return FailPlc(evt, $"PLC读取项{i + 1}返回数量异常。");
                 if (!SetReadVariables(operation.ReadItems[i].DataType,
-                    new[] { variableNames[i] }, values, evt.procId, out string error)) return FailPlc(evt, error);
+                    new[] { variableNames[i] }, values, evt.procId,
+                    evt.GetOperationSource(), out string error)) return FailPlc(evt, error);
             }
             return true;
         }
@@ -252,7 +254,7 @@ namespace Automation
         }
 
         private bool SetReadVariables(PlcDataType dataType, IReadOnlyList<string> variableNames,
-            IReadOnlyList<object> values, Guid procId, out string error)
+            IReadOnlyList<object> values, Guid procId, string source, out string error)
         {
             error = null;
             if (values == null || values.Count != variableNames.Count)
@@ -264,7 +266,7 @@ namespace Automation
                     : dataType == PlcDataType.Boolean
                         ? ((bool)values[i] ? 1d : 0d)
                         : Convert.ToDouble(values[i], CultureInfo.InvariantCulture);
-                if (!Context.ValueStore.SetValueByNameForProcess(variableNames[i], value, procId, "PLC读写"))
+                if (!Context.ValueStore.SetValueByNameForProcess(variableNames[i], value, procId, source))
                 { error = $"PLC读取结果写入变量失败:{variableNames[i]}"; return false; }
             }
             return true;

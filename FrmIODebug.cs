@@ -42,11 +42,6 @@ namespace Automation
         private const int IoRowHeight = 46;
         private const int IoItemWidth = 150;
         private const int IoItemHeight = 34;
-        private static readonly Color IoWorkspaceBackColor = Color.FromArgb(246, 249, 251);
-        private static readonly Color IoActiveBackColor = Color.FromArgb(43, 142, 94);
-        private static readonly Color IoInactiveBackColor = Color.FromArgb(105, 124, 135);
-        private static readonly Color IoFaultBackColor = Color.FromArgb(196, 66, 66);
-        private static readonly Color IoCardForeColor = Color.White;
         private const string RemarkHeaderTag = "RemarkHeader";
         private const string RemarkLabelTag = "RemarkLabel";
         private const string RemarkLineLeftTag = "RemarkLineLeft";
@@ -117,22 +112,22 @@ namespace Automation
 
         private void ApplyIoDebugStyle()
         {
-            BackColor = IoWorkspaceBackColor;
+            BackColor = UiPalette.Background;
             tabControl1.Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134);
             tabControl1.SizeMode = TabSizeMode.Fixed;
             tabControl1.ItemSize = new Size(112, 30);
             tabControl1.Padding = new Point(14, 5);
             foreach (TabPage page in tabControl1.TabPages)
             {
-                page.BackColor = IoWorkspaceBackColor;
+                page.BackColor = UiPalette.Background;
                 page.UseVisualStyleBackColor = false;
             }
             foreach (Control control in EnumerateControls(this))
             {
                 if (control is ListView listView)
                 {
-                    listView.BackColor = Color.White;
-                    listView.ForeColor = Color.FromArgb(48, 63, 78);
+                    listView.BackColor = UiPalette.SurfaceStrong;
+                    listView.ForeColor = UiPalette.TextPrimary;
                     listView.BorderStyle = BorderStyle.FixedSingle;
                     listView.Font = new Font("微软雅黑", 9.5F, FontStyle.Regular, GraphicsUnit.Point, 134);
                     listView.FullRowSelect = true;
@@ -150,7 +145,7 @@ namespace Automation
                     tabs.Padding = new Point(14, 5);
                     foreach (TabPage page in tabs.TabPages)
                     {
-                        page.BackColor = IoWorkspaceBackColor;
+                        page.BackColor = UiPalette.Background;
                         page.UseVisualStyleBackColor = false;
                     }
                 }
@@ -326,7 +321,7 @@ namespace Automation
         {
             ListView listView = new ListView();
             listView.AllowDrop = true;
-            listView.BackColor = Color.White;
+            listView.BackColor = UiPalette.SurfaceStrong;
             listView.HideSelection = false;
             listView.Name = name;
             listView.UseCompatibleStateImageBehavior = false;
@@ -343,7 +338,7 @@ namespace Automation
         {
             ListView listView = new ListView();
             listView.AllowDrop = true;
-            listView.BackColor = Color.White;
+            listView.BackColor = UiPalette.SurfaceStrong;
             listView.CheckBoxes = true;
             listView.HideSelection = false;
             listView.Name = name;
@@ -356,7 +351,7 @@ namespace Automation
         {
             ListView listView = new ListView();
             listView.AllowDrop = true;
-            listView.BackColor = Color.White;
+            listView.BackColor = UiPalette.SurfaceStrong;
             listView.CheckBoxes = true;
             listView.HideSelection = false;
             listView.Name = name;
@@ -371,7 +366,7 @@ namespace Automation
             Splitter splitter = new Splitter();
             splitter.Name = name;
             splitter.Width = ConnectSplitterWidth;
-            splitter.BackColor = SystemColors.ControlDark;
+            splitter.BackColor = UiPalette.StrokeStrong;
             splitter.Tag = pageIndex;
             splitter.SplitterMoved += ConnectSplitter_SplitterMoved;
             return splitter;
@@ -1195,9 +1190,9 @@ namespace Automation
                     }
                     if (!data.InputValid[i])
                     {
-                        if (control.BackColor != IoFaultBackColor)
+                        if (control.BackColor != UiPalette.Danger)
                         {
-                            control.BackColor = IoFaultBackColor;
+                            control.BackColor = UiPalette.Danger;
                         }
                         InTemp[i] = false;
                         InValid[i] = false;
@@ -1206,7 +1201,7 @@ namespace Automation
                     bool open = data.InputStates[i];
                     if (!InValid[i] || InTemp[i] != open)
                     {
-                        control.BackColor = open ? IoActiveBackColor : IoInactiveBackColor;
+                        control.BackColor = open ? UiPalette.Success : UiPalette.TextMuted;
                         InTemp[i] = open;
                         InValid[i] = true;
                     }
@@ -1242,9 +1237,9 @@ namespace Automation
                     }
                     if (!data.OutputValid[i])
                     {
-                        if (control.BackColor != IoFaultBackColor)
+                        if (control.BackColor != UiPalette.Danger)
                         {
-                            control.BackColor = IoFaultBackColor;
+                            control.BackColor = UiPalette.Danger;
                         }
                         OutTemp[i] = false;
                         OutValid[i] = false;
@@ -1253,7 +1248,7 @@ namespace Automation
                     bool open = data.OutputStates[i];
                     if (!OutValid[i] || OutTemp[i] != open)
                     {
-                        control.BackColor = open ? IoActiveBackColor : IoInactiveBackColor;
+                        control.BackColor = open ? UiPalette.Success : UiPalette.TextMuted;
                         OutTemp[i] = open;
                         OutValid[i] = true;
                     }
@@ -1290,9 +1285,9 @@ namespace Automation
                     }
                     if (!data.ConnectOutValid[i])
                     {
-                        if (btnCon[i].OutPut != null && btnCon[i].OutPut.BackColor != IoFaultBackColor)
+                        if (btnCon[i].OutPut != null && btnCon[i].OutPut.BackColor != UiPalette.Danger)
                         {
-                            btnCon[i].OutPut.BackColor = IoFaultBackColor;
+                            btnCon[i].OutPut.BackColor = UiPalette.Danger;
                         }
                         ConnectTemp[i].OutPut = false;
                         ConnectOutValid[i] = false;
@@ -1304,7 +1299,7 @@ namespace Automation
                         {
                             if (btnCon[i].OutPut != null)
                             {
-                                btnCon[i].OutPut.BackColor = open ? IoActiveBackColor : IoInactiveBackColor;
+                                btnCon[i].OutPut.BackColor = open ? UiPalette.Success : UiPalette.TextMuted;
                             }
                             ConnectTemp[i].OutPut = open;
                             ConnectOutValid[i] = true;
@@ -1312,9 +1307,9 @@ namespace Automation
                     }
                     if (!data.ConnectIn1Valid[i])
                     {
-                        if (btnCon[i].InPut1 != null && btnCon[i].InPut1.BackColor != IoFaultBackColor)
+                        if (btnCon[i].InPut1 != null && btnCon[i].InPut1.BackColor != UiPalette.Danger)
                         {
-                            btnCon[i].InPut1.BackColor = IoFaultBackColor;
+                            btnCon[i].InPut1.BackColor = UiPalette.Danger;
                         }
                         ConnectTemp[i].InPut1 = false;
                         ConnectIn1Valid[i] = false;
@@ -1326,7 +1321,7 @@ namespace Automation
                         {
                             if (btnCon[i].InPut1 != null)
                             {
-                                btnCon[i].InPut1.BackColor = open ? IoActiveBackColor : IoInactiveBackColor;
+                                btnCon[i].InPut1.BackColor = open ? UiPalette.Success : UiPalette.TextMuted;
                             }
                             ConnectTemp[i].InPut1 = open;
                             ConnectIn1Valid[i] = true;
@@ -1334,9 +1329,9 @@ namespace Automation
                     }
                     if (!data.ConnectIn2Valid[i])
                     {
-                        if (btnCon[i].InPut2 != null && btnCon[i].InPut2.BackColor != IoFaultBackColor)
+                        if (btnCon[i].InPut2 != null && btnCon[i].InPut2.BackColor != UiPalette.Danger)
                         {
-                            btnCon[i].InPut2.BackColor = IoFaultBackColor;
+                            btnCon[i].InPut2.BackColor = UiPalette.Danger;
                         }
                         ConnectTemp[i].InPut2 = false;
                         ConnectIn2Valid[i] = false;
@@ -1348,7 +1343,7 @@ namespace Automation
                         {
                             if (btnCon[i].InPut2 != null)
                             {
-                                btnCon[i].InPut2.BackColor = open ? IoActiveBackColor : IoInactiveBackColor;
+                                btnCon[i].InPut2.BackColor = open ? UiPalette.Success : UiPalette.TextMuted;
                             }
                             ConnectTemp[i].InPut2 = open;
                             ConnectIn2Valid[i] = true;
@@ -1559,19 +1554,19 @@ namespace Automation
                 item.Tag = iOConnect;
                 if (iOConnect.Output.IsRemark)
                 {
-                    item.ForeColor = Color.FromArgb(96, 96, 96);
+                    item.ForeColor = UiPalette.TextMuted;
                 }
                 else
                 {
                     if (!TryResolveIoByName(name, "通用输出", out _, false))
                     {
-                        item.ForeColor = Color.Red;
+                        item.ForeColor = UiPalette.Danger;
                     }
                     if (iOConnect.Output2 != null
                         && !string.IsNullOrWhiteSpace(iOConnect.Output2.Name)
                         && !TryResolveIoByName(iOConnect.Output2.Name, "通用输出", out _, false))
                     {
-                        item.ForeColor = Color.Red;
+                        item.ForeColor = UiPalette.Danger;
                     }
                 }
                 listView3.Items.Add(item);
@@ -1722,7 +1717,7 @@ namespace Automation
                                 label = new Label();
                                 label.AutoSize = false;
                                 label.TextAlign = ContentAlignment.MiddleCenter;
-                                label.BackColor = IoInactiveBackColor;
+                                label.BackColor = UiPalette.TextMuted;
                                 created = true;
                                 tabPage.Controls.Add(label);
                             }
@@ -1734,12 +1729,12 @@ namespace Automation
                             label.Location = location;
                             label.Size = new Size(itemWidth, itemHeight);
                             label.Font = font;
-                            label.ForeColor = IoCardForeColor;
+                            label.ForeColor = UiPalette.TextInverse;
                             label.BorderStyle = BorderStyle.FixedSingle;
                             label.Padding = new Padding(6, 0, 6, 0);
                             if (created)
                             {
-                                label.BackColor = IoInactiveBackColor;
+                                label.BackColor = UiPalette.TextMuted;
                             }
                             result = label;
                         }
@@ -1767,11 +1762,11 @@ namespace Automation
                             button.Location = location;
                             button.Size = new Size(itemWidth, itemHeight);
                             button.Font = font;
-                            button.ForeColor = IoCardForeColor;
-                            button.BackColor = IoInactiveBackColor;
+                            button.ForeColor = UiPalette.TextInverse;
+                            button.BackColor = UiPalette.TextMuted;
                             button.FlatStyle = FlatStyle.Flat;
                             button.FlatAppearance.BorderSize = 1;
-                            button.FlatAppearance.BorderColor = Color.FromArgb(82, 101, 112);
+                            button.FlatAppearance.BorderColor = UiPalette.TextSecondary;
                             button.UseVisualStyleBackColor = false;
                             button.Cursor = Cursors.Hand;
                             button.TabStop = false;
@@ -1920,11 +1915,11 @@ namespace Automation
                         outputButton.Location = new Point(baseX, row * rowHeight);
                         outputButton.Size = new Size(itemWidth, itemHeight);
                         outputButton.Font = font;
-                        outputButton.ForeColor = IoCardForeColor;
-                        outputButton.BackColor = IoInactiveBackColor;
+                        outputButton.ForeColor = UiPalette.TextInverse;
+                        outputButton.BackColor = UiPalette.TextMuted;
                         outputButton.FlatStyle = FlatStyle.Flat;
                         outputButton.FlatAppearance.BorderSize = 1;
-                        outputButton.FlatAppearance.BorderColor = Color.FromArgb(82, 101, 112);
+                        outputButton.FlatAppearance.BorderColor = UiPalette.TextSecondary;
                         outputButton.UseVisualStyleBackColor = false;
                         outputButton.Cursor = Cursors.Hand;
                         outputButton.TabStop = false;
@@ -1943,7 +1938,7 @@ namespace Automation
                                 {
                                     AutoSize = false,
                                     TextAlign = ContentAlignment.MiddleCenter,
-                                    BackColor = IoInactiveBackColor
+                                    BackColor = UiPalette.TextMuted
                                 };
                                 targetPage.Controls.Add(input1);
                             }
@@ -1955,7 +1950,7 @@ namespace Automation
                             input1.Location = new Point(baseX + colWidth, row * rowHeight);
                             input1.Size = new Size(itemWidth, itemHeight);
                             input1.Font = font;
-                            input1.ForeColor = IoCardForeColor;
+                            input1.ForeColor = UiPalette.TextInverse;
                             input1.BorderStyle = BorderStyle.FixedSingle;
                             input1.Padding = new Padding(6, 0, 6, 0);
                             item.InPut1 = input1;
@@ -1976,7 +1971,7 @@ namespace Automation
                                 {
                                     AutoSize = false,
                                     TextAlign = ContentAlignment.MiddleCenter,
-                                    BackColor = IoInactiveBackColor
+                                    BackColor = UiPalette.TextMuted
                                 };
                                 targetPage.Controls.Add(input2);
                             }
@@ -1988,7 +1983,7 @@ namespace Automation
                             input2.Location = new Point(baseX + colWidth * 2, row * rowHeight);
                             input2.Size = new Size(itemWidth, itemHeight);
                             input2.Font = font;
-                            input2.ForeColor = IoCardForeColor;
+                            input2.ForeColor = UiPalette.TextInverse;
                             input2.BorderStyle = BorderStyle.FixedSingle;
                             input2.Padding = new Padding(6, 0, 6, 0);
                             item.InPut2 = input2;
@@ -2048,7 +2043,7 @@ namespace Automation
                 {
                     if (!TryResolveIoByName(ioConnect.Output.Name, "通用输出", out IO outputIo))
                     {
-                        button.BackColor = IoFaultBackColor;
+                        button.BackColor = UiPalette.Danger;
                         return;
                     }
                     if (!SF.io.GetOutIO(outputIo, ref currentState))
@@ -2074,7 +2069,7 @@ namespace Automation
                 }
                 if (!TryResolveIoByName(button.Text, "通用输出", out IO outputIo2))
                 {
-                    button.BackColor = IoFaultBackColor;
+                    button.BackColor = UiPalette.Danger;
                     return;
                 }
                 if (!SF.io.GetOutIO(outputIo2, ref currentState)
@@ -2094,7 +2089,7 @@ namespace Automation
             Panel panel = new Panel();
             panel.Location = location;
             panel.Size = new Size(width, height);
-            panel.BackColor = Color.FromArgb(231, 239, 244);
+            panel.BackColor = UiPalette.SurfaceHover;
             panel.Tag = RemarkHeaderTag;
 
             Label textLabel = new Label();
@@ -2102,7 +2097,7 @@ namespace Automation
             textLabel.Dock = DockStyle.Fill;
             textLabel.TextAlign = ContentAlignment.MiddleCenter;
             textLabel.Font = new Font("微软雅黑", 9F, FontStyle.Bold);
-            textLabel.ForeColor = Color.FromArgb(56, 76, 88);
+            textLabel.ForeColor = UiPalette.TextPrimary;
             textLabel.BackColor = Color.Transparent;
             textLabel.Tag = RemarkLabelTag;
 
@@ -2112,7 +2107,7 @@ namespace Automation
             int lineY = height / 2;
 
             Panel leftLine = new Panel();
-            leftLine.BackColor = Color.FromArgb(165, 187, 199);
+            leftLine.BackColor = UiPalette.NavigationTextMuted;
             leftLine.Size = new Size(lineWidth, 1);
             leftLine.Location = new Point(linePadding, lineY);
             leftLine.Tag = RemarkLineLeftTag;
@@ -2164,7 +2159,7 @@ namespace Automation
                     Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleCenter,
                     Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(56, 76, 88),
+                    ForeColor = UiPalette.TextPrimary,
                     BackColor = Color.Transparent,
                     Tag = RemarkLabelTag
                 };
@@ -2177,7 +2172,7 @@ namespace Automation
             {
                 leftLine = new Panel
                 {
-                    BackColor = Color.FromArgb(165, 187, 199),
+                    BackColor = UiPalette.NavigationTextMuted,
                     Tag = RemarkLineLeftTag
                 };
                 panel.Controls.Add(leftLine);
@@ -2187,7 +2182,7 @@ namespace Automation
             {
                 rightLine = new Panel
                 {
-                    BackColor = Color.FromArgb(165, 187, 199),
+                    BackColor = UiPalette.NavigationTextMuted,
                     Tag = RemarkLineRightTag
                 };
                 panel.Controls.Add(rightLine);
@@ -2225,7 +2220,7 @@ namespace Automation
                     if (cacheIO.IsRemark)
                     {
                         item.Text = $"【{name}】";
-                        item.ForeColor = Color.FromArgb(96, 96, 96);
+                        item.ForeColor = UiPalette.TextMuted;
                     }
                     else
                     {
@@ -2234,7 +2229,7 @@ namespace Automation
                     item.Font = font;
                     if (!cacheIO.IsRemark && !TryResolveIoByName(name, "通用输入", out _, false))
                     {
-                        item.ForeColor = Color.Red;
+                        item.ForeColor = UiPalette.Danger;
                     }
                     listView1.Items.Add(item);
 
@@ -2255,7 +2250,7 @@ namespace Automation
                     if (cacheIO.IsRemark)
                     {
                         item.Text = $"【{name}】";
-                        item.ForeColor = Color.FromArgb(96, 96, 96);
+                        item.ForeColor = UiPalette.TextMuted;
                     }
                     else
                     {
@@ -2264,7 +2259,7 @@ namespace Automation
                     item.Font = font;
                     if (!cacheIO.IsRemark && !TryResolveIoByName(name, "通用输出", out _, false))
                     {
-                        item.ForeColor = Color.Red;
+                        item.ForeColor = UiPalette.Danger;
                     }
                     listView2.Items.Add(item);
 
@@ -2746,7 +2741,7 @@ namespace Automation
 
         private void listView1_DragEnter(object sender, DragEventArgs e)
         {
-            listView1.InsertionMark.Color = Color.DodgerBlue;
+            listView1.InsertionMark.Color = UiPalette.Focus;
             e.Effect = DragDropEffects.Move;
         }
 
@@ -2870,7 +2865,7 @@ namespace Automation
 
         private void listView2_DragEnter(object sender, DragEventArgs e)
         {
-            listView2.InsertionMark.Color = Color.DodgerBlue;
+            listView2.InsertionMark.Color = UiPalette.Focus;
             e.Effect = DragDropEffects.Move;
         }
 
@@ -3262,7 +3257,7 @@ namespace Automation
             // 取消目标项的高亮显示
             if (targetItem != null)
             {
-                targetItem.BackColor = Color.White;
+                targetItem.BackColor = UiPalette.SurfaceStrong;
             }
             TrySaveIoDebugMap();
             RefleshConnecdt();
@@ -3284,12 +3279,12 @@ namespace Automation
                 // 取消之前目标项的高亮显示
                 if (targetItem3 != null)
                 {
-                    targetItem3.BackColor = Color.White;
+                    targetItem3.BackColor = UiPalette.SurfaceStrong;
                 }
 
                 // 设置新目标项的高亮显示
                 targetItem3 = newTargetItem;
-                targetItem3.BackColor = Color.LightBlue;
+                targetItem3.BackColor = UiPalette.InfoSoft;
             }
 
             e.Effect = DragDropEffects.Move;

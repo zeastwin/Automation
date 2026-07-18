@@ -25,12 +25,6 @@ namespace Automation.Hmi
         private bool _demoMode = true;
 
         // 图表外观
-        private Color _gridColor = Color.FromArgb(220, 225, 232);
-        private Color _lineColor = Color.FromArgb(41, 128, 185);
-        private Color _fillColor = Color.FromArgb(30, 41, 128, 185);
-        private Color _titleColor = Color.FromArgb(47, 66, 82);
-        private Color _labelColor = Color.FromArgb(100, 110, 120);
-
         // 标题
         private string _chartTitle = "压力趋势 (MPa)";
         private string _yAxisLabel = "MPa";
@@ -139,7 +133,7 @@ namespace Automation.Hmi
             if (width <= 0 || height <= 0) return;
 
             // 背景
-            using (var bgBrush = new SolidBrush(Color.White))
+            using (var bgBrush = new SolidBrush(UiPalette.SurfaceStrong))
                 g.FillRectangle(bgBrush, ClientRectangle);
 
             // 绘图区域
@@ -154,7 +148,7 @@ namespace Automation.Hmi
 
             // ---- 标题 ----
             using (var titleFont = new Font("Microsoft YaHei UI", 12, FontStyle.Bold))
-            using (var titleBrush = new SolidBrush(_titleColor))
+            using (var titleBrush = new SolidBrush(UiPalette.TextPrimary))
             {
                 var titleSize = g.MeasureString(_chartTitle, titleFont);
                 g.DrawString(_chartTitle, titleFont, titleBrush,
@@ -163,7 +157,7 @@ namespace Automation.Hmi
 
             // ---- 网格线 ----
             const int gridLines = 5;
-            using (var gridPen = new Pen(_gridColor, 1))
+            using (var gridPen = new Pen(UiPalette.ChartGrid, 1))
             {
                 for (int i = 0; i <= gridLines; i++)
                 {
@@ -174,7 +168,7 @@ namespace Automation.Hmi
 
             // ---- Y 轴标签 ----
             using (var labelFont = new Font("Microsoft YaHei UI", 8))
-            using (var labelBrush = new SolidBrush(_labelColor))
+            using (var labelBrush = new SolidBrush(UiPalette.ChartLabel))
             {
                 for (int i = 0; i <= gridLines; i++)
                 {
@@ -193,7 +187,7 @@ namespace Automation.Hmi
 
             // ---- X 轴标签 ----
             using (var labelFont = new Font("Microsoft YaHei UI", 8))
-            using (var labelBrush = new SolidBrush(_labelColor))
+            using (var labelBrush = new SolidBrush(UiPalette.ChartLabel))
             {
                 int pointCount = _dataPoints.Count;
                 if (pointCount > 0)
@@ -240,8 +234,8 @@ namespace Automation.Hmi
 
                     using (var fillBrush = new LinearGradientBrush(
                         new Point(0, plotTop), new Point(0, plotBottom),
-                        Color.FromArgb(80, 41, 128, 185),
-                        Color.FromArgb(5, 41, 128, 185)))
+                        Color.FromArgb(80, UiPalette.ChartLine),
+                        Color.FromArgb(5, UiPalette.ChartLine)))
                     {
                         g.FillPath(fillBrush, fillPath);
                     }
@@ -249,7 +243,7 @@ namespace Automation.Hmi
             }
 
             // 折线
-            using (var linePen = new Pen(_lineColor, 2.5f))
+            using (var linePen = new Pen(UiPalette.ChartLine, 2.5f))
             {
                 linePen.StartCap = LineCap.Round;
                 linePen.EndCap = LineCap.Round;
@@ -257,8 +251,8 @@ namespace Automation.Hmi
             }
 
             // 数据点标记
-            using (var dotBrush = new SolidBrush(_lineColor))
-            using (var dotPen = new Pen(Color.White, 1.5f))
+            using (var dotBrush = new SolidBrush(UiPalette.ChartLine))
+            using (var dotPen = new Pen(UiPalette.TextInverse, 1.5f))
             {
                 foreach (var pt in points)
                 {
@@ -274,7 +268,7 @@ namespace Automation.Hmi
                 var lastPt = points[points.Count - 1];
 
                 using (var valFont = new Font("Microsoft YaHei UI", 10, FontStyle.Bold))
-                using (var valBrush = new SolidBrush(_lineColor))
+                using (var valBrush = new SolidBrush(UiPalette.ChartLine))
                 {
                     string valText = lastVal.ToString("0.00") + " MPa";
                     var valSize = g.MeasureString(valText, valFont);
@@ -288,8 +282,8 @@ namespace Automation.Hmi
                     if (labelY < plotTop) labelY = lastPt.Y + 6;
 
                     // 标签背景
-                    using (var bgBrush = new SolidBrush(Color.FromArgb(220, 255, 255, 255)))
-                    using (var borderPen = new Pen(Color.FromArgb(180, 41, 128, 185), 1))
+                    using (var bgBrush = new SolidBrush(Color.FromArgb(220, UiPalette.SurfaceStrong)))
+                    using (var borderPen = new Pen(Color.FromArgb(180, UiPalette.ChartLine), 1))
                     {
                         g.FillRectangle(bgBrush, labelX - 4, labelY - 2, valSize.Width + 8, valSize.Height + 4);
                         g.DrawRectangle(borderPen, labelX - 4, labelY - 2, valSize.Width + 8, valSize.Height + 4);
@@ -301,7 +295,7 @@ namespace Automation.Hmi
             }
 
             // ---- 边框 ----
-            using (var borderPen = new Pen(Color.FromArgb(200, 210, 220), 1))
+            using (var borderPen = new Pen(UiPalette.Stroke, 1))
             {
                 g.DrawRectangle(borderPen, plotLeft, plotTop, plotWidth, plotHeight);
             }

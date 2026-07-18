@@ -46,7 +46,7 @@ namespace Automation
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(1040, 680);
             Size = new Size(1320, 840);
-            BackColor = Color.FromArgb(243, 246, 248);
+            BackColor = UiPalette.InputFocused;
             webView.Dock = DockStyle.Fill;
             Controls.Add(webView);
             Load += FrmVersionManager_Load;

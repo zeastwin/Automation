@@ -46,21 +46,21 @@ namespace Automation
             ShowInTaskbar = false;
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Regular);
-            BackColor = Color.FromArgb(243, 246, 248);
+            BackColor = UiPalette.InputFocused;
             ClientSize = new Size(620, 616);
 
             Panel header = new Panel
             {
                 Dock = DockStyle.Top,
                 Height = 78,
-                BackColor = Color.FromArgb(52, 58, 64)
+                BackColor = UiPalette.Navigation
             };
             PictureBox headerIcon = new PictureBox
             {
                 Location = new Point(24, 22),
                 Size = new Size(32, 32),
                 SizeMode = PictureBoxSizeMode.CenterImage,
-                Image = CreateOwnedImage(UiIconKind.Settings, Color.FromArgb(105, 202, 241), 28)
+                Image = CreateOwnedImage(UiIconKind.Settings, UiPalette.NavigationAccent, 28)
             };
             Label title = new Label
             {
@@ -68,7 +68,7 @@ namespace Automation
                 Location = new Point(68, 15),
                 AutoSize = true,
                 Font = new Font("Microsoft YaHei UI", 15F, FontStyle.Bold),
-                ForeColor = Color.White
+                ForeColor = UiPalette.TextInverse
             };
             Label subtitle = new Label
             {
@@ -76,7 +76,7 @@ namespace Automation
                 Location = new Point(70, 45),
                 AutoSize = true,
                 Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(185, 198, 207)
+                ForeColor = UiPalette.StrokeStrong
             };
             header.Controls.Add(headerIcon);
             header.Controls.Add(title);
@@ -86,12 +86,12 @@ namespace Automation
             {
                 Location = new Point(22, 96),
                 Size = new Size(576, 384),
-                BackColor = Color.White,
+                BackColor = UiPalette.SurfaceStrong,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
             settingsCard.Paint += (sender, args) =>
             {
-                using (Pen pen = new Pen(Color.FromArgb(222, 228, 233)))
+                using (Pen pen = new Pen(UiPalette.Stroke))
                 {
                     args.Graphics.DrawRectangle(pen, 0, 0, settingsCard.ClientSize.Width - 1, settingsCard.ClientSize.Height - 1);
                 }
@@ -162,7 +162,7 @@ namespace Automation
             txtConfigPath.ReadOnly = true;
             txtConfigPath.ShortcutsEnabled = true;
             txtConfigPath.Font = new Font("Consolas", 9.5F, FontStyle.Regular);
-            txtConfigPath.BackColor = Color.White;
+            txtConfigPath.BackColor = UiPalette.SurfaceStrong;
             fields.Controls.Add(CreateInputHost(txtConfigPath), 1, 5);
             toolTip.SetToolTip(txtConfigPath, "单击后可使用 Ctrl+C 复制完整路径");
             settingsCard.Controls.Add(fields);
@@ -172,7 +172,7 @@ namespace Automation
                 Location = new Point(22, 496),
                 Size = new Size(576, 42),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                BackColor = Color.FromArgb(255, 248, 232)
+                BackColor = UiPalette.WarningSoft
             };
             ApplyRoundedRegion(restartNotice, 7);
             PictureBox noticeIcon = new PictureBox
@@ -180,7 +180,7 @@ namespace Automation
                 Location = new Point(14, 11),
                 Size = new Size(20, 20),
                 SizeMode = PictureBoxSizeMode.CenterImage,
-                Image = CreateOwnedImage(UiIconKind.Alarm, Color.FromArgb(185, 116, 21), 18)
+                Image = CreateOwnedImage(UiIconKind.Alarm, UiPalette.Warning, 18)
             };
             Label restartText = new Label
             {
@@ -188,7 +188,7 @@ namespace Automation
                 Location = new Point(42, 10),
                 AutoSize = true,
                 Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(126, 83, 25)
+                ForeColor = UiPalette.WarningHover
             };
             restartNotice.Controls.Add(noticeIcon);
             restartNotice.Controls.Add(restartText);
@@ -197,34 +197,34 @@ namespace Automation
             btnSave.SetBounds(492, 559, 106, 38);
             btnSave.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnSave.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
-            btnSave.ForeColor = Color.White;
-            btnSave.BackColor = Color.FromArgb(22, 121, 170);
+            btnSave.ForeColor = UiPalette.TextInverse;
+            btnSave.BackColor = UiPalette.Brand;
             btnSave.FlatStyle = FlatStyle.Flat;
             btnSave.FlatAppearance.BorderSize = 0;
             btnSave.FlatAppearance.MouseOverBackColor = btnSave.BackColor;
             btnSave.FlatAppearance.MouseDownBackColor = btnSave.BackColor;
-            btnSave.Image = CreateOwnedImage(UiIconKind.Save, Color.White, 18);
+            btnSave.Image = CreateOwnedImage(UiIconKind.Save, UiPalette.TextInverse, 18);
             btnSave.TextImageRelation = TextImageRelation.ImageBeforeText;
             btnSave.Padding = new Padding(3, 0, 3, 0);
             btnSave.Click += BtnSave_Click;
             ApplyRoundedRegion(btnSave, 6);
             Color saveBackColor = btnSave.BackColor;
-            hoverAnimator.Attach(btnSave, () => saveBackColor, Color.FromArgb(16, 103, 147), true);
+            hoverAnimator.Attach(btnSave, () => saveBackColor, UiPalette.BrandHover, true);
 
             btnCancel.Text = "关闭";
             btnCancel.SetBounds(394, 559, 88, 38);
             btnCancel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnCancel.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
-            btnCancel.ForeColor = Color.FromArgb(55, 69, 78);
-            btnCancel.BackColor = Color.White;
+            btnCancel.ForeColor = UiPalette.TextPrimary;
+            btnCancel.BackColor = UiPalette.SurfaceStrong;
             btnCancel.FlatStyle = FlatStyle.Flat;
             btnCancel.FlatAppearance.BorderSize = 1;
-            btnCancel.FlatAppearance.BorderColor = Color.FromArgb(199, 210, 218);
+            btnCancel.FlatAppearance.BorderColor = UiPalette.StrokeStrong;
             btnCancel.FlatAppearance.MouseOverBackColor = btnCancel.BackColor;
             btnCancel.FlatAppearance.MouseDownBackColor = btnCancel.BackColor;
             btnCancel.DialogResult = DialogResult.Cancel;
             ApplyRoundedRegion(btnCancel, 6);
-            hoverAnimator.Attach(btnCancel, () => Color.White, Color.FromArgb(230, 236, 240), true);
+            hoverAnimator.Attach(btnCancel, () => UiPalette.SurfaceStrong, UiPalette.SurfaceHover, true);
 
             AcceptButton = btnSave;
             CancelButton = btnCancel;
@@ -245,7 +245,7 @@ namespace Automation
                 Location = new Point(0, 11),
                 AutoSize = true,
                 Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(42, 55, 64)
+                ForeColor = UiPalette.TextPrimary
             };
             Label descriptionLabel = new Label
             {
@@ -253,7 +253,7 @@ namespace Automation
                 Location = new Point(0, 35),
                 AutoSize = true,
                 Font = new Font("Microsoft YaHei UI", 8.75F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(126, 139, 148)
+                ForeColor = UiPalette.TextDisabled
             };
             panel.Controls.Add(titleLabel);
             panel.Controls.Add(descriptionLabel);
@@ -262,7 +262,7 @@ namespace Automation
 
         private Panel CreateInputHost(Control input)
         {
-            Color borderColor = Color.FromArgb(199, 210, 218);
+            Color borderColor = UiPalette.StrokeStrong;
             Panel host = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -273,13 +273,13 @@ namespace Automation
             Panel inner = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.White
+                BackColor = UiPalette.SurfaceStrong
             };
             if (input is TextBoxBase textBox)
             {
                 textBox.BorderStyle = BorderStyle.None;
             }
-            input.BackColor = Color.White;
+            input.BackColor = UiPalette.SurfaceStrong;
             input.Location = input is ComboBox ? new Point(8, 7) : new Point(10, 8);
             input.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
             inner.Controls.Add(input);
@@ -287,7 +287,7 @@ namespace Automation
             {
                 input.Width = Math.Max(1, inner.ClientSize.Width - input.Left - 8);
             };
-            input.Enter += (sender, args) => host.BackColor = Color.FromArgb(60, 157, 202);
+            input.Enter += (sender, args) => host.BackColor = UiPalette.BrandAccent;
             input.Leave += (sender, args) => host.BackColor = borderColor;
             host.Controls.Add(inner);
             return host;

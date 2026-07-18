@@ -40,7 +40,7 @@ namespace Automation
         public FrmProcessFlow(FrmMain owner)
         {
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
-            BackColor = Color.FromArgb(246, 247, 251);
+            BackColor = UiPalette.Surface;
             MinimumSize = new Size(760, 520);
 
             webView = new WebView2
@@ -60,7 +60,7 @@ namespace Automation
                 Dock = DockStyle.Fill,
                 Padding = new Padding(48),
                 Font = new Font("Microsoft YaHei UI", 11F),
-                ForeColor = Color.FromArgb(86, 99, 118),
+                ForeColor = UiPalette.TextSecondary,
                 TextAlign = ContentAlignment.MiddleCenter
             };
             var fallbackBack = new Button
@@ -69,8 +69,8 @@ namespace Automation
                 Height = 46,
                 Text = "返回指令列表",
                 FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(79, 107, 237),
-                ForeColor = Color.White,
+                BackColor = UiPalette.Brand,
+                ForeColor = UiPalette.TextInverse,
                 Font = new Font("Microsoft YaHei UI", 10F),
                 Cursor = Cursors.Hand
             };
@@ -80,7 +80,7 @@ namespace Automation
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(80),
-                BackColor = Color.FromArgb(246, 247, 251),
+                BackColor = UiPalette.Surface,
                 Visible = false
             };
             fallbackPanel.Controls.Add(fallbackMessage);

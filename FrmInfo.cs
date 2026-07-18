@@ -56,17 +56,17 @@ namespace Automation
 
         private void ConfigureAppearance()
         {
-            BackColor = Color.FromArgb(246, 249, 251);
-            tabPage2.BackColor = Color.White;
+            BackColor = UiPalette.Background;
+            tabPage2.BackColor = UiPalette.SurfaceStrong;
             tabPage2.UseVisualStyleBackColor = false;
             tabPage2.Padding = new Padding(1);
-            tabPageStatus.BackColor = Color.White;
+            tabPageStatus.BackColor = UiPalette.SurfaceStrong;
             tabPageStatus.UseVisualStyleBackColor = false;
             tabPageStatus.Padding = new Padding(1);
 
             lvInfoLog.BorderStyle = BorderStyle.None;
-            lvInfoLog.BackColor = Color.FromArgb(246, 249, 251);
-            lvInfoLog.ForeColor = Color.FromArgb(49, 63, 73);
+            lvInfoLog.BackColor = UiPalette.Background;
+            lvInfoLog.ForeColor = UiPalette.TextPrimary;
             lvInfoLog.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
             infoRowHeightImages = new ImageList
             {
@@ -85,7 +85,7 @@ namespace Automation
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(1),
-                BackColor = Color.FromArgb(188, 202, 210)
+                BackColor = UiPalette.StrokeStrong
             };
             Controls.Remove(tabControl1);
             tabPage2.Controls.Remove(lvInfoLog);
@@ -94,7 +94,7 @@ namespace Automation
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(6),
-                BackColor = Color.FromArgb(246, 249, 251)
+                BackColor = UiPalette.Background
             };
             lvInfoLog.Dock = DockStyle.Fill;
             dgvProcStatus.Dock = DockStyle.Fill;
@@ -107,11 +107,11 @@ namespace Automation
             {
                 Dock = DockStyle.Bottom,
                 Height = 35,
-                BackColor = Color.FromArgb(237, 244, 248)
+                BackColor = UiPalette.BrandSoft
             };
             infoTabBar.Paint += (sender, args) =>
             {
-                using (Pen pen = new Pen(Color.FromArgb(211, 222, 228)))
+                using (Pen pen = new Pen(UiPalette.Stroke))
                 {
                     args.Graphics.DrawLine(pen, 0, 0, infoTabBar.ClientSize.Width, 0);
                 }
@@ -128,7 +128,7 @@ namespace Automation
             };
             infoTabIndicator = new Panel
             {
-                BackColor = Color.FromArgb(49, 157, 207),
+                BackColor = UiPalette.BrandAccent,
                 Height = 3,
                 Enabled = false
             };
@@ -140,23 +140,23 @@ namespace Automation
             UpdateInfoTabButtons();
 
             dgvProcStatus.BorderStyle = BorderStyle.None;
-            dgvProcStatus.BackgroundColor = Color.FromArgb(246, 249, 251);
+            dgvProcStatus.BackgroundColor = UiPalette.Background;
             dgvProcStatus.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
             dgvProcStatus.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
-            dgvProcStatus.GridColor = Color.FromArgb(226, 232, 236);
+            dgvProcStatus.GridColor = UiPalette.Stroke;
             dgvProcStatus.ColumnHeadersHeight = 32;
             dgvProcStatus.RowTemplate.Height = 28;
-            dgvProcStatus.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(238, 243, 246);
-            dgvProcStatus.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(47, 65, 76);
-            dgvProcStatus.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(238, 243, 246);
-            dgvProcStatus.ColumnHeadersDefaultCellStyle.SelectionForeColor = Color.FromArgb(47, 65, 76);
+            dgvProcStatus.ColumnHeadersDefaultCellStyle.BackColor = UiPalette.SurfaceSubtle;
+            dgvProcStatus.ColumnHeadersDefaultCellStyle.ForeColor = UiPalette.TextPrimary;
+            dgvProcStatus.ColumnHeadersDefaultCellStyle.SelectionBackColor = UiPalette.SurfaceSubtle;
+            dgvProcStatus.ColumnHeadersDefaultCellStyle.SelectionForeColor = UiPalette.TextPrimary;
             dgvProcStatus.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            dgvProcStatus.DefaultCellStyle.BackColor = Color.White;
-            dgvProcStatus.DefaultCellStyle.ForeColor = Color.FromArgb(49, 63, 73);
-            dgvProcStatus.DefaultCellStyle.SelectionBackColor = Color.FromArgb(219, 239, 248);
-            dgvProcStatus.DefaultCellStyle.SelectionForeColor = Color.FromArgb(29, 81, 108);
+            dgvProcStatus.DefaultCellStyle.BackColor = UiPalette.SurfaceStrong;
+            dgvProcStatus.DefaultCellStyle.ForeColor = UiPalette.TextPrimary;
+            dgvProcStatus.DefaultCellStyle.SelectionBackColor = UiPalette.Selection;
+            dgvProcStatus.DefaultCellStyle.SelectionForeColor = UiPalette.SelectionText;
             dgvProcStatus.DefaultCellStyle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
-            dgvProcStatus.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(250, 252, 253);
+            dgvProcStatus.AlternatingRowsDefaultCellStyle.BackColor = UiPalette.Surface;
         }
 
         private Button CreateInfoTabButton(string text, int left)
@@ -166,17 +166,17 @@ namespace Automation
                 Text = text,
                 Location = new Point(left, 1),
                 Size = new Size(84, 34),
-                BackColor = Color.FromArgb(237, 244, 248),
-                ForeColor = Color.FromArgb(78, 94, 104),
+                BackColor = UiPalette.BrandSoft,
+                ForeColor = UiPalette.TextSecondary,
                 Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular),
                 FlatStyle = FlatStyle.Flat,
                 TabStop = false,
                 UseVisualStyleBackColor = false
             };
             button.FlatAppearance.BorderSize = 1;
-            button.FlatAppearance.BorderColor = Color.FromArgb(199, 212, 220);
-            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(232, 243, 248);
-            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(222, 237, 244);
+            button.FlatAppearance.BorderColor = UiPalette.StrokeStrong;
+            button.FlatAppearance.MouseOverBackColor = UiPalette.BrandSoftHover;
+            button.FlatAppearance.MouseDownBackColor = UiPalette.BrandSoftHover;
             return button;
         }
 
@@ -188,17 +188,17 @@ namespace Automation
             }
             bool infoSelected = !statusTabSelected;
             infoTabButton.BackColor = infoSelected
-                ? Color.White
-                : Color.FromArgb(237, 244, 248);
+                ? UiPalette.SurfaceStrong
+                : UiPalette.BrandSoft;
             statusTabButton.BackColor = infoSelected
-                ? Color.FromArgb(237, 244, 248)
-                : Color.White;
+                ? UiPalette.BrandSoft
+                : UiPalette.SurfaceStrong;
             infoTabButton.ForeColor = infoSelected
-                ? Color.FromArgb(24, 112, 157)
-                : Color.FromArgb(78, 94, 104);
+                ? UiPalette.Brand
+                : UiPalette.TextSecondary;
             statusTabButton.ForeColor = infoSelected
-                ? Color.FromArgb(78, 94, 104)
-                : Color.FromArgb(24, 112, 157);
+                ? UiPalette.TextSecondary
+                : UiPalette.Brand;
             Button selectedButton = infoSelected ? infoTabButton : statusTabButton;
             infoTabIndicator.SetBounds(selectedButton.Left + 14, 1, selectedButton.Width - 28, 3);
             infoTabIndicator.BringToFront();
@@ -397,11 +397,11 @@ namespace Automation
             item.SubItems[0].BackColor = GetInfoPrefixColor(entry.Level);
             item.SubItems[0].ForeColor = GetInfoPrefixForeColor(entry.Level);
             item.SubItems[1].BackColor = e.ItemIndex % 2 == 0
-                ? Color.White
-                : Color.FromArgb(249, 251, 252);
+                ? UiPalette.SurfaceStrong
+                : UiPalette.Surface;
             item.SubItems[1].ForeColor = entry.Level == Level.Error
-                ? Color.FromArgb(133, 51, 51)
-                : Color.FromArgb(49, 63, 73);
+                ? UiPalette.DangerHover
+                : UiPalette.TextPrimary;
             e.Item = item;
         }
 
@@ -567,16 +567,16 @@ namespace Automation
         {
             if (level == Level.Error)
             {
-                return Color.FromArgb(252, 231, 231);
+                return UiPalette.DangerSoft;
             }
-            return Color.FromArgb(232, 242, 247);
+            return UiPalette.BrandSoft;
         }
 
         private static Color GetInfoPrefixForeColor(Level level)
         {
             return level == Level.Error
-                ? Color.FromArgb(174, 54, 54)
-                : Color.FromArgb(64, 99, 116);
+                ? UiPalette.Danger
+                : UiPalette.TextSecondary;
         }
 
 
@@ -873,8 +873,8 @@ namespace Automation
         private Color GetStatusGroupBackColor(int groupIndex)
         {
             return groupIndex % 2 == 0
-                ? Color.White
-                : Color.FromArgb(249, 251, 252);
+                ? UiPalette.SurfaceStrong
+                : UiPalette.Surface;
         }
 
         private void EnsureStatusRowCount(int targetCount)
@@ -1006,7 +1006,7 @@ namespace Automation
             if (cache.PerformanceAbnormal != performanceAbnormal)
             {
                 row.Cells[baseColumn + 3].Style.ForeColor = performanceAbnormal
-                    ? Color.FromArgb(188, 52, 48)
+                    ? UiPalette.Danger
                     : Color.Empty;
                 cache.PerformanceAbnormal = performanceAbnormal;
             }
@@ -1071,19 +1071,19 @@ namespace Automation
             switch (state)
             {
                 case ProcRunState.Running:
-                    return Color.ForestGreen;
+                    return UiPalette.Success;
                 case ProcRunState.Paused:
                 case ProcRunState.Pausing:
                 case ProcRunState.SingleStep:
-                    return Color.DarkOrange;
+                    return UiPalette.Warning;
                 case ProcRunState.Alarming:
-                    return Color.Red;
+                    return UiPalette.Danger;
                 case ProcRunState.Stopping:
-                    return Color.DarkRed;
+                    return UiPalette.Danger;
                 case ProcRunState.Stopped:
-                    return Color.DimGray;
+                    return UiPalette.TextMuted;
                 default:
-                    return Color.DimGray;
+                    return UiPalette.TextMuted;
             }
         }
 
@@ -1092,19 +1092,19 @@ namespace Automation
             switch (state)
             {
                 case ProcRunState.Running:
-                    return Color.FromArgb(220, 245, 228);
+                    return UiPalette.SuccessSoft;
                 case ProcRunState.Paused:
                 case ProcRunState.Pausing:
                 case ProcRunState.SingleStep:
-                    return Color.FromArgb(255, 236, 208);
+                    return UiPalette.WarningSoft;
                 case ProcRunState.Alarming:
-                    return Color.FromArgb(255, 214, 214);
+                    return UiPalette.DangerSoft;
                 case ProcRunState.Stopping:
-                    return Color.FromArgb(255, 224, 224);
+                    return UiPalette.DangerSoft;
                 case ProcRunState.Stopped:
-                    return Color.FromArgb(238, 238, 238);
+                    return UiPalette.DisabledSoft;
                 default:
-                    return Color.FromArgb(238, 238, 238);
+                    return UiPalette.DisabledSoft;
             }
         }
 

@@ -18,10 +18,15 @@ namespace Automation
         Ai,
         Save,
         Cancel,
+        NavigateBack,
+        NavigateForward,
+        Undo,
+        Redo,
         Pause,
         Stop,
         Step,
         Locate,
+        Breakpoint,
         Alarm,
         Search,
         Monitor,
@@ -63,7 +68,7 @@ namespace Automation
         {
             float scale = size / 24F;
             graphics.ScaleTransform(scale, scale);
-            using (Pen pen = new Pen(color, 1.8F))
+            using (Pen pen = new Pen(color, 2F))
             using (SolidBrush brush = new SolidBrush(color))
             {
                 pen.StartCap = LineCap.Round;
@@ -87,18 +92,22 @@ namespace Automation
                         graphics.DrawLine(pen, 12, 4, 12, 7);
                         break;
                     case UiIconKind.Variable:
-                        graphics.DrawBezier(pen, 9, 4, 6, 4, 8, 10, 5, 10.5F);
-                        graphics.DrawBezier(pen, 5, 10.5F, 8, 11, 6, 20, 9, 20);
-                        graphics.DrawBezier(pen, 15, 4, 18, 4, 16, 10, 19, 10.5F);
-                        graphics.DrawBezier(pen, 19, 10.5F, 16, 11, 18, 20, 15, 20);
+                        graphics.DrawBezier(pen, 9, 4, 6, 4, 8, 10, 5, 12);
+                        graphics.DrawBezier(pen, 5, 12, 8, 14, 6, 20, 9, 20);
+                        graphics.DrawBezier(pen, 15, 4, 18, 4, 16, 10, 19, 12);
+                        graphics.DrawBezier(pen, 19, 12, 16, 14, 18, 20, 15, 20);
                         graphics.DrawLine(pen, 10, 9, 14, 15);
                         graphics.DrawLine(pen, 14, 9, 10, 15);
                         break;
                     case UiIconKind.Sliders:
+                        DrawSlider(graphics, pen, brush, 5, 15);
+                        DrawSlider(graphics, pen, brush, 12, 9);
+                        DrawSlider(graphics, pen, brush, 19, 14);
+                        break;
                     case UiIconKind.Debug:
-                        DrawSlider(graphics, pen, brush, 5, kind == UiIconKind.Debug ? 8 : 15);
-                        DrawSlider(graphics, pen, brush, 12, kind == UiIconKind.Debug ? 16 : 9);
-                        DrawSlider(graphics, pen, brush, 19, kind == UiIconKind.Debug ? 10 : 14);
+                        graphics.DrawEllipse(pen, 3.5F, 3.5F, 13, 13);
+                        graphics.DrawLines(pen, new[] { new PointF(6, 11), new PointF(9, 11), new PointF(11, 7), new PointF(14, 13) });
+                        graphics.DrawLine(pen, 15, 15, 21, 21);
                         break;
                     case UiIconKind.Communication:
                         FillCircle(graphics, brush, 12, 17.5F, 2);
@@ -166,6 +175,28 @@ namespace Automation
                         graphics.DrawLine(pen, 5, 6, 5, 11);
                         graphics.DrawLine(pen, 5, 6, 10, 6);
                         break;
+                    case UiIconKind.NavigateBack:
+                        graphics.DrawLine(pen, 5, 12, 19, 12);
+                        graphics.DrawLine(pen, 5, 12, 10, 7);
+                        graphics.DrawLine(pen, 5, 12, 10, 17);
+                        break;
+                    case UiIconKind.NavigateForward:
+                        graphics.DrawLine(pen, 5, 12, 19, 12);
+                        graphics.DrawLine(pen, 19, 12, 14, 7);
+                        graphics.DrawLine(pen, 19, 12, 14, 17);
+                        break;
+                    case UiIconKind.Undo:
+                        graphics.DrawArc(pen, 5, 5, 14, 14, 205, 270);
+                        graphics.DrawLine(pen, 4, 8, 9, 8);
+                        graphics.DrawLine(pen, 4, 8, 7.5F, 4.5F);
+                        graphics.DrawLine(pen, 4, 8, 7.5F, 11.5F);
+                        break;
+                    case UiIconKind.Redo:
+                        graphics.DrawArc(pen, 5, 5, 14, 14, 65, 270);
+                        graphics.DrawLine(pen, 15, 8, 20, 8);
+                        graphics.DrawLine(pen, 20, 8, 16.5F, 4.5F);
+                        graphics.DrawLine(pen, 20, 8, 16.5F, 11.5F);
+                        break;
                     case UiIconKind.Pause:
                         FillRoundedRectangle(graphics, brush, 5, 4, 5, 16, 1.5F);
                         FillRoundedRectangle(graphics, brush, 14, 4, 5, 16, 1.5F);
@@ -184,6 +215,10 @@ namespace Automation
                         graphics.DrawLine(pen, 12, 17, 12, 22);
                         graphics.DrawLine(pen, 2, 12, 7, 12);
                         graphics.DrawLine(pen, 17, 12, 22, 12);
+                        break;
+                    case UiIconKind.Breakpoint:
+                        graphics.DrawEllipse(pen, 4, 4, 16, 16);
+                        FillCircle(graphics, brush, 12, 12, 4.5F);
                         break;
                     case UiIconKind.Alarm:
                         graphics.DrawPolygon(pen, new[] { new PointF(12, 3), new PointF(21, 20), new PointF(3, 20) });

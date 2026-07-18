@@ -8,15 +8,8 @@ namespace Automation
     public partial class FrmMenu : Form
     {
         private const int DefaultMenuButtonWidth = 143;
-        private const int CompactMenuColumns = 6;
-        private static readonly Color MenuBackColor = Color.FromArgb(52, 58, 64);
-        private static readonly Color MenuHoverColor = Color.FromArgb(65, 72, 80);
-        private static readonly Color MenuActiveColor = Color.FromArgb(61, 68, 75);
-        private static readonly Color MenuForeColor = Color.FromArgb(218, 224, 229);
-        private static readonly Color MenuAccentColor = Color.FromArgb(72, 169, 218);
-        private static readonly Color MenuIconColor = Color.FromArgb(142, 194, 216);
-        private readonly Font normalMenuButtonFont = new Font("Microsoft YaHei UI", 11.5F, FontStyle.Regular);
-        private readonly Font compactMenuButtonFont = new Font("Microsoft YaHei UI", 11F, FontStyle.Regular);
+        private readonly Font normalMenuButtonFont = new Font("Microsoft YaHei UI", 13.5F, FontStyle.Regular);
+        private readonly Font compactMenuButtonFont = new Font("Microsoft YaHei UI", 12.5F, FontStyle.Regular);
         private readonly Button version_Page = new Button();
         private readonly Button runtimeDiagnostics_Page = new Button();
         private readonly Dictionary<Button, UiIconKind> menuIcons = new Dictionary<Button, UiIconKind>();
@@ -92,22 +85,22 @@ namespace Automation
             menuIcons.Add(Card_Page, UiIconKind.ControlCard);
             menuIcons.Add(version_Page, UiIconKind.History);
             menuIcons.Add(aiAssistant_Page, UiIconKind.Ai);
-            menuIcons.Add(runtimeDiagnostics_Page, UiIconKind.Ai);
+            menuIcons.Add(runtimeDiagnostics_Page, UiIconKind.Monitor);
 
-            panel1.BackColor = MenuBackColor;
+            panel1.BackColor = UiPalette.Navigation;
             Io_Page.Text = "I/O 调试";
             foreach (Button button in GetMenuButtons())
             {
                 string label = button.Text;
-                button.BackColor = MenuBackColor;
-                button.ForeColor = MenuForeColor;
+                button.BackColor = UiPalette.Navigation;
+                button.ForeColor = UiPalette.NavigationText;
                 button.FlatStyle = FlatStyle.Flat;
                 button.FlatAppearance.BorderSize = 0;
-                button.FlatAppearance.MouseOverBackColor = MenuBackColor;
-                button.FlatAppearance.MouseDownBackColor = MenuBackColor;
+                button.FlatAppearance.MouseOverBackColor = UiPalette.Navigation;
+                button.FlatAppearance.MouseDownBackColor = UiPalette.Navigation;
                 button.UseVisualStyleBackColor = false;
                 button.TabStop = false;
-                SetMenuIcon(button, MenuIconColor);
+                SetMenuIcon(button, UiPalette.NavigationText);
                 button.Tag = label;
                 button.AccessibleName = label;
                 button.Text = string.Empty;
@@ -117,8 +110,8 @@ namespace Automation
                 Button menuButton = button;
                 hoverAnimator.Attach(
                     menuButton,
-                    () => IsMenuButtonActive(menuButton) ? MenuActiveColor : MenuBackColor,
-                    MenuHoverColor,
+                    () => IsMenuButtonActive(menuButton) ? UiPalette.NavigationActive : UiPalette.Navigation,
+                    UiPalette.NavigationHover,
                     true);
             }
         }
@@ -127,17 +120,17 @@ namespace Automation
         {
             if (activeMenuButton != null)
             {
-                activeMenuButton.BackColor = MenuBackColor;
-                activeMenuButton.ForeColor = MenuForeColor;
-                SetMenuIcon(activeMenuButton, MenuIconColor);
+                activeMenuButton.BackColor = UiPalette.Navigation;
+                activeMenuButton.ForeColor = UiPalette.NavigationText;
+                SetMenuIcon(activeMenuButton, UiPalette.NavigationText);
                 activeMenuButton.Invalidate();
             }
             activeMenuButton = button;
             if (activeMenuButton != null)
             {
-                activeMenuButton.BackColor = MenuActiveColor;
-                activeMenuButton.ForeColor = Color.White;
-                SetMenuIcon(activeMenuButton, Color.FromArgb(103, 202, 244));
+                activeMenuButton.BackColor = UiPalette.NavigationActive;
+                activeMenuButton.ForeColor = UiPalette.TextInverse;
+                SetMenuIcon(activeMenuButton, UiPalette.NavigationAccent);
                 activeMenuButton.Invalidate();
             }
             hoverAnimator.RefreshRestingColors();
@@ -155,7 +148,7 @@ namespace Automation
                 return;
             }
             menuIconImages.TryGetValue(button, out Image previous);
-            menuIconImages[button] = UiIconFactory.Create(icon, color, 23);
+            menuIconImages[button] = UiIconFactory.Create(icon, color, 28);
             previous?.Dispose();
             button.Invalidate();
         }
@@ -176,7 +169,7 @@ namespace Automation
                 | TextFormatFlags.VerticalCenter;
             Size textSize = TextRenderer.MeasureText(e.Graphics, label, button.Font, Size.Empty, textFlags);
             int iconWidth = icon?.Width ?? 0;
-            int gap = icon == null || string.IsNullOrEmpty(label) ? 0 : 7;
+            int gap = icon == null || string.IsNullOrEmpty(label) ? 0 : 9;
             int contentWidth = iconWidth + gap + textSize.Width;
             int contentHeight = Math.Max(icon?.Height ?? 0, textSize.Height);
             int contentLeft = Math.Max(0, (button.ClientSize.Width - contentWidth) / 2);
@@ -194,7 +187,7 @@ namespace Automation
 
             if (button == activeMenuButton || (button == aiAssistant_Page && aiAssistantActive))
             {
-                using (SolidBrush brush = new SolidBrush(MenuAccentColor))
+                using (SolidBrush brush = new SolidBrush(UiPalette.NavigationAccent))
                 {
                     e.Graphics.FillRectangle(
                         brush,
@@ -260,7 +253,9 @@ namespace Automation
             int availableWidth = Math.Max(0, panel1.ClientSize.Width);
             int defaultTotalWidth = DefaultMenuButtonWidth * buttons.Length;
             int rowCount = availableWidth >= defaultTotalWidth ? 1 : 2;
-            int columnCount = rowCount == 1 ? buttons.Length : CompactMenuColumns;
+            int columnCount = rowCount == 1
+                ? buttons.Length
+                : (buttons.Length + rowCount - 1) / rowCount;
             Font buttonFont = rowCount == 1 ? normalMenuButtonFont : compactMenuButtonFont;
             int targetWidth = availableWidth > 0
                 ? Math.Max(1, availableWidth / columnCount)
@@ -300,8 +295,8 @@ namespace Automation
                 p.Visible = false;
                 p.Width = 0;
                 aiAssistantActive = false;
-                aiAssistant_Page.BackColor = MenuBackColor;
-                SetMenuIcon(aiAssistant_Page, MenuIconColor);
+                aiAssistant_Page.BackColor = UiPalette.Navigation;
+                SetMenuIcon(aiAssistant_Page, UiPalette.NavigationTextMuted);
                 aiAssistant_Page.Invalidate();
                 hoverAnimator.RefreshRestingColors();
                 SetNoteColumnVisible(true);
@@ -312,8 +307,8 @@ namespace Automation
                 SF.mainfrm.UpdateAiPanelWidth();
                 p.Visible = true;
                 aiAssistantActive = true;
-                aiAssistant_Page.BackColor = MenuActiveColor;
-                SetMenuIcon(aiAssistant_Page, Color.FromArgb(103, 202, 244));
+                aiAssistant_Page.BackColor = UiPalette.NavigationActive;
+                SetMenuIcon(aiAssistant_Page, UiPalette.NavigationAccent);
                 aiAssistant_Page.Invalidate();
                 hoverAnimator.RefreshRestingColors();
                 SetNoteColumnVisible(false);

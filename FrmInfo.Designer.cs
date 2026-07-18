@@ -112,38 +112,38 @@
             this.dgvProcStatus.AllowUserToResizeColumns = false;
             this.dgvProcStatus.AllowUserToResizeRows = false;
             this.dgvProcStatus.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.dgvProcStatus.BackgroundColor = System.Drawing.Color.White;
+            this.dgvProcStatus.BackgroundColor = global::Automation.UiPalette.SurfaceStrong;
             this.dgvProcStatus.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.dgvProcStatus.CellBorderStyle = System.Windows.Forms.DataGridViewCellBorderStyle.Single;
             this.dgvProcStatus.ColumnHeadersBorderStyle = System.Windows.Forms.DataGridViewHeaderBorderStyle.Single;
             dataGridViewCellStyle1.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
+            dataGridViewCellStyle1.BackColor = global::Automation.UiPalette.SurfaceSubtle;
             dataGridViewCellStyle1.Font = new System.Drawing.Font("微软雅黑", 9F, System.Drawing.FontStyle.Bold);
-            dataGridViewCellStyle1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(64)))), ((int)(((byte)(64)))), ((int)(((byte)(64)))));
-            dataGridViewCellStyle1.SelectionBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
-            dataGridViewCellStyle1.SelectionForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(64)))), ((int)(((byte)(64)))), ((int)(((byte)(64)))));
+            dataGridViewCellStyle1.ForeColor = global::Automation.UiPalette.TextPrimary;
+            dataGridViewCellStyle1.SelectionBackColor = global::Automation.UiPalette.SurfaceSubtle;
+            dataGridViewCellStyle1.SelectionForeColor = global::Automation.UiPalette.TextPrimary;
             dataGridViewCellStyle1.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
             this.dgvProcStatus.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle1;
             this.dgvProcStatus.ColumnHeadersHeight = 28;
             this.dgvProcStatus.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
             dataGridViewCellStyle2.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle2.BackColor = System.Drawing.Color.White;
+            dataGridViewCellStyle2.BackColor = global::Automation.UiPalette.SurfaceStrong;
             dataGridViewCellStyle2.Font = new System.Drawing.Font("微软雅黑", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            dataGridViewCellStyle2.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(30)))), ((int)(((byte)(30)))));
-            dataGridViewCellStyle2.SelectionBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(221)))), ((int)(((byte)(235)))), ((int)(((byte)(247)))));
-            dataGridViewCellStyle2.SelectionForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(30)))), ((int)(((byte)(30)))));
+            dataGridViewCellStyle2.ForeColor = global::Automation.UiPalette.TextPrimary;
+            dataGridViewCellStyle2.SelectionBackColor = global::Automation.UiPalette.Selection;
+            dataGridViewCellStyle2.SelectionForeColor = global::Automation.UiPalette.TextPrimary;
             dataGridViewCellStyle2.WrapMode = System.Windows.Forms.DataGridViewTriState.False;
             this.dgvProcStatus.DefaultCellStyle = dataGridViewCellStyle2;
             this.dgvProcStatus.Dock = System.Windows.Forms.DockStyle.Fill;
             this.dgvProcStatus.EnableHeadersVisualStyles = false;
-            this.dgvProcStatus.GridColor = System.Drawing.Color.FromArgb(((int)(((byte)(220)))), ((int)(((byte)(220)))), ((int)(((byte)(220)))));
+            this.dgvProcStatus.GridColor = global::Automation.UiPalette.Stroke;
             this.dgvProcStatus.Location = new System.Drawing.Point(3, 39);
             this.dgvProcStatus.Margin = new System.Windows.Forms.Padding(0);
             this.dgvProcStatus.MultiSelect = false;
             this.dgvProcStatus.Name = "dgvProcStatus";
             this.dgvProcStatus.ReadOnly = true;
             this.dgvProcStatus.RowHeadersVisible = false;
-            dataGridViewCellStyle3.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(250)))), ((int)(((byte)(250)))), ((int)(((byte)(250)))));
+            dataGridViewCellStyle3.BackColor = global::Automation.UiPalette.Surface;
             this.dgvProcStatus.AlternatingRowsDefaultCellStyle = dataGridViewCellStyle3;
             this.dgvProcStatus.RowTemplate.Height = 24;
             this.dgvProcStatus.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.CellSelect;
@@ -153,7 +153,7 @@
             // 
             // panelStatusTools
             // 
-            this.panelStatusTools.BackColor = System.Drawing.SystemColors.ControlLightLight;
+            this.panelStatusTools.BackColor = global::Automation.UiPalette.Surface;
             this.panelStatusTools.Controls.Add(this.lblStatusTip);
             this.panelStatusTools.Dock = System.Windows.Forms.DockStyle.Top;
             this.panelStatusTools.Location = new System.Drawing.Point(3, 3);
@@ -166,7 +166,7 @@
             // 
             this.lblStatusTip.AutoSize = true;
             this.lblStatusTip.Font = new System.Drawing.Font("微软雅黑", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.lblStatusTip.ForeColor = System.Drawing.Color.DimGray;
+            this.lblStatusTip.ForeColor = global::Automation.UiPalette.TextMuted;
             this.lblStatusTip.Location = new System.Drawing.Point(8, 10);
             this.lblStatusTip.Name = "lblStatusTip";
             this.lblStatusTip.Size = new System.Drawing.Size(140, 17);

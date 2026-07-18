@@ -71,7 +71,7 @@ namespace Automation
         {
             AutoScaleMode = AutoScaleMode.None;
             AutoScroll = true;
-            BackColor = InspectorPalette.Surface;
+            BackColor = UiPalette.Surface;
             DoubleBuffered = true;
             Font = InspectorFonts.Regular9;
             TabStop = true;
@@ -181,30 +181,30 @@ namespace Automation
             {
                 this.definition = definition;
                 BackColor = definition.Highlighted
-                    ? InspectorPalette.BrandSoft
-                    : InspectorPalette.SurfaceSubtle;
+                    ? UiPalette.BrandSoft
+                    : UiPalette.SurfaceSubtle;
                 Padding = new Padding(1);
                 Margin = Padding.Empty;
 
                 header.AutoEllipsis = true;
                 header.BackColor = definition.Highlighted
-                    ? Color.FromArgb(225, 232, 255)
-                    : InspectorPalette.SurfaceSubtle;
+                    ? UiPalette.BrandSoftHover
+                    : UiPalette.SurfaceSubtle;
                 header.Font = InspectorFonts.Bold9;
                 header.ForeColor = definition.Highlighted
-                    ? InspectorPalette.Brand
-                    : InspectorPalette.TextPrimary;
+                    ? UiPalette.Brand
+                    : UiPalette.TextPrimary;
                 header.Padding = new Padding(28, 0, 5, 0);
                 header.Text = definition.Title;
                 header.TextAlign = ContentAlignment.MiddleLeft;
                 header.Paint += Header_Paint;
                 Controls.Add(header);
 
-                list.BackColor = InspectorPalette.Surface;
+                list.BackColor = UiPalette.Surface;
                 list.BorderStyle = BorderStyle.None;
                 list.DrawMode = DrawMode.OwnerDrawFixed;
                 list.Font = InspectorFonts.Regular9;
-                list.ForeColor = InspectorPalette.TextPrimary;
+                list.ForeColor = UiPalette.TextPrimary;
                 list.IntegralHeight = false;
                 list.ItemHeight = ItemHeight;
                 list.Items.AddRange(definition.Choices.Cast<object>().ToArray());
@@ -240,8 +240,8 @@ namespace Automation
             {
                 base.OnPaint(e);
                 Color border = definition.Highlighted
-                    ? Color.FromArgb(176, 191, 250)
-                    : InspectorPalette.Stroke;
+                    ? UiPalette.Focus
+                    : UiPalette.Stroke;
                 using (var pen = new Pen(border))
                 {
                     e.Graphics.DrawRectangle(
@@ -260,8 +260,8 @@ namespace Automation
                     new Rectangle(8, 7, 15, 15),
                     definition.Icon,
                     definition.Highlighted
-                        ? InspectorPalette.Brand
-                        : InspectorPalette.TextSecondary);
+                        ? UiPalette.Brand
+                        : UiPalette.TextSecondary);
             }
 
             private void List_DrawItem(object sender, DrawItemEventArgs e)
@@ -273,15 +273,15 @@ namespace Automation
                 var choice = (PickerChoice)list.Items[e.Index];
                 bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
                 Color background = selected && choice.Selectable
-                    ? InspectorPalette.BrandSoft
-                    : InspectorPalette.Surface;
+                    ? UiPalette.BrandSoft
+                    : UiPalette.Surface;
                 using (var brush = new SolidBrush(background))
                 {
                     e.Graphics.FillRectangle(brush, e.Bounds);
                 }
                 Color primaryColor = choice.Selectable
-                    ? InspectorPalette.TextPrimary
-                    : InspectorPalette.TextDisabled;
+                    ? UiPalette.TextPrimary
+                    : UiPalette.TextDisabled;
                 int secondaryWidth = string.IsNullOrWhiteSpace(choice.Secondary)
                     ? 0
                     : Math.Min(88, e.Bounds.Width / 2);
@@ -309,12 +309,12 @@ namespace Automation
                             e.Bounds.Y,
                             secondaryWidth,
                             e.Bounds.Height),
-                        InspectorPalette.TextSecondary,
+                        UiPalette.TextSecondary,
                         TextFormatFlags.Right | TextFormatFlags.VerticalCenter
                             | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
                             | TextFormatFlags.NoPadding);
                 }
-                using (var pen = new Pen(Color.FromArgb(239, 241, 245)))
+                using (var pen = new Pen(UiPalette.Divider))
                 {
                     e.Graphics.DrawLine(
                         pen,
@@ -745,7 +745,7 @@ namespace Automation
             {
                 AutoClose = true,
                 AutoSize = false,
-                BackColor = InspectorPalette.Surface,
+                BackColor = UiPalette.Surface,
                 DropShadowEnabled = true,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty,

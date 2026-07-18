@@ -25,7 +25,7 @@ namespace Automation
             ShowInTaskbar = false;
             Width = 360;
             Height = 520;
-            BackColor = Color.FromArgb(245, 247, 250);
+            BackColor = UiPalette.Background;
             Font = new Font("微软雅黑", 9F, FontStyle.Regular);
 
             listView.Dock = DockStyle.Fill;
@@ -36,7 +36,7 @@ namespace Automation
             listView.MultiSelect = false;
             listView.HeaderStyle = ColumnHeaderStyle.Nonclickable;
             listView.BorderStyle = BorderStyle.None;
-            listView.BackColor = Color.White;
+            listView.BackColor = UiPalette.SurfaceStrong;
             listView.Columns.Add("名称", 280);
             foreach (string name in ioNames)
             {
@@ -55,7 +55,7 @@ namespace Automation
             tipLabel.Dock = DockStyle.Fill;
             tipLabel.Text = "勾选需要显示的IO";
             tipLabel.Font = new Font("微软雅黑", 10F, FontStyle.Bold);
-            tipLabel.ForeColor = Color.FromArgb(48, 52, 59);
+            tipLabel.ForeColor = UiPalette.TextPrimary;
             tipLabel.TextAlign = ContentAlignment.MiddleLeft;
             headerPanel.Controls.Add(tipLabel);
 
@@ -77,16 +77,16 @@ namespace Automation
             btnOk.Height = 30;
             btnOk.FlatStyle = FlatStyle.Flat;
             btnOk.FlatAppearance.BorderSize = 0;
-            btnOk.BackColor = Color.FromArgb(45, 129, 247);
-            btnOk.ForeColor = Color.White;
+            btnOk.BackColor = UiPalette.Focus;
+            btnOk.ForeColor = UiPalette.TextInverse;
             btnOk.Click += BtnOk_Click;
             btnSelectAll.Text = "全选";
             btnSelectAll.Width = 80;
             btnSelectAll.Height = 30;
             btnSelectAll.FlatStyle = FlatStyle.Flat;
-            btnSelectAll.FlatAppearance.BorderColor = Color.FromArgb(200, 204, 211);
-            btnSelectAll.BackColor = Color.FromArgb(240, 242, 246);
-            btnSelectAll.ForeColor = Color.FromArgb(64, 64, 64);
+            btnSelectAll.FlatAppearance.BorderColor = UiPalette.StrokeStrong;
+            btnSelectAll.BackColor = UiPalette.DisabledSoft;
+            btnSelectAll.ForeColor = UiPalette.TextPrimary;
             btnSelectAll.Click += BtnSelectAll_Click;
 
             panel.Controls.Add(btnOk);

@@ -43,14 +43,14 @@
             // 
             // Io_Page
             // 
-            this.Io_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.Io_Page.BackColor = global::Automation.UiPalette.HmiSection;
             this.Io_Page.Dock = System.Windows.Forms.DockStyle.Left;
-            this.Io_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Io_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Io_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.Io_Page.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Io_Page.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Io_Page.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.NavigationHover;
             this.Io_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.Io_Page.Font = new System.Drawing.Font("黑体", 14.75F);
-            this.Io_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.Io_Page.ForeColor = global::Automation.UiPalette.NavigationText;
             this.Io_Page.Location = new System.Drawing.Point(286, 0);
             this.Io_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 3);
             this.Io_Page.Name = "Io_Page";
@@ -62,14 +62,14 @@
             // 
             // process_Page
             // 
-            this.process_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.process_Page.BackColor = global::Automation.UiPalette.HmiSection;
             this.process_Page.Dock = System.Windows.Forms.DockStyle.Left;
-            this.process_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.process_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.process_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.process_Page.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.process_Page.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.process_Page.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.NavigationHover;
             this.process_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.process_Page.Font = new System.Drawing.Font("黑体", 14.75F);
-            this.process_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.process_Page.ForeColor = global::Automation.UiPalette.NavigationText;
             this.process_Page.Location = new System.Drawing.Point(0, 0);
             this.process_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
             this.process_Page.Name = "process_Page";
@@ -81,14 +81,14 @@
             // 
             // station_Page
             // 
-            this.station_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.station_Page.BackColor = global::Automation.UiPalette.HmiSection;
             this.station_Page.Dock = System.Windows.Forms.DockStyle.Left;
-            this.station_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.station_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.station_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.station_Page.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.station_Page.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.station_Page.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.NavigationHover;
             this.station_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.station_Page.Font = new System.Drawing.Font("黑体", 14.75F);
-            this.station_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.station_Page.ForeColor = global::Automation.UiPalette.NavigationText;
             this.station_Page.Location = new System.Drawing.Point(143, 0);
             this.station_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 3);
             this.station_Page.Name = "station_Page";
@@ -100,14 +100,14 @@
             // 
             // communication_Page
             // 
-            this.communication_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.communication_Page.BackColor = global::Automation.UiPalette.HmiSection;
             this.communication_Page.Dock = System.Windows.Forms.DockStyle.Left;
-            this.communication_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.communication_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.communication_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.communication_Page.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.communication_Page.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.communication_Page.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.NavigationHover;
             this.communication_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.communication_Page.Font = new System.Drawing.Font("黑体", 14.75F);
-            this.communication_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.communication_Page.ForeColor = global::Automation.UiPalette.NavigationText;
             this.communication_Page.Location = new System.Drawing.Point(429, 0);
             this.communication_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 3);
             this.communication_Page.Name = "communication_Page";
@@ -119,14 +119,14 @@
             // 
             // Plc_Page
             // 
-            this.Plc_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.Plc_Page.BackColor = global::Automation.UiPalette.HmiSection;
             this.Plc_Page.Dock = System.Windows.Forms.DockStyle.Left;
-            this.Plc_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Plc_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Plc_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.Plc_Page.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Plc_Page.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Plc_Page.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.NavigationHover;
             this.Plc_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.Plc_Page.Font = new System.Drawing.Font("黑体", 14.75F);
-            this.Plc_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.Plc_Page.ForeColor = global::Automation.UiPalette.NavigationText;
             this.Plc_Page.Location = new System.Drawing.Point(572, 0);
             this.Plc_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 3);
             this.Plc_Page.Name = "Plc_Page";
@@ -157,14 +157,14 @@
             // 
             // Card_Page
             // 
-            this.Card_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.Card_Page.BackColor = global::Automation.UiPalette.HmiSection;
             this.Card_Page.Dock = System.Windows.Forms.DockStyle.Left;
-            this.Card_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Card_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Card_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.Card_Page.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Card_Page.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Card_Page.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.NavigationHover;
             this.Card_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.Card_Page.Font = new System.Drawing.Font("黑体", 14.75F);
-            this.Card_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.Card_Page.ForeColor = global::Automation.UiPalette.NavigationText;
             this.Card_Page.Location = new System.Drawing.Point(715, 0);
             this.Card_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
             this.Card_Page.Name = "Card_Page";
@@ -176,14 +176,14 @@
             // 
             // aiAssistant_Page
             // 
-            this.aiAssistant_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.aiAssistant_Page.BackColor = global::Automation.UiPalette.HmiSection;
             this.aiAssistant_Page.Dock = System.Windows.Forms.DockStyle.Left;
-            this.aiAssistant_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.aiAssistant_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.aiAssistant_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.aiAssistant_Page.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.aiAssistant_Page.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.aiAssistant_Page.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.NavigationHover;
             this.aiAssistant_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.aiAssistant_Page.Font = new System.Drawing.Font("黑体", 14.75F);
-            this.aiAssistant_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.aiAssistant_Page.ForeColor = global::Automation.UiPalette.NavigationText;
             this.aiAssistant_Page.Location = new System.Drawing.Point(858, 0);
             this.aiAssistant_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
             this.aiAssistant_Page.Name = "aiAssistant_Page";
@@ -195,14 +195,14 @@
             // 
             // valueDebug_Page
             // 
-            this.valueDebug_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.valueDebug_Page.BackColor = global::Automation.UiPalette.HmiSection;
             this.valueDebug_Page.Dock = System.Windows.Forms.DockStyle.Left;
-            this.valueDebug_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.valueDebug_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.valueDebug_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.valueDebug_Page.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.valueDebug_Page.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.valueDebug_Page.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.NavigationHover;
             this.valueDebug_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.valueDebug_Page.Font = new System.Drawing.Font("黑体", 14.75F);
-            this.valueDebug_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.valueDebug_Page.ForeColor = global::Automation.UiPalette.NavigationText;
             this.valueDebug_Page.Location = new System.Drawing.Point(715, 0);
             this.valueDebug_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
             this.valueDebug_Page.Name = "valueDebug_Page";
@@ -214,14 +214,14 @@
             // 
             // value_Page
             // 
-            this.value_Page.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.value_Page.BackColor = global::Automation.UiPalette.HmiSection;
             this.value_Page.Dock = System.Windows.Forms.DockStyle.Left;
-            this.value_Page.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.value_Page.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.value_Page.FlatAppearance.MouseOverBackColor = System.Drawing.Color.PaleTurquoise;
+            this.value_Page.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.value_Page.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.value_Page.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.NavigationHover;
             this.value_Page.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.value_Page.Font = new System.Drawing.Font("黑体", 14.75F);
-            this.value_Page.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.value_Page.ForeColor = global::Automation.UiPalette.NavigationText;
             this.value_Page.Location = new System.Drawing.Point(572, 0);
             this.value_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
             this.value_Page.Name = "value_Page";

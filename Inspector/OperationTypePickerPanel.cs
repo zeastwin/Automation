@@ -26,7 +26,7 @@ namespace Automation
             this.templates = templates;
             AutoScaleMode = AutoScaleMode.None;
             AutoScroll = false;
-            BackColor = InspectorPalette.Surface;
+            BackColor = UiPalette.Surface;
             DoubleBuffered = true;
             Font = InspectorFonts.Regular85;
             categoryFont = new Font(InspectorFonts.Bold9, FontStyle.Bold);
@@ -58,9 +58,9 @@ namespace Automation
                 var categoryLabel = new Label
                 {
                     AutoEllipsis = true,
-                    BackColor = InspectorPalette.SurfaceSubtle,
+                    BackColor = UiPalette.SurfaceSubtle,
                     Font = categoryFont,
-                    ForeColor = InspectorPalette.TextPrimary,
+                    ForeColor = UiPalette.TextPrimary,
                     Padding = new Padding(30, 0, 4, 0),
                     Text = categoryName,
                     TextAlign = ContentAlignment.MiddleLeft
@@ -69,7 +69,7 @@ namespace Automation
                     args.Graphics,
                     new Rectangle(9, 3, 15, 15),
                     GetCategoryIcon(categoryName),
-                    InspectorPalette.Brand);
+                    UiPalette.Brand);
                 Controls.Add(categoryLabel);
 
                 var group = new PickerGroup(categoryLabel);
@@ -79,11 +79,11 @@ namespace Automation
                     {
                         AccessibleName = operation.OperaType,
                         AutoEllipsis = true,
-                        BackColor = InspectorPalette.Surface,
+                        BackColor = UiPalette.Surface,
                         Cursor = Cursors.Hand,
                         FlatStyle = FlatStyle.Flat,
                         Font = Font,
-                        ForeColor = InspectorPalette.TextSecondary,
+                        ForeColor = UiPalette.TextSecondary,
                         Padding = new Padding(8, 0, 6, 0),
                         TabStop = true,
                         Tag = operation,
@@ -92,8 +92,8 @@ namespace Automation
                         UseVisualStyleBackColor = false
                     };
                     button.FlatAppearance.BorderSize = 0;
-                    button.FlatAppearance.MouseOverBackColor = InspectorPalette.BrandSoft;
-                    button.FlatAppearance.MouseDownBackColor = Color.FromArgb(226, 233, 255);
+                    button.FlatAppearance.MouseOverBackColor = UiPalette.BrandSoft;
+                    button.FlatAppearance.MouseDownBackColor = UiPalette.BrandSoftHover;
                     button.Paint += (sender, args) =>
                     {
                         TextRenderer.DrawText(
@@ -111,7 +111,7 @@ namespace Automation
                                 | TextFormatFlags.SingleLine
                                 | TextFormatFlags.EndEllipsis
                                 | TextFormatFlags.NoPadding);
-                        using (Pen separator = new Pen(InspectorPalette.Stroke))
+                        using (Pen separator = new Pen(UiPalette.Stroke))
                         {
                             args.Graphics.DrawLine(
                                 separator,

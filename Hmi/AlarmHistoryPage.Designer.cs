@@ -30,7 +30,7 @@ namespace Automation.Hmi
             // 
             // toolbarLayout
             // 
-            this.toolbarLayout.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(247)))), ((int)(((byte)(249)))), ((int)(((byte)(251)))));
+            this.toolbarLayout.BackColor = global::Automation.UiPalette.Background;
             this.toolbarLayout.ColumnCount = 6;
             this.toolbarLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 52F));
             this.toolbarLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 150F));
@@ -57,7 +57,7 @@ namespace Automation.Hmi
             // 
             this.lblDate.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblDate.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Bold);
-            this.lblDate.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(47)))), ((int)(((byte)(66)))), ((int)(((byte)(82)))));
+            this.lblDate.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.lblDate.Location = new System.Drawing.Point(15, 10);
             this.lblDate.Name = "lblDate";
             this.lblDate.Size = new System.Drawing.Size(46, 52);
@@ -80,7 +80,7 @@ namespace Automation.Hmi
             // 
             this.lblPath.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblPath.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Bold);
-            this.lblPath.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(47)))), ((int)(((byte)(66)))), ((int)(((byte)(82)))));
+            this.lblPath.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.lblPath.Location = new System.Drawing.Point(217, 10);
             this.lblPath.Name = "lblPath";
             this.lblPath.Size = new System.Drawing.Size(86, 52);
@@ -90,7 +90,7 @@ namespace Automation.Hmi
             // 
             // txtPath
             // 
-            this.txtPath.BackColor = System.Drawing.Color.White;
+            this.txtPath.BackColor = global::Automation.UiPalette.SurfaceStrong;
             this.txtPath.Dock = System.Windows.Forms.DockStyle.Fill;
             this.txtPath.Location = new System.Drawing.Point(306, 18);
             this.txtPath.Margin = new System.Windows.Forms.Padding(0, 8, 12, 7);
@@ -101,10 +101,10 @@ namespace Automation.Hmi
             // 
             // btnChoosePath
             // 
-            this.btnChoosePath.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(47)))), ((int)(((byte)(85)))), ((int)(((byte)(87)))));
+            this.btnChoosePath.BackColor = global::Automation.UiPalette.HmiSection;
             this.btnChoosePath.Dock = System.Windows.Forms.DockStyle.Fill;
             this.btnChoosePath.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnChoosePath.ForeColor = System.Drawing.Color.White;
+            this.btnChoosePath.ForeColor = global::Automation.UiPalette.TextInverse;
             this.btnChoosePath.Location = new System.Drawing.Point(954, 14);
             this.btnChoosePath.Margin = new System.Windows.Forms.Padding(0, 4, 8, 4);
             this.btnChoosePath.Name = "btnChoosePath";
@@ -116,10 +116,10 @@ namespace Automation.Hmi
             // 
             // btnRead
             // 
-            this.btnRead.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(35)))), ((int)(((byte)(116)))), ((int)(((byte)(177)))));
+            this.btnRead.BackColor = global::Automation.UiPalette.Brand;
             this.btnRead.Dock = System.Windows.Forms.DockStyle.Fill;
             this.btnRead.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnRead.ForeColor = System.Drawing.Color.White;
+            this.btnRead.ForeColor = global::Automation.UiPalette.TextInverse;
             this.btnRead.Location = new System.Drawing.Point(1072, 14);
             this.btnRead.Margin = new System.Windows.Forms.Padding(0, 4, 0, 4);
             this.btnRead.Name = "btnRead";
@@ -134,12 +134,12 @@ namespace Automation.Hmi
             this.gridAlarmHistory.AllowUserToAddRows = false;
             this.gridAlarmHistory.AllowUserToDeleteRows = false;
             this.gridAlarmHistory.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.gridAlarmHistory.BackgroundColor = System.Drawing.Color.White;
+            this.gridAlarmHistory.BackgroundColor = global::Automation.UiPalette.SurfaceStrong;
             this.gridAlarmHistory.BorderStyle = System.Windows.Forms.BorderStyle.None;
             dataGridViewCellStyle1.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            dataGridViewCellStyle1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(47)))), ((int)(((byte)(85)))), ((int)(((byte)(87)))));
+            dataGridViewCellStyle1.BackColor = global::Automation.UiPalette.HmiSection;
             dataGridViewCellStyle1.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F);
-            dataGridViewCellStyle1.ForeColor = System.Drawing.Color.White;
+            dataGridViewCellStyle1.ForeColor = global::Automation.UiPalette.TextInverse;
             this.gridAlarmHistory.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle1;
             this.gridAlarmHistory.ColumnHeadersHeight = 44;
             this.gridAlarmHistory.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.DisableResizing;

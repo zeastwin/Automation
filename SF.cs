@@ -23,7 +23,12 @@ namespace Automation
     {
         string Name { get; }
         object Draft { get; }
+        bool CanUndo { get; }
+        bool CanRedo { get; }
         void ReplaceDraft(object draft);
+        void CaptureDraftSnapshot();
+        bool TryUndo(out object draft, out string error);
+        bool TryRedo(out object draft, out string error);
         bool TryCommit(out string error);
         void Cancel();
     }
@@ -33,6 +38,9 @@ namespace Automation
         private readonly Func<T, string> validate;
         private readonly Action<T> commit;
         private readonly Action cancel;
+        private readonly List<T> draftHistory = new List<T>();
+        private int draftHistoryIndex;
+        private const int MaxDraftHistoryCount = 100;
 
         public EditSession(string name, T draft, Func<T, string> validate, Action<T> commit, Action cancel = null)
         {
@@ -41,15 +49,45 @@ namespace Automation
             this.validate = validate;
             this.commit = commit ?? throw new ArgumentNullException(nameof(commit));
             this.cancel = cancel;
+            draftHistory.Add(ObjectGraphCloner.Clone(DraftValue));
         }
 
         public string Name { get; }
         public T DraftValue { get; private set; }
         public object Draft => DraftValue;
+        public bool CanUndo => draftHistoryIndex > 0;
+        public bool CanRedo => draftHistoryIndex >= 0 && draftHistoryIndex < draftHistory.Count - 1;
 
         public void ReplaceDraft(object draft)
         {
             DraftValue = draft as T ?? throw new InvalidOperationException("编辑草稿类型不匹配。");
+        }
+
+        public void CaptureDraftSnapshot()
+        {
+            if (draftHistoryIndex < draftHistory.Count - 1)
+            {
+                draftHistory.RemoveRange(
+                    draftHistoryIndex + 1,
+                    draftHistory.Count - draftHistoryIndex - 1);
+            }
+            draftHistory.Add(ObjectGraphCloner.Clone(DraftValue));
+            draftHistoryIndex = draftHistory.Count - 1;
+            if (draftHistory.Count > MaxDraftHistoryCount)
+            {
+                draftHistory.RemoveAt(0);
+                draftHistoryIndex--;
+            }
+        }
+
+        public bool TryUndo(out object draft, out string error)
+        {
+            return TryMoveDraftHistory(-1, out draft, out error);
+        }
+
+        public bool TryRedo(out object draft, out string error)
+        {
+            return TryMoveDraftHistory(1, out draft, out error);
         }
 
         public bool TryCommit(out string error)
@@ -66,6 +104,29 @@ namespace Automation
         public void Cancel()
         {
             cancel?.Invoke();
+        }
+
+        private bool TryMoveDraftHistory(int offset, out object draft, out string error)
+        {
+            draft = DraftValue;
+            error = null;
+            int targetIndex = draftHistoryIndex + offset;
+            if (targetIndex < 0 || targetIndex >= draftHistory.Count)
+            {
+                return false;
+            }
+            try
+            {
+                draftHistoryIndex = targetIndex;
+                DraftValue = ObjectGraphCloner.Clone(draftHistory[draftHistoryIndex]);
+                draft = DraftValue;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
         }
     }
 
@@ -109,6 +170,7 @@ namespace Automation
         public static PlcRuntimeService plcRuntime;
         public static FrmVersionManager frmVersionManager;
         public static ConfigurationVersionService versionService;
+        public static EditorHistoryService EditorHistory { get; } = new EditorHistoryService();
         public static IEditSession ActiveEditSession { get; private set; }
 
         private static volatile bool securityLocked;
@@ -362,6 +424,8 @@ namespace Automation
                 frmToolBar.btnSave.Enabled = true;
                 frmToolBar.btnCancel.Enabled = true;
             }
+            mainfrm?.RefreshEditorNavigationActions();
+            RefreshEditorHistoryActions();
         }
 
         public static bool TryCommitEditSession(out string error)
@@ -401,10 +465,153 @@ namespace Automation
                 throw new InvalidOperationException("当前没有活动编辑会话。");
             }
             ActiveEditSession.ReplaceDraft(draft);
-            if (frmInspector != null)
+            ActiveEditSession.CaptureDraftSnapshot();
+            PresentActiveEditDraft(draft);
+            RefreshEditorHistoryActions();
+        }
+
+        public static void CaptureActiveEditSnapshot()
+        {
+            ActiveEditSession?.CaptureDraftSnapshot();
+            RefreshEditorHistoryActions();
+        }
+
+        public static bool TryUndoEditorChange(out string description, out string error)
+        {
+            description = string.Empty;
+            error = null;
+            if (ActiveEditSession != null)
             {
-                frmInspector.ShowObject(draft);
+                description = ActiveEditSession.Name;
+                if (!ActiveEditSession.TryUndo(out object draft, out error))
+                {
+                    return false;
+                }
+                PresentActiveEditDraft(draft);
+                RefreshEditorHistoryActions();
+                return true;
             }
+            return EditorHistory.TryUndo(out description, out error);
+        }
+
+        public static bool TryRedoEditorChange(out string description, out string error)
+        {
+            description = string.Empty;
+            error = null;
+            if (ActiveEditSession != null)
+            {
+                description = ActiveEditSession.Name;
+                if (!ActiveEditSession.TryRedo(out object draft, out error))
+                {
+                    return false;
+                }
+                PresentActiveEditDraft(draft);
+                RefreshEditorHistoryActions();
+                return true;
+            }
+            return EditorHistory.TryRedo(out description, out error);
+        }
+
+        public static bool TryHandleEditorHistoryShortcut(Control scope, KeyEventArgs e)
+        {
+            if (e == null || !e.Control || e.Alt)
+            {
+                return false;
+            }
+            bool undo = e.KeyCode == Keys.Z && !e.Shift;
+            bool redo = e.KeyCode == Keys.Y || e.KeyCode == Keys.Z && e.Shift;
+            if (!undo && !redo || IsTextInputFocused(scope))
+            {
+                return false;
+            }
+
+            string description;
+            string error;
+            bool success = undo
+                ? TryUndoEditorChange(out description, out error)
+                : TryRedoEditorChange(out description, out error);
+            if (!success && string.IsNullOrWhiteSpace(error))
+            {
+                return false;
+            }
+            if (!success)
+            {
+                MessageBox.Show(
+                    error,
+                    undo ? "撤销失败" : "重做失败",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            else if (frmInfo != null && !frmInfo.IsDisposed)
+            {
+                frmInfo.PrintInfo(
+                    $"已{(undo ? "撤销" : "重做")}：{description}",
+                    FrmInfo.Level.Normal);
+            }
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            return true;
+        }
+
+        public static void RefreshEditorHistoryActions()
+        {
+            frmToolBar?.RefreshHistoryAvailability();
+        }
+
+        private static void PresentActiveEditDraft(object draft)
+        {
+            if (draft is OperationType operation)
+            {
+                operation.RefreshInspector?.Invoke();
+                if (frmDataGrid != null)
+                {
+                    frmDataGrid.OperationTemp = operation;
+                }
+            }
+            frmInspector?.ShowObject(draft);
+        }
+
+        private static bool IsTextInputFocused(Control scope)
+        {
+            Control focused = FindFocusedControl(scope);
+            if (focused is TextBoxBase)
+            {
+                return true;
+            }
+            if (focused is ComboBox comboBox && comboBox.DropDownStyle != ComboBoxStyle.DropDownList)
+            {
+                return true;
+            }
+            if (focused is DataGridView dataGridView && dataGridView.IsCurrentCellInEditMode)
+            {
+                return true;
+            }
+            if (scope is DataGridView scopedGrid && scopedGrid.IsCurrentCellInEditMode)
+            {
+                return true;
+            }
+            return false;
+        }
+
+        private static Control FindFocusedControl(Control root)
+        {
+            Control current = root;
+            while (current != null)
+            {
+                if (current is ContainerControl container && container.ActiveControl != null)
+                {
+                    current = container.ActiveControl;
+                    continue;
+                }
+                Control child = current.Controls.Cast<Control>()
+                    .FirstOrDefault(control => control.ContainsFocus);
+                if (child == null)
+                {
+                    return current.ContainsFocus ? current : null;
+                }
+                current = child;
+            }
+            return null;
         }
 
         public static void EndEdit()
@@ -419,6 +626,8 @@ namespace Automation
                 frmToolBar.btnSave.Enabled = false;
                 frmToolBar.btnCancel.Enabled = false;
             }
+            mainfrm?.RefreshEditorNavigationActions();
+            RefreshEditorHistoryActions();
         }
 
     }

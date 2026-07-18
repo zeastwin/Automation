@@ -2453,6 +2453,10 @@ namespace Automation.Bridge
                     }
                 }
                 SF.frmValue?.FreshFrmValue();
+                if (!SF.EditorHistory.IsReplaying)
+                {
+                    SF.EditorHistory.Clear();
+                }
             }
             catch (Exception ex)
             {
@@ -4695,11 +4699,11 @@ namespace Automation.Bridge
                 {
                     return BridgeError(400, "INVALID_ARGUMENT", $"变量[{val.Name}] 是 double 类型，value 不是有效数字：{newValue}");
                 }
-                store.setValueByIndex(val.Index, dval);
+                store.setValueByIndex(val.Index, dval, "EW-AI运行值设置");
             }
             else
             {
-                store.setValueByIndex(val.Index, newValue);
+                store.setValueByIndex(val.Index, newValue, "EW-AI运行值设置");
             }
             // 重新读取以返回最新值
             store.TryGetValueByIndex(val.Index, out DicValue updated);

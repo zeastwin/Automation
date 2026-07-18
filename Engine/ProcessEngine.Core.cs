@@ -62,11 +62,17 @@ namespace Automation
         private System.Threading.Timer snapshotTimer;
         private int snapshotFlushRunning;
         private int disposed;
+        private IDataBreakpointRuntimeSink dataBreakpointSink;
         public EngineContext Context { get; }
         public IAlarmHandler AlarmHandler { get; set; }
         public Control UiInvoker { get; set; }
         public ILogger Logger { get; set; }
         public event Action<EngineSnapshot> SnapshotChanged;
+        internal IDataBreakpointRuntimeSink DataBreakpointSink
+        {
+            get => Volatile.Read(ref dataBreakpointSink);
+            set => Volatile.Write(ref dataBreakpointSink, value);
+        }
         internal event Action<OperationFailureEntry> OperationFailed;
         internal event Action<int, Guid> ProcessStarted;
         internal event Action<ProcessRunAuditSnapshot> ProcessCompleted;
@@ -313,6 +319,7 @@ namespace Automation
             ProcTerminationReason terminationReason = ProcTerminationReason.None)
         {
             EnsureCapacity(procIndex);
+            EngineSnapshot previous = Volatile.Read(ref snapshots[procIndex]);
             long nowTicks = Stopwatch.GetTimestamp();
             long publishedRevision = GetPublishedRevision(procIndex);
             long appliedRevision = GetAppliedRevision(procIndex);
@@ -326,6 +333,14 @@ namespace Automation
                 };
             Volatile.Write(ref snapshots[procIndex], snapshot);
             EnqueueSnapshot(snapshot);
+            try
+            {
+                DataBreakpointSink?.OnProcessStateChanged(previous, snapshot);
+            }
+            catch
+            {
+                // 调试辅助能力异常不能改变流程状态发布。
+            }
         }
 
         internal void PublishHandleSnapshot(ProcHandle handle)
@@ -740,6 +755,45 @@ namespace Automation
         public void Pause(int procIndex)
         {
             EnqueueCommand(procIndex, EngineCommand.Pause(procIndex));
+        }
+
+        internal bool RequestDataBreakpointPause(Guid procId, Guid hitId)
+        {
+            if (procId == Guid.Empty || hitId == Guid.Empty || Context?.Procs == null)
+            {
+                return false;
+            }
+            int procIndex = -1;
+            for (int i = 0; i < Context.Procs.Count; i++)
+            {
+                if (Context.Procs[i]?.head?.Id == procId)
+                {
+                    procIndex = i;
+                    break;
+                }
+            }
+            if (procIndex < 0)
+            {
+                return false;
+            }
+            EngineSnapshot snapshot = GetSnapshot(procIndex);
+            if (snapshot == null)
+            {
+                return false;
+            }
+            if (snapshot.State == ProcRunState.Paused
+                || snapshot.State == ProcRunState.Pausing
+                || snapshot.State == ProcRunState.SingleStep)
+            {
+                return true;
+            }
+            if (snapshot.State != ProcRunState.Running)
+            {
+                return false;
+            }
+            ProcAgent agent = GetOrCreateAgent(procIndex);
+            return agent != null
+                && agent.RequestDataBreakpointPause(hitId);
         }
         public void Resume(int procIndex)
         {
@@ -1959,6 +2013,34 @@ namespace Automation
 
         public bool Enqueue(EngineCommand command)
         {
+            if (!TryQueue(command))
+            {
+                return false;
+            }
+            if (!command.Completion.Task.Wait(engine.StopJoinTimeout + TimeSpan.FromMilliseconds(500)))
+            {
+                engine.Logger?.Log($"流程{procIndex}控制命令确认超时:{command.Type}", LogLevel.Error);
+                RequestStop();
+                return false;
+            }
+            return command.Completion.Task.Result;
+        }
+
+        public bool RequestDataBreakpointPause(Guid hitId)
+        {
+            if (hitId == Guid.Empty)
+            {
+                return false;
+            }
+            if (ReferenceEquals(dispatcher, Thread.CurrentThread))
+            {
+                return PauseInternal(hitId);
+            }
+            return TryQueue(EngineCommand.PauseForDataBreakpoint(procIndex, hitId));
+        }
+
+        private bool TryQueue(EngineCommand command)
+        {
             if (disposed || command == null)
             {
                 return false;
@@ -1976,20 +2058,14 @@ namespace Automation
                     overflow = true;
                 }
             }
-            if (overflow)
+            if (!overflow)
             {
-                engine.Logger?.Log($"流程{procIndex}控制命令队列已满，触发安全停止。", LogLevel.Error);
-                command.Completion.TrySetResult(false);
-                RequestStop();
-                return false;
+                return true;
             }
-            if (!command.Completion.Task.Wait(engine.StopJoinTimeout + TimeSpan.FromMilliseconds(500)))
-            {
-                engine.Logger?.Log($"流程{procIndex}控制命令确认超时:{command.Type}", LogLevel.Error);
-                RequestStop();
-                return false;
-            }
-            return command.Completion.Task.Result;
+            engine.Logger?.Log($"流程{procIndex}控制命令队列已满，触发安全停止。", LogLevel.Error);
+            command.Completion.TrySetResult(false);
+            RequestStop();
+            return false;
         }
 
         public void RequestStop(ProcTerminationReason reason = ProcTerminationReason.StopRequested)
@@ -2112,8 +2188,7 @@ namespace Automation
                 case EngineCommandType.RunSingleOpOnce:
                     return StartInternal(command);
                 case EngineCommandType.Pause:
-                    PauseInternal();
-                    return true;
+                    return PauseInternal(command.DataBreakpointHitId);
                 case EngineCommandType.Resume:
                     ResumeInternal();
                     return true;
@@ -2223,7 +2298,7 @@ namespace Automation
             return true;
         }
 
-        private void PauseInternal()
+        private bool PauseInternal(Guid dataBreakpointHitId)
         {
             ProcHandle handle;
             ProcessControl control;
@@ -2234,17 +2309,20 @@ namespace Automation
             }
             if (handle == null || control == null)
             {
-                return;
+                return false;
             }
             if (handle.State != ProcRunState.Running)
             {
-                return;
+                return handle.State == ProcRunState.Paused
+                    || handle.State == ProcRunState.Pausing
+                    || handle.State == ProcRunState.SingleStep;
             }
             handle.State = ProcRunState.Pausing;
-            handle.isBreakpoint = false;
+            handle.isBreakpoint = dataBreakpointHitId != Guid.Empty;
             handle.PauseBySignal = false;
             control.SetPaused();
             engine.PublishHandleSnapshot(handle);
+            return true;
         }
 
         private void ResumeInternal()

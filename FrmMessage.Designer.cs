@@ -33,7 +33,7 @@ namespace Automation
             //
             // panelAccent
             //
-            this.panelAccent.BackColor = System.Drawing.Color.FromArgb(34, 111, 183);
+            this.panelAccent.BackColor = global::Automation.UiPalette.Brand;
             this.panelAccent.Dock = System.Windows.Forms.DockStyle.Top;
             this.panelAccent.Location = new System.Drawing.Point(0, 0);
             this.panelAccent.Name = "panelAccent";
@@ -42,7 +42,7 @@ namespace Automation
             //
             // panelBtn
             //
-            this.panelBtn.BackColor = System.Drawing.Color.FromArgb(246, 248, 251);
+            this.panelBtn.BackColor = global::Automation.UiPalette.Background;
             this.panelBtn.Controls.Add(this.flowButtons);
             this.panelBtn.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.panelBtn.Location = new System.Drawing.Point(0, 264);
@@ -67,13 +67,13 @@ namespace Automation
             // btn3
             //
             this.btn3.AutoSize = true;
-            this.btn3.BackColor = System.Drawing.Color.White;
-            this.btn3.FlatAppearance.BorderColor = System.Drawing.Color.FromArgb(190, 199, 210);
-            this.btn3.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(225, 230, 236);
-            this.btn3.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(237, 240, 244);
+            this.btn3.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btn3.FlatAppearance.BorderColor = global::Automation.UiPalette.StrokeStrong;
+            this.btn3.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.Stroke;
+            this.btn3.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.DisabledSoft;
             this.btn3.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btn3.Font = new System.Drawing.Font("Microsoft YaHei UI", 10F);
-            this.btn3.ForeColor = System.Drawing.Color.FromArgb(48, 59, 72);
+            this.btn3.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btn3.Location = new System.Drawing.Point(522, 0);
             this.btn3.Margin = new System.Windows.Forms.Padding(6, 0, 0, 0);
             this.btn3.MinimumSize = new System.Drawing.Size(110, 42);
@@ -87,13 +87,13 @@ namespace Automation
             // btn2
             // 
             this.btn2.AutoSize = true;
-            this.btn2.BackColor = System.Drawing.Color.FromArgb(34, 111, 183);
+            this.btn2.BackColor = global::Automation.UiPalette.Brand;
             this.btn2.FlatAppearance.BorderSize = 0;
-            this.btn2.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(22, 83, 139);
-            this.btn2.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(43, 126, 201);
+            this.btn2.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.BrandPressed;
+            this.btn2.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.Focus;
             this.btn2.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btn2.Font = new System.Drawing.Font("Microsoft YaHei UI", 10F, System.Drawing.FontStyle.Bold);
-            this.btn2.ForeColor = System.Drawing.Color.White;
+            this.btn2.ForeColor = global::Automation.UiPalette.TextInverse;
             this.btn2.Location = new System.Drawing.Point(400, 0);
             this.btn2.Margin = new System.Windows.Forms.Padding(6, 0, 6, 0);
             this.btn2.MinimumSize = new System.Drawing.Size(110, 42);
@@ -107,13 +107,13 @@ namespace Automation
             // btn1
             // 
             this.btn1.AutoSize = true;
-            this.btn1.BackColor = System.Drawing.Color.FromArgb(34, 111, 183);
+            this.btn1.BackColor = global::Automation.UiPalette.Brand;
             this.btn1.FlatAppearance.BorderSize = 0;
-            this.btn1.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(22, 83, 139);
-            this.btn1.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(43, 126, 201);
+            this.btn1.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.BrandPressed;
+            this.btn1.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.Focus;
             this.btn1.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btn1.Font = new System.Drawing.Font("Microsoft YaHei UI", 10F, System.Drawing.FontStyle.Bold);
-            this.btn1.ForeColor = System.Drawing.Color.White;
+            this.btn1.ForeColor = global::Automation.UiPalette.TextInverse;
             this.btn1.Location = new System.Drawing.Point(278, 0);
             this.btn1.Margin = new System.Windows.Forms.Padding(6, 0, 6, 0);
             this.btn1.MinimumSize = new System.Drawing.Size(110, 42);
@@ -126,7 +126,7 @@ namespace Automation
             //
             // panelMessage
             //
-            this.panelMessage.BackColor = System.Drawing.Color.White;
+            this.panelMessage.BackColor = global::Automation.UiPalette.SurfaceStrong;
             this.panelMessage.Controls.Add(this.contentLayout);
             this.panelMessage.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelMessage.Location = new System.Drawing.Point(0, 5);
@@ -155,7 +155,7 @@ namespace Automation
             this.lblCaption.AutoEllipsis = true;
             this.lblCaption.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblCaption.Font = new System.Drawing.Font("Microsoft YaHei UI", 14F, System.Drawing.FontStyle.Bold);
-            this.lblCaption.ForeColor = System.Drawing.Color.FromArgb(28, 39, 52);
+            this.lblCaption.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.lblCaption.Location = new System.Drawing.Point(0, 0);
             this.lblCaption.Margin = new System.Windows.Forms.Padding(0);
             this.lblCaption.Name = "lblCaption";
@@ -166,12 +166,12 @@ namespace Automation
             // 
             // txtMsg
             // 
-            this.txtMsg.BackColor = System.Drawing.Color.White;
+            this.txtMsg.BackColor = global::Automation.UiPalette.SurfaceStrong;
             this.txtMsg.BorderStyle = System.Windows.Forms.BorderStyle.None;
             this.txtMsg.DetectUrls = false;
             this.txtMsg.Dock = System.Windows.Forms.DockStyle.Fill;
             this.txtMsg.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F);
-            this.txtMsg.ForeColor = System.Drawing.Color.FromArgb(72, 84, 98);
+            this.txtMsg.ForeColor = global::Automation.UiPalette.TextSecondary;
             this.txtMsg.Location = new System.Drawing.Point(0, 48);
             this.txtMsg.Margin = new System.Windows.Forms.Padding(0, 6, 0, 0);
             this.txtMsg.Name = "txtMsg";
@@ -189,7 +189,7 @@ namespace Automation
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
-            this.BackColor = System.Drawing.Color.White;
+            this.BackColor = global::Automation.UiPalette.SurfaceStrong;
             this.ClientSize = new System.Drawing.Size(680, 336);
             this.Controls.Add(this.panelMessage);
             this.Controls.Add(this.panelBtn);

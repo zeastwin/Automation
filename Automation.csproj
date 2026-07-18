@@ -188,6 +188,8 @@
     <Compile Include="Runtime\\AiAnalysisLogger.cs" />
     <Compile Include="Runtime\\ProcessTraceAuditSink.cs" />
     <Compile Include="Runtime\\RuntimeBlackBoxRecorder.cs" />
+    <Compile Include="Runtime\\EditorHistoryService.cs" />
+    <Compile Include="Runtime\\DataBreakpointService.cs" />
     <Compile Include="Runtime\\ObjectGraphCloner.cs" />
     <Compile Include="Runtime\\AutomationConfigSerializationBinder.cs" />
     <Compile Include="Runtime\\OperationClipboardService.cs" />
@@ -202,6 +204,7 @@
     <Compile Include="Runtime\\GooseRuntimeEnvironment.cs" />
     <Compile Include="Runtime\\GooseRuntimeProvisioner.cs" />
     <Compile Include="Runtime\\UiBranding.cs" />
+    <Compile Include="UiPalette.cs" />
     <Compile Include="Runtime\\AiProviderSecretStorage.cs" />
     <Compile Include="Runtime\\ConfigurationVersionService.cs" />
     <Compile Include="Runtime\\UiStatusImages.cs" />
@@ -247,6 +250,9 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FrmAiAssistant.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmDataBreakpoints.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FrmRuntimeDiagnostics.cs">

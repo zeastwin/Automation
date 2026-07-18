@@ -32,7 +32,7 @@ namespace Automation.Hmi
             //
             // headerPanel
             //
-            this.headerPanel.BackColor = System.Drawing.Color.FromArgb(24, 38, 54);
+            this.headerPanel.BackColor = global::Automation.UiPalette.HmiHeader;
             this.headerPanel.Controls.Add(this.btnStartProcess);
             this.headerPanel.Controls.Add(this.btnStopAll);
             this.headerPanel.Controls.Add(this.btnOpenPlatform);
@@ -47,11 +47,11 @@ namespace Automation.Hmi
             // btnStartProcess
             //
             this.btnStartProcess.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
-            this.btnStartProcess.BackColor = System.Drawing.Color.FromArgb(46, 133, 75);
+            this.btnStartProcess.BackColor = global::Automation.UiPalette.Success;
             this.btnStartProcess.FlatAppearance.BorderSize = 0;
             this.btnStartProcess.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnStartProcess.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Bold);
-            this.btnStartProcess.ForeColor = System.Drawing.Color.White;
+            this.btnStartProcess.ForeColor = global::Automation.UiPalette.TextInverse;
             this.btnStartProcess.Location = new System.Drawing.Point(812, 10);
             this.btnStartProcess.Name = "btnStartProcess";
             this.btnStartProcess.Size = new System.Drawing.Size(114, 40);
@@ -62,11 +62,11 @@ namespace Automation.Hmi
             // btnStopAll
             //
             this.btnStopAll.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
-            this.btnStopAll.BackColor = System.Drawing.Color.FromArgb(186, 51, 56);
+            this.btnStopAll.BackColor = global::Automation.UiPalette.Danger;
             this.btnStopAll.FlatAppearance.BorderSize = 0;
             this.btnStopAll.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnStopAll.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Bold);
-            this.btnStopAll.ForeColor = System.Drawing.Color.White;
+            this.btnStopAll.ForeColor = global::Automation.UiPalette.TextInverse;
             this.btnStopAll.Location = new System.Drawing.Point(938, 10);
             this.btnStopAll.Name = "btnStopAll";
             this.btnStopAll.Size = new System.Drawing.Size(114, 40);
@@ -78,11 +78,11 @@ namespace Automation.Hmi
             // btnOpenPlatform
             //
             this.btnOpenPlatform.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
-            this.btnOpenPlatform.BackColor = System.Drawing.Color.FromArgb(29, 121, 198);
+            this.btnOpenPlatform.BackColor = global::Automation.UiPalette.HmiHeaderActive;
             this.btnOpenPlatform.FlatAppearance.BorderSize = 0;
             this.btnOpenPlatform.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnOpenPlatform.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Bold);
-            this.btnOpenPlatform.ForeColor = System.Drawing.Color.White;
+            this.btnOpenPlatform.ForeColor = global::Automation.UiPalette.TextInverse;
             this.btnOpenPlatform.Location = new System.Drawing.Point(1064, 10);
             this.btnOpenPlatform.Name = "btnOpenPlatform";
             this.btnOpenPlatform.Size = new System.Drawing.Size(112, 40);
@@ -105,11 +105,11 @@ namespace Automation.Hmi
             //
             // btnHome
             //
-            this.btnHome.BackColor = System.Drawing.Color.FromArgb(20, 126, 197);
+            this.btnHome.BackColor = global::Automation.UiPalette.HmiHeaderActive;
             this.btnHome.FlatAppearance.BorderSize = 0;
             this.btnHome.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnHome.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Bold);
-            this.btnHome.ForeColor = System.Drawing.Color.White;
+            this.btnHome.ForeColor = global::Automation.UiPalette.TextInverse;
             this.btnHome.Location = new System.Drawing.Point(0, 0);
             this.btnHome.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
             this.btnHome.Name = "btnHome";
@@ -121,11 +121,11 @@ namespace Automation.Hmi
             //
             // btnDebug
             //
-            this.btnDebug.BackColor = System.Drawing.Color.FromArgb(29, 49, 70);
+            this.btnDebug.BackColor = global::Automation.UiPalette.HmiHeaderHover;
             this.btnDebug.FlatAppearance.BorderSize = 0;
             this.btnDebug.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnDebug.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F);
-            this.btnDebug.ForeColor = System.Drawing.Color.White;
+            this.btnDebug.ForeColor = global::Automation.UiPalette.TextInverse;
             this.btnDebug.Location = new System.Drawing.Point(96, 0);
             this.btnDebug.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
             this.btnDebug.Name = "btnDebug";
@@ -137,11 +137,11 @@ namespace Automation.Hmi
             //
             // btnAlarmHistory
             //
-            this.btnAlarmHistory.BackColor = System.Drawing.Color.FromArgb(24, 38, 54);
+            this.btnAlarmHistory.BackColor = global::Automation.UiPalette.HmiHeader;
             this.btnAlarmHistory.FlatAppearance.BorderSize = 0;
             this.btnAlarmHistory.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnAlarmHistory.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F);
-            this.btnAlarmHistory.ForeColor = System.Drawing.Color.White;
+            this.btnAlarmHistory.ForeColor = global::Automation.UiPalette.TextInverse;
             this.btnAlarmHistory.Location = new System.Drawing.Point(192, 0);
             this.btnAlarmHistory.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
             this.btnAlarmHistory.Name = "btnAlarmHistory";
@@ -153,11 +153,11 @@ namespace Automation.Hmi
             //
             // btnCapacity
             //
-            this.btnCapacity.BackColor = System.Drawing.Color.FromArgb(24, 38, 54);
+            this.btnCapacity.BackColor = global::Automation.UiPalette.HmiHeader;
             this.btnCapacity.FlatAppearance.BorderSize = 0;
             this.btnCapacity.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnCapacity.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F);
-            this.btnCapacity.ForeColor = System.Drawing.Color.White;
+            this.btnCapacity.ForeColor = global::Automation.UiPalette.TextInverse;
             this.btnCapacity.Location = new System.Drawing.Point(306, 0);
             this.btnCapacity.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
             this.btnCapacity.Name = "btnCapacity";
@@ -171,7 +171,7 @@ namespace Automation.Hmi
             //
             this.lblTitle.AutoSize = true;
             this.lblTitle.Font = new System.Drawing.Font("Microsoft YaHei UI", 15F, System.Drawing.FontStyle.Bold);
-            this.lblTitle.ForeColor = System.Drawing.Color.White;
+            this.lblTitle.ForeColor = global::Automation.UiPalette.TextInverse;
             this.lblTitle.Location = new System.Drawing.Point(18, 17);
             this.lblTitle.Name = "lblTitle";
             this.lblTitle.Size = new System.Drawing.Size(164, 27);
@@ -180,7 +180,7 @@ namespace Automation.Hmi
             //
             // pageHost
             //
-            this.pageHost.BackColor = System.Drawing.Color.White;
+            this.pageHost.BackColor = global::Automation.UiPalette.SurfaceStrong;
             this.pageHost.Dock = System.Windows.Forms.DockStyle.Fill;
             this.pageHost.Location = new System.Drawing.Point(0, 60);
             this.pageHost.Name = "pageHost";
@@ -192,7 +192,7 @@ namespace Automation.Hmi
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 17F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.BackColor = System.Drawing.Color.FromArgb(245, 246, 248);
+            this.BackColor = global::Automation.UiPalette.Background;
             this.ClientSize = new System.Drawing.Size(1200, 720);
             this.Controls.Add(this.pageHost);
             this.Controls.Add(this.headerPanel);

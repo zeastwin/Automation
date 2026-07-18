@@ -160,7 +160,7 @@ namespace Automation
             // 
             // panelCheckBottom
             // 
-            this.panelCheckBottom.BackColor = System.Drawing.SystemColors.ControlLight;
+            this.panelCheckBottom.BackColor = global::Automation.UiPalette.SurfaceSubtle;
             this.panelCheckBottom.Controls.Add(this.btnCheckRefresh);
             this.panelCheckBottom.Controls.Add(this.btnCheckRemove);
             this.panelCheckBottom.Controls.Add(this.btnCheckAdd);
@@ -175,11 +175,11 @@ namespace Automation
             // 
             // btnCheckRefresh
             // 
-            this.btnCheckRefresh.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnCheckRefresh.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnCheckRefresh.BackColor = global::Automation.UiPalette.Surface;
+            this.btnCheckRefresh.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnCheckRefresh.FlatAppearance.BorderSize = 2;
-            this.btnCheckRefresh.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnCheckRefresh.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnCheckRefresh.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnCheckRefresh.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnCheckRefresh.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnCheckRefresh.Location = new System.Drawing.Point(492, 14);
             this.btnCheckRefresh.Name = "btnCheckRefresh";
@@ -191,11 +191,11 @@ namespace Automation
             // 
             // btnCheckRemove
             // 
-            this.btnCheckRemove.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnCheckRemove.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnCheckRemove.BackColor = global::Automation.UiPalette.Surface;
+            this.btnCheckRemove.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnCheckRemove.FlatAppearance.BorderSize = 2;
-            this.btnCheckRemove.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnCheckRemove.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnCheckRemove.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnCheckRemove.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnCheckRemove.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnCheckRemove.Location = new System.Drawing.Point(396, 14);
             this.btnCheckRemove.Name = "btnCheckRemove";
@@ -207,11 +207,11 @@ namespace Automation
             // 
             // btnCheckAdd
             // 
-            this.btnCheckAdd.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnCheckAdd.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnCheckAdd.BackColor = global::Automation.UiPalette.Surface;
+            this.btnCheckAdd.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnCheckAdd.FlatAppearance.BorderSize = 2;
-            this.btnCheckAdd.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnCheckAdd.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnCheckAdd.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnCheckAdd.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnCheckAdd.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnCheckAdd.Location = new System.Drawing.Point(300, 14);
             this.btnCheckAdd.Name = "btnCheckAdd";
@@ -242,7 +242,7 @@ namespace Automation
             // lblCheckStatus
             // 
             this.lblCheckStatus.AutoSize = true;
-            this.lblCheckStatus.ForeColor = System.Drawing.Color.DimGray;
+            this.lblCheckStatus.ForeColor = global::Automation.UiPalette.TextMuted;
             this.lblCheckStatus.Location = new System.Drawing.Point(14, 64);
             this.lblCheckStatus.Name = "lblCheckStatus";
             this.lblCheckStatus.Size = new System.Drawing.Size(67, 15);
@@ -326,7 +326,7 @@ namespace Automation
             // 
             // panelEditBottom
             // 
-            this.panelEditBottom.BackColor = System.Drawing.SystemColors.ControlLight;
+            this.panelEditBottom.BackColor = global::Automation.UiPalette.SurfaceSubtle;
             this.panelEditBottom.Controls.Add(this.btnEditRefresh);
             this.panelEditBottom.Controls.Add(this.btnEditApply);
             this.panelEditBottom.Controls.Add(this.btnEditRemove);
@@ -344,11 +344,11 @@ namespace Automation
             // 
             // btnEditRefresh
             // 
-            this.btnEditRefresh.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnEditRefresh.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnEditRefresh.BackColor = global::Automation.UiPalette.Surface;
+            this.btnEditRefresh.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnEditRefresh.FlatAppearance.BorderSize = 2;
-            this.btnEditRefresh.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnEditRefresh.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnEditRefresh.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnEditRefresh.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnEditRefresh.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnEditRefresh.Location = new System.Drawing.Point(496, 16);
             this.btnEditRefresh.Name = "btnEditRefresh";
@@ -360,11 +360,11 @@ namespace Automation
             // 
             // btnEditApply
             // 
-            this.btnEditApply.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnEditApply.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnEditApply.BackColor = global::Automation.UiPalette.Surface;
+            this.btnEditApply.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnEditApply.FlatAppearance.BorderSize = 2;
-            this.btnEditApply.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnEditApply.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnEditApply.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnEditApply.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnEditApply.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnEditApply.Location = new System.Drawing.Point(496, 56);
             this.btnEditApply.Name = "btnEditApply";
@@ -376,11 +376,11 @@ namespace Automation
             // 
             // btnEditRemove
             // 
-            this.btnEditRemove.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnEditRemove.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnEditRemove.BackColor = global::Automation.UiPalette.Surface;
+            this.btnEditRemove.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnEditRemove.FlatAppearance.BorderSize = 2;
-            this.btnEditRemove.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnEditRemove.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnEditRemove.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnEditRemove.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnEditRemove.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnEditRemove.Location = new System.Drawing.Point(390, 16);
             this.btnEditRemove.Name = "btnEditRemove";
@@ -392,11 +392,11 @@ namespace Automation
             // 
             // btnEditAdd
             // 
-            this.btnEditAdd.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnEditAdd.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnEditAdd.BackColor = global::Automation.UiPalette.Surface;
+            this.btnEditAdd.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnEditAdd.FlatAppearance.BorderSize = 2;
-            this.btnEditAdd.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnEditAdd.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnEditAdd.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnEditAdd.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnEditAdd.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnEditAdd.Location = new System.Drawing.Point(284, 16);
             this.btnEditAdd.Name = "btnEditAdd";
@@ -444,7 +444,7 @@ namespace Automation
             // lblEditStatus
             // 
             this.lblEditStatus.AutoSize = true;
-            this.lblEditStatus.ForeColor = System.Drawing.Color.DimGray;
+            this.lblEditStatus.ForeColor = global::Automation.UiPalette.TextMuted;
             this.lblEditStatus.Location = new System.Drawing.Point(20, 100);
             this.lblEditStatus.Name = "lblEditStatus";
             this.lblEditStatus.Size = new System.Drawing.Size(67, 15);

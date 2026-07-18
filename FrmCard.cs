@@ -81,13 +81,13 @@ namespace Automation
 
         private void ApplyCardStyle()
         {
-            BackColor = Color.White;
-            groupBox1.ForeColor = Color.FromArgb(48, 63, 78);
-            groupBox2.ForeColor = Color.FromArgb(48, 63, 78);
+            BackColor = UiPalette.SurfaceStrong;
+            groupBox1.ForeColor = UiPalette.TextPrimary;
+            groupBox2.ForeColor = UiPalette.TextPrimary;
             foreach (System.Windows.Forms.TreeView tree in new[] { treeView1, treeView2 })
             {
-                tree.BackColor = Color.White;
-                tree.ForeColor = Color.FromArgb(48, 63, 78);
+                tree.BackColor = UiPalette.SurfaceStrong;
+                tree.ForeColor = UiPalette.TextPrimary;
                 tree.BorderStyle = BorderStyle.None;
                 tree.Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134);
                 tree.ItemHeight = 27;

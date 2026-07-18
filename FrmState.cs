@@ -20,10 +20,10 @@ namespace Automation
 
         private void ConfigureAppearance()
         {
-            BackColor = Color.FromArgb(245, 248, 249);
+            BackColor = UiPalette.Background;
             Paint += (sender, args) =>
             {
-                using (Pen pen = new Pen(Color.FromArgb(210, 220, 225)))
+                using (Pen pen = new Pen(UiPalette.Stroke))
                 {
                     args.Graphics.DrawLine(pen, 0, 0, ClientSize.Width, 0);
                 }
@@ -33,7 +33,7 @@ namespace Automation
             lblSystemStatus.TextAlign = ContentAlignment.MiddleLeft;
             SysInfo.AutoSize = false;
             SysInfo.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
-            SysInfo.ForeColor = Color.FromArgb(83, 98, 108);
+            SysInfo.ForeColor = UiPalette.TextSecondary;
             SysInfo.TextAlign = ContentAlignment.MiddleLeft;
             LayoutStatusBar();
         }
@@ -195,24 +195,24 @@ namespace Automation
         {
             if (!hasStatus)
             {
-                return Color.FromArgb(104, 119, 128);
+                return UiPalette.TextMuted;
             }
             switch (status)
             {
                 case SystemStatus.Uninitialized:
-                    return Color.FromArgb(104, 119, 128);
+                    return UiPalette.TextMuted;
                 case SystemStatus.ProcAlarm:
-                    return Color.FromArgb(190, 55, 55);
+                    return UiPalette.Danger;
                 case SystemStatus.Ready:
-                    return Color.FromArgb(27, 119, 164);
+                    return UiPalette.Brand;
                 case SystemStatus.Working:
-                    return Color.FromArgb(45, 135, 84);
+                    return UiPalette.Success;
                 case SystemStatus.Paused:
-                    return Color.FromArgb(190, 119, 12);
+                    return UiPalette.Warning;
                 case SystemStatus.PopupAlarm:
-                    return Color.FromArgb(190, 55, 55);
+                    return UiPalette.Danger;
                 default:
-                    return Color.FromArgb(104, 119, 128);
+                    return UiPalette.TextMuted;
             }
         }
     }

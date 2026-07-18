@@ -27,7 +27,13 @@ namespace Automation
         public Panel ai_panel;
         private WorkspacePageHost workspacePageHost;
         private Panel editorWorkspacePage;
+        private readonly Stack<EditorNavigationLocation> editorBackHistory = new Stack<EditorNavigationLocation>();
+        private readonly Stack<EditorNavigationLocation> editorForwardHistory = new Stack<EditorNavigationLocation>();
+        private EditorNavigationLocation currentEditorLocation;
+        private EditorNavigationMouseMessageFilter editorNavigationMouseMessageFilter;
+        private bool editorNavigationChanging;
         private FrmProcessFlow frmProcessFlow;
+        private FrmDataBreakpoints frmDataBreakpoints;
         private FrmRuntimeDiagnostics frmRuntimeDiagnostics;
         private FrmPerformanceAnalysis frmPerformanceAnalysis;
         private bool flowGraphUnavailable;
@@ -69,6 +75,7 @@ namespace Automation
         private readonly Control uiDispatcher;
         private readonly AutomationBridgeHost automationBridgeHost;
         private readonly ProcessTraceAuditSink processTraceAuditSink;
+        private readonly DataBreakpointService dataBreakpointService;
         private RuntimeBlackBoxRecorder runtimeBlackBoxRecorder;
         private readonly AutomationMcpServerManager automationMcpServerManager = new AutomationMcpServerManager();
         private bool platformInitializationStarted;
@@ -96,6 +103,62 @@ namespace Automation
 
             public Message Dialog { get; }
             public Action CloseAction { get; }
+        }
+
+        private sealed class EditorNavigationLocation
+        {
+            public Guid ProcId { get; set; }
+            public Guid StepId { get; set; }
+            public Guid OpId { get; set; }
+
+            public bool SameAs(EditorNavigationLocation other)
+            {
+                return other != null
+                    && ProcId == other.ProcId
+                    && StepId == other.StepId
+                    && OpId == other.OpId;
+            }
+        }
+
+        private sealed class EditorNavigationMouseMessageFilter : IMessageFilter
+        {
+            private const int WmXButtonDown = 0x020B;
+            private const int WmXButtonUp = 0x020C;
+            private const int XButton1 = 1;
+            private const int XButton2 = 2;
+            private readonly FrmMain owner;
+            private int handledButton;
+
+            public EditorNavigationMouseMessageFilter(FrmMain owner)
+            {
+                this.owner = owner;
+            }
+
+            public bool PreFilterMessage(ref System.Windows.Forms.Message message)
+            {
+                if (message.Msg == WmXButtonDown)
+                {
+                    int button = (int)((message.WParam.ToInt64() >> 16) & 0xffff);
+                    bool handled = button == XButton1
+                        ? owner.NavigateEditorBack()
+                        : button == XButton2 && owner.NavigateEditorForward();
+                    if (handled)
+                    {
+                        handledButton = button;
+                        return true;
+                    }
+                }
+                else if (message.Msg == WmXButtonUp)
+                {
+                    int button = (int)((message.WParam.ToInt64() >> 16) & 0xffff);
+                    if (handledButton == button)
+                    {
+                        handledButton = 0;
+                        return true;
+                    }
+                }
+                return false;
+            }
         }
 
         public FrmMain()
@@ -158,6 +221,8 @@ namespace Automation
             dataRun.AlarmHandler = new WinFormsAlarmHandler(this);
             dataRun.UiInvoker = this;
             dataRun.SnapshotChanged += CacheSnapshot;
+            dataBreakpointService = new DataBreakpointService(SF.valueStore, dataRun);
+            dataBreakpointService.BreakpointHit += HandleDataBreakpointHit;
             processTraceAuditSink = new ProcessTraceAuditSink(dataRun);
             SF.plcRuntime.RuntimeEvent += HandlePlcRuntimeEvent;
             SF.comm.FramesDropped += HandleCommunicationFramesDropped;
@@ -205,10 +270,23 @@ namespace Automation
             loadFillForm(ToolBar_panel, SF.frmToolBar);
             loadFillForm(state_panel, SF.frmState);
             loadFillForm(panel_Info, SF.frmInfo);
+            frmProc.proc_treeView.AfterSelect += EditorTreeSelectionChanged;
+            frmDataGrid.dataGridView1.MouseUp += EditorOperationListMouseUp;
+            frmDataGrid.dataGridView1.KeyUp += EditorOperationListKeyUp;
+            editorNavigationMouseMessageFilter = new EditorNavigationMouseMessageFilter(this);
+            Application.AddMessageFilter(editorNavigationMouseMessageFilter);
+            Disposed += (sender, args) =>
+            {
+                if (editorNavigationMouseMessageFilter != null)
+                {
+                    Application.RemoveMessageFilter(editorNavigationMouseMessageFilter);
+                    editorNavigationMouseMessageFilter = null;
+                }
+            };
 
             // AI 助手面板挂到主窗体第一层，右侧全高停靠。
             // 这样 MenuPanel/state_panel/main_panel 都会让出右侧区域，AI 页面不再被顶部菜单和底部状态栏夹住。
-            ai_panel = new Panel { Dock = DockStyle.Right, Width = 0, Visible = false, BackColor = Color.White };
+            ai_panel = new Panel { Dock = DockStyle.Right, Width = 0, Visible = false, BackColor = UiPalette.SurfaceStrong };
             Controls.Add(ai_panel);
             Controls.SetChildIndex(ai_panel, Controls.Count - 1);
             main_panel.AutoScroll = true;
@@ -1521,35 +1599,35 @@ namespace Automation
                 Color nextColor;
                 if (isDisabled)
                 {
-                    nextColor = Color.Gainsboro;
+                    nextColor = UiPalette.DisabledSoft;
                 }
                 else
                 {
                     switch (snapshot.State)
                     {
                         case ProcRunState.Running:
-                            nextColor = Color.ForestGreen;
+                            nextColor = UiPalette.Success;
                             break;
                         case ProcRunState.Paused:
-                            nextColor = Color.Goldenrod;
+                            nextColor = UiPalette.Warning;
                             break;
                         case ProcRunState.SingleStep:
-                            nextColor = Color.DodgerBlue;
+                            nextColor = UiPalette.Focus;
                             break;
                         case ProcRunState.Alarming:
-                            nextColor = Color.Red;
+                            nextColor = UiPalette.Danger;
                             break;
                         case ProcRunState.Pausing:
-                            nextColor = Color.DarkOrange;
+                            nextColor = UiPalette.Warning;
                             break;
                         case ProcRunState.Stopping:
-                            nextColor = Color.DarkRed;
+                            nextColor = UiPalette.Danger;
                             break;
                         case ProcRunState.Stopped:
-                            nextColor = Color.Black;
+                            nextColor = UiPalette.TextPrimary;
                             break;
                         default:
-                            nextColor = Color.Black;
+                            nextColor = UiPalette.TextPrimary;
                             break;
                     }
                 }
@@ -1574,22 +1652,22 @@ namespace Automation
 
             if (SF.frmToolBar?.btnPause != null && procNum == SF.frmProc.SelectedProcNum)
             {
-                string buttonText = (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming) ? "暂停" : "继续";
+                bool continueAction = snapshot.State != ProcRunState.Running && snapshot.State != ProcRunState.Alarming;
                 bool allowResume = snapshot.State != ProcRunState.Paused;
                 bool allowSingleStep = snapshot.State == ProcRunState.SingleStep;
-                void ApplyPauseText()
+                void ApplyPauseState()
                 {
-                    SF.frmToolBar.btnPause.Text = buttonText;
+                    SF.frmToolBar.SetPauseButtonAction(continueAction);
                     SF.frmToolBar.btnPause.Enabled = allowResume;
                     SF.frmToolBar.SingleRun.Enabled = allowSingleStep;
                 }
                 if (SF.frmToolBar.btnPause.InvokeRequired)
                 {
-                    SF.frmToolBar.btnPause.BeginInvoke((Action)ApplyPauseText);
+                    SF.frmToolBar.btnPause.BeginInvoke((Action)ApplyPauseState);
                 }
                 else
                 {
-                    ApplyPauseText();
+                    ApplyPauseState();
                 }
             }
         }
@@ -1660,7 +1738,7 @@ namespace Automation
             editorWorkspacePage = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(246, 249, 251)
+                BackColor = UiPalette.Background
             };
             editorWorkspacePage.Controls.Add(DataGrid_panel);
             editorWorkspacePage.Controls.Add(panel_Info);
@@ -1672,7 +1750,7 @@ namespace Automation
             workspacePageHost = new WorkspacePageHost
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(246, 249, 251)
+                BackColor = UiPalette.Background
             };
             main_panel.Controls.Add(workspacePageHost);
             workspacePageHost.ShowPage(editorWorkspacePage);
@@ -1681,6 +1759,256 @@ namespace Automation
         public void ShowEditorWorkspace()
         {
             workspacePageHost.ShowPage(editorWorkspacePage);
+        }
+
+        private void EditorTreeSelectionChanged(object sender, TreeViewEventArgs e)
+        {
+            if (e.Action != TreeViewAction.Unknown)
+            {
+                RecordCurrentEditorLocation();
+            }
+        }
+
+        private void EditorOperationListMouseUp(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left
+                && frmDataGrid.dataGridView1.IndexFromPoint(e.Location) >= 0)
+            {
+                RecordCurrentEditorLocation();
+            }
+        }
+
+        private void EditorOperationListKeyUp(object sender, KeyEventArgs e)
+        {
+            switch (e.KeyCode)
+            {
+                case Keys.Up:
+                case Keys.Down:
+                case Keys.Home:
+                case Keys.End:
+                case Keys.PageUp:
+                case Keys.PageDown:
+                    RecordCurrentEditorLocation();
+                    break;
+            }
+        }
+
+        private void RecordCurrentEditorLocation()
+        {
+            if (editorNavigationChanging)
+            {
+                return;
+            }
+            EditorNavigationLocation location = CaptureCurrentEditorLocation();
+            if (location == null)
+            {
+                return;
+            }
+            if (currentEditorLocation == null)
+            {
+                currentEditorLocation = location;
+                UpdateEditorNavigationActions();
+                return;
+            }
+            if (currentEditorLocation.SameAs(location))
+            {
+                return;
+            }
+            PushUnique(editorBackHistory, currentEditorLocation);
+            currentEditorLocation = location;
+            editorForwardHistory.Clear();
+            UpdateEditorNavigationActions();
+        }
+
+        private EditorNavigationLocation CaptureCurrentEditorLocation()
+        {
+            int procIndex = frmProc?.SelectedProcNum ?? -1;
+            if (frmProc?.procsList == null
+                || procIndex < 0
+                || procIndex >= frmProc.procsList.Count)
+            {
+                return null;
+            }
+            Proc proc = frmProc.procsList[procIndex];
+            Guid procId = proc?.head?.Id ?? Guid.Empty;
+            if (procId == Guid.Empty)
+            {
+                return null;
+            }
+            int stepIndex = frmProc.SelectedStepNum;
+            Step step = stepIndex >= 0 && stepIndex < (proc.steps?.Count ?? 0)
+                ? proc.steps[stepIndex]
+                : null;
+            OperationType operation = null;
+            int operationIndex = frmDataGrid?.dataGridView1?.CurrentIndex ?? -1;
+            if (step != null
+                && operationIndex >= 0
+                && operationIndex < (step.Ops?.Count ?? 0))
+            {
+                operation = step.Ops[operationIndex];
+            }
+            return new EditorNavigationLocation
+            {
+                ProcId = procId,
+                StepId = step?.Id ?? Guid.Empty,
+                OpId = operation?.Id ?? Guid.Empty
+            };
+        }
+
+        private static void PushUnique(
+            Stack<EditorNavigationLocation> history,
+            EditorNavigationLocation location)
+        {
+            if (location != null && (history.Count == 0 || !history.Peek().SameAs(location)))
+            {
+                history.Push(location);
+            }
+        }
+
+        internal bool NavigateEditorBack()
+        {
+            return NavigateEditorHistory(editorBackHistory, editorForwardHistory);
+        }
+
+        internal bool NavigateEditorForward()
+        {
+            return NavigateEditorHistory(editorForwardHistory, editorBackHistory);
+        }
+
+        private bool NavigateEditorHistory(
+            Stack<EditorNavigationLocation> sourceHistory,
+            Stack<EditorNavigationLocation> destinationHistory)
+        {
+            if (!CanUseEditorNavigation())
+            {
+                return false;
+            }
+            EditorNavigationLocation source = CaptureCurrentEditorLocation() ?? currentEditorLocation;
+            while (sourceHistory.Count > 0)
+            {
+                EditorNavigationLocation target = sourceHistory.Pop();
+                if (target == null || target.SameAs(source))
+                {
+                    continue;
+                }
+                if (!TryNavigateToEditorLocation(target))
+                {
+                    continue;
+                }
+                PushUnique(destinationHistory, source);
+                currentEditorLocation = CaptureCurrentEditorLocation() ?? target;
+                UpdateEditorNavigationActions();
+                return true;
+            }
+            UpdateEditorNavigationActions();
+            return false;
+        }
+
+        private bool CanUseEditorNavigation()
+        {
+            return !IsDisposed
+                && !Disposing
+                && SF.ActiveEditSession == null
+                && workspacePageHost != null
+                && ReferenceEquals(workspacePageHost.ActivePage, editorWorkspacePage)
+                && Form.ActiveForm == this;
+        }
+
+        private bool NavigateToEditorLocation(EditorNavigationLocation target, bool recordSource)
+        {
+            if (target == null || SF.ActiveEditSession != null)
+            {
+                return false;
+            }
+            EditorNavigationLocation source = CaptureCurrentEditorLocation() ?? currentEditorLocation;
+            if (!TryNavigateToEditorLocation(target))
+            {
+                return false;
+            }
+            if (recordSource && source != null && !source.SameAs(target))
+            {
+                PushUnique(editorBackHistory, source);
+                editorForwardHistory.Clear();
+            }
+            currentEditorLocation = CaptureCurrentEditorLocation() ?? target;
+            UpdateEditorNavigationActions();
+            return true;
+        }
+
+        private bool TryNavigateToEditorLocation(EditorNavigationLocation target)
+        {
+            if (!TryResolveEditorLocation(target, out int procIndex, out int stepIndex))
+            {
+                return false;
+            }
+            editorNavigationChanging = true;
+            try
+            {
+                ShowEditorWorkspace();
+                frmProc.SelectAiContext(procIndex, stepIndex);
+                if (target.OpId != Guid.Empty)
+                {
+                    if (!frmDataGrid.SelectOperationForNavigation(target.OpId))
+                    {
+                        return false;
+                    }
+                    frmDataGrid.dataGridView1.Focus();
+                }
+                else
+                {
+                    frmDataGrid.iSelectedRow = -1;
+                    frmDataGrid.dataGridView1.ClearSelection();
+                    frmProc.proc_treeView.Focus();
+                }
+                return true;
+            }
+            finally
+            {
+                editorNavigationChanging = false;
+            }
+        }
+
+        private bool TryResolveEditorLocation(
+            EditorNavigationLocation location,
+            out int procIndex,
+            out int stepIndex)
+        {
+            procIndex = -1;
+            stepIndex = -1;
+            if (location == null || location.ProcId == Guid.Empty || frmProc?.procsList == null)
+            {
+                return false;
+            }
+            procIndex = frmProc.procsList.FindIndex(proc => proc?.head?.Id == location.ProcId);
+            if (procIndex < 0)
+            {
+                return false;
+            }
+            if (location.StepId == Guid.Empty)
+            {
+                return location.OpId == Guid.Empty;
+            }
+            Proc proc = frmProc.procsList[procIndex];
+            stepIndex = proc.steps?.FindIndex(step => step?.Id == location.StepId) ?? -1;
+            if (stepIndex < 0)
+            {
+                return false;
+            }
+            return location.OpId == Guid.Empty
+                || proc.steps[stepIndex].Ops?.Any(operation => operation?.Id == location.OpId) == true;
+        }
+
+        private void UpdateEditorNavigationActions()
+        {
+            bool navigationEnabled = SF.ActiveEditSession == null;
+            frmToolBar?.SetNavigationAvailability(
+                navigationEnabled && editorBackHistory.Count > 0,
+                navigationEnabled && editorForwardHistory.Count > 0);
+        }
+
+        internal void RefreshEditorNavigationActions()
+        {
+            UpdateEditorNavigationActions();
         }
 
         public void ShowWorkspacePage(Form page)
@@ -1737,21 +2065,61 @@ namespace Automation
             }
         }
 
+        public void ShowDataBreakpoints()
+        {
+            if (frmDataBreakpoints == null || frmDataBreakpoints.IsDisposed)
+            {
+                frmDataBreakpoints = new FrmDataBreakpoints(this, dataBreakpointService);
+                frmDataBreakpoints.FormClosed += (sender, args) => frmDataBreakpoints = null;
+            }
+            if (!frmDataBreakpoints.Visible)
+            {
+                frmDataBreakpoints.Show(this);
+            }
+            if (frmDataBreakpoints.WindowState == FormWindowState.Minimized)
+            {
+                frmDataBreakpoints.WindowState = FormWindowState.Normal;
+            }
+            frmDataBreakpoints.BringToFront();
+            frmDataBreakpoints.Activate();
+        }
+
         public bool NavigateToFlowOperation(Guid procId, Guid stepId, Guid opId)
         {
-            int procIndex = frmProc.procsList.FindIndex(proc => proc?.head?.Id == procId);
-            if (procIndex < 0)
+            return NavigateToEditorLocation(new EditorNavigationLocation
             {
+                ProcId = procId,
+                StepId = stepId,
+                OpId = opId
+            }, true);
+        }
+
+        internal bool NavigateToDataBreakpointTrigger(DataBreakpointHit hit, out string error)
+        {
+            error = null;
+            if (hit == null)
+            {
+                error = "断点命中数据为空。";
                 return false;
             }
-            int stepIndex = frmProc.procsList[procIndex].steps.FindIndex(step => step?.Id == stepId);
-            if (stepIndex < 0)
+            if (hit.TriggerProcId == Guid.Empty)
             {
+                error = $"触发源来自“{hit.TriggerDescription}”，没有可定位的流程指令位置。";
                 return false;
             }
-            ShowEditorWorkspace();
-            frmProc.SelectAiContext(procIndex, stepIndex);
-            return frmDataGrid.SelectOperationForNavigation(opId);
+            bool navigated = NavigateToEditorLocation(new EditorNavigationLocation
+            {
+                ProcId = hit.TriggerProcId,
+                StepId = hit.TriggerStepId,
+                OpId = hit.TriggerOperationId
+            }, true);
+            if (!navigated)
+            {
+                error = "触发源对应的流程、步骤或指令已经不存在，无法定位。";
+                return false;
+            }
+            Activate();
+            return true;
         }
 
         public bool ShowAiAssistantWithPrompt(string prompt)
@@ -1776,6 +2144,10 @@ namespace Automation
 
         private void FrmMain_KeyDown(object sender, KeyEventArgs e)
         {
+            if (SF.TryHandleEditorHistoryShortcut(this, e))
+            {
+                return;
+            }
             if (e.KeyCode == Keys.F && e.Control)
             {
                 if(SF.curPage == 0)
@@ -1856,7 +2228,7 @@ namespace Automation
 
                 if (SF.frmToolBar != null && !SF.frmToolBar.IsDisposed)
                 {
-                    SF.frmToolBar.btnPause.Text = "继续";
+                    SF.frmToolBar.SetPauseButtonAction(true);
                     SF.frmToolBar.btnPause.Enabled = startState != ProcRunState.Paused;
                     SF.frmToolBar.SingleRun.Enabled = startState == ProcRunState.SingleStep;
                 }
@@ -1907,6 +2279,16 @@ namespace Automation
             }
 
             processInteractionUiReady = false;
+            try
+            {
+                frmDataBreakpoints?.Close();
+                dataBreakpointService.BreakpointHit -= HandleDataBreakpointHit;
+                dataBreakpointService.Dispose();
+            }
+            catch
+            {
+                // 调试窗口或会话断点释放失败不应阻塞平台安全关闭。
+            }
             StopAllProcsForSafety("系统关闭，停止所有流程。");
             try
             {
@@ -2054,6 +2436,34 @@ namespace Automation
             else Report();
         }
 
+        private void HandleDataBreakpointHit(object sender, DataBreakpointHit hit)
+        {
+            if (hit == null || Volatile.Read(ref shutdownStarted) != 0)
+            {
+                return;
+            }
+            void Report()
+            {
+                string message = hit.BuildSummary();
+                if (dataRun?.Logger != null)
+                {
+                    dataRun.Logger.Log(message, LogLevel.Normal);
+                }
+                else if (frmInfo != null && !frmInfo.IsDisposed)
+                {
+                    frmInfo.PrintInfo(message, FrmInfo.Level.Normal);
+                }
+            }
+            if (IsHandleCreated && InvokeRequired)
+            {
+                BeginInvoke((Action)Report);
+            }
+            else
+            {
+                Report();
+            }
+        }
+
         private void HandleCommunicationFramesDropped(object sender, CommFramesDroppedEventArgs e)
         {
             if (e == null)
@@ -2138,6 +2548,8 @@ namespace Automation
     internal sealed class WorkspacePageHost : Panel
     {
         private Control activePage;
+
+        internal Control ActivePage => activePage;
 
         public WorkspacePageHost()
         {

@@ -59,7 +59,7 @@ namespace Automation
             dgvCheck.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvCheck.RowTemplate.Height = 28;
             dgvCheck.EditMode = DataGridViewEditMode.EditOnEnter;
-            ApplyColumnTheme(groupCheck, panelCheckBottom, dgvCheck, Color.FromArgb(244, 248, 252), Color.FromArgb(233, 241, 247));
+            ApplyColumnTheme(groupCheck, panelCheckBottom, dgvCheck, UiPalette.BrandSoft, UiPalette.Selection);
 
             dgvEdit.Font = uiFont;
             dgvEdit.ColumnHeadersDefaultCellStyle.Font = new Font("微软雅黑", 10F, FontStyle.Bold, GraphicsUnit.Point, 134);
@@ -72,7 +72,7 @@ namespace Automation
             dgvEdit.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvEdit.RowTemplate.Height = 28;
             dgvEdit.ReadOnly = false;
-            ApplyColumnTheme(groupEdit, panelEditBottom, dgvEdit, Color.FromArgb(244, 252, 248), Color.FromArgb(232, 246, 238));
+            ApplyColumnTheme(groupEdit, panelEditBottom, dgvEdit, UiPalette.SuccessSoft, UiPalette.SuccessSoft);
 
             cboCheckVar.Font = uiFont;
             cboEditVar.Font = uiFont;
@@ -184,10 +184,10 @@ namespace Automation
         {
             button.FlatStyle = FlatStyle.Flat;
             button.FlatAppearance.BorderColor = primary
-                ? Color.FromArgb(63, 126, 181)
-                : Color.FromArgb(196, 205, 214);
-            button.BackColor = primary ? Color.FromArgb(63, 126, 181) : Color.White;
-            button.ForeColor = primary ? Color.White : Color.FromArgb(48, 63, 78);
+                ? UiPalette.Brand
+                : UiPalette.StrokeStrong;
+            button.BackColor = primary ? UiPalette.Brand : UiPalette.SurfaceStrong;
+            button.ForeColor = primary ? UiPalette.TextInverse : UiPalette.TextPrimary;
         }
 
         private void ApplyColumnTheme(GroupBox groupBox, Panel bottomPanel, DataGridView grid, Color baseColor, Color headerColor)
@@ -205,10 +205,10 @@ namespace Automation
                 grid.BackgroundColor = baseColor;
                 grid.EnableHeadersVisualStyles = false;
                 grid.ColumnHeadersDefaultCellStyle.BackColor = headerColor;
-                grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.Black;
-                grid.DefaultCellStyle.BackColor = Color.FromArgb(250, 252, 255);
-                grid.DefaultCellStyle.ForeColor = Color.Black;
-                grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(240, 245, 250);
+                grid.ColumnHeadersDefaultCellStyle.ForeColor = UiPalette.TextPrimary;
+                grid.DefaultCellStyle.BackColor = UiPalette.Surface;
+                grid.DefaultCellStyle.ForeColor = UiPalette.TextPrimary;
+                grid.AlternatingRowsDefaultCellStyle.BackColor = UiPalette.Background;
             }
         }
 
@@ -484,7 +484,7 @@ namespace Automation
             {
                 txtEditValue.Text = string.Empty;
                 lblEditStatus.Text = "未选择变量";
-                lblEditStatus.ForeColor = Color.DimGray;
+                lblEditStatus.ForeColor = UiPalette.TextMuted;
                 return;
             }
             if (!TryGetEditRowIndex(dgvEdit.CurrentRow, out int index, out _))
@@ -501,7 +501,7 @@ namespace Automation
             txtEditValue.Text = value.Value;
             isSyncing = false;
             lblEditStatus.Text = "已选择变量";
-            lblEditStatus.ForeColor = Color.DimGray;
+            lblEditStatus.ForeColor = UiPalette.TextMuted;
         }
 
         private void AddCheckRow(int index, DicValue value)
@@ -1172,7 +1172,7 @@ namespace Automation
         private void ShowCheckSuccess(string message)
         {
             lblCheckStatus.Text = message;
-            lblCheckStatus.ForeColor = Color.ForestGreen;
+            lblCheckStatus.ForeColor = UiPalette.Success;
         }
 
         private void ShowCheckError(string message)
@@ -1180,13 +1180,13 @@ namespace Automation
             string logMessage = string.IsNullOrWhiteSpace(message) ? "复选框调试失败" : message;
             LogError($"复选框调试失败：{logMessage}");
             lblCheckStatus.Text = logMessage;
-            lblCheckStatus.ForeColor = Color.Red;
+            lblCheckStatus.ForeColor = UiPalette.Danger;
         }
 
         private void ShowEditSuccess(string message)
         {
             lblEditStatus.Text = message;
-            lblEditStatus.ForeColor = Color.ForestGreen;
+            lblEditStatus.ForeColor = UiPalette.Success;
         }
 
         private void ShowEditError(string message)
@@ -1194,7 +1194,7 @@ namespace Automation
             string logMessage = string.IsNullOrWhiteSpace(message) ? "编辑框调试失败" : message;
             LogError($"编辑框调试失败：{logMessage}");
             lblEditStatus.Text = logMessage;
-            lblEditStatus.ForeColor = Color.Red;
+            lblEditStatus.ForeColor = UiPalette.Danger;
         }
 
         private void LogError(string message)

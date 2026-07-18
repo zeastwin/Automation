@@ -141,8 +141,8 @@ namespace Automation
             contentFont = ProcessPageFont.Create(10F, FontStyle.Regular);
             headerFont = ProcessPageFont.Create(9.5F, FontStyle.Bold);
             Font = contentFont;
-            BackColor = Color.FromArgb(246, 249, 251);
-            ForeColor = Color.FromArgb(39, 52, 61);
+            BackColor = UiPalette.Background;
+            ForeColor = UiPalette.TextPrimary;
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
 
@@ -877,17 +877,17 @@ namespace Automation
         {
             switch (kind)
             {
-                case JumpKind.Automatic: return Color.FromArgb(0, 158, 158);
-                case JumpKind.Confirm: return Color.FromArgb(46, 157, 88);
-                case JumpKind.Reject: return Color.FromArgb(215, 76, 69);
-                case JumpKind.Cancel: return Color.FromArgb(132, 105, 174);
-                case JumpKind.True: return Color.FromArgb(47, 128, 237);
-                case JumpKind.False: return Color.FromArgb(242, 153, 74);
-                case JumpKind.Default: return Color.FromArgb(96, 125, 139);
-                case JumpKind.Success: return Color.FromArgb(22, 145, 121);
-                case JumpKind.Failure: return Color.FromArgb(190, 69, 112);
-                case JumpKind.Match: return Color.FromArgb(191, 145, 24);
-                default: return Color.FromArgb(83, 124, 148);
+                case JumpKind.Automatic: return UiPalette.JumpAutomatic;
+                case JumpKind.Confirm: return UiPalette.Success;
+                case JumpKind.Reject: return UiPalette.Danger;
+                case JumpKind.Cancel: return UiPalette.JumpCancel;
+                case JumpKind.True: return UiPalette.Brand;
+                case JumpKind.False: return UiPalette.Transition;
+                case JumpKind.Default: return UiPalette.TextMuted;
+                case JumpKind.Success: return UiPalette.Success;
+                case JumpKind.Failure: return UiPalette.Breakpoint;
+                case JumpKind.Match: return UiPalette.JumpMatch;
+                default: return UiPalette.JumpDefault;
             }
         }
 
@@ -904,8 +904,8 @@ namespace Automation
 
         private void InstructionListView_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
-            using (SolidBrush background = new SolidBrush(Color.FromArgb(242, 246, 248)))
-            using (SolidBrush separator = new SolidBrush(Color.FromArgb(220, 227, 231)))
+            using (SolidBrush background = new SolidBrush(UiPalette.SurfaceSubtle))
+            using (SolidBrush separator = new SolidBrush(UiPalette.Divider))
             {
                 e.Graphics.FillRectangle(background, e.Bounds);
                 e.Graphics.FillRectangle(separator, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Width, 1);
@@ -920,7 +920,7 @@ namespace Automation
                 e.Header.Text,
                 headerFont,
                 e.Bounds,
-                Color.FromArgb(67, 82, 92),
+                UiPalette.TextSecondary,
                 TextFormatFlags.NoPadding | TextFormatFlags.SingleLine
                     | TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
@@ -942,13 +942,13 @@ namespace Automation
             bool hasTransientColor = rowBackColors.ContainsKey(index) || !allRowsBackColor.IsEmpty;
             Color backColor = ResolveRowBackColor(operation, index, selected, isRuntime);
             Color foreColor = operation?.Disable == true && !hasTransientColor
-                ? Color.FromArgb(244, 246, 247)
-                : Color.FromArgb(39, 52, 61);
+                ? UiPalette.DisabledSoft
+                : UiPalette.TextPrimary;
 
             using (SolidBrush background = new SolidBrush(backColor))
             using (SolidBrush separator = new SolidBrush(operation?.Disable == true
-                ? Color.FromArgb(118, 128, 134)
-                : Color.FromArgb(235, 239, 242)))
+                ? UiPalette.TextMuted
+                : UiPalette.DisabledSoft))
             {
                 e.Graphics.FillRectangle(background, e.Bounds);
                 e.Graphics.FillRectangle(separator, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Width, 1);
@@ -986,7 +986,7 @@ namespace Automation
             }
             if (operation?.Disable == true)
             {
-                return selected ? Color.FromArgb(72, 81, 87) : Color.FromArgb(91, 101, 107);
+                return selected ? UiPalette.TextPrimary : UiPalette.TextSecondary;
             }
             if (isRuntime)
             {
@@ -994,9 +994,9 @@ namespace Automation
             }
             if (selected)
             {
-                return Color.FromArgb(218, 239, 248);
+                return UiPalette.Selection;
             }
-            return index % 2 == 0 ? Color.White : Color.FromArgb(250, 252, 253);
+            return index % 2 == 0 ? UiPalette.SurfaceStrong : UiPalette.Surface;
         }
 
         private void DrawStatusCell(
@@ -1018,8 +1018,8 @@ namespace Automation
             int centerX = GetRailCenterX(bounds);
             int centerY = bounds.Top + bounds.Height / 2;
             Color railColor = operation?.Disable == true
-                ? Color.FromArgb(126, 137, 143)
-                : Color.FromArgb(208, 220, 227);
+                ? UiPalette.TextDisabled
+                : UiPalette.Stroke;
             using (Pen railPen = new Pen(railColor, 1.4F))
             {
                 if (index > 0)
@@ -1066,8 +1066,8 @@ namespace Automation
             DrawStateIcon(graphics, iconBounds, state, GetStateColor(state), GetStateBackColor(state));
             if (operation?.IsBreakpoint == true && state != VisualState.Breakpoint)
             {
-                using (SolidBrush markerBrush = new SolidBrush(Color.FromArgb(205, 58, 68)))
-                using (Pen markerBorder = new Pen(Color.White, 1.5F))
+                using (SolidBrush markerBrush = new SolidBrush(UiPalette.Danger))
+                using (Pen markerBorder = new Pen(UiPalette.TextInverse, 1.5F))
                 {
                     Rectangle marker = new Rectangle(iconBounds.Right - 6, iconBounds.Top - 1, 8, 8);
                     graphics.FillEllipse(markerBrush, marker);
@@ -1088,8 +1088,8 @@ namespace Automation
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             int centerX = GetRailCenterX(bounds);
             int centerY = bounds.Top + bounds.Height / 2;
-            using (Pen linePen = new Pen(Color.FromArgb(166, 183, 193), 1.3F))
-            using (SolidBrush nodeBrush = new SolidBrush(Color.FromArgb(116, 141, 154)))
+            using (Pen linePen = new Pen(UiPalette.StrokeStrong, 1.3F))
+            using (SolidBrush nodeBrush = new SolidBrush(UiPalette.TextMuted))
             {
                 graphics.DrawLine(linePen, centerX, centerY - 7, centerX, centerY + 7);
                 graphics.FillEllipse(nodeBrush, centerX - 2, centerY - 9, 4, 4);
@@ -1112,8 +1112,8 @@ namespace Automation
             bool hasIncoming)
         {
             bool hasOutgoing = outgoingKinds.Count > 0;
-            Color borderColor = Color.FromArgb(151, 171, 182);
-            Color fillColor = Color.White;
+            Color borderColor = UiPalette.StrokeStrong;
+            Color fillColor = UiPalette.SurfaceStrong;
             using (SolidBrush fillBrush = new SolidBrush(fillColor))
             using (Pen borderPen = new Pen(borderColor, 1.4F))
             using (SolidBrush centerBrush = new SolidBrush(borderColor))
@@ -1184,7 +1184,7 @@ namespace Automation
                 float targetPortY = link.TargetOpIndex == focusRow ? centerY + portOffset : centerY;
                 JumpKind primaryKind = link.Kinds.Count > 0 ? link.Kinds[0] : JumpKind.Generic;
                 Color color = GetJumpKindColor(primaryKind);
-                Color trackColor = link.Kinds.Count > 1 ? Color.FromArgb(105, 116, 122) : color;
+                Color trackColor = link.Kinds.Count > 1 ? UiPalette.TextMuted : color;
                 List<Pen> flowPens = CreateFlowPens(link.Kinds);
                 using (Pen basePen = new Pen(Color.FromArgb(155, trackColor), 2.2F))
                 using (SolidBrush arrowBrush = new SolidBrush(color))
@@ -1364,9 +1364,9 @@ namespace Automation
                 colors.Add(GetJumpKindColor(JumpKind.Generic));
             }
             Rectangle marker = new Rectangle(centerX - 8, centerY - 8, 16, 16);
-            Color fillColor = colors.Count == 1 ? colors[0] : Color.FromArgb(62, 73, 80);
+            Color fillColor = colors.Count == 1 ? colors[0] : UiPalette.TextPrimary;
             using (SolidBrush fill = new SolidBrush(fillColor))
-            using (Pen glyph = new Pen(Color.White, 1.7F)
+            using (Pen glyph = new Pen(UiPalette.TextInverse, 1.7F)
             {
                 StartCap = LineCap.Round,
                 EndCap = LineCap.Round
@@ -1405,7 +1405,7 @@ namespace Automation
             Rectangle badge = new Rectangle(iconBounds.Left - 3, iconBounds.Top - 2, 10, 10);
             JumpKind kind = kinds.Count > 0 ? kinds[0] : JumpKind.Generic;
             using (SolidBrush fill = new SolidBrush(GetJumpKindColor(kind)))
-            using (Pen border = new Pen(Color.White, 1.2F))
+            using (Pen border = new Pen(UiPalette.TextInverse, 1.2F))
             {
                 graphics.FillEllipse(fill, badge);
                 graphics.DrawEllipse(border, badge);
@@ -1450,13 +1450,13 @@ namespace Automation
             int laneIndex)
         {
             Color color = isOutgoing
-                ? Color.FromArgb(133, 83, 183)
-                : Color.FromArgb(24, 151, 166);
+                ? UiPalette.JumpCancel
+                : UiPalette.JumpAutomatic;
             Rectangle badge = GetCrossStepBadgeBounds(centerX, centerY, isOutgoing, laneIndex);
             using (SolidBrush brush = new SolidBrush(color))
             using (Pen connector = new Pen(Color.FromArgb(165, color), 1.8F))
-            using (Pen border = new Pen(Color.White, 1.2F))
-            using (Pen glyph = new Pen(Color.White, 1.55F)
+            using (Pen border = new Pen(UiPalette.TextInverse, 1.2F))
+            using (Pen glyph = new Pen(UiPalette.TextInverse, 1.55F)
             {
                 StartCap = LineCap.Round,
                 EndCap = LineCap.Round
@@ -1598,23 +1598,23 @@ namespace Automation
         {
             if (isBreakpoint)
             {
-                return Color.FromArgb(255, 241, 242);
+                return UiPalette.BreakpointSoft;
             }
             switch (state)
             {
                 case ProcRunState.Running:
-                    return Color.FromArgb(235, 248, 241);
+                    return UiPalette.SuccessSoft;
                 case ProcRunState.Paused:
                 case ProcRunState.Pausing:
-                    return Color.FromArgb(255, 247, 229);
+                    return UiPalette.WarningSoft;
                 case ProcRunState.SingleStep:
-                    return Color.FromArgb(234, 245, 252);
+                    return UiPalette.InfoSoft;
                 case ProcRunState.Alarming:
-                    return Color.FromArgb(253, 235, 237);
+                    return UiPalette.DangerSoft;
                 case ProcRunState.Stopping:
-                    return Color.FromArgb(250, 237, 237);
+                    return UiPalette.StoppingSoft;
                 default:
-                    return Color.FromArgb(240, 246, 249);
+                    return UiPalette.SurfaceSubtle;
             }
         }
 
@@ -1622,14 +1622,14 @@ namespace Automation
         {
             switch (state)
             {
-                case VisualState.Running: return Color.FromArgb(37, 145, 99);
-                case VisualState.Paused: return Color.FromArgb(190, 124, 24);
-                case VisualState.SingleStep: return Color.FromArgb(42, 126, 180);
-                case VisualState.Breakpoint: return Color.FromArgb(196, 52, 63);
-                case VisualState.Alarming: return Color.FromArgb(190, 47, 54);
-                case VisualState.Stopping: return Color.FromArgb(159, 62, 62);
-                case VisualState.Disabled: return Color.FromArgb(241, 244, 245);
-                default: return Color.FromArgb(128, 143, 154);
+                case VisualState.Running: return UiPalette.Success;
+                case VisualState.Paused: return UiPalette.Warning;
+                case VisualState.SingleStep: return UiPalette.Brand;
+                case VisualState.Breakpoint: return UiPalette.Breakpoint;
+                case VisualState.Alarming: return UiPalette.Danger;
+                case VisualState.Stopping: return UiPalette.Stopping;
+                case VisualState.Disabled: return UiPalette.DisabledSoft;
+                default: return UiPalette.TextMuted;
             }
         }
 
@@ -1637,14 +1637,14 @@ namespace Automation
         {
             switch (state)
             {
-                case VisualState.Running: return Color.FromArgb(229, 245, 237);
-                case VisualState.Paused: return Color.FromArgb(255, 244, 221);
-                case VisualState.SingleStep: return Color.FromArgb(231, 243, 251);
-                case VisualState.Breakpoint:
-                case VisualState.Alarming: return Color.FromArgb(253, 234, 236);
-                case VisualState.Stopping: return Color.FromArgb(249, 235, 235);
-                case VisualState.Disabled: return Color.FromArgb(74, 84, 90);
-                default: return Color.FromArgb(242, 245, 247);
+                case VisualState.Running: return UiPalette.SuccessSoft;
+                case VisualState.Paused: return UiPalette.WarningSoft;
+                case VisualState.SingleStep: return UiPalette.InfoSoft;
+                case VisualState.Breakpoint: return UiPalette.BreakpointSoft;
+                case VisualState.Alarming: return UiPalette.DangerSoft;
+                case VisualState.Stopping: return UiPalette.StoppingSoft;
+                case VisualState.Disabled: return UiPalette.TextSecondary;
+                default: return UiPalette.SurfaceSubtle;
             }
         }
 
@@ -1657,7 +1657,7 @@ namespace Automation
         {
             Rectangle shadowBounds = bounds;
             shadowBounds.Offset(0, 1);
-            using (SolidBrush shadow = new SolidBrush(Color.FromArgb(22, 20, 36, 44)))
+            using (SolidBrush shadow = new SolidBrush(UiPalette.Shadow))
             using (SolidBrush background = new SolidBrush(backColor))
             using (Pen outline = new Pen(Color.FromArgb(72, accent), 1F))
             {

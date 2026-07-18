@@ -68,7 +68,7 @@
             // 
             // panel1
             // 
-            this.panel1.BackColor = System.Drawing.SystemColors.HighlightText;
+            this.panel1.BackColor = global::Automation.UiPalette.SurfaceStrong;
             this.panel1.Controls.Add(this.btnSearch);
             this.panel1.Controls.Add(this.btnMonitor);
             this.panel1.Controls.Add(this.btnMonitorAdd);
@@ -89,12 +89,12 @@
             // 
             // btnSearch
             // 
-            this.btnSearch.BackColor = System.Drawing.Color.WhiteSmoke;
+            this.btnSearch.BackColor = global::Automation.UiPalette.SurfaceSubtle;
             this.btnSearch.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnSearch.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnSearch.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnSearch.FlatAppearance.BorderSize = 2;
-            this.btnSearch.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnSearch.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnSearch.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnSearch.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnSearch.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnSearch.Location = new System.Drawing.Point(1596, 6);
             this.btnSearch.Name = "btnSearch";
@@ -106,14 +106,14 @@
             // 
             // btnCancel
             // 
-            this.btnCancel.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnCancel.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnCancel.BackColor = global::Automation.UiPalette.Surface;
+            this.btnCancel.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnCancel.FlatAppearance.BorderSize = 2;
-            this.btnCancel.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnCancel.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnCancel.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnCancel.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnCancel.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnCancel.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnCancel.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnCancel.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnCancel.Location = new System.Drawing.Point(290, 6);
             this.btnCancel.Margin = new System.Windows.Forms.Padding(2);
             this.btnCancel.Name = "btnCancel";
@@ -125,14 +125,14 @@
             // 
             // btnPrevious
             // 
-            this.btnPrevious.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnPrevious.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnPrevious.BackColor = global::Automation.UiPalette.Surface;
+            this.btnPrevious.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnPrevious.FlatAppearance.BorderSize = 2;
-            this.btnPrevious.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnPrevious.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnPrevious.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnPrevious.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnPrevious.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnPrevious.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnPrevious.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnPrevious.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnPrevious.Location = new System.Drawing.Point(130, 6);
             this.btnPrevious.Margin = new System.Windows.Forms.Padding(2);
             this.btnPrevious.Name = "btnPrevious";
@@ -144,14 +144,14 @@
             // 
             // BtnNext
             // 
-            this.BtnNext.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.BtnNext.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.BtnNext.BackColor = global::Automation.UiPalette.Surface;
+            this.BtnNext.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.BtnNext.FlatAppearance.BorderSize = 2;
-            this.BtnNext.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.BtnNext.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.BtnNext.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.BtnNext.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.BtnNext.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.BtnNext.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.BtnNext.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.BtnNext.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.BtnNext.Location = new System.Drawing.Point(208, 6);
             this.BtnNext.Margin = new System.Windows.Forms.Padding(2);
             this.BtnNext.Name = "BtnNext";
@@ -163,14 +163,14 @@
             // 
             // btnMonitor
             // 
-            this.btnMonitor.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnMonitor.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnMonitor.BackColor = global::Automation.UiPalette.Surface;
+            this.btnMonitor.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnMonitor.FlatAppearance.BorderSize = 2;
-            this.btnMonitor.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnMonitor.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnMonitor.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnMonitor.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnMonitor.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnMonitor.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnMonitor.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnMonitor.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnMonitor.Location = new System.Drawing.Point(410, 6);
             this.btnMonitor.Margin = new System.Windows.Forms.Padding(2);
             this.btnMonitor.Name = "btnMonitor";
@@ -182,14 +182,14 @@
             // 
             // btnMonitorAdd
             // 
-            this.btnMonitorAdd.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnMonitorAdd.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnMonitorAdd.BackColor = global::Automation.UiPalette.Surface;
+            this.btnMonitorAdd.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnMonitorAdd.FlatAppearance.BorderSize = 2;
-            this.btnMonitorAdd.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnMonitorAdd.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnMonitorAdd.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnMonitorAdd.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnMonitorAdd.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnMonitorAdd.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnMonitorAdd.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnMonitorAdd.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnMonitorAdd.Location = new System.Drawing.Point(522, 6);
             this.btnMonitorAdd.Margin = new System.Windows.Forms.Padding(2);
             this.btnMonitorAdd.Name = "btnMonitorAdd";
@@ -201,14 +201,14 @@
             // 
             // btnMonitorRemove
             // 
-            this.btnMonitorRemove.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnMonitorRemove.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnMonitorRemove.BackColor = global::Automation.UiPalette.Surface;
+            this.btnMonitorRemove.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnMonitorRemove.FlatAppearance.BorderSize = 2;
-            this.btnMonitorRemove.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnMonitorRemove.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnMonitorRemove.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnMonitorRemove.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnMonitorRemove.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnMonitorRemove.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnMonitorRemove.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnMonitorRemove.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnMonitorRemove.Location = new System.Drawing.Point(634, 6);
             this.btnMonitorRemove.Margin = new System.Windows.Forms.Padding(2);
             this.btnMonitorRemove.Name = "btnMonitorRemove";
@@ -220,14 +220,14 @@
             // 
             // btnCopy
             // 
-            this.btnCopy.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnCopy.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnCopy.BackColor = global::Automation.UiPalette.Surface;
+            this.btnCopy.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnCopy.FlatAppearance.BorderSize = 2;
-            this.btnCopy.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnCopy.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnCopy.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnCopy.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnCopy.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnCopy.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnCopy.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnCopy.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnCopy.Location = new System.Drawing.Point(746, 6);
             this.btnCopy.Margin = new System.Windows.Forms.Padding(2);
             this.btnCopy.Name = "btnCopy";
@@ -239,14 +239,14 @@
             // 
             // btnPaste
             // 
-            this.btnPaste.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnPaste.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnPaste.BackColor = global::Automation.UiPalette.Surface;
+            this.btnPaste.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnPaste.FlatAppearance.BorderSize = 2;
-            this.btnPaste.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnPaste.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnPaste.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnPaste.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnPaste.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnPaste.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnPaste.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnPaste.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnPaste.Location = new System.Drawing.Point(850, 6);
             this.btnPaste.Margin = new System.Windows.Forms.Padding(2);
             this.btnPaste.Name = "btnPaste";
@@ -258,14 +258,14 @@
             // 
             // btnClearData
             // 
-            this.btnClearData.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnClearData.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnClearData.BackColor = global::Automation.UiPalette.Surface;
+            this.btnClearData.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnClearData.FlatAppearance.BorderSize = 2;
-            this.btnClearData.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnClearData.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnClearData.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnClearData.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnClearData.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnClearData.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnClearData.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnClearData.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnClearData.Location = new System.Drawing.Point(954, 6);
             this.btnClearData.Margin = new System.Windows.Forms.Padding(2);
             this.btnClearData.Name = "btnClearData";
@@ -277,14 +277,14 @@
             //
             // btnNormalVariables
             //
-            this.btnNormalVariables.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnNormalVariables.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnNormalVariables.BackColor = global::Automation.UiPalette.Surface;
+            this.btnNormalVariables.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnNormalVariables.FlatAppearance.BorderSize = 2;
-            this.btnNormalVariables.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnNormalVariables.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnNormalVariables.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnNormalVariables.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnNormalVariables.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnNormalVariables.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnNormalVariables.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnNormalVariables.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnNormalVariables.Location = new System.Drawing.Point(1074, 6);
             this.btnNormalVariables.Margin = new System.Windows.Forms.Padding(2);
             this.btnNormalVariables.Name = "btnNormalVariables";
@@ -295,14 +295,14 @@
             //
             // btnSystemVariables
             //
-            this.btnSystemVariables.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnSystemVariables.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnSystemVariables.BackColor = global::Automation.UiPalette.Surface;
+            this.btnSystemVariables.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnSystemVariables.FlatAppearance.BorderSize = 2;
-            this.btnSystemVariables.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnSystemVariables.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnSystemVariables.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnSystemVariables.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnSystemVariables.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnSystemVariables.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnSystemVariables.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnSystemVariables.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnSystemVariables.Location = new System.Drawing.Point(1188, 6);
             this.btnSystemVariables.Margin = new System.Windows.Forms.Padding(2);
             this.btnSystemVariables.Name = "btnSystemVariables";
@@ -336,7 +336,7 @@
             // 
             // panelCommon
             // 
-            this.panelCommon.BackColor = System.Drawing.SystemColors.ControlLightLight;
+            this.panelCommon.BackColor = global::Automation.UiPalette.Surface;
             this.panelCommon.Controls.Add(this.listCommon);
             this.panelCommon.Controls.Add(this.labelCommon);
             this.panelCommon.Dock = System.Windows.Forms.DockStyle.Left;
@@ -360,7 +360,7 @@
             // 
             // labelCommon
             // 
-            this.labelCommon.BackColor = System.Drawing.SystemColors.ControlLight;
+            this.labelCommon.BackColor = global::Automation.UiPalette.SurfaceSubtle;
             this.labelCommon.Dock = System.Windows.Forms.DockStyle.Top;
             this.labelCommon.Font = new System.Drawing.Font("黑体", 12.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.labelCommon.Location = new System.Drawing.Point(0, 0);
@@ -375,7 +375,7 @@
             this.dgvValue.AllowUserToAddRows = false;
             this.dgvValue.AllowUserToResizeRows = false;
             this.dgvValue.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.None;
-            this.dgvValue.BackgroundColor = System.Drawing.SystemColors.ControlLight;
+            this.dgvValue.BackgroundColor = global::Automation.UiPalette.SurfaceSubtle;
             this.dgvValue.ColumnHeadersHeight = 32;
             this.dgvValue.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
             this.dgvValue.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {

@@ -29,6 +29,13 @@ namespace Automation
         private readonly object monitorLock = new object();
         private readonly HashSet<Guid> monitoredVariableIds = new HashSet<Guid>();
         private volatile bool monitorEnabled;
+        private IDataBreakpointRuntimeSink dataBreakpointSink;
+
+        internal IDataBreakpointRuntimeSink DataBreakpointSink
+        {
+            get => Volatile.Read(ref dataBreakpointSink);
+            set => Volatile.Write(ref dataBreakpointSink, value);
+        }
 
         private sealed class CurrentValueState
         {
@@ -428,7 +435,8 @@ namespace Automation
             IDictionary<string, DicValue> source,
             out string error,
             IReadOnlyDictionary<string, string> currentValueOverrides = null,
-            string currentValueSource = null)
+            string currentValueSource = null,
+            string historyDescription = null)
         {
             error = null;
             Dictionary<string, DicValue> snapshot;
@@ -478,6 +486,11 @@ namespace Automation
                     }
                 }
                 ConfigurationFaulted = false;
+                UpdateEditorHistory(
+                    configPath,
+                    historyDescription,
+                    oldConfiguration,
+                    snapshot);
                 return true;
             }
             catch (Exception ex)
@@ -500,6 +513,65 @@ namespace Automation
                 }
                 return false;
             }
+        }
+
+        private void UpdateEditorHistory(
+            string configPath,
+            string historyDescription,
+            IDictionary<string, DicValue> before,
+            IDictionary<string, DicValue> after)
+        {
+            if (SF.EditorHistory.IsReplaying)
+            {
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(historyDescription))
+            {
+                SF.EditorHistory.Clear();
+                return;
+            }
+
+            Dictionary<string, DicValue> beforeSnapshot = before.ToDictionary(
+                item => item.Key,
+                item => ObjectGraphCloner.Clone(item.Value),
+                StringComparer.Ordinal);
+            Dictionary<string, DicValue> afterSnapshot = after.ToDictionary(
+                item => item.Key,
+                item => ObjectGraphCloner.Clone(item.Value),
+                StringComparer.Ordinal);
+            SF.EditorHistory.Record(
+                historyDescription,
+                delegate(out string historyError)
+                {
+                    return TryRestoreConfiguration(
+                        configPath, beforeSnapshot, out historyError);
+                },
+                delegate(out string historyError)
+                {
+                    return TryRestoreConfiguration(
+                        configPath, afterSnapshot, out historyError);
+                });
+        }
+
+        private bool TryRestoreConfiguration(
+            string configPath,
+            IDictionary<string, DicValue> snapshot,
+            out string error)
+        {
+            if (!SF.CanEditProcStructure())
+            {
+                error = "变量配置当前不可编辑。";
+                return false;
+            }
+            bool success = TryCommitConfiguration(
+                configPath,
+                snapshot,
+                out error);
+            if (success)
+            {
+                SF.frmValue?.FreshFrmValue();
+            }
+            return success;
         }
 
         private Dictionary<string, CurrentValueState> CaptureCurrentValueStates()
@@ -1031,6 +1103,14 @@ namespace Automation
             if (value == null)
             {
                 return;
+            }
+            try
+            {
+                DataBreakpointSink?.OnVariableChanged(value, oldValue, newValue, source);
+            }
+            catch
+            {
+                // 调试辅助能力异常不能改变变量写入结果。
             }
             if (!monitorEnabled || !IsMonitored(value.Index))
             {

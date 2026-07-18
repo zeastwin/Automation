@@ -117,11 +117,11 @@
             // 
             // Handle9
             // 
-            this.Handle9.BackColor = System.Drawing.Color.White;
-            this.Handle9.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle9.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle9.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle9.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle9.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle9.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle9.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle9.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle9.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle9.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle9.Location = new System.Drawing.Point(585, 467);
             this.Handle9.Name = "Handle9";
@@ -134,11 +134,11 @@
             // 
             // Handle10
             // 
-            this.Handle10.BackColor = System.Drawing.Color.White;
-            this.Handle10.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle10.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle10.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle10.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle10.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle10.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle10.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle10.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle10.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle10.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle10.Location = new System.Drawing.Point(585, 521);
             this.Handle10.Name = "Handle10";
@@ -151,11 +151,11 @@
             // 
             // Handle8
             // 
-            this.Handle8.BackColor = System.Drawing.Color.White;
-            this.Handle8.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle8.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle8.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle8.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle8.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle8.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle8.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle8.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle8.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle8.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle8.Location = new System.Drawing.Point(463, 521);
             this.Handle8.Name = "Handle8";
@@ -168,11 +168,11 @@
             // 
             // Handle7
             // 
-            this.Handle7.BackColor = System.Drawing.Color.White;
-            this.Handle7.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle7.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle7.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle7.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle7.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle7.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle7.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle7.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle7.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle7.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle7.Location = new System.Drawing.Point(463, 467);
             this.Handle7.Name = "Handle7";
@@ -185,11 +185,11 @@
             // 
             // Handle6
             // 
-            this.Handle6.BackColor = System.Drawing.Color.White;
-            this.Handle6.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle6.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle6.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle6.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle6.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle6.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle6.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle6.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle6.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle6.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle6.Location = new System.Drawing.Point(342, 521);
             this.Handle6.Name = "Handle6";
@@ -202,11 +202,11 @@
             // 
             // Handle5
             // 
-            this.Handle5.BackColor = System.Drawing.Color.White;
-            this.Handle5.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle5.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle5.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle5.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle5.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle5.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle5.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle5.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle5.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle5.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle5.Location = new System.Drawing.Point(342, 467);
             this.Handle5.Name = "Handle5";
@@ -219,11 +219,11 @@
             // 
             // Handle3
             // 
-            this.Handle3.BackColor = System.Drawing.Color.White;
-            this.Handle3.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle3.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle3.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle3.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle3.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle3.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle3.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle3.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle3.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle3.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle3.Location = new System.Drawing.Point(224, 467);
             this.Handle3.Name = "Handle3";
@@ -236,11 +236,11 @@
             // 
             // Handle4
             // 
-            this.Handle4.BackColor = System.Drawing.Color.White;
-            this.Handle4.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle4.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle4.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle4.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle4.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle4.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle4.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle4.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle4.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle4.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle4.Location = new System.Drawing.Point(224, 521);
             this.Handle4.Name = "Handle4";
@@ -253,11 +253,11 @@
             // 
             // Handle12
             // 
-            this.Handle12.BackColor = System.Drawing.Color.White;
-            this.Handle12.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle12.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle12.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle12.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle12.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle12.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle12.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle12.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle12.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle12.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle12.Location = new System.Drawing.Point(708, 521);
             this.Handle12.Name = "Handle12";
@@ -270,11 +270,11 @@
             // 
             // Handle11
             // 
-            this.Handle11.BackColor = System.Drawing.Color.White;
-            this.Handle11.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle11.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle11.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle11.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle11.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle11.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle11.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle11.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle11.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle11.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle11.Location = new System.Drawing.Point(708, 467);
             this.Handle11.Name = "Handle11";
@@ -287,11 +287,11 @@
             // 
             // Handle2
             // 
-            this.Handle2.BackColor = System.Drawing.Color.White;
-            this.Handle2.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle2.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle2.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle2.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle2.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle2.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle2.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle2.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle2.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle2.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle2.Location = new System.Drawing.Point(105, 521);
             this.Handle2.Name = "Handle2";
@@ -354,11 +354,11 @@
             // 
             // Handle1
             // 
-            this.Handle1.BackColor = System.Drawing.Color.White;
-            this.Handle1.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.Handle1.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.Handle1.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.Handle1.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.Handle1.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle1.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle1.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle1.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.Handle1.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.Handle1.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.Handle1.Location = new System.Drawing.Point(105, 467);
             this.Handle1.Name = "Handle1";
@@ -485,11 +485,11 @@
             // 
             // btnHome5
             // 
-            this.btnHome5.BackColor = System.Drawing.Color.White;
-            this.btnHome5.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.btnHome5.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.btnHome5.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnHome5.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnHome5.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome5.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome5.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome5.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome5.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnHome5.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnHome5.Location = new System.Drawing.Point(585, 363);
             this.btnHome5.Name = "btnHome5";
@@ -501,11 +501,11 @@
             // 
             // btnHome4
             // 
-            this.btnHome4.BackColor = System.Drawing.Color.White;
-            this.btnHome4.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.btnHome4.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.btnHome4.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnHome4.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnHome4.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome4.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome4.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome4.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome4.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnHome4.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnHome4.Location = new System.Drawing.Point(463, 363);
             this.btnHome4.Name = "btnHome4";
@@ -517,11 +517,11 @@
             // 
             // btnHome3
             // 
-            this.btnHome3.BackColor = System.Drawing.Color.White;
-            this.btnHome3.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.btnHome3.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.btnHome3.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnHome3.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnHome3.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome3.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome3.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome3.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome3.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnHome3.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnHome3.Location = new System.Drawing.Point(342, 363);
             this.btnHome3.Name = "btnHome3";
@@ -533,11 +533,11 @@
             // 
             // btnHome2
             // 
-            this.btnHome2.BackColor = System.Drawing.Color.White;
-            this.btnHome2.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.btnHome2.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.btnHome2.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnHome2.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnHome2.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome2.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome2.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome2.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome2.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnHome2.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnHome2.Location = new System.Drawing.Point(224, 363);
             this.btnHome2.Name = "btnHome2";
@@ -549,11 +549,11 @@
             // 
             // btnHome6
             // 
-            this.btnHome6.BackColor = System.Drawing.Color.White;
-            this.btnHome6.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.btnHome6.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.btnHome6.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnHome6.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnHome6.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome6.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome6.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome6.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome6.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnHome6.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnHome6.Location = new System.Drawing.Point(708, 363);
             this.btnHome6.Name = "btnHome6";
@@ -565,11 +565,11 @@
             // 
             // btnHome1
             // 
-            this.btnHome1.BackColor = System.Drawing.Color.White;
-            this.btnHome1.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.btnHome1.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.btnHome1.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnHome1.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnHome1.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome1.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome1.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome1.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnHome1.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnHome1.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnHome1.Location = new System.Drawing.Point(105, 363);
             this.btnHome1.Name = "btnHome1";
@@ -598,11 +598,11 @@
             // 
             // btnReSet
             // 
-            this.btnReSet.BackColor = System.Drawing.Color.White;
-            this.btnReSet.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.btnReSet.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.btnReSet.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnReSet.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnReSet.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnReSet.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnReSet.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnReSet.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnReSet.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnReSet.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnReSet.Location = new System.Drawing.Point(767, 15);
             this.btnReSet.Name = "btnReSet";
@@ -625,11 +625,11 @@
             // 
             // btnStop
             // 
-            this.btnStop.BackColor = System.Drawing.Color.White;
-            this.btnStop.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.btnStop.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.btnStop.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnStop.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnStop.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnStop.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnStop.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnStop.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnStop.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnStop.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnStop.Location = new System.Drawing.Point(692, 15);
             this.btnStop.Name = "btnStop";
@@ -641,11 +641,11 @@
             // 
             // btnStationHome
             // 
-            this.btnStationHome.BackColor = System.Drawing.Color.White;
-            this.btnStationHome.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.btnStationHome.FlatAppearance.CheckedBackColor = System.Drawing.Color.White;
-            this.btnStationHome.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnStationHome.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnStationHome.BackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnStationHome.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnStationHome.FlatAppearance.CheckedBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnStationHome.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnStationHome.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnStationHome.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
             this.btnStationHome.Location = new System.Drawing.Point(609, 15);
             this.btnStationHome.Name = "btnStationHome";

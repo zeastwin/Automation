@@ -267,6 +267,7 @@ namespace Automation
                                 markRestartRequired();
                             }
 
+                            SF.EditorHistory.Clear();
                             error = null;
                             return true;
                         }

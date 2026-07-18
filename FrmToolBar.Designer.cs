@@ -64,14 +64,14 @@ namespace Automation
             // 
             // btnLocate
             // 
-            this.btnLocate.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnLocate.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnLocate.BackColor = global::Automation.UiPalette.Surface;
+            this.btnLocate.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnLocate.FlatAppearance.BorderSize = 2;
-            this.btnLocate.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnLocate.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnLocate.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnLocate.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnLocate.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnLocate.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnLocate.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnLocate.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnLocate.Location = new System.Drawing.Point(378, 1);
             this.btnLocate.Margin = new System.Windows.Forms.Padding(2);
             this.btnLocate.Name = "btnLocate";
@@ -83,14 +83,14 @@ namespace Automation
             // 
             // btnAlarm
             // 
-            this.btnAlarm.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnAlarm.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnAlarm.BackColor = global::Automation.UiPalette.Surface;
+            this.btnAlarm.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnAlarm.FlatAppearance.BorderSize = 2;
-            this.btnAlarm.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnAlarm.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnAlarm.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnAlarm.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnAlarm.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnAlarm.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnAlarm.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnAlarm.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnAlarm.Location = new System.Drawing.Point(449, 1);
             this.btnAlarm.Margin = new System.Windows.Forms.Padding(2);
             this.btnAlarm.Name = "btnAlarm";
@@ -102,14 +102,14 @@ namespace Automation
             // 
             // btnStop
             // 
-            this.btnStop.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnStop.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnStop.BackColor = global::Automation.UiPalette.Surface;
+            this.btnStop.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnStop.FlatAppearance.BorderSize = 2;
-            this.btnStop.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnStop.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnStop.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnStop.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnStop.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnStop.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnStop.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnStop.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnStop.Location = new System.Drawing.Point(236, 1);
             this.btnStop.Margin = new System.Windows.Forms.Padding(2);
             this.btnStop.Name = "btnStop";
@@ -121,14 +121,14 @@ namespace Automation
             // 
             // btnStopAll
             // 
-            this.btnStopAll.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnStopAll.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnStopAll.BackColor = global::Automation.UiPalette.Surface;
+            this.btnStopAll.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnStopAll.FlatAppearance.BorderSize = 2;
-            this.btnStopAll.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnStopAll.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnStopAll.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnStopAll.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnStopAll.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnStopAll.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnStopAll.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnStopAll.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnStopAll.Location = new System.Drawing.Point(622, 1);
             this.btnStopAll.Margin = new System.Windows.Forms.Padding(2);
             this.btnStopAll.Name = "btnStopAll";
@@ -140,14 +140,14 @@ namespace Automation
             // 
             // SingleRun
             // 
-            this.SingleRun.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.SingleRun.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.SingleRun.BackColor = global::Automation.UiPalette.Surface;
+            this.SingleRun.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.SingleRun.FlatAppearance.BorderSize = 2;
-            this.SingleRun.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.SingleRun.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.SingleRun.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.SingleRun.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.SingleRun.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.SingleRun.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.SingleRun.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.SingleRun.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.SingleRun.Location = new System.Drawing.Point(307, 1);
             this.SingleRun.Margin = new System.Windows.Forms.Padding(2);
             this.SingleRun.Name = "SingleRun";
@@ -159,14 +159,14 @@ namespace Automation
             // 
             // btnPause
             // 
-            this.btnPause.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnPause.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnPause.BackColor = global::Automation.UiPalette.Surface;
+            this.btnPause.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnPause.FlatAppearance.BorderSize = 2;
-            this.btnPause.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnPause.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnPause.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnPause.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnPause.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnPause.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnPause.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnPause.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnPause.Location = new System.Drawing.Point(165, 1);
             this.btnPause.Margin = new System.Windows.Forms.Padding(2);
             this.btnPause.Name = "btnPause";
@@ -178,14 +178,14 @@ namespace Automation
             // 
             // btnSearch
             // 
-            this.btnSearch.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnSearch.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnSearch.BackColor = global::Automation.UiPalette.Surface;
+            this.btnSearch.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnSearch.FlatAppearance.BorderSize = 2;
-            this.btnSearch.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnSearch.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnSearch.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnSearch.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnSearch.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnSearch.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnSearch.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnSearch.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnSearch.Location = new System.Drawing.Point(543, 1);
             this.btnSearch.Margin = new System.Windows.Forms.Padding(2);
             this.btnSearch.Name = "btnSearch";
@@ -197,14 +197,14 @@ namespace Automation
             // 
             // btnIOMonitor
             // 
-            this.btnIOMonitor.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnIOMonitor.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnIOMonitor.BackColor = global::Automation.UiPalette.Surface;
+            this.btnIOMonitor.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnIOMonitor.FlatAppearance.BorderSize = 2;
-            this.btnIOMonitor.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnIOMonitor.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnIOMonitor.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnIOMonitor.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnIOMonitor.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnIOMonitor.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnIOMonitor.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnIOMonitor.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnIOMonitor.Location = new System.Drawing.Point(622, 1);
             this.btnIOMonitor.Margin = new System.Windows.Forms.Padding(2);
             this.btnIOMonitor.Name = "btnIOMonitor";
@@ -216,14 +216,14 @@ namespace Automation
             // 
             // button1
             // 
-            this.button1.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.button1.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.button1.BackColor = global::Automation.UiPalette.Surface;
+            this.button1.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.button1.FlatAppearance.BorderSize = 2;
-            this.button1.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.button1.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.button1.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.button1.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.button1.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.button1.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.button1.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.button1.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.button1.Location = new System.Drawing.Point(720, 5);
             this.button1.Name = "button1";
             this.button1.Size = new System.Drawing.Size(121, 30);
@@ -234,14 +234,14 @@ namespace Automation
             // 
             // btnAppConfig
             // 
-            this.btnAppConfig.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnAppConfig.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnAppConfig.BackColor = global::Automation.UiPalette.Surface;
+            this.btnAppConfig.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnAppConfig.FlatAppearance.BorderSize = 2;
-            this.btnAppConfig.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnAppConfig.FlatAppearance.MouseOverBackColor = System.Drawing.Color.White;
+            this.btnAppConfig.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnAppConfig.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnAppConfig.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnAppConfig.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnAppConfig.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnAppConfig.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnAppConfig.Location = new System.Drawing.Point(846, 5);
             this.btnAppConfig.Name = "btnAppConfig";
             this.btnAppConfig.Size = new System.Drawing.Size(90, 30);
@@ -252,14 +252,14 @@ namespace Automation
             //
             // btnCancel
             // 
-            this.btnCancel.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnCancel.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnCancel.BackColor = global::Automation.UiPalette.Surface;
+            this.btnCancel.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnCancel.FlatAppearance.BorderSize = 2;
-            this.btnCancel.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnCancel.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnCancel.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnCancel.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnCancel.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnCancel.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnCancel.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnCancel.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnCancel.Location = new System.Drawing.Point(85, 1);
             this.btnCancel.Margin = new System.Windows.Forms.Padding(2);
             this.btnCancel.Name = "btnCancel";
@@ -271,14 +271,14 @@ namespace Automation
             // 
             // btnSave
             // 
-            this.btnSave.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnSave.FlatAppearance.BorderColor = System.Drawing.Color.White;
+            this.btnSave.BackColor = global::Automation.UiPalette.Surface;
+            this.btnSave.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
             this.btnSave.FlatAppearance.BorderSize = 2;
-            this.btnSave.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnSave.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
+            this.btnSave.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
+            this.btnSave.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
             this.btnSave.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnSave.Font = new System.Drawing.Font("黑体", 10.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnSave.ForeColor = System.Drawing.SystemColors.ControlText;
+            this.btnSave.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.btnSave.Location = new System.Drawing.Point(6, 1);
             this.btnSave.Margin = new System.Windows.Forms.Padding(2);
             this.btnSave.Name = "btnSave";

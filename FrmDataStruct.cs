@@ -898,7 +898,7 @@ namespace Automation
                 ItemIndex = itemIndex,
                 FieldIndex = fieldIndex
             };
-            fieldNode.ForeColor = fieldType == DataStructValueType.Text ? Color.RoyalBlue : Color.DarkGreen;
+            fieldNode.ForeColor = fieldType == DataStructValueType.Text ? UiPalette.Brand : UiPalette.Success;
         }
 
         private TreeNode BuildFieldNode(int structIndex, int itemIndex, int fieldIndex, string fieldName, DataStructValueType fieldType, object fieldValue)

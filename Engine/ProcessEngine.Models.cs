@@ -327,6 +327,7 @@ namespace Automation
         public int StepIndex { get; }
         public int OpIndex { get; }
         public ProcRunState StartState { get; }
+        public Guid DataBreakpointHitId { get; private set; }
         internal long Generation { get; set; }
         internal TaskCompletionSource<bool> Completion { get; } =
             new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -345,6 +346,13 @@ namespace Automation
         public static EngineCommand Pause(int procIndex)
         {
             return new EngineCommand(EngineCommandType.Pause, procIndex, null, 0, 0, ProcRunState.Paused);
+        }
+
+        internal static EngineCommand PauseForDataBreakpoint(int procIndex, Guid hitId)
+        {
+            EngineCommand command = Pause(procIndex);
+            command.DataBreakpointHitId = hitId;
+            return command;
         }
 
         public static EngineCommand Resume(int procIndex)

@@ -17,21 +17,6 @@ namespace Automation
         private const string AllVariableScopes = "all";
         private const int EmSetCueBanner = 0x1501;
         private const int WmSetRedraw = 0x000B;
-        private static readonly Color PrimaryColor = Color.FromArgb(49, 91, 180);
-        private static readonly Color PrimaryHoverColor = Color.FromArgb(61, 105, 196);
-        private static readonly Color PrimaryPressedColor = Color.FromArgb(37, 72, 150);
-        private static readonly Color PrimaryContainerColor = Color.FromArgb(222, 231, 255);
-        private static readonly Color SurfaceColor = Color.FromArgb(252, 252, 255);
-        private static readonly Color SurfaceContainerColor = Color.FromArgb(243, 244, 249);
-        private static readonly Color HeaderBackColor = Color.FromArgb(245, 247, 252);
-        private static readonly Color HeaderForeColor = Color.FromArgb(40, 43, 51);
-        private static readonly Color SecondaryForeColor = Color.FromArgb(91, 94, 104);
-        private static readonly Color GridLineColor = Color.FromArgb(221, 224, 232);
-        private static readonly Color AlternateRowColor = Color.FromArgb(248, 249, 253);
-        private static readonly Color SelectionBackColor = PrimaryContainerColor;
-        private static readonly Color SelectionForeColor = Color.FromArgb(25, 49, 102);
-        private static readonly Color ErrorColor = Color.FromArgb(186, 26, 26);
-        private static readonly Color ErrorContainerColor = Color.FromArgb(255, 237, 234);
 
         private sealed class CommonValueItem
         {
@@ -65,6 +50,13 @@ namespace Automation
             public string Text { get; set; }
             public string Scope { get; set; }
             public Guid? OwnerProcId { get; set; }
+        }
+
+        private sealed class VariableGridViewState
+        {
+            public int FirstDisplayedRowIndex { get; set; }
+            public int CurrentRowIndex { get; set; }
+            public int CurrentColumnIndex { get; set; }
         }
 
         private enum MaterialButtonTone
@@ -129,7 +121,7 @@ namespace Automation
 
             protected override void OnPaint(PaintEventArgs pevent)
             {
-                Color parentBackColor = Parent?.BackColor ?? SurfaceColor;
+                Color parentBackColor = Parent?.BackColor ?? UiPalette.Surface;
                 pevent.Graphics.Clear(parentBackColor);
                 pevent.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 pevent.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
@@ -139,31 +131,31 @@ namespace Automation
                 Color borderColor;
                 if (!Enabled)
                 {
-                    backColor = Color.FromArgb(241, 242, 246);
-                    textColor = Color.FromArgb(153, 156, 166);
-                    borderColor = Color.FromArgb(228, 230, 236);
+                    backColor = UiPalette.DisabledSoft;
+                    textColor = UiPalette.TextDisabled;
+                    borderColor = UiPalette.Stroke;
                 }
                 else if (Tone == MaterialButtonTone.Primary)
                 {
-                    backColor = mouseDown ? PrimaryPressedColor : mouseOver ? PrimaryHoverColor : PrimaryColor;
-                    textColor = Color.White;
+                    backColor = mouseDown ? UiPalette.BrandPressed : mouseOver ? UiPalette.BrandHover : UiPalette.Brand;
+                    textColor = UiPalette.SurfaceStrong;
                     borderColor = backColor;
                 }
                 else if (Tone == MaterialButtonTone.Danger)
                 {
                     backColor = mouseDown
-                        ? Color.FromArgb(255, 207, 202)
-                        : mouseOver ? Color.FromArgb(255, 221, 217) : ErrorContainerColor;
-                    textColor = ErrorColor;
-                    borderColor = Color.FromArgb(245, 199, 195);
+                        ? UiPalette.DangerSoft
+                        : mouseOver ? UiPalette.DangerSoft : UiPalette.DangerSoft;
+                    textColor = UiPalette.Danger;
+                    borderColor = UiPalette.DangerSoft;
                 }
                 else
                 {
                     backColor = mouseDown
-                        ? Color.FromArgb(222, 226, 236)
-                        : mouseOver ? Color.FromArgb(232, 235, 243) : SurfaceContainerColor;
-                    textColor = HeaderForeColor;
-                    borderColor = Color.FromArgb(214, 217, 226);
+                        ? UiPalette.Stroke
+                        : mouseOver ? UiPalette.SurfacePressed : UiPalette.SurfaceSubtle;
+                    textColor = UiPalette.TextPrimary;
+                    borderColor = UiPalette.Stroke;
                 }
 
                 RectangleF bounds = new RectangleF(0.75F, 0.75F, Math.Max(1, Width - 1.5F), Math.Max(1, Height - 1.5F));
@@ -193,12 +185,12 @@ namespace Automation
                     | ControlStyles.AllPaintingInWmPaint
                     | ControlStyles.OptimizedDoubleBuffer
                     | ControlStyles.ResizeRedraw, true);
-                BackColor = SurfaceContainerColor;
+                BackColor = UiPalette.SurfaceSubtle;
             }
 
             protected override void OnPaintBackground(PaintEventArgs e)
             {
-                e.Graphics.Clear(Parent?.BackColor ?? SurfaceColor);
+                e.Graphics.Clear(Parent?.BackColor ?? UiPalette.Surface);
             }
 
             protected override void OnPaint(PaintEventArgs e)
@@ -208,7 +200,7 @@ namespace Automation
                 RectangleF bounds = new RectangleF(0.75F, 0.75F, Math.Max(1, Width - 1.5F), Math.Max(1, Height - 1.5F));
                 using (GraphicsPath path = CreateRoundedPath(bounds, 11F))
                 using (var brush = new SolidBrush(BackColor))
-                using (var pen = new Pen(Color.FromArgb(214, 217, 226), 1F))
+                using (var pen = new Pen(UiPalette.Stroke, 1F))
                 {
                     e.Graphics.FillPath(brush, path);
                     e.Graphics.DrawPath(pen, path);
@@ -239,7 +231,7 @@ namespace Automation
                 {
                     Dock = DockStyle.Top,
                     Height = 40,
-                    BackColor = SystemColors.ControlLight
+                    BackColor = UiPalette.SurfaceSubtle
                 };
 
                 labelTitle = new Label
@@ -281,7 +273,7 @@ namespace Automation
                     AllowUserToAddRows = false,
                     AllowUserToResizeRows = false,
                     AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                    BackgroundColor = SystemColors.ControlLight,
+                    BackgroundColor = UiPalette.SurfaceSubtle,
                     ColumnHeadersHeight = 32,
                     ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                     ReadOnly = true,
@@ -335,10 +327,10 @@ namespace Automation
 
             private void ApplyMonitorStyle()
             {
-                BackColor = Color.White;
-                topPanel.BackColor = HeaderBackColor;
+                BackColor = UiPalette.SurfaceStrong;
+                topPanel.BackColor = UiPalette.Background;
                 labelTitle.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
-                labelTitle.ForeColor = HeaderForeColor;
+                labelTitle.ForeColor = UiPalette.TextPrimary;
                 ApplyButtonStyle(btnAdd, true, false);
                 ApplyButtonStyle(btnRemove, false, true);
                 ApplyGridStyle(dgvMonitor);
@@ -366,7 +358,6 @@ namespace Automation
         private ValueMonitorForm monitorForm;
         private readonly TreeView scopeTree;
         private readonly DataGridViewTextBoxColumn scopeColumn;
-        private readonly DataGridViewTextBoxColumn ownerColumn;
         private readonly Button btnClearSearch;
         private readonly TextBox txtVariableSearch;
         private readonly TextBox txtScopeSearch;
@@ -376,6 +367,8 @@ namespace Automation
         private readonly Label lblScopeFooter;
         private readonly ToolTip uiToolTip;
         private List<VariableScopeOption> variableScopeOptions = new List<VariableScopeOption>();
+        private readonly Dictionary<string, VariableGridViewState> variableGridViewStates =
+            new Dictionary<string, VariableGridViewState>(StringComparer.Ordinal);
         private string selectedScope = AllVariableScopes;
         private Guid? selectedOwnerProcId;
         private bool isStructViewAttached;
@@ -416,16 +409,7 @@ namespace Automation
                 Width = 90,
                 SortMode = DataGridViewColumnSortMode.NotSortable
             };
-            ownerColumn = new DataGridViewTextBoxColumn
-            {
-                Name = "ownerProcess",
-                HeaderText = "所属流程",
-                ReadOnly = true,
-                Width = 160,
-                SortMode = DataGridViewColumnSortMode.NotSortable
-            };
             dgvValue.Columns.Add(scopeColumn);
-            dgvValue.Columns.Add(ownerColumn);
 
             labelCommon.Text = "变量作用域";
             listCommon.Visible = false;
@@ -443,7 +427,7 @@ namespace Automation
                 ShowPlusMinus = false,
                 ShowRootLines = false,
                 ShowNodeToolTips = true,
-                BackColor = SurfaceContainerColor
+                BackColor = UiPalette.SurfaceSubtle
             };
             scopeTree.AfterSelect += ScopeTree_AfterSelect;
             scopeTree.DrawNode += ScopeTree_DrawNode;
@@ -508,7 +492,7 @@ namespace Automation
                 AutoScroll = true,
                 WrapContents = false,
                 FlowDirection = FlowDirection.LeftToRight,
-                BackColor = SurfaceColor,
+                BackColor = UiPalette.Surface,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty
             };
@@ -536,7 +520,7 @@ namespace Automation
                 Dock = DockStyle.Right,
                 Width = 340,
                 Padding = new Padding(10, 0, 0, 0),
-                BackColor = SurfaceColor
+                BackColor = UiPalette.Surface
             };
             ConfigureToolbarButton(btnSearch, "搜索", 72);
             btnSearch.Dock = DockStyle.Right;
@@ -547,13 +531,13 @@ namespace Automation
                 Dock = DockStyle.Fill,
                 Height = 40,
                 Padding = Padding.Empty,
-                BackColor = SurfaceContainerColor
+                BackColor = UiPalette.SurfaceSubtle
             };
             txtVariableSearch.Dock = DockStyle.None;
             txtVariableSearch.AutoSize = false;
             txtVariableSearch.BorderStyle = BorderStyle.None;
-            txtVariableSearch.BackColor = SurfaceContainerColor;
-            txtVariableSearch.ForeColor = HeaderForeColor;
+            txtVariableSearch.BackColor = UiPalette.SurfaceSubtle;
+            txtVariableSearch.ForeColor = UiPalette.TextPrimary;
             txtVariableSearch.Font = new Font("Microsoft YaHei UI", 10F);
             txtVariableSearch.AccessibleName = "搜索变量";
             txtVariableSearch.TextChanged += txtVariableSearch_TextChanged;
@@ -579,7 +563,7 @@ namespace Automation
                     Math.Max(0, (searchField.ClientSize.Height - btnClearSearch.Height) / 2));
             };
             searchPanel.Controls.Add(searchField);
-            searchPanel.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 8, BackColor = SurfaceColor });
+            searchPanel.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 8, BackColor = UiPalette.Surface });
             searchPanel.Controls.Add(btnSearch);
             panel1.Controls.Add(actions);
             panel1.Controls.Add(searchPanel);
@@ -587,14 +571,14 @@ namespace Automation
             panelCommon.Controls.Clear();
             panelCommon.Width = 272;
             panelCommon.Padding = new Padding(8, 0, 8, 8);
-            panelCommon.BackColor = SurfaceContainerColor;
+            panelCommon.BackColor = UiPalette.SurfaceSubtle;
 
             var scopeHeader = new Panel
             {
                 Dock = DockStyle.Top,
                 Height = 72,
                 Padding = new Padding(10, 10, 8, 4),
-                BackColor = SurfaceContainerColor
+                BackColor = UiPalette.SurfaceSubtle
             };
             labelCommon.Dock = DockStyle.Top;
             labelCommon.Height = 31;
@@ -608,7 +592,7 @@ namespace Automation
                 Text = "按作用域浏览与管理",
                 TextAlign = ContentAlignment.MiddleLeft,
                 Font = new Font("Microsoft YaHei UI", 9F),
-                ForeColor = SecondaryForeColor
+                ForeColor = UiPalette.TextSecondary
             };
             scopeHeader.Controls.Add(scopeSubtitle);
             scopeHeader.Controls.Add(labelCommon);
@@ -618,7 +602,7 @@ namespace Automation
                 Dock = DockStyle.Top,
                 Height = 72,
                 Padding = new Padding(8, 0, 8, 7),
-                BackColor = SurfaceContainerColor
+                BackColor = UiPalette.SurfaceSubtle
             };
             var scopeFilterLabel = new Label
             {
@@ -627,18 +611,18 @@ namespace Automation
                 Text = "筛选流程",
                 TextAlign = ContentAlignment.MiddleLeft,
                 Font = new Font("Microsoft YaHei UI", 8.5F),
-                ForeColor = SecondaryForeColor
+                ForeColor = UiPalette.TextSecondary
             };
             var scopeFilterField = new MaterialInputHost
             {
                 Dock = DockStyle.Fill,
                 Padding = Padding.Empty,
-                BackColor = Color.White
+                BackColor = UiPalette.SurfaceStrong
             };
             txtScopeSearch.Dock = DockStyle.None;
             txtScopeSearch.AutoSize = false;
             txtScopeSearch.BorderStyle = BorderStyle.None;
-            txtScopeSearch.BackColor = Color.White;
+            txtScopeSearch.BackColor = UiPalette.SurfaceStrong;
             txtScopeSearch.Font = new Font("Microsoft YaHei UI", 9.5F);
             txtScopeSearch.AccessibleName = "筛选流程";
             txtScopeSearch.TextChanged += txtScopeSearch_TextChanged;
@@ -662,8 +646,8 @@ namespace Automation
             lblScopeFooter.Text = "名称与槽位在全平台唯一";
             lblScopeFooter.TextAlign = ContentAlignment.TopLeft;
             lblScopeFooter.Font = new Font("Microsoft YaHei UI", 8.5F);
-            lblScopeFooter.ForeColor = SecondaryForeColor;
-            lblScopeFooter.BackColor = SurfaceContainerColor;
+            lblScopeFooter.ForeColor = UiPalette.TextSecondary;
+            lblScopeFooter.BackColor = UiPalette.SurfaceSubtle;
 
             panelCommon.Controls.Add(scopeTree);
             panelCommon.Controls.Add(lblScopeFooter);
@@ -674,12 +658,12 @@ namespace Automation
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(12, 10, 12, 12),
-                BackColor = SurfaceColor
+                BackColor = UiPalette.Surface
             };
             var gridCard = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.White,
+                BackColor = UiPalette.SurfaceStrong,
                 BorderStyle = BorderStyle.None
             };
             var gridHeader = new Panel
@@ -687,17 +671,17 @@ namespace Automation
                 Dock = DockStyle.Top,
                 Height = 66,
                 Padding = new Padding(16, 8, 16, 6),
-                BackColor = Color.White
+                BackColor = UiPalette.SurfaceStrong
             };
             lblVariableTitle.Dock = DockStyle.Top;
             lblVariableTitle.Height = 28;
             lblVariableTitle.Font = new Font("Microsoft YaHei UI", 11.5F, FontStyle.Bold);
-            lblVariableTitle.ForeColor = HeaderForeColor;
+            lblVariableTitle.ForeColor = UiPalette.TextPrimary;
             lblVariableTitle.TextAlign = ContentAlignment.MiddleLeft;
             lblVariableSubtitle.Dock = DockStyle.Bottom;
             lblVariableSubtitle.Height = 22;
             lblVariableSubtitle.Font = new Font("Microsoft YaHei UI", 9F);
-            lblVariableSubtitle.ForeColor = SecondaryForeColor;
+            lblVariableSubtitle.ForeColor = UiPalette.TextSecondary;
             lblVariableSubtitle.TextAlign = ContentAlignment.MiddleLeft;
             gridHeader.Controls.Add(lblVariableSubtitle);
             gridHeader.Controls.Add(lblVariableTitle);
@@ -705,15 +689,15 @@ namespace Automation
             dgvValue.Dock = DockStyle.Fill;
             dgvValue.BorderStyle = BorderStyle.None;
             lblEmptyState.Dock = DockStyle.Fill;
-            lblEmptyState.BackColor = Color.White;
-            lblEmptyState.ForeColor = SecondaryForeColor;
+            lblEmptyState.BackColor = UiPalette.SurfaceStrong;
+            lblEmptyState.ForeColor = UiPalette.TextSecondary;
             lblEmptyState.Font = new Font("Microsoft YaHei UI", 10F);
             lblEmptyState.TextAlign = ContentAlignment.MiddleCenter;
             lblEmptyState.Visible = false;
             var gridBody = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.White
+                BackColor = UiPalette.SurfaceStrong
             };
             gridBody.Controls.Add(dgvValue);
             gridBody.Controls.Add(lblEmptyState);
@@ -729,7 +713,7 @@ namespace Automation
                 Dock = DockStyle.Top,
                 Height = 58,
                 Padding = new Padding(16, 8, 12, 6),
-                BackColor = HeaderBackColor
+                BackColor = UiPalette.Background
             };
             var structTitle = new Label
             {
@@ -738,7 +722,7 @@ namespace Automation
                 Text = "数据结构",
                 TextAlign = ContentAlignment.MiddleLeft,
                 Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold),
-                ForeColor = HeaderForeColor
+                ForeColor = UiPalette.TextPrimary
             };
             var structSubtitle = new Label
             {
@@ -747,13 +731,13 @@ namespace Automation
                 Text = "变量相关结构定义",
                 TextAlign = ContentAlignment.MiddleLeft,
                 Font = new Font("Microsoft YaHei UI", 8.5F),
-                ForeColor = SecondaryForeColor
+                ForeColor = UiPalette.TextSecondary
             };
             structHeader.Controls.Add(structSubtitle);
             structHeader.Controls.Add(structTitle);
             panelStructHost.Dock = DockStyle.Fill;
             panelStructHost.Padding = new Padding(8);
-            panelStructHost.BackColor = SurfaceColor;
+            panelStructHost.BackColor = UiPalette.Surface;
             splitContainerMain.Panel2.Controls.Clear();
             splitContainerMain.Panel2.Controls.Add(panelStructHost);
             splitContainerMain.Panel2.Controls.Add(structHeader);
@@ -767,10 +751,8 @@ namespace Automation
             type.Width = 96;
             value.Width = 160;
             scopeColumn.Width = 170;
-            ownerColumn.Width = 140;
             scopeColumn.DisplayIndex = 4;
-            ownerColumn.DisplayIndex = 5;
-            Note.DisplayIndex = 6;
+            Note.DisplayIndex = 5;
             Note.MinimumWidth = 160;
             Note.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
 
@@ -796,18 +778,18 @@ namespace Automation
 
         private void ApplyAlarmConfigStyle()
         {
-            BackColor = SurfaceColor;
-            panel1.BackColor = SurfaceColor;
-            panelCommon.BackColor = SurfaceContainerColor;
-            panelStructHost.BackColor = SurfaceColor;
-            splitContainerMain.BackColor = GridLineColor;
+            BackColor = UiPalette.Surface;
+            panel1.BackColor = UiPalette.Surface;
+            panelCommon.BackColor = UiPalette.SurfaceSubtle;
+            panelStructHost.BackColor = UiPalette.Surface;
+            splitContainerMain.BackColor = UiPalette.Stroke;
             splitContainerMain.BorderStyle = BorderStyle.None;
-            labelCommon.BackColor = SurfaceContainerColor;
-            labelCommon.ForeColor = HeaderForeColor;
+            labelCommon.BackColor = UiPalette.SurfaceSubtle;
+            labelCommon.ForeColor = UiPalette.TextPrimary;
             labelCommon.Font = new Font("Microsoft YaHei UI", 13F, FontStyle.Bold);
 
-            listCommon.BackColor = Color.White;
-            listCommon.ForeColor = HeaderForeColor;
+            listCommon.BackColor = UiPalette.SurfaceStrong;
+            listCommon.ForeColor = UiPalette.TextPrimary;
             listCommon.BorderStyle = BorderStyle.FixedSingle;
             listCommon.Font = new Font("Microsoft YaHei UI", 10F);
             listCommon.DrawMode = DrawMode.OwnerDrawFixed;
@@ -833,25 +815,25 @@ namespace Automation
         private static void ApplyGridStyle(DataGridView grid)
         {
             grid.Font = new Font("Microsoft YaHei UI", 10F);
-            grid.BackgroundColor = Color.White;
+            grid.BackgroundColor = UiPalette.SurfaceStrong;
             grid.BorderStyle = BorderStyle.None;
-            grid.GridColor = GridLineColor;
+            grid.GridColor = UiPalette.Stroke;
             grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
             grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
             grid.EnableHeadersVisualStyles = false;
             grid.ColumnHeadersHeight = 42;
-            grid.ColumnHeadersDefaultCellStyle.BackColor = HeaderBackColor;
-            grid.ColumnHeadersDefaultCellStyle.ForeColor = HeaderForeColor;
+            grid.ColumnHeadersDefaultCellStyle.BackColor = UiPalette.Background;
+            grid.ColumnHeadersDefaultCellStyle.ForeColor = UiPalette.TextPrimary;
             grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
             grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             grid.RowTemplate.Height = 38;
-            grid.DefaultCellStyle.BackColor = Color.White;
-            grid.DefaultCellStyle.ForeColor = HeaderForeColor;
+            grid.DefaultCellStyle.BackColor = UiPalette.SurfaceStrong;
+            grid.DefaultCellStyle.ForeColor = UiPalette.TextPrimary;
             grid.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             grid.DefaultCellStyle.Padding = new Padding(6, 0, 6, 0);
-            grid.AlternatingRowsDefaultCellStyle.BackColor = AlternateRowColor;
-            grid.DefaultCellStyle.SelectionBackColor = SelectionBackColor;
-            grid.DefaultCellStyle.SelectionForeColor = SelectionForeColor;
+            grid.AlternatingRowsDefaultCellStyle.BackColor = UiPalette.Input;
+            grid.DefaultCellStyle.SelectionBackColor = UiPalette.Selection;
+            grid.DefaultCellStyle.SelectionForeColor = UiPalette.SelectionText;
             if (grid.Columns.Contains("Note"))
             {
                 grid.Columns["Note"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
@@ -874,27 +856,27 @@ namespace Automation
             button.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
             if (primary)
             {
-                button.BackColor = PrimaryColor;
-                button.ForeColor = Color.White;
-                button.FlatAppearance.BorderColor = PrimaryColor;
-                button.FlatAppearance.MouseOverBackColor = PrimaryHoverColor;
-                button.FlatAppearance.MouseDownBackColor = PrimaryPressedColor;
+                button.BackColor = UiPalette.Brand;
+                button.ForeColor = UiPalette.TextInverse;
+                button.FlatAppearance.BorderColor = UiPalette.Brand;
+                button.FlatAppearance.MouseOverBackColor = UiPalette.BrandHover;
+                button.FlatAppearance.MouseDownBackColor = UiPalette.BrandPressed;
             }
             else if (danger)
             {
-                button.BackColor = ErrorContainerColor;
-                button.ForeColor = ErrorColor;
-                button.FlatAppearance.BorderColor = Color.FromArgb(255, 218, 214);
-                button.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 221, 217);
-                button.FlatAppearance.MouseDownBackColor = Color.FromArgb(255, 207, 202);
+                button.BackColor = UiPalette.DangerSoft;
+                button.ForeColor = UiPalette.Danger;
+                button.FlatAppearance.BorderColor = UiPalette.DangerSoft;
+                button.FlatAppearance.MouseOverBackColor = UiPalette.DangerSoft;
+                button.FlatAppearance.MouseDownBackColor = UiPalette.DangerSoft;
             }
             else
             {
-                button.BackColor = SurfaceContainerColor;
-                button.ForeColor = HeaderForeColor;
-                button.FlatAppearance.BorderColor = GridLineColor;
-                button.FlatAppearance.MouseOverBackColor = Color.FromArgb(232, 235, 243);
-                button.FlatAppearance.MouseDownBackColor = Color.FromArgb(222, 226, 236);
+                button.BackColor = UiPalette.SurfaceSubtle;
+                button.ForeColor = UiPalette.TextPrimary;
+                button.FlatAppearance.BorderColor = UiPalette.Stroke;
+                button.FlatAppearance.MouseOverBackColor = UiPalette.SurfacePressed;
+                button.FlatAppearance.MouseDownBackColor = UiPalette.Stroke;
             }
             button.UseVisualStyleBackColor = false;
         }
@@ -906,9 +888,9 @@ namespace Automation
                 return;
             }
             bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            using (var background = new SolidBrush(selected ? SelectionBackColor
-                : e.Index % 2 == 0 ? Color.White : AlternateRowColor))
-            using (var foreground = new SolidBrush(selected ? SelectionForeColor : HeaderForeColor))
+            using (var background = new SolidBrush(selected ? UiPalette.Selection
+                : e.Index % 2 == 0 ? UiPalette.SurfaceStrong : UiPalette.Input))
+            using (var foreground = new SolidBrush(selected ? UiPalette.SelectionText : UiPalette.TextPrimary))
             {
                 e.Graphics.FillRectangle(background, e.Bounds);
                 string text = listCommon.Items[e.Index]?.ToString() ?? string.Empty;
@@ -981,14 +963,12 @@ namespace Automation
                 dgvValue.Rows[i].Cells[2].Value = DefaultValueType;
                 dgvValue.Rows[i].Cells[3].Value = DefaultValueText;
                 dgvValue.Rows[i].Cells[4].Value = string.Empty;
-                dgvValue.Rows[i].Cells[6].Value = string.Empty;
                 if (SF.valueStore.TryGetValueByIndex(i, out DicValue cachedValue))
                 {
                     dgvValue.Rows[i].Cells[1].Value = cachedValue.Name;
                     dgvValue.Rows[i].Cells[2].Value = cachedValue.Type;
                     dgvValue.Rows[i].Cells[3].Value = cachedValue.Value;
                     dgvValue.Rows[i].Cells[4].Value = cachedValue.Note;
-                    dgvValue.Rows[i].Cells[6].Value = ResolveOwnerProcessName(cachedValue.OwnerProcId);
                 }
                 ConfigureVariableScopeCell(dgvValue.Rows[i], cachedValue);
                 ApplyVariableRowEditingState(dgvValue.Rows[i], cachedValue);
@@ -1020,7 +1000,6 @@ namespace Automation
                         dgvValue.Rows[i].Cells[2].Value = cachedValue.Type;
                         dgvValue.Rows[i].Cells[3].Value = cachedValue.Value;
                         dgvValue.Rows[i].Cells[4].Value = cachedValue.Note;
-                        dgvValue.Rows[i].Cells[6].Value = ResolveOwnerProcessName(cachedValue.OwnerProcId);
                         ConfigureVariableScopeCell(dgvValue.Rows[i], cachedValue);
                         ApplyVariableRowEditingState(dgvValue.Rows[i], cachedValue);
                     }
@@ -1031,7 +1010,6 @@ namespace Automation
                         dgvValue.Rows[i].Cells[2].Value = DefaultValueType;
                         dgvValue.Rows[i].Cells[3].Value = DefaultValueText;
                         dgvValue.Rows[i].Cells[4].Value = string.Empty;
-                        dgvValue.Rows[i].Cells[6].Value = string.Empty;
                         ConfigureVariableScopeCell(dgvValue.Rows[i], null);
                         ApplyVariableRowEditingState(dgvValue.Rows[i], null);
                     }
@@ -1136,7 +1114,7 @@ namespace Automation
             if (selected && rowBounds.Width > 0 && rowBounds.Height > 0)
             {
                 using (GraphicsPath path = CreateRoundedPath(rowBounds, 10))
-                using (var selectionBrush = new SolidBrush(PrimaryContainerColor))
+                using (var selectionBrush = new SolidBrush(UiPalette.Selection))
                 {
                     e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
                     e.Graphics.FillPath(selectionBrush, path);
@@ -1155,8 +1133,8 @@ namespace Automation
                 ? new Font(scopeTree.Font, FontStyle.Bold)
                 : scopeTree.Font;
             Color textColor = placeholderNode
-                ? SecondaryForeColor
-                : selected ? SelectionForeColor : HeaderForeColor;
+                ? UiPalette.TextSecondary
+                : selected ? UiPalette.SelectionText : UiPalette.TextPrimary;
             TextRenderer.DrawText(
                 e.Graphics,
                 e.Node.Text,
@@ -1174,7 +1152,7 @@ namespace Automation
                         e.Node.IsExpanded ? "⌄" : "›",
                         chevronFont,
                         chevronBounds,
-                        SecondaryForeColor,
+                        UiPalette.TextSecondary,
                         TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
                 }
             }
@@ -1230,10 +1208,74 @@ namespace Automation
         private void ScopeTree_AfterSelect(object sender, TreeViewEventArgs e)
         {
             if (!(e.Node?.Tag is VariableScopeSelection selection)) return;
+            SaveVariableGridViewState();
             selectedScope = selection.Scope;
             selectedOwnerProcId = selection.OwnerProcId;
             ApplyScopeFilter();
+            RestoreVariableGridViewState();
             RefreshDisplayedRuntimeValues();
+        }
+
+        private void SaveVariableGridViewState()
+        {
+            if (dgvValue == null || dgvValue.Rows.Count == 0)
+            {
+                return;
+            }
+            int firstDisplayedRowIndex = -1;
+            try
+            {
+                firstDisplayedRowIndex = dgvValue.FirstDisplayedScrollingRowIndex;
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            variableGridViewStates[BuildVariableGridViewStateKey(selectedScope, selectedOwnerProcId)] =
+                new VariableGridViewState
+                {
+                    FirstDisplayedRowIndex = firstDisplayedRowIndex,
+                    CurrentRowIndex = dgvValue.CurrentCell?.RowIndex ?? -1,
+                    CurrentColumnIndex = dgvValue.CurrentCell?.ColumnIndex ?? -1
+                };
+        }
+
+        private void RestoreVariableGridViewState()
+        {
+            if (!variableGridViewStates.TryGetValue(
+                BuildVariableGridViewStateKey(selectedScope, selectedOwnerProcId),
+                out VariableGridViewState state)
+                || dgvValue.Rows.Count == 0)
+            {
+                return;
+            }
+            if (state.CurrentRowIndex >= 0
+                && state.CurrentRowIndex < dgvValue.Rows.Count
+                && dgvValue.Rows[state.CurrentRowIndex].Visible)
+            {
+                int columnIndex = state.CurrentColumnIndex >= 0
+                    && state.CurrentColumnIndex < dgvValue.Columns.Count
+                    ? state.CurrentColumnIndex
+                    : 0;
+                dgvValue.CurrentCell = dgvValue.Rows[state.CurrentRowIndex].Cells[columnIndex];
+                dgvValue.Rows[state.CurrentRowIndex].Selected = true;
+            }
+            if (state.FirstDisplayedRowIndex >= 0
+                && state.FirstDisplayedRowIndex < dgvValue.Rows.Count
+                && dgvValue.Rows[state.FirstDisplayedRowIndex].Visible)
+            {
+                try
+                {
+                    dgvValue.FirstDisplayedScrollingRowIndex = state.FirstDisplayedRowIndex;
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+        }
+
+        private static string BuildVariableGridViewStateKey(string scope, Guid? ownerProcId)
+        {
+            return $"{scope}:{ownerProcId?.ToString("D") ?? string.Empty}";
         }
 
         private void txtScopeSearch_TextChanged(object sender, EventArgs e)
@@ -1338,13 +1380,18 @@ namespace Automation
         {
             if (!SF.valueStore.TryGetValueByIndex(index, out DicValue variable))
             {
-                return !searching && allScopesSelected;
+                return !searching
+                    && (allScopesSelected
+                        || string.Equals(selectedScope, VariableScopeContract.System, StringComparison.Ordinal)
+                        && ValueConfigStore.IsSystemValueIndex(index));
             }
             if (searching)
             {
                 return IsVariableSearchMatch(variable, searchText);
             }
             return allScopesSelected
+                || string.Equals(selectedScope, VariableScopeContract.System, StringComparison.Ordinal)
+                && ValueConfigStore.IsSystemValueIndex(index)
                 || string.Equals(variable.Scope, selectedScope, StringComparison.Ordinal)
                 && (!string.Equals(selectedScope, VariableScopeContract.Process, StringComparison.Ordinal)
                     || variable.OwnerProcId == selectedOwnerProcId);
@@ -1630,6 +1677,10 @@ namespace Automation
 
         private void dgvValue_KeyDown(object sender, KeyEventArgs e)
         {
+            if (SF.TryHandleEditorHistoryShortcut(dgvValue, e))
+            {
+                return;
+            }
             if (e.KeyCode == Keys.Enter)
             {
                 e.Handled = true; // 阻止默认行为 防止选择条向下切换
@@ -1793,6 +1844,7 @@ namespace Automation
                 targetScope,
                 targetOwnerProcId,
                 true,
+                "粘贴变量",
                 out string commitError))
             {
                 MessageBox.Show("粘贴失败:" + commitError);
@@ -1863,7 +1915,11 @@ namespace Automation
             {
                 draft.Remove(variable.Name);
             }
-            if (!SF.valueStore.TryCommitConfiguration(SF.ConfigPath, draft, out string error))
+            if (!SF.valueStore.TryCommitConfiguration(
+                SF.ConfigPath,
+                draft,
+                out string error,
+                historyDescription: "删除变量"))
             {
                 MessageBox.Show(error, "删除变量失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -1954,13 +2010,23 @@ namespace Automation
                         && !string.Equals(renamedVariable.Name, key, StringComparison.Ordinal))
                     {
                         int usageCount = CountVariableUsages(renamedVariable);
-                        if (MessageBox.Show(
-                            $"变量[{renamedVariable.Name}]存在{usageCount}个已知引用。重命名后引用文本保持不变，受影响流程会变为 incomplete。是否提交？",
-                            "确认重命名变量", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                        if (usageCount > 0)
                         {
-                            isValueEditValid = false;
-                            FreshFrmValue();
-                            return;
+                            bool confirmed = false;
+                            new Message(
+                                "确认重命名变量",
+                                $"变量[{renamedVariable.Name}]存在{usageCount}个已知引用。重命名后引用文本保持不变，受影响流程会变为 incomplete。是否提交？",
+                                () => confirmed = true,
+                                () => { },
+                                "是(Y)",
+                                "否(N)",
+                                true);
+                            if (!confirmed)
+                            {
+                                isValueEditValid = false;
+                                FreshFrmValue();
+                                return;
+                            }
                         }
                     }
                     string targetScope = ValueConfigStore.IsSystemValueIndex(num)
@@ -1996,19 +2062,30 @@ namespace Automation
                         if (scopeChanged)
                         {
                             int usageCount = CountVariableUsages(scopedVariable);
-                            if (MessageBox.Show(
-                                $"变量[{scopedVariable.Name}]存在{usageCount}个已知引用。更改归属后，不可访问该变量的流程会变为 incomplete。是否提交？",
-                                "确认更改变量归属", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                            if (usageCount > 0)
                             {
-                                isValueEditValid = false;
-                                ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], scopedVariable);
-                                return;
+                                bool confirmed = false;
+                                new Message(
+                                    "确认更改变量归属",
+                                    $"变量[{scopedVariable.Name}]存在{usageCount}个已知引用。更改归属后，不可访问该变量的流程会变为 incomplete。是否提交？",
+                                    () => confirmed = true,
+                                    () => { },
+                                    "是(Y)",
+                                    "否(N)",
+                                    true);
+                                if (!confirmed)
+                                {
+                                    isValueEditValid = false;
+                                    ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], scopedVariable);
+                                    return;
+                                }
                             }
                         }
                     }
                     if (!TryCommitVariableRow(
                         num, key, type, value, note, targetScope, targetOwnerProcId,
                         scopedVariable == null,
+                        scopedVariable == null ? "新增变量" : "修改变量",
                         out string commitError))
                     {
                         isValueEditValid = false;
@@ -2028,7 +2105,6 @@ namespace Automation
                     };
                     ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], committedVariable);
                     ApplyVariableRowEditingState(dataGridView.Rows[e.RowIndex], committedVariable);
-                    dataGridView.Rows[e.RowIndex].Cells[6].Value = ResolveOwnerProcessName(targetOwnerProcId);
                     ScheduleScopeFilter(true);
                     isValueEditValid = true;
                 }
@@ -2146,13 +2222,13 @@ namespace Automation
                 // 获取当前行对应的数据项
                 if (SF.valueStore.IsMarked(e.RowIndex))
                 {
-                    e.CellStyle.BackColor = Color.FromArgb(253, 229, 229);
-                    e.CellStyle.ForeColor = Color.FromArgb(170, 48, 48);
+                    e.CellStyle.BackColor = UiPalette.DangerSoft;
+                    e.CellStyle.ForeColor = UiPalette.DangerHover;
                 }
                 else
                 {
-                    e.CellStyle.BackColor = e.RowIndex % 2 == 0 ? Color.White : AlternateRowColor;
-                    e.CellStyle.ForeColor = HeaderForeColor;
+                    e.CellStyle.BackColor = e.RowIndex % 2 == 0 ? UiPalette.SurfaceStrong : UiPalette.Input;
+                    e.CellStyle.ForeColor = UiPalette.TextPrimary;
                 }
             }
 
@@ -2219,6 +2295,7 @@ namespace Automation
             string scope,
             Guid? ownerProcId,
             bool setCurrentValue,
+            string historyDescription,
             out string error)
         {
             error = null;
@@ -2252,7 +2329,8 @@ namespace Automation
                 setCurrentValue
                     ? new Dictionary<string, string>(StringComparer.Ordinal) { [name] = currentValue }
                     : null,
-                setCurrentValue ? "变量页保存当前值" : null);
+                setCurrentValue ? "变量页保存当前值" : null,
+                historyDescription);
         }
 
         private void EnsureValueStoreHooked()

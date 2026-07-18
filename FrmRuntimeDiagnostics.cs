@@ -53,7 +53,7 @@ namespace Automation
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(1080, 720);
             Size = new Size(1440, 900);
-            BackColor = Color.FromArgb(244, 247, 251);
+            BackColor = UiPalette.Background;
             Font = new Font("Microsoft YaHei UI", 9F);
             UiBranding.Apply(this);
 
@@ -73,14 +73,14 @@ namespace Automation
                 Dock = DockStyle.Fill,
                 Padding = new Padding(48),
                 Font = new Font("Microsoft YaHei UI", 11F),
-                ForeColor = Color.FromArgb(86, 99, 118),
+                ForeColor = UiPalette.TextSecondary,
                 TextAlign = ContentAlignment.MiddleCenter
             };
             fallbackPanel = new Panel
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(80),
-                BackColor = Color.FromArgb(244, 247, 251),
+                BackColor = UiPalette.Background,
                 Visible = false
             };
             fallbackPanel.Controls.Add(fallbackMessage);

@@ -93,18 +93,18 @@ namespace Automation
         private void InitializeLayout()
         {
             AutoScaleMode = AutoScaleMode.Dpi;
-            BackColor = InspectorPalette.Background;
+            BackColor = UiPalette.Background;
             Font = InspectorFonts.Regular9;
             MinimumSize = new Size(320, 320);
             Text = "配置检查器";
 
-            header.BackColor = InspectorPalette.Surface;
+            header.BackColor = UiPalette.Surface;
             header.Dock = DockStyle.None;
             header.Height = 0;
             header.Visible = false;
             header.Paint += (sender, args) =>
             {
-                using (var pen = new Pen(InspectorPalette.Stroke))
+                using (var pen = new Pen(UiPalette.Stroke))
                 {
                     args.Graphics.DrawLine(pen, 0, header.Height - 1, header.Width, header.Height - 1);
                 }
@@ -112,14 +112,14 @@ namespace Automation
             Controls.Add(header);
 
             operationTypeButton.AutoEllipsis = true;
-            operationTypeButton.BackColor = InspectorPalette.BrandSoft;
+            operationTypeButton.BackColor = UiPalette.BrandSoft;
             operationTypeButton.Cursor = Cursors.Hand;
             operationTypeButton.FlatAppearance.BorderSize = 0;
-            operationTypeButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(226, 233, 255);
-            operationTypeButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(216, 225, 253);
+            operationTypeButton.FlatAppearance.MouseOverBackColor = UiPalette.BrandSoftHover;
+            operationTypeButton.FlatAppearance.MouseDownBackColor = UiPalette.Selection;
             operationTypeButton.FlatStyle = FlatStyle.Flat;
             operationTypeButton.Font = InspectorFonts.Regular9;
-            operationTypeButton.ForeColor = InspectorPalette.Brand;
+            operationTypeButton.ForeColor = UiPalette.Brand;
             operationTypeButton.IconKind = InspectorIconKind.Edit;
             operationTypeButton.Padding = new Padding(9, 0, 6, 0);
             operationTypeButton.TextAlign = ContentAlignment.MiddleLeft;
@@ -129,12 +129,13 @@ namespace Automation
             inspectorView.Dock = DockStyle.None;
             inspectorView.FieldValueChanged += (sender, args) =>
             {
+                SF.CaptureActiveEditSnapshot();
                 UpdatePresentation(inspectorView.SelectedObject);
             };
             Controls.Add(inspectorView);
             inspectorView.BringToFront();
 
-            actionBar.BackColor = InspectorPalette.Surface;
+            actionBar.BackColor = UiPalette.Surface;
             actionBar.Dock = DockStyle.None;
             actionBar.Height = 48;
             actionBar.Margin = Padding.Empty;
@@ -142,7 +143,7 @@ namespace Automation
             actionBar.Visible = false;
             actionBar.Paint += (sender, args) =>
             {
-                using (var pen = new Pen(InspectorPalette.Stroke))
+                using (var pen = new Pen(UiPalette.Stroke))
                 {
                     args.Graphics.DrawLine(
                         pen,
@@ -169,11 +170,11 @@ namespace Automation
             button.Dock = DockStyle.None;
             button.FlatAppearance.BorderSize = 0;
             button.FlatAppearance.MouseOverBackColor = primary
-                ? InspectorPalette.BrandHover
-                : Color.FromArgb(237, 240, 244);
+                ? UiPalette.BrandHover
+                : UiPalette.DisabledSoft;
             button.FlatAppearance.MouseDownBackColor = primary
-                ? Color.FromArgb(57, 79, 196)
-                : Color.FromArgb(229, 233, 239);
+                ? UiPalette.Brand
+                : UiPalette.Stroke;
             button.FlatStyle = FlatStyle.Flat;
             button.Font = InspectorFonts.Bold95;
             button.ImageAlign = ContentAlignment.MiddleCenter;
@@ -193,17 +194,17 @@ namespace Automation
         {
             bool enabled = button.Enabled;
             button.BackColor = enabled && primary
-                ? InspectorPalette.Brand
-                : InspectorPalette.SurfaceSubtle;
+                ? UiPalette.Brand
+                : UiPalette.SurfaceSubtle;
             button.ForeColor = enabled
-                ? primary ? Color.White : InspectorPalette.TextPrimary
-                : InspectorPalette.TextDisabled;
+                ? primary ? UiPalette.SurfaceStrong : UiPalette.TextPrimary
+                : UiPalette.TextDisabled;
             Image previousImage = button.Image;
             button.Image = UiIconFactory.Create(
                 primary ? UiIconKind.Save : UiIconKind.Cancel,
                 enabled
-                    ? primary ? Color.White : InspectorPalette.TextSecondary
-                    : InspectorPalette.TextDisabled,
+                    ? primary ? UiPalette.SurfaceStrong : UiPalette.TextSecondary
+                    : UiPalette.TextDisabled,
                 21);
             previousImage?.Dispose();
         }
@@ -313,7 +314,7 @@ namespace Automation
             {
                 AutoClose = true,
                 AutoSize = false,
-                BackColor = InspectorPalette.Surface,
+                BackColor = UiPalette.Surface,
                 DropShadowEnabled = true,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty,
@@ -373,11 +374,14 @@ namespace Automation
             draft.RefreshInspector?.Invoke();
             SF.frmDataGrid.OperationTemp = draft;
             SF.ReplaceActiveEditDraft(draft);
-            ShowObject(draft);
         }
 
         private void FrmInspector_KeyDown(object sender, KeyEventArgs e)
         {
+            if (SF.TryHandleEditorHistoryShortcut(this, e))
+            {
+                return;
+            }
             if (!editing)
             {
                 return;

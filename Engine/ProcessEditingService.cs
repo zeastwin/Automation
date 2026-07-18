@@ -76,7 +76,11 @@ namespace Automation
             return result;
         }
 
-        public static bool TryCommitProcDraft(int procIndex, Proc draft, out string error)
+        public static bool TryCommitProcDraft(
+            int procIndex,
+            Proc draft,
+            out string error,
+            string historyDescription = null)
         {
             error = null;
             if (SF.frmProc?.procsList == null || SF.mainfrm == null || SF.DR == null)
@@ -133,6 +137,7 @@ namespace Automation
             if (SF.DR.PublishProc(procIndex, runtimeDraft, out string publishError))
             {
                 SF.frmProc.RefreshProcView(procIndex);
+                UpdateEditorHistory(historyDescription, original, draft);
                 return true;
             }
 
@@ -150,6 +155,62 @@ namespace Automation
             }
             error = $"流程发布失败，磁盘、内存和运行时已恢复：{publishError}";
             return false;
+        }
+
+        private static void UpdateEditorHistory(
+            string historyDescription,
+            Proc before,
+            Proc after)
+        {
+            if (SF.EditorHistory.IsReplaying)
+            {
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(historyDescription))
+            {
+                SF.EditorHistory.Clear();
+                return;
+            }
+
+            Proc beforeSnapshot = ObjectGraphCloner.Clone(before);
+            Proc afterSnapshot = ObjectGraphCloner.Clone(after);
+            Guid procId = afterSnapshot?.head?.Id ?? Guid.Empty;
+            SF.EditorHistory.Record(
+                historyDescription,
+                delegate(out string error)
+                {
+                    return TryRestoreProcSnapshot(procId, beforeSnapshot, out error);
+                },
+                delegate(out string error)
+                {
+                    return TryRestoreProcSnapshot(procId, afterSnapshot, out error);
+                });
+        }
+
+        private static bool TryRestoreProcSnapshot(Guid procId, Proc snapshot, out string error)
+        {
+            error = null;
+            if (procId == Guid.Empty || snapshot == null)
+            {
+                error = "撤销记录中的流程身份无效。";
+                return false;
+            }
+            int procIndex = SF.frmProc?.procsList?.FindIndex(
+                proc => proc?.head?.Id == procId) ?? -1;
+            if (procIndex < 0)
+            {
+                error = $"流程已发生其他结构变化，找不到流程ID：{procId:D}。";
+                return false;
+            }
+            if (!SF.CanEditProc(procIndex))
+            {
+                error = $"流程{procIndex}当前不可编辑。";
+                return false;
+            }
+            return TryCommitProcDraft(
+                procIndex,
+                ObjectGraphCloner.Clone(snapshot),
+                out error);
         }
 
         public static void RenumberOperations(Proc proc)

@@ -83,7 +83,7 @@ namespace Automation
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
                 Padding = new Padding(12, 12, 8, 8),
-                BackColor = SystemColors.Control
+                BackColor = UiPalette.Background
             };
             checkBox3.Margin = new Padding(0, 0, 0, 12);
             ClearBoard.Margin = Padding.Empty;
@@ -102,7 +102,7 @@ namespace Automation
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
                 Padding = new Padding(12, 8, 8, 6),
-                BackColor = SystemColors.Control
+                BackColor = UiPalette.Background
             };
             checkBox1.Margin = new Padding(0, 0, 0, 7);
             checkBox2.Margin = new Padding(0, 0, 0, 5);
@@ -126,30 +126,30 @@ namespace Automation
 
         private void ApplyCommunicationStyle()
         {
-            BackColor = Color.White;
+            BackColor = UiPalette.SurfaceStrong;
             tabControl1.Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134);
             foreach (DataGridView grid in new[] { dataGridView1, dataGridView2 })
             {
-                grid.BackgroundColor = Color.White;
+                grid.BackgroundColor = UiPalette.SurfaceStrong;
                 grid.BorderStyle = BorderStyle.None;
-                grid.GridColor = Color.FromArgb(222, 228, 234);
+                grid.GridColor = UiPalette.Stroke;
                 grid.EnableHeadersVisualStyles = false;
                 grid.ColumnHeadersHeight = 28;
-                grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(238, 243, 248);
-                grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(48, 63, 78);
-                grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(217, 234, 250);
-                grid.DefaultCellStyle.SelectionForeColor = Color.FromArgb(27, 43, 59);
-                grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(248, 250, 252);
+                grid.ColumnHeadersDefaultCellStyle.BackColor = UiPalette.SurfaceSubtle;
+                grid.ColumnHeadersDefaultCellStyle.ForeColor = UiPalette.TextPrimary;
+                grid.DefaultCellStyle.SelectionBackColor = UiPalette.Selection;
+                grid.DefaultCellStyle.SelectionForeColor = UiPalette.Navigation;
+                grid.AlternatingRowsDefaultCellStyle.BackColor = UiPalette.Input;
                 grid.RowTemplate.Height = 26;
             }
             foreach (RichTextBox box in new[] { SendTextBox, ReceiveTextBox })
             {
-                box.BackColor = Color.White;
+                box.BackColor = UiPalette.SurfaceStrong;
                 box.BorderStyle = BorderStyle.FixedSingle;
                 box.Font = new Font("Consolas", 10F, FontStyle.Regular);
             }
-            StyleCommunicationButton(send, Color.FromArgb(63, 126, 181), Color.White);
-            StyleCommunicationButton(ClearBoard, Color.White, Color.FromArgb(48, 63, 78));
+            StyleCommunicationButton(send, UiPalette.Brand, UiPalette.TextInverse);
+            StyleCommunicationButton(ClearBoard, UiPalette.SurfaceStrong, UiPalette.TextPrimary);
             foreach (ContextMenuStrip menu in new[] { contextMenuStrip1, contextMenuStrip2, contextMenuStrip3 })
             {
                 menu.ShowImageMargin = false;
@@ -160,7 +160,7 @@ namespace Automation
         private static void StyleCommunicationButton(Button button, Color backColor, Color foreColor)
         {
             button.FlatStyle = FlatStyle.Flat;
-            button.FlatAppearance.BorderColor = Color.FromArgb(196, 205, 214);
+            button.FlatAppearance.BorderColor = UiPalette.StrokeStrong;
             button.BackColor = backColor;
             button.ForeColor = foreColor;
         }
@@ -344,15 +344,15 @@ namespace Automation
 
                 if (e.Direction == CommDirection.Error)
                 {
-                    SetTextColor(length, str, Color.Red);
+                    SetTextColor(length, str, UiPalette.Danger);
                 }
                 else if (e.Direction == CommDirection.Send)
                 {
-                    SetTextColor(length, str, Color.LightYellow);
+                    SetTextColor(length, str, UiPalette.WarningSoft);
                 }
                 else
                 {
-                    SetTextColor(length, str, Color.LightBlue);
+                    SetTextColor(length, str, UiPalette.InfoSoft);
                 }
             }
         }

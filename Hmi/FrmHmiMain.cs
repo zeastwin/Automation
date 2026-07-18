@@ -170,8 +170,8 @@ namespace Automation.Hmi
             foreach (Button button in buttons)
             {
                 bool active = ReferenceEquals(button, selected);
-                button.BackColor = active ? Color.FromArgb(20, 126, 197) : Color.FromArgb(24, 38, 54);
-                button.ForeColor = Color.White;
+                button.BackColor = active ? UiPalette.HmiHeaderActive : UiPalette.HmiHeader;
+                button.ForeColor = UiPalette.TextInverse;
             }
         }
 

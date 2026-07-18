@@ -72,14 +72,14 @@ namespace Automation
 
         private void ConfigureAppearance()
         {
-            Color borderColor = Color.FromArgb(222, 228, 234);
-            BackColor = Color.White;
-            panel1.BackColor = Color.White;
+            Color borderColor = UiPalette.Stroke;
+            BackColor = UiPalette.SurfaceStrong;
+            panel1.BackColor = UiPalette.SurfaceStrong;
             panel2.BackColor = borderColor;
             panel2.Padding = new Padding(1, 0, 0, 0);
-            panel3.BackColor = Color.White;
+            panel3.BackColor = UiPalette.SurfaceStrong;
             panelPointTools.Height = 44;
-            panelPointTools.BackColor = Color.FromArgb(238, 243, 248);
+            panelPointTools.BackColor = UiPalette.SurfaceSubtle;
             panelPointTools.Paint += (sender, args) =>
             {
                 using (Pen pen = new Pen(borderColor))
@@ -95,22 +95,22 @@ namespace Automation
 
             ConfigurePointButton(
                 btnPointEdit,
-                Color.FromArgb(48, 63, 78),
-                Color.FromArgb(190, 199, 210),
-                Color.FromArgb(237, 240, 244));
-            btnPointEdit.BackColor = Color.White;
+                UiPalette.TextPrimary,
+                UiPalette.StrokeStrong,
+                UiPalette.DisabledSoft);
+            btnPointEdit.BackColor = UiPalette.SurfaceStrong;
             ConfigurePointButton(
                 btnPointSave,
-                Color.White,
-                Color.FromArgb(34, 111, 183),
-                Color.FromArgb(43, 126, 201));
-            btnPointSave.BackColor = Color.FromArgb(34, 111, 183);
+                UiPalette.SurfaceStrong,
+                UiPalette.Brand,
+                UiPalette.Focus);
+            btnPointSave.BackColor = UiPalette.Brand;
             ConfigurePointButton(
                 btnPointCancel,
-                Color.FromArgb(48, 63, 78),
-                Color.FromArgb(190, 199, 210),
-                Color.FromArgb(237, 240, 244));
-            btnPointCancel.BackColor = Color.White;
+                UiPalette.TextPrimary,
+                UiPalette.StrokeStrong,
+                UiPalette.DisabledSoft);
+            btnPointCancel.BackColor = UiPalette.SurfaceStrong;
             btnPointEdit.SetBounds(10, 8, 72, 28);
             btnPointSave.SetBounds(88, 8, 72, 28);
             btnPointCancel.SetBounds(166, 8, 72, 28);
@@ -125,7 +125,7 @@ namespace Automation
             Color borderColor,
             Color hoverColor)
         {
-            button.BackColor = Color.White;
+            button.BackColor = UiPalette.SurfaceStrong;
             button.ForeColor = foreColor;
             button.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
             button.FlatStyle = FlatStyle.Flat;
@@ -140,31 +140,31 @@ namespace Automation
         {
             grid.EnableHeadersVisualStyles = false;
             grid.BorderStyle = BorderStyle.FixedSingle;
-            grid.BackgroundColor = Color.White;
-            grid.GridColor = Color.FromArgb(222, 228, 234);
+            grid.BackgroundColor = UiPalette.SurfaceStrong;
+            grid.GridColor = UiPalette.Stroke;
             grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
             grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
             grid.ColumnHeadersHeight = headerHeight;
             grid.RowTemplate.Height = rowHeight;
             grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
             {
-                BackColor = Color.FromArgb(238, 243, 248),
-                ForeColor = Color.FromArgb(48, 63, 78),
+                BackColor = UiPalette.SurfaceSubtle,
+                ForeColor = UiPalette.TextPrimary,
                 Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold),
                 Alignment = DataGridViewContentAlignment.MiddleCenter,
-                SelectionBackColor = Color.FromArgb(238, 243, 248),
-                SelectionForeColor = Color.FromArgb(48, 63, 78)
+                SelectionBackColor = UiPalette.SurfaceSubtle,
+                SelectionForeColor = UiPalette.TextPrimary
             };
             grid.DefaultCellStyle = new DataGridViewCellStyle
             {
-                BackColor = Color.White,
-                ForeColor = Color.FromArgb(48, 63, 78),
+                BackColor = UiPalette.SurfaceStrong,
+                ForeColor = UiPalette.TextPrimary,
                 Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular),
                 Alignment = DataGridViewContentAlignment.MiddleCenter,
-                SelectionBackColor = Color.FromArgb(217, 234, 250),
-                SelectionForeColor = Color.FromArgb(27, 43, 59)
+                SelectionBackColor = UiPalette.Selection,
+                SelectionForeColor = UiPalette.Navigation
             };
-            grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(248, 250, 252);
+            grid.AlternatingRowsDefaultCellStyle.BackColor = UiPalette.Input;
         }
 
         private void FrmStation_Resize(object sender, EventArgs e)
@@ -1137,7 +1137,7 @@ namespace Automation
             int rowCountAfterPaste = iSelectedRow + deepCopy.Count;
             for (int i = iSelectedRow; i < rowCountAfterPaste && i < dataGridView1.Rows.Count; i++)
             {
-                dataGridView1.Rows[i].DefaultCellStyle.BackColor = Color.Red;
+                dataGridView1.Rows[i].DefaultCellStyle.BackColor = UiPalette.Danger;
             }
         }
     }

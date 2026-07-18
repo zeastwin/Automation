@@ -38,7 +38,7 @@ namespace Automation
         public FrmPlc()
         {
             Text = "PLC";
-            BackColor = Color.FromArgb(245, 247, 250);
+            BackColor = UiPalette.Background;
             Font = new Font("Microsoft YaHei UI", 9F);
             FormBorderStyle = FormBorderStyle.Sizable;
             StartPosition = FormStartPosition.CenterScreen;
@@ -67,7 +67,7 @@ namespace Automation
             {
                 Dock = DockStyle.Top,
                 Height = 64,
-                BackColor = Color.White,
+                BackColor = UiPalette.SurfaceStrong,
                 Padding = new Padding(20, 8, 20, 6)
             };
             header.Controls.Add(new Label
@@ -75,11 +75,11 @@ namespace Automation
                 Text = "PLC",
                 AutoSize = true,
                 Font = new Font("Microsoft YaHei UI", 16F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(31, 41, 55),
+                ForeColor = UiPalette.TextPrimary,
                 Location = new Point(20, 7)
             });
             summaryLabel.AutoSize = true;
-            summaryLabel.ForeColor = Color.FromArgb(100, 116, 139);
+            summaryLabel.ForeColor = UiPalette.TextMuted;
             summaryLabel.Location = new Point(22, 38);
             header.Controls.Add(summaryLabel);
 
@@ -87,7 +87,7 @@ namespace Automation
             {
                 Dock = DockStyle.Top,
                 Height = 52,
-                BackColor = Color.FromArgb(248, 250, 252),
+                BackColor = UiPalette.Input,
                 Padding = new Padding(20, 9, 12, 8),
                 WrapContents = false
             };
@@ -110,10 +110,10 @@ namespace Automation
                 FixedPanel = FixedPanel.Panel1,
                 IsSplitterFixed = true,
                 SplitterWidth = 1,
-                BackColor = Color.FromArgb(226, 232, 240)
+                BackColor = UiPalette.Stroke
             };
             split.Panel1.Padding = new Padding(12);
-            split.Panel1.BackColor = Color.FromArgb(248, 250, 252);
+            split.Panel1.BackColor = UiPalette.Input;
             split.Panel2.Padding = new Padding(12);
             split.Panel2.BackColor = BackColor;
             // Dock布局按添加顺序反向计算，标题必须最后加入才能显示在最上方。
@@ -140,7 +140,7 @@ namespace Automation
                 Dock = DockStyle.Top,
                 Height = 30,
                 Font = new Font(Font, FontStyle.Bold),
-                ForeColor = Color.FromArgb(51, 65, 85)
+                ForeColor = UiPalette.TextPrimary
             };
             deviceList.Dock = DockStyle.Fill;
             deviceList.BorderStyle = BorderStyle.None;
@@ -151,8 +151,8 @@ namespace Automation
             stateLabel.Dock = DockStyle.Bottom;
             stateLabel.Height = 94;
             stateLabel.Padding = new Padding(8);
-            stateLabel.BackColor = Color.White;
-            stateLabel.ForeColor = Color.FromArgb(71, 85, 105);
+            stateLabel.BackColor = UiPalette.SurfaceStrong;
+            stateLabel.ForeColor = UiPalette.TextSecondary;
             stateLabel.Font = new Font(Font.FontFamily, 9F);
             split.Panel1.Controls.Add(deviceList);
             split.Panel1.Controls.Add(stateLabel);
@@ -167,7 +167,7 @@ namespace Automation
 
         private TabPage BuildOverviewTab()
         {
-            var tab = new TabPage("设备概览") { BackColor = Color.White, Padding = new Padding(8) };
+            var tab = new TabPage("设备概览") { BackColor = UiPalette.SurfaceStrong, Padding = new Padding(8) };
             deviceInspector.Dock = DockStyle.Fill;
             deviceInspector.FieldValueChanged += (sender, args) =>
             {
@@ -181,13 +181,13 @@ namespace Automation
 
         private TabPage BuildMappingTab()
         {
-            var tab = new TabPage("变量映射") { BackColor = Color.White, Padding = new Padding(8) };
+            var tab = new TabPage("变量映射") { BackColor = UiPalette.SurfaceStrong, Padding = new Padding(8) };
             var actions = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
                 Height = 78,
                 WrapContents = true,
-                BackColor = Color.FromArgb(248, 250, 252),
+                BackColor = UiPalette.Input,
                 Padding = new Padding(4, 5, 4, 4)
             };
             variableSelector.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -211,7 +211,7 @@ namespace Automation
 
         private TabPage BuildDebugTab()
         {
-            var tab = new TabPage("在线调试") { BackColor = Color.White, Padding = new Padding(8) };
+            var tab = new TabPage("在线调试") { BackColor = UiPalette.SurfaceStrong, Padding = new Padding(8) };
             var fields = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
@@ -219,7 +219,7 @@ namespace Automation
                 ColumnCount = 3,
                 RowCount = 2,
                 Padding = new Padding(4, 7, 4, 3),
-                BackColor = Color.FromArgb(248, 250, 252)
+                BackColor = UiPalette.Input
             };
             for (int index = 0; index < 3; index++)
             {
@@ -259,7 +259,7 @@ namespace Automation
                 Dock = DockStyle.Top,
                 Height = 46,
                 WrapContents = false,
-                BackColor = Color.White,
+                BackColor = UiPalette.SurfaceStrong,
                 Padding = new Padding(4, 5, 4, 4)
             };
             actions.Controls.AddRange(new Control[]
@@ -271,7 +271,7 @@ namespace Automation
             });
             monitorLabel.AutoSize = true;
             monitorLabel.Padding = new Padding(8, 9, 0, 0);
-            monitorLabel.ForeColor = Color.FromArgb(71, 85, 105);
+            monitorLabel.ForeColor = UiPalette.TextSecondary;
             actions.Controls.Add(monitorLabel);
 
             historyGrid.Dock = DockStyle.Fill;
@@ -294,7 +294,7 @@ namespace Automation
             historyGrid.ReadOnly = true;
             historyGrid.AllowUserToAddRows = false;
             historyGrid.AllowUserToDeleteRows = false;
-            historyGrid.BackgroundColor = Color.White;
+            historyGrid.BackgroundColor = UiPalette.SurfaceStrong;
             historyGrid.BorderStyle = BorderStyle.None;
             historyGrid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
             historyGrid.ColumnHeadersHeight = 32;
@@ -304,13 +304,13 @@ namespace Automation
             historyGrid.EnableHeadersVisualStyles = false;
             historyGrid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
             {
-                BackColor = Color.FromArgb(241, 245, 249),
-                ForeColor = Color.FromArgb(30, 41, 59),
+                BackColor = UiPalette.InputFocused,
+                ForeColor = UiPalette.Navigation,
                 Font = new Font(Font, FontStyle.Bold)
             };
             historyGrid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle
             {
-                BackColor = Color.FromArgb(248, 250, 252)
+                BackColor = UiPalette.Input
             };
             historyGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             tab.Controls.Add(historyGrid);
@@ -325,7 +325,7 @@ namespace Automation
             mapGrid.AllowUserToAddRows = false;
             mapGrid.AllowUserToDeleteRows = false;
             mapGrid.AllowUserToResizeRows = false;
-            mapGrid.BackgroundColor = Color.White;
+            mapGrid.BackgroundColor = UiPalette.SurfaceStrong;
             mapGrid.RowHeadersVisible = false;
             mapGrid.BorderStyle = BorderStyle.None;
             mapGrid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
@@ -337,14 +337,14 @@ namespace Automation
             mapGrid.EnableHeadersVisualStyles = false;
             mapGrid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
             {
-                BackColor = Color.FromArgb(241, 245, 249),
-                ForeColor = Color.FromArgb(30, 41, 59),
+                BackColor = UiPalette.InputFocused,
+                ForeColor = UiPalette.Navigation,
                 Font = new Font(Font, FontStyle.Bold),
                 Alignment = DataGridViewContentAlignment.MiddleLeft
             };
             mapGrid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle
             {
-                BackColor = Color.FromArgb(248, 250, 252)
+                BackColor = UiPalette.Input
             };
             mapGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
             mapGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Id", Visible = false });
@@ -818,10 +818,10 @@ namespace Automation
                 row.Cells["RuntimeState"].Value = map == null ? string.Empty : FormatMapState(map.State);
                 row.Cells["RuntimeMessage"].Value = map?.Message ?? string.Empty;
                 row.DefaultCellStyle.BackColor = map?.State == PlcMapRuntimeState.Conflict
-                    ? Color.FromArgb(254, 226, 226)
+                    ? UiPalette.DangerSoft
                     : map?.State == PlcMapRuntimeState.Faulted
-                        ? Color.FromArgb(255, 237, 213)
-                        : Color.White;
+                        ? UiPalette.WarningSoft
+                        : UiPalette.SurfaceStrong;
             }
             RefreshSummary();
         }
@@ -913,12 +913,12 @@ namespace Automation
                 AutoSize = true,
                 Height = 31,
                 FlatStyle = FlatStyle.Flat,
-                BackColor = danger ? Color.FromArgb(254, 242, 242) : primary ? Color.FromArgb(37, 99, 235) : Color.White,
-                ForeColor = danger ? Color.FromArgb(185, 28, 28) : primary ? Color.White : Color.FromArgb(51, 65, 85),
+                BackColor = danger ? UiPalette.DangerSoft : primary ? UiPalette.Brand : UiPalette.SurfaceStrong,
+                ForeColor = danger ? UiPalette.Danger : primary ? UiPalette.TextInverse : UiPalette.TextPrimary,
                 Margin = new Padding(4, 1, 4, 1),
                 Padding = new Padding(8, 0, 8, 0)
             };
-            button.FlatAppearance.BorderColor = danger ? Color.FromArgb(252, 165, 165) : primary ? Color.FromArgb(37, 99, 235) : Color.FromArgb(203, 213, 225);
+            button.FlatAppearance.BorderColor = danger ? UiPalette.Danger : primary ? UiPalette.Brand : UiPalette.Stroke;
             button.Click += click;
             return button;
         }
@@ -929,7 +929,7 @@ namespace Automation
             {
                 Text = text,
                 AutoSize = true,
-                ForeColor = Color.FromArgb(71, 85, 105),
+                ForeColor = UiPalette.TextSecondary,
                 Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
                 Padding = new Padding(4, 8, 2, 0),
                 Margin = new Padding(4, 1, 0, 1)
@@ -942,7 +942,7 @@ namespace Automation
             {
                 Width = 1,
                 Height = 28,
-                BackColor = Color.FromArgb(203, 213, 225),
+                BackColor = UiPalette.Stroke,
                 Margin = new Padding(10, 2, 6, 1)
             };
         }
@@ -950,7 +950,7 @@ namespace Automation
         private static Control DebugField(string label, Control control)
         {
             var panel = new Panel { Dock = DockStyle.Fill, Margin = new Padding(5, 2, 5, 2) };
-            panel.Controls.Add(new Label { Text = label, Dock = DockStyle.Top, Height = 22, ForeColor = Color.FromArgb(71, 85, 105) });
+            panel.Controls.Add(new Label { Text = label, Dock = DockStyle.Top, Height = 22, ForeColor = UiPalette.TextSecondary });
             control.Dock = DockStyle.Bottom;
             control.Height = 28;
             panel.Controls.Add(control);

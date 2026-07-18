@@ -68,17 +68,17 @@ namespace Automation
 
         private void ConfigureAppearance()
         {
-            Color textColor = Color.FromArgb(48, 63, 78);
-            Color mutedTextColor = Color.FromArgb(86, 99, 112);
-            Color borderColor = Color.FromArgb(190, 199, 210);
-            BackColor = Color.FromArgb(248, 250, 252);
-            groupBox1.BackColor = Color.FromArgb(234, 240, 245);
+            Color textColor = UiPalette.TextPrimary;
+            Color mutedTextColor = UiPalette.TextSecondary;
+            Color borderColor = UiPalette.StrokeStrong;
+            BackColor = UiPalette.Input;
+            groupBox1.BackColor = UiPalette.SurfaceSubtle;
             groupBox1.ForeColor = mutedTextColor;
-            groupBox2.BackColor = Color.FromArgb(248, 250, 252);
+            groupBox2.BackColor = UiPalette.Input;
             groupBox2.ForeColor = mutedTextColor;
             groupBox2.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
 
-            comboBox1.BackColor = Color.White;
+            comboBox1.BackColor = UiPalette.SurfaceStrong;
             comboBox1.ForeColor = textColor;
             comboBox1.FlatStyle = FlatStyle.Flat;
             comboBox1.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
@@ -95,7 +95,7 @@ namespace Automation
             label25.AutoSize = false;
             label25.TextAlign = ContentAlignment.MiddleLeft;
             label6.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
-            label6.ForeColor = Color.FromArgb(34, 111, 183);
+            label6.ForeColor = UiPalette.Brand;
             label6.AutoSize = false;
             label6.TextAlign = ContentAlignment.MiddleLeft;
             Action alignTopControls = () =>
@@ -119,14 +119,14 @@ namespace Automation
             foreach (Label label in rowLabels)
             {
                 label.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
-                label.ForeColor = Color.FromArgb(48, 63, 78);
+                label.ForeColor = UiPalette.TextPrimary;
             }
 
             Label[] axisNameLabels = { AxisName1, AxisName2, AxisName3, AxisName4, AxisName5, AxisName6 };
             foreach (Label label in axisNameLabels)
             {
-                label.BackColor = Color.FromArgb(238, 243, 248);
-                label.ForeColor = Color.FromArgb(48, 63, 78);
+                label.BackColor = UiPalette.SurfaceSubtle;
+                label.ForeColor = UiPalette.TextPrimary;
                 label.BorderStyle = BorderStyle.FixedSingle;
                 label.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
             }
@@ -134,7 +134,7 @@ namespace Automation
             var positionBoxes = new[] { txtPos1, txtPos2, txtPos3, txtPos4, txtPos5, txtPos6 };
             foreach (var textBox in positionBoxes)
             {
-                textBox.BackColor = Color.White;
+                textBox.BackColor = UiPalette.SurfaceStrong;
                 textBox.ForeColor = textColor;
                 textBox.BorderStyle = BorderStyle.FixedSingle;
                 textBox.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
@@ -142,13 +142,13 @@ namespace Automation
 
             foreach (Label label in new[] { AxisVel1, AxisVel2, AxisVel3, AxisVel4, AxisVel5, AxisVel6 })
             {
-                label.ForeColor = Color.FromArgb(86, 99, 112);
+                label.ForeColor = UiPalette.TextSecondary;
                 label.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
             }
 
             foreach (var textBox in new[] { txtMovPos1, txtMovPos2, txtMovPos3, txtMovPos4, txtMovPos5, txtMovPos6 })
             {
-                textBox.BackColor = Color.White;
+                textBox.BackColor = UiPalette.SurfaceStrong;
                 textBox.ForeColor = textColor;
                 textBox.BorderStyle = BorderStyle.FixedSingle;
                 textBox.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
@@ -173,10 +173,10 @@ namespace Automation
             {
                 ConfigureControlButton(
                     button,
-                    Color.FromArgb(48, 63, 78),
+                    UiPalette.TextPrimary,
                     borderColor,
-                    Color.FromArgb(237, 240, 244));
-                button.BackColor = Color.FromArgb(241, 245, 248);
+                    UiPalette.DisabledSoft);
+                button.BackColor = UiPalette.InputFocused;
             }
             foreach (var button in new[]
             {
@@ -186,41 +186,41 @@ namespace Automation
             {
                 ConfigureControlButton(
                     button,
-                    Color.FromArgb(48, 63, 78),
+                    UiPalette.TextPrimary,
                     borderColor,
-                    Color.FromArgb(237, 240, 244));
-                button.BackColor = Color.FromArgb(232, 241, 247);
+                    UiPalette.DisabledSoft);
+                button.BackColor = UiPalette.SurfaceHover;
             }
 
             ConfigureControlButton(
                 btnStationHome,
-                Color.FromArgb(48, 63, 78),
-                Color.FromArgb(190, 199, 210),
-                Color.FromArgb(237, 240, 244));
-            btnStationHome.BackColor = Color.FromArgb(230, 240, 247);
+                UiPalette.TextPrimary,
+                UiPalette.StrokeStrong,
+                UiPalette.DisabledSoft);
+            btnStationHome.BackColor = UiPalette.BrandSoft;
             ConfigureControlButton(
                 btnStop,
-                Color.FromArgb(170, 48, 48),
-                Color.FromArgb(226, 176, 176),
-                Color.FromArgb(253, 229, 229));
-            btnStop.BackColor = Color.FromArgb(255, 240, 240);
+                UiPalette.DangerHover,
+                UiPalette.Danger,
+                UiPalette.DangerSoft);
+            btnStop.BackColor = UiPalette.DangerSoft;
             ConfigureControlButton(
                 btnReSet,
-                Color.FromArgb(139, 88, 26),
-                Color.FromArgb(224, 197, 161),
-                Color.FromArgb(250, 240, 225));
-            btnReSet.BackColor = Color.FromArgb(255, 246, 232);
+                UiPalette.WarningHover,
+                UiPalette.Warning,
+                UiPalette.WarningSoft);
+            btnReSet.BackColor = UiPalette.WarningSoft;
             RefreshMotionControlAvailability();
         }
 
         private void comboBox1_DrawItem(object sender, DrawItemEventArgs e)
         {
             Color backColor = (e.State & DrawItemState.Selected) == DrawItemState.Selected
-                ? Color.FromArgb(217, 234, 250)
-                : Color.White;
+                ? UiPalette.Selection
+                : UiPalette.SurfaceStrong;
             Color foreColor = (e.State & DrawItemState.Disabled) == DrawItemState.Disabled
-                ? Color.FromArgb(146, 156, 166)
-                : Color.FromArgb(48, 63, 78);
+                ? UiPalette.TextDisabled
+                : UiPalette.TextPrimary;
             using (SolidBrush background = new SolidBrush(backColor))
             {
                 e.Graphics.FillRectangle(background, e.Bounds);
@@ -277,18 +277,18 @@ namespace Automation
                 bool operationEnabled = configured && motionReady;
                 hasAvailableAxis |= operationEnabled;
                 axisLabels[i].BackColor = configured
-                    ? Color.FromArgb(238, 243, 248)
-                    : Color.FromArgb(248, 250, 252);
+                    ? UiPalette.SurfaceSubtle
+                    : UiPalette.Input;
                 axisLabels[i].ForeColor = configured
-                    ? Color.FromArgb(48, 63, 78)
-                    : Color.FromArgb(135, 146, 157);
+                    ? UiPalette.TextPrimary
+                    : UiPalette.TextDisabled;
 
                 homeButtons[i].BackColor = configured
-                    ? Color.FromArgb(241, 245, 248)
-                    : Color.FromArgb(244, 247, 249);
+                    ? UiPalette.InputFocused
+                    : UiPalette.Background;
                 homeButtons[i].ForeColor = configured
-                    ? Color.FromArgb(48, 63, 78)
-                    : Color.FromArgb(146, 156, 166);
+                    ? UiPalette.TextPrimary
+                    : UiPalette.TextDisabled;
                 homeButtons[i].Enabled = operationEnabled;
                 enableButtons[i].Enabled = operationEnabled;
 
@@ -296,11 +296,11 @@ namespace Automation
                 {
                     System.Windows.Forms.Button moveButton = moveButtons[i * 2 + buttonOffset];
                     moveButton.BackColor = configured
-                        ? Color.FromArgb(232, 241, 247)
-                        : Color.FromArgb(244, 247, 249);
+                        ? UiPalette.SurfaceHover
+                        : UiPalette.Background;
                     moveButton.ForeColor = configured
-                        ? Color.FromArgb(48, 63, 78)
-                        : Color.FromArgb(146, 156, 166);
+                        ? UiPalette.TextPrimary
+                        : UiPalette.TextDisabled;
                     moveButton.Enabled = operationEnabled;
                 }
             }
@@ -316,7 +316,7 @@ namespace Automation
             Color borderColor,
             Color hoverColor)
         {
-            button.BackColor = Color.White;
+            button.BackColor = UiPalette.SurfaceStrong;
             button.ForeColor = foreColor;
             button.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular);
             button.FlatStyle = FlatStyle.Flat;

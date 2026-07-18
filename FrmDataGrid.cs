@@ -270,15 +270,15 @@ namespace Automation
         {
             switch (iconType)
             {
-                case MenuIconType.Add: return Color.FromArgb(43, 145, 93);
-                case MenuIconType.Edit: return Color.FromArgb(44, 126, 181);
+                case MenuIconType.Add: return UiPalette.Success;
+                case MenuIconType.Edit: return UiPalette.Brand;
                 case MenuIconType.Delete:
-                case MenuIconType.Breakpoint: return Color.FromArgb(197, 62, 70);
-                case MenuIconType.Toggle: return Color.FromArgb(193, 124, 28);
-                case MenuIconType.StartPoint: return Color.FromArgb(117, 86, 178);
-                case MenuIconType.More: return Color.FromArgb(117, 86, 178);
-                case MenuIconType.Paste: return Color.FromArgb(31, 137, 145);
-                default: return Color.FromArgb(82, 105, 118);
+                case MenuIconType.Breakpoint: return UiPalette.Danger;
+                case MenuIconType.Toggle: return UiPalette.Warning;
+                case MenuIconType.StartPoint: return UiPalette.JumpCancel;
+                case MenuIconType.More: return UiPalette.JumpCancel;
+                case MenuIconType.Paste: return UiPalette.JumpAutomatic;
+                default: return UiPalette.TextSecondary;
             }
         }
 
@@ -293,8 +293,8 @@ namespace Automation
                 contextMenuStrip2.Padding = new Padding(3, 3, 3, 3);
                 contextMenuStrip2.ImageScalingSize = new Size(20, 20);
                 contextMenuStrip2.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
-                contextMenuStrip2.BackColor = Color.White;
-                contextMenuStrip2.ForeColor = Color.FromArgb(42, 55, 63);
+                contextMenuStrip2.BackColor = UiPalette.SurfaceStrong;
+                contextMenuStrip2.ForeColor = UiPalette.TextPrimary;
                 contextMenuStrip2.Renderer = new InstructionContextMenuRenderer();
                 contextMenuStrip2.ShowCheckMargin = false;
                 contextMenuStrip2.ShowImageMargin = true;
@@ -311,7 +311,7 @@ namespace Automation
                 viewCustomFunctionCode.Text = "查看代码";
                 viewCustomFunctionCode.Visible = false;
                 viewCustomFunctionCode.Click += ViewCustomFunctionCode_Click;
-                Delete.ForeColor = Color.FromArgb(188, 55, 64);
+                Delete.ForeColor = UiPalette.Danger;
 
                 ApplyContextMenuItemStyle(new[]
                 {
@@ -380,11 +380,11 @@ namespace Automation
                 Rectangle bounds = new Rectangle(3, 2, Math.Max(1, e.Item.Width - 6), Math.Max(1, e.Item.Height - 4));
                 bool destructive = e.Item.ForeColor.R > 160 && e.Item.ForeColor.G < 90;
                 Color background = destructive
-                    ? Color.FromArgb(253, 235, 237)
-                    : Color.FromArgb(228, 242, 249);
+                    ? UiPalette.DangerSoft
+                    : UiPalette.BrandSoft;
                 Color accent = destructive
-                    ? Color.FromArgb(197, 62, 70)
-                    : Color.FromArgb(47, 132, 179);
+                    ? UiPalette.Danger
+                    : UiPalette.Brand;
                 using (GraphicsPath path = CreateMenuItemPath(bounds, 5))
                 using (SolidBrush brush = new SolidBrush(background))
                 using (SolidBrush accentBrush = new SolidBrush(accent))
@@ -413,7 +413,7 @@ namespace Automation
                     using (Graphics graphics = Graphics.FromImage(disabledImage))
                     {
                         graphics.DrawImage(e.Image, new Rectangle(0, 0, MenuIconRenderSize, MenuIconRenderSize));
-                        ControlPaint.DrawImageDisabled(e.Graphics, disabledImage, x, y, Color.White);
+                        ControlPaint.DrawImageDisabled(e.Graphics, disabledImage, x, y, UiPalette.SurfaceStrong);
                     }
                 }
             }
@@ -434,7 +434,7 @@ namespace Automation
                         | TextFormatFlags.VerticalCenter
                         | TextFormatFlags.SingleLine
                         | TextFormatFlags.NoPadding;
-                    e.TextColor = e.Item.Enabled ? e.Item.ForeColor : SystemColors.GrayText;
+                    e.TextColor = e.Item.Enabled ? e.Item.ForeColor : UiPalette.TextDisabled;
                 }
                 base.OnRenderItemText(e);
             }
@@ -442,7 +442,7 @@ namespace Automation
             protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
             {
                 int y = e.Item.Height / 2;
-                using (Pen pen = new Pen(Color.FromArgb(226, 232, 235)))
+                using (Pen pen = new Pen(UiPalette.Divider))
                 {
                     e.Graphics.DrawLine(pen, 12, y, Math.Max(12, e.Item.Width - 12), y);
                 }
@@ -463,18 +463,18 @@ namespace Automation
 
         private sealed class InstructionContextMenuColorTable : ProfessionalColorTable
         {
-            public override Color ToolStripDropDownBackground => Color.White;
-            public override Color ImageMarginGradientBegin => Color.FromArgb(248, 250, 251);
-            public override Color ImageMarginGradientMiddle => Color.FromArgb(248, 250, 251);
-            public override Color ImageMarginGradientEnd => Color.FromArgb(248, 250, 251);
-            public override Color MenuBorder => Color.FromArgb(204, 214, 219);
+            public override Color ToolStripDropDownBackground => UiPalette.SurfaceStrong;
+            public override Color ImageMarginGradientBegin => UiPalette.Surface;
+            public override Color ImageMarginGradientMiddle => UiPalette.Surface;
+            public override Color ImageMarginGradientEnd => UiPalette.Surface;
+            public override Color MenuBorder => UiPalette.Stroke;
             public override Color MenuItemBorder => Color.Transparent;
             public override Color MenuItemSelected => Color.Transparent;
-            public override Color MenuItemPressedGradientBegin => Color.FromArgb(228, 242, 249);
-            public override Color MenuItemPressedGradientMiddle => Color.FromArgb(228, 242, 249);
-            public override Color MenuItemPressedGradientEnd => Color.FromArgb(228, 242, 249);
-            public override Color SeparatorDark => Color.FromArgb(226, 232, 235);
-            public override Color SeparatorLight => Color.White;
+            public override Color MenuItemPressedGradientBegin => UiPalette.BrandSoft;
+            public override Color MenuItemPressedGradientMiddle => UiPalette.BrandSoft;
+            public override Color MenuItemPressedGradientEnd => UiPalette.BrandSoft;
+            public override Color SeparatorDark => UiPalette.Divider;
+            public override Color SeparatorLight => UiPalette.SurfaceStrong;
         }
 
         private void contextMenuStrip2_Opening(object sender, CancelEventArgs e)
@@ -553,11 +553,11 @@ namespace Automation
 
             if (selectedOperation?.Disable == true)
             {
-                Enable.ForeColor = Color.FromArgb(43, 145, 93);
+                Enable.ForeColor = UiPalette.Success;
             }
             else
             {
-                Enable.ForeColor = Color.FromArgb(42, 55, 63);
+                Enable.ForeColor = UiPalette.TextPrimary;
             }
         }
 
@@ -606,7 +606,7 @@ namespace Automation
 
             var codeBox = new RichTextBox
             {
-                BackColor = Color.FromArgb(250, 251, 252),
+                BackColor = UiPalette.Surface,
                 BorderStyle = BorderStyle.None,
                 DetectUrls = false,
                 Dock = DockStyle.Fill,
@@ -619,17 +619,17 @@ namespace Automation
             var sourceLabel = new Label
             {
                 AutoEllipsis = true,
-                BackColor = Color.White,
+                BackColor = UiPalette.SurfaceStrong,
                 Dock = DockStyle.Top,
                 Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(83, 99, 110),
+                ForeColor = UiPalette.TextSecondary,
                 Height = 34,
                 Padding = new Padding(10, 8, 10, 0),
                 Text = "内嵌源码快照 · 构建时 Hmi/CustomFunctions.cs"
             };
             var viewer = new Form
             {
-                BackColor = Color.White,
+                BackColor = UiPalette.SurfaceStrong,
                 MinimizeBox = false,
                 MinimumSize = new Size(720, 480),
                 ShowIcon = false,
@@ -723,7 +723,7 @@ namespace Automation
                         return;
                     }
                     codeBox.Select(controlLineStart, Math.Max(1, targetLineText.Length));
-                    codeBox.SelectionBackColor = Color.FromArgb(255, 236, 166);
+                    codeBox.SelectionBackColor = UiPalette.WarningSoft;
                     codeBox.Focus();
                     codeBox.ScrollToCaret();
                     int targetLine = codeBox.GetLineFromCharIndex(controlLineStart);
@@ -741,7 +741,7 @@ namespace Automation
             else
             {
                 sourceLabel.Text = "未在内嵌源码中找到 " + customFunction.FunctionName + " 的注册语句";
-                sourceLabel.ForeColor = Color.FromArgb(168, 75, 36);
+                sourceLabel.ForeColor = UiPalette.Transition;
             }
             using (viewer)
             {
@@ -982,23 +982,23 @@ namespace Automation
         {
             if (isBreakpoint)
             {
-                return Color.FromArgb(255, 241, 242);
+                return UiPalette.DangerSoft;
             }
             switch (state)
             {
                 case ProcRunState.Running:
-                    return Color.FromArgb(235, 248, 241);
+                    return UiPalette.SuccessSoft;
                 case ProcRunState.Paused:
                 case ProcRunState.Pausing:
-                    return Color.FromArgb(255, 247, 229);
+                    return UiPalette.WarningSoft;
                 case ProcRunState.SingleStep:
-                    return Color.FromArgb(234, 245, 252);
+                    return UiPalette.InfoSoft;
                 case ProcRunState.Alarming:
-                    return Color.FromArgb(253, 235, 237);
+                    return UiPalette.DangerSoft;
                 case ProcRunState.Stopping:
-                    return Color.FromArgb(250, 237, 237);
+                    return UiPalette.StoppingSoft;
                 default:
-                    return Color.FromArgb(240, 246, 249);
+                    return UiPalette.SurfaceSubtle;
             }
         }
 
@@ -1063,9 +1063,9 @@ namespace Automation
             }
             ClearAllRowColors();
 
-            gridFlashColor = kind == ProcChangeKind.Added ? Color.LightGreen
-                           : kind == ProcChangeKind.Deleted ? Color.LightPink
-                           : Color.Khaki;
+            gridFlashColor = kind == ProcChangeKind.Added ? UiPalette.SuccessSoft
+                           : kind == ProcChangeKind.Deleted ? UiPalette.DangerSoft
+                           : UiPalette.WarningSoft;
             gridFlashCount = 0;
 
             gridFlashTimer = new System.Windows.Forms.Timer();
@@ -1141,9 +1141,9 @@ namespace Automation
                 {
                     continue;
                 }
-                Color color = kind == ProcChangeKind.Added ? Color.LightGreen
-                            : kind == ProcChangeKind.Deleted ? Color.LightPink
-                            : Color.Khaki;
+                Color color = kind == ProcChangeKind.Added ? UiPalette.SuccessSoft
+                            : kind == ProcChangeKind.Deleted ? UiPalette.DangerSoft
+                            : UiPalette.WarningSoft;
                 targetRows.Add((opIndex, color));
             }
 
@@ -1155,7 +1155,7 @@ namespace Automation
             // 新增指令位于当前可视区域之外时自动跟随一次，便于观察 AI 的插入过程；
             // 修改和删除不改变用户滚动位置。
             int addedRowIndex = targetRows
-                .Where(item => item.color == Color.LightGreen)
+                .Where(item => item.color == UiPalette.SuccessSoft)
                 .Select(item => item.rowIndex)
                 .DefaultIfEmpty(-1)
                 .First();
@@ -1291,11 +1291,11 @@ namespace Automation
                 string opType = op?.OperaType ?? "未知类型";
                 string opName = string.IsNullOrWhiteSpace(op?.Name) ? "未命名" : op.Name;
                 string opText = $"{opIndex}({opType}) {opName}";
-                warnMsg = $"警告：即将删除指令【{opText}】\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n此操作不可恢复，确认删除？";
+                warnMsg = $"警告：即将删除指令【{opText}】\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n删除后可在当前会话使用 Ctrl+Z 撤销，确认删除？";
             }
             else
             {
-                warnMsg = $"警告：即将删除{selectedRowIndexes4Del.Count}条指令\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n此操作不可恢复，确认删除？";
+                warnMsg = $"警告：即将删除{selectedRowIndexes4Del.Count}条指令\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n删除后可在当前会话使用 Ctrl+Z 撤销，确认删除？";
             }
             DialogResult confirmResult = MessageBox.Show(
                 this,
@@ -1320,7 +1320,8 @@ namespace Automation
                 }
             }
             ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-            if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
+            if (!ProcessEditingService.TryCommitProcDraft(
+                procIndex, draft, out string commitError, "删除指令"))
             {
                 MessageBox.Show(commitError, "删除指令失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -1362,6 +1363,10 @@ namespace Automation
 
         private void dataGridView1_KeyDown(object sender, KeyEventArgs e)
         {
+            if (SF.TryHandleEditorHistoryShortcut(dataGridView1, e))
+            {
+                return;
+            }
             if (IsOperationAddressDragEnabled())
             {
                 return;
@@ -1435,7 +1440,7 @@ namespace Automation
 
             Invoke(new Action(() =>
             {
-                SF.frmToolBar.btnPause.Text = "继续";
+                SF.frmToolBar.SetPauseButtonAction(true);
                 SF.frmToolBar.btnPause.Enabled = startState != ProcRunState.Paused;
                 SF.frmToolBar.SingleRun.Enabled = startState == ProcRunState.SingleStep;
             }));
@@ -1461,7 +1466,8 @@ namespace Automation
                 {
                     OperationType operation = draft.steps[stepIndex].Ops[iSelectedRow];
                     operation.IsBreakpoint = !operation.IsBreakpoint;
-                    if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string error))
+                    if (!ProcessEditingService.TryCommitProcDraft(
+                        procIndex, draft, out string error, "修改指令断点"))
                     {
                         MessageBox.Show(error, "断点修改失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
@@ -1539,7 +1545,8 @@ namespace Automation
             Proc draft = ObjectGraphCloner.Clone(current);
             draft.steps[stepIndex].Ops.InsertRange(insertIndex, copiedOperations);
             ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-            if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out error))
+            if (!ProcessEditingService.TryCommitProcDraft(
+                procIndex, draft, out error, "粘贴指令"))
             {
                 return false;
             }
@@ -1551,7 +1558,7 @@ namespace Automation
         {
             for (int i = insertIndex; i < insertIndex + insertedCount && i < dataGridView1.OperationCount; i++)
             {
-                dataGridView1.SetRowColor(i, Color.LightGreen);
+                dataGridView1.SetRowColor(i, UiPalette.SuccessSoft);
             }
         }
         private void copy_Click(object sender, EventArgs e)
@@ -1757,7 +1764,8 @@ namespace Automation
                     draft.steps[stepIndex].Ops.RemoveAt(dragIndex);
                     draft.steps[stepIndex].Ops.Insert(targetIndex, draggedItem);
                     ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-                    if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
+                    if (!ProcessEditingService.TryCommitProcDraft(
+                        procIndex, draft, out string commitError, "移动指令"))
                     {
                         MessageBox.Show(commitError, "移动指令失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
@@ -1827,7 +1835,11 @@ namespace Automation
                         ProcessEditingService.RewriteAddedOperationGotoTargetsFromPreviousLayout(
                             draft, before, procDraft, procIndex);
                     }
-                    if (!ProcessEditingService.TryCommitProcDraft(procIndex, procDraft, out string commitError))
+                    if (!ProcessEditingService.TryCommitProcDraft(
+                        procIndex,
+                        procDraft,
+                        out string commitError,
+                        isAdd ? "新增指令" : "修改指令"))
                     {
                         throw new InvalidOperationException(commitError);
                     }
@@ -1866,7 +1878,8 @@ namespace Automation
                 if (operation != null)
                 {
                     operation.Disable = !operation.Disable;
-                    if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
+                    if (!ProcessEditingService.TryCommitProcDraft(
+                        procIndex, draft, out string commitError, "切换指令禁用状态"))
                     {
                         MessageBox.Show(commitError, "更新指令状态失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }

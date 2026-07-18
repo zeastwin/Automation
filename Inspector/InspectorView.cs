@@ -13,23 +13,6 @@ using System.Windows.Forms;
 
 namespace Automation
 {
-    internal static class InspectorPalette
-    {
-        public static readonly Color Background = Color.FromArgb(247, 248, 250);
-        public static readonly Color Surface = Color.White;
-        public static readonly Color SurfaceSubtle = Color.FromArgb(248, 249, 251);
-        public static readonly Color Input = Color.FromArgb(243, 245, 248);
-        public static readonly Color InputFocused = Color.FromArgb(237, 242, 255);
-        public static readonly Color TextPrimary = Color.FromArgb(36, 45, 58);
-        public static readonly Color TextSecondary = Color.FromArgb(94, 106, 122);
-        public static readonly Color TextDisabled = Color.FromArgb(142, 151, 163);
-        public static readonly Color Stroke = Color.FromArgb(226, 230, 236);
-        public static readonly Color Brand = Color.FromArgb(79, 107, 237);
-        public static readonly Color BrandHover = Color.FromArgb(66, 91, 219);
-        public static readonly Color BrandSoft = Color.FromArgb(238, 242, 255);
-        public static readonly Color Danger = Color.FromArgb(190, 52, 48);
-    }
-
     internal static class InspectorShapes
     {
         public static GraphicsPath CreateRoundedPath(Rectangle bounds, int radius)
@@ -401,7 +384,7 @@ namespace Automation
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            e.Graphics.Clear(Parent?.BackColor ?? InspectorPalette.Surface);
+            e.Graphics.Clear(Parent?.BackColor ?? UiPalette.Surface);
             Color fillColor = BackColor;
             if (Enabled && pointerDown && FlatAppearance.MouseDownBackColor != Color.Empty)
             {
@@ -419,7 +402,7 @@ namespace Automation
                 e.Graphics.FillPath(brush, path);
             }
 
-            Color contentColor = Enabled ? ForeColor : InspectorPalette.TextDisabled;
+            Color contentColor = Enabled ? ForeColor : UiPalette.TextDisabled;
             Size textSize = string.IsNullOrEmpty(Text)
                 ? Size.Empty
                 : TextRenderer.MeasureText(e.Graphics, Text, Font, Size.Empty, TextFormatFlags.NoPadding);
@@ -541,7 +524,7 @@ namespace Automation
 
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             int centerY = Height / 2;
-            using (var chevron = new Pen(InspectorPalette.TextSecondary, 1.35F)
+            using (var chevron = new Pen(UiPalette.TextSecondary, 1.35F)
             {
                 StartCap = LineCap.Round,
                 EndCap = LineCap.Round
@@ -567,7 +550,7 @@ namespace Automation
                     e.Graphics,
                     new Rectangle(27, (Height - iconSize) / 2, iconSize, iconSize),
                     IconKind,
-                    InspectorPalette.Brand);
+                    UiPalette.Brand);
                 textLeft = 50;
             }
             TextRenderer.DrawText(
@@ -575,14 +558,14 @@ namespace Automation
                 Text,
                 Font,
                 new Rectangle(textLeft, 0, Math.Max(1, Width - textLeft - 8), Height),
-                Enabled ? ForeColor : InspectorPalette.TextDisabled,
+                Enabled ? ForeColor : UiPalette.TextDisabled,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                     | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
                     | TextFormatFlags.NoPadding);
 
             if (ShowDivider)
             {
-                using (var divider = new Pen(InspectorPalette.Stroke))
+                using (var divider = new Pen(UiPalette.Stroke))
                 {
                     e.Graphics.DrawLine(divider, 9, Height - 1, Math.Max(9, Width - 9), Height - 1);
                 }
@@ -642,8 +625,8 @@ namespace Automation
         {
             AutoSize = false;
             BorderStyle = BorderStyle.None;
-            BackColor = InspectorPalette.Input;
-            ForeColor = InspectorPalette.TextPrimary;
+            BackColor = UiPalette.Input;
+            ForeColor = UiPalette.TextPrimary;
             Font = InspectorFonts.Regular9;
             Multiline = true;
             AcceptsReturn = false;
@@ -677,21 +660,21 @@ namespace Automation
         protected override void OnEnter(EventArgs e)
         {
             base.OnEnter(e);
-            BackColor = InspectorPalette.InputFocused;
+            BackColor = UiPalette.InputFocused;
             Invalidate();
         }
 
         protected override void OnLeave(EventArgs e)
         {
-            BackColor = ReadOnly ? InspectorPalette.SurfaceSubtle : InspectorPalette.Input;
+            BackColor = ReadOnly ? UiPalette.SurfaceSubtle : UiPalette.Input;
             base.OnLeave(e);
             Invalidate();
         }
 
         protected override void OnReadOnlyChanged(EventArgs e)
         {
-            BackColor = ReadOnly ? InspectorPalette.SurfaceSubtle : InspectorPalette.Input;
-            ForeColor = ReadOnly ? InspectorPalette.TextSecondary : InspectorPalette.TextPrimary;
+            BackColor = ReadOnly ? UiPalette.SurfaceSubtle : UiPalette.Input;
+            ForeColor = ReadOnly ? UiPalette.TextSecondary : UiPalette.TextPrimary;
             base.OnReadOnlyChanged(e);
             Invalidate();
         }
@@ -708,7 +691,7 @@ namespace Automation
                         graphics,
                         new Rectangle(0, 0, Width - 1, Height - 1),
                         4,
-                        Focused && !ReadOnly ? InspectorPalette.Brand : InspectorPalette.Stroke);
+                        Focused && !ReadOnly ? UiPalette.Brand : UiPalette.Stroke);
                 }
             }
         }
@@ -751,8 +734,8 @@ namespace Automation
 
         public InspectorComboBox()
         {
-            BackColor = InspectorPalette.Input;
-            ForeColor = InspectorPalette.TextPrimary;
+            BackColor = UiPalette.Input;
+            ForeColor = UiPalette.TextPrimary;
             FlatStyle = FlatStyle.Flat;
             Font = InspectorFonts.Regular9;
             DrawMode = DrawMode.OwnerDrawFixed;
@@ -777,8 +760,8 @@ namespace Automation
                 return;
             }
             bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            Color backColor = selected ? InspectorPalette.BrandSoft : InspectorPalette.Surface;
-            Color foreColor = Enabled ? InspectorPalette.TextPrimary : InspectorPalette.TextDisabled;
+            Color backColor = selected ? UiPalette.BrandSoft : UiPalette.Surface;
+            Color foreColor = Enabled ? UiPalette.TextPrimary : UiPalette.TextDisabled;
             using (var brush = new SolidBrush(backColor))
             {
                 e.Graphics.FillRectangle(brush, e.Bounds);
@@ -801,7 +784,7 @@ namespace Automation
         protected override void OnEnter(EventArgs e)
         {
             base.OnEnter(e);
-            BackColor = InspectorPalette.Input;
+            BackColor = UiPalette.Input;
             Invalidate();
             ClearTextSelection();
         }
@@ -809,7 +792,7 @@ namespace Automation
         protected override void OnLeave(EventArgs e)
         {
             ClearTextSelection();
-            BackColor = InspectorPalette.Input;
+            BackColor = UiPalette.Input;
             base.OnLeave(e);
             Invalidate();
         }
@@ -837,8 +820,8 @@ namespace Automation
 
         protected override void OnEnabledChanged(EventArgs e)
         {
-            BackColor = Enabled ? InspectorPalette.Input : InspectorPalette.SurfaceSubtle;
-            ForeColor = Enabled ? InspectorPalette.TextPrimary : InspectorPalette.TextDisabled;
+            BackColor = Enabled ? UiPalette.Input : UiPalette.SurfaceSubtle;
+            ForeColor = Enabled ? UiPalette.TextPrimary : UiPalette.TextDisabled;
             base.OnEnabledChanged(e);
             Invalidate();
         }
@@ -873,14 +856,14 @@ namespace Automation
                 {
                     graphics.SmoothingMode = SmoothingMode.AntiAlias;
                     Color background = !Enabled
-                        ? InspectorPalette.SurfaceSubtle
-                        : InspectorPalette.Input;
+                        ? UiPalette.SurfaceSubtle
+                        : UiPalette.Input;
                     int arrowLeft = Width - 23;
                     using (var brush = new SolidBrush(background))
                     {
                         graphics.FillRectangle(brush, arrowLeft, 1, 22, Height - 2);
                     }
-                    using (var pen = new Pen(InspectorPalette.TextSecondary, 1.4F))
+                    using (var pen = new Pen(UiPalette.TextSecondary, 1.4F))
                     {
                         int centerX = arrowLeft + 11;
                         int centerY = Height / 2;
@@ -891,7 +874,7 @@ namespace Automation
                         graphics,
                         new Rectangle(0, 0, Width - 1, Height - 1),
                         4,
-                        Focused ? InspectorPalette.Brand : InspectorPalette.Stroke);
+                        Focused ? UiPalette.Brand : UiPalette.Stroke);
                 }
             }
         }
@@ -941,22 +924,22 @@ namespace Automation
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            e.Graphics.Clear(Parent?.BackColor ?? InspectorPalette.Surface);
+            e.Graphics.Clear(Parent?.BackColor ?? UiPalette.Surface);
             var track = new Rectangle(2, Math.Max(2, (Height - 18) / 2), 32, 18);
             Color trackColor;
             if (!Enabled)
             {
-                trackColor = Color.FromArgb(211, 216, 223);
+                trackColor = UiPalette.Disabled;
             }
             else if (Checked)
             {
-                trackColor = pointerOver ? InspectorPalette.BrandHover : InspectorPalette.Brand;
+                trackColor = pointerOver ? UiPalette.BrandHover : UiPalette.Brand;
             }
             else
             {
                 trackColor = pointerOver
-                    ? Color.FromArgb(165, 175, 188)
-                    : Color.FromArgb(185, 193, 203);
+                    ? UiPalette.TextDisabled
+                    : UiPalette.StrokeStrong;
             }
             using (GraphicsPath trackPath = InspectorShapes.CreateRoundedPath(track, 8))
             using (var trackBrush = new SolidBrush(trackColor))
@@ -964,7 +947,7 @@ namespace Automation
                 e.Graphics.FillPath(trackBrush, trackPath);
             }
             int thumbX = Checked ? track.Right - 16 : track.Left + 2;
-            using (var thumbBrush = new SolidBrush(Color.White))
+            using (var thumbBrush = new SolidBrush(UiPalette.SurfaceStrong))
             {
                 e.Graphics.FillEllipse(thumbBrush, thumbX, track.Y + 2, 14, 14);
             }
@@ -1099,7 +1082,7 @@ namespace Automation
 
         public InspectorView()
         {
-            BackColor = InspectorPalette.Background;
+            BackColor = UiPalette.Background;
             DoubleBuffered = true;
 
             content.AutoScroll = true;
@@ -1114,7 +1097,7 @@ namespace Automation
             emptyLabel.BackColor = BackColor;
             emptyLabel.Dock = DockStyle.Fill;
             emptyLabel.Font = InspectorFonts.Regular10;
-            emptyLabel.ForeColor = InspectorPalette.TextSecondary;
+            emptyLabel.ForeColor = UiPalette.TextSecondary;
             emptyLabel.Text = "选择流程、步骤、指令或配置对象后，\r\n可在这里查看和编辑参数。";
             emptyLabel.TextAlign = ContentAlignment.MiddleCenter;
             Controls.Add(emptyLabel);
@@ -1547,19 +1530,19 @@ namespace Automation
             ToolTip descriptionToolTip)
         {
             AutoSize = false;
-            BackColor = InspectorPalette.Surface;
+            BackColor = UiPalette.Surface;
             Margin = new Padding(0, 0, 0, 5);
             Padding = Padding.Empty;
 
             headerButton.AutoSize = false;
-            headerButton.BackColor = InspectorPalette.Surface;
+            headerButton.BackColor = UiPalette.Surface;
             headerButton.Cursor = Cursors.Hand;
             headerButton.FlatAppearance.BorderSize = 0;
-            headerButton.FlatAppearance.MouseOverBackColor = InspectorPalette.SurfaceSubtle;
-            headerButton.FlatAppearance.MouseDownBackColor = InspectorPalette.BrandSoft;
+            headerButton.FlatAppearance.MouseOverBackColor = UiPalette.SurfaceSubtle;
+            headerButton.FlatAppearance.MouseDownBackColor = UiPalette.BrandSoft;
             headerButton.FlatStyle = FlatStyle.Flat;
             headerButton.Font = InspectorFonts.Bold9;
-            headerButton.ForeColor = InspectorPalette.TextPrimary;
+            headerButton.ForeColor = UiPalette.TextPrimary;
             headerButton.Height = HeaderHeight;
             headerButton.IconKind = InspectorIcons.FromSectionTitle(definition.Title);
             headerButton.Expanded = expanded;
@@ -1568,7 +1551,7 @@ namespace Automation
             Controls.Add(headerButton);
 
             body.AutoSize = false;
-            body.BackColor = InspectorPalette.Surface;
+            body.BackColor = UiPalette.Surface;
             body.FlowDirection = FlowDirection.TopDown;
             body.Padding = new Padding(8, 3, 8, 5);
             body.WrapContents = false;
@@ -1716,7 +1699,7 @@ namespace Automation
             DescriptionToolTip = descriptionToolTip;
             Editable = editable;
             AutoSize = false;
-            BackColor = InspectorPalette.Surface;
+            BackColor = UiPalette.Surface;
             Margin = new Padding(0, 0, 0, 1);
         }
 
@@ -1874,7 +1857,7 @@ namespace Automation
                 definition.Label,
                 InspectorFonts.Regular9,
                 new Rectangle(0, 0, labelWidth, 28),
-                InspectorPalette.TextSecondary,
+                UiPalette.TextSecondary,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                     | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
                     | TextFormatFlags.NoPadding);
@@ -1886,7 +1869,7 @@ namespace Automation
                     InspectorFonts.Regular85,
                     new Rectangle(labelWidth + 6, 29,
                         Math.Max(48, width - labelWidth - 6), 20),
-                    InspectorPalette.Danger,
+                    UiPalette.Danger,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                         | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
                         | TextFormatFlags.NoPadding);
@@ -1900,7 +1883,7 @@ namespace Automation
             if (editor is TextBox textBox)
             {
                 textBox.ReadOnly = !allow;
-                textBox.BackColor = allow ? InspectorPalette.Input : InspectorPalette.SurfaceSubtle;
+                textBox.BackColor = allow ? UiPalette.Input : UiPalette.SurfaceSubtle;
             }
             else
             {
@@ -2019,9 +2002,9 @@ namespace Automation
                 var checkBox = new InspectorToggle
                 {
                     AutoSize = false,
-                    BackColor = InspectorPalette.Surface,
+                    BackColor = UiPalette.Surface,
                     Font = InspectorFonts.Regular9,
-                    ForeColor = InspectorPalette.TextSecondary,
+                    ForeColor = UiPalette.TextSecondary,
                     Height = 28,
                     TextAlign = ContentAlignment.MiddleLeft,
                     UseVisualStyleBackColor = false
@@ -2335,7 +2318,7 @@ namespace Automation
                 definition.Label,
                 InspectorFonts.Regular9,
                 new Rectangle(0, 0, labelWidth, 28),
-                InspectorPalette.TextSecondary,
+                UiPalette.TextSecondary,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                     | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
                     | TextFormatFlags.NoPadding);
@@ -2347,7 +2330,7 @@ namespace Automation
                     InspectorFonts.Regular85,
                     new Rectangle(labelWidth + 6, 29,
                         Math.Max(80, width - labelWidth - 6), 20),
-                    InspectorPalette.Danger,
+                    UiPalette.Danger,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                         | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
                         | TextFormatFlags.NoPadding);
@@ -2656,18 +2639,18 @@ namespace Automation
             this.definition = definition;
             title.AutoEllipsis = true;
             title.Font = InspectorFonts.Bold9;
-            title.ForeColor = InspectorPalette.TextPrimary;
+            title.ForeColor = UiPalette.TextPrimary;
             title.TextAlign = ContentAlignment.MiddleLeft;
             Controls.Add(title);
 
-            addButton.BackColor = InspectorPalette.BrandSoft;
+            addButton.BackColor = UiPalette.BrandSoft;
             addButton.Cursor = Cursors.Hand;
             addButton.FlatAppearance.BorderSize = 0;
-            addButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(226, 233, 255);
-            addButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(216, 225, 253);
+            addButton.FlatAppearance.MouseOverBackColor = UiPalette.BrandSoftHover;
+            addButton.FlatAppearance.MouseDownBackColor = UiPalette.Selection;
             addButton.FlatStyle = FlatStyle.Flat;
             addButton.Font = InspectorFonts.Regular85;
-            addButton.ForeColor = InspectorPalette.Brand;
+            addButton.ForeColor = UiPalette.Brand;
             addButton.IconKind = InspectorIconKind.Add;
             addButton.AccessibleName = "添加" + definition.Label;
             addButton.Text = "添加";
@@ -2677,7 +2660,7 @@ namespace Automation
             AttachDescription(title, addButton);
 
             itemsPanel.AutoSize = false;
-            itemsPanel.BackColor = InspectorPalette.Surface;
+            itemsPanel.BackColor = UiPalette.Surface;
             itemsPanel.FlowDirection = FlowDirection.TopDown;
             itemsPanel.WrapContents = false;
             Controls.Add(itemsPanel);
@@ -3038,19 +3021,19 @@ namespace Automation
             this.editable = editable;
             this.expanded = expanded;
             AutoSize = false;
-            BackColor = InspectorPalette.Stroke;
+            BackColor = UiPalette.Stroke;
             Margin = new Padding(0, 0, 0, 3);
             Padding = new Padding(1);
 
-            header.BackColor = InspectorPalette.SurfaceSubtle;
+            header.BackColor = UiPalette.SurfaceSubtle;
             header.AutoEllipsis = true;
             header.Cursor = Cursors.Hand;
             header.FlatAppearance.BorderSize = 0;
-            header.FlatAppearance.MouseOverBackColor = InspectorPalette.BrandSoft;
-            header.FlatAppearance.MouseDownBackColor = Color.FromArgb(226, 233, 255);
+            header.FlatAppearance.MouseOverBackColor = UiPalette.BrandSoft;
+            header.FlatAppearance.MouseDownBackColor = UiPalette.BrandSoftHover;
             header.FlatStyle = FlatStyle.Flat;
             header.Font = InspectorFonts.Bold9;
-            header.ForeColor = InspectorPalette.TextPrimary;
+            header.ForeColor = UiPalette.TextPrimary;
             header.Expanded = expanded;
             header.ShowDivider = false;
             header.Click += (sender, args) => ToggleExpanded();
@@ -3062,8 +3045,8 @@ namespace Automation
             moveUp.AccessibleName = "上移配置项";
             moveDown.AccessibleName = "下移配置项";
             delete.AccessibleName = "删除配置项";
-            delete.ForeColor = InspectorPalette.Danger;
-            delete.FlatAppearance.MouseOverBackColor = Color.FromArgb(253, 238, 237);
+            delete.ForeColor = UiPalette.Danger;
+            delete.FlatAppearance.MouseOverBackColor = UiPalette.DangerSoft;
             moveUp.Click += (sender, args) => MoveRequested?.Invoke(this, -1);
             moveDown.Click += (sender, args) => MoveRequested?.Invoke(this, 1);
             delete.Click += (sender, args) => DeleteRequested?.Invoke(this, EventArgs.Empty);
@@ -3072,7 +3055,7 @@ namespace Automation
             Controls.Add(delete);
 
             fieldsPanel.AutoSize = false;
-            fieldsPanel.BackColor = InspectorPalette.Surface;
+            fieldsPanel.BackColor = UiPalette.Surface;
             fieldsPanel.FlowDirection = FlowDirection.TopDown;
             fieldsPanel.Padding = new Padding(6, 2, 6, 3);
             fieldsPanel.WrapContents = false;
@@ -3242,14 +3225,14 @@ namespace Automation
             InspectorIconButton button,
             InspectorIconKind iconKind)
         {
-            button.BackColor = InspectorPalette.SurfaceSubtle;
+            button.BackColor = UiPalette.SurfaceSubtle;
             button.Cursor = Cursors.Hand;
             button.FlatAppearance.BorderSize = 0;
-            button.FlatAppearance.MouseOverBackColor = InspectorPalette.BrandSoft;
-            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(226, 233, 255);
+            button.FlatAppearance.MouseOverBackColor = UiPalette.BrandSoft;
+            button.FlatAppearance.MouseDownBackColor = UiPalette.BrandSoftHover;
             button.FlatStyle = FlatStyle.Flat;
             button.Font = InspectorFonts.Regular9;
-            button.ForeColor = InspectorPalette.TextSecondary;
+            button.ForeColor = UiPalette.TextSecondary;
             button.IconKind = iconKind;
             button.Text = string.Empty;
         }

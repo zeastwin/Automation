@@ -54,7 +54,7 @@ namespace Automation.Hmi
             //
             // homeRoot
             //
-            this.homeRoot.BackColor = System.Drawing.Color.FromArgb(226, 234, 240);
+            this.homeRoot.BackColor = global::Automation.UiPalette.HmiBackground;
             this.homeRoot.Controls.Add(this.workspacePanel);
             this.homeRoot.Controls.Add(this.sidebarPanel);
             this.homeRoot.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -65,7 +65,7 @@ namespace Automation.Hmi
             //
             // workspacePanel
             //
-            this.workspacePanel.BackColor = System.Drawing.Color.White;
+            this.workspacePanel.BackColor = global::Automation.UiPalette.SurfaceStrong;
             this.workspacePanel.Controls.Add(this.pressureChart);
             this.workspacePanel.Dock = System.Windows.Forms.DockStyle.Fill;
             this.workspacePanel.Location = new System.Drawing.Point(370, 0);
@@ -76,7 +76,7 @@ namespace Automation.Hmi
             //
             // pressureChart
             //
-            this.pressureChart.BackColor = System.Drawing.Color.White;
+            this.pressureChart.BackColor = global::Automation.UiPalette.SurfaceStrong;
             this.pressureChart.ChartTitle = "压力趋势 (MPa)";
             this.pressureChart.Dock = System.Windows.Forms.DockStyle.Fill;
             this.pressureChart.Location = new System.Drawing.Point(20, 16);
@@ -112,7 +112,7 @@ namespace Automation.Hmi
             //
             // statisticsSection
             //
-            this.statisticsSection.BackColor = System.Drawing.Color.White;
+            this.statisticsSection.BackColor = global::Automation.UiPalette.SurfaceStrong;
             this.statisticsSection.ColumnCount = 1;
             this.statisticsSection.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
             this.statisticsSection.Controls.Add(this.statisticsHeader, 0, 0);
@@ -127,7 +127,7 @@ namespace Automation.Hmi
             //
             // statisticsHeader
             //
-            this.statisticsHeader.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.statisticsHeader.BackColor = global::Automation.UiPalette.HmiSection;
             this.statisticsHeader.Controls.Add(this.lblStatisticsTitle);
             this.statisticsHeader.Dock = System.Windows.Forms.DockStyle.Fill;
             this.statisticsHeader.Margin = new System.Windows.Forms.Padding(1);
@@ -138,7 +138,7 @@ namespace Automation.Hmi
             //
             this.lblStatisticsTitle.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblStatisticsTitle.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold);
-            this.lblStatisticsTitle.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.lblStatisticsTitle.ForeColor = global::Automation.UiPalette.NavigationText;
             this.lblStatisticsTitle.Text = "统计数据";
             this.lblStatisticsTitle.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             //
@@ -187,61 +187,61 @@ namespace Automation.Hmi
             this.lblCycleValue.Text = "-- s";
             this.lblInputTotal.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblInputTotal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblInputTotal.ForeColor = System.Drawing.Color.FromArgb(47, 66, 82);
+            this.lblInputTotal.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.lblInputTotal.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.lblOutputTotal.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblOutputTotal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblOutputTotal.ForeColor = System.Drawing.Color.FromArgb(47, 66, 82);
+            this.lblOutputTotal.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.lblOutputTotal.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.lblDefectTotal.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblDefectTotal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblDefectTotal.ForeColor = System.Drawing.Color.FromArgb(47, 66, 82);
+            this.lblDefectTotal.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.lblDefectTotal.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.lblGoodTotal.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblGoodTotal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblGoodTotal.ForeColor = System.Drawing.Color.FromArgb(47, 66, 82);
+            this.lblGoodTotal.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.lblGoodTotal.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.lblYield.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblYield.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblYield.ForeColor = System.Drawing.Color.FromArgb(47, 66, 82);
+            this.lblYield.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.lblYield.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.lblCycle.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblCycle.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblCycle.ForeColor = System.Drawing.Color.FromArgb(47, 66, 82);
+            this.lblCycle.ForeColor = global::Automation.UiPalette.TextPrimary;
             this.lblCycle.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.lblInputValue.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblInputValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblInputValue.ForeColor = System.Drawing.Color.FromArgb(20, 56, 82);
+            this.lblInputValue.ForeColor = global::Automation.UiPalette.SelectionText;
             this.lblInputValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
             this.lblOutputValue.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblOutputValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblOutputValue.ForeColor = System.Drawing.Color.FromArgb(20, 56, 82);
+            this.lblOutputValue.ForeColor = global::Automation.UiPalette.SelectionText;
             this.lblOutputValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
             this.lblDefectValue.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblDefectValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblDefectValue.ForeColor = System.Drawing.Color.FromArgb(20, 56, 82);
+            this.lblDefectValue.ForeColor = global::Automation.UiPalette.SelectionText;
             this.lblDefectValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
             this.lblGoodValue.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblGoodValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblGoodValue.ForeColor = System.Drawing.Color.FromArgb(20, 56, 82);
+            this.lblGoodValue.ForeColor = global::Automation.UiPalette.SelectionText;
             this.lblGoodValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
             this.lblYieldValue.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblYieldValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblYieldValue.ForeColor = System.Drawing.Color.FromArgb(20, 56, 82);
+            this.lblYieldValue.ForeColor = global::Automation.UiPalette.SelectionText;
             this.lblYieldValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
             this.lblCycleValue.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblCycleValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblCycleValue.ForeColor = System.Drawing.Color.FromArgb(20, 56, 82);
+            this.lblCycleValue.ForeColor = global::Automation.UiPalette.SelectionText;
             this.lblCycleValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
             //
             // btnResetCounter
             //
             this.btnResetCounter.Anchor = System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right;
-            this.btnResetCounter.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.btnResetCounter.BackColor = global::Automation.UiPalette.HmiSection;
             this.btnResetCounter.FlatAppearance.BorderSize = 0;
             this.btnResetCounter.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnResetCounter.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Bold);
-            this.btnResetCounter.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.btnResetCounter.ForeColor = global::Automation.UiPalette.NavigationText;
             this.btnResetCounter.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
             this.btnResetCounter.Name = "btnResetCounter";
             this.btnResetCounter.Size = new System.Drawing.Size(132, 36);
@@ -250,7 +250,7 @@ namespace Automation.Hmi
             //
             // systemSection
             //
-            this.systemSection.BackColor = System.Drawing.Color.White;
+            this.systemSection.BackColor = global::Automation.UiPalette.SurfaceStrong;
             this.systemSection.ColumnCount = 1;
             this.systemSection.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
             this.systemSection.Controls.Add(this.systemHeader, 0, 0);
@@ -265,7 +265,7 @@ namespace Automation.Hmi
             //
             // systemHeader
             //
-            this.systemHeader.BackColor = System.Drawing.Color.DarkSlateGray;
+            this.systemHeader.BackColor = global::Automation.UiPalette.HmiSection;
             this.systemHeader.Controls.Add(this.lblSystemTitle);
             this.systemHeader.Dock = System.Windows.Forms.DockStyle.Fill;
             this.systemHeader.Margin = new System.Windows.Forms.Padding(1);
@@ -276,7 +276,7 @@ namespace Automation.Hmi
             //
             this.lblSystemTitle.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblSystemTitle.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold);
-            this.lblSystemTitle.ForeColor = System.Drawing.SystemColors.ActiveCaption;
+            this.lblSystemTitle.ForeColor = global::Automation.UiPalette.NavigationText;
             this.lblSystemTitle.Text = "系统状态栏";
             this.lblSystemTitle.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             //
@@ -284,7 +284,7 @@ namespace Automation.Hmi
             //
             this.lblSystemStatus.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblSystemStatus.Font = new System.Drawing.Font("Microsoft YaHei UI", 38F);
-            this.lblSystemStatus.ForeColor = System.Drawing.Color.FromArgb(213, 55, 57);
+            this.lblSystemStatus.ForeColor = global::Automation.UiPalette.Danger;
             this.lblSystemStatus.Text = "未复位";
             this.lblSystemStatus.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             //
@@ -292,7 +292,7 @@ namespace Automation.Hmi
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 17F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.BackColor = System.Drawing.Color.White;
+            this.BackColor = global::Automation.UiPalette.SurfaceStrong;
             this.ClientSize = new System.Drawing.Size(1200, 656);
             this.Controls.Add(this.homeRoot);
             this.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F);

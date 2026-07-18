@@ -19,7 +19,7 @@ namespace Automation
             {
                 // 资源缺失时按可用性优先原则降级。
             }
-            return CreateFallback(Color.FromArgb(35, 150, 82), true);
+            return CreateFallback(UiPalette.Success, true);
         }
 
         public static Image CreateInvalidImage()
@@ -33,14 +33,14 @@ namespace Automation
             {
                 // 资源缺失时按可用性优先原则降级。
             }
-            return CreateFallback(Color.FromArgb(210, 62, 62), false);
+            return CreateFallback(UiPalette.Danger, false);
         }
 
         private static Bitmap CreateFallback(Color color, bool valid)
         {
             var bitmap = new Bitmap(20, 20);
             using (Graphics graphics = Graphics.FromImage(bitmap))
-            using (var pen = new Pen(Color.White, 2F))
+            using (var pen = new Pen(UiPalette.TextInverse, 2F))
             using (var brush = new SolidBrush(color))
             {
                 graphics.SmoothingMode = SmoothingMode.AntiAlias;

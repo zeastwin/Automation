@@ -1194,7 +1194,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         {
             SuspendLayout();
             Text = "EW-AI 助手";
-            BackColor = Color.FromArgb(245, 247, 251);
+            BackColor = UiPalette.Background;
             Font = new Font("微软雅黑", 10F);
 
             rootLayout.Dock = DockStyle.Fill;
@@ -1513,7 +1513,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     using (Graphics graphics = Graphics.FromImage(thumbnail))
                     using (var output = new MemoryStream())
                     {
-                        graphics.Clear(Color.White);
+                        graphics.Clear(UiPalette.SurfaceStrong);
                         graphics.DrawImage(image, 0, 0, width, height);
                         thumbnail.Save(output, System.Drawing.Imaging.ImageFormat.Png);
                         return "data:image/png;base64," + Convert.ToBase64String(output.ToArray());
@@ -2094,7 +2094,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
             ShowWebToast("正在检查 AI 运行组件...");
             string result = await Task.Run(() => CheckGooseCore(config)).ConfigureAwait(true);
-            AppendConversation("系统", result, Color.FromArgb(56, 66, 88));
+            AppendConversation("系统", result, UiPalette.TextPrimary);
             ShowWebToast("检查完成，结果已写入对话。");
             PushWebAppState();
         }
@@ -2249,7 +2249,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             // 此时不能提前追加气泡，否则同一条用户消息会显示两次。
             if (webDocumentReady)
             {
-                AppendConversation("用户", conversationText, Color.FromArgb(22, 72, 130));
+                AppendConversation("用户", conversationText, UiPalette.BrandPressed);
             }
             DateTime startedAt = DateTime.Now;
             runtime.Conversation.Messages.Add(new AiConversationMessage
@@ -2328,7 +2328,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 runtime.Status = "已停止";
                 if (!taskHomeVisible && ReferenceEquals(activeConversation, runtime.Conversation))
                 {
-                    AppendConversation("系统", "已停止本轮生成。", Color.DarkOrange);
+                    AppendConversation("系统", "已停止本轮生成。", UiPalette.Warning);
                     if (restoreComposerOnFailure)
                     {
                         RestoreComposerAfterFailedSend(enteredPrompt);
@@ -2341,7 +2341,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 runtime.Status = "失败";
                 if (!taskHomeVisible && ReferenceEquals(activeConversation, runtime.Conversation))
                 {
-                    AppendConversation("错误", ex.Message, Color.Red);
+                    AppendConversation("错误", ex.Message, UiPalette.Danger);
                     if (restoreComposerOnFailure)
                     {
                         RestoreComposerAfterFailedSend(enteredPrompt);
@@ -2540,7 +2540,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     {
                         StartNewConversation();
                     }
-                    AppendConversation("系统", "标准测试：" + scenario.Name, Color.FromArgb(86, 102, 122));
+                    AppendConversation("系统", "标准测试：" + scenario.Name, UiPalette.TextSecondary);
 
                     if (!AiStandardTestSuite.Prepare(
                         scenario, out AiStandardTestFixtureState fixture, out string prepareError))
@@ -2555,14 +2555,14 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         });
                         AppendConversation("系统",
                             "### 未执行 · " + scenario.Name + "\n\n- ✗ 测试准备失败：" + prepareError,
-                            Color.FromArgb(178, 68, 68));
+                            UiPalette.Danger);
                         continue;
                     }
                     AppendConversation("系统",
                         string.IsNullOrWhiteSpace(fixture.SelectedProcessName)
                             ? "测试环境已清理：仅移除名称以“标准测试_”开头的测试对象。"
                             : "测试夹具已准备并选中流程：" + fixture.SelectedProcessName,
-                        Color.FromArgb(86, 102, 122));
+                        UiPalette.TextSecondary);
 
                     bool scenarioCompleted = true;
                     foreach (string prompt in scenario.Prompts)
@@ -2600,8 +2600,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         });
                         AppendConversation("系统", evaluation.ToMarkdown(scenario.Name),
                             evaluation.Passed
-                                ? Color.FromArgb(54, 128, 84)
-                                : Color.FromArgb(178, 68, 68));
+                                ? UiPalette.Success
+                                : UiPalette.Danger);
                     }
 
                     if (separateConversations && activeConversation != null)
@@ -2876,7 +2876,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             foreach (AiConversationMessage message in activeConversation.Messages)
             {
                 AppendConversation(message.Role == "user" ? "用户" : "EW-AI", message.Text,
-                    message.Role == "user" ? Color.FromArgb(22, 72, 130) : Color.FromArgb(30, 104, 74),
+                    message.Role == "user" ? UiPalette.BrandPressed : UiPalette.SuccessHover,
                     message.Time, message.VisualizationJson);
             }
         }
@@ -3016,16 +3016,16 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 dlg.MaximizeBox = false;
                 dlg.MinimizeBox = false;
                 dlg.ShowInTaskbar = false;
-                dlg.BackColor = Color.FromArgb(246, 248, 251);
+                dlg.BackColor = UiPalette.Background;
                 dlg.Font = new Font("微软雅黑", 9F);
 
                 // 标题区：使用浅色层级，避免大色块压迫内容。
-                Panel headerPanel = new Panel { Dock = DockStyle.Top, Height = 70, BackColor = Color.White, Padding = new Padding(18, 10, 18, 8) };
+                Panel headerPanel = new Panel { Dock = DockStyle.Top, Height = 70, BackColor = UiPalette.SurfaceStrong, Padding = new Padding(18, 10, 18, 8) };
                 headerPanel.Controls.Add(new Label
                 {
                     Text = "确认本次预演",
                     Font = new Font("微软雅黑", 14F, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(25, 39, 58),
+                    ForeColor = UiPalette.TextPrimary,
                     Dock = DockStyle.Top,
                     Height = 30,
                     TextAlign = ContentAlignment.MiddleLeft
@@ -3034,20 +3034,20 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 {
                     Text = hasChanges ? "请检查变更明细，确认后才会提交。" : "请确认以下操作，确认后才会提交。",
                     Font = new Font("微软雅黑", 9F),
-                    ForeColor = Color.FromArgb(100, 113, 132),
+                    ForeColor = UiPalette.TextMuted,
                     Dock = DockStyle.Bottom,
                     Height = 22,
                     TextAlign = ContentAlignment.MiddleLeft
                 });
 
                 // 信息行
-                Panel infoPanel = new Panel { Dock = DockStyle.Top, Height = 42, Padding = new Padding(18, 8, 18, 6), BackColor = Color.FromArgb(246, 248, 251) };
+                Panel infoPanel = new Panel { Dock = DockStyle.Top, Height = 42, Padding = new Padding(18, 8, 18, 6), BackColor = UiPalette.Background };
                 infoPanel.Controls.Add(new Label
                 {
                     Text = $"预演编号  {previewId}      变更  {changes?.Count ?? 0} 项",
                     Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleLeft,
-                    ForeColor = Color.FromArgb(82, 96, 116),
+                    ForeColor = UiPalette.TextSecondary,
                     Font = new Font("Consolas", 9F)
                 });
 
@@ -3059,11 +3059,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     AllowUserToDeleteRows = false,
                     ReadOnly = true,
                     AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                    BackgroundColor = Color.White,
+                    BackgroundColor = UiPalette.SurfaceStrong,
                     BorderStyle = BorderStyle.FixedSingle,
                     ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
                     {
-                        BackColor = Color.FromArgb(237, 242, 247),
+                        BackColor = UiPalette.SurfaceSubtle,
                         Font = new Font("微软雅黑", 9F, FontStyle.Bold),
                         Alignment = DataGridViewContentAlignment.MiddleCenter
                     },
@@ -3075,7 +3075,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     },
                     RowHeadersVisible = false,
                     SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                    GridColor = Color.FromArgb(226, 232, 240),
+                    GridColor = UiPalette.Stroke,
                     EnableHeadersVisualStyles = false,
                     ColumnHeadersHeight = 34,
                     RowTemplate = { Height = 32 }
@@ -3086,8 +3086,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 dgv.Columns.Add("colField", "字段");
                 dgv.Columns.Add("colOld", "原值");
                 dgv.Columns.Add("colNew", "新值");
-                dgv.Columns["colOld"].DefaultCellStyle.ForeColor = Color.FromArgb(180, 80, 80);
-                dgv.Columns["colNew"].DefaultCellStyle.ForeColor = Color.FromArgb(30, 120, 50);
+                dgv.Columns["colOld"].DefaultCellStyle.ForeColor = UiPalette.Danger;
+                dgv.Columns["colNew"].DefaultCellStyle.ForeColor = UiPalette.Success;
 
                 if (changes != null)
                 {
@@ -3099,7 +3099,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         string field = "—";
                         string oldVal = "—";
                         string newVal = "—";
-                        Color rowColor = Color.White;
+                        Color rowColor = UiPalette.SurfaceStrong;
 
                         switch (type)
                         {
@@ -3109,45 +3109,45 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                                 field = change["field"]?.Value<string>() ?? "";
                                 oldVal = FormatJsonValue(change["oldValue"]);
                                 newVal = FormatJsonValue(change["newValue"]);
-                                rowColor = Color.FromArgb(255, 248, 235);
+                                rowColor = UiPalette.WarningSoft;
                                 break;
                             case "insert_step":
                             case "append_step":
                                 type = "新增步骤";
                                 location = $"步骤{change["stepIndex"]?.Value<int>() ?? 0}";
                                 obj = change["name"]?.Value<string>() ?? "";
-                                rowColor = Color.FromArgb(235, 255, 235);
+                                rowColor = UiPalette.SuccessSoft;
                                 break;
                             case "delete_step":
                                 type = "删除步骤";
                                 location = $"步骤{change["oldStepIndex"]?.Value<int>() ?? 0}";
                                 obj = change["name"]?.Value<string>() ?? "";
-                                rowColor = Color.FromArgb(255, 235, 235);
+                                rowColor = UiPalette.DangerSoft;
                                 break;
                             case "move_step":
                                 type = "移动步骤";
                                 location = $"{change["oldStepIndex"]?.Value<int>() ?? 0} → {change["newStepIndex"]?.Value<int>() ?? 0}";
                                 obj = change["name"]?.Value<string>() ?? "";
-                                rowColor = Color.FromArgb(235, 245, 255);
+                                rowColor = UiPalette.InfoSoft;
                                 break;
                             case "insert_operation":
                             case "append_operation":
                                 type = "新增指令";
                                 location = $"步骤{change["stepIndex"]?.Value<int>() ?? 0}/指令{change["opIndex"]?.Value<int>() ?? 0}";
                                 obj = $"{change["name"]?.Value<string>() ?? ""}({change["operaType"]?.Value<string>() ?? ""})";
-                                rowColor = Color.FromArgb(235, 255, 235);
+                                rowColor = UiPalette.SuccessSoft;
                                 break;
                             case "delete_operation":
                                 type = "删除指令";
                                 location = $"步骤{change["oldStepIndex"]?.Value<int>() ?? 0}/指令{change["oldOpIndex"]?.Value<int>() ?? 0}";
                                 obj = $"{change["name"]?.Value<string>() ?? ""}({change["operaType"]?.Value<string>() ?? ""})";
-                                rowColor = Color.FromArgb(255, 235, 235);
+                                rowColor = UiPalette.DangerSoft;
                                 break;
                             case "move_operation":
                                 type = "移动指令";
                                 location = $"{change["oldStepIndex"]?.Value<int>() ?? 0}-{change["oldOpIndex"]?.Value<int>() ?? 0} → {change["newStepIndex"]?.Value<int>() ?? 0}-{change["newOpIndex"]?.Value<int>() ?? 0}";
                                 obj = $"{change["name"]?.Value<string>() ?? ""}({change["operaType"]?.Value<string>() ?? ""})";
-                                rowColor = Color.FromArgb(235, 245, 255);
+                                rowColor = UiPalette.InfoSoft;
                                 break;
                             case "goto_rewrite":
                                 type = "跳转重写";
@@ -3159,14 +3159,14 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                                 field = "流程";
                                 oldVal = obj;
                                 newVal = "已删除";
-                                rowColor = Color.FromArgb(255, 235, 235);
+                                rowColor = UiPalette.DangerSoft;
                                 break;
                             case "process.create":
                                 type = "创建流程";
                                 obj = change["name"]?.Value<string>() ?? "";
                                 field = "结构";
                                 newVal = $"{change["stepCount"]?.Value<int>() ?? 0}步骤 / {change["operationCount"]?.Value<int>() ?? 0}指令";
-                                rowColor = Color.FromArgb(235, 255, 235);
+                                rowColor = UiPalette.SuccessSoft;
                                 break;
                             case "process.replace":
                                 type = "替换流程";
@@ -3175,7 +3175,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                                 field = "完整结构";
                                 oldVal = change["oldName"]?.Value<string>() ?? "";
                                 newVal = $"{change["stepCount"]?.Value<int>() ?? 0}步骤 / {change["operationCount"]?.Value<int>() ?? 0}指令";
-                                rowColor = Color.FromArgb(255, 248, 235);
+                                rowColor = UiPalette.WarningSoft;
                                 break;
                             case "process.modify":
                                 type = "修改流程";
@@ -3183,7 +3183,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                                 obj = change["name"]?.Value<string>() ?? "";
                                 field = "动作完成后结构";
                                 newVal = $"{change["stepCount"]?.Value<int>() ?? 0}步骤 / {change["operationCount"]?.Value<int>() ?? 0}指令";
-                                rowColor = Color.FromArgb(255, 248, 235);
+                                rowColor = UiPalette.WarningSoft;
                                 break;
                             case "variable.create":
                                 type = "创建变量";
@@ -3194,7 +3194,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                                     : change["scope"]?.Value<string>() ?? "";
                                 field = $"{change["valueType"]?.Value<string>() ?? ""} / 槽位{change["index"]?.Value<int>() ?? -1}";
                                 newVal = FormatJsonValue(change["newValue"]);
-                                rowColor = Color.FromArgb(235, 255, 235);
+                                rowColor = UiPalette.SuccessSoft;
                                 break;
                             case "variable.update":
                                 type = "更新变量";
@@ -3206,7 +3206,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                                 field = $"{change["valueType"]?.Value<string>() ?? ""} / 槽位{change["index"]?.Value<int>() ?? -1}";
                                 oldVal = FormatJsonValue(change["oldValue"]);
                                 newVal = FormatJsonValue(change["newValue"]);
-                                rowColor = Color.FromArgb(255, 248, 235);
+                                rowColor = UiPalette.WarningSoft;
                                 break;
                             case "variable.delete":
                                 type = "删除变量";
@@ -3218,7 +3218,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                                 field = $"{change["valueType"]?.Value<string>() ?? ""} / 槽位{change["index"]?.Value<int>() ?? -1}";
                                 oldVal = "已定义";
                                 newVal = "已删除";
-                                rowColor = Color.FromArgb(255, 235, 235);
+                                rowColor = UiPalette.DangerSoft;
                                 break;
                         }
 
@@ -3235,8 +3235,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     Multiline = true,
                     ScrollBars = ScrollBars.Vertical,
                     ReadOnly = true,
-                    BackColor = Color.White,
-                    ForeColor = Color.FromArgb(37, 52, 73),
+                    BackColor = UiPalette.SurfaceStrong,
+                    ForeColor = UiPalette.TextPrimary,
                     Font = new Font("微软雅黑", 10F),
                     BorderStyle = BorderStyle.FixedSingle,
                     Padding = new Padding(10)
@@ -3252,26 +3252,26 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 }
 
                 // 按钮区
-                Panel btnPanel = new Panel { Dock = DockStyle.Bottom, Height = 62, BackColor = Color.White };
+                Panel btnPanel = new Panel { Dock = DockStyle.Bottom, Height = 62, BackColor = UiPalette.SurfaceStrong };
                 Button btnReject = new Button
                 {
                     Text = "取消",
                     DialogResult = DialogResult.No,
                     Size = new Size(96, 36),
-                    BackColor = Color.White,
-                    ForeColor = Color.FromArgb(63, 76, 95),
+                    BackColor = UiPalette.SurfaceStrong,
+                    ForeColor = UiPalette.TextSecondary,
                     FlatStyle = FlatStyle.Flat,
                     Font = new Font("微软雅黑", 9F),
                     Anchor = AnchorStyles.Right
                 };
-                btnReject.FlatAppearance.BorderColor = Color.FromArgb(204, 213, 224);
+                btnReject.FlatAppearance.BorderColor = UiPalette.Stroke;
                 Button btnConfirm = new Button
                 {
                     Text = "确认并继续",
                     DialogResult = DialogResult.Yes,
                     Size = new Size(128, 36),
-                    BackColor = Color.FromArgb(31, 111, 82),
-                    ForeColor = Color.White,
+                    BackColor = UiPalette.Success,
+                    ForeColor = UiPalette.TextInverse,
                     FlatStyle = FlatStyle.Flat,
                     Font = new Font("微软雅黑", 9F, FontStyle.Bold),
                     Anchor = AnchorStyles.Right
@@ -3320,16 +3320,16 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
                 dlg.MinimizeBox = false;
-                dlg.BackColor = Color.White;
+                dlg.BackColor = UiPalette.SurfaceStrong;
                 dlg.Font = new Font("微软雅黑", 9F);
 
                 // 标题栏
-                Panel headerPanel = new Panel { Dock = DockStyle.Top, Height = 48, BackColor = Color.FromArgb(50, 90, 160) };
+                Panel headerPanel = new Panel { Dock = DockStyle.Top, Height = 48, BackColor = UiPalette.BrandPressed };
                 headerPanel.Controls.Add(new Label
                 {
                     Text = "  EW-AI 请求执行工具",
                     Font = new Font("微软雅黑", 11F, FontStyle.Bold),
-                    ForeColor = Color.White,
+                    ForeColor = UiPalette.TextInverse,
                     Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleLeft
                 });
@@ -3340,7 +3340,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 {
                     Text = $"工具：{toolName}",
                     Font = new Font("Consolas", 10F, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(40, 50, 70),
+                    ForeColor = UiPalette.TextPrimary,
                     Dock = DockStyle.Top,
                     Height = 22
                 };
@@ -3348,7 +3348,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 {
                     Text = string.IsNullOrWhiteSpace(toolTitle) ? "" : $"说明：{toolTitle}",
                     Font = new Font("微软雅黑", 9F),
-                    ForeColor = Color.FromArgb(90, 98, 108),
+                    ForeColor = UiPalette.TextSecondary,
                     Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleLeft
                 };
@@ -3362,11 +3362,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     AllowUserToAddRows = false,
                     ReadOnly = true,
                     AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                    BackgroundColor = Color.White,
+                    BackgroundColor = UiPalette.SurfaceStrong,
                     BorderStyle = BorderStyle.None,
                     ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
                     {
-                        BackColor = Color.FromArgb(240, 243, 247),
+                        BackColor = UiPalette.SurfaceSubtle,
                         Font = new Font("微软雅黑", 9F, FontStyle.Bold),
                         Alignment = DataGridViewContentAlignment.MiddleCenter
                     },
@@ -3376,11 +3376,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         WrapMode = DataGridViewTriState.True
                     },
                     RowHeadersVisible = false,
-                    GridColor = Color.FromArgb(220, 225, 230)
+                    GridColor = UiPalette.Stroke
                 };
                 dgv.Columns.Add("colKey", "参数名");
                 dgv.Columns.Add("colVal", "值");
-                dgv.Columns["colKey"].DefaultCellStyle.BackColor = Color.FromArgb(248, 250, 252);
+                dgv.Columns["colKey"].DefaultCellStyle.BackColor = UiPalette.Input;
 
                 if (arguments != null)
                 {
@@ -3388,14 +3388,14 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 }
 
                 // 按钮区
-                Panel btnPanel = new Panel { Dock = DockStyle.Bottom, Height = 46, BackColor = Color.FromArgb(244, 247, 250) };
+                Panel btnPanel = new Panel { Dock = DockStyle.Bottom, Height = 46, BackColor = UiPalette.Background };
                 Button btnReject = new Button
                 {
                     Text = "✗ 拒绝",
                     DialogResult = DialogResult.No,
                     Size = new Size(100, 32),
-                    BackColor = Color.FromArgb(208, 60, 60),
-                    ForeColor = Color.White,
+                    BackColor = UiPalette.Danger,
+                    ForeColor = UiPalette.TextInverse,
                     FlatStyle = FlatStyle.Flat,
                     Font = new Font("微软雅黑", 9F),
                     Anchor = AnchorStyles.Right
@@ -3406,8 +3406,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     Text = "✓ 允许执行",
                     DialogResult = DialogResult.Yes,
                     Size = new Size(120, 32),
-                    BackColor = Color.FromArgb(35, 134, 54),
-                    ForeColor = Color.White,
+                    BackColor = UiPalette.Success,
+                    ForeColor = UiPalette.TextInverse,
                     FlatStyle = FlatStyle.Flat,
                     Font = new Font("微软雅黑", 9F, FontStyle.Bold),
                     Anchor = AnchorStyles.Right
@@ -3537,14 +3537,14 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 AppendConversation(
                     "系统",
                     "⛔ 已拒绝修改 Hmi 目录之外的文件：" + rejectedPath,
-                    Color.DarkRed);
+                    UiPalette.Danger);
                 return BuildPermissionCancelled();
             }
 
             if (autoApproveMode)
             {
                 // 自动批准模式：把工具调用信息显示到聊天区，让用户看到批准了什么
-                AppendConversation("系统", "✅ 自动批准：" + title, Color.FromArgb(35, 92, 48));
+                AppendConversation("系统", "✅ 自动批准：" + title, UiPalette.SuccessHover);
 
                 // 预演确认在 tool_result 事件中自动完成（TryPromptPreviewConfirmation），
                 // 权限请求本身不含 previewId（previewId 由 Bridge 在工具执行后生成）。
@@ -3742,13 +3742,13 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             else if (string.Equals(item.Kind, "tool", StringComparison.Ordinal))
             {
-                AppendConversation("工具", item.Text, Color.FromArgb(96, 62, 14));
+                AppendConversation("工具", item.Text, UiPalette.WarningHover);
             }
             else if (string.Equals(item.Kind, "error", StringComparison.Ordinal)
                 || string.Equals(item.Kind, "stderr", StringComparison.Ordinal)
                 || string.Equals(item.Kind, "exit", StringComparison.Ordinal))
             {
-                AppendConversation("系统", item.Text, Color.DarkRed);
+                AppendConversation("系统", item.Text, UiPalette.Danger);
             }
 
             // ChangeSet 预演确认：tool_result 才包含 Bridge 生成的 previewId，
@@ -4489,7 +4489,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             else if (!string.IsNullOrWhiteSpace(finalText))
             {
-                AppendConversation("EW-AI", finalText, Color.FromArgb(30, 104, 74), null, visualizationJson);
+                AppendConversation("EW-AI", finalText, UiPalette.SuccessHover, null, visualizationJson);
                 EnqueueScript("var messages=document.getElementById('messages');if(window.revealFinalAnswer&&messages){revealFinalAnswer(messages.lastElementChild);}");
             }
             latestAssistantSegmentText = null;
@@ -4580,7 +4580,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 contentHtml = BuildAutomationFlowCardsHtml(visualizationJson) + MarkdownToHtml(text);
                 avatarHtml = "<img class=\"avatar avatar-image\" src=\"" + ChickAvatarDataUri + "\" alt=\"AI\" title=\"EW-AI " + HtmlEncode(time) + "\">";
             }
-            else if (role == "错误" || color.ToArgb() == Color.DarkRed.ToArgb())
+            else if (role == "错误" || color.ToArgb() == UiPalette.Danger.ToArgb())
             {
                 cls = "msg error";
                 contentHtml = HtmlEncode(text);
@@ -5094,7 +5094,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             else
             {
                 await RejectPreviewAsync(previewId).ConfigureAwait(true);
-                AppendConversation("系统", "已取消本次变更。", Color.DarkOrange);
+                AppendConversation("系统", "已取消本次变更。", UiPalette.Warning);
             }
         }
 
@@ -5110,7 +5110,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             catch (Exception ex)
             {
-                BeginInvoke((Action)(() => AppendConversation("错误", "确认预演失败：" + ex.Message, Color.Red)));
+                BeginInvoke((Action)(() => AppendConversation("错误", "确认预演失败：" + ex.Message, UiPalette.Danger)));
             }
         }
 
@@ -5125,7 +5125,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             catch (Exception ex)
             {
-                BeginInvoke((Action)(() => AppendConversation("错误", "取消预演失败：" + ex.Message, Color.Red)));
+                BeginInvoke((Action)(() => AppendConversation("错误", "取消预演失败：" + ex.Message, UiPalette.Danger)));
             }
         }
 

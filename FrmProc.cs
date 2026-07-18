@@ -36,7 +36,6 @@ namespace Automation
         public int SelectedProcNum { get; set; }
         public int SelectedStepNum { get; set; }
 
-        private static readonly Color DisabledNodeColor = Color.Gainsboro;
         private readonly object procNodeMapLock = new object();
         private readonly Dictionary<Guid, TreeNode> procNodeMap = new Dictionary<Guid, TreeNode>();
         private readonly Dictionary<Guid, int> procIndexMap = new Dictionary<Guid, int>();
@@ -80,8 +79,8 @@ namespace Automation
                 contextMenuStrip1.Padding = new Padding(3);
                 contextMenuStrip1.ImageScalingSize = new Size(20, 20);
                 contextMenuStrip1.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
-                contextMenuStrip1.BackColor = Color.White;
-                contextMenuStrip1.ForeColor = Color.FromArgb(42, 55, 63);
+                contextMenuStrip1.BackColor = UiPalette.SurfaceStrong;
+                contextMenuStrip1.ForeColor = UiPalette.TextPrimary;
                 contextMenuStrip1.ShowCheckMargin = false;
                 contextMenuStrip1.ShowImageMargin = true;
                 contextMenuStrip1.Renderer = new ProcContextMenuRenderer();
@@ -94,7 +93,7 @@ namespace Automation
                 PasteProcStep.Image = CreateProcMenuIcon(ProcMenuIconKind.Paste);
                 ToggleDisable.Image = CreateProcMenuIcon(ProcMenuIconKind.Disable);
                 Remove.Image = CreateProcMenuIcon(ProcMenuIconKind.Delete);
-                Remove.ForeColor = Color.FromArgb(188, 55, 64);
+                Remove.ForeColor = UiPalette.Danger;
 
                 foreach (ToolStripMenuItem item in new[]
                 {
@@ -202,10 +201,10 @@ namespace Automation
         {
             switch (kind)
             {
-                case ProcMenuIconKind.Start: return Color.FromArgb(43, 145, 93);
-                case ProcMenuIconKind.Disable: return Color.FromArgb(214, 126, 30);
-                case ProcMenuIconKind.Delete: return Color.FromArgb(205, 62, 70);
-                default: return Color.FromArgb(61, 112, 139);
+                case ProcMenuIconKind.Start: return UiPalette.Success;
+                case ProcMenuIconKind.Disable: return UiPalette.Transition;
+                case ProcMenuIconKind.Delete: return UiPalette.Danger;
+                default: return UiPalette.Brand;
             }
         }
 
@@ -221,7 +220,7 @@ namespace Automation
                 Rectangle bounds = new Rectangle(4, 1, e.Item.Width - 8, e.Item.Height - 2);
                 if (e.Item.Selected && e.Item.Enabled)
                 {
-                    using (Brush brush = new SolidBrush(Color.FromArgb(226, 241, 248)))
+                    using (Brush brush = new SolidBrush(UiPalette.BrandSoft))
                     {
                         e.Graphics.FillRectangle(brush, bounds);
                     }
@@ -231,13 +230,13 @@ namespace Automation
 
         private sealed class ProcContextMenuColorTable : ProfessionalColorTable
         {
-            public override Color ToolStripDropDownBackground => Color.White;
-            public override Color ImageMarginGradientBegin => Color.White;
-            public override Color ImageMarginGradientMiddle => Color.White;
-            public override Color ImageMarginGradientEnd => Color.White;
-            public override Color MenuBorder => Color.FromArgb(178, 188, 193);
-            public override Color SeparatorDark => Color.FromArgb(226, 232, 235);
-            public override Color SeparatorLight => Color.White;
+            public override Color ToolStripDropDownBackground => UiPalette.SurfaceStrong;
+            public override Color ImageMarginGradientBegin => UiPalette.SurfaceStrong;
+            public override Color ImageMarginGradientMiddle => UiPalette.SurfaceStrong;
+            public override Color ImageMarginGradientEnd => UiPalette.SurfaceStrong;
+            public override Color MenuBorder => UiPalette.StrokeStrong;
+            public override Color SeparatorDark => UiPalette.Divider;
+            public override Color SeparatorLight => UiPalette.SurfaceStrong;
         }
 
         private void FrmProc_Disposed(object sender, EventArgs e)
@@ -261,15 +260,15 @@ namespace Automation
 
         private void ConfigureProcTreeAppearance()
         {
-            procNodeFont = ProcessPageFont.Create(10.5F, FontStyle.Bold);
-            stepNodeFont = ProcessPageFont.Create(10F, FontStyle.Regular);
+            procNodeFont = ProcessPageFont.Create(13.5F, FontStyle.Bold);
+            stepNodeFont = ProcessPageFont.Create(13F, FontStyle.Regular);
             // TreeView 使用基准字体计算节点标签边界。基准字体小于流程节点粗体时，
             // WinForms 会在仍有可用宽度的情况下裁掉流程名称末尾。
             proc_treeView.Font = procNodeFont;
-            proc_treeView.ForeColor = Color.FromArgb(38, 50, 58);
-            proc_treeView.BackColor = Color.FromArgb(246, 249, 251);
+            proc_treeView.ForeColor = UiPalette.TextPrimary;
+            proc_treeView.BackColor = UiPalette.Background;
             proc_treeView.BorderStyle = BorderStyle.None;
-            proc_treeView.ItemHeight = 28;
+            proc_treeView.ItemHeight = 30;
             proc_treeView.Indent = 24;
             proc_treeView.ShowLines = false;
             proc_treeView.ShowRootLines = false;
@@ -453,9 +452,16 @@ namespace Automation
                 MessageBox.Show(string.Join("\r\n", errors.Distinct()));
                 return false;
             }
-            procsList.Insert(insertIndex, proc);
-            if (!RebuildWorkConfig(insertIndex))
+            List<Proc> draftProcesses = procsList.Select(ObjectGraphCloner.Clone).ToList();
+            draftProcesses.Insert(insertIndex, proc);
+            Dictionary<string, DicValue> draftVariables = SF.valueStore.BuildSaveData();
+            if (!TryCommitProcessVariableConfiguration(
+                draftProcesses,
+                draftVariables,
+                "新增流程",
+                out string commitError))
             {
+                MessageBox.Show(commitError, "新增流程失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
             return true;
@@ -489,7 +495,8 @@ namespace Automation
             }
             draft.steps.Insert(insertIndex, stepToInsert);
             ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-            if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
+            if (!ProcessEditingService.TryCommitProcDraft(
+                procIndex, draft, out string commitError, "新增步骤"))
             {
                 MessageBox.Show(commitError, "新增步骤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
@@ -511,6 +518,10 @@ namespace Automation
                 return false;
             }
             RefreshProcList();
+            if (!SF.EditorHistory.IsReplaying)
+            {
+                SF.EditorHistory.Clear();
+            }
             return true;
         }
         public void RefreshProcList()
@@ -606,7 +617,7 @@ namespace Automation
                 SetNodeImage(treeNode, GetProcImageKey(proc, procSnapshot));
                 if (proc?.head?.Disable == true)
                 {
-                    treeNode.ForeColor = DisabledNodeColor;
+                    treeNode.ForeColor = UiPalette.DisabledSoft;
                 }
                 Guid procId = proc?.head?.Id ?? Guid.Empty;
                 if (procId != Guid.Empty)
@@ -633,7 +644,7 @@ namespace Automation
                         SetNodeImage(chnode, GetStepImageKey(proc, step, j, procSnapshot));
                         if (proc?.head?.Disable == true || proc.steps[j]?.Disable == true)
                         {
-                            chnode.ForeColor = DisabledNodeColor;
+                            chnode.ForeColor = UiPalette.DisabledSoft;
                         }
                         proc_treeView.Nodes[i].Nodes.Add(chnode);
                     }
@@ -714,7 +725,7 @@ namespace Automation
                 procNode.Text = BuildProcNodeText(procIndex, proc);
                 procNode.Tag = proc?.head?.Id ?? Guid.Empty;
                 procNode.NodeFont = procNodeFont;
-                procNode.ForeColor = proc?.head?.Disable == true ? DisabledNodeColor : proc_treeView.ForeColor;
+                procNode.ForeColor = proc?.head?.Disable == true ? UiPalette.DisabledSoft : proc_treeView.ForeColor;
 
                 int stepCount = proc?.steps?.Count ?? 0;
                 bool structureChanged = procNode.Nodes.Count != stepCount;
@@ -740,7 +751,7 @@ namespace Automation
                             Tag = step?.Id ?? Guid.Empty,
                             NodeFont = stepNodeFont,
                             ForeColor = proc?.head?.Disable == true || step?.Disable == true
-                                ? DisabledNodeColor
+                                ? UiPalette.DisabledSoft
                                 : proc_treeView.ForeColor
                         };
                         procNode.Nodes.Add(stepNode);
@@ -754,7 +765,7 @@ namespace Automation
                         procNode.Nodes[i].Text = BuildStepNodeText(procIndex, i, step);
                         procNode.Nodes[i].NodeFont = stepNodeFont;
                         procNode.Nodes[i].ForeColor = proc?.head?.Disable == true || step?.Disable == true
-                            ? DisabledNodeColor
+                            ? UiPalette.DisabledSoft
                             : proc_treeView.ForeColor;
                     }
                 }
@@ -886,9 +897,9 @@ namespace Automation
             }
 
             procFlashNode = proc_treeView.Nodes[procIndex];
-            procFlashColor = kind == ProcChangeKind.Added ? Color.LightGreen
-                           : kind == ProcChangeKind.Deleted ? Color.LightPink
-                           : Color.Khaki;
+            procFlashColor = kind == ProcChangeKind.Added ? UiPalette.SuccessSoft
+                           : kind == ProcChangeKind.Deleted ? UiPalette.DangerSoft
+                           : UiPalette.WarningSoft;
             procFlashCount = 0;
             // 后台流程变化不抢占用户当前树滚动位置；当前流程或新增流程才滚动到提示节点。
             if (SelectedProcNum == procIndex || kind == ProcChangeKind.Added)
@@ -1122,7 +1133,7 @@ namespace Automation
                 bool confirmed = false;
                 new Message(
                     "删除流程",
-                    $"确定删除流程【{procName}】？{ownedVariableText}\r\n删除后无法恢复。",
+                    $"确定删除流程【{procName}】？{ownedVariableText}\r\n删除后可在当前会话使用 Ctrl+Z 撤销。",
                     () => confirmed = true,
                     null,
                     "删除",
@@ -1178,7 +1189,7 @@ namespace Automation
                 bool confirmed = false;
                 new Message(
                     "删除步骤",
-                    $"确定删除步骤【{stepName}】？\r\n所属流程：【{procName}】\r\n删除后无法恢复。",
+                    $"确定删除步骤【{stepName}】？\r\n所属流程：【{procName}】\r\n删除后可在当前会话使用 Ctrl+Z 撤销。",
                     () => confirmed = true,
                     null,
                     "删除",
@@ -1197,7 +1208,8 @@ namespace Automation
                 Proc draft = ObjectGraphCloner.Clone(procsList[procIndex]);
                 draft.steps.RemoveAt(stepIndex);
                 ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-                if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
+                if (!ProcessEditingService.TryCommitProcDraft(
+                    procIndex, draft, out string commitError, "删除步骤"))
                 {
                     MessageBox.Show(commitError, "删除步骤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
@@ -1283,15 +1295,15 @@ namespace Automation
                     EngineSnapshot snapshot = SF.DR.GetSnapshot(SF.frmProc.SelectedProcNum);
                     if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
                     {
-                        SF.frmToolBar.btnPause.Text = "暂停";
+                        SF.frmToolBar.SetPauseButtonAction(false);
                     }
                     else if (snapshot != null && (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep))
                     {
-                        SF.frmToolBar.btnPause.Text = "继续";
+                        SF.frmToolBar.SetPauseButtonAction(true);
                     }
                     else
                     {
-                        SF.frmToolBar.btnPause.Text = "暂停";
+                        SF.frmToolBar.SetPauseButtonAction(false);
                     }
                     if (snapshot != null)
                     {
@@ -1306,7 +1318,7 @@ namespace Automation
                 }
                 else
                 {
-                    SF.frmToolBar.btnPause.Text = "暂停";
+                    SF.frmToolBar.SetPauseButtonAction(false);
                     SF.frmToolBar.btnPause.Enabled = true;
                     SF.frmToolBar.SingleRun.Enabled = true;
                 }
@@ -1415,7 +1427,8 @@ namespace Automation
                     {
                         Proc procDraft = ObjectGraphCloner.Clone(procsList[procIndex]);
                         procDraft.head = item;
-                        if (!ProcessEditingService.TryCommitProcDraft(procIndex, procDraft, out string commitError))
+                        if (!ProcessEditingService.TryCommitProcDraft(
+                            procIndex, procDraft, out string commitError, "修改流程"))
                         {
                             throw new InvalidOperationException(commitError);
                         }
@@ -1431,7 +1444,8 @@ namespace Automation
                     {
                         Proc procDraft = ObjectGraphCloner.Clone(procsList[procIndex]);
                         procDraft.steps[stepIndex] = item;
-                        if (!ProcessEditingService.TryCommitProcDraft(procIndex, procDraft, out string commitError))
+                        if (!ProcessEditingService.TryCommitProcDraft(
+                            procIndex, procDraft, out string commitError, "修改步骤"))
                         {
                             throw new InvalidOperationException(commitError);
                         }
@@ -1481,7 +1495,7 @@ namespace Automation
                     () => { },
                     "启动", "取消", false);
                 confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
-                confirmForm.txtMsg.ForeColor = Color.Red;
+                confirmForm.txtMsg.ForeColor = UiPalette.Danger;
             }
         }
 
@@ -1666,13 +1680,28 @@ namespace Automation
             IList<Proc> processes,
             IDictionary<string, DicValue> variables,
             string actionName,
-            out string error)
+            out string error,
+            bool recordHistory = true)
         {
             error = null;
+            if (!SF.CanEditProcStructure())
+            {
+                error = "流程结构当前不可编辑。";
+                return false;
+            }
             List<Proc> oldProcesses = procsList.Select(ObjectGraphCloner.Clone).ToList();
             Dictionary<string, DicValue> oldVariables = SF.valueStore.BuildSaveData();
+            List<Proc> committedProcesses = processes.Select(ObjectGraphCloner.Clone).ToList();
+            Dictionary<string, DicValue> committedVariables = variables.ToDictionary(
+                item => item.Key,
+                item => ObjectGraphCloner.Clone(item.Value),
+                StringComparer.Ordinal);
             if (!AiConfigurationTransaction.Commit(
-                SF.ConfigPath, processes, variables, out error, out bool rollbackFailed))
+                SF.ConfigPath,
+                committedProcesses,
+                committedVariables,
+                out error,
+                out bool rollbackFailed))
             {
                 if (rollbackFailed) SF.SetSecurityLock(error);
                 return false;
@@ -1680,9 +1709,32 @@ namespace Automation
             try
             {
                 RefreshProcList();
-                ValueConfigStore.ValidateProcessOwners(variables.Values, procsList);
-                SF.valueStore.ReplaceConfiguration(variables);
+                ValueConfigStore.ValidateProcessOwners(committedVariables.Values, procsList);
+                SF.valueStore.ReplaceConfiguration(committedVariables);
                 SF.frmValue?.FreshFrmValue();
+                if (recordHistory && !SF.EditorHistory.IsReplaying)
+                {
+                    SF.EditorHistory.Record(
+                        actionName,
+                        delegate(out string historyError)
+                        {
+                            return TryCommitProcessVariableConfiguration(
+                                oldProcesses,
+                                oldVariables,
+                                actionName,
+                                out historyError,
+                                false);
+                        },
+                        delegate(out string historyError)
+                        {
+                            return TryCommitProcessVariableConfiguration(
+                                committedProcesses,
+                                committedVariables,
+                                actionName,
+                                out historyError,
+                                false);
+                        });
+                }
                 return true;
             }
             catch (Exception ex)
@@ -1734,7 +1786,8 @@ namespace Automation
             Proc draft = ObjectGraphCloner.Clone(procsList[procIndex]);
             draft.steps.Insert(insertIndex, newStep);
             ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-            if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
+            if (!ProcessEditingService.TryCommitProcDraft(
+                procIndex, draft, out string commitError, "粘贴步骤"))
             {
                 MessageBox.Show(commitError, "粘贴步骤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -1922,7 +1975,11 @@ namespace Automation
                 }
                 draft.head.Disable = !draft.head.Disable;
             }
-            if (!ProcessEditingService.TryCommitProcDraft(procIndex, draft, out string commitError))
+            string historyDescription = isStep
+                ? "切换步骤禁用状态"
+                : "切换流程禁用状态";
+            if (!ProcessEditingService.TryCommitProcDraft(
+                procIndex, draft, out string commitError, historyDescription))
             {
                 MessageBox.Show(commitError, "更新禁用状态失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -1938,7 +1995,7 @@ namespace Automation
             TreeNode node = proc_treeView.Nodes[procIndex];
             if (node != null)
             {
-                node.ForeColor = disabled ? DisabledNodeColor : Color.Black;
+                node.ForeColor = disabled ? UiPalette.DisabledSoft : UiPalette.TextPrimary;
                 node.Text = BuildProcNodeText(procIndex);
                 node.NodeFont = procNodeFont;
                 SetNodeImage(node, GetProcImageKey(procsList[procIndex], SF.DR?.GetSnapshot(procIndex)));
@@ -1963,7 +2020,7 @@ namespace Automation
             TreeNode node = proc_treeView.Nodes[procIndex].Nodes[stepIndex];
             if (node != null)
             {
-                node.ForeColor = disabled ? DisabledNodeColor : Color.Black;
+                node.ForeColor = disabled ? UiPalette.DisabledSoft : UiPalette.TextPrimary;
                 node.Text = BuildStepNodeText(procIndex, stepIndex);
                 node.NodeFont = stepNodeFont;
                 SetNodeImage(

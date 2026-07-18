@@ -102,7 +102,7 @@
             // listView4
             // 
             this.listView4.AllowDrop = true;
-            this.listView4.BackColor = System.Drawing.Color.White;
+            this.listView4.BackColor = global::Automation.UiPalette.SurfaceStrong;
             resources.ApplyResources(this.listView4, "listView4");
             this.listView4.HideSelection = false;
             this.listView4.Name = "listView4";
@@ -111,7 +111,7 @@
             // listView3
             // 
             this.listView3.AllowDrop = true;
-            this.listView3.BackColor = System.Drawing.Color.White;
+            this.listView3.BackColor = global::Automation.UiPalette.SurfaceStrong;
             resources.ApplyResources(this.listView3, "listView3");
             this.listView3.HideSelection = false;
             this.listView3.Name = "listView3";
@@ -125,7 +125,7 @@
             // listView5
             // 
             this.listView5.AllowDrop = true;
-            this.listView5.BackColor = System.Drawing.Color.White;
+            this.listView5.BackColor = global::Automation.UiPalette.SurfaceStrong;
             resources.ApplyResources(this.listView5, "listView5");
             this.listView5.HideSelection = false;
             this.listView5.Name = "listView5";
@@ -135,7 +135,7 @@
             // listView2
             // 
             this.listView2.AllowDrop = true;
-            this.listView2.BackColor = System.Drawing.Color.White;
+            this.listView2.BackColor = global::Automation.UiPalette.SurfaceStrong;
             resources.ApplyResources(this.listView2, "listView2");
             this.listView2.HideSelection = false;
             this.listView2.Name = "listView2";
@@ -149,7 +149,7 @@
             // listView1
             // 
             this.listView1.AllowDrop = true;
-            this.listView1.BackColor = System.Drawing.Color.White;
+            this.listView1.BackColor = global::Automation.UiPalette.SurfaceStrong;
             resources.ApplyResources(this.listView1, "listView1");
             this.listView1.HideSelection = false;
             this.listView1.Name = "listView1";

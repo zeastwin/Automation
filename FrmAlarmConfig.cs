@@ -41,21 +41,21 @@ namespace Automation
         private void ApplyLightStyle()
         {
             Font = new Font("Microsoft YaHei UI", 9F);
-            BackColor = Color.White;
-            dataGridView1.BackgroundColor = Color.White;
+            BackColor = UiPalette.SurfaceStrong;
+            dataGridView1.BackgroundColor = UiPalette.SurfaceStrong;
             dataGridView1.BorderStyle = BorderStyle.FixedSingle;
-            dataGridView1.GridColor = Color.FromArgb(222, 228, 234);
+            dataGridView1.GridColor = UiPalette.Stroke;
             dataGridView1.EnableHeadersVisualStyles = false;
             dataGridView1.ColumnHeadersHeight = 34;
-            dataGridView1.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(238, 243, 248);
-            dataGridView1.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(48, 63, 78);
+            dataGridView1.ColumnHeadersDefaultCellStyle.BackColor = UiPalette.SurfaceSubtle;
+            dataGridView1.ColumnHeadersDefaultCellStyle.ForeColor = UiPalette.TextPrimary;
             dataGridView1.ColumnHeadersDefaultCellStyle.Font = new Font(Font, FontStyle.Bold);
             dataGridView1.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             dataGridView1.RowTemplate.Height = 30;
-            dataGridView1.DefaultCellStyle.BackColor = Color.White;
-            dataGridView1.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(248, 250, 252);
-            dataGridView1.DefaultCellStyle.SelectionBackColor = Color.FromArgb(217, 234, 250);
-            dataGridView1.DefaultCellStyle.SelectionForeColor = Color.FromArgb(27, 43, 59);
+            dataGridView1.DefaultCellStyle.BackColor = UiPalette.SurfaceStrong;
+            dataGridView1.AlternatingRowsDefaultCellStyle.BackColor = UiPalette.Input;
+            dataGridView1.DefaultCellStyle.SelectionBackColor = UiPalette.Selection;
+            dataGridView1.DefaultCellStyle.SelectionForeColor = UiPalette.Navigation;
         }
 
         public void RefreshAlarmInfo()

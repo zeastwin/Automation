@@ -193,7 +193,7 @@ namespace Automation
                 SF.frmDataGrid.SelectChildNode(procIndex, stepIndex);
                 SF.frmDataGrid.ScrollRowToCenter(opIndex);
                 SF.frmDataGrid.ClearAllRowColors();
-                SF.frmDataGrid.SetRowColor(opIndex, Color.LightGreen);
+                SF.frmDataGrid.SetRowColor(opIndex, UiPalette.SuccessSoft);
             }
         }
 
@@ -214,31 +214,31 @@ namespace Automation
 
         private void ApplySearchStyle()
         {
-            panel1.BackColor = Color.FromArgb(245, 247, 250);
+            panel1.BackColor = UiPalette.Background;
             btnSearch.FlatStyle = FlatStyle.Flat;
-            btnSearch.FlatAppearance.BorderColor = Color.FromArgb(63, 126, 181);
+            btnSearch.FlatAppearance.BorderColor = UiPalette.Brand;
             btnSearch.FlatAppearance.BorderSize = 1;
-            btnSearch.FlatAppearance.MouseOverBackColor = Color.FromArgb(52, 110, 164);
-            btnSearch.FlatAppearance.MouseDownBackColor = Color.FromArgb(40, 91, 138);
-            btnSearch.BackColor = Color.FromArgb(63, 126, 181);
-            btnSearch.ForeColor = Color.White;
+            btnSearch.FlatAppearance.MouseOverBackColor = UiPalette.Brand;
+            btnSearch.FlatAppearance.MouseDownBackColor = UiPalette.BrandPressed;
+            btnSearch.BackColor = UiPalette.Brand;
+            btnSearch.ForeColor = UiPalette.TextInverse;
             btnSearch.Cursor = Cursors.Hand;
-            dataGridView1.BackgroundColor = Color.White;
+            dataGridView1.BackgroundColor = UiPalette.SurfaceStrong;
             dataGridView1.BorderStyle = BorderStyle.None;
-            dataGridView1.GridColor = Color.FromArgb(222, 228, 234);
+            dataGridView1.GridColor = UiPalette.Stroke;
             dataGridView1.EnableHeadersVisualStyles = false;
-            dataGridView1.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(238, 243, 248);
-            dataGridView1.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(48, 63, 78);
-            dataGridView1.DefaultCellStyle.SelectionBackColor = Color.FromArgb(217, 234, 250);
-            dataGridView1.DefaultCellStyle.SelectionForeColor = Color.FromArgb(27, 43, 59);
-            dataGridView1.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(248, 250, 252);
+            dataGridView1.ColumnHeadersDefaultCellStyle.BackColor = UiPalette.SurfaceSubtle;
+            dataGridView1.ColumnHeadersDefaultCellStyle.ForeColor = UiPalette.TextPrimary;
+            dataGridView1.DefaultCellStyle.SelectionBackColor = UiPalette.Selection;
+            dataGridView1.DefaultCellStyle.SelectionForeColor = UiPalette.Navigation;
+            dataGridView1.AlternatingRowsDefaultCellStyle.BackColor = UiPalette.Input;
 
             statusLabel.Dock = DockStyle.Bottom;
             statusLabel.Height = 24;
             statusLabel.Padding = new Padding(6, 0, 6, 0);
             statusLabel.TextAlign = ContentAlignment.MiddleLeft;
-            statusLabel.ForeColor = Color.DimGray;
-            statusLabel.BackColor = Color.FromArgb(245, 247, 250);
+            statusLabel.ForeColor = UiPalette.TextMuted;
+            statusLabel.BackColor = UiPalette.Background;
             statusLabel.Text = "输入内容后按 Enter 搜索，双击结果定位";
             Controls.Add(statusLabel);
             statusLabel.BringToFront();
