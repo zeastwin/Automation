@@ -16,7 +16,6 @@ namespace Automation
         private ToolStripDropDown activeOperationTypePicker;
         private Button saveButton;
         private Button cancelButton;
-        private bool fontWarningShown;
         private bool editing;
 
         public FrmInspector()
@@ -269,23 +268,6 @@ namespace Automation
         private void UpdateActionBar()
         {
             actionBar.Visible = saveButton != null && cancelButton != null;
-        }
-
-        protected override void OnShown(EventArgs e)
-        {
-            base.OnShown(e);
-            if (fontWarningShown
-                || string.IsNullOrWhiteSpace(InspectorFonts.LoadFailureMessage))
-            {
-                return;
-            }
-            fontWarningShown = true;
-            MessageBox.Show(
-                this,
-                InspectorFonts.LoadFailureMessage,
-                "Inspector 字体资源异常",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
         }
 
         private void OperationTypeButton_Click(object sender, EventArgs e)
