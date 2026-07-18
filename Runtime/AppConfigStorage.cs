@@ -63,10 +63,11 @@ namespace Automation
             {
                 string json = File.ReadAllText(path, Encoding.UTF8);
                 JObject obj = JObject.Parse(json);
+                bool saveRequired = false;
                 if (!obj.TryGetValue(CommMaxMessageQueueSizeKey, StringComparison.Ordinal, out JToken token))
                 {
-                    error = $"配置缺少字段:{CommMaxMessageQueueSizeKey}";
-                    return false;
+                    token = new JValue(DefaultCommMaxMessageQueueSize);
+                    saveRequired = true;
                 }
                 if (token.Type != JTokenType.Integer)
                 {
@@ -81,8 +82,8 @@ namespace Automation
                 }
                 if (!obj.TryGetValue(RuntimeModeKey, StringComparison.Ordinal, out token))
                 {
-                    error = $"配置缺少字段:{RuntimeModeKey}";
-                    return false;
+                    token = new JValue((int)AutomationRuntimeMode.Hardware);
+                    saveRequired = true;
                 }
                 if (token.Type != JTokenType.Integer || (token.Value<int>() != (int)AutomationRuntimeMode.Hardware && token.Value<int>() != (int)AutomationRuntimeMode.Simulation))
                 {
@@ -92,8 +93,8 @@ namespace Automation
                 AutomationRuntimeMode runtimeMode = (AutomationRuntimeMode)token.Value<int>();
                 if (!obj.TryGetValue(StartupViewKey, StringComparison.Ordinal, out token))
                 {
-                    error = $"配置缺少字段:{StartupViewKey}";
-                    return false;
+                    token = new JValue((int)AutomationStartupView.Hmi);
+                    saveRequired = true;
                 }
                 if (token.Type != JTokenType.Integer
                     || (token.Value<int>() != (int)AutomationStartupView.Hmi
@@ -105,8 +106,8 @@ namespace Automation
                 AutomationStartupView startupView = (AutomationStartupView)token.Value<int>();
                 if (!obj.TryGetValue(EnablePerformanceAnalysisKey, StringComparison.Ordinal, out token))
                 {
-                    error = $"配置缺少字段:{EnablePerformanceAnalysisKey}";
-                    return false;
+                    token = new JValue(true);
+                    saveRequired = true;
                 }
                 if (token.Type != JTokenType.Boolean)
                 {
@@ -116,8 +117,8 @@ namespace Automation
                 bool enablePerformanceAnalysis = token.Value<bool>();
                 if (!obj.TryGetValue(EnableRuntimeDiagnosticsKey, StringComparison.Ordinal, out token))
                 {
-                    error = $"配置缺少字段:{EnableRuntimeDiagnosticsKey}";
-                    return false;
+                    token = new JValue(true);
+                    saveRequired = true;
                 }
                 if (token.Type != JTokenType.Boolean)
                 {
@@ -133,6 +134,12 @@ namespace Automation
                     EnablePerformanceAnalysis = enablePerformanceAnalysis,
                     EnableRuntimeDiagnostics = enableRuntimeDiagnostics
                 };
+                if (saveRequired && !TrySave(config, out string saveError))
+                {
+                    error = $"补全程序配置失败:{saveError}";
+                    config = null;
+                    return false;
+                }
                 SetCache(config);
                 return true;
             }

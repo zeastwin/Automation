@@ -79,6 +79,7 @@
 
 ## 安全准则
 - 运行时遇到可能影响设备、人员或流程安全的异常或不确定状态时，必须优先停机/报警，禁止继续运行。
+- 配置文件或配置字段缺失时，必须按当前配置契约生成默认值并持久化，平台继续完成初始化；缺失配置属于可自动补全状态，不得作为启动失败条件。已有配置值格式错误、越界或违反约束时仍按定义范式严格校验，不得静默猜测或修复，并按受影响范围降级、报警和设置运行闸门。
 - 平台初始化遵循可用性优先原则：只要进程和 HMI 仍可创建，任何配置、设备、通讯或辅助服务异常都不得中断平台初始化；必须以降级状态完成启动，停止受影响流程和危险动作、记录错误并明确报警，同时在运行闸门中禁止受影响功能。
 - 流程配置加载或校验异常时，平台初始化必须继续完成并进入 HMI；必须停止全部流程、记录错误并弹出明确报警，设置 `ProcConfigFaulted` 禁止流程自动或手动启动，但不得因此将平台初始化标记为失败。
 - 参数解析严格遵循定义范式，禁止宽松解析或容错修复。
@@ -122,7 +123,7 @@
 - `DataStruct.json`、`AlarmInfo.json`、`card.json`、`IOMap.json`、`DataStation.json`。
 - `SocketInfo.json`、`SerialPortInfo.json`、`PlcConfig.json`。
 - `Account.json` — `ENC:` 前缀密文（AES-CBC + HMAC-SHA256 + PBKDF2）。
-- `AppConfig.json` — 启动强校验，当前键 `CommMaxMessageQueueSize`（默认 1000）、`RuntimeMode`、`StartupView`、`EnablePerformanceAnalysis`、`EnableRuntimeDiagnostics`。
+- `AppConfig.json` — 缺失文件或字段时按当前契约生成默认值并持久化；已有值执行启动强校验。当前键 `CommMaxMessageQueueSize`（默认 1000）、`RuntimeMode`、`StartupView`、`EnablePerformanceAnalysis`、`EnableRuntimeDiagnostics`。
 - `GooseConfig.json` — AI 助手配置，键：`GooseExecutablePath/WorkingDirectory/McpUri/SessionName/Provider/Model/MaxTurns/MaxOutputTokens`。
 
 ## 账户与权限
