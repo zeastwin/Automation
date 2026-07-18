@@ -1,147 +1,208 @@
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
-using Newtonsoft.Json;
 
 namespace Automation
 {
     public sealed class AutomationMcpServerManager : IDisposable
     {
         private const string McpProcessName = "Automation.McpServer";
+        private const string EditorInstanceName = "editor";
+        private const string RuntimeDiagnosticInstanceName = "runtime_diagnostic";
         private readonly object processLock = new object();
-        private Process managedProcess;
+        private readonly Dictionary<string, ManagedMcpInstance> instances =
+            new Dictionary<string, ManagedMcpInstance>(StringComparer.Ordinal);
         private string lastMessage = "MCP Server 尚未启动。";
-        private string managedExecutablePath = string.Empty;
-        private string managedRuntimeDirectory = string.Empty;
+        private bool staleProcessesCleaned;
         private bool disposed;
 
         public string GetLifecycleReport()
         {
             lock (processLock)
             {
-                if (managedProcess == null)
+                var lines = new List<string> { lastMessage };
+                foreach (ManagedMcpInstance instance in instances.Values)
                 {
-                    return lastMessage;
+                    string state;
+                    try
+                    {
+                        state = instance.Process == null
+                            ? "未创建"
+                            : instance.Process.HasExited
+                                ? $"已退出，ExitCode={instance.Process.ExitCode}"
+                                : $"正在运行，PID={instance.Process.Id}";
+                    }
+                    catch
+                    {
+                        state = "状态不可读";
+                    }
+                    lines.Add($"{instance.Name}：{state}，Profile={instance.Profile}，URI={instance.BaseUri}");
                 }
-
-                if (managedProcess.HasExited)
-                {
-                    return $"{lastMessage}\r\nAutomation 启动的 MCP Server 已退出，ExitCode={managedProcess.ExitCode}。";
-                }
-
-                return $"{lastMessage}\r\nAutomation 启动的 MCP Server 正在运行，PID={managedProcess.Id}，文件={managedExecutablePath}。";
+                return string.Join("\r\n", lines);
             }
         }
 
-        public async Task<string> EnsureStartedAsync(string baseUri, string toolProfile)
+        public Task<string> EnsureStartedAsync(string baseUri, string toolProfile)
         {
-            string normalizedBaseUri = NormalizeBaseUri(baseUri);
             if (!string.Equals(toolProfile, "Diagnostic", StringComparison.Ordinal)
                 && !string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"MCP工具模式不支持:{toolProfile}");
             }
+            return EnsureInstanceStartedAsync(
+                EditorInstanceName,
+                NormalizeBaseUri(baseUri),
+                toolProfile,
+                enableTrayIcon: true,
+                allowToolProfileChanges: true);
+        }
+
+        /// <summary>
+        /// 启动固定 RuntimeDiagnostic Profile 的独立 MCP 实例，并返回本次进程的专属地址。
+        /// 该地址不写入 GooseConfig，也不改变编辑助手 MCP 的工具集合。
+        /// </summary>
+        public async Task<string> EnsureRuntimeDiagnosticStartedAsync()
+        {
+            if (!AppConfigStorage.TryGetCached(out AppConfig config, out string configError))
+            {
+                throw new InvalidOperationException("智能诊断配置不可用：" + configError);
+            }
+            if (!config.EnableRuntimeDiagnostics)
+            {
+                throw new InvalidOperationException("智能诊断中心已在程序设置中停用。");
+            }
+            ManagedMcpInstance active = null;
+            lock (processLock)
+            {
+                ThrowIfDisposedLocked();
+                if (instances.TryGetValue(RuntimeDiagnosticInstanceName, out ManagedMcpInstance current)
+                    && IsRunning(current.Process))
+                {
+                    active = current;
+                }
+            }
+
+            if (active != null)
+            {
+                string info = await ReadHttpAsync(active.BaseUri + "/info", 1000).ConfigureAwait(false);
+                if (HasExpectedProfile(info, "RuntimeDiagnostic")) return active.BaseUri;
+            }
+
+            string baseUri = AllocateLoopbackUri();
+            await EnsureInstanceStartedAsync(
+                RuntimeDiagnosticInstanceName,
+                baseUri,
+                "RuntimeDiagnostic",
+                enableTrayIcon: false,
+                allowToolProfileChanges: false).ConfigureAwait(false);
+            return baseUri;
+        }
+
+        public void StopRuntimeDiagnostic()
+        {
+            lock (processLock)
+            {
+                if (disposed) return;
+                int stoppedCount = StopInstanceLocked(RuntimeDiagnosticInstanceName);
+                lastMessage = stoppedCount > 0
+                    ? "智能诊断已停用，RuntimeDiagnostic MCP 实例已停止。"
+                    : "智能诊断已停用，RuntimeDiagnostic MCP 实例未运行。";
+            }
+        }
+
+        private async Task<string> EnsureInstanceStartedAsync(
+            string instanceName,
+            string baseUri,
+            string toolProfile,
+            bool enableTrayIcon,
+            bool allowToolProfileChanges)
+        {
+            string normalizedBaseUri = NormalizeBaseUri(baseUri);
             if (string.IsNullOrWhiteSpace(normalizedBaseUri))
             {
                 throw new InvalidOperationException("MCP 地址为空。");
             }
-
             if (!IsLoopbackHttpUri(normalizedBaseUri))
             {
                 throw new InvalidOperationException($"MCP 地址不是本机 HTTP 地址，禁止自动启动：{normalizedBaseUri}");
             }
 
-            string exePath = ResolveMcpServerExecutablePath();
-            if (string.IsNullOrWhiteSpace(exePath))
+            string sourceExecutablePath = ResolveMcpServerExecutablePath();
+            if (string.IsNullOrWhiteSpace(sourceExecutablePath))
             {
                 throw new InvalidOperationException(
                     "未找到完整的 Automation.McpServer 运行包，必须同时包含 exe、dll、deps.json 和 runtimeconfig.json。");
             }
 
+            ManagedMcpInstance started;
+            int killedCount = 0;
             lock (processLock)
             {
-                if (disposed)
+                ThrowIfDisposedLocked();
+                if (!staleProcessesCleaned)
                 {
-                    throw new ObjectDisposedException(nameof(AutomationMcpServerManager), "MCP Server 生命周期管理器已释放。");
+                    killedCount = KillAllMcpServerProcesses();
+                    staleProcessesCleaned = true;
                 }
+                else
+                {
+                    killedCount += KillUntrackedMcpServerProcessesLocked();
+                }
+                killedCount += StopInstanceLocked(instanceName);
 
-                // 强制清理所有同名进程（包括上次 Automation 异常退出残留的子进程），避免复用已失效的旧实例导致 Bridge 调用失败。
-                int killedCount = KillAllMcpServerProcesses();
-                if (KillProcess(managedProcess))
+                string runtimeExecutablePath = PrepareRuntimeCopy(
+                    sourceExecutablePath, instanceName, out string runtimeDirectory);
+                var startInfo = new ProcessStartInfo
                 {
-                    killedCount++;
-                }
-                try
-                {
-                    managedProcess?.Dispose();
-                }
-                catch
-                {
-                }
-                managedProcess = null;
-                CleanupManagedRuntimeDirectory();
-
-                string runtimeExePath = PrepareRuntimeCopy(exePath);
-
-                ProcessStartInfo startInfo = new ProcessStartInfo
-                {
-                    FileName = runtimeExePath,
-                    WorkingDirectory = Path.GetDirectoryName(runtimeExePath) ?? AppDomain.CurrentDomain.BaseDirectory,
+                    FileName = runtimeExecutablePath,
+                    WorkingDirectory = Path.GetDirectoryName(runtimeExecutablePath)
+                        ?? AppDomain.CurrentDomain.BaseDirectory,
                     UseShellExecute = false,
-                    CreateNoWindow = true
+                    CreateNoWindow = true,
+                    Arguments = "--AutomationMcp:ToolProfile=" + toolProfile
+                        + " --AutomationMcp:ListenUrl=" + normalizedBaseUri
+                        + " --AutomationMcp:EnableTrayIcon=" + enableTrayIcon.ToString().ToLowerInvariant()
+                        + " --AutomationMcp:AllowToolProfileChanges="
+                        + allowToolProfileChanges.ToString().ToLowerInvariant()
                 };
-                startInfo.Arguments = "--AutomationMcp:ToolProfile=" + toolProfile;
-                if (HmiDevelopmentSourceLocator.TryResolve(
-                    AppDomain.CurrentDomain.BaseDirectory,
-                    out HmiDevelopmentSource hmiSource,
-                    out _))
+                ApplyHmiDevelopmentEnvironment(startInfo);
+                Process process = Process.Start(startInfo);
+                if (process == null)
                 {
-                    startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.SourceDirectoryEnvironmentVariable] =
-                        hmiSource.SourceDirectory;
-                    if (!string.IsNullOrWhiteSpace(hmiSource.ProjectPath))
-                    {
-                        startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.ProjectPathEnvironmentVariable] =
-                            hmiSource.ProjectPath;
-                    }
-                    if (!string.IsNullOrWhiteSpace(hmiSource.PlatformSourceRoot))
-                    {
-                        startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.PlatformSourceRootEnvironmentVariable] =
-                            hmiSource.PlatformSourceRoot;
-                    }
-                    if (!string.IsNullOrWhiteSpace(hmiSource.ValidationScriptPath))
-                    {
-                        startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.ValidationScriptEnvironmentVariable] =
-                            hmiSource.ValidationScriptPath;
-                    }
-                    if (!string.IsNullOrWhiteSpace(hmiSource.CustomFunctionSourcePath))
-                    {
-                        startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.CustomFunctionSourceEnvironmentVariable] =
-                            hmiSource.CustomFunctionSourcePath;
-                    }
+                    TryDeleteDirectory(runtimeDirectory);
+                    throw new InvalidOperationException($"MCP Server 进程启动失败:{instanceName}");
                 }
-                managedProcess = Process.Start(startInfo);
-                if (managedProcess == null)
+                started = new ManagedMcpInstance
                 {
-                    throw new InvalidOperationException("MCP Server 进程启动失败。");
-                }
-                managedExecutablePath = runtimeExePath;
+                    Name = instanceName,
+                    Profile = toolProfile,
+                    BaseUri = normalizedBaseUri,
+                    Process = process,
+                    ExecutablePath = runtimeExecutablePath,
+                    RuntimeDirectory = runtimeDirectory
+                };
+                instances[instanceName] = started;
                 lastMessage = killedCount > 0
-                    ? $"已清理 {killedCount} 个残留 MCP Server 进程，并启动独立运行副本：{runtimeExePath}"
-                    : $"已由 Automation 启动 MCP Server 独立运行副本：{runtimeExePath}";
+                    ? $"已清理{killedCount}个旧 MCP 进程并启动{instanceName}实例。"
+                    : $"已启动{instanceName} MCP 实例。";
             }
 
-            for (int i = 0; i < 40; i++)
+            for (int attempt = 0; attempt < 40; attempt++)
             {
                 await Task.Delay(250).ConfigureAwait(false);
-                if (await ReadHttpAsync(normalizedBaseUri + "/info", 1000).ConfigureAwait(false) != null)
+                string info = await ReadHttpAsync(normalizedBaseUri + "/info", 1000).ConfigureAwait(false);
+                if (HasExpectedProfile(info, toolProfile))
                 {
                     lock (processLock)
                     {
-                        lastMessage = $"MCP Server 已就绪：{normalizedBaseUri}，工具模式:{toolProfile}";
+                        lastMessage = $"MCP Server 已就绪：{normalizedBaseUri}，实例:{instanceName}，工具模式:{toolProfile}";
                         return lastMessage;
                     }
                 }
@@ -149,12 +210,11 @@ namespace Automation
 
             lock (processLock)
             {
-                string processState = managedProcess == null
-                    ? "进程未创建。"
-                    : managedProcess.HasExited
-                        ? $"进程已退出，ExitCode={managedProcess.ExitCode}。"
-                        : $"进程仍在运行，PID={managedProcess.Id}。";
-                lastMessage = $"MCP Server 启动后未就绪：{normalizedBaseUri}/info。启动文件：{managedExecutablePath}。{processState}";
+                string processState = IsRunning(started.Process)
+                    ? $"进程仍在运行，PID={started.Process.Id}。"
+                    : "进程已退出。";
+                lastMessage = $"MCP Server 启动后未就绪：{normalizedBaseUri}/info。"
+                    + $"启动文件：{started.ExecutablePath}。{processState}";
                 throw new InvalidOperationException(lastMessage);
             }
         }
@@ -173,7 +233,7 @@ namespace Automation
             if (!string.Equals(toolProfile, "Diagnostic", StringComparison.Ordinal)
                 && !string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException($"MCP工具模式不支持:{toolProfile}");
+                throw new InvalidOperationException($"可动态切换的MCP工具模式不支持:{toolProfile}");
             }
             if (fullPermissionEnabled && !string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
             {
@@ -225,10 +285,9 @@ namespace Automation
                     }
                     return null;
                 }
-
                 using (WebResponse response = await responseTask.ConfigureAwait(false))
                 using (Stream stream = response.GetResponseStream())
-                using (StreamReader reader = new StreamReader(stream ?? Stream.Null, Encoding.UTF8))
+                using (var reader = new StreamReader(stream ?? Stream.Null, Encoding.UTF8))
                 {
                     return await reader.ReadToEndAsync().ConfigureAwait(false);
                 }
@@ -239,13 +298,40 @@ namespace Automation
             }
         }
 
-        private static bool IsLoopbackHttpUri(string uriText)
+        private static bool HasExpectedProfile(string info, string expectedProfile)
         {
-            if (!Uri.TryCreate(uriText, UriKind.Absolute, out Uri uri))
+            if (string.IsNullOrWhiteSpace(info)) return false;
+            try
+            {
+                return string.Equals(
+                    JObject.Parse(info)["toolProfile"]?.Value<string>(),
+                    expectedProfile,
+                    StringComparison.Ordinal);
+            }
+            catch
             {
                 return false;
             }
+        }
 
+        private static string AllocateLoopbackUri()
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            try
+            {
+                listener.Start();
+                int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+                return $"http://127.0.0.1:{port}";
+            }
+            finally
+            {
+                listener.Stop();
+            }
+        }
+
+        private static bool IsLoopbackHttpUri(string uriText)
+        {
+            if (!Uri.TryCreate(uriText, UriKind.Absolute, out Uri uri)) return false;
             return string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
                 && (uri.IsLoopback
                     || string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase)
@@ -254,14 +340,46 @@ namespace Automation
                     || string.Equals(uri.Host, "[::1]", StringComparison.OrdinalIgnoreCase));
         }
 
+        private static void ApplyHmiDevelopmentEnvironment(ProcessStartInfo startInfo)
+        {
+            if (!HmiDevelopmentSourceLocator.TryResolve(
+                AppDomain.CurrentDomain.BaseDirectory,
+                out HmiDevelopmentSource hmiSource,
+                out _))
+            {
+                return;
+            }
+            startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.SourceDirectoryEnvironmentVariable] =
+                hmiSource.SourceDirectory;
+            if (!string.IsNullOrWhiteSpace(hmiSource.ProjectPath))
+            {
+                startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.ProjectPathEnvironmentVariable] =
+                    hmiSource.ProjectPath;
+            }
+            if (!string.IsNullOrWhiteSpace(hmiSource.PlatformSourceRoot))
+            {
+                startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.PlatformSourceRootEnvironmentVariable] =
+                    hmiSource.PlatformSourceRoot;
+            }
+            if (!string.IsNullOrWhiteSpace(hmiSource.ValidationScriptPath))
+            {
+                startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.ValidationScriptEnvironmentVariable] =
+                    hmiSource.ValidationScriptPath;
+            }
+            if (!string.IsNullOrWhiteSpace(hmiSource.CustomFunctionSourcePath))
+            {
+                startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.CustomFunctionSourceEnvironmentVariable] =
+                    hmiSource.CustomFunctionSourcePath;
+            }
+        }
+
         private static string ResolveMcpServerExecutablePath()
         {
-            List<string> candidates = new List<string>();
+            var candidates = new List<string>();
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
             AddCandidate(candidates, Path.Combine(baseDirectory, "Automation.McpServer.exe"));
             AddCandidate(candidates, Path.Combine(baseDirectory, "McpServer", "Automation.McpServer.exe"));
             AddCandidate(candidates, Path.Combine(baseDirectory, "Tools", "McpServer", "Automation.McpServer.exe"));
-
             string projectRoot = ResolveProjectRoot(baseDirectory);
             if (!string.IsNullOrWhiteSpace(projectRoot))
             {
@@ -270,24 +388,16 @@ namespace Automation
                 AddCandidate(candidates, Path.Combine(projectRoot, "McpServer", "bin", "Debug", "net8.0-windows", "Automation.McpServer.exe"));
                 AddCandidate(candidates, Path.Combine(projectRoot, "McpServer", "bin", "Release", "net8.0-windows", "Automation.McpServer.exe"));
             }
-
             foreach (string candidate in candidates)
             {
-                if (IsCompleteMcpRuntime(candidate))
-                {
-                    return candidate;
-                }
+                if (IsCompleteMcpRuntime(candidate)) return candidate;
             }
             return null;
         }
 
         private static bool IsCompleteMcpRuntime(string executablePath)
         {
-            if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
-            {
-                return false;
-            }
-
+            if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath)) return false;
             string directory = Path.GetDirectoryName(executablePath);
             string assemblyName = Path.GetFileNameWithoutExtension(executablePath);
             return !string.IsNullOrWhiteSpace(directory)
@@ -296,7 +406,10 @@ namespace Automation
                 && File.Exists(Path.Combine(directory, assemblyName + ".runtimeconfig.json"));
         }
 
-        private string PrepareRuntimeCopy(string sourceExecutablePath)
+        private static string PrepareRuntimeCopy(
+            string sourceExecutablePath,
+            string instanceName,
+            out string runtimeDirectory)
         {
             string sourceDirectory = Path.GetDirectoryName(sourceExecutablePath)
                 ?? throw new InvalidOperationException("MCP Server 源运行目录无效。");
@@ -305,9 +418,8 @@ namespace Automation
                 "Automation", "McpRuntime");
             Directory.CreateDirectory(runtimeRoot);
             CleanupStaleRuntimeDirectories(runtimeRoot);
-
-            string runtimeDirectory = Path.Combine(runtimeRoot,
-                Process.GetCurrentProcess().Id + "_" + Guid.NewGuid().ToString("N"));
+            runtimeDirectory = Path.Combine(runtimeRoot,
+                Process.GetCurrentProcess().Id + "_" + instanceName + "_" + Guid.NewGuid().ToString("N"));
             CopyRuntimeDirectory(sourceDirectory, runtimeDirectory);
             string runtimeExecutablePath = Path.Combine(runtimeDirectory, Path.GetFileName(sourceExecutablePath));
             if (!IsCompleteMcpRuntime(runtimeExecutablePath))
@@ -315,8 +427,6 @@ namespace Automation
                 TryDeleteDirectory(runtimeDirectory);
                 throw new InvalidOperationException("MCP Server 独立运行副本不完整，未启动进程。");
             }
-
-            managedRuntimeDirectory = runtimeDirectory;
             return runtimeExecutablePath;
         }
 
@@ -358,19 +468,33 @@ namespace Automation
             }
         }
 
-        private void CleanupManagedRuntimeDirectory()
+        private int StopInstanceLocked(string instanceName)
         {
-            string runtimeDirectory = managedRuntimeDirectory;
-            managedRuntimeDirectory = string.Empty;
-            TryDeleteDirectory(runtimeDirectory);
+            if (!instances.TryGetValue(instanceName, out ManagedMcpInstance instance)) return 0;
+            int killedCount = KillProcess(instance.Process) ? 1 : 0;
+            try
+            {
+                instance.Process?.Dispose();
+            }
+            catch
+            {
+            }
+            TryDeleteDirectory(instance.RuntimeDirectory);
+            instances.Remove(instanceName);
+            return killedCount;
+        }
+
+        private void ThrowIfDisposedLocked()
+        {
+            if (disposed)
+            {
+                throw new ObjectDisposedException(nameof(AutomationMcpServerManager), "MCP Server 生命周期管理器已释放。");
+            }
         }
 
         private static void TryDeleteDirectory(string directory)
         {
-            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
-            {
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return;
             try
             {
                 Directory.Delete(directory, true);
@@ -386,28 +510,15 @@ namespace Automation
             DirectoryInfo directory = new DirectoryInfo(baseDirectory);
             while (directory != null)
             {
-                if (File.Exists(Path.Combine(directory.FullName, "Automation.csproj")))
-                {
-                    return directory.FullName;
-                }
+                if (File.Exists(Path.Combine(directory.FullName, "Automation.csproj"))) return directory.FullName;
                 directory = directory.Parent;
             }
             return null;
         }
 
-        private static void AddCandidate(List<string> candidates, string path)
+        private static void AddCandidate(ICollection<string> candidates, string path)
         {
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return;
-            }
-            foreach (string candidate in candidates)
-            {
-                if (string.Equals(candidate, path, StringComparison.OrdinalIgnoreCase))
-                {
-                    return;
-                }
-            }
+            if (string.IsNullOrWhiteSpace(path) || candidates.Contains(path)) return;
             candidates.Add(path);
         }
 
@@ -415,24 +526,60 @@ namespace Automation
         {
             lock (processLock)
             {
+                if (disposed) return;
                 disposed = true;
-                int killedCount = KillAllMcpServerProcesses();
-                if (KillProcess(managedProcess))
+                int killedCount = 0;
+                foreach (string name in new List<string>(instances.Keys))
                 {
-                    killedCount++;
+                    killedCount += StopInstanceLocked(name);
                 }
+                killedCount += KillAllMcpServerProcesses();
+                lastMessage = $"Automation 关闭时已回收{killedCount}个 MCP Server 进程。";
+            }
+        }
+
+        private int KillUntrackedMcpServerProcessesLocked()
+        {
+            var trackedProcessIds = new HashSet<int>();
+            foreach (ManagedMcpInstance instance in instances.Values)
+            {
+                if (!IsRunning(instance.Process)) continue;
                 try
                 {
-                    managedProcess?.Dispose();
+                    trackedProcessIds.Add(instance.Process.Id);
                 }
                 catch
                 {
                 }
-                managedProcess = null;
-                managedExecutablePath = string.Empty;
-                CleanupManagedRuntimeDirectory();
-                lastMessage = $"Automation 关闭时已回收 {killedCount} 个 MCP Server 进程。";
             }
+
+            int killedCount = 0;
+            Process[] processes;
+            try
+            {
+                processes = Process.GetProcessesByName(McpProcessName);
+            }
+            catch
+            {
+                return killedCount;
+            }
+            foreach (Process process in processes)
+            {
+                using (process)
+                {
+                    int processId;
+                    try
+                    {
+                        processId = process.Id;
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                    if (!trackedProcessIds.Contains(processId) && KillProcess(process)) killedCount++;
+                }
+            }
+            return killedCount;
         }
 
         private static int KillAllMcpServerProcesses()
@@ -447,34 +594,34 @@ namespace Automation
             {
                 return killedCount;
             }
-
             foreach (Process process in processes)
             {
                 using (process)
                 {
-                    if (KillProcess(process))
-                    {
-                        killedCount++;
-                    }
+                    if (KillProcess(process)) killedCount++;
                 }
             }
             return killedCount;
         }
 
-        private static bool KillProcess(Process process)
+        private static bool IsRunning(Process process)
         {
-            if (process == null)
+            if (process == null) return false;
+            try
+            {
+                return !process.HasExited;
+            }
+            catch
             {
                 return false;
             }
+        }
 
+        private static bool KillProcess(Process process)
+        {
+            if (!IsRunning(process)) return false;
             try
             {
-                if (process.HasExited)
-                {
-                    return false;
-                }
-
                 process.Kill();
                 return true;
             }
@@ -482,6 +629,16 @@ namespace Automation
             {
                 return false;
             }
+        }
+
+        private sealed class ManagedMcpInstance
+        {
+            public string Name { get; set; }
+            public string Profile { get; set; }
+            public string BaseUri { get; set; }
+            public Process Process { get; set; }
+            public string ExecutablePath { get; set; }
+            public string RuntimeDirectory { get; set; }
         }
     }
 }

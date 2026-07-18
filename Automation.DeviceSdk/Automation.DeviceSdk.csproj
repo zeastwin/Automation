@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="PlatformApiVersion.props" />
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
     <LangVersion>latest</LangVersion>
@@ -8,4 +9,22 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(IntermediateOutputPath)PlatformApiInfo.g.cs" Visible="false" />
+  </ItemGroup>
+  <Target Name="GeneratePlatformApiInfo" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <_PlatformApiInfoLine Include="namespace Automation.DeviceSdk" />
+      <_PlatformApiInfoLine Include="{" />
+      <_PlatformApiInfoLine Include="    public static class PlatformApiInfo" />
+      <_PlatformApiInfoLine Include="    {" />
+      <_PlatformApiInfoLine Include="        public const string ApiVersion = &quot;$(PlatformApiVersion)&quot;%3B" />
+      <_PlatformApiInfoLine Include="    }" />
+      <_PlatformApiInfoLine Include="}" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)PlatformApiInfo.g.cs"
+                      Lines="@(_PlatformApiInfoLine)"
+                      Overwrite="true"
+                      Encoding="UTF-8" />
+  </Target>
 </Project>

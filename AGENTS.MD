@@ -8,7 +8,7 @@
 ## 平台开发阶段约定
 - Automation 当前处于平台开发阶段。配置、Schema、运行时、Bridge/MCP、编辑器和测试必须使用同一条当前契约；需求改变时直接更新整条链路并删除旧字段、旧入口、旧分支和旧说明，不为尚不存在的旧项目保留兼容层。
 - 流程尚未结束时再次启动属于异常请求：必须返回明确错误并保留当前实例，由工程师排查流程未结束的根因；不得通过强制结束当前实例后重启来掩盖异常。设备或人员安全已经受影响时，仍按安全准则停止受影响流程并报警。
-- `EnablePerformanceAnalysis` 只控制性能采样与异常报告，不改变流程运行状态；`ProcessExecutionMode` 只控制流程引擎辅助机制。两个配置相互独立，高性能模式可以单独启用或关闭性能分析。
+- `EnablePerformanceAnalysis` 只控制性能采样与异常报告，不改变流程运行状态；`EnableRuntimeDiagnostics` 独立控制智能诊断页面、专属 MCP、黑匣子和事故窗口。关闭任一辅助功能都不改变流程状态、安全停止、基础报警和失败日志。
 
 ## AI 上下文设计
 - 不是教 AI 忽略无关信息，而是不要把无关信息交给 AI。
@@ -122,7 +122,7 @@
 - `DataStruct.json`、`AlarmInfo.json`、`card.json`、`IOMap.json`、`DataStation.json`。
 - `SocketInfo.json`、`SerialPortInfo.json`、`PlcConfig.json`。
 - `Account.json` — `ENC:` 前缀密文（AES-CBC + HMAC-SHA256 + PBKDF2）。
-- `AppConfig.json` — 启动强校验，当前键 `CommMaxMessageQueueSize`（默认 1000）。
+- `AppConfig.json` — 启动强校验，当前键 `CommMaxMessageQueueSize`（默认 1000）、`RuntimeMode`、`StartupView`、`EnablePerformanceAnalysis`、`EnableRuntimeDiagnostics`。
 - `GooseConfig.json` — AI 助手配置，键：`GooseExecutablePath/WorkingDirectory/McpUri/SessionName/Provider/Model/MaxTurns/MaxOutputTokens`。
 
 ## 账户与权限

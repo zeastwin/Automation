@@ -8,7 +8,7 @@ namespace Automation
     public partial class FrmMenu : Form
     {
         private const int DefaultMenuButtonWidth = 143;
-        private const int CompactMenuColumns = 5;
+        private const int CompactMenuColumns = 6;
         private static readonly Color MenuBackColor = Color.FromArgb(52, 58, 64);
         private static readonly Color MenuHoverColor = Color.FromArgb(65, 72, 80);
         private static readonly Color MenuActiveColor = Color.FromArgb(61, 68, 75);
@@ -18,11 +18,13 @@ namespace Automation
         private readonly Font normalMenuButtonFont = new Font("Microsoft YaHei UI", 11.5F, FontStyle.Regular);
         private readonly Font compactMenuButtonFont = new Font("Microsoft YaHei UI", 11F, FontStyle.Regular);
         private readonly Button version_Page = new Button();
+        private readonly Button runtimeDiagnostics_Page = new Button();
         private readonly Dictionary<Button, UiIconKind> menuIcons = new Dictionary<Button, UiIconKind>();
         private readonly Dictionary<Button, Image> menuIconImages = new Dictionary<Button, Image>();
         private readonly UiHoverAnimator hoverAnimator = new UiHoverAnimator();
         private Button activeMenuButton;
         private bool aiAssistantActive;
+        private bool runtimeDiagnosticsButtonVisible;
 
         private const int CommunicationPageIndex = 7;
         private const int PlcPageIndex = 8;
@@ -32,9 +34,13 @@ namespace Automation
         {
             InitializeComponent();
             ConfigureVersionButton();
+            ConfigureRuntimeDiagnosticsButton();
             ConfigureMenuAppearance();
             ConfigureAdaptiveMenu();
             SetActiveMenuButton(process_Page);
+            bool diagnosticsEnabled = AppConfigStorage.TryGetCached(out AppConfig config, out _)
+                && config.EnableRuntimeDiagnostics;
+            SetRuntimeDiagnosticsEnabled(diagnosticsEnabled);
             Disposed += (sender, args) =>
             {
                 hoverAnimator.Dispose();
@@ -54,6 +60,26 @@ namespace Automation
             panel1.Controls.Add(version_Page);
         }
 
+        private void ConfigureRuntimeDiagnosticsButton()
+        {
+            runtimeDiagnostics_Page.Name = "runtimeDiagnostics_Page";
+            runtimeDiagnostics_Page.Text = "智能诊断";
+            runtimeDiagnostics_Page.Click += (sender, args) => SF.mainfrm?.ShowRuntimeDiagnostics();
+            panel1.Controls.Add(runtimeDiagnostics_Page);
+        }
+
+        internal void SetRuntimeDiagnosticsEnabled(bool enabled)
+        {
+            runtimeDiagnosticsButtonVisible = enabled;
+            runtimeDiagnostics_Page.Enabled = enabled;
+            runtimeDiagnostics_Page.Visible = enabled;
+            if (!enabled && activeMenuButton == runtimeDiagnostics_Page)
+            {
+                SetActiveMenuButton(process_Page);
+            }
+            AdjustMenuButtons();
+        }
+
         private void ConfigureMenuAppearance()
         {
             menuIcons.Add(process_Page, UiIconKind.Process);
@@ -66,6 +92,7 @@ namespace Automation
             menuIcons.Add(Card_Page, UiIconKind.ControlCard);
             menuIcons.Add(version_Page, UiIconKind.History);
             menuIcons.Add(aiAssistant_Page, UiIconKind.Ai);
+            menuIcons.Add(runtimeDiagnostics_Page, UiIconKind.Ai);
 
             panel1.BackColor = MenuBackColor;
             Io_Page.Text = "I/O 调试";
@@ -189,6 +216,7 @@ namespace Automation
             }
             panel1.AutoScroll = false;
             panel1.Resize += (sender, args) => AdjustMenuButtons();
+            Shown += (sender, args) => AdjustMenuButtons();
             AdjustMenuButtons();
         }
 
@@ -205,13 +233,25 @@ namespace Automation
                 valueDebug_Page,
                 Card_Page,
                 version_Page,
-                aiAssistant_Page
+                aiAssistant_Page,
+                runtimeDiagnostics_Page
             };
         }
 
         private void AdjustMenuButtons()
         {
-            Button[] buttons = GetMenuButtons();
+            Button[] allButtons = GetMenuButtons();
+            var visibleButtons = new List<Button>(allButtons.Length);
+            foreach (Button button in allButtons)
+            {
+                // 构造阶段父窗体尚未显示，Control.Visible 会连带返回 false。
+                // 这里只按按钮自身的功能状态筛选，首次显示时再使用真实尺寸重排。
+                if (button != runtimeDiagnostics_Page || runtimeDiagnosticsButtonVisible)
+                {
+                    visibleButtons.Add(button);
+                }
+            }
+            Button[] buttons = visibleButtons.ToArray();
             if (buttons.Length == 0)
             {
                 return;

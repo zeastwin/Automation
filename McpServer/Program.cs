@@ -81,10 +81,17 @@ namespace Automation.McpServer
                 stateless = true,
                 toolProfile = toolRegistry.Profile,
                 fullPermissionEnabled = toolRegistry.FullPermissionEnabled,
+                allowToolProfileChanges = options.AllowToolProfileChanges,
                 toolCount = toolRegistry.GetTools().Count
             }));
             app.MapPost("/tool-profile", (ToolProfileRequest request) =>
             {
+                if (!options.AllowToolProfileChanges)
+                {
+                    return Results.Json(
+                        new { ok = false, message = "当前MCP实例使用固定工具Profile。" },
+                        statusCode: StatusCodes.Status403Forbidden);
+                }
                 try
                 {
                     toolRegistry.SetConfiguration(request.Profile, request.FullPermissionEnabled);
@@ -93,6 +100,7 @@ namespace Automation.McpServer
                         ok = true,
                         toolProfile = toolRegistry.Profile,
                         fullPermissionEnabled = toolRegistry.FullPermissionEnabled,
+                        allowToolProfileChanges = options.AllowToolProfileChanges,
                         toolCount = toolRegistry.GetTools().Count
                     });
                 }
@@ -162,6 +170,7 @@ namespace Automation.McpServer
             IReadOnlyList<McpServerTool> editorTools = McpToolProfile.CreateEditorTools();
             HashSet<string> profiledToolNames = editorTools
                 .Concat(McpToolProfile.CreateTools("Diagnostic"))
+                .Concat(McpToolProfile.CreateTools("RuntimeDiagnostic"))
                 .Concat(McpToolProfile.CreateTools("Editor", true))
                 .Select(tool => tool.ProtocolTool.Name)
                 .ToHashSet(StringComparer.Ordinal);
@@ -517,20 +526,59 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException("流程设计指南资源缺失核心闭环或仍含项目专用内容。");
             }
-            string[] diagnosticNames = McpToolProfile.CreateTools("Diagnostic")
-                .Select(tool => tool.ProtocolTool.Name).ToArray();
-            string[] editorWriteNames =
+            IReadOnlyList<McpServerTool> diagnosticTools = McpToolProfile.CreateTools("Diagnostic");
+            string[] diagnosticNames = diagnosticTools.Select(tool => tool.ProtocolTool.Name).ToArray();
+            string[] forbiddenDiagnosticNames =
             {
-                "preview_change_set", "apply_change_set", "discard_change_set_preview"
+                "preview_change_set", "apply_change_set", "discard_change_set_preview",
+                "run_proc_test", "start_proc", "stop_proc", "pause_proc", "resume_proc",
+                "set_variable_by_name", "set_variable_by_index",
+                "add_variable", "update_variable", "delete_variable",
+                "upsert_data_struct", "delete_data_struct", "set_alarm", "delete_alarm",
+                "get_migration_configuration",
+                "preview_motion_io_configuration", "preview_io_debug_configuration",
+                "preview_plc_configuration", "preview_communication_configuration",
+                "apply_migration_configuration", "discard_migration_configuration",
+                "validate_platform_configuration"
             };
             if (!diagnosticNames.Contains("audit_proc_batch", StringComparer.Ordinal)
                 || !diagnosticNames.Contains("get_native_operation_schemas", StringComparer.Ordinal)
                 || !diagnosticNames.Contains("get_operation_guide", StringComparer.Ordinal)
                 || !diagnosticNames.Contains("get_process_design_guide", StringComparer.Ordinal)
                 || !diagnosticNames.Contains("get_flow_graph", StringComparer.Ordinal)
-                || editorWriteNames.Any(name => diagnosticNames.Contains(name, StringComparer.Ordinal)))
+                || forbiddenDiagnosticNames.Any(name => diagnosticNames.Contains(name, StringComparer.Ordinal)))
             {
                 throw new InvalidOperationException("Diagnostic Profile 工具边界错误。");
+            }
+            McpServerTool diagnoseIssueTool = diagnosticTools.Single(tool =>
+                string.Equals(tool.ProtocolTool.Name, "diagnose_issue", StringComparison.Ordinal));
+            if (!(diagnoseIssueTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "运行黑匣子", StringComparison.Ordinal)
+                || !(diagnoseIssueTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "evidenceLimits", StringComparison.Ordinal)
+                || !(diagnoseIssueTool.ProtocolTool.Description ?? string.Empty).Contains(
+                    "只读", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("diagnose_issue 缺少黑匣子证据边界或只读契约。");
+            }
+            string[] runtimeDiagnosticNames = McpToolProfile.CreateTools("RuntimeDiagnostic")
+                .Select(tool => tool.ProtocolTool.Name).ToArray();
+            string[] expectedRuntimeDiagnosticNames =
+            {
+                "diagnose_issue", "get_snapshot", "get_info_log_tail",
+                "get_operation_context", "get_step_detail", "get_flow_graph",
+                "get_operation_references", "trace_resource",
+                "get_variable_by_name", "get_variable_by_index",
+                "get_io", "search_io", "get_io_state",
+                "get_communication", "list_plc_devices", "get_plc_device",
+                "search_alarms", "get_alarm"
+            };
+            if (!runtimeDiagnosticNames.SequenceEqual(
+                expectedRuntimeDiagnosticNames.OrderBy(name => name, StringComparer.Ordinal),
+                StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "RuntimeDiagnostic Profile 必须严格等于运行现场取证工具集合。");
             }
             string[] fullPermissionNames = McpToolProfile.CreateTools("Editor", true)
                 .Select(tool => tool.ProtocolTool.Name).ToArray();

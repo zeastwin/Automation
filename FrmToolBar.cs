@@ -31,12 +31,15 @@ namespace Automation
         private readonly System.Windows.Forms.ToolTip toolbarToolTip = new System.Windows.Forms.ToolTip();
         private readonly UiHoverAnimator hoverAnimator = new UiHoverAnimator();
         private readonly WinFormsButton btnFlowGraph = new WinFormsButton { Text = "流程图" };
+        private readonly WinFormsButton btnPerformanceAnalysis = new WinFormsButton { Text = "性能分析" };
 
         public FrmToolBar()
         {
             InitializeComponent();
             ToolBar_Panel.Controls.Add(btnFlowGraph);
+            ToolBar_Panel.Controls.Add(btnPerformanceAnalysis);
             btnFlowGraph.Click += (sender, args) => SF.mainfrm?.ShowProcessFlowGraph();
+            btnPerformanceAnalysis.Click += (sender, args) => SF.mainfrm?.ShowPerformanceAnalysis();
             ConfigureToolbarAppearance();
             btnSave.Enabled = false;
             btnCancel.Enabled = false;
@@ -60,6 +63,7 @@ namespace Automation
             ConfigureButton(btnAlarm, UiIconKind.Alarm, 106, Color.FromArgb(151, 91, 16), ButtonBackColor, Color.FromArgb(252, 239, 213));
             ConfigureButton(btnSearch, UiIconKind.Search, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnFlowGraph, UiIconKind.Process, 92, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
+            ConfigureButton(btnPerformanceAnalysis, UiIconKind.Monitor, 112, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnIOMonitor, UiIconKind.Monitor, 104, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(button1, UiIconKind.Folder, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
             ConfigureButton(btnAppConfig, UiIconKind.Settings, 44, ButtonForeColor, ButtonBackColor, Color.FromArgb(226, 234, 239));
@@ -116,7 +120,8 @@ namespace Automation
             return new[]
             {
                 btnPause, btnStop, SingleRun, btnLocate,
-                btnAlarm, btnSearch, btnFlowGraph, btnIOMonitor, button1, btnAppConfig, btnStopAll
+                btnAlarm, btnSearch, btnFlowGraph, btnPerformanceAnalysis, btnIOMonitor,
+                button1, btnAppConfig, btnStopAll
             };
         }
 
@@ -139,6 +144,7 @@ namespace Automation
             PlaceFromLeft(btnAlarm, ref left, top, 2);
             PlaceFromLeft(btnSearch, ref left, top, 2);
             PlaceFromLeft(btnFlowGraph, ref left, top, 2);
+            PlaceFromLeft(btnPerformanceAnalysis, ref left, top, 2);
             PlaceFromLeft(btnIOMonitor, ref left, top, 2);
 
             int right = ToolBar_Panel.ClientSize.Width - 8;
@@ -208,7 +214,11 @@ namespace Automation
         {
             using (FrmAppConfig frm = new FrmAppConfig())
             {
-                frm.ShowDialog(this);
+                if (frm.ShowDialog(this) == DialogResult.OK
+                    && AppConfigStorage.TryGetCached(out AppConfig config, out _))
+                {
+                    SF.mainfrm?.ApplyRuntimeDiagnosticsConfiguration(config.EnableRuntimeDiagnostics);
+                }
             }
         }
       

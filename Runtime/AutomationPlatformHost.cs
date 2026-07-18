@@ -418,6 +418,28 @@ namespace Automation
             return true;
         }
 
+        public void ShowRuntimeDiagnostics()
+        {
+            EnsureUiThread();
+            EnsureReadyOrFaulted();
+            if (platformEditor == null || platformEditor.IsDisposed)
+            {
+                HandleDisposedPlatformEditor();
+            }
+            platformEditor.ShowRuntimeDiagnostics();
+        }
+
+        public void ShowPerformanceAnalysis()
+        {
+            EnsureUiThread();
+            EnsureReadyOrFaulted();
+            if (platformEditor == null || platformEditor.IsDisposed)
+            {
+                HandleDisposedPlatformEditor();
+            }
+            platformEditor.ShowPerformanceAnalysis();
+        }
+
         public bool TryGetValue(int index, out PlatformValueSnapshot snapshot, out string error)
         {
             snapshot = null;

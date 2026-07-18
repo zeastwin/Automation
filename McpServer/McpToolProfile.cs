@@ -8,7 +8,7 @@ namespace Automation.McpServer
 {
     internal static class McpToolProfile
     {
-        // 知识和只读定位能力是所有模式的基础；模式只决定是否追加深度诊断或配置写入能力。
+        // Editor/Diagnostic 共享平台知识与读取能力；RuntimeDiagnostic 使用独立的现场取证最小集合。
         private static readonly HashSet<string> KnowledgeAndReadTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "get_platform_development_context", "get_process_design_guide",
@@ -35,6 +35,18 @@ namespace Automation.McpServer
             "get_operation_context", "audit_proc_batch",
             "get_info_log_tail", "diagnose_proc",
             "list_io"
+        };
+
+        // 运行诊断中心只获取现场根因分析所需事实，不加载平台开发、流程设计、Schema、批量审计或控制工具。
+        private static readonly HashSet<string> RuntimeDiagnosticTools = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "diagnose_issue", "get_snapshot", "get_info_log_tail",
+            "get_operation_context", "get_step_detail", "get_flow_graph",
+            "get_operation_references", "trace_resource",
+            "get_variable_by_name", "get_variable_by_index",
+            "get_io", "search_io", "get_io_state",
+            "get_communication", "list_plc_devices", "get_plc_device",
+            "search_alarms", "get_alarm"
         };
 
         private static readonly HashSet<string> EditorMutationTools = new HashSet<string>(StringComparer.Ordinal)
@@ -64,23 +76,29 @@ namespace Automation.McpServer
 
         public static IReadOnlyList<McpServerTool> CreateTools(string profile, bool fullPermissionEnabled = false)
         {
-            bool diagnostic;
-            if (string.Equals(profile, "Diagnostic", StringComparison.OrdinalIgnoreCase)) diagnostic = true;
-            else if (string.Equals(profile, "Editor", StringComparison.OrdinalIgnoreCase)) diagnostic = false;
-            else throw new InvalidDataException($"MCP工具模式不支持:{profile}");
-            var enabled = new HashSet<string>(KnowledgeAndReadTools, StringComparer.Ordinal);
-            if (diagnostic)
+            var enabled = new HashSet<string>(StringComparer.Ordinal);
+            if (string.Equals(profile, "RuntimeDiagnostic", StringComparison.OrdinalIgnoreCase))
             {
+                enabled.UnionWith(RuntimeDiagnosticTools);
+            }
+            else if (string.Equals(profile, "Diagnostic", StringComparison.OrdinalIgnoreCase))
+            {
+                enabled.UnionWith(KnowledgeAndReadTools);
                 enabled.UnionWith(DiagnosticAnalysisTools);
             }
-            else
+            else if (string.Equals(profile, "Editor", StringComparison.OrdinalIgnoreCase))
             {
+                enabled.UnionWith(KnowledgeAndReadTools);
                 enabled.UnionWith(EditorDiagnosticTools);
                 enabled.UnionWith(EditorMutationTools);
                 if (fullPermissionEnabled)
                 {
                     enabled.UnionWith(FullPermissionTools);
                 }
+            }
+            else
+            {
+                throw new InvalidDataException($"MCP工具模式不支持:{profile}");
             }
             var tools = new List<McpServerTool>();
             foreach (MethodInfo method in typeof(AutomationMcpTools).GetMethods(
@@ -644,6 +662,7 @@ namespace Automation.McpServer
         private readonly IReadOnlyDictionary<string, McpServerTool> allTools;
         private readonly HashSet<string> editorToolNames;
         private readonly HashSet<string> diagnosticToolNames;
+        private readonly HashSet<string> runtimeDiagnosticToolNames;
         private readonly HashSet<string> fullPermissionToolNames;
         private string profile = string.Empty;
         private bool fullPermissionEnabled;
@@ -652,13 +671,18 @@ namespace Automation.McpServer
         {
             IReadOnlyList<McpServerTool> editorTools = McpToolProfile.CreateEditorTools();
             IReadOnlyList<McpServerTool> diagnosticTools = McpToolProfile.CreateTools("Diagnostic");
+            IReadOnlyList<McpServerTool> runtimeDiagnosticTools =
+                McpToolProfile.CreateTools("RuntimeDiagnostic");
             IReadOnlyList<McpServerTool> fullPermissionEditorTools = McpToolProfile.CreateTools("Editor", true);
-            allTools = editorTools.Concat(diagnosticTools).Concat(fullPermissionEditorTools)
+            allTools = editorTools.Concat(diagnosticTools).Concat(runtimeDiagnosticTools)
+                .Concat(fullPermissionEditorTools)
                 .GroupBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
             editorToolNames = editorTools
                 .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
             diagnosticToolNames = diagnosticTools
+                .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
+            runtimeDiagnosticToolNames = runtimeDiagnosticTools
                 .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
             fullPermissionToolNames = fullPermissionEditorTools.Select(tool => tool.ProtocolTool.Name)
                 .Where(name => !editorToolNames.Contains(name))
@@ -680,9 +704,13 @@ namespace Automation.McpServer
         {
             lock (syncRoot)
             {
-                HashSet<string> enabledNames = string.Equals(profile, "Editor", StringComparison.Ordinal)
-                    ? new HashSet<string>(editorToolNames, StringComparer.Ordinal)
-                    : new HashSet<string>(diagnosticToolNames, StringComparer.Ordinal);
+                HashSet<string> enabledNames;
+                if (string.Equals(profile, "Editor", StringComparison.Ordinal))
+                    enabledNames = new HashSet<string>(editorToolNames, StringComparer.Ordinal);
+                else if (string.Equals(profile, "RuntimeDiagnostic", StringComparison.Ordinal))
+                    enabledNames = new HashSet<string>(runtimeDiagnosticToolNames, StringComparer.Ordinal);
+                else
+                    enabledNames = new HashSet<string>(diagnosticToolNames, StringComparer.Ordinal);
                 if (fullPermissionEnabled)
                 {
                     enabledNames.UnionWith(fullPermissionToolNames);
@@ -702,6 +730,7 @@ namespace Automation.McpServer
             string normalized;
             if (string.Equals(value, "Diagnostic", StringComparison.Ordinal)) normalized = "Diagnostic";
             else if (string.Equals(value, "Editor", StringComparison.Ordinal)) normalized = "Editor";
+            else if (string.Equals(value, "RuntimeDiagnostic", StringComparison.Ordinal)) normalized = "RuntimeDiagnostic";
             else throw new InvalidDataException($"MCP工具模式不支持:{value}");
             if (enableFullPermission && !string.Equals(normalized, "Editor", StringComparison.Ordinal))
             {

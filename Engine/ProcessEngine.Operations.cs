@@ -219,7 +219,7 @@ namespace Automation
                         evt?.stepNum ?? -1,
                         evt?.opsNum ?? -1,
                         typedOperation?.Id ?? Guid.Empty,
-                        operation.GetType().Name,
+                        typedOperation?.OperaType ?? operation.GetType().Name,
                         typedOperation?.Name,
                         evt?.alarmMsg,
                         elapsedTicks,

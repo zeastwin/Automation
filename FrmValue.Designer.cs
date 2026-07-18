@@ -38,7 +38,6 @@
             this.btnCancel = new System.Windows.Forms.Button();
             this.btnPrevious = new System.Windows.Forms.Button();
             this.BtnNext = new System.Windows.Forms.Button();
-            this.btnSet = new System.Windows.Forms.Button();
             this.btnMonitor = new System.Windows.Forms.Button();
             this.btnMonitorAdd = new System.Windows.Forms.Button();
             this.btnMonitorRemove = new System.Windows.Forms.Button();
@@ -82,7 +81,6 @@
             this.panel1.Controls.Add(this.btnCancel);
             this.panel1.Controls.Add(this.btnPrevious);
             this.panel1.Controls.Add(this.BtnNext);
-            this.panel1.Controls.Add(this.btnSet);
             this.panel1.Dock = System.Windows.Forms.DockStyle.Top;
             this.panel1.Location = new System.Drawing.Point(0, 0);
             this.panel1.Name = "panel1";
@@ -162,25 +160,6 @@
             this.BtnNext.Text = "→";
             this.BtnNext.UseVisualStyleBackColor = false;
             this.BtnNext.Click += new System.EventHandler(this.BtnNext_Click);
-            // 
-            // btnSet
-            // 
-            this.btnSet.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.btnSet.FlatAppearance.BorderColor = System.Drawing.Color.White;
-            this.btnSet.FlatAppearance.BorderSize = 2;
-            this.btnSet.FlatAppearance.MouseDownBackColor = System.Drawing.Color.White;
-            this.btnSet.FlatAppearance.MouseOverBackColor = System.Drawing.SystemColors.MenuHighlight;
-            this.btnSet.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnSet.Font = new System.Drawing.Font("黑体", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(134)));
-            this.btnSet.ForeColor = System.Drawing.SystemColors.ControlText;
-            this.btnSet.Location = new System.Drawing.Point(10, 6);
-            this.btnSet.Margin = new System.Windows.Forms.Padding(2);
-            this.btnSet.Name = "btnSet";
-            this.btnSet.Size = new System.Drawing.Size(110, 36);
-            this.btnSet.TabIndex = 12;
-            this.btnSet.Text = "设常用";
-            this.btnSet.UseVisualStyleBackColor = false;
-            this.btnSet.Click += new System.EventHandler(this.btnSet_Click);
             // 
             // btnMonitor
             // 
@@ -313,7 +292,6 @@
             this.btnNormalVariables.TabIndex = 22;
             this.btnNormalVariables.Text = "普通变量";
             this.btnNormalVariables.UseVisualStyleBackColor = false;
-            this.btnNormalVariables.Click += new System.EventHandler(this.btnNormalVariables_Click);
             //
             // btnSystemVariables
             //
@@ -517,7 +495,6 @@
         public System.Windows.Forms.Button btnCancel;
         public System.Windows.Forms.Button btnPrevious;
         public System.Windows.Forms.Button BtnNext;
-        public System.Windows.Forms.Button btnSet;
         public System.Windows.Forms.Button btnMonitor;
         public System.Windows.Forms.Button btnMonitorAdd;
         public System.Windows.Forms.Button btnMonitorRemove;

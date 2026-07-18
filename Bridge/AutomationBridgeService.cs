@@ -2375,7 +2375,9 @@ namespace Automation.Bridge
                 ["continuationAuthorized"] = false,
                 ["startRequiresExplicitUserRequest"] = true,
                 ["elapsedMs"] = (long)(DateTime.UtcNow - startedAt).TotalMilliseconds,
-                ["snapshot"] = BuildEngineSnapshot(snapshot, procIndex)
+                ["snapshot"] = BuildEngineSnapshot(snapshot, procIndex),
+                ["runtimeEvidence"] = SF.mainfrm?.RuntimeBlackBoxRecorder?.BuildEvidencePackage(procIndex)
+                    ?? RuntimeBlackBoxRecorder.BuildUnavailableEvidencePackage(procIndex)
             };
         }
 
@@ -3920,7 +3922,9 @@ namespace Automation.Bridge
                     ["runBlockers"] = validation["runBlockers"],
                     ["errors"] = validation["errors"],
                     ["warnings"] = validation["warnings"]
-                }
+                },
+                ["runtimeEvidence"] = SF.mainfrm?.RuntimeBlackBoxRecorder?.BuildEvidencePackage(procIndex)
+                    ?? RuntimeBlackBoxRecorder.BuildUnavailableEvidencePackage(procIndex)
             };
             int targetStep = stepIndex ?? snapshot?.StepIndex ?? -1;
             int targetOp = opIndex ?? snapshot?.OpIndex ?? -1;
@@ -3935,9 +3939,6 @@ namespace Automation.Bridge
                 });
                 result["context"] = context;
             }
-            result["recommendedNextQueries"] = new JArray(
-                "若字段值可疑，使用trace_resource检查资源引用",
-                "若需要修改，只对目标指令调用get_op_detail后通过preview_change_set预演");
             return result;
         }
 
@@ -8737,7 +8738,6 @@ namespace Automation.Bridge
                     : new JObject
                     {
                         ["enabled"] = snapshot.Performance.Enabled,
-                        ["executionMode"] = snapshot.Performance.ExecutionMode.ToString(),
                         ["operationCount"] = snapshot.Performance.OperationCount,
                         ["operationsPerSecond"] = snapshot.Performance.OperationsPerSecond,
                         ["threadCpuPercent"] = snapshot.Performance.ThreadCpuPercent,

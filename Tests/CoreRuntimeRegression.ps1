@@ -125,7 +125,9 @@ function Wait-ProcessState {
 
 $resolvedAssembly = [IO.Path]::GetFullPath($AssemblyPath)
 Assert-True (Test-Path -LiteralPath $resolvedAssembly) "找不到待测程序集：$resolvedAssembly"
-[Reflection.Assembly]::LoadFrom($resolvedAssembly) | Out-Null
+$automationAssembly = [Reflection.Assembly]::LoadFrom($resolvedAssembly)
+Assert-True ($automationAssembly.GetManifestResourceNames() -contains 'Automation.Assets.PerformanceAnalysis.index.html') '性能分析 WebView2 页面资源未嵌入程序集。'
+Assert-True ($null -ne $automationAssembly.GetType('Automation.FrmPerformanceAnalysis', $false)) '性能分析独立窗体未编译。'
 
 $proc = New-TestProcess -DelayMs 800
 $engine = New-TestEngine -Process $proc
@@ -561,16 +563,17 @@ Assert-True ([Math]::Abs([double]$fieldValue - 3.75) -lt 0.000001) '数据结构
 $dataSnapshot = $dataStore.GetSnapshot()
 Assert-True ([Math]::Abs($dataSnapshot[0].dataStructItems[0].num[0] - 3.75) -lt 0.000001) '数据结构快照未保留运行值。'
 
-$normalAnalysisConfig = [Automation.AppConfig]::new()
-$normalAnalysisConfig.CommMaxMessageQueueSize = 1000
-$normalAnalysisConfig.RuntimeMode = [Automation.AutomationRuntimeMode]::Hardware
-$normalAnalysisConfig.StartupView = [Automation.AutomationStartupView]::Hmi
-$normalAnalysisConfig.ProcessExecutionMode = [Automation.ProcessExecutionMode]::Normal
-$normalAnalysisConfig.EnablePerformanceAnalysis = $true
+$analysisConfig = [Automation.AppConfig]::new()
+$analysisConfig.CommMaxMessageQueueSize = 1000
+$analysisConfig.RuntimeMode = [Automation.AutomationRuntimeMode]::Hardware
+$analysisConfig.StartupView = [Automation.AutomationStartupView]::Hmi
+$analysisConfig.EnablePerformanceAnalysis = $true
+$analysisConfig.EnableRuntimeDiagnostics = $true
 $configuredOptions = $null
 $configureError = $null
 Assert-True ([Automation.AutomationRuntimeOptions]::TryConfigure(
-    [string[]]@(), $normalAnalysisConfig, [ref]$configuredOptions, [ref]$configureError)) "配置普通模式性能分析回归失败：$configureError"
+    [string[]]@(), $analysisConfig, [ref]$configuredOptions, [ref]$configureError)) "配置性能分析回归失败：$configureError"
+Assert-True $configuredOptions.PerformanceAnalysisEnabled '性能分析开关应独立启用。'
 
 $busyProc = New-BusyLoopProcess
 $busyEngine = New-TestEngine -Process $busyProc
@@ -596,43 +599,20 @@ finally {
     $busyEngine.Dispose()
 }
 
-$highPerformanceConfig = [Automation.AppConfig]::new()
-$highPerformanceConfig.CommMaxMessageQueueSize = 1000
-$highPerformanceConfig.RuntimeMode = [Automation.AutomationRuntimeMode]::Hardware
-$highPerformanceConfig.StartupView = [Automation.AutomationStartupView]::Hmi
-$highPerformanceConfig.ProcessExecutionMode = [Automation.ProcessExecutionMode]::HighPerformance
-$highPerformanceConfig.EnablePerformanceAnalysis = $true
+$analysisConfig.EnablePerformanceAnalysis = $false
 Assert-True ([Automation.AutomationRuntimeOptions]::TryConfigure(
-    [string[]]@(), $highPerformanceConfig, [ref]$configuredOptions, [ref]$configureError)) "配置高性能分析回归失败：$configureError"
-Assert-True ($configuredOptions.ProcessExecutionMode -eq [Automation.ProcessExecutionMode]::HighPerformance) '执行模式应为高性能模式。'
-Assert-True $configuredOptions.PerformanceAnalysisEnabled '高性能模式与性能分析开关必须能够同时启用。'
-$highPerformanceProc = New-TestProcess -DelayMs 200
-$highPerformanceEngine = New-TestEngine -Process $highPerformanceProc
-try {
-    Assert-True ($highPerformanceEngine.StartProc($highPerformanceProc, 0)) '高性能模式流程应能够启动。'
-    Wait-ProcessState -Engine $highPerformanceEngine -State ([Automation.ProcRunState]::Running)
-    $highPerformanceSnapshot = $highPerformanceEngine.GetSnapshot(0)
-    Assert-True $highPerformanceSnapshot.Performance.Enabled '高性能模式不得自动关闭性能分析。'
-    Assert-True ($highPerformanceSnapshot.Performance.ExecutionMode -eq [Automation.ProcessExecutionMode]::HighPerformance) '流程快照执行模式错误。'
-    Wait-ProcessState -Engine $highPerformanceEngine -State ([Automation.ProcRunState]::Stopped)
-}
-finally {
-    $highPerformanceEngine.Dispose()
-}
-
-$highPerformanceConfig.EnablePerformanceAnalysis = $false
-Assert-True ([Automation.AutomationRuntimeOptions]::TryConfigure(
-    [string[]]@(), $highPerformanceConfig, [ref]$configuredOptions, [ref]$configureError)) "配置高性能无分析回归失败：$configureError"
+    [string[]]@(), $analysisConfig, [ref]$configuredOptions, [ref]$configureError)) "关闭性能分析回归失败：$configureError"
+Assert-True (-not $configuredOptions.PerformanceAnalysisEnabled) '性能分析开关应独立关闭。'
 $observedBusyProc = New-BusyLoopProcess
 $observedBusyEngine = New-TestEngine -Process $observedBusyProc
 try {
-    Assert-True ($observedBusyEngine.StartProc($observedBusyProc, 0)) '高性能无分析循环应能够启动。'
+    Assert-True ($observedBusyEngine.StartProc($observedBusyProc, 0)) '关闭性能分析后无等待循环应能够启动。'
     Wait-ProcessState -Engine $observedBusyEngine -State ([Automation.ProcRunState]::Running)
     $initialObservedTicks = $observedBusyEngine.GetSnapshot(0).UpdateTicks
     Start-Sleep -Milliseconds 750
     $observedSnapshot = $observedBusyEngine.GetSnapshot(0)
-    Assert-True (-not $observedSnapshot.Performance.Enabled) '高性能模式不得强制启用性能分析。'
-    Assert-True ($observedSnapshot.UpdateTicks -gt $initialObservedTicks) '高性能模式关闭分析后仍应低频刷新运行快照。'
+    Assert-True (-not $observedSnapshot.Performance.Enabled) '流程快照应反映性能分析已关闭。'
+    Assert-True ($observedSnapshot.UpdateTicks -gt $initialObservedTicks) '关闭性能分析后仍应低频刷新运行快照。'
     Assert-True ($observedSnapshot.State -eq [Automation.ProcRunState]::Running) '低频观测不得改变流程状态。'
     $observedBusyEngine.Stop(0)
     Wait-ProcessState -Engine $observedBusyEngine -State ([Automation.ProcRunState]::Stopped)
@@ -656,4 +636,4 @@ finally {
     [IO.Directory]::Delete($invalidValueConfigPath, $true)
 }
 
-Write-Host '核心运行回归通过：流程私有变量隔离、AI两阶段变量编译、静态预绑定、动态索引复验、当前值保持、流程复制/删除、旧契约降级，以及既有运行与性能回归。'
+Write-Host '核心运行回归通过：流程私有变量隔离、AI两阶段变量编译、静态预绑定、动态索引复验、当前值保持、流程复制/删除、旧契约降级、性能分析独立开关、性能页面资源，以及既有运行与性能回归。'

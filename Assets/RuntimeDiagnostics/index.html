@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>智能诊断中心</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f6fa;
+      --surface: #ffffff;
+      --surface-soft: #f8fafc;
+      --line: #e1e7ef;
+      --line-strong: #cbd5e1;
+      --text: #1d2938;
+      --text-2: #526174;
+      --text-3: #7a889a;
+      --brand: #3867e8;
+      --brand-strong: #2852c6;
+      --brand-soft: #eaf0ff;
+      --success: #21825c;
+      --success-soft: #e7f6ef;
+      --warning: #a86a18;
+      --warning-soft: #fff3da;
+      --danger: #bd3e3a;
+      --danger-soft: #ffebe9;
+      --shadow: 0 14px 34px rgba(30, 49, 75, .07), 0 2px 7px rgba(30, 49, 75, .04);
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body {
+      font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 3px solid rgba(56, 103, 232, .2);
+      outline-offset: 2px;
+    }
+    .app { height: 100%; display: grid; grid-template-rows: 82px 96px minmax(0, 1fr); }
+    .appbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 0 26px;
+      background: rgba(255, 255, 255, .96);
+      border-bottom: 1px solid #e9edf3;
+    }
+    .title-wrap { display: flex; align-items: center; gap: 14px; min-width: 0; }
+    .brand-mark {
+      width: 42px; height: 42px; border-radius: 14px;
+      display: grid; place-items: center;
+      color: #fff;
+      background: linear-gradient(145deg, #4c7cf4, #2c58d1);
+      box-shadow: 0 8px 18px rgba(56, 103, 232, .25);
+      flex: 0 0 auto;
+    }
+    h1 { margin: 0; font-size: 22px; letter-spacing: -.35px; }
+    .subtitle { margin-top: 5px; color: var(--text-3); font-size: 13px; }
+    .readonly-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      height: 36px; padding: 0 13px; border-radius: 12px;
+      color: var(--success); background: var(--success-soft);
+      font-size: 13px; font-weight: 650; white-space: nowrap;
+    }
+    .control-strip {
+      display: grid;
+      grid-template-columns: minmax(220px, 300px) minmax(280px, 1fr) auto auto;
+      align-items: end;
+      gap: 12px;
+      padding: 14px 26px 16px;
+    }
+    .field { min-width: 0; }
+    .field label { display: block; margin: 0 0 7px 2px; color: var(--text-2); font-size: 12px; font-weight: 650; }
+    .control {
+      width: 100%; height: 44px; border: 1px solid var(--line-strong); border-radius: 13px;
+      color: var(--text); background: var(--surface); padding: 0 13px;
+      transition: border-color .16s, box-shadow .16s, background .16s;
+    }
+    .control:hover { border-color: #aeb9c8; }
+    .control:focus { border-color: #8ca7f5; box-shadow: 0 0 0 3px rgba(56,103,232,.1); }
+    .control:disabled { color: var(--text-3); background: #f1f4f7; cursor: not-allowed; }
+    .primary, .secondary {
+      height: 44px; border-radius: 13px; padding: 0 19px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      border: 1px solid var(--line-strong); cursor: pointer; font-weight: 700;
+      transition: transform .12s, background .16s, border-color .16s, opacity .16s;
+      white-space: nowrap;
+    }
+    .primary { color: #fff; border-color: var(--brand); background: var(--brand); box-shadow: 0 6px 14px rgba(56,103,232,.18); }
+    .primary:hover { border-color: var(--brand-strong); background: var(--brand-strong); }
+    .secondary { background: var(--surface); }
+    .secondary:hover { background: #eef2f7; }
+    button:active { transform: translateY(1px); }
+    button:disabled { opacity: .48; cursor: not-allowed; transform: none; box-shadow: none; }
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1.18fr) minmax(400px, .82fr);
+      gap: 16px;
+      padding: 0 22px 22px;
+    }
+    .card {
+      min-width: 0; min-height: 0;
+      display: grid;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .timeline-card { grid-template-rows: 70px 64px minmax(0, 1fr); }
+    .report-card { grid-template-rows: 70px minmax(0, 1fr); }
+    .card-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 14px;
+      padding: 0 18px 0 20px; border-bottom: 1px solid #edf1f5;
+    }
+    .card-title { display: flex; align-items: center; gap: 11px; min-width: 0; }
+    .card-icon {
+      width: 36px; height: 36px; border-radius: 12px;
+      display: grid; place-items: center; color: var(--brand); background: var(--brand-soft);
+      flex: 0 0 auto;
+    }
+    .card-title strong { display: block; font-size: 15px; }
+    .card-title span { display: block; margin-top: 3px; color: var(--text-3); font-size: 11.5px; }
+    .timeline-toggle {
+      min-height: 38px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 12px;
+      display: inline-flex; align-items: center; gap: 9px; background: var(--surface); cursor: pointer;
+      color: var(--text-2); font-size: 12px; font-weight: 650; white-space: nowrap;
+    }
+    .timeline-toggle.active { color: var(--brand-strong); border-color: #9db1ef; background: var(--brand-soft); }
+    .toggle-dot { width: 8px; height: 8px; border-radius: 50%; background: #a9b3c1; }
+    .timeline-toggle.active .toggle-dot { background: var(--brand); box-shadow: 0 0 0 4px rgba(56,103,232,.12); }
+    .evidence-meta {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+      align-items: center; gap: 12px; padding: 10px 20px;
+      background: var(--surface-soft); border-bottom: 1px solid #edf1f5;
+    }
+    .metric { min-width: 0; }
+    .metric-label { color: var(--text-3); font-size: 10.5px; }
+    .metric-value { margin-top: 4px; color: var(--text-2); font-size: 12px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .table-wrap { min-height: 0; overflow: auto; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+    thead { position: sticky; top: 0; z-index: 2; }
+    th {
+      height: 42px; padding: 0 12px; text-align: left; color: var(--text-3);
+      background: rgba(255,255,255,.97); border-bottom: 1px solid var(--line);
+      font-size: 11px; font-weight: 700;
+    }
+    td { padding: 11px 12px; border-bottom: 1px solid #eef2f6; color: var(--text-2); font-size: 12px; vertical-align: top; line-height: 1.45; }
+    tbody tr:hover td { background: #fafbfe; }
+    .time-cell { color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .event-badge {
+      display: inline-flex; align-items: center; min-height: 25px; padding: 3px 8px;
+      border-radius: 8px; color: var(--text-2); background: #eef2f6; font-weight: 650;
+    }
+    .event-badge.success { color: var(--success); background: var(--success-soft); }
+    .event-badge.warning { color: var(--warning); background: var(--warning-soft); }
+    .event-badge.danger { color: var(--danger); background: var(--danger-soft); }
+    .detail-cell { color: #3c4a5b; word-break: break-word; user-select: text; }
+    .empty-row td { height: 240px; text-align: center; vertical-align: middle; color: var(--text-3); line-height: 1.8; }
+    .report-status {
+      max-width: 220px; min-height: 30px; padding: 6px 10px; border-radius: 10px;
+      display: inline-flex; align-items: center; gap: 7px;
+      color: var(--text-2); background: #eef2f6; font-size: 11.5px; font-weight: 650;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #8c99aa; }
+    .report-status.working { color: var(--brand-strong); background: var(--brand-soft); }
+    .report-status.working .status-dot { background: var(--brand); animation: pulse 1.2s ease-in-out infinite; }
+    .report-status.success { color: var(--success); background: var(--success-soft); }
+    .report-status.success .status-dot { background: var(--success); }
+    .report-status.danger { color: var(--danger); background: var(--danger-soft); }
+    .report-status.danger .status-dot { background: var(--danger); }
+    .report-scroll { min-height: 0; overflow: auto; scroll-behavior: smooth; }
+    .report {
+      min-height: 100%; padding: 24px 25px 44px;
+      color: #334154; font-size: 13.5px; line-height: 1.78; user-select: text;
+    }
+    .report-empty { min-height: 100%; display: grid; place-items: center; text-align: center; padding: 34px; color: var(--text-3); user-select: none; }
+    .empty-art {
+      width: 66px; height: 66px; margin: 0 auto 17px; border-radius: 21px;
+      display: grid; place-items: center; color: var(--brand); background: var(--brand-soft);
+    }
+    .report-empty h2 { margin: 0 0 9px; color: var(--text); font-size: 18px; }
+    .report-empty p { max-width: 340px; margin: 0; line-height: 1.75; font-size: 12.5px; }
+    .report h1, .report h2, .report h3 { color: var(--text); line-height: 1.4; }
+    .report h1 { margin: 0 0 18px; font-size: 21px; }
+    .report h2 { margin: 25px 0 10px; padding-bottom: 7px; border-bottom: 1px solid #edf1f5; font-size: 16px; }
+    .report h3 { margin: 20px 0 8px; font-size: 14px; }
+    .report p { margin: 8px 0; }
+    .report ol, .report ul { margin: 8px 0; padding-left: 23px; }
+    .report li { margin: 6px 0; }
+    .report strong { color: #223147; }
+    .report code { padding: 2px 5px; border-radius: 5px; color: #3451a3; background: #edf1fb; font-family: Consolas, monospace; font-size: .92em; }
+    .report pre { margin: 12px 0; padding: 13px 14px; overflow: auto; border-radius: 11px; background: #202a38; color: #e9eef6; line-height: 1.55; }
+    .report pre code { padding: 0; color: inherit; background: transparent; }
+    .toast {
+      position: fixed; left: 50%; bottom: 28px; z-index: 20;
+      max-width: min(620px, 80vw); padding: 11px 16px; border-radius: 12px;
+      color: #fff; background: #303948; box-shadow: var(--shadow);
+      opacity: 0; pointer-events: none; transform: translate(-50%, 16px);
+      transition: opacity .2s, transform .2s;
+    }
+    .toast.visible { opacity: 1; transform: translate(-50%, 0); }
+    .toast.error { background: var(--danger); }
+    @keyframes pulse { 50% { opacity: .35; transform: scale(.8); } }
+    @media (max-width: 1120px) {
+      .workspace { grid-template-columns: minmax(0, 1fr) minmax(360px, .82fr); }
+      .control-strip { grid-template-columns: 250px minmax(240px, 1fr) auto auto; }
+      .evidence-meta { grid-template-columns: 1fr 1fr; }
+      .metric:last-child { display: none; }
+    }
+    @media (max-width: 860px) {
+      .app { grid-template-rows: 76px 146px minmax(0,1fr); }
+      .control-strip { grid-template-columns: 1fr auto auto; }
+      .field.symptom { grid-column: 1 / -1; grid-row: 2; }
+      .workspace { grid-template-columns: 1fr; overflow: auto; }
+      .card { min-height: 520px; }
+      .readonly-badge { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="appbar">
+      <div class="title-wrap">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 18.5V15l3.4-3.4a7 7 0 1 1 5 5L9 20H5.5L4 18.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m14.7 7.7 1.6 1.6-4.6 4.6-2.2.6.6-2.2 4.6-4.6Z" fill="currentColor"/></svg>
+        </div>
+        <div><h1>智能诊断中心</h1><div class="subtitle">运行证据、设备事实与 AI 根因分析集中呈现</div></div>
+      </div>
+      <div class="readonly-badge">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3 4.5 6v5.3c0 4.5 3.2 8.1 7.5 9.7 4.3-1.6 7.5-5.2 7.5-9.7V6L12 3Z" stroke="currentColor" stroke-width="1.8"/><path d="m8.5 12 2.2 2.2 4.8-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        只读取证 · 不改变设备状态
+      </div>
+    </header>
+
+    <section class="control-strip" aria-label="诊断条件">
+      <div class="field">
+        <label for="processSelect">目标流程</label>
+        <select id="processSelect" class="control" disabled><option>正在读取流程…</option></select>
+      </div>
+      <div class="field symptom">
+        <label for="symptomInput">现场症状（可选）</label>
+        <input id="symptomInput" class="control" maxlength="1000" placeholder="例如：回原点后偶发超时，报警前气缸已到位">
+      </div>
+      <button id="analyzeButton" class="primary" disabled>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="m12 3 1.4 5 5 1.4-5 1.4-1.4 5-1.4-5-5-1.4 5-1.4L12 3Zm6.5 11 .7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7.7-2.3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        开始分析
+      </button>
+      <button id="cancelButton" class="secondary" disabled>停止</button>
+    </section>
+
+    <section class="workspace">
+      <article class="card timeline-card">
+        <header class="card-head">
+          <div class="card-title">
+            <span class="card-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M5 4v16m0-12h5m-5 6h9m-9 5h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="13" cy="8" r="2" fill="currentColor"/><circle cx="17" cy="14" r="2" fill="currentColor"/><circle cx="20" cy="19" r="2" fill="currentColor"/></svg></span>
+            <span><strong>运行证据时间线</strong><span id="timelineSubtitle">等待运行事件</span></span>
+          </div>
+          <button id="timelineToggle" class="timeline-toggle" aria-pressed="false"><span class="toggle-dot"></span><span id="timelineToggleText">展开 10 分钟缓冲</span></button>
+        </header>
+        <div class="evidence-meta">
+          <div class="metric"><div class="metric-label">证据窗口</div><div id="windowMetric" class="metric-value">—</div></div>
+          <div class="metric"><div class="metric-label">事件数量</div><div id="countMetric" class="metric-value">0 条</div></div>
+          <div class="metric"><div class="metric-label">事故包</div><div id="incidentMetric" class="metric-value">未形成事故包</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <colgroup><col style="width:106px"><col style="width:132px"><col style="width:130px"><col></colgroup>
+            <thead><tr><th>时间</th><th>事件</th><th>位置 / 资源</th><th>已记录事实</th></tr></thead>
+            <tbody id="timelineBody"><tr class="empty-row"><td colspan="4">请选择流程以查看运行证据。</td></tr></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card report-card">
+        <header class="card-head">
+          <div class="card-title">
+            <span class="card-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M7 3h7l4 4v14H7V3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3v5h4M10 12h5m-5 4h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+            <span><strong>AI 诊断报告</strong><span>事实、推断和证据缺口分层表达</span></span>
+          </div>
+          <div id="reportStatus" class="report-status"><span class="status-dot"></span><span id="statusText">就绪</span></div>
+        </header>
+        <div id="reportScroll" class="report-scroll">
+          <div id="reportEmpty" class="report-empty">
+            <div><div class="empty-art"><svg width="31" height="31" viewBox="0 0 24 24" fill="none"><path d="m12 3 1.4 5 5 1.4-5 1.4-1.4 5-1.4-5-5-1.4 5-1.4L12 3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 16.5h4M6 20h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div><h2>从现场事实开始分析</h2><p>选择目标流程，可补充现场症状，然后开始只读诊断。报告不会执行恢复、写值、启停或配置修改。</p></div>
+          </div>
+          <div id="report" class="report" hidden></div>
+        </div>
+      </article>
+    </section>
+  </main>
+  <div id="toast" class="toast" role="status"></div>
+
+  <script>
+    (() => {
+      'use strict';
+      const state = { processes: [], selectedProcIndex: -1, running: false, fullTimeline: false, reportText: '' };
+      const el = {
+        process: document.getElementById('processSelect'), symptom: document.getElementById('symptomInput'),
+        analyze: document.getElementById('analyzeButton'), cancel: document.getElementById('cancelButton'),
+        toggle: document.getElementById('timelineToggle'), toggleText: document.getElementById('timelineToggleText'),
+        timelineSubtitle: document.getElementById('timelineSubtitle'), timelineBody: document.getElementById('timelineBody'),
+        windowMetric: document.getElementById('windowMetric'), countMetric: document.getElementById('countMetric'),
+        incidentMetric: document.getElementById('incidentMetric'), reportStatus: document.getElementById('reportStatus'),
+        statusText: document.getElementById('statusText'), reportScroll: document.getElementById('reportScroll'),
+        report: document.getElementById('report'), reportEmpty: document.getElementById('reportEmpty'), toast: document.getElementById('toast')
+      };
+      let reportRenderPending = false;
+      let toastTimer = 0;
+
+      function post(action, payload) {
+        const message = Object.assign({ action }, payload || {});
+        window.chrome.webview.postMessage(JSON.stringify(message));
+      }
+
+      function setButtonState() {
+        const hasProcess = state.selectedProcIndex >= 0;
+        el.process.disabled = state.running || state.processes.length === 0;
+        el.symptom.disabled = state.running;
+        el.analyze.disabled = state.running || !hasProcess;
+        el.cancel.disabled = !state.running;
+        el.toggle.disabled = !hasProcess;
+      }
+
+      function renderProcesses(message) {
+        state.processes = Array.isArray(message.processes) ? message.processes : [];
+        state.selectedProcIndex = Number.isInteger(message.selectedProcIndex) ? message.selectedProcIndex : -1;
+        state.running = !!message.analysisRunning;
+        el.process.replaceChildren();
+        if (state.processes.length === 0) {
+          const option = document.createElement('option');
+          option.textContent = '当前没有可诊断流程';
+          option.value = '-1';
+          el.process.appendChild(option);
+        } else {
+          state.processes.forEach(process => {
+            const option = document.createElement('option');
+            option.value = String(process.index);
+            option.textContent = `${process.index} - ${process.name}  [${process.stateText}]`;
+            option.selected = process.index === state.selectedProcIndex;
+            el.process.appendChild(option);
+          });
+        }
+        setButtonState();
+      }
+
+      function appendCell(row, text, className) {
+        const cell = document.createElement('td');
+        cell.textContent = text || '—';
+        if (className) cell.className = className;
+        row.appendChild(cell);
+        return cell;
+      }
+
+      function renderTimeline(message) {
+        const events = Array.isArray(message.events) ? message.events : [];
+        const captured = Number(message.capturedEventCount) || 0;
+        const raw = Number(message.rawRelevantEventCount) || captured;
+        const incidentId = message.incidentId || '';
+        state.fullTimeline = !!message.fullTimeline;
+        el.toggle.classList.toggle('active', state.fullTimeline);
+        el.toggle.setAttribute('aria-pressed', String(state.fullTimeline));
+        el.toggleText.textContent = incidentId
+          ? (state.fullTimeline ? '收起完整事故包' : '展开完整事故包')
+          : (state.fullTimeline ? '收起 10 分钟缓冲' : '展开 10 分钟缓冲');
+        el.timelineSubtitle.textContent = captured < raw ? `显示 ${captured} / ${raw} 条相关事件` : `${captured} 条相关事件`;
+        el.countMetric.textContent = captured < raw ? `${captured} / ${raw} 条` : `${captured} 条`;
+        el.windowMetric.textContent = message.windowStartUtc && message.windowEndUtc
+          ? `${message.windowStartUtc} － ${message.windowEndUtc}` : '尚无有效时间窗口';
+        el.incidentMetric.textContent = incidentId ? `已捕获 · ${incidentId.slice(0, 8)}` : '未形成事故包';
+        el.incidentMetric.title = incidentId;
+        el.timelineBody.replaceChildren();
+        if (events.length === 0) {
+          const row = document.createElement('tr');
+          row.className = 'empty-row';
+          const cell = appendCell(row, message.emptyMessage || '尚无运行事件。');
+          cell.colSpan = 4;
+          el.timelineBody.appendChild(row);
+          return;
+        }
+        events.forEach(item => {
+          const row = document.createElement('tr');
+          appendCell(row, item.time, 'time-cell');
+          const eventCell = document.createElement('td');
+          const badge = document.createElement('span');
+          badge.className = `event-badge ${item.tone || 'neutral'}`;
+          badge.textContent = item.eventText || item.eventName || '运行事件';
+          eventCell.appendChild(badge);
+          row.appendChild(eventCell);
+          appendCell(row, item.position);
+          appendCell(row, item.detail, 'detail-cell');
+          el.timelineBody.appendChild(row);
+        });
+      }
+
+      function renderAnalysisState(message) {
+        state.running = !!message.running;
+        el.statusText.textContent = message.status || '就绪';
+        el.reportStatus.className = `report-status ${message.tone || 'neutral'}`;
+        if (message.clearReport) {
+          state.reportText = '';
+          el.report.replaceChildren();
+          el.report.hidden = false;
+          el.reportEmpty.hidden = true;
+        }
+        setButtonState();
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, character => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[character]);
+      }
+
+      function inlineMarkdown(value) {
+        return escapeHtml(value)
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      }
+
+      function renderMarkdown(source) {
+        const lines = String(source || '').replace(/\r\n/g, '\n').split('\n');
+        const output = [];
+        let list = '';
+        let inCode = false;
+        const closeList = () => { if (list) { output.push(`</${list}>`); list = ''; } };
+        lines.forEach(line => {
+          if (/^```/.test(line.trim())) {
+            closeList();
+            if (inCode) output.push('</code></pre>');
+            else output.push('<pre><code>');
+            inCode = !inCode;
+            return;
+          }
+          if (inCode) { output.push(`${escapeHtml(line)}\n`); return; }
+          const heading = line.match(/^(#{1,3})\s+(.+)$/);
+          if (heading) {
+            closeList();
+            const level = heading[1].length;
+            output.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+            return;
+          }
+          const ordered = line.match(/^\s*\d+[.、]\s*(.+)$/);
+          const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+          if (ordered || unordered) {
+            const nextList = ordered ? 'ol' : 'ul';
+            if (list !== nextList) { closeList(); list = nextList; output.push(`<${list}>`); }
+            output.push(`<li>${inlineMarkdown((ordered || unordered)[1])}</li>`);
+            return;
+          }
+          closeList();
+          if (!line.trim()) output.push('');
+          else output.push(`<p>${inlineMarkdown(line)}</p>`);
+        });
+        closeList();
+        if (inCode) output.push('</code></pre>');
+        return output.join('');
+      }
+
+      function scheduleReportRender() {
+        if (reportRenderPending) return;
+        reportRenderPending = true;
+        requestAnimationFrame(() => {
+          reportRenderPending = false;
+          el.report.innerHTML = renderMarkdown(state.reportText);
+          el.report.hidden = false;
+          el.reportEmpty.hidden = true;
+          el.reportScroll.scrollTop = el.reportScroll.scrollHeight;
+        });
+      }
+
+      function showToast(message, error) {
+        clearTimeout(toastTimer);
+        el.toast.textContent = message || '页面发生异常。';
+        el.toast.className = `toast visible${error ? ' error' : ''}`;
+        toastTimer = setTimeout(() => { el.toast.className = 'toast'; }, 4500);
+      }
+
+      window.chrome.webview.addEventListener('message', event => {
+        let message = event.data;
+        if (typeof message === 'string') {
+          try { message = JSON.parse(message); } catch (_) { return; }
+        }
+        if (!message || !message.type) return;
+        if (message.type === 'processes') renderProcesses(message);
+        else if (message.type === 'timeline') renderTimeline(message);
+        else if (message.type === 'analysisState') renderAnalysisState(message);
+        else if (message.type === 'reportChunk') {
+          state.reportText += message.text || '';
+          scheduleReportRender();
+        } else if (message.type === 'pageError') showToast(message.message, true);
+      });
+
+      el.process.addEventListener('change', () => {
+        const procIndex = Number(el.process.value);
+        if (Number.isInteger(procIndex) && procIndex >= 0) post('selectProcess', { procIndex });
+      });
+      el.toggle.addEventListener('click', () => post('setFullTimeline', { enabled: !state.fullTimeline }));
+      el.analyze.addEventListener('click', () => post('analyze', { symptom: el.symptom.value.trim() }));
+      el.cancel.addEventListener('click', () => post('cancel'));
+      el.symptom.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !el.analyze.disabled) {
+          event.preventDefault();
+          el.analyze.click();
+        }
+      });
+      post('ready');
+    })();
+  </script>
+</body>
+</html>

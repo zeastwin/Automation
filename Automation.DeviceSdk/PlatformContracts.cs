@@ -3,11 +3,6 @@ using System.Collections.Generic;
 
 namespace Automation.DeviceSdk
 {
-    public static class PlatformApiInfo
-    {
-        public const string ApiVersion = "4.0";
-    }
-
     public enum PlatformRuntimeStatus
     {
         Created = 0,
@@ -69,7 +64,6 @@ namespace Automation.DeviceSdk
         public string AlarmMessage { get; set; }
         public DateTime UpdatedAt { get; set; }
         public bool PerformanceAnalysisEnabled { get; set; }
-        public string ProcessExecutionMode { get; set; }
         public long OperationCount { get; set; }
         public double OperationsPerSecond { get; set; }
         public double ThreadCpuPercent { get; set; }
@@ -158,6 +152,10 @@ namespace Automation.DeviceSdk
         void ShowPlatformEditor();
 
         void HidePlatformEditor();
+
+        void ShowRuntimeDiagnostics();
+
+        void ShowPerformanceAnalysis();
 
         void NotifyInteractionUiReady();
 

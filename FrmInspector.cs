@@ -137,7 +137,9 @@ namespace Automation
 
             actionBar.BackColor = InspectorPalette.Surface;
             actionBar.Dock = DockStyle.None;
-            actionBar.Height = 46;
+            actionBar.Height = 48;
+            actionBar.Margin = Padding.Empty;
+            actionBar.Padding = Padding.Empty;
             actionBar.Visible = false;
             actionBar.Paint += (sender, args) =>
             {
@@ -162,7 +164,10 @@ namespace Automation
 
         private static void ConfigureActionButton(Button button, bool primary)
         {
+            button.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+            button.AutoSize = false;
             button.Cursor = Cursors.Hand;
+            button.Dock = DockStyle.None;
             button.FlatAppearance.BorderSize = 0;
             button.FlatAppearance.MouseOverBackColor = primary
                 ? InspectorPalette.BrandHover
@@ -171,13 +176,14 @@ namespace Automation
                 ? Color.FromArgb(57, 79, 196)
                 : Color.FromArgb(229, 233, 239);
             button.FlatStyle = FlatStyle.Flat;
-            button.Font = InspectorFonts.Bold9;
+            button.Font = InspectorFonts.Bold95;
             button.ImageAlign = ContentAlignment.MiddleCenter;
             button.TextAlign = ContentAlignment.MiddleCenter;
             button.TextImageRelation = TextImageRelation.ImageBeforeText;
             button.Padding = Padding.Empty;
             button.Margin = Padding.Empty;
             button.TabStop = true;
+            button.UseCompatibleTextRendering = false;
             button.UseVisualStyleBackColor = false;
             button.EnabledChanged += (sender, args) =>
                 UpdateActionButtonAppearance(button, primary);
@@ -199,7 +205,7 @@ namespace Automation
                 enabled
                     ? primary ? Color.White : InspectorPalette.TextSecondary
                     : InspectorPalette.TextDisabled,
-                17);
+                21);
             previousImage?.Dispose();
         }
 
@@ -210,8 +216,8 @@ namespace Automation
             bool showActionBar = saveButton != null && cancelButton != null;
             if (showActionBar)
             {
-                actionBar.SetBounds(0, contentTop, width, 46);
-                contentTop += 46;
+                actionBar.SetBounds(0, contentTop, width, 48);
+                contentTop += 48;
             }
             if (inspectorView.SelectedObject is OperationType)
             {
@@ -230,13 +236,14 @@ namespace Automation
 
             if (saveButton != null && cancelButton != null)
             {
-                const int padding = 6;
-                const int gap = 6;
-                int available = Math.Max(100, actionBar.ClientSize.Width - padding * 2 - gap);
-                int saveWidth = available / 2;
-                int cancelWidth = available - saveWidth;
-                saveButton.SetBounds(padding, 6, saveWidth, 34);
-                cancelButton.SetBounds(padding + saveWidth + gap, 6, cancelWidth, 34);
+                int saveWidth = actionBar.ClientSize.Width / 2;
+                int cancelWidth = actionBar.ClientSize.Width - saveWidth;
+                saveButton.SetBounds(0, 0, saveWidth, actionBar.ClientSize.Height);
+                cancelButton.SetBounds(
+                    saveWidth,
+                    0,
+                    cancelWidth,
+                    actionBar.ClientSize.Height);
             }
         }
 

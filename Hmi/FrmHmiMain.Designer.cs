@@ -99,7 +99,7 @@ namespace Automation.Hmi
             this.navigationPanel.Controls.Add(this.btnCapacity);
             this.navigationPanel.Location = new System.Drawing.Point(14, 10);
             this.navigationPanel.Name = "navigationPanel";
-            this.navigationPanel.Size = new System.Drawing.Size(436, 42);
+            this.navigationPanel.Size = new System.Drawing.Size(402, 42);
             this.navigationPanel.TabIndex = 1;
             this.navigationPanel.WrapContents = false;
             //

@@ -2,6 +2,7 @@
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="packages\LibGit2Sharp.NativeBinaries.2.0.323\build\net46\LibGit2Sharp.NativeBinaries.props" Condition="Exists('packages\LibGit2Sharp.NativeBinaries.2.0.323\build\net46\LibGit2Sharp.NativeBinaries.props')" />
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <Import Project="Automation.DeviceSdk\PlatformApiVersion.props" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
@@ -78,15 +79,6 @@
     </Reference>
     <Reference Include="Microsoft.Bcl.HashCode">
       <HintPath>packages\Microsoft.Bcl.HashCode.6.0.0\lib\net462\Microsoft.Bcl.HashCode.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Msagl">
-      <HintPath>packages\Microsoft.Msagl.1.1.6\lib\netstandard2.0\Microsoft.Msagl.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Msagl.Drawing">
-      <HintPath>packages\Microsoft.Msagl.Drawing.1.1.6\lib\netstandard2.0\Microsoft.Msagl.Drawing.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Msagl.GraphViewerGdi">
-      <HintPath>packages\Microsoft.Msagl.GraphViewerGDI.1.1.7\lib\net472\Microsoft.Msagl.GraphViewerGdi.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Web.WebView2.Core, Version=1.0.4078.44, Culture=neutral, PublicKeyToken=2a8ab48044d2601e, processorArchitecture=MSIL">
       <HintPath>packages\Microsoft.Web.WebView2.1.0.4078.44\lib\net462\Microsoft.Web.WebView2.Core.dll</HintPath>
@@ -195,6 +187,7 @@
     <Compile Include="Runtime\\StructuredAuditLogger.cs" />
     <Compile Include="Runtime\\AiAnalysisLogger.cs" />
     <Compile Include="Runtime\\ProcessTraceAuditSink.cs" />
+    <Compile Include="Runtime\\RuntimeBlackBoxRecorder.cs" />
     <Compile Include="Runtime\\ObjectGraphCloner.cs" />
     <Compile Include="Runtime\\AutomationConfigSerializationBinder.cs" />
     <Compile Include="Runtime\\OperationClipboardService.cs" />
@@ -254,6 +247,12 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FrmAiAssistant.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmRuntimeDiagnostics.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmPerformanceAnalysis.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FrmVersionManager.cs">
@@ -508,6 +507,15 @@
     <EmbeddedResource Include="Assets\Goose\automation.md">
       <LogicalName>Automation.Assets.Goose.automation.md</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Assets\ProcessFlow\index.html">
+      <LogicalName>Automation.Assets.ProcessFlow.index.html</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\RuntimeDiagnostics\index.html">
+      <LogicalName>Automation.Assets.RuntimeDiagnostics.index.html</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\PerformanceAnalysis\index.html">
+      <LogicalName>Automation.Assets.PerformanceAnalysis.index.html</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="Hmi\CustomFunctions.cs">
       <LogicalName>Automation.Hmi.CustomFunctions.Source</LogicalName>
     </EmbeddedResource>
@@ -593,7 +601,7 @@
     <Delete Files="@(RedundantOutputFile)" />
   </Target>
   <Target Name="WritePlatformRuntimeManifest" AfterTargets="Build">
-    <WriteLinesToFile File="$(TargetDir)PlatformRuntimeManifest.json" Lines="{ &quot;apiVersion&quot;: &quot;1.0&quot;, &quot;platformVersion&quot;: &quot;$(PlatformRuntimeVersion)&quot;, &quot;architecture&quot;: &quot;x64&quot;, &quot;configuration&quot;: &quot;$(Configuration)&quot; }" Overwrite="true" Encoding="UTF-8" />
+    <WriteLinesToFile File="$(TargetDir)PlatformRuntimeManifest.json" Lines="{ &quot;apiVersion&quot;: &quot;$(PlatformApiVersion)&quot;, &quot;platformVersion&quot;: &quot;$(PlatformRuntimeVersion)&quot;, &quot;architecture&quot;: &quot;x64&quot;, &quot;configuration&quot;: &quot;$(Configuration)&quot; }" Overwrite="true" Encoding="UTF-8" />
   </Target>
   <!-- Release 运行包不携带调试符号；递归清理可同时移除项目引用遗留的 PDB。 -->
   <Target Name="SlimReleaseOutput" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">

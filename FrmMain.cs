@@ -28,6 +28,8 @@ namespace Automation
         private WorkspacePageHost workspacePageHost;
         private Panel editorWorkspacePage;
         private FrmProcessFlow frmProcessFlow;
+        private FrmRuntimeDiagnostics frmRuntimeDiagnostics;
+        private FrmPerformanceAnalysis frmPerformanceAnalysis;
         private bool flowGraphUnavailable;
         public FrmIO  frmIO = new FrmIO();
         public FrmCard  frmCard = new FrmCard();
@@ -67,6 +69,7 @@ namespace Automation
         private readonly Control uiDispatcher;
         private readonly AutomationBridgeHost automationBridgeHost;
         private readonly ProcessTraceAuditSink processTraceAuditSink;
+        private RuntimeBlackBoxRecorder runtimeBlackBoxRecorder;
         private readonly AutomationMcpServerManager automationMcpServerManager = new AutomationMcpServerManager();
         private bool platformInitializationStarted;
         private bool platformInitialized;
@@ -77,9 +80,11 @@ namespace Automation
         private const int MinimumAiPanelWidth = 320;
         private FormWindowState previousWindowState;
         private bool centerAfterRestorePending;
+        private volatile bool runtimeDiagnosticsEnabled;
 
         internal bool HideOnUserClose { get; set; }
         internal bool IsPlatformInitialized => platformInitialized;
+        internal bool RuntimeDiagnosticsEnabled => runtimeDiagnosticsEnabled;
 
         private sealed class ProcPopupItem
         {
@@ -191,6 +196,9 @@ namespace Automation
             Resize += FrmMain_Resize;
 
             loadFillForm(MenuPanel, SF.frmMenu);
+            bool diagnosticsEnabled = AppConfigStorage.TryGetCached(out AppConfig appConfig, out _)
+                && appConfig.EnableRuntimeDiagnostics;
+            ApplyRuntimeDiagnosticsConfiguration(diagnosticsEnabled);
             loadFillForm(treeView_panel, SF.frmProc);
             loadFillForm(DataGrid_panel, SF.frmDataGrid);
             loadFillForm(inspector_panel, SF.frmInspector);
@@ -265,6 +273,86 @@ namespace Automation
         }
 
         public AutomationMcpServerManager McpServerManager => automationMcpServerManager;
+
+        internal RuntimeBlackBoxRecorder RuntimeBlackBoxRecorder => runtimeBlackBoxRecorder;
+
+        public void ShowRuntimeDiagnostics()
+        {
+            if (!RuntimeDiagnosticsEnabled)
+            {
+                throw new InvalidOperationException("智能诊断中心已在程序设置中停用。");
+            }
+            if (frmRuntimeDiagnostics == null || frmRuntimeDiagnostics.IsDisposed)
+            {
+                frmRuntimeDiagnostics = new FrmRuntimeDiagnostics(this);
+                frmRuntimeDiagnostics.FormClosed += (sender, args) => frmRuntimeDiagnostics = null;
+            }
+            if (!frmRuntimeDiagnostics.Visible)
+            {
+                frmRuntimeDiagnostics.Show();
+            }
+            if (frmRuntimeDiagnostics.WindowState == FormWindowState.Minimized)
+            {
+                frmRuntimeDiagnostics.WindowState = FormWindowState.Normal;
+            }
+            frmRuntimeDiagnostics.BringToFront();
+            frmRuntimeDiagnostics.Activate();
+        }
+
+        public void ShowPerformanceAnalysis()
+        {
+            if (frmPerformanceAnalysis == null || frmPerformanceAnalysis.IsDisposed)
+            {
+                frmPerformanceAnalysis = new FrmPerformanceAnalysis(this);
+                frmPerformanceAnalysis.FormClosed += (sender, args) => frmPerformanceAnalysis = null;
+            }
+            if (!frmPerformanceAnalysis.Visible) frmPerformanceAnalysis.Show();
+            if (frmPerformanceAnalysis.WindowState == FormWindowState.Minimized)
+            {
+                frmPerformanceAnalysis.WindowState = FormWindowState.Normal;
+            }
+            frmPerformanceAnalysis.BringToFront();
+            frmPerformanceAnalysis.Activate();
+        }
+
+        internal void ApplyRuntimeDiagnosticsConfiguration(bool configuredEnabled)
+        {
+            bool enabled = configuredEnabled;
+            if (enabled && runtimeBlackBoxRecorder == null)
+            {
+                try
+                {
+                    runtimeBlackBoxRecorder = new RuntimeBlackBoxRecorder(dataRun, SF.valueStore);
+                }
+                catch (Exception ex)
+                {
+                    enabled = false;
+                    dataRun?.Logger?.Log("智能诊断黑匣子初始化失败：" + ex.Message, LogLevel.Error);
+                }
+            }
+            runtimeDiagnosticsEnabled = enabled;
+            frmMenu?.SetRuntimeDiagnosticsEnabled(enabled);
+            if (enabled) return;
+
+            try
+            {
+                frmRuntimeDiagnostics?.Close();
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            automationMcpServerManager.StopRuntimeDiagnostic();
+            RuntimeBlackBoxRecorder recorder = runtimeBlackBoxRecorder;
+            runtimeBlackBoxRecorder = null;
+            try
+            {
+                recorder?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                dataRun?.Logger?.Log("关闭智能诊断黑匣子失败：" + ex.Message, LogLevel.Error);
+            }
+        }
 
         
 
@@ -582,6 +670,8 @@ namespace Automation
         private void HandleSimulationGatewayFault(string reason)
         {
             string message = $"仿真连接故障:{reason}";
+            runtimeBlackBoxRecorder?.RecordExternalEvent(
+                "simulation.connection.faulted", "simulation_gateway", message, true);
             Action stopAction = () =>
             {
                 dataRun?.Context?.AxisStatuses?.Clear();
@@ -1818,6 +1908,14 @@ namespace Automation
 
             processInteractionUiReady = false;
             StopAllProcsForSafety("系统关闭，停止所有流程。");
+            try
+            {
+                frmRuntimeDiagnostics?.Close();
+                frmPerformanceAnalysis?.Close();
+            }
+            catch
+            {
+            }
             // 必须先释放 Goose 客户端：Kill Goose 进程后，后台读取线程不再调用
             // HandlePermissionRequest 的同步 Invoke，避免与已阻塞的 UI 线程形成死锁导致程序关闭卡住。
             try
@@ -1916,6 +2014,8 @@ namespace Automation
             TryStopMotion();
             try
             {
+                runtimeBlackBoxRecorder?.Dispose();
+                runtimeBlackBoxRecorder = null;
                 processTraceAuditSink?.Dispose();
                 if (dataRun != null)
                 {
@@ -1944,6 +2044,8 @@ namespace Automation
         private void HandlePlcRuntimeEvent(object sender, PlcRuntimeEventArgs e)
         {
             if (e == null) return;
+            runtimeBlackBoxRecorder?.RecordExternalEvent(
+                "plc.runtime", e.DeviceName, e.Message, e.IsAlarm);
             void Report()
             {
                 dataRun?.Logger?.Log($"PLC[{e.DeviceName}] {e.Message}", e.IsAlarm ? LogLevel.Error : LogLevel.Normal);
@@ -1959,6 +2061,8 @@ namespace Automation
                 return;
             }
             string message = $"通讯接收队列发生丢帧：{e.Kind}[{e.Name}]累计丢弃{e.DroppedFrames}帧。请检查消费速度、触发序号和队列容量。";
+            runtimeBlackBoxRecorder?.RecordExternalEvent(
+                "communication.frames_dropped", $"{e.Kind}:{e.Name}", message, true);
             dataRun?.Logger?.Log(message, LogLevel.Error);
         }
     }

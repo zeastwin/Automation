@@ -44,11 +44,8 @@ namespace Automation
         private readonly object agentLock = new object();
         private readonly TimeSpan stopJoinTimeout = TimeSpan.FromSeconds(2);
         private static readonly double stopwatchTickToMilliseconds = 1000.0 / Stopwatch.Frequency;
-        private const int NormalCooperativeCheckInterval = 1024;
-        private const int HighPerformanceCooperativeCheckInterval = 4096;
-        private const double NormalCooperativeTimeSliceMilliseconds = 5.0;
-        private const double HighPerformanceCooperativeTimeSliceMilliseconds = 20.0;
-        private const int HighPerformanceSnapshotMilliseconds = 500;
+        private const int CooperativeCheckInterval = 1024;
+        private const double CooperativeTimeSliceMilliseconds = 5.0;
         private int snapshotThrottleMilliseconds = 50;
         private readonly ConcurrentDictionary<int, EngineSnapshot> pendingSnapshots = new ConcurrentDictionary<int, EngineSnapshot>();
         private readonly ConcurrentDictionary<int, PendingProcUpdate> pendingProcUpdates = new ConcurrentDictionary<int, PendingProcUpdate>();
@@ -58,7 +55,6 @@ namespace Automation
         private readonly object snapshotDispatchLock = new object();
         internal readonly object procPublishLock = new object();
         private readonly object motionResourceLock = new object();
-        internal readonly ProcessExecutionMode processExecutionMode;
         internal readonly bool performanceAnalysisEnabled;
         private static readonly object manualMotionOwner = new object();
         private readonly Dictionary<long, object> motionResourceOwners = new Dictionary<long, object>();
@@ -93,7 +89,6 @@ namespace Automation
         {
             Context = context ?? throw new ArgumentNullException(nameof(context));
             AutomationRuntimeOptions runtimeOptions = AutomationRuntimeOptions.Current;
-            processExecutionMode = runtimeOptions.ProcessExecutionMode;
             performanceAnalysisEnabled = runtimeOptions.PerformanceAnalysisEnabled;
             Context.AxisStatuses = Context.AxisStatuses ?? new AxisStatusCache();
             Context.AxisMotionParameters = Context.AxisMotionParameters ?? new AxisMotionParameterStore();
@@ -327,8 +322,7 @@ namespace Automation
             snapshot.Performance = performanceAgent?.GetCurrentPerformanceSnapshot()
                 ?? new ProcessPerformanceSnapshot
                 {
-                    Enabled = performanceAnalysisEnabled,
-                    ExecutionMode = processExecutionMode
+                    Enabled = performanceAnalysisEnabled
                 };
             Volatile.Write(ref snapshots[procIndex], snapshot);
             EnqueueSnapshot(snapshot);
@@ -872,9 +866,7 @@ namespace Automation
                 return;
             }
             long nowTicks = Stopwatch.GetTimestamp();
-            int refreshMilliseconds = processExecutionMode == ProcessExecutionMode.HighPerformance
-                ? HighPerformanceSnapshotMilliseconds
-                : Math.Max(1, snapshotThrottleMilliseconds);
+            int refreshMilliseconds = Math.Max(1, snapshotThrottleMilliseconds);
             long refreshTicks = Math.Max(1L,
                 (long)(refreshMilliseconds / 1000.0 * Stopwatch.Frequency));
             ProcAgent[] currentAgents = agents;
@@ -1620,9 +1612,7 @@ namespace Automation
             handle.CooperativeOperationCount = completedCount;
             int checkInterval = handle.Performance?.Enabled == true
                 ? 64
-                : (handle.Performance?.ExecutionMode == ProcessExecutionMode.HighPerformance
-                    ? HighPerformanceCooperativeCheckInterval
-                    : NormalCooperativeCheckInterval);
+                : CooperativeCheckInterval;
             if (completedCount % checkInterval != 0)
             {
                 return;
@@ -1635,10 +1625,7 @@ namespace Automation
                 handle.CooperativeSliceStartTimestamp = now;
                 return;
             }
-            double timeSliceMilliseconds = handle.Performance?.ExecutionMode == ProcessExecutionMode.HighPerformance
-                ? HighPerformanceCooperativeTimeSliceMilliseconds
-                : NormalCooperativeTimeSliceMilliseconds;
-            if ((now - sliceStart) * stopwatchTickToMilliseconds < timeSliceMilliseconds)
+            if ((now - sliceStart) * stopwatchTickToMilliseconds < CooperativeTimeSliceMilliseconds)
             {
                 return;
             }
@@ -2197,8 +2184,7 @@ namespace Automation
                 IsSingleOperation = command.Type == EngineCommandType.RunSingleOpOnce,
                 Control = control,
                 Waiter = waiter,
-                Performance = new ProcessPerformanceState(
-                    engine.performanceAnalysisEnabled, engine.processExecutionMode),
+                Performance = new ProcessPerformanceState(engine.performanceAnalysisEnabled),
                 RunMetrics = new ProcessRunMetrics(),
                 AppliedRevision = engine.GetSnapshot(procIndex)?.AppliedRevision ?? 0,
                 CooperativeSliceStartTimestamp = Stopwatch.GetTimestamp()

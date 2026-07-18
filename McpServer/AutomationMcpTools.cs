@@ -403,7 +403,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "diagnose_issue"), Description(
-            "根据现场症状和流程位置生成有上限的诊断证据包，自动组合运行快照、严格结构校验和目标前后指令。只读，不修改配置。")]
+            "根据现场症状和流程位置生成有上限的诊断证据包，自动组合运行快照、严格结构校验、目标前后指令和运行黑匣子事件。只读，不修改配置或运行状态。黑匣子事实与evidenceLimits应一并用于区分已验证事实和证据缺口。")]
         public static async Task<string> DiagnoseIssue(
             [Description("流程索引")] int procIndex,
             [Description("现场症状，最长300字符")] string? symptom = null,
@@ -444,7 +444,7 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "run_proc_test"), Description(
             "仅用于用户本轮明确要求测试或试运行的场景；只要求创建或修改配置时，以预演和validate_proc作为完成证据。独立执行一次有边界的流程测试：直接传入Stopped流程，本工具负责启动、观察和安全停止；已经运行的流程不会被接管。观察窗口500..15000ms，自然结束则直接返回。"
-            + "只返回真实terminationReason、outcome、是否观察到运行、位置变化和是否由测试器停止，由调用方结合用户目标判断结果。本次测试结果不授权再次启动；start_proc只用于用户明确要求持续运行的场景。")]
+            + "返回真实terminationReason、outcome、是否观察到运行、位置变化、是否由测试器停止及本轮runtimeEvidence黑匣子时间线，由调用方结合用户目标判断结果。本次测试结果不授权再次启动；start_proc只用于用户明确要求持续运行的场景。")]
         public static async Task<string> RunProcTest(
             [Description("处于Stopped的流程索引；优先使用 apply_change_set.affectedProcesses 返回值")] int procIndex,
             [Description("观察窗口500..15000ms，默认5000ms")] int? durationMs = null)

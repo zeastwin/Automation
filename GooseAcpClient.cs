@@ -535,9 +535,10 @@ namespace Automation
             var startInfo = new ProcessStartInfo
             {
                 FileName = config.GooseExecutablePath,
-                // ACP 默认不加载 builtin 扩展；显式启用 Goose 原生 Developer，
-                // 提供文件读取、代码修改和终端执行能力。
-                Arguments = "acp --with-builtin developer",
+                // 运行诊断只使用专属 Automation MCP；编辑会话保留 Goose 原生 Developer。
+                Arguments = string.Equals(config.ToolProfile, "RuntimeDiagnostic", StringComparison.Ordinal)
+                    ? "acp"
+                    : "acp --with-builtin developer",
                 WorkingDirectory = ResolveWorkingDirectory(),
                 UseShellExecute = false,
                 RedirectStandardInput = true,
@@ -570,7 +571,9 @@ namespace Automation
             }
             // Goose 会把 Developer Shell 输出严格按 UTF-8 解码。统一通过随程序发布的
             // UTF-8 适配器启动 PowerShell，避免系统代码页把中文不可逆地解码成乱码。
-            string developerShellPath = ResolveGooseDeveloperShellPath();
+            bool runtimeDiagnostic = string.Equals(
+                config.ToolProfile, "RuntimeDiagnostic", StringComparison.Ordinal);
+            string developerShellPath = runtimeDiagnostic ? null : ResolveGooseDeveloperShellPath();
             if (!string.IsNullOrWhiteSpace(developerShellPath))
             {
                 startInfo.EnvironmentVariables["GOOSE_SHELL"] = developerShellPath;
@@ -696,7 +699,7 @@ namespace Automation
             startupInfo.Append(" maxOutputTokens=").Append(config.MaxOutputTokens);
             startupInfo.Append(" temperature=").Append(config.Temperature);
             LogFile(startupInfo.ToString(), LogLevel.Normal);
-            Report("lifecycle", $"EW-AI ACP 进程已启动：{config.GooseExecutablePath} acp --with-builtin developer", null);
+            Report("lifecycle", $"EW-AI ACP 进程已启动：{config.GooseExecutablePath} {startInfo.Arguments}", null);
         }
 
         private static string ResolveGooseDeveloperShellPath()
@@ -1558,7 +1561,11 @@ namespace Automation
         private string BuildPrompt(string prompt)
         {
             string context;
-            if (string.Equals(config.ToolProfile, "Diagnostic", StringComparison.Ordinal))
+            if (string.Equals(config.ToolProfile, "RuntimeDiagnostic", StringComparison.Ordinal))
+            {
+                context = "当前 Automation 工具模式：RuntimeDiagnostic。当前会话只开放运行现场取证工具，不具备平台开发、流程运行或配置写入能力。";
+            }
+            else if (string.Equals(config.ToolProfile, "Diagnostic", StringComparison.Ordinal))
             {
                 context = "当前 Automation 工具模式：Diagnostic。当前会话只开放读取和诊断工具，不具备运行控制或配置写入能力。";
             }

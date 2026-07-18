@@ -12,19 +12,13 @@ namespace Automation
         PlatformEditor = 1
     }
 
-    public enum ProcessExecutionMode
-    {
-        Normal = 0,
-        HighPerformance = 1
-    }
-
     public sealed class AppConfig
     {
         public int CommMaxMessageQueueSize { get; set; }
         public AutomationRuntimeMode RuntimeMode { get; set; }
         public AutomationStartupView StartupView { get; set; }
-        public ProcessExecutionMode ProcessExecutionMode { get; set; }
         public bool EnablePerformanceAnalysis { get; set; }
+        public bool EnableRuntimeDiagnostics { get; set; }
     }
 
     public static class AppConfigStorage
@@ -34,8 +28,8 @@ namespace Automation
         public const string CommMaxMessageQueueSizeKey = "CommMaxMessageQueueSize";
         public const string RuntimeModeKey = "RuntimeMode";
         public const string StartupViewKey = "StartupView";
-        public const string ProcessExecutionModeKey = "ProcessExecutionMode";
         public const string EnablePerformanceAnalysisKey = "EnablePerformanceAnalysis";
+        public const string EnableRuntimeDiagnosticsKey = "EnableRuntimeDiagnostics";
         public const int DefaultCommMaxMessageQueueSize = 1000;
         private static readonly object cacheLock = new object();
         private static AppConfig cachedConfig;
@@ -54,8 +48,8 @@ namespace Automation
                     CommMaxMessageQueueSize = DefaultCommMaxMessageQueueSize,
                     RuntimeMode = AutomationRuntimeMode.Hardware,
                     StartupView = AutomationStartupView.Hmi,
-                    ProcessExecutionMode = ProcessExecutionMode.Normal,
-                    EnablePerformanceAnalysis = true
+                    EnablePerformanceAnalysis = true,
+                    EnableRuntimeDiagnostics = true
                 };
                 if (!TrySave(defaultConfig, out string saveError))
                 {
@@ -109,19 +103,6 @@ namespace Automation
                     return false;
                 }
                 AutomationStartupView startupView = (AutomationStartupView)token.Value<int>();
-                if (!obj.TryGetValue(ProcessExecutionModeKey, StringComparison.Ordinal, out token))
-                {
-                    error = $"配置缺少字段:{ProcessExecutionModeKey}";
-                    return false;
-                }
-                if (token.Type != JTokenType.Integer
-                    || (token.Value<int>() != (int)ProcessExecutionMode.Normal
-                        && token.Value<int>() != (int)ProcessExecutionMode.HighPerformance))
-                {
-                    error = $"流程执行模式配置无效:{token}";
-                    return false;
-                }
-                ProcessExecutionMode processExecutionMode = (ProcessExecutionMode)token.Value<int>();
                 if (!obj.TryGetValue(EnablePerformanceAnalysisKey, StringComparison.Ordinal, out token))
                 {
                     error = $"配置缺少字段:{EnablePerformanceAnalysisKey}";
@@ -133,13 +114,24 @@ namespace Automation
                     return false;
                 }
                 bool enablePerformanceAnalysis = token.Value<bool>();
+                if (!obj.TryGetValue(EnableRuntimeDiagnosticsKey, StringComparison.Ordinal, out token))
+                {
+                    error = $"配置缺少字段:{EnableRuntimeDiagnosticsKey}";
+                    return false;
+                }
+                if (token.Type != JTokenType.Boolean)
+                {
+                    error = $"智能诊断开关配置无效:{token}";
+                    return false;
+                }
+                bool enableRuntimeDiagnostics = token.Value<bool>();
                 config = new AppConfig
                 {
                     CommMaxMessageQueueSize = value,
                     RuntimeMode = runtimeMode,
                     StartupView = startupView,
-                    ProcessExecutionMode = processExecutionMode,
-                    EnablePerformanceAnalysis = enablePerformanceAnalysis
+                    EnablePerformanceAnalysis = enablePerformanceAnalysis,
+                    EnableRuntimeDiagnostics = enableRuntimeDiagnostics
                 };
                 SetCache(config);
                 return true;
@@ -191,19 +183,13 @@ namespace Automation
                 error = $"启动界面配置无效:{config.StartupView}";
                 return false;
             }
-            if (config.ProcessExecutionMode != ProcessExecutionMode.Normal
-                && config.ProcessExecutionMode != ProcessExecutionMode.HighPerformance)
-            {
-                error = $"流程执行模式配置无效:{config.ProcessExecutionMode}";
-                return false;
-            }
             JObject obj = new JObject
             {
                 [CommMaxMessageQueueSizeKey] = config.CommMaxMessageQueueSize,
                 [RuntimeModeKey] = (int)config.RuntimeMode,
                 [StartupViewKey] = (int)config.StartupView,
-                [ProcessExecutionModeKey] = (int)config.ProcessExecutionMode,
-                [EnablePerformanceAnalysisKey] = config.EnablePerformanceAnalysis
+                [EnablePerformanceAnalysisKey] = config.EnablePerformanceAnalysis,
+                [EnableRuntimeDiagnosticsKey] = config.EnableRuntimeDiagnostics
             };
             string json = obj.ToString(Formatting.Indented);
             string path = ConfigPath;
@@ -238,8 +224,8 @@ namespace Automation
                 CommMaxMessageQueueSize = config.CommMaxMessageQueueSize,
                 RuntimeMode = config.RuntimeMode,
                 StartupView = config.StartupView,
-                ProcessExecutionMode = config.ProcessExecutionMode,
-                EnablePerformanceAnalysis = config.EnablePerformanceAnalysis
+                EnablePerformanceAnalysis = config.EnablePerformanceAnalysis,
+                EnableRuntimeDiagnostics = config.EnableRuntimeDiagnostics
             };
         }
     }

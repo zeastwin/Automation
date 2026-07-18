@@ -10,8 +10,8 @@ namespace Automation
     {
         private readonly TextBox txtQueueSize = new TextBox();
         private readonly ComboBox cmbRuntimeMode = new ComboBox();
-        private readonly ComboBox cmbProcessExecutionMode = new ComboBox();
         private readonly CheckBox chkPerformanceAnalysis = new CheckBox();
+        private readonly CheckBox chkRuntimeDiagnostics = new CheckBox();
         private readonly ComboBox cmbStartupView = new ComboBox();
         private readonly TextBox txtConfigPath = new TextBox();
         private readonly Button btnSave = new Button();
@@ -47,7 +47,7 @@ namespace Automation
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Regular);
             BackColor = Color.FromArgb(243, 246, 248);
-            ClientSize = new Size(620, 620);
+            ClientSize = new Size(620, 616);
 
             Panel header = new Panel
             {
@@ -85,7 +85,7 @@ namespace Automation
             Panel settingsCard = new Panel
             {
                 Location = new Point(22, 96),
-                Size = new Size(576, 390),
+                Size = new Size(576, 384),
                 BackColor = Color.White,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -131,32 +131,30 @@ namespace Automation
             fields.Controls.Add(CreateInputHost(cmbRuntimeMode), 1, 1);
 
             fields.Controls.Add(CreateFieldDescription(
-                "流程执行模式",
-                "降低观测与统计开销，保留报警和调度保护"), 0, 2);
-            cmbProcessExecutionMode.DropDownStyle = ComboBoxStyle.DropDownList;
-            cmbProcessExecutionMode.FlatStyle = FlatStyle.Flat;
-            cmbProcessExecutionMode.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
-            cmbProcessExecutionMode.Items.Add(new ProcessExecutionModeItem(ProcessExecutionMode.Normal, "普通模式"));
-            cmbProcessExecutionMode.Items.Add(new ProcessExecutionModeItem(ProcessExecutionMode.HighPerformance, "高性能模式"));
-            fields.Controls.Add(CreateInputHost(cmbProcessExecutionMode), 1, 2);
-
-            fields.Controls.Add(CreateFieldDescription(
                 "运行时性能分析",
-                "独立采样性能；异常只报告、不终止流程"), 0, 3);
+                "独立采样性能；异常只报告、不终止流程"), 0, 2);
             chkPerformanceAnalysis.Text = "启用性能分析";
             chkPerformanceAnalysis.AutoSize = true;
             chkPerformanceAnalysis.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
-            fields.Controls.Add(CreateInputHost(chkPerformanceAnalysis), 1, 3);
+            fields.Controls.Add(CreateInputHost(chkPerformanceAnalysis), 1, 2);
 
             fields.Controls.Add(CreateFieldDescription(
                 "程序启动界面",
-                "下次启动时优先显示平台或 HMI"), 0, 4);
+                "下次启动时优先显示平台或 HMI"), 0, 3);
             cmbStartupView.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbStartupView.FlatStyle = FlatStyle.Flat;
             cmbStartupView.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
             cmbStartupView.Items.Add(new StartupViewItem(AutomationStartupView.Hmi, "HMI 操作界面"));
             cmbStartupView.Items.Add(new StartupViewItem(AutomationStartupView.PlatformEditor, "平台编辑器"));
-            fields.Controls.Add(CreateInputHost(cmbStartupView), 1, 4);
+            fields.Controls.Add(CreateInputHost(cmbStartupView), 1, 3);
+
+            fields.Controls.Add(CreateFieldDescription(
+                "智能诊断中心",
+                "控制诊断页面、专属服务、黑匣子和事故窗口"), 0, 4);
+            chkRuntimeDiagnostics.Text = "启用智能诊断中心";
+            chkRuntimeDiagnostics.AutoSize = true;
+            chkRuntimeDiagnostics.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
+            fields.Controls.Add(CreateInputHost(chkRuntimeDiagnostics), 1, 4);
 
             fields.Controls.Add(CreateFieldDescription(
                 "配置文件",
@@ -171,7 +169,7 @@ namespace Automation
 
             Panel restartNotice = new Panel
             {
-                Location = new Point(22, 502),
+                Location = new Point(22, 496),
                 Size = new Size(576, 42),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = Color.FromArgb(255, 248, 232)
@@ -186,7 +184,7 @@ namespace Automation
             };
             Label restartText = new Label
             {
-                Text = "保存后的配置将在下次启动程序时生效。",
+                Text = "智能诊断开关立即生效；性能分析等运行配置在下次启动时生效。",
                 Location = new Point(42, 10),
                 AutoSize = true,
                 Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular),
@@ -196,7 +194,7 @@ namespace Automation
             restartNotice.Controls.Add(restartText);
 
             btnSave.Text = "保存设置";
-            btnSave.SetBounds(492, 563, 106, 38);
+            btnSave.SetBounds(492, 559, 106, 38);
             btnSave.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnSave.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
             btnSave.ForeColor = Color.White;
@@ -214,7 +212,7 @@ namespace Automation
             hoverAnimator.Attach(btnSave, () => saveBackColor, Color.FromArgb(16, 103, 147), true);
 
             btnCancel.Text = "关闭";
-            btnCancel.SetBounds(394, 563, 88, 38);
+            btnCancel.SetBounds(394, 559, 88, 38);
             btnCancel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnCancel.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
             btnCancel.ForeColor = Color.FromArgb(55, 69, 78);
@@ -331,15 +329,15 @@ namespace Automation
             {
                 txtQueueSize.Text = config.CommMaxMessageQueueSize.ToString();
                 SelectRuntimeMode(config.RuntimeMode);
-                SelectProcessExecutionMode(config.ProcessExecutionMode);
                 chkPerformanceAnalysis.Checked = config.EnablePerformanceAnalysis;
+                chkRuntimeDiagnostics.Checked = config.EnableRuntimeDiagnostics;
                 SelectStartupView(config.StartupView);
                 return;
             }
             txtQueueSize.Text = string.Empty;
             cmbRuntimeMode.SelectedIndex = -1;
-            cmbProcessExecutionMode.SelectedIndex = -1;
             chkPerformanceAnalysis.Checked = false;
+            chkRuntimeDiagnostics.Checked = false;
             cmbStartupView.SelectedIndex = -1;
             MessageBox.Show(error, "配置读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
@@ -377,26 +375,25 @@ namespace Automation
                 MessageBox.Show("请选择程序启动界面。", "参数错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            if (!(cmbProcessExecutionMode.SelectedItem is ProcessExecutionModeItem processExecutionModeItem))
-            {
-                MessageBox.Show("请选择流程执行模式。", "参数错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
             AppConfig config = new AppConfig
             {
                 CommMaxMessageQueueSize = value,
                 RuntimeMode = runtimeModeItem.Mode,
                 StartupView = startupViewItem.View,
-                ProcessExecutionMode = processExecutionModeItem.Mode,
-                EnablePerformanceAnalysis = chkPerformanceAnalysis.Checked
+                EnablePerformanceAnalysis = chkPerformanceAnalysis.Checked,
+                EnableRuntimeDiagnostics = chkRuntimeDiagnostics.Checked
             };
             if (!AppConfigStorage.TrySave(config, out string error))
             {
                 MessageBox.Show(error, "保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            MessageBox.Show("保存成功，重启后生效。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(
+                "保存成功。智能诊断开关已立即应用，其他运行配置重启后生效。",
+                "提示",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            DialogResult = DialogResult.OK;
             Close();
         }
 
@@ -439,19 +436,6 @@ namespace Automation
             cmbStartupView.SelectedIndex = -1;
         }
 
-        private void SelectProcessExecutionMode(ProcessExecutionMode mode)
-        {
-            for (int i = 0; i < cmbProcessExecutionMode.Items.Count; i++)
-            {
-                if (((ProcessExecutionModeItem)cmbProcessExecutionMode.Items[i]).Mode == mode)
-                {
-                    cmbProcessExecutionMode.SelectedIndex = i;
-                    return;
-                }
-            }
-            cmbProcessExecutionMode.SelectedIndex = -1;
-        }
-
         private sealed class RuntimeModeItem
         {
             public RuntimeModeItem(AutomationRuntimeMode mode, string displayName)
@@ -486,21 +470,5 @@ namespace Automation
             }
         }
 
-        private sealed class ProcessExecutionModeItem
-        {
-            public ProcessExecutionModeItem(ProcessExecutionMode mode, string displayName)
-            {
-                Mode = mode;
-                DisplayName = displayName;
-            }
-
-            public ProcessExecutionMode Mode { get; }
-            public string DisplayName { get; }
-
-            public override string ToString()
-            {
-                return DisplayName;
-            }
-        }
     }
 }

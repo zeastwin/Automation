@@ -84,7 +84,6 @@ namespace Automation
                 AlarmMessage = source.AlarmMessage,
                 UpdatedAt = source.UpdateTime,
                 PerformanceAnalysisEnabled = source.Performance?.Enabled == true,
-                ProcessExecutionMode = source.Performance?.ExecutionMode.ToString() ?? string.Empty,
                 OperationCount = source.Performance?.OperationCount ?? 0,
                 OperationsPerSecond = source.Performance?.OperationsPerSecond ?? 0,
                 ThreadCpuPercent = source.Performance?.ThreadCpuPercent ?? 0,

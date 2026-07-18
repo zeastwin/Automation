@@ -10,6 +10,7 @@ namespace Automation.McpServer
         public string BridgePipeName { get; set; } = "AutomationBridgePipe";
         public int BridgeTimeoutMs { get; set; } = 120000;
         public bool EnableTrayIcon { get; set; } = true;
+        public bool AllowToolProfileChanges { get; set; } = true;
         public string ToolProfile { get; set; } = "Diagnostic";
         public string LogRoot { get; set; } = Path.Combine(@"D:\AutomationLogs", "AIExecution");
 
@@ -59,9 +60,14 @@ namespace Automation.McpServer
             {
                 ToolProfile = "Editor";
             }
+            else if (string.Equals(ToolProfile, "RuntimeDiagnostic", StringComparison.OrdinalIgnoreCase))
+            {
+                ToolProfile = "RuntimeDiagnostic";
+            }
             else
             {
-                throw new InvalidDataException($"AutomationMcp.ToolProfile不支持:{ToolProfile}，可选Diagnostic/Editor。");
+                throw new InvalidDataException(
+                    $"AutomationMcp.ToolProfile不支持:{ToolProfile}，可选Diagnostic/Editor/RuntimeDiagnostic。");
             }
 
             if (string.IsNullOrWhiteSpace(LogRoot))

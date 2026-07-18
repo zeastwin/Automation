@@ -8,7 +8,6 @@ namespace Automation
     public sealed class ProcessPerformanceSnapshot
     {
         public bool Enabled { get; internal set; }
-        public ProcessExecutionMode ExecutionMode { get; internal set; }
         public long OperationCount { get; internal set; }
         public double OperationsPerSecond { get; internal set; }
         public double ThreadCpuPercent { get; internal set; }
@@ -25,7 +24,6 @@ namespace Automation
         private const double AbnormalCpuPercent = 90.0;
         private const int AbnormalWindowCount = 4;
         private readonly bool enabled;
-        private readonly ProcessExecutionMode executionMode;
         private long operationCount;
         private long totalOperationTicks;
         private long maxOperationTicks;
@@ -39,14 +37,12 @@ namespace Automation
         private int abnormalDetected;
         private int initialized;
 
-        public ProcessPerformanceState(bool enabled, ProcessExecutionMode executionMode)
+        public ProcessPerformanceState(bool enabled)
         {
             this.enabled = enabled;
-            this.executionMode = executionMode;
         }
 
         public bool Enabled => enabled;
-        public ProcessExecutionMode ExecutionMode => executionMode;
 
         public void InitializeForCurrentThread()
         {
@@ -139,7 +135,6 @@ namespace Automation
             return new ProcessPerformanceSnapshot
             {
                 Enabled = enabled,
-                ExecutionMode = executionMode,
                 OperationCount = count,
                 OperationsPerSecond = Volatile.Read(ref operationsPerSecond),
                 ThreadCpuPercent = Volatile.Read(ref threadCpuPercent),
