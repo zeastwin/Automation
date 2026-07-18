@@ -107,20 +107,20 @@ namespace Automation
         }
     }
 
-    public delegate void EventRefleshPropertyGrid();
+    public delegate void EventRefreshInspector();
     [Serializable]
     public class OperationType : ICloneable
     {
-        // 使用隐藏前缀控制 PropertyGrid 分类排序，界面显示仍为“常规”。
+        // 使用隐藏前缀保持分类排序，检查器显示时仍规范化为“常规”。
         public const string GeneralCategory = "\uFEFF常规";
 
         public OperationType() 
         {
-            evtRP += RefleshPropertyAlarm;
+            RefreshInspector += RefleshPropertyAlarm;
         }
         [Browsable(false)]
         [JsonIgnore]
-        public EventRefleshPropertyGrid evtRP;
+        public EventRefreshInspector RefreshInspector;
 
         [Browsable(false)]
         public Guid Id { get; set; }
@@ -241,8 +241,7 @@ namespace Automation
                 return;
             }
 
-            PropertyDescriptorCollection props = InlineListTypeDescriptionProvider.GetOriginalProperties(obj)
-                ?? TypeDescriptor.GetProperties(obj);
+            PropertyDescriptorCollection props = TypeDescriptor.GetProperties(obj);
             PropertyDescriptor prop = props[propertyName];
             if (prop == null)
             {
@@ -308,27 +307,18 @@ namespace Automation
             };
         }
         private string iOCount = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
         public string IOCount
         {
             get { return iOCount; }
             set
             {
                 iOCount = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(IOCount);
-                    ((IoOperate)SF.frmDataGrid.OperationTemp).IoParams = new CustomList<IoOutParam>();
-                    CustomList<IoOutParam> temp = ((IoOperate)SF.frmDataGrid.OperationTemp).IoParams;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new IoOutParam() { delayAfter = -1,delayBefore = -1});
-                    }     
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(IOCount);
+                IoParams = EditableCollection.Resize(
+                    IoParams,
+                    num,
+                    () => new IoOutParam { delayAfter = -1, delayBefore = -1 });
             }
         }
 
@@ -379,27 +369,15 @@ namespace Automation
             };
         }
         private string iOCount = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
         public string IOCount
         {
             get { return iOCount; }
             set
             {
                 iOCount = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(IOCount);
-                    ((IoCheck)SF.frmDataGrid.OperationTemp).IoParams = new CustomList<IoCheckParam>();
-                    CustomList<IoCheckParam> temp = ((IoCheck)SF.frmDataGrid.OperationTemp).IoParams;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new IoCheckParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(IOCount);
+                IoParams = EditableCollection.Resize(IoParams, num, () => new IoCheckParam());
             }
         }
         [DisplayName("超时设置"), Category("参数"), Description("超时参数组，用于配置固定超时或变量超时来源。"), ReadOnly(true)]
@@ -432,52 +410,34 @@ namespace Automation
         }
 
         private string outIOCount = "1";
-        [DisplayName("输出数量"), Category("参数"), Description("输出子项数量；修改后会重建“输出设置”列表。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
+        [DisplayName("输出数量"), Category("参数"), Description("输出子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
         public string OutIOCount
         {
             get { return outIOCount; }
             set
             {
                 outIOCount = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(OutIOCount);
-                    ((IoGroup)SF.frmDataGrid.OperationTemp).OutIoParams = new CustomList<IoOutParam>();
-                    CustomList<IoOutParam> temp = ((IoGroup)SF.frmDataGrid.OperationTemp).OutIoParams;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new IoOutParam { delayAfter = -1, delayBefore = -1 });
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(OutIOCount);
+                OutIoParams = EditableCollection.Resize(
+                    OutIoParams,
+                    num,
+                    () => new IoOutParam { delayAfter = -1, delayBefore = -1 });
             }
         }
 
         private string checkIOCount = "1";
-        [DisplayName("检测数量"), Category("参数"), Description("检测子项数量；修改后会重建“检测设置”列表。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
+        [DisplayName("检测数量"), Category("参数"), Description("检测子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
         public string CheckIOCount
         {
             get { return checkIOCount; }
             set
             {
                 checkIOCount = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(CheckIOCount);
-                    ((IoGroup)SF.frmDataGrid.OperationTemp).CheckIoParams = new CustomList<IoCheckParam>();
-                    CustomList<IoCheckParam> temp = ((IoGroup)SF.frmDataGrid.OperationTemp).CheckIoParams;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new IoCheckParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(CheckIOCount);
+                CheckIoParams = EditableCollection.Resize(
+                    CheckIoParams,
+                    num,
+                    () => new IoCheckParam());
             }
         }
 
@@ -510,27 +470,15 @@ namespace Automation
         }
 
         private string iOCount = "1";
-        [DisplayName("IO数量"), Category("B判断参数"), Description("判断IO条目数量；修改后会重建IO条件列表。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
+        [DisplayName("IO数量"), Category("B判断参数"), Description("判断IO条目数量；调整时保留已有条件，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(IOCountItem))]
         public string IOCount
         {
             get { return iOCount; }
             set
             {
                 iOCount = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(IOCount);
-                    ((IoLogicGoto)SF.frmDataGrid.OperationTemp).IoParams = new CustomList<IoLogicGotoParam>();
-                    CustomList<IoLogicGotoParam> temp = ((IoLogicGoto)SF.frmDataGrid.OperationTemp).IoParams;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new IoLogicGotoParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(IOCount);
+                IoParams = EditableCollection.Resize(IoParams, num, () => new IoLogicGotoParam());
             }
         }
 
@@ -608,27 +556,18 @@ namespace Automation
             };
         }
         private string procCount = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(ProcItemCount))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(ProcItemCount))]
         public string ProcCount
         {
             get { return procCount; }
             set
             {
                 procCount = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(procCount);
-                    ((ProcOps)SF.frmDataGrid.OperationTemp).procParams = new CustomList<procParam>();
-                    CustomList<procParam> temp = ((ProcOps)SF.frmDataGrid.OperationTemp).procParams;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new procParam() { delayAfter = -1});
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(procCount);
+                procParams = EditableCollection.Resize(
+                    procParams,
+                    num,
+                    () => new procParam { delayAfter = -1 });
             }
         }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
@@ -674,27 +613,15 @@ namespace Automation
             };
         }
         private string procCount = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(ProcItemCount))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(ProcItemCount))]
         public string ProcCount
         {
             get { return procCount; }
             set
             {
                 procCount = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(procCount);
-                    ((WaitProc)SF.frmDataGrid.OperationTemp).Params = new CustomList<WaitProcParam>();
-                    CustomList<WaitProcParam> temp = ((WaitProc)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new WaitProcParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(procCount);
+                Params = EditableCollection.Resize(Params, num, () => new WaitProcParam());
             }
         }
         [DisplayName("操作后延时"), Category("参数"), Description("当前操作完成后的附加延时（ms），用于等待状态稳定。"), ReadOnly(false)]
@@ -760,20 +687,8 @@ namespace Automation
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((Goto)SF.frmDataGrid.OperationTemp).Params = new CustomList<GotoParam>();
-                    CustomList<GotoParam> temp = ((Goto)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new GotoParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new GotoParam());
             }
         }
 
@@ -843,20 +758,8 @@ namespace Automation
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((ParamGoto)SF.frmDataGrid.OperationTemp).Params = new CustomList<ParamGotoParam>();
-                    CustomList<ParamGotoParam> temp = ((ParamGoto)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new ParamGotoParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new ParamGotoParam());
             }
         }
 
@@ -944,7 +847,7 @@ namespace Automation
             Btn1Text = "是";
             Btn2Text = "否";
             Btn3Text = "取消";
-            evtRP += RefleshPropertyPopup;
+            RefreshInspector += RefleshPropertyPopup;
             RefleshPropertyPopup();
         }
 
@@ -1164,27 +1067,15 @@ namespace Automation
             };
         }
         private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(Count))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
             get { return count; }
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((GetValue)SF.frmDataGrid.OperationTemp).Params = new CustomList<GetValueParam>();
-                    CustomList<GetValueParam> temp = ((GetValue)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new GetValueParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new GetValueParam());
             }
         }
 
@@ -1315,27 +1206,15 @@ namespace Automation
         [DisplayName("存储变量"), Category("参数"), Description("存储变量名称；用于保存计算结果。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string OutputValueName { get; set; }
         private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(Count))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
             get { return count; }
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((StringFormat)SF.frmDataGrid.OperationTemp).Params = new CustomList<StringFormatParam>();
-                    CustomList<StringFormatParam> temp = ((StringFormat)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new StringFormatParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new StringFormatParam());
             }
         }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
@@ -1393,7 +1272,7 @@ namespace Automation
         public Replace()
         {
             OperaType = "字符串替换";
-            evtRP += RefleshProperty;
+            RefreshInspector += RefleshProperty;
         }
         [DisplayName("被替换字符串"), Category("A被替换字符串"), Description("待替换目标文本。"), ReadOnly(false)]
         [Browsable(true)]
@@ -1497,27 +1376,15 @@ namespace Automation
         public string ItemIndex { get; set; }
 
         private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(Count))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
             get { return count; }
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((SetDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<SetDataStructItemParam>();
-                    CustomList<SetDataStructItemParam> temp = ((SetDataStructItem)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new SetDataStructItemParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new SetDataStructItemParam());
             }
         }
 
@@ -1568,27 +1435,15 @@ namespace Automation
         public string ItemIndex { get; set; }
 
         private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(Count))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
             get { return count; }
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((GetDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<GetDataStructItemParam>();
-                    CustomList<GetDataStructItemParam> temp = ((GetDataStructItem)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new GetDataStructItemParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new GetDataStructItemParam());
             }
         }
 
@@ -1652,27 +1507,15 @@ namespace Automation
         public string TargetItemIndex { get; set; }
 
         private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(Count))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
             get { return count; }
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((CopyDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<CopyDataStructItemParam>();
-                    CustomList<CopyDataStructItemParam> temp = ((CopyDataStructItem)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new CopyDataStructItemParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new CopyDataStructItemParam());
             }
         }
 
@@ -1722,27 +1565,15 @@ namespace Automation
         public string TargetItemIndex { get; set; }
 
         private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(Count))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
             get { return count; }
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((InsertDataStructItem)SF.frmDataGrid.OperationTemp).Params = new CustomList<InsertDataStructItemParam>();
-                    CustomList<InsertDataStructItemParam> temp = ((InsertDataStructItem)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new InsertDataStructItemParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new InsertDataStructItemParam());
             }
         }
 
@@ -1845,27 +1676,15 @@ namespace Automation
         }
 
         private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(Count))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
             get { return count; }
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((TcpOps)SF.frmDataGrid.OperationTemp).Params = new CustomList<TcpOpsParam>();
-                    CustomList<TcpOpsParam> temp = ((TcpOps)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new TcpOpsParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new TcpOpsParam());
             }
         }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
@@ -1905,27 +1724,15 @@ namespace Automation
         }
 
         private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(Count))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
             get { return count; }
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((WaitTcp)SF.frmDataGrid.OperationTemp).Params = new CustomList<WaitTcpParam>();
-                    CustomList<WaitTcpParam> temp = ((WaitTcp)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new WaitTcpParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new WaitTcpParam());
             }
         }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
@@ -2021,27 +1828,15 @@ namespace Automation
         }
 
         private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(Count))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
             get { return count; }
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((SerialPortOps)SF.frmDataGrid.OperationTemp).Params = new CustomList<SerialPortOpsParam>();
-                    CustomList<SerialPortOpsParam> temp = ((SerialPortOps)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new SerialPortOpsParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new SerialPortOpsParam());
             }
         }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
@@ -2081,27 +1876,15 @@ namespace Automation
         }
 
         private string count = "1";
-        [DisplayName("数量"), Category("参数"), Description("子项数量；修改后会按该数量重建对应“设置”列表。"), ReadOnly(false), TypeConverter(typeof(Count))]
+        [DisplayName("数量"), Category("参数"), Description("子项数量；调整时保留已有项，并在末尾补充或裁剪配置。"), ReadOnly(false), TypeConverter(typeof(Count))]
         public string Count
         {
             get { return count; }
             set
             {
                 count = value;
-                if ((SF.isModify == ModifyKind.Operation || SF.isAddOps)
-                    && ReferenceEquals(SF.frmDataGrid?.OperationTemp, this))
-                {
-                    int num = int.Parse(count);
-                    ((WaitSerialPort)SF.frmDataGrid.OperationTemp).Params = new CustomList<WaitSerialPortParam>();
-                    CustomList<WaitSerialPortParam> temp = ((WaitSerialPort)SF.frmDataGrid.OperationTemp).Params;
-                    temp.Clear();
-                    for (int i = 0; i < num; i++)
-                    {
-                        temp.Add(new WaitSerialPortParam());
-                    }
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
-                }
+                int num = int.Parse(count);
+                Params = EditableCollection.Resize(Params, num, () => new WaitSerialPortParam());
             }
         }
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
@@ -2270,8 +2053,13 @@ namespace Automation
             get => readItemCount;
             set
             {
+                if (value < 1 || value > 100)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(ReadItemCount),
+                        "读取项数量必须在1到100之间。");
+                }
                 readItemCount = value;
-                if (value < 1 || value > 100) return;
                 if (ReadItems == null) ReadItems = new CustomList<PlcReadItem>();
                 while (ReadItems.Count < value) ReadItems.Add(new PlcReadItem());
                 while (ReadItems.Count > value) ReadItems.RemoveAt(ReadItems.Count - 1);
@@ -2297,8 +2085,13 @@ namespace Automation
             get => writeItemCount;
             set
             {
+                if (value < 1 || value > 100)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(WriteItemCount),
+                        "写入项数量必须在1到100之间。");
+                }
                 writeItemCount = value;
-                if (value < 1 || value > 100) return;
                 if (WriteItems == null) WriteItems = new CustomList<PlcWriteItem>();
                 while (WriteItems.Count < value) WriteItems.Add(new PlcWriteItem());
                 while (WriteItems.Count > value) WriteItems.RemoveAt(WriteItems.Count - 1);
@@ -2566,8 +2359,8 @@ namespace Automation
         public StationRunPos()
         {
             OperaType = "工站走点";
-            evtRP += RefleshPropertyName;
-            evtRP += RefleshPropertyVel;
+            RefreshInspector += RefleshPropertyName;
+            RefreshInspector += RefleshPropertyVel;
             timeOut = 120000;
         }
         [DisplayName("工站名称"), Category("参数"), Description("目标工站名称；运行时按名称定位工站对象。"), ReadOnly(false), TypeConverter(typeof(StationtItem))]
@@ -2799,7 +2592,7 @@ namespace Automation
         {
             OperaType = "点位修改";
             ModifyType = "叠加";
-            evtRP += RefleshRefPosMode;
+            RefreshInspector += RefleshRefPosMode;
         }
 
         [DisplayName("工站名称"), Category("A修改参数"), Description("目标工站名称；用于定位要修改的工站。"), ReadOnly(false), TypeConverter(typeof(StationtItem))]
@@ -2868,7 +2661,7 @@ namespace Automation
             OperaType = "获取工站位置";
             SourceType = "当前位置";
             SaveType = "保存到点位";
-            evtRP += RefleshProperty;
+            RefreshInspector += RefleshProperty;
             RefleshProperty();
         }
 
@@ -3042,8 +2835,8 @@ namespace Automation
         public StationRunRel()
         {
             OperaType = "偏移量";
-            evtRP += RefleshPropertyName;
-            evtRP += RefleshPropertyVel;
+            RefreshInspector += RefleshPropertyName;
+            RefreshInspector += RefleshPropertyVel;
             timeOut = 120000;
         }
         private string stationName;
@@ -3357,7 +3150,7 @@ namespace Automation
         public StationStop()
         {
             OperaType = "停止运动";
-            evtRP += RefleshPropertyName;
+            RefreshInspector += RefleshPropertyName;
         }
         private string stationName;
         [DisplayName("工站名称"), Category("参数"), Description("目标工站名称；运行时按名称定位工站对象。"), ReadOnly(false), TypeConverter(typeof(StationtItem))]

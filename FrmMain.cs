@@ -19,7 +19,7 @@ namespace Automation
         public FrmDataGrid frmDataGrid = new FrmDataGrid();
         public FrmMenu frmMenu = new FrmMenu();
         public FrmProc frmProc = new FrmProc();
-        public FrmPropertyGrid frmPropertyGrid = new FrmPropertyGrid();
+        public FrmInspector frmInspector = new FrmInspector();
         public FrmToolBar frmToolBar = new FrmToolBar();
         public FrmValue frmValue = new FrmValue();
         public FrmValueDebug frmValueDebug = new FrmValueDebug();
@@ -157,7 +157,7 @@ namespace Automation
             SF.frmMenu = frmMenu;
             SF.frmProc = frmProc;
             SF.frmDataGrid = frmDataGrid;
-            SF.frmPropertyGrid = frmPropertyGrid;
+            SF.frmInspector = frmInspector;
             SF.frmToolBar = frmToolBar;
             SF.frmValue = frmValue;
             SF.frmValueDebug = frmValueDebug;
@@ -189,7 +189,7 @@ namespace Automation
             loadFillForm(MenuPanel, SF.frmMenu);
             loadFillForm(treeView_panel, SF.frmProc);
             loadFillForm(DataGrid_panel, SF.frmDataGrid);
-            loadFillForm(propertyGrid_panel, SF.frmPropertyGrid);
+            loadFillForm(inspector_panel, SF.frmInspector);
             loadFillForm(ToolBar_panel, SF.frmToolBar);
             loadFillForm(state_panel, SF.frmState);
             loadFillForm(panel_Info, SF.frmInfo);
@@ -1533,7 +1533,7 @@ namespace Automation
             };
             editorWorkspacePage.Controls.Add(DataGrid_panel);
             editorWorkspacePage.Controls.Add(panel_Info);
-            editorWorkspacePage.Controls.Add(propertyGrid_panel);
+            editorWorkspacePage.Controls.Add(inspector_panel);
             editorWorkspacePage.Controls.Add(treeView_panel);
             editorWorkspacePage.Controls.Add(ToolBar_panel);
             editorWorkspacePage.Controls.Add(state_panel);

@@ -310,7 +310,6 @@ namespace Automation
                 SetActiveMenuButton(Card_Page);
                 SetMainPanelScrollSize(Size.Empty);
                 SF.mainfrm.ShowEditorWorkspace();
-                SF.frmPropertyGrid.panel1.Visible = false;
                 SF.mainfrm.panel_Info.Visible = false;
 
                 if (!SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
@@ -324,7 +323,7 @@ namespace Automation
 
                 SF.mainfrm.ToolBar_panel.Visible = true;
                 SF.mainfrm.treeView_panel.Visible = true;
-                SF.mainfrm.propertyGrid_panel.Visible = true;
+                SF.mainfrm.inspector_panel.Visible = true;
                 SF.mainfrm.DataGrid_panel.Visible = true;
                 SF.mainfrm.panel_Info.Visible = false;
                 SF.mainfrm.state_panel.Visible = true;
@@ -358,7 +357,6 @@ namespace Automation
                 SetActiveMenuButton(process_Page);
                 SetMainPanelScrollSize(Size.Empty);
                 SF.mainfrm.ShowEditorWorkspace();
-                SF.frmPropertyGrid.panel1.Visible = true;
                 SF.mainfrm.panel_Info.Visible = true;
 
                 if (!SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmDataGrid))
@@ -372,7 +370,7 @@ namespace Automation
 
                 SF.mainfrm.ToolBar_panel.Visible = true;
                 SF.mainfrm.treeView_panel.Visible = true;
-                SF.mainfrm.propertyGrid_panel.Visible = true;
+                SF.mainfrm.inspector_panel.Visible = true;
                 SF.mainfrm.DataGrid_panel.Visible = true;
                 SF.mainfrm.panel_Info.Visible = true;
                 SF.mainfrm.state_panel.Visible = true;
@@ -407,11 +405,11 @@ namespace Automation
                 SF.frmToolBar.btnIOMonitor.Text = "IO监视";
                 if (SF.isAddOps)
                 {
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
+                    SF.frmInspector.ShowObject(SF.frmDataGrid.OperationTemp);
                 }
                 else
                 {
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
+                    SF.frmInspector.ClearObject();
                 }
             }
         }

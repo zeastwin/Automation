@@ -10,7 +10,7 @@ namespace Automation.Protocol
     }
 
     /// <summary>
-    /// AI 写入协议。字段表达业务意图，不暴露 OperationType 的 PropertyGrid 属性。
+    /// AI 写入协议。字段表达业务意图，不暴露 OperationType 的界面编辑实现。
     /// </summary>
     public sealed class AiChangeSet
     {

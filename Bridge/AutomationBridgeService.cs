@@ -8567,7 +8567,7 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private static void EnsureRuntimeReady()
         {
-            if (SF.mainfrm == null || SF.frmProc?.procsList == null || SF.frmPropertyGrid == null)
+            if (SF.mainfrm == null || SF.frmProc?.procsList == null || SF.frmInspector == null)
             {
                 throw new BridgeRequestException(503, "BRIDGE_NOT_READY", "Automation 运行时尚未完成初始化。");
             }
@@ -8595,7 +8595,7 @@ namespace Automation.Bridge
         {
             proc = null;
             error = null;
-            if (SF.mainfrm == null || SF.frmProc?.procsList == null || SF.frmPropertyGrid == null)
+            if (SF.mainfrm == null || SF.frmProc?.procsList == null || SF.frmInspector == null)
             {
                 error = BridgeError(503, "BRIDGE_NOT_READY", "Automation 运行时尚未完成初始化。");
                 return false;
@@ -8966,7 +8966,7 @@ namespace Automation.Bridge
         private static void RefreshOperationContext(OperationType op)
         {
             op.RefleshPropertyAlarm();
-            op.evtRP?.Invoke();
+            op.RefreshInspector?.Invoke();
             TypeDescriptor.Refresh(op);
         }
 

@@ -74,7 +74,7 @@ namespace Automation
         public static FrmMenu frmMenu;
         public static FrmProc frmProc;
         public static FrmDataGrid frmDataGrid;
-        public static FrmPropertyGrid frmPropertyGrid;
+        public static FrmInspector frmInspector;
         public static FrmToolBar frmToolBar;
         public static FrmValue frmValue;
         public static FrmMain mainfrm;
@@ -286,11 +286,10 @@ namespace Automation
                 throw new InvalidOperationException($"已有编辑会话尚未结束:{ActiveEditSession.Name}");
             }
             ActiveEditSession = session;
-            if (frmPropertyGrid != null)
+            if (frmInspector != null)
             {
-                frmPropertyGrid.Enabled = true;
-                frmPropertyGrid.propertyGrid1.SelectedObject = session.Draft;
-                frmPropertyGrid.OperationType.Enabled = session.Draft is OperationType;
+                frmInspector.ShowObject(session.Draft);
+                frmInspector.SetEditingState(true);
             }
             if (frmToolBar != null)
             {
@@ -322,9 +321,9 @@ namespace Automation
             IEditSession session = ActiveEditSession;
             ActiveEditSession = null;
             session?.Cancel();
-            if (frmPropertyGrid != null)
+            if (frmInspector != null)
             {
-                frmPropertyGrid.propertyGrid1.SelectedObject = null;
+                frmInspector.ClearObject();
             }
             EndEdit();
         }
@@ -336,19 +335,18 @@ namespace Automation
                 throw new InvalidOperationException("当前没有活动编辑会话。");
             }
             ActiveEditSession.ReplaceDraft(draft);
-            if (frmPropertyGrid != null)
+            if (frmInspector != null)
             {
-                frmPropertyGrid.propertyGrid1.SelectedObject = draft;
+                frmInspector.ShowObject(draft);
             }
         }
 
         public static void EndEdit()
         {
             isModify = ModifyKind.None;
-            if (frmPropertyGrid != null)
+            if (frmInspector != null)
             {
-                frmPropertyGrid.Enabled = false;
-                frmPropertyGrid.OperationType.Enabled = false;
+                frmInspector.SetEditingState(false);
             }
             if (frmToolBar != null)
             {

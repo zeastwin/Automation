@@ -34,7 +34,7 @@ namespace Automation
             this.main_panel = new System.Windows.Forms.Panel();
             this.DataGrid_panel = new System.Windows.Forms.Panel();
             this.panel_Info = new System.Windows.Forms.Panel();
-            this.propertyGrid_panel = new System.Windows.Forms.Panel();
+            this.inspector_panel = new System.Windows.Forms.Panel();
             this.treeView_panel = new System.Windows.Forms.Panel();
             this.ToolBar_panel = new System.Windows.Forms.Panel();
             this.main_panel.SuspendLayout();
@@ -60,7 +60,7 @@ namespace Automation
             // 
             this.main_panel.Controls.Add(this.DataGrid_panel);
             this.main_panel.Controls.Add(this.panel_Info);
-            this.main_panel.Controls.Add(this.propertyGrid_panel);
+            this.main_panel.Controls.Add(this.inspector_panel);
             this.main_panel.Controls.Add(this.treeView_panel);
             this.main_panel.Controls.Add(this.ToolBar_panel);
             this.main_panel.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -86,13 +86,13 @@ namespace Automation
             this.panel_Info.Size = new System.Drawing.Size(1011, 268);
             this.panel_Info.TabIndex = 8;
             // 
-            // propertyGrid_panel
+            // inspector_panel
             // 
-            this.propertyGrid_panel.Dock = System.Windows.Forms.DockStyle.Right;
-            this.propertyGrid_panel.Location = new System.Drawing.Point(1246, 43);
-            this.propertyGrid_panel.Name = "propertyGrid_panel";
-            this.propertyGrid_panel.Size = new System.Drawing.Size(338, 772);
-            this.propertyGrid_panel.TabIndex = 6;
+            this.inspector_panel.Dock = System.Windows.Forms.DockStyle.Right;
+            this.inspector_panel.Location = new System.Drawing.Point(1224, 43);
+            this.inspector_panel.Name = "inspector_panel";
+            this.inspector_panel.Size = new System.Drawing.Size(360, 772);
+            this.inspector_panel.TabIndex = 6;
             // 
             // treeView_panel
             // 
@@ -134,7 +134,7 @@ namespace Automation
 
         private System.Windows.Forms.Panel MenuPanel;
         public System.Windows.Forms.Panel main_panel;
-        public System.Windows.Forms.Panel propertyGrid_panel;
+        public System.Windows.Forms.Panel inspector_panel;
         public System.Windows.Forms.Panel treeView_panel;
         public System.Windows.Forms.Panel ToolBar_panel;
         public System.Windows.Forms.Panel state_panel;

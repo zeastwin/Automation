@@ -223,9 +223,11 @@ namespace Automation
             {
                 if (!SF.TryCommitEditSession(out string error))
                 {
+                    SF.frmInspector?.ShowValidationError(error);
                     MessageBox.Show(error, "配置校验失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
+                SF.frmInspector?.ClearValidationError();
                 SF.frmDataGrid.dataGridView1.Enabled = true;
                 SF.frmProc.Enabled = true;
             }

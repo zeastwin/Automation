@@ -930,8 +930,8 @@ namespace Automation
                 return;
             }
             InstructionListView grid = SF.frmDataGrid?.dataGridView1;
-            FrmPropertyGrid propertyEditor = SF.frmPropertyGrid;
-            propertyEditor?.BeginVisualUpdate();
+            FrmInspector inspector = SF.frmInspector;
+            inspector?.BeginUpdate();
             try
             {
             OperationType selectedOp = grid?.GetOperation(grid.CurrentIndex);
@@ -960,18 +960,18 @@ namespace Automation
             {
                 grid?.SetFlowContext(SelectedProcNum, SelectedStepNum, procsList[SelectedProcNum]);
                 bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
-                if (SF.frmPropertyGrid != null && !SF.frmPropertyGrid.IsDisposed)
+                if (SF.frmInspector != null && !SF.frmInspector.IsDisposed)
                 {
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = procsList[SelectedProcNum].steps[SelectedStepNum];
+                    SF.frmInspector.ShowObject(procsList[SelectedProcNum].steps[SelectedStepNum]);
                 }
             }
             else
             {
                 grid?.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
                 bindingSource.DataSource = null;
-                if (SF.frmPropertyGrid != null && !SF.frmPropertyGrid.IsDisposed)
+                if (SF.frmInspector != null && !SF.frmInspector.IsDisposed)
                 {
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = procsList[SelectedProcNum].head;
+                    SF.frmInspector.ShowObject(procsList[SelectedProcNum].head);
                 }
             }
             bindingSource.ResetBindings(false);
@@ -1006,7 +1006,7 @@ namespace Automation
             }
             finally
             {
-                propertyEditor?.EndVisualUpdate();
+                inspector?.EndUpdate();
             }
         }
 
@@ -1196,7 +1196,7 @@ namespace Automation
                         bindingSource.DataSource = null;
                         SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
                         SF.frmDataGrid.dataGridView1.DataSource = null;
-                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
+                        SF.frmInspector.ClearObject();
                         return;
                     }
                     if (SelectedStepNum < 0 || SelectedStepNum >= procsList[SelectedProcNum].steps.Count)
@@ -1206,7 +1206,7 @@ namespace Automation
                         bindingSource.DataSource = null;
                         SF.frmDataGrid.dataGridView1.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
                         SF.frmDataGrid.dataGridView1.DataSource = null;
-                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
+                        SF.frmInspector.ClearObject();
                         return;
                     }
                     SF.frmDataGrid.dataGridView1.SetFlowContext(
@@ -1215,7 +1215,7 @@ namespace Automation
                         procsList[SelectedProcNum]);
                     bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
 
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject =procsList[SelectedProcNum].steps[SF.frmProc.SelectedStepNum];
+                    SF.frmInspector.ShowObject(procsList[SelectedProcNum].steps[SF.frmProc.SelectedStepNum]);
 
 
                 }
@@ -1232,7 +1232,7 @@ namespace Automation
                         bindingSource.DataSource = null;
                         SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
                         SF.frmDataGrid.dataGridView1.DataSource = null;
-                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
+                        SF.frmInspector.ClearObject();
                         return;
                     }
                     SF.frmDataGrid.dataGridView1.SetFlowContext(
@@ -1241,8 +1241,7 @@ namespace Automation
                         procsList[SelectedProcNum]);
                     bindingSource.DataSource = null;
 
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = procsList[SelectedProcNum].head;
-                    SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
+                    SF.frmInspector.ShowObject(procsList[SelectedProcNum].head);
 
 
                 }
@@ -1351,7 +1350,7 @@ namespace Automation
                     bindingSource.DataSource = null;
                     SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
                     SF.frmDataGrid.dataGridView1.DataSource = null;
-                    SF.frmPropertyGrid.propertyGrid1.SelectedObject = null;
+                    SF.frmInspector.ClearObject();
                 }
                 if (clickedNode != null)
                 {
@@ -1374,7 +1373,7 @@ namespace Automation
             }
             int procIndex = SelectedProcNum;
             int stepIndex = SelectedStepNum;
-            object selected = SF.frmPropertyGrid.propertyGrid1.SelectedObject;
+            object selected = SF.frmInspector.SelectedObject;
             proc_treeView.Enabled = false;
             if (selected is ProcHead sourceHead)
             {

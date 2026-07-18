@@ -284,7 +284,7 @@ namespace Automation
                 }
                 dgvIO.ClearSelection();
                 dgvIO.Rows[e.RowIndex].Selected = true;
-                SF.frmPropertyGrid.propertyGrid1.SelectedObject = IOMap[cardIndex][e.RowIndex];
+                SF.frmInspector.ShowObject(IOMap[cardIndex][e.RowIndex]);
             }
 
             iSelectedIORow = e.RowIndex;

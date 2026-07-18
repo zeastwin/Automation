@@ -78,8 +78,8 @@ namespace Automation
             iSelectedRow = rowIndex;
             if (rowIndex >= 0
                 && SF.frmProc != null
-                && SF.frmPropertyGrid != null
-                && !SF.frmPropertyGrid.IsDisposed)
+                && SF.frmInspector != null
+                && !SF.frmInspector.IsDisposed)
             {
                 ShowOperationProperties(rowIndex);
             }
@@ -109,8 +109,8 @@ namespace Automation
                 return;
             }
 
-            FrmPropertyGrid propertyEditor = SF.frmPropertyGrid;
-            propertyEditor?.BeginVisualUpdate();
+            FrmInspector inspector = SF.frmInspector;
+            inspector?.BeginUpdate();
             try
             {
                 dataGridView1.BeginLinkedNavigation();
@@ -138,7 +138,7 @@ namespace Automation
             }
             finally
             {
-                propertyEditor?.EndVisualUpdate();
+                inspector?.EndUpdate();
             }
         }
 
@@ -1241,9 +1241,8 @@ namespace Automation
             if (dataGridView1.GetSelectedIndexes().Count == 0)
                 iSelectedRow = -1;
             OperationTemp = new HomeRun() { Num = iSelectedRow == -1 ? dataGridView1.OperationCount : iSelectedRow + 1 };
-            SF.frmPropertyGrid.OperationType.SelectedIndex = 0;
             OperationTemp.RefleshPropertyAlarm();
-            SF.frmPropertyGrid.propertyGrid1.SelectedObject = OperationTemp;
+            SF.frmInspector.ShowObject(OperationTemp);
             SF.isAddOps = true;
             BeginOperationEditSession(true);
             // 编辑期间保留指令表交互，用作跳转地址的拖拽来源。
@@ -1694,28 +1693,18 @@ namespace Automation
             {
                 return;
             }
-            FrmPropertyGrid propertyEditor = SF.frmPropertyGrid;
+            FrmInspector inspector = SF.frmInspector;
             OperationTemp = (OperationType)operation.Clone();
-            propertyEditor.BeginVisualUpdate();
+            inspector.BeginUpdate();
             try
             {
-                OperationTemp.evtRP();
+                OperationTemp.RefreshInspector?.Invoke();
                 TypeDescriptor.Refresh(OperationTemp);
-                propertyEditor.propertyGrid1.SelectedObject = null;
-                propertyEditor.propertyGrid1.SelectedObject = OperationTemp;
-                foreach (OperationType item in propertyEditor.OperationType.Items)
-                {
-                    if (string.Equals(item.OperaType, operation.OperaType, StringComparison.Ordinal))
-                    {
-                        propertyEditor.OperationType.SelectedItem = item;
-                        break;
-                    }
-                }
-                propertyEditor.propertyGrid1.ExpandAllGridItems();
+                inspector.ShowObject(OperationTemp);
             }
             finally
             {
-                propertyEditor.EndVisualUpdate();
+                inspector.EndUpdate();
             }
         }
 

@@ -97,7 +97,7 @@
 - `Stores/` — 各类配置 Store 与 `LocalFileLogger`。
 - `FrmAiAssistant.cs` — AI 助手前台，承载 Goose ACP 聊天、预演确认、联调。
 - `GooseAcpClient.cs` — 隐藏启动 `goose acp`，JSON-RPC over stdio 通信；AI 执行日志统一落 `D:\AutomationLogs\AIExecution\`。
-- `FrmMain.cs` / `FrmProc.cs` / `FrmDataGrid.cs` / `FrmPropertyGrid.cs` — 可隐藏的平台编辑器与流程编辑链。
+- `FrmMain.cs` / `FrmProc.cs` / `FrmDataGrid.cs` / `FrmInspector.cs` — 可隐藏的平台编辑器与流程编辑链。
 
 ## 启动模式
 - `Automation.exe` 无参数时根据 `AppConfig.StartupView` 启动平台编辑器 `FrmMain` 或平台内置 HMI，用于平台开发、配置与调试；其他参数一律拒绝。

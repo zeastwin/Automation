@@ -51,28 +51,11 @@ namespace Automation
             set
             {
                 pauseIoCount = value;
-                if (SF.frmPropertyGrid?.propertyGrid1?.SelectedObject != this)
-                {
-                    return;
-                }
-                if (!int.TryParse(pauseIoCount, out int count) || count <= 0)
-                {
-                    PauseIoParams?.Clear();
-                }
-                else
-                {
-                    if (PauseIoParams == null)
-                    {
-                        PauseIoParams = new CustomList<PauseIoParam>();
-                    }
-                    PauseIoParams.Clear();
-                    for (int i = 0; i < count; i++)
-                    {
-                        PauseIoParams.Add(new PauseIoParam());
-                    }
-                }
-                SF.frmPropertyGrid.propertyGrid1.SelectedObject = this;
-                SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
+                int count = int.Parse(pauseIoCount);
+                PauseIoParams = EditableCollection.Resize(
+                    PauseIoParams,
+                    count,
+                    () => new PauseIoParam());
             }
         }
 
@@ -88,28 +71,11 @@ namespace Automation
             set
             {
                 pauseValueCount = value;
-                if (SF.frmPropertyGrid?.propertyGrid1?.SelectedObject != this)
-                {
-                    return;
-                }
-                if (!int.TryParse(pauseValueCount, out int count) || count <= 0)
-                {
-                    PauseValueParams?.Clear();
-                }
-                else
-                {
-                    if (PauseValueParams == null)
-                    {
-                        PauseValueParams = new CustomList<PauseValueParam>();
-                    }
-                    PauseValueParams.Clear();
-                    for (int i = 0; i < count; i++)
-                    {
-                        PauseValueParams.Add(new PauseValueParam());
-                    }
-                }
-                SF.frmPropertyGrid.propertyGrid1.SelectedObject = this;
-                SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
+                int count = int.Parse(pauseValueCount);
+                PauseValueParams = EditableCollection.Resize(
+                    PauseValueParams,
+                    count,
+                    () => new PauseValueParam());
             }
         }
 

@@ -50,7 +50,7 @@ namespace Automation
 
     /// <summary>
     /// 把 AI 的业务语义变更编译为平台现有 Proc/Step/OperationType 模型。
-    /// 编译过程不读 PropertyGrid，也不依赖窗体当前选中项。
+    /// 编译过程不读界面检查器，也不依赖窗体当前选中项。
     /// </summary>
     public static class AiChangeSetCompiler
     {

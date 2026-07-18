@@ -1176,7 +1176,7 @@ namespace Automation
                 PrintInfo("当前处于编辑状态，禁止跳转。", Level.Error);
                 return;
             }
-            if (SF.frmMenu == null || SF.frmProc == null || SF.frmDataGrid == null || SF.frmPropertyGrid == null)
+            if (SF.frmMenu == null || SF.frmProc == null || SF.frmDataGrid == null || SF.frmInspector == null)
             {
                 PrintInfo("流程界面未就绪，无法跳转。", Level.Error);
                 return;
@@ -1255,21 +1255,8 @@ namespace Automation
                 return true;
             }
             SF.frmDataGrid.OperationTemp = (OperationType)op.Clone();
-            SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmDataGrid.OperationTemp;
-            SF.frmDataGrid.OperationTemp.evtRP();
-            SF.frmPropertyGrid.propertyGrid1.SelectedObject = SF.frmPropertyGrid.propertyGrid1.SelectedObject;
-            string selectedValue = op.OperaType;
-            if (!string.IsNullOrWhiteSpace(selectedValue))
-            {
-                foreach (OperationType item in SF.frmPropertyGrid.OperationType.Items)
-                {
-                    if (item.OperaType.ToString() == selectedValue)
-                    {
-                        SF.frmPropertyGrid.OperationType.SelectedItem = item;
-                        break;
-                    }
-                }
-            }
+            SF.frmDataGrid.OperationTemp.RefreshInspector?.Invoke();
+            SF.frmInspector.ShowObject(SF.frmDataGrid.OperationTemp);
             return true;
         }
 

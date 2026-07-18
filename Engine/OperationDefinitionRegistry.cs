@@ -5,7 +5,7 @@ using System.Linq;
 namespace Automation
 {
     /// <summary>
-    /// 平台指令类型的唯一注册源。注册和实例化不依赖窗体、PropertyGrid 或当前编辑状态。
+    /// 平台指令类型的唯一注册源。注册和实例化不依赖窗体、界面检查器或当前编辑状态。
     /// </summary>
     public static class OperationDefinitionRegistry
     {

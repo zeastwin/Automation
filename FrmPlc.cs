@@ -13,7 +13,7 @@ namespace Automation
     public sealed class FrmPlc : Form
     {
         private readonly ListBox deviceList = new ListBox();
-        private readonly PropertyGrid deviceProperties = new PropertyGrid();
+        private readonly InspectorView deviceInspector = new InspectorView();
         private readonly DataGridView mapGrid = new DataGridView();
         private readonly DataGridView historyGrid = new DataGridView();
         private readonly BindingList<DebugHistoryItem> history = new BindingList<DebugHistoryItem>();
@@ -168,17 +168,14 @@ namespace Automation
         private TabPage BuildOverviewTab()
         {
             var tab = new TabPage("设备概览") { BackColor = Color.White, Padding = new Padding(8) };
-            deviceProperties.Dock = DockStyle.Fill;
-            deviceProperties.HelpVisible = true;
-            deviceProperties.ToolbarVisible = false;
-            deviceProperties.PropertySort = PropertySort.Categorized;
-            deviceProperties.PropertyValueChanged += (sender, args) =>
+            deviceInspector.Dock = DockStyle.Fill;
+            deviceInspector.FieldValueChanged += (sender, args) =>
             {
                 deviceList.DisplayMember = string.Empty;
                 deviceList.DisplayMember = "Name";
                 RefreshSummary();
             };
-            tab.Controls.Add(deviceProperties);
+            tab.Controls.Add(deviceInspector);
             return tab;
         }
 
@@ -431,7 +428,7 @@ namespace Automation
         private void ShowDevice(PlcDeviceConfig device)
         {
             currentDevice = device;
-            deviceProperties.SelectedObject = device == null ? null : new DevicePropertyView(device);
+            deviceInspector.SetObject(device == null ? null : new DevicePropertyView(device), true);
             RefreshVariableSelector();
             LoadMaps(device);
             RefreshRuntimeState();

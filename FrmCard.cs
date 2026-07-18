@@ -389,7 +389,7 @@ namespace Automation
 
                     if (SF.cardStore.TryGetControlCard(editKey.CardIndex.Value, out ControlCard controlCard))
                     {
-                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = controlCard.cardHead;
+                        SF.frmInspector.ShowObject(controlCard.cardHead);
                     }
 
                     SF.frmIO.RefreshIODgv();
@@ -402,7 +402,7 @@ namespace Automation
 
                     if (SF.cardStore.TryGetAxis(editKey.CardIndex.Value, editKey.AxisIndex.Value, out Axis axis))
                     {
-                        SF.frmPropertyGrid.propertyGrid1.SelectedObject = axis;
+                        SF.frmInspector.ShowObject(axis);
                     }
                     SF.frmIO.RefreshIODgv();
                 }
@@ -619,7 +619,7 @@ namespace Automation
                     FinishDraftEdit();
                     RefreshStationTree();
                 }, FinishDraftEdit));
-            SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
+            SF.frmInspector.RefreshObject();
         }
 
         private void ModifyStation_Click(object sender, EventArgs e)
@@ -653,7 +653,7 @@ namespace Automation
                         FinishDraftEdit();
                         RefreshStationTree();
                     }, FinishDraftEdit));
-                SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
+                SF.frmInspector.RefreshObject();
             }
            
            
@@ -683,8 +683,7 @@ namespace Automation
         private void treeView2_AfterSelect(object sender, TreeViewEventArgs e)
         {
             editKey.StationIndex = treeView2.SelectedNode.Index;
-            SF.frmPropertyGrid.propertyGrid1.SelectedObject = dataStation[editKey.StationIndex.Value];
-            SF.frmPropertyGrid.propertyGrid1.ExpandAllGridItems();
+            SF.frmInspector.ShowObject(dataStation[editKey.StationIndex.Value]);
           
         }
 

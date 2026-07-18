@@ -149,6 +149,7 @@
     <Compile Include="Stores\\AiConfigurationTransaction.cs" />
     <Compile Include="Stores\\CommunicationConfigStore.cs" />
     <Compile Include="Engine\CustomFunc.cs" />
+    <Compile Include="Engine\EditableCollection.cs" />
     <Compile Include="Engine\\ProcessEngine.Core.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Comm.cs" />
     <Compile Include="Engine\\ProcessEngine.Operations.Custom.cs" />
@@ -329,12 +330,14 @@
     <Compile Include="FrmProc.Designer.cs">
       <DependentUpon>FrmProc.cs</DependentUpon>
     </Compile>
-    <Compile Include="FrmPropertyGrid.cs">
+    <Compile Include="FrmInspector.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="FrmPropertyGrid.Designer.cs">
-      <DependentUpon>FrmPropertyGrid.cs</DependentUpon>
+    <Compile Include="Inspector\InspectorDefinitions.cs" />
+    <Compile Include="Inspector\OperationTypePickerPanel.cs">
+      <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="Inspector\InspectorView.cs" />
     <Compile Include="FrmSearch.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -444,9 +447,6 @@
     </EmbeddedResource>
     <EmbeddedResource Include="FrmProc.resx">
       <DependentUpon>FrmProc.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="FrmPropertyGrid.resx">
-      <DependentUpon>FrmPropertyGrid.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="FrmSearch.resx">
       <DependentUpon>FrmSearch.cs</DependentUpon>
@@ -589,13 +589,9 @@
   <PropertyGroup>
     <CompileDependsOn>PrepareResources;$(CompileDependsOn)</CompileDependsOn>
   </PropertyGroup>
-  <Target Name="ValidateEmbeddedResourceCompileInputs"
-          BeforeTargets="CoreCompile"
-          DependsOnTargets="PrepareResources;_GenerateCompileInputs">
-    <Error Condition="'@(_CoreCompileResourceInputs)' == ''"
-           Text="编译资源输入为空，已停止生成 Automation.exe。请使用完整项目资源链路重新生成。" />
-    <Error Condition="!Exists('$(IntermediateOutputPath)Automation.FrmIODebug.resources')"
-           Text="缺少 FrmIODebug 编译资源：$(IntermediateOutputPath)Automation.FrmIODebug.resources。" />
+  <Target Name="ValidateEmbeddedResourceCompileInputs" BeforeTargets="CoreCompile" DependsOnTargets="PrepareResources;_GenerateCompileInputs">
+    <Error Condition="'@(_CoreCompileResourceInputs)' == ''" Text="编译资源输入为空，已停止生成 Automation.exe。请使用完整项目资源链路重新生成。" />
+    <Error Condition="!Exists('$(IntermediateOutputPath)Automation.FrmIODebug.resources')" Text="缺少 FrmIODebug 编译资源：$(IntermediateOutputPath)Automation.FrmIODebug.resources。" />
   </Target>
   <Target Name="EnsureWebView2TargetsImported" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
