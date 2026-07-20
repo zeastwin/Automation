@@ -513,6 +513,9 @@
     <EmbeddedResource Include="Assets\Goose\automation.md">
       <LogicalName>Automation.Assets.Goose.automation.md</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
+      <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="Assets\ProcessFlow\index.html">
       <LogicalName>Automation.Assets.ProcessFlow.index.html</LogicalName>
     </EmbeddedResource>
@@ -529,6 +532,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\Goose\automation.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <None Include="app.config" />
@@ -596,9 +602,8 @@
   <Target Name="RemoveLegacySimulationArtifacts" AfterTargets="Build">
     <RemoveDir Directories="$(TargetDir)SimulationRuns;$(TargetDir)SimulationScenarios" />
   </Target>
-  <!-- 运行时不读取这些生成副本；Goose MD 已作为程序集资源部署，模板只读取 IntentTemplates 子目录。 -->
+  <!-- Goose 受管 Markdown 同时保留程序集资源和程序目录副本；这里只清理根目录冗余文件。 -->
   <Target Name="RemoveRedundantOutputArtifacts" AfterTargets="Build">
-    <RemoveDir Directories="$(TargetDir)Assets" />
     <ItemGroup>
       <RedundantOutputFile Include="$(TargetDir)*.xml" Exclude="$(TargetDir)Automation.DeviceSdk.xml" />
       <RedundantOutputFile Include="$(TargetDir)README.md" />

@@ -46,6 +46,7 @@ namespace Automation
         private int streamingThoughtSegmentIndex;
         // 串行化 WebView2 脚本执行，保证 HTML 追加/替换顺序与事件顺序一致。
         private Task pendingScriptTask = Task.CompletedTask;
+        private int conversationViewGeneration;
         private const string CopyButtonHtml =
             "<button class=\"copy-message\" type=\"button\" onclick=\"copyMessage(this)\" title=\"复制本条文字\" aria-label=\"复制本条文字\">"
             + "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\"/>"
@@ -180,6 +181,8 @@ namespace Automation
                     webViewConversation.CoreWebView2.NavigationCompleted += (s, e) =>
                     {
                         webDocumentReady = true;
+                        EnqueueScript("window.__automationConversationViewGeneration="
+                            + conversationViewGeneration + ";");
                         RenderActiveTaskView();
                         PushWebAppState();
                     };
@@ -2883,7 +2886,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private void RenderActiveTaskView()
         {
-            if (taskHomeVisible || activeConversation == null)
+            if (!webDocumentReady || taskHomeVisible || activeConversation == null)
             {
                 return;
             }
@@ -2914,6 +2917,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 return;
             }
+            conversationViewGeneration++;
             webDocumentReady = false;
             webViewConversation.CoreWebView2.NavigateToString(BaseConversationHtml);
         }
@@ -2960,7 +2964,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
             runtime.PendingEvents.Add(item);
             bool isActive = !taskHomeVisible && ReferenceEquals(activeConversation, runtime.Conversation);
-            if (isActive)
+            // WebView 重载期间只缓存事件，导航完成后由 RenderActiveTaskView 按历史消息和事件顺序统一回放。
+            // 直接渲染会让后台到达的思维链脚本先于用户气泡落入新文档，造成消息顺序错乱。
+            if (isActive && webDocumentReady && !replayingTaskEvents)
             {
                 GooseClient_EventReceived(item);
             }
@@ -4642,6 +4648,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             try
             {
+                int scriptGeneration = conversationViewGeneration;
+                string guardedScript = "if(window.__automationConversationViewGeneration==="
+                    + scriptGeneration + "){"
+                    + js
+                    + "}";
                 pendingScriptTask = (pendingScriptTask ?? Task.CompletedTask).ContinueWith(
                     async _ =>
                     {
@@ -4649,7 +4660,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         {
                             if (!webViewClosing && !localWebView.IsDisposed)
                             {
-                                await localCoreWebView.ExecuteScriptAsync(js);
+                                await localCoreWebView.ExecuteScriptAsync(guardedScript);
                             }
                         }
                         catch

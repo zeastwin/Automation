@@ -532,14 +532,27 @@ namespace Automation
                 throw new InvalidOperationException("EW-AI 受管上下文未通过启动校验，当前会话不可用。");
             }
 
+            bool runtimeDiagnostic = string.Equals(
+                config.ToolProfile, "RuntimeDiagnostic", StringComparison.Ordinal);
+            string sessionWorkingDirectory = ResolveWorkingDirectory();
+            string skillProvisionMessage = null;
+            if (!runtimeDiagnostic
+                && !GooseRuntimeProvisioner.TryEnsureProcessAuthoringSkill(
+                    sessionWorkingDirectory,
+                    out skillProvisionMessage))
+            {
+                throw new InvalidOperationException(skillProvisionMessage);
+            }
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = config.GooseExecutablePath,
-                // 运行诊断只使用专属 Automation MCP；编辑会话保留 Goose 原生 Developer。
-                Arguments = string.Equals(config.ToolProfile, "RuntimeDiagnostic", StringComparison.Ordinal)
+                // ACP 会话显式传入 Automation MCP 后，Goose 不会再自动加载默认平台扩展。
+                // 编辑会话必须显式启用 Developer、Skills 与 TOM，分别提供源码工具、Skill 加载和 MOIM 注入。
+                Arguments = runtimeDiagnostic
                     ? "acp"
-                    : "acp --with-builtin developer",
-                WorkingDirectory = ResolveWorkingDirectory(),
+                    : "acp --with-builtin developer,skills,tom",
+                WorkingDirectory = sessionWorkingDirectory,
                 UseShellExecute = false,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
@@ -571,22 +584,29 @@ namespace Automation
             }
             // Goose 会把 Developer Shell 输出严格按 UTF-8 解码。统一通过随程序发布的
             // UTF-8 适配器启动 PowerShell，避免系统代码页把中文不可逆地解码成乱码。
-            bool runtimeDiagnostic = string.Equals(
-                config.ToolProfile, "RuntimeDiagnostic", StringComparison.Ordinal);
             string developerShellPath = runtimeDiagnostic ? null : ResolveGooseDeveloperShellPath();
             if (!string.IsNullOrWhiteSpace(developerShellPath))
             {
                 startInfo.EnvironmentVariables["GOOSE_SHELL"] = developerShellPath;
             }
             // Hmi 是客户可修改目录，不从其中加载平台内部规范。
-            // Automation 专用上下文由程序内嵌资源部署到受管目录，仅注入当前 EW-AI 进程。
+            // Automation 专用上下文由 TOM 注入编辑会话；运行诊断会话不加载流程编写路由。
             startInfo.EnvironmentVariables["CONTEXT_FILE_NAMES"] = "[]";
             if (!File.Exists(GooseRuntimeProvisioner.IntegrationContextPath))
             {
                 throw new FileNotFoundException("Automation 专用 Goose 上下文不存在。",
                     GooseRuntimeProvisioner.IntegrationContextPath);
             }
-            startInfo.EnvironmentVariables["GOOSE_MOIM_MESSAGE_FILE"] = GooseRuntimeProvisioner.IntegrationContextPath;
+            if (!runtimeDiagnostic)
+            {
+                startInfo.EnvironmentVariables["GOOSE_MOIM_MESSAGE_FILE"] =
+                    GooseRuntimeProvisioner.IntegrationContextPath;
+            }
+            else
+            {
+                startInfo.EnvironmentVariables.Remove("GOOSE_MOIM_MESSAGE_FILE");
+                startInfo.EnvironmentVariables.Remove("GOOSE_MOIM_MESSAGE_TEXT");
+            }
 
             AiModelServiceConfig modelService = GooseConfigStorage.FindModelService(config);
             string configuredProvider = modelService == null ? config.Provider?.Trim() : "openai";
@@ -678,10 +698,17 @@ namespace Automation
             Task.Run(() => ReadStderrLoop(process.StandardError));
             StringBuilder startupInfo = new StringBuilder();
             startupInfo.Append("ACP 进程启动 exe=").Append(config.GooseExecutablePath);
-            startupInfo.Append(" cwd=").Append(ResolveWorkingDirectory());
+            startupInfo.Append(" cwd=").Append(sessionWorkingDirectory);
             startupInfo.Append(" mcpUri=").Append(config.McpUri);
             startupInfo.Append(" sessionName=").Append(runtimeSessionName);
             startupInfo.Append(" developerShell=").Append(developerShellPath ?? "cmd");
+            if (!runtimeDiagnostic)
+            {
+                startupInfo.Append(" builtinExtensions=developer,skills,tom");
+                startupInfo.Append(" automationContextInjection=tom");
+                startupInfo.Append(" processAuthoringSkill=")
+                    .Append(GooseRuntimeProvisioner.ProcessAuthoringSkillPath);
+            }
             if (!string.IsNullOrWhiteSpace(configuredProvider))
             {
                 startupInfo.Append(" provider=").Append(effectiveProvider);
@@ -699,6 +726,10 @@ namespace Automation
             startupInfo.Append(" maxOutputTokens=").Append(config.MaxOutputTokens);
             startupInfo.Append(" temperature=").Append(config.Temperature);
             LogFile(startupInfo.ToString(), LogLevel.Normal);
+            if (!string.IsNullOrWhiteSpace(skillProvisionMessage))
+            {
+                LogFile(skillProvisionMessage, LogLevel.Normal);
+            }
             Report("lifecycle", $"EW-AI ACP 进程已启动：{config.GooseExecutablePath} {startInfo.Arguments}", null);
         }
 
@@ -1594,6 +1625,26 @@ namespace Automation
                 string integrationVersionPath = Path.Combine(
                     Path.GetDirectoryName(GooseRuntimeProvisioner.IntegrationContextPath),
                     ".automation-context-version");
+                JObject skillAnalysis;
+                if (string.IsNullOrWhiteSpace(GooseRuntimeProvisioner.ProcessAuthoringSkillPath))
+                {
+                    skillAnalysis = new JObject
+                    {
+                        ["deployed"] = GooseRuntimeProvisioner.IsProcessAuthoringSkillAvailable,
+                        ["bundledVersion"] = GooseRuntimeProvisioner.ProcessAuthoringSkillVersion,
+                        ["exists"] = false
+                    };
+                }
+                else
+                {
+                    skillAnalysis = BuildManagedFileAnalysis(
+                        GooseRuntimeProvisioner.ProcessAuthoringSkillPath,
+                        GooseRuntimeProvisioner.GetProcessAuthoringSkillVersionPath(),
+                        GooseRuntimeProvisioner.ProcessAuthoringSkillVersion);
+                    skillAnalysis["deployed"] = GooseRuntimeProvisioner.IsProcessAuthoringSkillAvailable;
+                }
+                skillAnalysis["extension"] = "skills";
+                skillAnalysis["loadEvidence"] = "tool.finished: load_skill, status=ok";
                 return new JObject
                 {
                     ["managedAvailable"] = GooseRuntimeProvisioner.IsManagedContextAvailable,
@@ -1604,7 +1655,8 @@ namespace Automation
                     ["automation"] = BuildManagedFileAnalysis(
                         GooseRuntimeProvisioner.IntegrationContextPath,
                         integrationVersionPath,
-                        GooseRuntimeProvisioner.IntegrationContextVersion)
+                        GooseRuntimeProvisioner.IntegrationContextVersion),
+                    ["processAuthoringSkill"] = skillAnalysis
                 };
             }
             catch (Exception ex)
@@ -1727,7 +1779,8 @@ namespace Automation
             return value;
         }
 
-        // Developer 工具的工作目录使用当前运行项目的 HMI 源码目录。
+        // Editor 从工程根目录的 .agents/skills 发现项目 Skill；运行诊断沿用 HMI
+        // 工作目录，不加载流程编写 Skill。HMI 精确源码路径也可由开发 Context 返回。
         private string ResolveWorkingDirectory()
         {
             if (!HmiDevelopmentSourceLocator.TryResolve(
@@ -1737,7 +1790,17 @@ namespace Automation
             {
                 throw new DirectoryNotFoundException(error);
             }
-            return source.SourceDirectory;
+            if (string.Equals(config.ToolProfile, "RuntimeDiagnostic", StringComparison.Ordinal))
+            {
+                return source.SourceDirectory;
+            }
+            if (!string.IsNullOrWhiteSpace(source.ProjectPath))
+            {
+                return Path.GetDirectoryName(source.ProjectPath);
+            }
+
+            DirectoryInfo hmiDirectory = new DirectoryInfo(source.SourceDirectory);
+            return hmiDirectory.Parent?.FullName ?? hmiDirectory.FullName;
         }
 
         private static string ExtractText(JToken token)

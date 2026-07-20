@@ -245,7 +245,7 @@ namespace Automation.Protocol
         [Description("当前ChangeSet内的指令局部key；作为位置或跳转目标时提供，否则可省略由Bridge生成。operation.update/replace继承现有key。")]
         public string Key { get; set; }
 
-        [Description("严格枚举：" + SemanticOperationKinds.SupportedKinds + "。会话中已确认的资源、当前Schema/Guide和验证经验可以复用，但表达层按当前指令重新判断：能精确表达目标时使用语义kind；精确复刻当前原生字段或语义kind无法表达时使用native.operation，不因上一请求的选择而惯性沿用。固定文本弹框用popup.message，显示变量当前值用popup.variable。")]
+        [Description("语义指令判别字段。严格枚举：" + SemanticOperationKinds.SupportedKinds + "。")]
         public string Kind { get; set; }
 
         public string Name { get; set; }
