@@ -24,9 +24,19 @@ namespace Automation.Bridge
         private const int MaxOverviewOperationCount = 300;
         private const int MaxDetailOperationCount = 100;
         private const int MaxBatchReadOperationCount = 25;
-        private const int MaxProcDetailUtf8Bytes = 256 * 1024;
-        private const int MaxBatchReadUtf8Bytes = 256 * 1024;
+        // 19:45批次实测单轮输入已达5.6万到7.5万token；单个256KB结果足以独占同量级上下文。
+        // 详情能力保留，通过摘要、分页和稳定ID精确读取把单次模型结果控制在64KB内。
+        private const int MaxProcDetailUtf8Bytes = 64 * 1024;
+        private const int MaxBatchReadUtf8Bytes = 64 * 1024;
         private const int MaxStepDetailOperationCount = 100;
+        private const int MaxSnapshotPageSize = 100;
+        private const int DefaultSnapshotPageSize = 50;
+        private const int MaxDiagnosticFindingPageSize = 100;
+        private const int DefaultDiagnosticFindingPageSize = 50;
+        private const int MaxDiagnosticEvidencePageSize = 100;
+        private const int DefaultDiagnosticEvidencePageSize = 40;
+        private const int MaxInfoLogCount = 100;
+        private const int DefaultInfoLogCount = 30;
         private const int MaxBatchFieldValuesUtf8Bytes = 8 * 1024;
         private const int MaxBatchNameLength = 64;
         private static readonly LocalFileLogger bridgeErrorLogger = new LocalFileLogger(
@@ -2969,15 +2979,31 @@ namespace Automation.Bridge
         {
             EnsureRuntimeReady();
             int? procIndex = ReadOptionalInt(request, "procIndex");
+            int offset = ReadOptionalInt(request, "offset") ?? 0;
+            int limit = ReadOptionalInt(request, "limit") ?? DefaultSnapshotPageSize;
+            if (offset < 0 || limit < 1 || limit > MaxSnapshotPageSize)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT",
+                    $"offset 必须大于等于0，limit必须在1..{MaxSnapshotPageSize}范围内。");
+            }
+            if (procIndex.HasValue && (request["offset"] != null || request["limit"] != null))
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "指定procIndex时不接受offset或limit。");
+            }
             JArray snapshots = new JArray();
             if (procIndex.HasValue)
             {
                 GetProcByIndex(procIndex.Value);
                 snapshots.Add(BuildEngineSnapshot(SF.DR?.GetSnapshot(procIndex.Value), procIndex.Value));
+                offset = 0;
+                limit = 1;
             }
             else
             {
-                for (int i = 0; i < SF.frmProc.procsList.Count; i++)
+                int endExclusive = (int)Math.Min(
+                    SF.frmProc.procsList.Count,
+                    (long)offset + limit);
+                for (int i = offset; i < endExclusive; i++)
                 {
                     snapshots.Add(BuildEngineSnapshot(SF.DR?.GetSnapshot(i), i));
                 }
@@ -2988,6 +3014,13 @@ namespace Automation.Bridge
                 ["securityLocked"] = SF.SecurityLocked,
                 ["procConfigFaulted"] = SF.ProcConfigFaulted,
                 ["procCount"] = SF.frmProc.procsList.Count,
+                ["offset"] = offset,
+                ["limit"] = limit,
+                ["returned"] = snapshots.Count,
+                ["hasMore"] = !procIndex.HasValue && (long)offset + snapshots.Count < SF.frmProc.procsList.Count,
+                ["nextOffset"] = !procIndex.HasValue && (long)offset + snapshots.Count < SF.frmProc.procsList.Count
+                    ? (JToken)((long)offset + snapshots.Count)
+                    : JValue.CreateNull(),
                 ["selected"] = new JObject
                 {
                     ["procIndex"] = SF.frmProc.SelectedProcNum,
@@ -3001,26 +3034,37 @@ namespace Automation.Bridge
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleGetInfoLogTail(JObject request)
         {
-            int maxCount = ReadOptionalInt(request, "maxCount") ?? 50;
-            if (maxCount <= 0 || maxCount > 200)
+            int maxCount = ReadOptionalInt(request, "maxCount") ?? DefaultInfoLogCount;
+            if (maxCount <= 0 || maxCount > MaxInfoLogCount)
             {
-                return BridgeError(400, "INVALID_ARGUMENT", "maxCount 必须在 1..200 范围内。");
+                return BridgeError(400, "INVALID_ARGUMENT",
+                    $"maxCount 必须在1..{MaxInfoLogCount}范围内。");
             }
 
             JArray items = new JArray();
+            int omittedBySize = 0;
             foreach (FrmInfo.InfoLogSnapshot item in SF.frmInfo?.GetInfoLogTail(maxCount) ?? new List<FrmInfo.InfoLogSnapshot>())
             {
-                items.Add(new JObject
+                JObject candidate = new JObject
                 {
                     ["time"] = item.TimeText,
                     ["message"] = item.Message,
                     ["level"] = item.Level.ToString()
-                });
+                };
+                items.Add(candidate);
+                if (Encoding.UTF8.GetByteCount(items.ToString(Formatting.None)) > MaxBatchReadUtf8Bytes)
+                {
+                    candidate.Remove();
+                    omittedBySize++;
+                }
             }
 
             return new JObject
             {
                 ["maxCount"] = maxCount,
+                ["returned"] = items.Count,
+                ["omittedBySize"] = omittedBySize,
+                ["resultUtf8ByteLimit"] = MaxBatchReadUtf8Bytes,
                 ["items"] = items
             };
         }
@@ -3029,6 +3073,13 @@ namespace Automation.Bridge
         private JObject HandleDiagnoseProc(JObject request)
         {
             int procIndex = ReadRequiredInt(request, "procIndex");
+            int findingOffset = ReadOptionalInt(request, "findingOffset") ?? 0;
+            int findingLimit = ReadOptionalInt(request, "findingLimit") ?? DefaultDiagnosticFindingPageSize;
+            if (findingOffset < 0 || findingLimit < 1 || findingLimit > MaxDiagnosticFindingPageSize)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT",
+                    $"findingOffset必须大于等于0，findingLimit必须在1..{MaxDiagnosticFindingPageSize}范围内。");
+            }
             Proc proc = GetProcByIndex(procIndex);
             JArray findings = new JArray();
 
@@ -3115,6 +3166,11 @@ namespace Automation.Bridge
                 }
             }
 
+            int totalFindingCount = findings.Count;
+            JArray findingPage = new JArray(findings
+                .Skip(findingOffset)
+                .Take(findingLimit)
+                .Select(item => item.DeepClone()));
             return new JObject
             {
                 ["procIndex"] = procIndex,
@@ -3126,10 +3182,17 @@ namespace Automation.Bridge
                     ["disabledStepCount"] = disabledStepCount,
                     ["operationCount"] = opCount,
                     ["disabledOperationCount"] = disabledOpCount,
-                    ["findingCount"] = findings.Count
+                    ["findingCount"] = totalFindingCount
                 },
                 ["runtime"] = BuildEngineSnapshot(snapshot, procIndex),
-                ["findings"] = findings
+                ["findingOffset"] = findingOffset,
+                ["findingLimit"] = findingLimit,
+                ["returnedFindingCount"] = findingPage.Count,
+                ["hasMoreFindings"] = (long)findingOffset + findingPage.Count < totalFindingCount,
+                ["nextFindingOffset"] = (long)findingOffset + findingPage.Count < totalFindingCount
+                    ? (JToken)((long)findingOffset + findingPage.Count)
+                    : JValue.CreateNull(),
+                ["findings"] = findingPage
             };
         }
 
@@ -3796,11 +3859,11 @@ namespace Automation.Bridge
             EnsureRuntimeReady();
             int procOffset = ReadOptionalInt(request, "procOffset") ?? 0;
             int procLimit = ReadOptionalInt(request, "procLimit") ?? 20;
-            int findingLimit = ReadOptionalInt(request, "findingLimit") ?? 100;
-            if (procOffset < 0 || procLimit < 1 || procLimit > 50 || findingLimit < 1 || findingLimit > 200)
+            int findingLimit = ReadOptionalInt(request, "findingLimit") ?? 50;
+            if (procOffset < 0 || procLimit < 1 || procLimit > 50 || findingLimit < 1 || findingLimit > 100)
             {
                 return BridgeError(400, "INVALID_ARGUMENT",
-                    "procOffset 必须大于等于0，procLimit 必须在1..50，findingLimit 必须在1..200。");
+                    "procOffset 必须大于等于0，procLimit 必须在1..50，findingLimit 必须在1..100。");
             }
             int procCount = SF.frmProc.procsList.Count;
             int procEnd = Math.Min(procCount, procOffset + procLimit);
@@ -3911,6 +3974,13 @@ namespace Automation.Bridge
             string symptom = ReadOptionalString(request, "symptom") ?? string.Empty;
             int? stepIndex = ReadOptionalInt(request, "stepIndex");
             int? opIndex = ReadOptionalInt(request, "opIndex");
+            int evidenceOffset = ReadOptionalInt(request, "evidenceOffset") ?? 0;
+            int evidenceLimit = ReadOptionalInt(request, "evidenceLimit") ?? DefaultDiagnosticEvidencePageSize;
+            if (evidenceOffset < 0 || evidenceLimit < 1 || evidenceLimit > MaxDiagnosticEvidencePageSize)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT",
+                    $"evidenceOffset必须大于等于0，evidenceLimit必须在1..{MaxDiagnosticEvidencePageSize}范围内。");
+            }
             JObject validation = HandleValidateProc(new JObject { ["procIndex"] = procIndex });
             EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
             var result = new JObject
@@ -3927,8 +3997,10 @@ namespace Automation.Bridge
                     ["errors"] = validation["errors"],
                     ["warnings"] = validation["warnings"]
                 },
-                ["runtimeEvidence"] = SF.mainfrm?.RuntimeBlackBoxRecorder?.BuildEvidencePackage(procIndex)
-                    ?? RuntimeBlackBoxRecorder.BuildUnavailableEvidencePackage(procIndex)
+                ["runtimeEvidence"] = SF.mainfrm?.RuntimeBlackBoxRecorder?.BuildEvidencePage(
+                    procIndex, evidenceOffset, evidenceLimit)
+                    ?? RuntimeBlackBoxRecorder.BuildUnavailableEvidencePage(
+                        procIndex, evidenceOffset, evidenceLimit)
             };
             int targetStep = stepIndex ?? snapshot?.StepIndex ?? -1;
             int targetOp = opIndex ?? snapshot?.OpIndex ?? -1;
@@ -4203,6 +4275,13 @@ namespace Automation.Bridge
         {
             int procIndex = ReadRequiredInt(request, "procIndex");
             int stepIndex = ReadRequiredInt(request, "stepIndex");
+            int opOffset = ReadOptionalInt(request, "opOffset") ?? 0;
+            int opLimit = ReadOptionalInt(request, "opLimit") ?? MaxStepDetailOperationCount;
+            if (opOffset < 0 || opLimit < 1 || opLimit > MaxStepDetailOperationCount)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT",
+                    $"opOffset必须大于等于0，opLimit必须在1..{MaxStepDetailOperationCount}范围内。");
+            }
 
             Proc proc = GetProcByIndex(procIndex);
             if (proc.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count)
@@ -4210,21 +4289,19 @@ namespace Automation.Bridge
                 return BridgeError(400, "STEP_NOT_FOUND", $"步骤索引越界：{stepIndex}");
             }
             Step step = proc.steps[stepIndex];
-            if ((step?.Ops?.Count ?? 0) > MaxStepDetailOperationCount)
-            {
-                return BridgeError(413, "STEP_DETAIL_TOO_LARGE",
-                    $"步骤包含{step.Ops.Count}条指令，超过详情上限{MaxStepDetailOperationCount}；请使用get_operation_context按位置读取。");
-            }
+            int operationCount = step?.Ops?.Count ?? 0;
+            int endExclusive = (int)Math.Min(operationCount, (long)opOffset + opLimit);
 
             JArray opDetails = new JArray();
-            if (step.Ops != null)
+            bool returnFullDetail = operationCount <= MaxStepDetailOperationCount;
+            if (step?.Ops != null)
             {
-                for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
+                for (int opIndex = opOffset; opIndex < endExclusive; opIndex++)
                 {
                     OperationType op = step.Ops[opIndex];
                     bool isJump = IsJumpOperation(op);
-                    string flow = BuildFlowDescription(op, opIndex, step.Ops.Count);
-                    opDetails.Add(new JObject
+                    string flow = BuildFlowDescription(op, opIndex, operationCount);
+                    JObject item = new JObject
                     {
                         ["opIndex"] = opIndex,
                         ["opId"] = op?.Id.ToString("D"),
@@ -4233,13 +4310,18 @@ namespace Automation.Bridge
                         ["disable"] = op?.Disable ?? false,
                         ["isJump"] = isJump,
                         ["flow"] = flow,
-                        ["summary"] = op == null ? string.Empty : BuildOperationSummary(op),
-                        ["fields"] = op == null ? new JObject() : BuildWritableOperationFields(op)
-                    });
+                        ["summary"] = CompactDiagnosticText(
+                            op == null ? string.Empty : BuildOperationSummary(op), 400)
+                    };
+                    if (returnFullDetail)
+                    {
+                        item["fields"] = op == null ? new JObject() : BuildWritableOperationFields(op);
+                    }
+                    opDetails.Add(item);
                 }
             }
 
-            return new JObject
+            JObject result = new JObject
             {
                 ["procIndex"] = procIndex,
                 ["procName"] = proc.head?.Name ?? string.Empty,
@@ -4247,9 +4329,40 @@ namespace Automation.Bridge
                 ["stepId"] = step.Id.ToString("D"),
                 ["stepName"] = step.Name ?? string.Empty,
                 ["stepDisable"] = step.Disable,
-                ["opCount"] = step.Ops?.Count ?? 0,
+                ["opCount"] = operationCount,
+                ["opOffset"] = opOffset,
+                ["opLimit"] = opLimit,
+                ["returned"] = opDetails.Count,
+                ["hasMore"] = (long)opOffset + opDetails.Count < operationCount,
+                ["nextOpOffset"] = (long)opOffset + opDetails.Count < operationCount
+                    ? (JToken)((long)opOffset + opDetails.Count)
+                    : JValue.CreateNull(),
+                ["detailMode"] = returnFullDetail ? "full" : "directory",
                 ["operations"] = opDetails
             };
+            int resultBytes = Encoding.UTF8.GetByteCount(result.ToString(Formatting.None));
+            if (returnFullDetail && resultBytes > MaxBatchReadUtf8Bytes)
+            {
+                foreach (JObject item in opDetails.OfType<JObject>())
+                {
+                    item.Remove("fields");
+                }
+                result["detailMode"] = "directory";
+                result["detailOmittedReason"] = "full_detail_exceeds_result_budget";
+                result["fullDetailUtf8Bytes"] = resultBytes;
+                result["resultUtf8ByteLimit"] = MaxBatchReadUtf8Bytes;
+                result["exactRead"] = "使用operations中的opId调用get_op_details，单次最多25条。";
+            }
+            return result;
+        }
+
+        private static string CompactDiagnosticText(string value, int maximumLength)
+        {
+            if (string.IsNullOrEmpty(value) || value.Length <= maximumLength)
+            {
+                return value ?? string.Empty;
+            }
+            return value.Substring(0, maximumLength) + "…";
         }
 
         // 按条件搜索指令：支持按流程范围、指令类型、关键词（指令名/字段值）过滤。
@@ -4260,6 +4373,13 @@ namespace Automation.Bridge
             int? procIndex = ReadOptionalInt(request, "procIndex");
             string operaType = ReadOptionalString(request, "operaType");
             string keyword = ReadOptionalString(request, "keyword");
+            int offset = ReadOptionalInt(request, "offset") ?? 0;
+            int limit = ReadOptionalInt(request, "limit") ?? 50;
+            if (offset < 0 || limit < 1 || limit > 100)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT",
+                    "offset必须大于等于0，limit必须在1..100范围内。");
+            }
 
             IList<Proc> procs = SF.frmProc?.procsList;
             if (procs == null)
@@ -4274,6 +4394,10 @@ namespace Automation.Bridge
 
             int startProc = procIndex.HasValue ? procIndex.Value : 0;
             int endProc = procIndex.HasValue ? procIndex.Value + 1 : procs.Count;
+            if (procIndex.HasValue && (startProc < 0 || startProc >= procs.Count))
+            {
+                return BridgeError(404, "PROC_NOT_FOUND", $"流程索引不存在：{startProc}");
+            }
 
             for (int pi = startProc; pi < endProc && pi < procs.Count; pi++)
             {
@@ -4308,28 +4432,28 @@ namespace Automation.Bridge
                         }
 
                         matchedCount++;
+                        if (matchedCount <= offset || results.Count >= limit)
+                        {
+                            continue;
+                        }
                         results.Add(new JObject
                         {
                             ["procIndex"] = pi,
+                            ["procId"] = proc?.head?.Id.ToString("D") ?? string.Empty,
                             ["procName"] = proc.head?.Name ?? string.Empty,
                             ["stepIndex"] = si,
+                            ["stepId"] = step.Id.ToString("D"),
                             ["stepName"] = step.Name ?? string.Empty,
                             ["opIndex"] = oi,
+                            ["opId"] = op.Id.ToString("D"),
                             ["opName"] = op.Name ?? string.Empty,
                             ["operaType"] = op.OperaType ?? string.Empty,
                             ["disable"] = op.Disable,
-                            ["summary"] = BuildOperationSummary(op)
+                            ["summary"] = CompactDiagnosticText(BuildOperationSummary(op), 400)
                         });
-
-                        // 限制返回数量避免响应过大
-                        if (results.Count >= 200)
-                        {
-                            goto done;
-                        }
                     }
                 }
             }
-            done:
 
             return new JObject
             {
@@ -4341,7 +4465,13 @@ namespace Automation.Bridge
                 },
                 ["scannedProcCount"] = scannedProcs,
                 ["matchedCount"] = matchedCount,
-                ["truncated"] = results.Count >= 200,
+                ["offset"] = offset,
+                ["limit"] = limit,
+                ["returned"] = results.Count,
+                ["hasMore"] = (long)offset + results.Count < matchedCount,
+                ["nextOffset"] = (long)offset + results.Count < matchedCount
+                    ? (JToken)((long)offset + results.Count)
+                    : JValue.CreateNull(),
                 ["results"] = results
             };
         }
@@ -4555,9 +4685,12 @@ namespace Automation.Bridge
                 return BridgeError(400, "INVALID_ARGUMENT", $"scope 必须是 public、process 或 system，当前：{scopeFilter}");
             }
             int offset = request["offset"]?.Value<int>() ?? 0;
-            int limit = request["limit"]?.Value<int>() ?? 0;
+            int limit = request["limit"]?.Value<int>() ?? 100;
             if (offset < 0) offset = 0;
-            if (limit <= 0) limit = 1000;
+            if (limit < 1 || limit > 100)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "limit必须在1..100范围内。");
+            }
 
             var items = new List<JObject>();
             int matched = 0;
@@ -4608,6 +4741,10 @@ namespace Automation.Bridge
                 ["offset"] = offset,
                 ["limit"] = limit,
                 ["returned"] = items.Count,
+                ["hasMore"] = offset + items.Count < matched,
+                ["nextOffset"] = offset + items.Count < matched
+                    ? (JToken)(offset + items.Count)
+                    : JValue.CreateNull(),
                 ["items"] = new JArray(items)
             };
         }
@@ -6664,31 +6801,37 @@ namespace Automation.Bridge
             }
             string typeFilter = request["type"]?.Value<string>();
             string nameLike = request["nameLike"]?.Value<string>();
-            int limit = request["limit"]?.Value<int>() ?? 0;
-            if (limit <= 0) limit = 10000;
-
-            var items = new List<JObject>();
-            foreach (var kv in ioMap)
+            int offset = request["offset"]?.Value<int>() ?? 0;
+            int limit = request["limit"]?.Value<int>() ?? 50;
+            if (offset < 0 || limit < 1 || limit > 100)
             {
-                IO io = kv.Value;
-                if (io == null) continue;
-                if (!string.IsNullOrEmpty(typeFilter)
-                    && !string.Equals(io.IOType, typeFilter, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-                if (!string.IsNullOrEmpty(nameLike)
-                    && (io.Name ?? string.Empty).IndexOf(nameLike, StringComparison.OrdinalIgnoreCase) < 0)
-                {
-                    continue;
-                }
-                items.Add(BuildIoJObject(io));
-                if (items.Count >= limit) break;
+                return BridgeError(400, "INVALID_ARGUMENT",
+                    "offset必须大于等于0，limit必须在1..100范围内。");
             }
+
+            List<IO> matches = ioMap.Values
+                .Where(io => io != null)
+                .Where(io => string.IsNullOrEmpty(typeFilter)
+                    || string.Equals(io.IOType, typeFilter, StringComparison.OrdinalIgnoreCase))
+                .Where(io => string.IsNullOrEmpty(nameLike)
+                    || (io.Name ?? string.Empty).IndexOf(nameLike, StringComparison.OrdinalIgnoreCase) >= 0)
+                .OrderBy(io => io.Name ?? string.Empty, StringComparer.Ordinal)
+                .ToList();
+            JArray items = new JArray(matches
+                .Skip(offset)
+                .Take(limit)
+                .Select(BuildIoCatalogJObject));
             return new JObject
             {
-                ["total"] = items.Count,
-                ["items"] = new JArray(items)
+                ["total"] = matches.Count,
+                ["offset"] = offset,
+                ["limit"] = limit,
+                ["returned"] = items.Count,
+                ["hasMore"] = (long)offset + items.Count < matches.Count,
+                ["nextOffset"] = (long)offset + items.Count < matches.Count
+                    ? (JToken)((long)offset + items.Count)
+                    : JValue.CreateNull(),
+                ["items"] = items
             };
         }
 
@@ -6723,39 +6866,42 @@ namespace Automation.Bridge
                 || string.Equals(keyword, "*", StringComparison.Ordinal);
             string typeFilter = request["type"]?.Value<string>();
             int? cardNum = request["cardNum"]?.Value<int>();
-            int limit = request["limit"]?.Value<int>() ?? 100;
-            if (limit <= 0) limit = 100;
-
-            var items = new List<JObject>();
-            foreach (var kv in ioMap)
+            int offset = request["offset"]?.Value<int>() ?? 0;
+            int limit = request["limit"]?.Value<int>() ?? 50;
+            if (offset < 0 || limit < 1 || limit > 100)
             {
-                IO io = kv.Value;
-                if (io == null) continue;
-                if (!returnAll
-                    && (io.Name ?? string.Empty).IndexOf(keyword, StringComparison.OrdinalIgnoreCase) < 0)
-                {
-                    continue;
-                }
-                if (!string.IsNullOrEmpty(typeFilter)
-                    && !string.Equals(io.IOType, typeFilter, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-                if (cardNum.HasValue && io.CardNum != cardNum.Value)
-                {
-                    continue;
-                }
-                items.Add(BuildIoJObject(io));
-                if (items.Count >= limit) break;
+                return BridgeError(400, "INVALID_ARGUMENT",
+                    "offset必须大于等于0，limit必须在1..100范围内。");
             }
+
+            List<IO> matches = ioMap.Values
+                .Where(io => io != null)
+                .Where(io => returnAll
+                    || (io.Name ?? string.Empty).IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0)
+                .Where(io => string.IsNullOrEmpty(typeFilter)
+                    || string.Equals(io.IOType, typeFilter, StringComparison.OrdinalIgnoreCase))
+                .Where(io => !cardNum.HasValue || io.CardNum == cardNum.Value)
+                .OrderBy(io => io.Name ?? string.Empty, StringComparer.Ordinal)
+                .ToList();
+            JArray items = new JArray(matches
+                .Skip(offset)
+                .Take(limit)
+                .Select(BuildIoCatalogJObject));
             return new JObject
             {
                 ["keyword"] = keyword,
                 ["queryMode"] = returnAll ? "all" : "contains",
                 ["type"] = typeFilter ?? string.Empty,
                 ["cardNum"] = cardNum.HasValue ? JToken.FromObject(cardNum.Value) : null,
+                ["total"] = matches.Count,
+                ["offset"] = offset,
+                ["limit"] = limit,
                 ["returned"] = items.Count,
-                ["items"] = new JArray(items)
+                ["hasMore"] = (long)offset + items.Count < matches.Count,
+                ["nextOffset"] = (long)offset + items.Count < matches.Count
+                    ? (JToken)((long)offset + items.Count)
+                    : JValue.CreateNull(),
+                ["items"] = items
             };
         }
 
@@ -6827,6 +6973,15 @@ namespace Automation.Bridge
                 ["note"] = io.Note ?? string.Empty,
                 ["isRemark"] = io.IsRemark
             };
+        }
+
+        private static JObject BuildIoCatalogJObject(IO io)
+        {
+            JObject item = BuildIoJObject(io);
+            string note = io?.Note ?? string.Empty;
+            item["note"] = CompactDiagnosticText(note, 300);
+            item["noteTruncated"] = note.Length > 300;
+            return item;
         }
 
         // ===================== 报警清单 =====================

@@ -10,12 +10,14 @@ namespace Automation
     {
         public const int SystemPromptVersion = 19;
         public const int IntegrationContextVersion = 45;
-        public const int ProcessAuthoringSkillVersion = 1;
+        public static int ProcessAuthoringSkillVersion { get; } = ReadBundledProcessAuthoringSkillVersion();
         public const string ProcessAuthoringSkillName = "automation-process-authoring";
         private const string PromptResourceName = "Automation.Assets.Goose.system.md";
         private const string IntegrationContextResourceName = "Automation.Assets.Goose.automation.md";
         private const string ProcessAuthoringSkillResourceName =
             "Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md";
+        private const string ProcessAuthoringSkillVersionResourceName =
+            "Automation.Assets.Goose.Skills.automation-process-authoring.skill-version";
         private const string VersionFileName = ".automation-system-prompt-version";
         private const string IntegrationContextVersionFileName = ".automation-context-version";
         private const string ProcessAuthoringSkillVersionFileName = ".automation-skill-version";
@@ -186,6 +188,43 @@ namespace Automation
                 throw new InvalidDataException(artifactName + " 版本标记格式无效：" + versionPath);
             }
             return version;
+        }
+
+        private static int ReadBundledProcessAuthoringSkillVersion()
+        {
+            Stream source = Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream(ProcessAuthoringSkillVersionResourceName);
+            if (source == null)
+            {
+                string fallbackPath = Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    "Assets",
+                    "Goose",
+                    "Skills",
+                    ProcessAuthoringSkillName,
+                    ProcessAuthoringSkillVersionFileName);
+                if (!File.Exists(fallbackPath))
+                {
+                    throw new InvalidOperationException(
+                        "程序内置流程编写 Skill 版本资源不存在：" + fallbackPath);
+                }
+                source = new FileStream(fallbackPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            }
+            using (source)
+            using (var reader = new StreamReader(source, Encoding.UTF8, true, 128, false))
+            {
+                string text = reader.ReadToEnd().Trim();
+                if (!int.TryParse(
+                    text,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out int version)
+                    || version <= 0)
+                {
+                    throw new InvalidDataException("程序内置流程编写 Skill 版本格式无效。");
+                }
+                return version;
+            }
         }
 
         private static void BackupCurrentPrompt(int version)

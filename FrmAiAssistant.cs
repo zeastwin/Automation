@@ -182,7 +182,7 @@ namespace Automation
                     {
                         webDocumentReady = true;
                         EnqueueScript("window.__automationConversationViewGeneration="
-                            + conversationViewGeneration + ";");
+                            + conversationViewGeneration + ";", false);
                         RenderActiveTaskView();
                         PushWebAppState();
                     };
@@ -4634,7 +4634,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         }
 
         // 串行化 ExecuteScriptAsync：通过 ContinueWith 链保证脚本按入队顺序执行（状态修改在调用前同步完成，脚本内 HTML 已捕获）。
-        private void EnqueueScript(string js)
+        private void EnqueueScript(string js, bool requireMatchingGeneration = true)
         {
             if (webViewClosing || IsDisposed || Disposing)
             {
@@ -4649,10 +4649,12 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             try
             {
                 int scriptGeneration = conversationViewGeneration;
-                string guardedScript = "if(window.__automationConversationViewGeneration==="
-                    + scriptGeneration + "){"
-                    + js
-                    + "}";
+                string guardedScript = requireMatchingGeneration
+                    ? "if(window.__automationConversationViewGeneration==="
+                        + scriptGeneration + "){"
+                        + js
+                        + "}"
+                    : js;
                 pendingScriptTask = (pendingScriptTask ?? Task.CompletedTask).ContinueWith(
                     async _ =>
                     {

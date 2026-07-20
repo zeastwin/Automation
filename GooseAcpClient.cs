@@ -1794,13 +1794,7 @@ namespace Automation
             {
                 return source.SourceDirectory;
             }
-            if (!string.IsNullOrWhiteSpace(source.ProjectPath))
-            {
-                return Path.GetDirectoryName(source.ProjectPath);
-            }
-
-            DirectoryInfo hmiDirectory = new DirectoryInfo(source.SourceDirectory);
-            return hmiDirectory.Parent?.FullName ?? hmiDirectory.FullName;
+            return source.ProjectRoot;
         }
 
         private static string ExtractText(JToken token)

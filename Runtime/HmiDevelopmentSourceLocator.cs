@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Reflection;
 
 namespace Automation
 {
@@ -14,6 +15,14 @@ namespace Automation
         public string ValidationScriptPath { get; set; }
 
         public string CustomFunctionSourcePath { get; set; }
+
+        public string ProjectKind { get; set; }
+
+        public string ProjectRoot { get; set; }
+
+        public string SkillRootDirectory { get; set; }
+
+        public bool IsPublishedLayout { get; set; }
     }
 
     internal static class HmiDevelopmentSourceLocator
@@ -23,8 +32,23 @@ namespace Automation
         public const string PlatformSourceRootEnvironmentVariable = "AUTOMATION_PLATFORM_SOURCE_ROOT";
         public const string ValidationScriptEnvironmentVariable = "AUTOMATION_HMI_VALIDATION_SCRIPT";
         public const string CustomFunctionSourceEnvironmentVariable = "AUTOMATION_HMI_CUSTOM_FUNCTION_SOURCE";
+        public const string ProjectKindEnvironmentVariable = "AUTOMATION_HMI_PROJECT_KIND";
+        public const string ProjectRootEnvironmentVariable = "AUTOMATION_PROJECT_ROOT";
+        public const string SkillRootEnvironmentVariable = "AUTOMATION_SKILL_ROOT";
+        public const string PlatformProjectKind = "platform";
+        public const string DeviceProjectKind = "device";
 
         public static bool TryResolve(string startDirectory, out HmiDevelopmentSource source, out string error)
+        {
+            string hostExecutablePath = Assembly.GetEntryAssembly()?.Location;
+            return TryResolve(startDirectory, hostExecutablePath, out source, out error);
+        }
+
+        internal static bool TryResolve(
+            string startDirectory,
+            string hostExecutablePath,
+            out HmiDevelopmentSource source,
+            out string error)
         {
             source = null;
             error = string.Empty;
@@ -46,11 +70,30 @@ namespace Automation
                 return false;
             }
 
+            string hostProjectKind = ResolveHostProjectKind(hostExecutablePath);
+            string localPublishedHmiDirectory = Path.Combine(directory.FullName, "Hmi");
+            if (Directory.Exists(localPublishedHmiDirectory)
+                && !File.Exists(Path.Combine(directory.FullName, "Automation.csproj"))
+                && !File.Exists(Path.Combine(directory.FullName, "MachineApp.csproj")))
+            {
+                source = CreateSource(
+                    localPublishedHmiDirectory,
+                    null,
+                    null,
+                    string.Equals(hostProjectKind, PlatformProjectKind, StringComparison.Ordinal)
+                        ? PlatformProjectKind
+                        : DeviceProjectKind,
+                    true);
+                return true;
+            }
+
             while (directory != null)
             {
                 string directProjectPath = Path.Combine(directory.FullName, "MachineApp.csproj");
                 string directSourceDirectory = Path.Combine(directory.FullName, "Hmi");
-                if (File.Exists(directProjectPath) && Directory.Exists(directSourceDirectory))
+                if (!string.Equals(hostProjectKind, PlatformProjectKind, StringComparison.Ordinal)
+                    && File.Exists(directProjectPath)
+                    && Directory.Exists(directSourceDirectory))
                 {
                     string platformSourceRoot = directory.FullName;
                     if (directory.Parent != null)
@@ -61,29 +104,48 @@ namespace Automation
                             platformSourceRoot = siblingPlatformRoot;
                         }
                     }
-                    source = CreateSource(directSourceDirectory, directProjectPath, platformSourceRoot);
+                    source = CreateSource(
+                        directSourceDirectory,
+                        directProjectPath,
+                        platformSourceRoot,
+                        DeviceProjectKind,
+                        false);
                     return true;
                 }
 
                 string platformProjectPath = Path.Combine(directory.FullName, "Automation.csproj");
                 string platformHmiDirectory = Path.Combine(directory.FullName, "Hmi");
-                if (File.Exists(platformProjectPath) && Directory.Exists(platformHmiDirectory))
+                if (!string.Equals(hostProjectKind, DeviceProjectKind, StringComparison.Ordinal)
+                    && File.Exists(platformProjectPath)
+                    && Directory.Exists(platformHmiDirectory))
                 {
-                    source = CreateSource(platformHmiDirectory, platformProjectPath, directory.FullName);
+                    source = CreateSource(
+                        platformHmiDirectory,
+                        platformProjectPath,
+                        directory.FullName,
+                        PlatformProjectKind,
+                        false);
                     return true;
                 }
 
                 string deviceProjectDirectory = Path.Combine(directory.FullName, "DeviceProject");
                 string deviceProjectPath = Path.Combine(deviceProjectDirectory, "MachineApp.csproj");
                 string deviceSourceDirectory = Path.Combine(deviceProjectDirectory, "Hmi");
-                if (File.Exists(deviceProjectPath) && Directory.Exists(deviceSourceDirectory))
+                if (!string.Equals(hostProjectKind, PlatformProjectKind, StringComparison.Ordinal)
+                    && File.Exists(deviceProjectPath)
+                    && Directory.Exists(deviceSourceDirectory))
                 {
                     string platformSourceRoot = Path.Combine(directory.FullName, "Automation");
                     if (!File.Exists(Path.Combine(platformSourceRoot, "Automation.csproj")))
                     {
                         platformSourceRoot = directory.FullName;
                     }
-                    source = CreateSource(deviceSourceDirectory, deviceProjectPath, platformSourceRoot);
+                    source = CreateSource(
+                        deviceSourceDirectory,
+                        deviceProjectPath,
+                        platformSourceRoot,
+                        DeviceProjectKind,
+                        false);
                     return true;
                 }
 
@@ -95,7 +157,14 @@ namespace Automation
                 "Hmi");
             if (Directory.Exists(deployedSourceDirectory))
             {
-                source = CreateSource(deployedSourceDirectory, null, null);
+                source = CreateSource(
+                    deployedSourceDirectory,
+                    null,
+                    null,
+                    string.Equals(hostProjectKind, PlatformProjectKind, StringComparison.Ordinal)
+                        ? PlatformProjectKind
+                        : DeviceProjectKind,
+                    true);
                 return true;
             }
 
@@ -106,8 +175,13 @@ namespace Automation
         private static HmiDevelopmentSource CreateSource(
             string sourceDirectory,
             string projectPath,
-            string platformSourceRoot)
+            string platformSourceRoot,
+            string projectKind,
+            bool isPublishedLayout)
         {
+            string projectRoot = string.IsNullOrWhiteSpace(projectPath)
+                ? Directory.GetParent(Path.GetFullPath(sourceDirectory))?.FullName
+                : Path.GetDirectoryName(Path.GetFullPath(projectPath));
             DirectoryInfo rootDirectory = null;
             if (!string.IsNullOrWhiteSpace(platformSourceRoot))
             {
@@ -151,8 +225,30 @@ namespace Automation
                 ProjectPath = string.IsNullOrWhiteSpace(projectPath) ? null : Path.GetFullPath(projectPath),
                 PlatformSourceRoot = string.IsNullOrWhiteSpace(platformSourceRoot) ? null : Path.GetFullPath(platformSourceRoot),
                 ValidationScriptPath = validationScriptPath,
-                CustomFunctionSourcePath = customFunctionSourcePath
+                CustomFunctionSourcePath = customFunctionSourcePath,
+                ProjectKind = projectKind,
+                ProjectRoot = projectRoot,
+                SkillRootDirectory = string.IsNullOrWhiteSpace(projectRoot)
+                    ? null
+                    : Path.Combine(projectRoot, ".agents", "skills"),
+                IsPublishedLayout = isPublishedLayout
             };
+        }
+
+        private static string ResolveHostProjectKind(string hostExecutablePath)
+        {
+            string executableName = string.IsNullOrWhiteSpace(hostExecutablePath)
+                ? string.Empty
+                : Path.GetFileNameWithoutExtension(hostExecutablePath);
+            if (string.Equals(executableName, "MachineApp", StringComparison.OrdinalIgnoreCase))
+            {
+                return DeviceProjectKind;
+            }
+            if (string.Equals(executableName, "Automation", StringComparison.OrdinalIgnoreCase))
+            {
+                return PlatformProjectKind;
+            }
+            return string.Empty;
         }
     }
 }

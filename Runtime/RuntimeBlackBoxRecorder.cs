@@ -83,6 +83,17 @@ namespace Automation
             };
         }
 
+        internal static JObject BuildUnavailableEvidencePage(int procIndex, int offset, int limit)
+        {
+            JObject package = BuildUnavailableEvidencePackage(procIndex);
+            package["eligibleEventCount"] = 0;
+            package["evidenceOffset"] = offset;
+            package["evidenceLimit"] = limit;
+            package["hasMoreEvents"] = false;
+            package["nextEvidenceOffset"] = JValue.CreateNull();
+            return package;
+        }
+
         /// <summary>生成供 MCP/AI 使用的关键证据包，最多返回300条事件。</summary>
         public JObject BuildEvidencePackage(int procIndex)
         {
@@ -105,6 +116,45 @@ namespace Automation
                     rawEvents,
                     selected,
                     selected.Count < rawEvents.Count ? "critical_and_even_sample" : "all_relevant_events");
+            }
+        }
+
+        /// <summary>生成供 MCP/AI 分页读取的关键证据，候选集仍使用同一套300条关键证据选择规则。</summary>
+        public JObject BuildEvidencePage(int procIndex, int offset, int limit)
+        {
+            lock (syncRoot)
+            {
+                DateTime nowUtc = DateTime.UtcNow;
+                PruneAllLocked(nowUtc);
+                Guid procId = ResolveProcessId(procIndex);
+                currentIncidents.TryGetValue(procId, out IncidentMarker marker);
+                List<RuntimeBlackBoxEvent> rawEvents = SelectRelevantEventsLocked(
+                    procId, marker, nowUtc, includeFullRecentBuffer: false);
+                List<RuntimeBlackBoxEvent> eligible = SelectAiEvidence(
+                    rawEvents, marker, MaximumAiEvidenceEventCount);
+                List<RuntimeBlackBoxEvent> page = eligible
+                    .Skip(offset)
+                    .Take(limit)
+                    .ToList();
+                JObject package = BuildPackageLocked(
+                    "ai_evidence",
+                    procIndex,
+                    procId,
+                    marker,
+                    nowUtc,
+                    rawEvents,
+                    page,
+                    eligible.Count < rawEvents.Count
+                        ? "critical_and_even_sample_paged"
+                        : "all_relevant_events_paged");
+                package["eligibleEventCount"] = eligible.Count;
+                package["evidenceOffset"] = offset;
+                package["evidenceLimit"] = limit;
+                package["hasMoreEvents"] = (long)offset + page.Count < eligible.Count;
+                package["nextEvidenceOffset"] = (long)offset + page.Count < eligible.Count
+                    ? (JToken)((long)offset + page.Count)
+                    : JValue.CreateNull();
+                return package;
             }
         }
 

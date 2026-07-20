@@ -351,6 +351,18 @@ namespace Automation
             }
             startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.SourceDirectoryEnvironmentVariable] =
                 hmiSource.SourceDirectory;
+            startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.ProjectKindEnvironmentVariable] =
+                hmiSource.ProjectKind;
+            if (!string.IsNullOrWhiteSpace(hmiSource.ProjectRoot))
+            {
+                startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.ProjectRootEnvironmentVariable] =
+                    hmiSource.ProjectRoot;
+            }
+            if (!string.IsNullOrWhiteSpace(hmiSource.SkillRootDirectory))
+            {
+                startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.SkillRootEnvironmentVariable] =
+                    hmiSource.SkillRootDirectory;
+            }
             if (!string.IsNullOrWhiteSpace(hmiSource.ProjectPath))
             {
                 startInfo.EnvironmentVariables[HmiDevelopmentSourceLocator.ProjectPathEnvironmentVariable] =

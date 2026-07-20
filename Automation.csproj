@@ -516,6 +516,9 @@
     <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
       <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version">
+      <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.skill-version</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="Assets\ProcessFlow\index.html">
       <LogicalName>Automation.Assets.ProcessFlow.index.html</LogicalName>
     </EmbeddedResource>
@@ -535,6 +538,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <None Include="app.config" />
@@ -581,6 +587,14 @@
       <IntentTemplateFiles Include="IntentTemplates\**\*.*" />
     </ItemGroup>
     <Copy Condition="'@(IntentTemplateFiles)' != ''" SourceFiles="@(IntentTemplateFiles)" DestinationFiles="@(IntentTemplateFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="ProvisionProcessAuthoringSkillInOutput" AfterTargets="Build">
+    <PropertyGroup>
+      <ProcessAuthoringSkillOutputDirectory>$(TargetDir).agents\skills\automation-process-authoring</ProcessAuthoringSkillOutputDirectory>
+    </PropertyGroup>
+    <MakeDir Directories="$(ProcessAuthoringSkillOutputDirectory)" />
+    <Copy SourceFiles="Assets\Goose\Skills\automation-process-authoring\SKILL.md" DestinationFolder="$(ProcessAuthoringSkillOutputDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version" DestinationFolder="$(ProcessAuthoringSkillOutputDirectory)" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="RemoveUnsupportedNativeGitLibraries" AfterTargets="Build">
     <ItemGroup>

@@ -54,14 +54,18 @@ namespace Automation
     internal sealed class InspectorSelectionPickerPanel : UserControl
     {
         private const int OuterPadding = 8;
-        private const int ColumnGap = 7;
-        private const int ColumnWidth = 205;
-        private const int HeaderHeight = 29;
-        private const int ItemHeight = 29;
+        private const int ColumnCount = 3;
+        private const int ColumnGap = 8;
+        private const int GroupGap = 4;
+        private const int BandGap = 8;
+        private const int MaximumColumnHeight = 464;
+        private const int PreferredWidth = 550;
 
-        private readonly List<PickerColumnControl> columnControls
-            = new List<PickerColumnControl>();
-        private PickerColumnControl highlightedColumn;
+        private readonly List<PickerGroupControl> groupControls
+            = new List<PickerGroupControl>();
+        private readonly List<Button> choiceButtons = new List<Button>();
+        private PickerGroupControl highlightedGroup;
+        private Button selectedButton;
 
         public InspectorSelectionPickerPanel(
             InspectorSelectionPickerKind kind,
@@ -76,13 +80,13 @@ namespace Automation
             Font = InspectorFonts.Regular9;
             TabStop = true;
 
-            IReadOnlyList<PickerColumn> columns = InspectorSelectionPickerData.Build(
+            IReadOnlyList<PickerGroupDefinition> groups = InspectorSelectionPickerData.Build(
                 kind,
                 owner,
                 property,
                 currentValue);
-            BuildColumns(columns, currentValue);
-            SizeChanged += (sender, args) => LayoutColumns();
+            BuildGroups(groups, currentValue);
+            SizeChanged += (sender, args) => RefreshPickerLayout();
         }
 
         public event Action<string> ValueSelected;
@@ -92,47 +96,103 @@ namespace Automation
         {
             get
             {
-                int visibleColumns = Math.Min(3, Math.Max(1, columnControls.Count));
-                return OuterPadding * 2 + visibleColumns * ColumnWidth
-                    + Math.Max(0, visibleColumns - 1) * ColumnGap;
+                return PreferredWidth;
             }
         }
 
-        public int PreferredPickerHeight => 350;
+        public int ContentHeight { get; private set; }
 
         public void FocusPicker()
         {
-            PickerColumnControl target = highlightedColumn ?? columnControls.FirstOrDefault();
-            target?.FocusList();
-            if (highlightedColumn != null)
+            Button target = selectedButton
+                ?? highlightedGroup?.FirstSelectableButton
+                ?? choiceButtons.FirstOrDefault();
+            target?.Focus();
+            if (target != null)
             {
-                ScrollControlIntoView(highlightedColumn);
+                ScrollControlIntoView(target);
             }
         }
 
-        private void BuildColumns(
-            IReadOnlyList<PickerColumn> columns,
+        public void RefreshPickerLayout()
+        {
+            int availableWidth = Math.Max(
+                260,
+                ClientSize.Width - OuterPadding * 2
+                    - SystemInformation.VerticalScrollBarWidth);
+            int groupWidth = Math.Max(
+                80,
+                (availableWidth - ColumnGap * (ColumnCount - 1)) / ColumnCount);
+            int[] columnY = { OuterPadding, OuterPadding, OuterPadding };
+            int bandTop = OuterPadding;
+            int column = 0;
+            foreach (PickerGroupControl groupControl in groupControls)
+            {
+                groupControl.RefreshPickerLayout(groupWidth);
+                if (column < ColumnCount - 1
+                    && columnY[column] > bandTop
+                    && columnY[column] + groupControl.ContentHeight
+                        > bandTop + MaximumColumnHeight)
+                {
+                    column++;
+                }
+                else if (column == ColumnCount - 1
+                    && columnY[column] > bandTop
+                    && columnY[column] + groupControl.ContentHeight
+                        > bandTop + MaximumColumnHeight)
+                {
+                    bandTop += MaximumColumnHeight + BandGap;
+                    column = 0;
+                    for (int index = 0; index < columnY.Length; index++)
+                    {
+                        columnY[index] = bandTop;
+                    }
+                }
+                groupControl.SetBounds(
+                    OuterPadding + column * (groupWidth + ColumnGap),
+                    columnY[column],
+                    groupWidth,
+                    groupControl.ContentHeight);
+                columnY[column] += groupControl.ContentHeight + GroupGap;
+            }
+            ContentHeight = Math.Max(
+                70,
+                columnY.Max() - GroupGap + OuterPadding);
+            AutoScrollMinSize = new Size(0, ContentHeight);
+        }
+
+        private void BuildGroups(
+            IReadOnlyList<PickerGroupDefinition> groups,
             string currentValue)
         {
             SuspendLayout();
             try
             {
-                foreach (PickerColumn column in columns)
+                foreach (PickerGroupDefinition sourceGroup in groups)
                 {
-                    var columnControl = new PickerColumnControl(column, currentValue)
+                    int maximumChoices = PickerGroupControl.GetMaximumChoiceCount(
+                        MaximumColumnHeight);
+                    for (int offset = 0; offset < sourceGroup.Choices.Count; offset += maximumChoices)
                     {
-                        Width = ColumnWidth
-                    };
-                    columnControl.ValueSelected += value => ValueSelected?.Invoke(value);
-                    columnControl.CancelRequested += () => CancelRequested?.Invoke();
-                    columnControl.MoveColumnRequested += offset => MoveColumnFocus(
-                        columnControl,
-                        offset);
-                    columnControls.Add(columnControl);
-                    Controls.Add(columnControl);
-                    if (column.Highlighted)
-                    {
-                        highlightedColumn = columnControl;
+                        PickerGroupDefinition group = sourceGroup.CreateChunk(
+                            offset,
+                            maximumChoices,
+                            offset > 0);
+                        var groupControl = new PickerGroupControl(group, currentValue);
+                        groupControl.ValueSelected += value => ValueSelected?.Invoke(value);
+                        groupControl.CancelRequested += () => CancelRequested?.Invoke();
+                        groupControl.MoveFocusRequested += MoveFocus;
+                        groupControls.Add(groupControl);
+                        choiceButtons.AddRange(groupControl.SelectableButtons);
+                        Controls.Add(groupControl);
+                        if (group.Highlighted && highlightedGroup == null)
+                        {
+                            highlightedGroup = groupControl;
+                        }
+                        if (groupControl.SelectedButton != null)
+                        {
+                            selectedButton = groupControl.SelectedButton;
+                        }
                     }
                 }
             }
@@ -140,51 +200,56 @@ namespace Automation
             {
                 ResumeLayout(false);
             }
-            LayoutColumns();
+            RefreshPickerLayout();
         }
 
-        private void LayoutColumns()
+        private void MoveFocus(Button source, Keys key)
         {
-            int height = Math.Max(180, ClientSize.Height - OuterPadding * 2);
-            for (int index = 0; index < columnControls.Count; index++)
+            int index = choiceButtons.IndexOf(source);
+            if (index < 0)
             {
-                columnControls[index].SetBounds(
-                    OuterPadding + index * (ColumnWidth + ColumnGap),
-                    OuterPadding,
-                    ColumnWidth,
-                    height);
+                return;
             }
-            int contentWidth = OuterPadding * 2
-                + columnControls.Count * ColumnWidth
-                + Math.Max(0, columnControls.Count - 1) * ColumnGap;
-            AutoScrollMinSize = new Size(contentWidth, 0);
-        }
-
-        private void MoveColumnFocus(PickerColumnControl source, int offset)
-        {
-            int index = columnControls.IndexOf(source);
-            int target = index + offset;
-            if (target >= 0 && target < columnControls.Count)
+            int offset;
+            switch (key)
             {
-                columnControls[target].FocusList();
-                ScrollControlIntoView(columnControls[target]);
+                case Keys.Left:
+                case Keys.Up:
+                    offset = -1;
+                    break;
+                case Keys.Right:
+                case Keys.Down:
+                    offset = 1;
+                    break;
+                default:
+                    return;
+            }
+            int targetIndex = index + offset;
+            if (targetIndex >= 0 && targetIndex < choiceButtons.Count)
+            {
+                Button target = choiceButtons[targetIndex];
+                target.Focus();
+                ScrollControlIntoView(target);
             }
         }
 
-        private sealed class PickerColumnControl : UserControl
+        private sealed class PickerGroupControl : UserControl
         {
-            private readonly PickerColumn definition;
+            private const int RowGap = 1;
+            private const int HeaderHeight = 21;
+            private const int ItemHeight = 23;
+
+            private readonly PickerGroupDefinition definition;
             private readonly Label header = new Label();
-            private readonly ChoiceListBox list = new ChoiceListBox();
+            private readonly List<Button> buttons = new List<Button>();
 
-            public PickerColumnControl(PickerColumn definition, string currentValue)
+            public PickerGroupControl(PickerGroupDefinition definition, string currentValue)
             {
                 this.definition = definition;
-                BackColor = definition.Highlighted
-                    ? UiPalette.BrandSoft
-                    : UiPalette.SurfaceSubtle;
-                Padding = new Padding(1);
+                BackColor = UiPalette.Surface;
+                Padding = Padding.Empty;
                 Margin = Padding.Empty;
+                DoubleBuffered = true;
 
                 header.AutoEllipsis = true;
                 header.BackColor = definition.Highlighted
@@ -194,210 +259,173 @@ namespace Automation
                 header.ForeColor = definition.Highlighted
                     ? UiPalette.Brand
                     : UiPalette.TextPrimary;
-                header.Padding = new Padding(28, 0, 5, 0);
+                header.Padding = new Padding(30, 0, 4, 0);
                 header.Text = definition.Title;
                 header.TextAlign = ContentAlignment.MiddleLeft;
                 header.Paint += Header_Paint;
                 Controls.Add(header);
 
-                list.BackColor = UiPalette.Surface;
-                list.BorderStyle = BorderStyle.None;
-                list.DrawMode = DrawMode.OwnerDrawFixed;
-                list.Font = InspectorFonts.Regular9;
-                list.ForeColor = UiPalette.TextPrimary;
-                list.IntegralHeight = false;
-                list.ItemHeight = ItemHeight;
-                list.Items.AddRange(definition.Choices.Cast<object>().ToArray());
-                list.DrawItem += List_DrawItem;
-                list.MouseClick += List_MouseClick;
-                list.KeyDown += List_KeyDown;
-                list.PreviewKeyDown += List_PreviewKeyDown;
-                Controls.Add(list);
-
-                int currentIndex = definition.Choices.FindIndex(choice =>
-                    choice.Selectable && string.Equals(
+                foreach (PickerChoice choice in definition.Choices)
+                {
+                    bool selected = choice.Selectable && string.Equals(
                         choice.Value,
                         currentValue,
-                        StringComparison.Ordinal));
-                if (currentIndex >= 0)
-                {
-                    list.SelectedIndex = currentIndex;
+                        StringComparison.Ordinal);
+                    var button = new Button
+                    {
+                        AccessibleName = choice.Primary,
+                        AccessibleDescription = choice.Secondary,
+                        AutoEllipsis = true,
+                        BackColor = selected
+                            ? UiPalette.BrandSoftHover
+                            : UiPalette.Surface,
+                        Cursor = choice.Selectable ? Cursors.Hand : Cursors.Default,
+                        Enabled = choice.Selectable,
+                        FlatStyle = FlatStyle.Flat,
+                        Font = InspectorFonts.Regular85,
+                        ForeColor = selected
+                            ? UiPalette.Brand
+                            : choice.Selectable
+                                ? UiPalette.TextPrimary
+                                : UiPalette.TextDisabled,
+                        TabStop = choice.Selectable,
+                        Tag = choice,
+                        Text = string.Empty,
+                        UseVisualStyleBackColor = false
+                    };
+                    button.FlatAppearance.BorderSize = 0;
+                    button.FlatAppearance.MouseOverBackColor = UiPalette.BrandSoft;
+                    button.FlatAppearance.MouseDownBackColor = UiPalette.BrandSoftHover;
+                    button.Paint += ChoiceButton_Paint;
+                    button.Click += ChoiceButton_Click;
+                    button.KeyDown += ChoiceButton_KeyDown;
+                    button.PreviewKeyDown += ChoiceButton_PreviewKeyDown;
+                    buttons.Add(button);
+                    Controls.Add(button);
+                    if (selected)
+                    {
+                        SelectedButton = button;
+                    }
                 }
-                Resize += (sender, args) => LayoutControls();
-                LayoutControls();
             }
 
             public event Action<string> ValueSelected;
             public event Action CancelRequested;
-            public event Action<int> MoveColumnRequested;
+            public event Action<Button, Keys> MoveFocusRequested;
 
-            public void FocusList()
+            public int ContentHeight { get; private set; }
+            public Button SelectedButton { get; }
+            public Button FirstSelectableButton => SelectableButtons.FirstOrDefault();
+            public IEnumerable<Button> SelectableButtons => buttons.Where(button => button.Enabled);
+
+            public static int GetMaximumChoiceCount(int availableHeight)
             {
-                list.Focus();
+                return Math.Max(
+                    1,
+                    (availableHeight - HeaderHeight - 1) / (ItemHeight + RowGap));
             }
 
-            protected override void OnPaint(PaintEventArgs e)
+            public void RefreshPickerLayout(int width)
             {
-                base.OnPaint(e);
-                Color border = definition.Highlighted
-                    ? UiPalette.Focus
-                    : UiPalette.Stroke;
-                using (var pen = new Pen(border))
+                int innerWidth = Math.Max(1, width);
+                header.SetBounds(0, 0, innerWidth, HeaderHeight);
+                for (int index = 0; index < buttons.Count; index++)
                 {
-                    e.Graphics.DrawRectangle(
-                        pen,
+                    buttons[index].SetBounds(
                         0,
-                        0,
-                        Math.Max(0, Width - 1),
-                        Math.Max(0, Height - 1));
+                        HeaderHeight + 1 + index * (ItemHeight + RowGap),
+                        innerWidth,
+                        ItemHeight);
                 }
+                ContentHeight = HeaderHeight + 1
+                    + Math.Max(1, buttons.Count) * (ItemHeight + RowGap);
             }
 
             private void Header_Paint(object sender, PaintEventArgs e)
             {
                 InspectorIcons.Draw(
                     e.Graphics,
-                    new Rectangle(8, 7, 15, 15),
+                    new Rectangle(9, 3, 15, 15),
                     definition.Icon,
                     definition.Highlighted
                         ? UiPalette.Brand
                         : UiPalette.TextSecondary);
             }
 
-            private void List_DrawItem(object sender, DrawItemEventArgs e)
+            private static void ChoiceButton_Paint(object sender, PaintEventArgs e)
             {
-                if (e.Index < 0 || e.Index >= list.Items.Count)
+                var button = sender as Button;
+                var choice = button?.Tag as PickerChoice;
+                if (button == null || choice == null)
                 {
                     return;
                 }
-                var choice = (PickerChoice)list.Items[e.Index];
-                bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-                Color background = selected && choice.Selectable
-                    ? UiPalette.BrandSoft
-                    : UiPalette.Surface;
-                using (var brush = new SolidBrush(background))
-                {
-                    e.Graphics.FillRectangle(brush, e.Bounds);
-                }
-                Color primaryColor = choice.Selectable
-                    ? UiPalette.TextPrimary
-                    : UiPalette.TextDisabled;
-                int secondaryWidth = string.IsNullOrWhiteSpace(choice.Secondary)
-                    ? 0
-                    : Math.Min(88, e.Bounds.Width / 2);
                 TextRenderer.DrawText(
                     e.Graphics,
                     choice.Primary,
-                    list.Font,
+                    button.Font,
                     new Rectangle(
-                        e.Bounds.X + 8,
-                        e.Bounds.Y,
-                        Math.Max(1, e.Bounds.Width - secondaryWidth - 14),
-                        e.Bounds.Height),
-                    primaryColor,
+                        8,
+                        0,
+                        Math.Max(1, button.ClientSize.Width - 14),
+                        button.ClientSize.Height),
+                    button.ForeColor,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                         | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
                         | TextFormatFlags.NoPadding);
-                if (secondaryWidth > 0)
-                {
-                    TextRenderer.DrawText(
-                        e.Graphics,
-                        choice.Secondary,
-                        InspectorFonts.Regular85,
-                        new Rectangle(
-                            e.Bounds.Right - secondaryWidth - 6,
-                            e.Bounds.Y,
-                            secondaryWidth,
-                            e.Bounds.Height),
-                        UiPalette.TextSecondary,
-                        TextFormatFlags.Right | TextFormatFlags.VerticalCenter
-                            | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
-                            | TextFormatFlags.NoPadding);
-                }
                 using (var pen = new Pen(UiPalette.Divider))
                 {
                     e.Graphics.DrawLine(
                         pen,
-                        e.Bounds.X + 7,
-                        e.Bounds.Bottom - 1,
-                        e.Bounds.Right - 7,
-                        e.Bounds.Bottom - 1);
+                        0,
+                        button.ClientSize.Height - 1,
+                        button.ClientSize.Width,
+                        button.ClientSize.Height - 1);
                 }
             }
 
-            private void List_MouseClick(object sender, MouseEventArgs e)
+            private void ChoiceButton_Click(object sender, EventArgs e)
             {
-                int index = list.IndexFromPoint(e.Location);
-                SelectChoice(index);
-            }
-
-            private void List_KeyDown(object sender, KeyEventArgs e)
-            {
-                if (e.KeyCode == Keys.Enter)
-                {
-                    SelectChoice(list.SelectedIndex);
-                    e.Handled = true;
-                }
-                else if (e.KeyCode == Keys.Escape)
-                {
-                    CancelRequested?.Invoke();
-                    e.Handled = true;
-                }
-                else if (e.KeyCode == Keys.Left || e.KeyCode == Keys.Right)
-                {
-                    MoveColumnRequested?.Invoke(e.KeyCode == Keys.Left ? -1 : 1);
-                    e.Handled = true;
-                }
-            }
-
-            private static void List_PreviewKeyDown(object sender, PreviewKeyDownEventArgs e)
-            {
-                if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Escape
-                    || e.KeyCode == Keys.Left || e.KeyCode == Keys.Right)
-                {
-                    e.IsInputKey = true;
-                }
-            }
-
-            private void SelectChoice(int index)
-            {
-                if (index < 0 || index >= list.Items.Count)
-                {
-                    return;
-                }
-                var choice = (PickerChoice)list.Items[index];
-                if (choice.Selectable)
+                if (sender is Button button
+                    && button.Tag is PickerChoice choice
+                    && choice.Selectable)
                 {
                     ValueSelected?.Invoke(choice.Value);
                 }
             }
 
-            private void LayoutControls()
+            private void ChoiceButton_KeyDown(object sender, KeyEventArgs e)
             {
-                header.SetBounds(1, 1, Math.Max(1, ClientSize.Width - 2), HeaderHeight);
-                list.SetBounds(
-                    1,
-                    HeaderHeight + 1,
-                    Math.Max(1, ClientSize.Width - 2),
-                    Math.Max(1, ClientSize.Height - HeaderHeight - 2));
+                if (e.KeyCode == Keys.Escape)
+                {
+                    CancelRequested?.Invoke();
+                    e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.Left || e.KeyCode == Keys.Right
+                    || e.KeyCode == Keys.Up || e.KeyCode == Keys.Down)
+                {
+                    MoveFocusRequested?.Invoke((Button)sender, e.KeyCode);
+                    e.Handled = true;
+                }
             }
-        }
 
-        private sealed class ChoiceListBox : ListBox
-        {
-            public ChoiceListBox()
+            private static void ChoiceButton_PreviewKeyDown(
+                object sender,
+                PreviewKeyDownEventArgs e)
             {
-                SetStyle(
-                    ControlStyles.OptimizedDoubleBuffer
-                    | ControlStyles.AllPaintingInWmPaint,
-                    true);
+                if (e.KeyCode == Keys.Escape || e.KeyCode == Keys.Left
+                    || e.KeyCode == Keys.Right || e.KeyCode == Keys.Up
+                    || e.KeyCode == Keys.Down)
+                {
+                    e.IsInputKey = true;
+                }
             }
         }
     }
 
     internal static class InspectorSelectionPickerData
     {
-        public static IReadOnlyList<PickerColumn> Build(
+        public static IReadOnlyList<PickerGroupDefinition> Build(
             InspectorSelectionPickerKind kind,
             object owner,
             PropertyDescriptor property,
@@ -414,31 +442,31 @@ namespace Automation
                 case InspectorSelectionPickerKind.Address:
                     return BuildAddresses();
                 default:
-                    return Array.Empty<PickerColumn>();
+                    return Array.Empty<PickerGroupDefinition>();
             }
         }
 
-        private static IReadOnlyList<PickerColumn> BuildVariables()
+        private static IReadOnlyList<PickerGroupDefinition> BuildVariables()
         {
             List<DicValue> values = SF.valueStore?.GetValuesSnapshot()
                 ?? new List<DicValue>();
             Guid currentProcId = GetCurrentProcessId();
             return new[]
             {
-                CreateVariableColumn(
-                    "公共变量",
-                    values.Where(value => string.Equals(
-                        value.Scope,
-                        VariableScopeContract.Public,
-                        StringComparison.Ordinal))),
-                CreateVariableColumn(
+                CreateVariableGroup(
                     "系统变量",
                     values.Where(value => string.Equals(
                         value.Scope,
                         VariableScopeContract.System,
                         StringComparison.Ordinal))),
-                CreateVariableColumn(
-                    "私有变量",
+                CreateVariableGroup(
+                    "公共变量",
+                    values.Where(value => string.Equals(
+                        value.Scope,
+                        VariableScopeContract.Public,
+                        StringComparison.Ordinal))),
+                CreateVariableGroup(
+                    "当前流程私有变量",
                     values.Where(value => string.Equals(
                             value.Scope,
                             VariableScopeContract.Process,
@@ -448,7 +476,7 @@ namespace Automation
             };
         }
 
-        private static PickerColumn CreateVariableColumn(
+        private static PickerGroupDefinition CreateVariableGroup(
             string title,
             IEnumerable<DicValue> source)
         {
@@ -457,16 +485,16 @@ namespace Automation
                 .Select(value => new PickerChoice(
                     value.Name,
                     value.Name,
-                    $"{value.Index} · {GetVariableTypeName(value.Type)}"))
+                    string.Empty))
                 .ToList();
-            return new PickerColumn(
+            return new PickerGroupDefinition(
                 title,
                 InspectorIconKind.Data,
                 false,
                 EnsureChoices(choices, "暂无变量"));
         }
 
-        private static IReadOnlyList<PickerColumn> BuildInputOutput(
+        private static IReadOnlyList<PickerGroupDefinition> BuildInputOutput(
             PropertyDescriptor property)
         {
             Type converterType = property?.Converter?.GetType();
@@ -497,37 +525,39 @@ namespace Automation
             }
             else
             {
-                return Array.Empty<PickerColumn>();
+                return Array.Empty<PickerGroupDefinition>();
             }
 
-            return new[] { CreateIoColumn(title, choices) };
+            return new[] { CreateIoGroup(title, choices) };
         }
 
-        private static PickerColumn CreateIoColumn(string title, IEnumerable<IO> source)
+        private static PickerGroupDefinition CreateIoGroup(
+            string title,
+            IEnumerable<IO> source)
         {
             List<PickerChoice> choices = source.Select(item => new PickerChoice(
                     item.Name,
                     item.Name,
-                    $"卡{item.CardNum} · {item.IOIndex}"))
+                    string.Empty))
                 .ToList();
-            return new PickerColumn(
+            return new PickerGroupDefinition(
                 title,
                 InspectorIconKind.InputOutput,
                 false,
                 EnsureChoices(choices, "暂无 IO"));
         }
 
-        private static IReadOnlyList<PickerColumn> BuildPoints(
+        private static IReadOnlyList<PickerGroupDefinition> BuildPoints(
             object owner,
             PropertyDescriptor property)
         {
             string stationName = GetStationName(owner);
             DataStation station = SF.frmCard?.dataStation?.FirstOrDefault(item =>
                 item != null && string.Equals(item.Name, stationName, StringComparison.Ordinal));
-            var columns = new List<PickerColumn>();
+            var groups = new List<PickerGroupDefinition>();
             if (property?.Converter?.GetType() == typeof(StationPosWithSpecial))
             {
-                columns.Add(new PickerColumn(
+                groups.Add(new PickerGroupDefinition(
                     "快捷项",
                     InspectorIconKind.Motion,
                     false,
@@ -551,15 +581,15 @@ namespace Automation
             string emptyText = string.IsNullOrWhiteSpace(stationName)
                 ? "请先选择工站"
                 : "暂无点位";
-            columns.Add(new PickerColumn(
+            groups.Add(new PickerGroupDefinition(
                 title,
                 InspectorIconKind.Motion,
                 true,
                 EnsureChoices(points, emptyText)));
-            return columns;
+            return groups;
         }
 
-        private static IReadOnlyList<PickerColumn> BuildAddresses()
+        private static IReadOnlyList<PickerGroupDefinition> BuildAddresses()
         {
             int procIndex = SF.frmProc?.SelectedProcNum ?? -1;
             int currentStepIndex = SF.frmProc?.SelectedStepNum ?? -1;
@@ -571,14 +601,14 @@ namespace Automation
             {
                 return new[]
                 {
-                    new PickerColumn(
+                    new PickerGroupDefinition(
                         "地址",
                         InspectorIconKind.Process,
                         false,
                         EnsureChoices(new List<PickerChoice>(), "暂无流程地址"))
                 };
             }
-            var columns = new List<PickerColumn>();
+            var groups = new List<PickerGroupDefinition>();
             for (int stepIndex = 0; stepIndex < process.steps.Count; stepIndex++)
             {
                 Step step = process.steps[stepIndex];
@@ -587,30 +617,23 @@ namespace Automation
                 {
                     for (int operationIndex = 0; operationIndex < step.Ops.Count; operationIndex++)
                     {
-                        OperationType operation = step.Ops[operationIndex];
                         string address = $"{procIndex}-{stepIndex}-{operationIndex}";
-                        string name = operation?.OperaType ?? "指令";
-                        if (!string.IsNullOrWhiteSpace(operation?.Name)
-                            && !string.Equals(operation.Name, name, StringComparison.Ordinal))
-                        {
-                            name += " · " + operation.Name;
-                        }
                         choices.Add(new PickerChoice(
                             address,
-                            $"{operationIndex + 1}. {name}",
-                            address));
+                            address,
+                            string.Empty));
                     }
                 }
                 string stepName = string.IsNullOrWhiteSpace(step?.Name)
                     ? $"步骤 {stepIndex + 1}"
                     : $"{stepIndex + 1}. {step.Name}";
-                columns.Add(new PickerColumn(
+                groups.Add(new PickerGroupDefinition(
                     stepName,
                     InspectorIconKind.Step,
                     stepIndex == currentStepIndex,
                     EnsureChoices(choices, "暂无指令")));
             }
-            return columns;
+            return groups;
         }
 
         private static List<PickerChoice> EnsureChoices(
@@ -655,17 +678,11 @@ namespace Automation
             return property?.GetValue(instance) as string;
         }
 
-        private static string GetVariableTypeName(string type)
-        {
-            return string.Equals(type, "double", StringComparison.OrdinalIgnoreCase)
-                ? "数值"
-                : "文本";
-        }
     }
 
-    internal sealed class PickerColumn
+    internal sealed class PickerGroupDefinition
     {
-        public PickerColumn(
+        public PickerGroupDefinition(
             string title,
             InspectorIconKind icon,
             bool highlighted,
@@ -681,6 +698,18 @@ namespace Automation
         public InspectorIconKind Icon { get; }
         public bool Highlighted { get; }
         public List<PickerChoice> Choices { get; }
+
+        public PickerGroupDefinition CreateChunk(
+            int offset,
+            int count,
+            bool continuation)
+        {
+            return new PickerGroupDefinition(
+                continuation ? Title + "（续）" : Title,
+                Icon,
+                Highlighted,
+                Choices.Skip(offset).Take(count).ToList());
+        }
     }
 
     internal sealed class PickerChoice
@@ -729,10 +758,14 @@ namespace Automation
             int width = Math.Min(
                 panel.PreferredPickerWidth,
                 Math.Max(300, workingArea.Width - 24));
-            int height = Math.Min(
-                panel.PreferredPickerHeight,
-                Math.Max(220, workingArea.Height - 24));
-            panel.Size = new Size(width, height);
+            panel.Size = new Size(width, 80);
+            panel.RefreshPickerLayout();
+            int maximumHeight = Math.Min(
+                480,
+                Math.Max(160, workingArea.Height - 24));
+            int height = Math.Min(panel.ContentHeight, maximumHeight);
+            panel.Size = new Size(width, Math.Max(70, height));
+            panel.RefreshPickerLayout();
 
             var host = new ToolStripControlHost(panel)
             {
