@@ -102,29 +102,40 @@ namespace Automation.McpServer
             return PostAsync("/bridge/proc/op_details", payload);
         }
 
-        public Task<string> GetStepDetailAsync(int procIndex, int stepIndex)
+        public Task<string> GetStepDetailAsync(int procIndex, int stepIndex, int? opOffset, int? opLimit)
         {
             JsonObject payload = new JsonObject
             {
                 ["procIndex"] = procIndex,
                 ["stepIndex"] = stepIndex
             };
+            if (opOffset.HasValue) payload["opOffset"] = opOffset.Value;
+            if (opLimit.HasValue) payload["opLimit"] = opLimit.Value;
             return PostAsync("/bridge/proc/step_detail", payload);
         }
 
-        public Task<string> SearchOpsAsync(int? procIndex, string? operaType, string? keyword)
+        public Task<string> SearchOpsAsync(
+            int? procIndex,
+            string? operaType,
+            string? keyword,
+            int? offset,
+            int? limit)
         {
             JsonObject payload = new JsonObject();
             if (procIndex.HasValue) payload["procIndex"] = procIndex.Value;
             if (!string.IsNullOrEmpty(operaType)) payload["operaType"] = operaType;
             if (!string.IsNullOrEmpty(keyword)) payload["keyword"] = keyword;
+            if (offset.HasValue) payload["offset"] = offset.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
             return PostAsync("/bridge/proc/search", payload);
         }
 
-        public Task<string> GetSnapshotAsync(int? procIndex)
+        public Task<string> GetSnapshotAsync(int? procIndex, int? offset, int? limit)
         {
             JsonObject payload = new JsonObject();
             if (procIndex.HasValue) payload["procIndex"] = procIndex.Value;
+            if (offset.HasValue) payload["offset"] = offset.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
             return PostAsync("/bridge/proc/snapshot", payload);
         }
 
@@ -157,9 +168,11 @@ namespace Automation.McpServer
             return PostAsync("/bridge/proc/log_tail", payload);
         }
 
-        public Task<string> DiagnoseProcAsync(int procIndex)
+        public Task<string> DiagnoseProcAsync(int procIndex, int? findingOffset, int? findingLimit)
         {
             JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            if (findingOffset.HasValue) payload["findingOffset"] = findingOffset.Value;
+            if (findingLimit.HasValue) payload["findingLimit"] = findingLimit.Value;
             return PostAsync("/bridge/proc/diagnose", payload);
         }
 
@@ -444,12 +457,20 @@ namespace Automation.McpServer
             return PostAsync("/bridge/diagnostics/audit", payload);
         }
 
-        public Task<string> DiagnoseIssueAsync(int procIndex, string? symptom, int? stepIndex, int? opIndex)
+        public Task<string> DiagnoseIssueAsync(
+            int procIndex,
+            string? symptom,
+            int? stepIndex,
+            int? opIndex,
+            int? evidenceOffset,
+            int? evidenceLimit)
         {
             JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
             if (!string.IsNullOrEmpty(symptom)) payload["symptom"] = symptom;
             if (stepIndex.HasValue) payload["stepIndex"] = stepIndex.Value;
             if (opIndex.HasValue) payload["opIndex"] = opIndex.Value;
+            if (evidenceOffset.HasValue) payload["evidenceOffset"] = evidenceOffset.Value;
+            if (evidenceLimit.HasValue) payload["evidenceLimit"] = evidenceLimit.Value;
             return PostAsync("/bridge/diagnostics/issue", payload);
         }
 
@@ -569,11 +590,12 @@ namespace Automation.McpServer
 
         // ---------- io 拆分（4 个） ----------
 
-        public Task<string> ListIoAsync(string? type, string? nameLike, int? limit)
+        public Task<string> ListIoAsync(string? type, string? nameLike, int? offset, int? limit)
         {
             JsonObject payload = new JsonObject();
             if (!string.IsNullOrEmpty(type)) payload["type"] = type;
             if (!string.IsNullOrEmpty(nameLike)) payload["nameLike"] = nameLike;
+            if (offset.HasValue) payload["offset"] = offset.Value;
             if (limit.HasValue) payload["limit"] = limit.Value;
             return PostAsync("/bridge/io/list", payload);
         }
@@ -584,12 +606,18 @@ namespace Automation.McpServer
             return PostAsync("/bridge/io/get", payload);
         }
 
-        public Task<string> SearchIoAsync(string? keyword, string? type, int? cardNum, int? limit)
+        public Task<string> SearchIoAsync(
+            string? keyword,
+            string? type,
+            int? cardNum,
+            int? offset,
+            int? limit)
         {
             JsonObject payload = new JsonObject();
             if (keyword != null) payload["keyword"] = keyword;
             if (!string.IsNullOrEmpty(type)) payload["type"] = type;
             if (cardNum.HasValue) payload["cardNum"] = cardNum.Value;
+            if (offset.HasValue) payload["offset"] = offset.Value;
             if (limit.HasValue) payload["limit"] = limit.Value;
             return PostAsync("/bridge/io/search", payload);
         }

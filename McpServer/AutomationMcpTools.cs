@@ -149,7 +149,7 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "get_proc_detail"), Description(
             "读取已提交流程。参数使用提交结果affectedProcesses中的procIndex；preview_only对象在apply后才成为可读流程。"
-            + "服务端先计算流程体积：不超过100条指令且序列化详情不超过256KB时，返回完整详情"
+            + "服务端先计算流程体积：不超过100条指令且序列化详情不超过64KB时，返回完整详情"
             + "（head/steps/ops/fields，含 isJump/flow/gotoWarnings）；超限时只返回流程规模和轻量步骤目录。"
             + "需要核对、复现或转换已有对象的字段值时，以本工具返回的fields作为字段级证据；get_proc_overview只适合结构摘要。"
             + "超限结果会给出适合继续读取的步骤目录，可按目标改用get_step_detail或get_op_details。"
@@ -204,7 +204,7 @@ namespace Automation.McpServer
         [McpServerTool(Name = "get_op_details"), Description(
             "按明确的 opId 有限批量读取指令详情，单次最多25条。"
             + "适合从同一流程摘要中选择若干唯一opId后一次读取。"
-            + "返回每条指令当前实际的 stepIndex、stepId、opIndex、可写fields和执行流向。")]
+            + "返回每条指令当前实际的 stepIndex、stepId、opIndex、可写fields和执行流向；合计超过64KB时减少opIds重试。")]
         public static async Task<string> GetOpDetails(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
             [Description("1到25个唯一指令Guid；必须来自该流程的 get_proc_overview、get_proc_detail 或 get_step_detail 返回值")] string[] opIds)
@@ -217,29 +217,36 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "get_step_detail"), Description(
             "读取单步骤完整指令列表（含每条指令 flow）。"
-            + "用于查看一个明确步骤；若只需若干已知指令，优先使用 get_op_details。")]
+            + "小步骤返回完整fields；结果超过64KB时改为轻量指令目录并给出opId，再用get_op_details精确读取。"
+            + "大步骤目录分页返回，默认100条；使用nextOpOffset继续。若只需若干已知指令，优先使用 get_op_details。")]
         public static async Task<string> GetStepDetail(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
-            [Description("步骤索引")] int stepIndex)
+            [Description("步骤索引")] int stepIndex,
+            [Description("大步骤轻量目录分页起点，默认0")] int? opOffset = null,
+            [Description("大步骤轻量目录每页数量1..100，默认100")] int? opLimit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetStepDetail),
-                args: new { procIndex, stepIndex },
-                action: client => client.GetStepDetailAsync(procIndex, stepIndex)).ConfigureAwait(false);
+                args: new { procIndex, stepIndex, opOffset, opLimit },
+                action: client => client.GetStepDetailAsync(
+                    procIndex, stepIndex, opOffset, opLimit)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "search_ops"), Description(
-            "按条件搜索指令。procIndex 为空搜全部流程，最多 200 条；keyword 匹配指令名和字段摘要。"
-            + "用于跨流程查找特定类型的指令。")]
+            "按条件分页搜索指令。procIndex为空时搜索全部流程；keyword匹配指令名和字段摘要。"
+            + "默认返回50条、最多100条，并给出稳定opId供get_op_details精读。")]
         public static async Task<string> SearchOps(
             [Description("流程索引，为空则搜索全部流程")] int? procIndex = null,
             [Description("指令类型过滤，如 IO检测/延时")] string? operaType = null,
-            [Description("关键词，匹配指令名和字段摘要")] string? keyword = null)
+            [Description("关键词，匹配指令名和字段摘要")] string? keyword = null,
+            [Description("命中结果分页起点，默认0")] int? offset = null,
+            [Description("每页数量1..100，默认50")] int? limit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(SearchOps),
-                args: new { procIndex, operaType, keyword },
-                action: client => client.SearchOpsAsync(procIndex, operaType, keyword)).ConfigureAwait(false);
+                args: new { procIndex, operaType, keyword, offset, limit },
+                action: client => client.SearchOpsAsync(
+                    procIndex, operaType, keyword, offset, limit)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "get_operation_references"), Description(
@@ -394,7 +401,7 @@ namespace Automation.McpServer
         public static async Task<string> AuditProcBatch(
             [Description("流程扫描起点，默认0")] int? procOffset = null,
             [Description("本批扫描流程数1..50，默认20")] int? procLimit = null,
-            [Description("本批最多返回问题数1..200，默认100")] int? findingLimit = null)
+            [Description("本批最多返回问题数1..100，默认50")] int? findingLimit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(AuditProcBatch),
@@ -403,29 +410,35 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "diagnose_issue"), Description(
-            "根据现场症状和流程位置生成有上限的诊断证据包，自动组合运行快照、严格结构校验、目标前后指令和运行黑匣子事件。只读，不修改配置或运行状态。黑匣子事实与evidenceLimits应一并用于区分已验证事实和证据缺口。")]
+            "根据现场症状和流程位置生成分页诊断证据包，自动组合运行快照、严格结构校验、目标前后指令和运行黑匣子事件。"
+            + "黑匣子默认返回40条、最多100条，使用nextEvidenceOffset继续；只读，不修改配置或运行状态。黑匣子事实与evidenceLimits应一并用于区分已验证事实和证据缺口。")]
         public static async Task<string> DiagnoseIssue(
             [Description("流程索引")] int procIndex,
             [Description("现场症状，最长300字符")] string? symptom = null,
             [Description("可选步骤索引；为空时使用运行快照当前位置")] int? stepIndex = null,
-            [Description("可选指令索引；为空时使用运行快照当前位置")] int? opIndex = null)
+            [Description("可选指令索引；为空时使用运行快照当前位置")] int? opIndex = null,
+            [Description("黑匣子证据分页起点，默认0；继续读取时使用nextEvidenceOffset")] int? evidenceOffset = null,
+            [Description("本页黑匣子事件数1..100，默认40")] int? evidenceLimit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(DiagnoseIssue),
-                args: new { procIndex, symptom, stepIndex, opIndex },
-                action: client => client.DiagnoseIssueAsync(procIndex, symptom, stepIndex, opIndex)).ConfigureAwait(false);
+                args: new { procIndex, symptom, stepIndex, opIndex, evidenceOffset, evidenceLimit },
+                action: client => client.DiagnoseIssueAsync(
+                    procIndex, symptom, stepIndex, opIndex, evidenceOffset, evidenceLimit)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "get_snapshot"), Description(
             "读取运行快照（流程状态/当前位置/报警/安全锁定）。"
-            + "procIndex 为空返回全部流程快照。用于了解当前运行状态。")]
+            + "procIndex 为空时分页返回流程快照，默认50条、最多100条；使用nextOffset继续。用于了解当前运行状态。")]
         public static async Task<string> GetSnapshot(
-            [Description("流程索引，为空返回全部流程快照")] int? procIndex = null)
+            [Description("流程索引；为空时分页返回项目快照")] int? procIndex = null,
+            [Description("项目快照分页起点，默认0；指定procIndex时省略")] int? offset = null,
+            [Description("项目快照每页数量1..100，默认50；指定procIndex时省略")] int? limit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetSnapshot),
-                args: new { procIndex },
-                action: client => client.GetSnapshotAsync(procIndex)).ConfigureAwait(false);
+                args: new { procIndex, offset, limit },
+                action: client => client.GetSnapshotAsync(procIndex, offset, limit)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "wait_for_proc_state"), Description(
@@ -498,9 +511,9 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "get_info_log_tail"), Description(
             "读取运行信息页最近日志（排查报警/Bridge调用失败/流程运行异常）。"
-            + "maxCount 范围 1..200，默认 50。")]
+            + "maxCount 范围1..100、默认30；服务端按64KB结果预算截断并返回省略数量。")]
         public static async Task<string> GetInfoLogTail(
-            [Description("返回日志条数上限，范围 1..200，默认 50")] int? maxCount = null)
+            [Description("返回日志条数上限，范围1..100，默认30")] int? maxCount = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetInfoLogTail),
@@ -510,14 +523,17 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "diagnose_proc"), Description(
             "诊断流程结构与运行风险（禁用/空步骤指令/未知指令类型/跳转错误/报警/断点）。"
-            + "含运行时状态，适合完整诊断。")]
+            + "含运行时状态；问题分页返回，默认50条、最多100条。")]
         public static async Task<string> DiagnoseProc(
-            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
+            [Description("问题分页起点，默认0；继续读取时使用nextFindingOffset")] int? findingOffset = null,
+            [Description("本页问题数1..100，默认50")] int? findingLimit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(DiagnoseProc),
-                args: new { procIndex },
-                action: client => client.DiagnoseProcAsync(procIndex)).ConfigureAwait(false);
+                args: new { procIndex, findingOffset, findingLimit },
+                action: client => client.DiagnoseProcAsync(
+                    procIndex, findingOffset, findingLimit)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "validate_proc"), Description(
@@ -581,14 +597,14 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "list_variables"), Description(
             "列出全部已配置变量（含稳定ID、作用域、归属流程、当前值、备注和引用影响）。"
-            + "支持类型、作用域、归属流程、名称模糊匹配和分页。")]
+            + "支持类型、作用域、归属流程、名称模糊匹配和分页；默认100条、每页最多100条。")]
         public static async Task<string> ListVariables(
             [Description("类型过滤：double 或 string")] string? type = null,
             [Description("名称模糊匹配关键词")] string? nameLike = null,
             [Description("作用域过滤：public、process 或 system")] string? scope = null,
             [Description("归属流程稳定ID过滤，仅用于 process 作用域")] string? ownerProcId = null,
             [Description("分页偏移，默认 0")] int? offset = null,
-            [Description("分页上限，默认 1000")] int? limit = null)
+            [Description("分页上限1..100，默认100")] int? limit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(ListVariables),
@@ -915,17 +931,18 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "list_io"), Description(
-            "列出全部 IO 配置（含名称/卡号/模块/索引/类型/电平/备注）。"
-            + "IO 类型为\"通用输入\"或\"通用输出\"。")]
+            "分页列出 IO 目录（含名称/卡号/模块/索引/类型/电平和备注摘要），默认50条、最多100条。"
+            + "IO 类型为\"通用输入\"或\"通用输出\"；精确完整配置使用get_io。")]
         public static async Task<string> ListIo(
             [Description("类型过滤：通用输入 或 通用输出")] string? type = null,
             [Description("名称模糊匹配关键词")] string? nameLike = null,
-            [Description("返回上限")] int? limit = null)
+            [Description("分页起点，默认0")] int? offset = null,
+            [Description("每页数量1..100，默认50")] int? limit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(ListIo),
-                args: new { type, nameLike, limit },
-                action: client => client.ListIoAsync(type, nameLike, limit)).ConfigureAwait(false);
+                args: new { type, nameLike, offset, limit },
+                action: client => client.ListIoAsync(type, nameLike, offset, limit)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "get_io"), Description(
@@ -941,17 +958,19 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "search_io"), Description(
             "目标名称未知时按名称关键词/类型/卡号发现 IO；名称已经确定时使用 get_io。"
-            + "keyword 按普通文本匹配 IO 名称；省略、空字符串或*返回全部 IO。")]
+            + "keyword按普通文本匹配IO名称；省略、空字符串或*分页返回全部IO，默认50条、最多100条。")]
         public static async Task<string> SearchIo(
             [Description("名称关键词；省略、空字符串或*表示全部")] string? keyword = null,
             [Description("类型过滤：通用输入 或 通用输出")] string? type = null,
             [Description("卡号过滤")] int? cardNum = null,
-            [Description("返回上限")] int? limit = null)
+            [Description("分页起点，默认0")] int? offset = null,
+            [Description("每页数量1..100，默认50")] int? limit = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(SearchIo),
-                args: new { keyword, type, cardNum, limit },
-                action: client => client.SearchIoAsync(keyword, type, cardNum, limit)).ConfigureAwait(false);
+                args: new { keyword, type, cardNum, offset, limit },
+                action: client => client.SearchIoAsync(
+                    keyword, type, cardNum, offset, limit)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "get_io_state"), Description(

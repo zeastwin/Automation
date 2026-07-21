@@ -4,5 +4,6 @@ packages
 bin
 artifacts
 [Bb]uild/
+/.agents/skills/automation-process-authoring/
 
 nul

@@ -443,7 +443,15 @@ namespace Automation.McpServer
                 throw new InvalidOperationException("原子动作Schema契约不完整："
                     + string.Join("；", schemaIssues));
             }
+            int previewSchemaBytes = Encoding.UTF8.GetByteCount(
+                previewTool.ProtocolTool.InputSchema.GetRawText());
+            if (previewSchemaBytes > 64 * 1024)
+            {
+                throw new InvalidOperationException(
+                    $"preview_change_set 参数Schema为{previewSchemaBytes}字节，超过64KB上下文预算。");
+            }
             VerifyPreviewChangeSetDiscriminatedUnions(previewTool.ProtocolTool.InputSchema.GetRawText());
+            VerifyDiagnosticPagingSchemas();
             McpServerTool runTestTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "run_proc_test", StringComparison.Ordinal));
             McpServerTool startTool = editorTools.First(tool =>
@@ -721,7 +729,8 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException("io.write同卡批量输出的本地校验错误。");
             }
-            Console.WriteLine($"Editor Profile 校验通过，共 {names.Length} 个工具；V2 写入链完整，旧写入链未暴露。");
+            Console.WriteLine(
+                $"Editor Profile 校验通过，共 {names.Length} 个工具；preview_change_set Schema {previewSchemaBytes}字节；V2 写入链完整，旧写入链未暴露。");
         }
 
         private static void VerifyPreviewChangeSetDiscriminatedUnions(string schemaJson)
@@ -760,9 +769,10 @@ namespace Automation.McpServer
                 string type = ReadDiscriminator(properties, "type", "ChangeAction");
                 if (!actualActionTypes.Add(type))
                     throw new InvalidOperationException($"ChangeAction分支重复：{type}");
-                if (properties["operation"] is JsonObject operationSchema)
+                if (properties["operation"] is JsonObject operationReference)
                 {
-                    VerifySemanticOperationUnion(operationSchema, type);
+                    JsonObject operationSchema = ResolveLocalSchemaReference(root, operationReference);
+                    VerifySemanticOperationUnion(root, operationSchema, type);
                     operationUnionCount++;
                 }
             }
@@ -772,7 +782,10 @@ namespace Automation.McpServer
                 throw new InvalidOperationException($"ChangeAction内嵌SemanticOperation联合数量错误：实际{operationUnionCount}，期望4。");
         }
 
-        private static void VerifySemanticOperationUnion(JsonObject operationSchema, string actionType)
+        private static void VerifySemanticOperationUnion(
+            JsonObject root,
+            JsonObject operationSchema,
+            string actionType)
         {
             if (!string.Equals(operationSchema["x-symbolicTargetScope"]?.GetValue<string>(),
                     "operation_id_or_change_set_key", StringComparison.Ordinal))
@@ -812,14 +825,17 @@ namespace Automation.McpServer
                 || ioWait.ContainsKey("io") || ioWait.ContainsKey("state")
                 || ioWait.ContainsKey("beforeMs") || ioWait.ContainsKey("afterMs"))
                 throw new InvalidOperationException("io.wait分支必须只使用conditions/timeoutMs/onFailure表达IO等待。");
-            VerifyIoConditionsSchema(ioWait["conditions"] as JsonObject, "io.wait.conditions");
+            VerifyIoConditionsSchema(root, ioWait["conditions"] as JsonObject, "io.wait.conditions");
             JsonObject ioBranch = kindProperties["branch.io"];
             if (!ioBranch.ContainsKey("conditions") || !ioBranch.ContainsKey("conditionLogic")
                 || !ioBranch.ContainsKey("whenTrue") || !ioBranch.ContainsKey("whenFalse"))
                 throw new InvalidOperationException("branch.io分支缺少联合条件或双分支字段。");
-            VerifyIoConditionsSchema(ioBranch["conditions"] as JsonObject, "branch.io.conditions");
-            if (ioBranch["conditionLogic"] is not JsonObject conditionLogic
-                || conditionLogic["enum"] is not JsonArray logicValues
+            VerifyIoConditionsSchema(root, ioBranch["conditions"] as JsonObject, "branch.io.conditions");
+            JsonObject conditionLogic = ResolveLocalSchemaReference(
+                root,
+                ioBranch["conditionLogic"] as JsonObject
+                    ?? throw new InvalidOperationException("branch.io.conditionLogic缺少Schema。"));
+            if (conditionLogic["enum"] is not JsonArray logicValues
                 || !logicValues.Any(value => string.Equals(value?.GetValue<string>(), "all", StringComparison.Ordinal))
                 || !logicValues.Any(value => string.Equals(value?.GetValue<string>(), "any", StringComparison.Ordinal)))
                 throw new InvalidOperationException("branch.io.conditionLogic未限制为all/any。");
@@ -831,17 +847,24 @@ namespace Automation.McpServer
             if (!ioWrite.ContainsKey("outputs") || ioWrite.ContainsKey("io") || ioWrite.ContainsKey("state")
                 || ioWrite.ContainsKey("beforeMs") || ioWrite.ContainsKey("afterMs"))
                 throw new InvalidOperationException("io.write分支必须只使用outputs表达同卡批量输出。");
-            VerifyIoConditionsSchema(ioWrite["outputs"] as JsonObject, "io.write.outputs");
+            VerifyIoConditionsSchema(root, ioWrite["outputs"] as JsonObject, "io.write.outputs");
 
             JsonObject native = kindProperties["native.operation"];
-            if (native["fields"] is not JsonObject fieldsSchema
-                || fieldsSchema["additionalProperties"] is JsonValue additional
+            JsonObject fieldsSchema = ResolveLocalSchemaReference(
+                root,
+                native["fields"] as JsonObject
+                    ?? throw new InvalidOperationException("native.operation.fields缺少Schema。"));
+            if (fieldsSchema["additionalProperties"] is JsonValue additional
                     && additional.TryGetValue(out bool allowsFields) && !allowsFields)
                 throw new InvalidOperationException("native.operation.fields未保留动态原生字段。");
         }
 
-        private static void VerifyIoConditionsSchema(JsonObject? conditions, string path)
+        private static void VerifyIoConditionsSchema(
+            JsonObject root,
+            JsonObject? conditions,
+            string path)
         {
+            conditions = conditions == null ? null : ResolveLocalSchemaReference(root, conditions);
             if (conditions == null || conditions["minItems"]?.GetValue<int>() != 1
                 || conditions["items"] is not JsonObject item
                 || item["additionalProperties"]?.GetValue<bool>() != false
@@ -850,6 +873,74 @@ namespace Automation.McpServer
                 || !required.Any(value => string.Equals(value?.GetValue<string>(), "state", StringComparison.Ordinal)))
             {
                 throw new InvalidOperationException($"{path}未声明非空、闭合且强类型的io/state条件项。");
+            }
+        }
+
+        private static JsonObject ResolveLocalSchemaReference(JsonObject root, JsonObject schema)
+        {
+            string? reference = schema["$ref"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(reference))
+            {
+                return schema;
+            }
+            const string prefix = "#/$defs/";
+            if (!reference.StartsWith(prefix, StringComparison.Ordinal)
+                || root["$defs"] is not JsonObject definitions
+                || definitions[reference.Substring(prefix.Length)] is not JsonObject resolved)
+            {
+                throw new InvalidOperationException("参数Schema包含无法解析的本地引用：" + reference);
+            }
+            return resolved;
+        }
+
+        private static void VerifyDiagnosticPagingSchemas()
+        {
+            IReadOnlyList<McpServerTool> tools = McpToolProfile.CreateTools("Editor")
+                .Concat(McpToolProfile.CreateTools("Diagnostic"))
+                .Concat(McpToolProfile.CreateTools("RuntimeDiagnostic"))
+                .GroupBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .ToList();
+            VerifyNumericRange(tools, "get_snapshot", "offset", 0, int.MaxValue);
+            VerifyNumericRange(tools, "get_snapshot", "limit", 1, 100);
+            VerifyNumericRange(tools, "get_step_detail", "opOffset", 0, int.MaxValue);
+            VerifyNumericRange(tools, "get_step_detail", "opLimit", 1, 100);
+            VerifyNumericRange(tools, "get_info_log_tail", "maxCount", 1, 100);
+            VerifyNumericRange(tools, "diagnose_proc", "findingOffset", 0, int.MaxValue);
+            VerifyNumericRange(tools, "diagnose_proc", "findingLimit", 1, 100);
+            VerifyNumericRange(tools, "diagnose_issue", "evidenceOffset", 0, int.MaxValue);
+            VerifyNumericRange(tools, "diagnose_issue", "evidenceLimit", 1, 100);
+            VerifyNumericRange(tools, "list_variables", "offset", 0, int.MaxValue);
+            VerifyNumericRange(tools, "list_variables", "limit", 1, 100);
+            VerifyNumericRange(tools, "search_ops", "offset", 0, int.MaxValue);
+            VerifyNumericRange(tools, "search_ops", "limit", 1, 100);
+            VerifyNumericRange(tools, "list_io", "offset", 0, int.MaxValue);
+            VerifyNumericRange(tools, "list_io", "limit", 1, 100);
+            VerifyNumericRange(tools, "search_io", "offset", 0, int.MaxValue);
+            VerifyNumericRange(tools, "search_io", "limit", 1, 100);
+            VerifyNumericRange(tools, "audit_proc_batch", "procOffset", 0, int.MaxValue);
+            VerifyNumericRange(tools, "audit_proc_batch", "procLimit", 1, 50);
+            VerifyNumericRange(tools, "audit_proc_batch", "findingLimit", 1, 100);
+        }
+
+        private static void VerifyNumericRange(
+            IReadOnlyList<McpServerTool> tools,
+            string toolName,
+            string propertyName,
+            int expectedMinimum,
+            int expectedMaximum)
+        {
+            McpServerTool tool = tools.Single(item =>
+                string.Equals(item.ProtocolTool.Name, toolName, StringComparison.Ordinal));
+            JsonObject root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject
+                ?? throw new InvalidOperationException($"{toolName} 参数Schema不是对象。");
+            JsonObject property = root["properties"]?[propertyName] as JsonObject
+                ?? throw new InvalidOperationException($"{toolName} 参数Schema缺少{propertyName}。");
+            if (property["minimum"]?.GetValue<int>() != expectedMinimum
+                || property["maximum"]?.GetValue<int>() != expectedMaximum)
+            {
+                throw new InvalidOperationException(
+                    $"{toolName}.{propertyName} 分页范围未结构化为{expectedMinimum}..{expectedMaximum}。");
             }
         }
 

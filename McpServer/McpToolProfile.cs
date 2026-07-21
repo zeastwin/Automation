@@ -143,11 +143,69 @@ namespace Automation.McpServer
                         VariableScopeContract.Public,
                         VariableScopeContract.Process,
                         VariableScopeContract.System);
+                    ApplyToolNumericRange(tool, "offset", 0, int.MaxValue);
+                    ApplyToolNumericRange(tool, "limit", 1, 100);
                 }
                 else if (string.Equals(toolName, "get_variable_by_index", StringComparison.Ordinal)
                     || string.Equals(toolName, "set_variable_by_index", StringComparison.Ordinal))
                 {
                     ApplyToolNumericRange(tool, "index", 0, VariableIndexContract.MaximumValueIndex);
+                }
+                else if (string.Equals(toolName, "get_snapshot", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "offset", 0, int.MaxValue);
+                    ApplyToolNumericRange(tool, "limit", 1, 100);
+                }
+                else if (string.Equals(toolName, "get_step_detail", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "opOffset", 0, int.MaxValue);
+                    ApplyToolNumericRange(tool, "opLimit", 1, 100);
+                }
+                else if (string.Equals(toolName, "get_info_log_tail", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "maxCount", 1, 100);
+                }
+                else if (string.Equals(toolName, "diagnose_proc", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "findingOffset", 0, int.MaxValue);
+                    ApplyToolNumericRange(tool, "findingLimit", 1, 100);
+                }
+                else if (string.Equals(toolName, "diagnose_issue", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "evidenceOffset", 0, int.MaxValue);
+                    ApplyToolNumericRange(tool, "evidenceLimit", 1, 100);
+                }
+                else if (string.Equals(toolName, "search_ops", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "offset", 0, int.MaxValue);
+                    ApplyToolNumericRange(tool, "limit", 1, 100);
+                }
+                else if (string.Equals(toolName, "list_io", StringComparison.Ordinal)
+                    || string.Equals(toolName, "search_io", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "offset", 0, int.MaxValue);
+                    ApplyToolNumericRange(tool, "limit", 1, 100);
+                }
+                else if (string.Equals(toolName, "get_operation_references", StringComparison.Ordinal)
+                    || string.Equals(toolName, "get_proc_references", StringComparison.Ordinal)
+                    || string.Equals(toolName, "trace_resource", StringComparison.Ordinal)
+                    || string.Equals(toolName, "search_operation_fields", StringComparison.Ordinal)
+                    || string.Equals(toolName, "find_references", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "procOffset", 0, int.MaxValue);
+                    ApplyToolNumericRange(tool, "procLimit", 1, 50);
+                    ApplyToolNumericRange(tool, "resultLimit", 1, 100);
+                }
+                else if (string.Equals(toolName, "audit_proc_batch", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "procOffset", 0, int.MaxValue);
+                    ApplyToolNumericRange(tool, "procLimit", 1, 50);
+                    ApplyToolNumericRange(tool, "findingLimit", 1, 100);
+                }
+                else if (string.Equals(toolName, "search_alarms", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "offset", 0, int.MaxValue);
+                    ApplyToolNumericRange(tool, "limit", 1, 100);
                 }
                 tools.Add(tool);
             }
@@ -288,6 +346,10 @@ namespace Automation.McpServer
             operationSchema.Remove("required");
             operationSchema.Remove("additionalProperties");
 
+            JsonObject definitions = GetOrCreateDefinitions(root);
+            CompactRepeatedUnionProperties(operationSchema, definitions, "semantic", "kind");
+            definitions["semanticOperation"] = operationSchema.DeepClone();
+
             // 动作分支最后生成，确保其中的 operation 载荷复制的是已经闭合的语义判别联合。
             actionSchema["oneOf"] = new JsonArray
             {
@@ -307,11 +369,126 @@ namespace Automation.McpServer
                 ActionShape(actionProperties, "operation.delete", new[] { "targetProcess", "targetOperation" }, "targetStep"),
                 ActionShape(actionProperties, "operation.move", new[] { "targetProcess", "targetOperation", "position" }, "targetStep")
             };
+            ReplaceUnionPropertyWithReference(
+                actionSchema,
+                "operation",
+                "#/$defs/semanticOperation");
+            CompactRepeatedUnionProperties(actionSchema, definitions, "action", "type", "operation");
             actionSchema["x-localKeyScope"] = "current_change_set";
             actionSchema.Remove("properties");
             actionSchema.Remove("required");
             actionSchema.Remove("additionalProperties");
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static JsonObject GetOrCreateDefinitions(JsonObject root)
+        {
+            if (root["$defs"] is JsonObject definitions)
+            {
+                return definitions;
+            }
+
+            definitions = new JsonObject();
+            root["$defs"] = definitions;
+            return definitions;
+        }
+
+        private static void ReplaceUnionPropertyWithReference(
+            JsonObject unionSchema,
+            string propertyName,
+            string reference)
+        {
+            if (unionSchema["oneOf"] is not JsonArray branches)
+            {
+                throw new InvalidOperationException("判别联合缺少oneOf：" + propertyName);
+            }
+
+            foreach (JsonNode? node in branches)
+            {
+                if (node is JsonObject branch
+                    && branch["properties"] is JsonObject properties
+                    && properties.ContainsKey(propertyName))
+                {
+                    properties[propertyName] = new JsonObject { ["$ref"] = reference };
+                }
+            }
+        }
+
+        private static void CompactRepeatedUnionProperties(
+            JsonObject unionSchema,
+            JsonObject definitions,
+            string definitionPrefix,
+            params string[] excludedProperties)
+        {
+            if (unionSchema["oneOf"] is not JsonArray branches)
+            {
+                throw new InvalidOperationException("判别联合缺少oneOf：" + definitionPrefix);
+            }
+
+            var excluded = new HashSet<string>(excludedProperties ?? Array.Empty<string>(), StringComparer.Ordinal);
+            var occurrences = new Dictionary<string, List<Tuple<JsonObject, string, JsonNode>>>(StringComparer.Ordinal);
+            foreach (JsonNode? node in branches)
+            {
+                if (node is not JsonObject branch || branch["properties"] is not JsonObject properties)
+                {
+                    continue;
+                }
+                foreach (KeyValuePair<string, JsonNode?> property in properties)
+                {
+                    if (excluded.Contains(property.Key) || property.Value == null)
+                    {
+                        continue;
+                    }
+                    string schemaIdentity = property.Key + "\n" + property.Value.ToJsonString();
+                    if (!occurrences.TryGetValue(
+                        schemaIdentity,
+                        out List<Tuple<JsonObject, string, JsonNode>>? values))
+                    {
+                        values = new List<Tuple<JsonObject, string, JsonNode>>();
+                        occurrences[schemaIdentity] = values;
+                    }
+                    values.Add(Tuple.Create(properties, property.Key, property.Value));
+                }
+            }
+
+            var definitionNameCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (List<Tuple<JsonObject, string, JsonNode>> values in occurrences.Values
+                .Where(items => items.Count > 1))
+            {
+                string fieldName = values[0].Item2;
+                string baseName = definitionPrefix + ToDefinitionName(fieldName);
+                definitionNameCounts.TryGetValue(baseName, out int nameIndex);
+                definitionNameCounts[baseName] = nameIndex + 1;
+                string definitionName = nameIndex == 0 ? baseName : baseName + (nameIndex + 1);
+                definitions[definitionName] = values[0].Item3.DeepClone();
+                string reference = "#/$defs/" + definitionName;
+                foreach (Tuple<JsonObject, string, JsonNode> occurrence in values)
+                {
+                    occurrence.Item1[occurrence.Item2] = new JsonObject { ["$ref"] = reference };
+                }
+            }
+        }
+
+        private static string ToDefinitionName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return "Value";
+            }
+
+            var builder = new System.Text.StringBuilder(value.Length);
+            bool uppercaseNext = true;
+            foreach (char character in value)
+            {
+                if (!char.IsLetterOrDigit(character))
+                {
+                    uppercaseNext = true;
+                    continue;
+                }
+                builder.Append(uppercaseNext ? char.ToUpperInvariant(character) : character);
+                uppercaseNext = false;
+            }
+            return builder.Length == 0 ? "Value" : builder.ToString();
         }
 
         private static void ApplyVariableChangeScopeSchema(JsonObject root)
@@ -362,19 +539,30 @@ namespace Automation.McpServer
                     }
                 }
             };
-            JsonObject? processSelectorSchema = FindProcessSelectorSchema(root);
-            if (processSelectorSchema == null)
+            IReadOnlyList<JsonObject> processSelectorSchemas = FindProcessSelectorSchemas(root);
+            if (processSelectorSchemas.Count == 0)
             {
                 throw new InvalidOperationException("preview_change_set 生成Schema缺少流程选择器定义。");
             }
-            processSelectorSchema.Remove("required");
-            processSelectorSchema["oneOf"] = new JsonArray(
-                new JsonObject { ["required"] = new JsonArray("procId") },
-                new JsonObject { ["required"] = new JsonArray("name") },
-                new JsonObject { ["required"] = new JsonArray("key") });
+            foreach (JsonObject processSelectorSchema in processSelectorSchemas)
+            {
+                processSelectorSchema.Remove("required");
+                processSelectorSchema["oneOf"] = new JsonArray(
+                    new JsonObject { ["required"] = new JsonArray("procId") },
+                    new JsonObject { ["required"] = new JsonArray("name") },
+                    new JsonObject { ["required"] = new JsonArray("key") });
+                processSelectorSchema["additionalProperties"] = false;
+            }
         }
 
-        private static JsonObject? FindProcessSelectorSchema(JsonNode? node)
+        private static IReadOnlyList<JsonObject> FindProcessSelectorSchemas(JsonNode? node)
+        {
+            var results = new List<JsonObject>();
+            CollectProcessSelectorSchemas(node, results);
+            return results;
+        }
+
+        private static void CollectProcessSelectorSchemas(JsonNode? node, ICollection<JsonObject> results)
         {
             if (node is JsonObject obj)
             {
@@ -383,23 +571,20 @@ namespace Automation.McpServer
                     && properties.ContainsKey("name")
                     && properties.ContainsKey("key"))
                 {
-                    return obj;
+                    results.Add(obj);
                 }
                 foreach (KeyValuePair<string, JsonNode?> property in obj)
                 {
-                    JsonObject? found = FindProcessSelectorSchema(property.Value);
-                    if (found != null) return found;
+                    CollectProcessSelectorSchemas(property.Value, results);
                 }
             }
             else if (node is JsonArray array)
             {
                 foreach (JsonNode? item in array)
                 {
-                    JsonObject? found = FindProcessSelectorSchema(item);
-                    if (found != null) return found;
+                    CollectProcessSelectorSchemas(item, results);
                 }
             }
-            return null;
         }
 
         private static JsonObject? FindVariableChangeSchema(JsonNode? node)

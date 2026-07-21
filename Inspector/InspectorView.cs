@@ -723,6 +723,11 @@ namespace Automation
     {
         private const int CbSetItemHeight = 0x0153;
         private const int CbShowDropDown = 0x014F;
+        private const int WmKeyDown = 0x0100;
+        private const int WmSysKeyDown = 0x0104;
+        private const int WmLeftButtonDown = 0x0201;
+        private const int WmLeftButtonDoubleClick = 0x0203;
+        private const int SelectionPickerArrowWidth = 28;
         private bool selectionPickerRequestPending;
 
         [DllImport("user32.dll")]
@@ -803,6 +808,20 @@ namespace Automation
             ClearTextSelection();
         }
 
+        protected override void OnDropDown(EventArgs e)
+        {
+            if (CanOpenSelectionPicker())
+            {
+                if (DroppedDown)
+                {
+                    DroppedDown = false;
+                }
+                QueueSelectionPickerRequest();
+                return;
+            }
+            base.OnDropDown(e);
+        }
+
         protected override void OnSelectionChangeCommitted(EventArgs e)
         {
             base.OnSelectionChangeCommitted(e);
@@ -828,25 +847,30 @@ namespace Automation
 
         protected override void WndProc(ref System.Windows.Forms.Message message)
         {
-            if (message.Msg == CbShowDropDown
-                && message.WParam != IntPtr.Zero
-                && UseSelectionPicker
-                && SelectionPickerRequested != null)
+            if (CanOpenSelectionPicker())
             {
-                message.Result = IntPtr.Zero;
-                if (!selectionPickerRequestPending && IsHandleCreated && !IsDisposed)
+                if (message.Msg == CbShowDropDown && message.WParam != IntPtr.Zero)
                 {
-                    selectionPickerRequestPending = true;
-                    BeginInvoke((Action)(() =>
-                    {
-                        selectionPickerRequestPending = false;
-                        if (!IsDisposed)
-                        {
-                            SelectionPickerRequested?.Invoke(this, EventArgs.Empty);
-                        }
-                    }));
+                    message.Result = IntPtr.Zero;
+                    QueueSelectionPickerRequest();
+                    return;
                 }
-                return;
+                if ((message.Msg == WmLeftButtonDown
+                        || message.Msg == WmLeftButtonDoubleClick)
+                    && ShouldOpenSelectionPickerFromMouse(message.LParam))
+                {
+                    Focus();
+                    message.Result = IntPtr.Zero;
+                    QueueSelectionPickerRequest();
+                    return;
+                }
+                if ((message.Msg == WmKeyDown || message.Msg == WmSysKeyDown)
+                    && ShouldOpenSelectionPickerFromKeyboard(message))
+                {
+                    message.Result = IntPtr.Zero;
+                    QueueSelectionPickerRequest();
+                    return;
+                }
             }
             base.WndProc(ref message);
             if ((message.Msg == 0x000F || message.Msg == 0x0085)
@@ -877,6 +901,49 @@ namespace Automation
                         Focused ? UiPalette.Brand : UiPalette.Stroke);
                 }
             }
+        }
+
+        private bool CanOpenSelectionPicker()
+        {
+            return UseSelectionPicker
+                && SelectionPickerRequested != null
+                && Enabled
+                && !IsDisposed;
+        }
+
+        private bool ShouldOpenSelectionPickerFromMouse(IntPtr position)
+        {
+            if (DropDownStyle == ComboBoxStyle.DropDownList)
+            {
+                return true;
+            }
+            int x = unchecked((short)(position.ToInt64() & 0xFFFF));
+            return x >= Math.Max(0, ClientSize.Width - SelectionPickerArrowWidth);
+        }
+
+        private static bool ShouldOpenSelectionPickerFromKeyboard(
+            System.Windows.Forms.Message message)
+        {
+            Keys key = (Keys)message.WParam.ToInt32();
+            return key == Keys.F4
+                || message.Msg == WmSysKeyDown && key == Keys.Down;
+        }
+
+        private void QueueSelectionPickerRequest()
+        {
+            if (selectionPickerRequestPending || !IsHandleCreated || IsDisposed)
+            {
+                return;
+            }
+            selectionPickerRequestPending = true;
+            BeginInvoke((Action)(() =>
+            {
+                selectionPickerRequestPending = false;
+                if (!IsDisposed && CanOpenSelectionPicker())
+                {
+                    SelectionPickerRequested?.Invoke(this, EventArgs.Empty);
+                }
+            }));
         }
 
         internal void ClearTextSelection()

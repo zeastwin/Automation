@@ -83,6 +83,15 @@ try {
     $boundedEvidence = $buildEvidence.Invoke($recorder, @(0))
     Assert-True ([int]$boundedEvidence['rawRelevantEventCount'] -gt 300) '容量回归必须形成超过300条的原始相关事件。'
     Assert-True ([int]$boundedEvidence['capturedEventCount'] -eq 300) 'AI证据包超过上限时必须稳定裁剪为300条。'
+    $buildEvidencePage = $recorderType.GetMethod('BuildEvidencePage')
+    $evidencePage = $buildEvidencePage.Invoke($recorder, @(0, 0, 40))
+    Assert-True ([int]$evidencePage['eligibleEventCount'] -eq 300) '分页前的AI候选证据应保持300条上限。'
+    Assert-True ([int]$evidencePage['capturedEventCount'] -eq 40) 'AI证据首页必须按请求限制返回40条。'
+    Assert-True ([bool]$evidencePage['hasMoreEvents']) 'AI证据首页应明确存在后续页。'
+    Assert-True ([int]$evidencePage['nextEvidenceOffset'] -eq 40) 'AI证据下一页偏移应为40。'
+    $lastEvidencePage = $buildEvidencePage.Invoke($recorder, @(0, 280, 40))
+    Assert-True ([int]$lastEvidencePage['capturedEventCount'] -eq 20) 'AI证据末页应只返回剩余20条。'
+    Assert-True (-not [bool]$lastEvidencePage['hasMoreEvents']) 'AI证据末页不应声明后续页。'
 
     $failureType = $assembly.GetType('Automation.OperationFailureEntry', $true)
     $failure = [Activator]::CreateInstance(
