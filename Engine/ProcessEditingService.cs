@@ -77,40 +77,44 @@ namespace Automation
         }
 
         public static bool TryCommitProcDraft(
+            PlatformRuntime runtime,
             int procIndex,
             Proc draft,
             out string error,
             string historyDescription = null)
         {
             error = null;
-            if (SF.frmProc?.procsList == null || SF.mainfrm == null || SF.DR == null)
+            if (runtime == null
+                || runtime.EditorUi?.IsReady != true
+                || runtime.ProcessEngine == null)
             {
                 error = "流程编辑依赖尚未初始化。";
                 return false;
             }
-            if (SF.SecurityLocked)
+            if (runtime.Safety.IsLocked)
             {
-                error = $"系统已安全锁定：{SF.SecurityLockReason}";
+                error = $"系统已安全锁定：{runtime.Safety.LockReason}";
                 return false;
             }
-            if (SF.MaintenanceActive)
+            if (runtime.Maintenance.Active)
             {
-                error = string.IsNullOrWhiteSpace(SF.MaintenanceReason)
+                error = string.IsNullOrWhiteSpace(runtime.Maintenance.Reason)
                     ? "系统正在执行配置维护，禁止提交流程编辑。"
-                    : $"系统正在执行配置维护：{SF.MaintenanceReason}";
+                    : $"系统正在执行配置维护：{runtime.Maintenance.Reason}";
                 return false;
             }
-            if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count || draft == null)
+            if (procIndex < 0 || procIndex >= runtime.Stores.Processes.Items.Count || draft == null)
             {
                 error = $"流程草稿或索引无效：{procIndex}。";
                 return false;
             }
 
-            Proc original = ObjectGraphCloner.Clone(SF.frmProc.procsList[procIndex]);
+            Proc original = ObjectGraphCloner.Clone(runtime.Stores.Processes.Items[procIndex]);
             List<string> errors = new List<string>();
-            ProcessDefinitionService.NormalizeProc(procIndex, draft, errors);
+            ProcessDefinitionService.NormalizeProc(
+                procIndex, draft, errors, runtime.CreateProcessValidationContext());
             if (draft.head != null && draft.head.Id != Guid.Empty
-                && SF.frmProc.procsList.Where((proc, index) => index != procIndex)
+                && runtime.Stores.Processes.Items.Where((proc, index) => index != procIndex)
                     .Any(proc => proc?.head?.Id == draft.head.Id))
             {
                 errors.Add($"流程{procIndex}的ID与其他流程重复：{draft.head.Id:D}");
@@ -123,33 +127,33 @@ namespace Automation
             }
 
             Proc runtimeDraft = ObjectGraphCloner.Clone(draft);
-            if (!SF.DR.ValidateProcUpdate(procIndex, runtimeDraft, out error))
+            if (!runtime.ProcessEngine.ValidateProcUpdate(procIndex, runtimeDraft, out error))
             {
                 return false;
             }
-            if (!AtomicJsonFileStore.Save(SF.workPath, procIndex.ToString(), draft))
+            if (!AtomicJsonFileStore.Save(runtime.Paths.WorkPath, procIndex.ToString(), draft))
             {
                 error = "流程文件保存失败，正式内存未修改。";
                 return false;
             }
 
-            SF.frmProc.procsList[procIndex] = draft;
-            if (SF.DR.PublishProc(procIndex, runtimeDraft, out string publishError))
+            runtime.Stores.Processes.Items[procIndex] = draft;
+            if (runtime.ProcessEngine.PublishProc(procIndex, runtimeDraft, out string publishError))
             {
-                SF.frmProc.RefreshProcView(procIndex);
-                UpdateEditorHistory(historyDescription, original, draft);
+                runtime.EditorUi.RefreshProcess(procIndex);
+                UpdateEditorHistory(runtime, historyDescription, original, draft);
                 return true;
             }
 
-            SF.frmProc.procsList[procIndex] = original;
-            bool fileRestored = AtomicJsonFileStore.Save(SF.workPath, procIndex.ToString(), original);
-            bool runtimeRestored = SF.DR.PublishProc(procIndex, ObjectGraphCloner.Clone(original), out string rollbackPublishError);
-            SF.frmProc.RefreshProcView(procIndex);
+            runtime.Stores.Processes.Items[procIndex] = original;
+            bool fileRestored = AtomicJsonFileStore.Save(runtime.Paths.WorkPath, procIndex.ToString(), original);
+            bool runtimeRestored = runtime.ProcessEngine.PublishProc(procIndex, ObjectGraphCloner.Clone(original), out string rollbackPublishError);
+            runtime.EditorUi.RefreshProcess(procIndex);
             if (!fileRestored || !runtimeRestored)
             {
                 string rollbackError = $"流程{procIndex}发布失败且回滚不完整：fileRestored={fileRestored}, "
                     + $"runtimeRestored={runtimeRestored}, publishError={publishError}, rollbackError={rollbackPublishError}";
-                SF.SetSecurityLock(rollbackError);
+                runtime.Safety.Lock(rollbackError);
                 error = rollbackError;
                 return false;
             }
@@ -158,36 +162,37 @@ namespace Automation
         }
 
         private static void UpdateEditorHistory(
+            PlatformRuntime runtime,
             string historyDescription,
             Proc before,
             Proc after)
         {
-            if (SF.EditorHistory.IsReplaying)
+            if (runtime.Editor.History.IsReplaying)
             {
                 return;
             }
             if (string.IsNullOrWhiteSpace(historyDescription))
             {
-                SF.EditorHistory.Clear();
+                runtime.Editor.History.Clear();
                 return;
             }
 
             Proc beforeSnapshot = ObjectGraphCloner.Clone(before);
             Proc afterSnapshot = ObjectGraphCloner.Clone(after);
             Guid procId = afterSnapshot?.head?.Id ?? Guid.Empty;
-            SF.EditorHistory.Record(
+            runtime.Editor.History.Record(
                 historyDescription,
                 delegate(out string error)
                 {
-                    return TryRestoreProcSnapshot(procId, beforeSnapshot, out error);
+                    return TryRestoreProcSnapshot(runtime, procId, beforeSnapshot, out error);
                 },
                 delegate(out string error)
                 {
-                    return TryRestoreProcSnapshot(procId, afterSnapshot, out error);
+                    return TryRestoreProcSnapshot(runtime, procId, afterSnapshot, out error);
                 });
         }
 
-        private static bool TryRestoreProcSnapshot(Guid procId, Proc snapshot, out string error)
+        private static bool TryRestoreProcSnapshot(PlatformRuntime runtime, Guid procId, Proc snapshot, out string error)
         {
             error = null;
             if (procId == Guid.Empty || snapshot == null)
@@ -195,19 +200,20 @@ namespace Automation
                 error = "撤销记录中的流程身份无效。";
                 return false;
             }
-            int procIndex = SF.frmProc?.procsList?.FindIndex(
-                proc => proc?.head?.Id == procId) ?? -1;
+            int procIndex = runtime.Stores.Processes.Items.FindIndex(
+                proc => proc?.head?.Id == procId);
             if (procIndex < 0)
             {
                 error = $"流程已发生其他结构变化，找不到流程ID：{procId:D}。";
                 return false;
             }
-            if (!SF.CanEditProc(procIndex))
+            if (!runtime.ProcessEditing.CanEditProcess(procIndex))
             {
                 error = $"流程{procIndex}当前不可编辑。";
                 return false;
             }
             return TryCommitProcDraft(
+                runtime,
                 procIndex,
                 ObjectGraphCloner.Clone(snapshot),
                 out error);

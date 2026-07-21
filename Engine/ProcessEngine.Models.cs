@@ -12,13 +12,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 using Automation.MotionControl;
-using static Automation.FrmProc;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
-using static Automation.FrmCard;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.TaskbarClock;
 using System.Diagnostics;
 using Newtonsoft.Json.Linq;
 using System.Numerics;
@@ -452,6 +446,23 @@ namespace Automation
         Task<AlarmDecision> HandleAsync(AlarmContext context);
     }
 
+    public interface IProcessPopupService
+    {
+        Task<AlarmDecision> ShowAsync(ProcessPopupRequest request, CancellationToken cancellationToken);
+    }
+
+    public sealed class ProcessPopupRequest
+    {
+        public int ProcIndex { get; set; }
+        public string Title { get; set; }
+        public string Message { get; set; }
+        public string Button1 { get; set; }
+        public string Button2 { get; set; }
+        public string Button3 { get; set; }
+        public int ButtonCount { get; set; }
+        public int? AutoCloseMilliseconds { get; set; }
+    }
+
     public sealed class AlarmContext
     {
         public AlarmContext(int procIndex, int stepIndex, int opIndex, string alarmType, string alarmMessage,
@@ -491,6 +502,8 @@ namespace Automation
         public CommunicationHub Comm { get; set; }
         public CommunicationConfigStore CommunicationStore { get; set; }
         public PlcRuntimeService PlcRuntime { get; set; }
+        public PlcConfigStore PlcStore { get; set; }
+        public PlatformPaths Paths { get; set; }
         public AlarmInfoStore AlarmInfoStore { get; set; }
         public IDictionary<string, IO> IoMap { get; set; }
         public IList<DataStation> Stations { get; set; }
@@ -499,5 +512,10 @@ namespace Automation
         public CustomFunc CustomFunc { get; set; }
         public AxisStatusCache AxisStatuses { get; set; }
         public AxisMotionParameterStore AxisMotionParameters { get; set; }
+        public PlatformSafetyCoordinator Safety { get; set; }
+        public ConfigurationMaintenanceService Maintenance { get; set; }
+        public PlatformReadinessState Readiness { get; set; }
+        public Func<ProcessDefinitionValidationContext> ValidationContextFactory { get; set; }
+        public IProcessPopupService PopupService { get; set; }
     }
 }

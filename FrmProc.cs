@@ -31,8 +31,8 @@ namespace Automation
             IntPtr wordParameter,
             IntPtr longParameter);
 
-        //存放所有流程信息
-        public List<Proc> procsList = new List<Proc> ();
+        private readonly ProcessDefinitionStore processDefinitionStore;
+        public List<Proc> procsList => processDefinitionStore.Items;
         public int SelectedProcNum { get; set; }
         public int SelectedStepNum { get; set; }
 
@@ -56,7 +56,14 @@ namespace Automation
         private bool restoringTreeState;
 
         public FrmProc()
+            : this(new ProcessDefinitionStore())
         {
+        }
+
+        public FrmProc(ProcessDefinitionStore processDefinitionStore)
+        {
+            this.processDefinitionStore = processDefinitionStore
+                ?? throw new ArgumentNullException(nameof(processDefinitionStore));
             InitializeComponent();
             ConfigureProcTreeAppearance();
             ConfigureProcContextMenu();
@@ -427,7 +434,7 @@ namespace Automation
                 return false;
             }
             // 打开属性编辑器后流程状态仍可能变化，提交前必须重新检查一次流程列表门禁。
-            if (!SF.CanEditProcStructure())
+            if (!Workspace.Runtime.ProcessEditing.CanEditStructure())
             {
                 return false;
             }
@@ -446,7 +453,8 @@ namespace Automation
                 insertIndex = selectedProcIndex + 1;
             }
             List<string> errors = new List<string>();
-            ProcessDefinitionService.NormalizeProc(insertIndex, proc, errors);
+            ProcessDefinitionService.NormalizeProc(
+                insertIndex, proc, errors, Workspace.Runtime.CreateProcessValidationContext());
             if (errors.Count > 0)
             {
                 MessageBox.Show(string.Join("\r\n", errors.Distinct()));
@@ -454,7 +462,7 @@ namespace Automation
             }
             List<Proc> draftProcesses = procsList.Select(ObjectGraphCloner.Clone).ToList();
             draftProcesses.Insert(insertIndex, proc);
-            Dictionary<string, DicValue> draftVariables = SF.valueStore.BuildSaveData();
+            Dictionary<string, DicValue> draftVariables = Workspace.Runtime.Stores.Values.BuildSaveData();
             if (!TryCommitProcessVariableConfiguration(
                 draftProcesses,
                 draftVariables,
@@ -495,7 +503,7 @@ namespace Automation
             }
             draft.steps.Insert(insertIndex, stepToInsert);
             ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-            if (!ProcessEditingService.TryCommitProcDraft(
+            if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                 procIndex, draft, out string commitError, "新增步骤"))
             {
                 MessageBox.Show(commitError, "新增步骤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -505,26 +513,36 @@ namespace Automation
         }
         public bool RebuildWorkConfig(int StartIndex = 0)
         {
-            bool success = ProcessConfigStore.Rebuild(SF.workPath, procsList, StartIndex,
+            bool success = ProcessConfigStore.Rebuild(Workspace.Runtime.Paths.WorkPath, procsList, StartIndex,
                 out string error, out bool rollbackFailed);
             if (!success)
             {
                 RefreshProcList();
                 if (rollbackFailed)
                 {
-                    SF.SetSecurityLock(error);
+                    Workspace.Runtime.Safety.Lock(error);
                 }
                 MessageBox.Show(error, "流程配置提交失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
             RefreshProcList();
-            if (!SF.EditorHistory.IsReplaying)
+            if (!Workspace.Runtime.Editor.History.IsReplaying)
             {
-                SF.EditorHistory.Clear();
+                Workspace.Runtime.Editor.History.Clear();
             }
             return true;
         }
         public void RefreshProcList()
+        {
+            RefreshProcList(true);
+        }
+
+        internal void RefreshProcListFromStore()
+        {
+            RefreshProcList(false);
+        }
+
+        private void RefreshProcList(bool reloadConfiguration)
         {
             TreeNode currentSelectedNode = proc_treeView.SelectedNode;
             Guid selectedProcId = currentSelectedNode?.Parent == null
@@ -551,8 +569,8 @@ namespace Automation
                 }
             }
 
-            List<Proc> procsListTemp = new List<Proc>();
-            List<string> loadErrors = new List<string>();
+            List<Proc> procsListTemp;
+            List<string> loadErrors;
 
             restoringTreeState = true;
             proc_treeView.BeginUpdate();
@@ -564,52 +582,31 @@ namespace Automation
                 procNodeMap.Clear();
                 procIndexMap.Clear();
             }
-            SF.ProcConfigFaulted = false;
+            Workspace.Runtime.Readiness.ProcConfigFaulted = false;
 
-            string path = SF.workPath.TrimEnd('\\');
-
-            if (!ProcessConfigStore.RecoverIfNeeded(path, out string recoveryMessage))
+            string recoveryMessage = null;
+            if (reloadConfiguration)
             {
-                loadErrors.Add(recoveryMessage);
+                procsListTemp = ProcessConfigStore.Load(
+                    Workspace.Runtime.Paths.WorkPath,
+                    Workspace.Runtime.CreateProcessValidationContext(),
+                    out loadErrors,
+                    out recoveryMessage);
             }
-            else if (!string.IsNullOrWhiteSpace(recoveryMessage) && SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            else
             {
-                SF.frmInfo.PrintInfo(recoveryMessage, FrmInfo.Level.Error);
+                procsListTemp = processDefinitionStore.Items.ToList();
+                loadErrors = new List<string>();
             }
-
-            if (!Directory.Exists(path))
+            if (!string.IsNullOrWhiteSpace(recoveryMessage) && Workspace.Info != null && !Workspace.Info.IsDisposed)
             {
-                Directory.CreateDirectory(path);
+                Workspace.Info.PrintInfo(recoveryMessage, FrmInfo.Level.Error);
             }
-
-            Dictionary<int, string> indexMap = ProcessDefinitionService.BuildProcFileIndexMap(path, out int maxIndex);
-            loadErrors.AddRange(ProcessDefinitionService.ValidateProcFileContinuity(indexMap, maxIndex));
-
-            var procIds = new HashSet<Guid>();
-            for (int i = 0; i <= maxIndex; i++)
+            for (int i = 0; i < procsListTemp.Count; i++)
             {
-                Proc proc = null;
-                if (indexMap.ContainsKey(i))
-                {
-                    proc = AtomicJsonFileStore.Read<Proc>(
-                        SF.workPath,
-                        i.ToString(),
-                        ProcessDefinitionService.CreateStrictJsonSettings());
-                }
-                if (proc == null)
-                {
-                    loadErrors.Add($"流程文件加载失败：{i}.json");
-                    proc = new Proc();
-                }
+                Proc proc = procsListTemp[i];
 
-                ProcessDefinitionService.NormalizeProc(i, proc, loadErrors);
-                if (proc?.head?.Id != Guid.Empty && !procIds.Add(proc.head.Id))
-                {
-                    loadErrors.Add($"流程{i}的ID重复：{proc.head.Id:D}");
-                }
-                procsListTemp.Add(proc);
-
-                EngineSnapshot procSnapshot = SF.DR?.GetSnapshot(i);
+                EngineSnapshot procSnapshot = Workspace.Runtime.ProcessEngine?.GetSnapshot(i);
                 TreeNode treeNode = new TreeNode(BuildProcNodeText(i, proc))
                 {
                     NodeFont = procNodeFont
@@ -650,7 +647,10 @@ namespace Automation
                     }
                 }
             }
-            procsList = procsListTemp;
+            if (reloadConfiguration)
+            {
+                processDefinitionStore.ReplaceAll(procsListTemp);
+            }
             RestoreTreeState(selectedProcId, selectedStepId, topProcId, expandedProcIds);
             }
             finally
@@ -659,13 +659,13 @@ namespace Automation
                 restoringTreeState = false;
             }
 
-            if (SF.DR?.Context != null)
+            if (reloadConfiguration && Workspace.Runtime.ProcessEngine?.Context != null)
             {
                 bool allStopped = true;
-                int runtimeCount = SF.DR.Context.Procs?.Count ?? 0;
+                int runtimeCount = Workspace.Runtime.ProcessEngine.Context.Procs?.Count ?? 0;
                 for (int i = 0; i < runtimeCount; i++)
                 {
-                    EngineSnapshot snapshot = SF.DR.GetSnapshot(i);
+                    EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(i);
                     if (snapshot != null && snapshot.State != ProcRunState.Stopped)
                     {
                         allStopped = false;
@@ -679,19 +679,19 @@ namespace Automation
                     {
                         runtimeProcs.Add(ObjectGraphCloner.Clone(procsList[i]));
                     }
-                    SF.DR.Context.Procs = runtimeProcs;
-                    SF.DR.ClearPendingProcUpdates();
+                    Workspace.Runtime.ProcessEngine.Context.Procs = runtimeProcs;
+                    Workspace.Runtime.ProcessEngine.ClearPendingProcUpdates();
                 }
             }
             if (loadErrors.Count > 0)
             {
-                SF.ProcConfigFaulted = true;
+                Workspace.Runtime.Readiness.ProcConfigFaulted = true;
                 string reason = "流程配置加载失败，所有流程已停止且禁止启动。请处理以下报警：\r\n"
                     + string.Join("\r\n", loadErrors.Distinct());
-                SF.StopAllProcs(reason);
+                Workspace.Runtime.Safety.StopAllProcesses(reason);
                 MessageBox.Show(reason, "流程配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            SF.mainfrm?.RefreshProcessFlowGraph();
+            Workspace.Main?.RefreshProcessFlowGraph();
         }
 
         /// <summary>
@@ -793,8 +793,8 @@ namespace Automation
             {
                 RefreshCurrentBinding();
             }
-            UpdateProcStateIcons(procIndex, SF.DR?.GetSnapshot(procIndex));
-            SF.mainfrm?.RefreshProcessFlowGraph();
+            UpdateProcStateIcons(procIndex, Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex));
+            Workspace.Main?.RefreshProcessFlowGraph();
         }
 
         private void RestoreTreeState(Guid selectedProcId, Guid selectedStepId, Guid topProcId, HashSet<Guid> expandedProcIds)
@@ -954,8 +954,8 @@ namespace Automation
                 }
                 return;
             }
-            InstructionListView grid = SF.frmDataGrid?.dataGridView1;
-            FrmInspector inspector = SF.frmInspector;
+            InstructionListView grid = Workspace.DataGrid?.dataGridView1;
+            FrmInspector inspector = Workspace.Inspector;
             inspector?.BeginUpdate();
             try
             {
@@ -985,18 +985,18 @@ namespace Automation
             {
                 grid?.SetFlowContext(SelectedProcNum, SelectedStepNum, procsList[SelectedProcNum]);
                 bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
-                if (SF.frmInspector != null && !SF.frmInspector.IsDisposed)
+                if (Workspace.Inspector != null && !Workspace.Inspector.IsDisposed)
                 {
-                    SF.frmInspector.ShowObject(procsList[SelectedProcNum].steps[SelectedStepNum]);
+                    Workspace.Inspector.ShowObject(procsList[SelectedProcNum].steps[SelectedStepNum]);
                 }
             }
             else
             {
                 grid?.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
                 bindingSource.DataSource = null;
-                if (SF.frmInspector != null && !SF.frmInspector.IsDisposed)
+                if (Workspace.Inspector != null && !Workspace.Inspector.IsDisposed)
                 {
-                    SF.frmInspector.ShowObject(procsList[SelectedProcNum].head);
+                    Workspace.Inspector.ShowObject(procsList[SelectedProcNum].head);
                 }
             }
             bindingSource.ResetBindings(false);
@@ -1014,7 +1014,7 @@ namespace Automation
                         && grid.GetOperation(selectedRowIndex)?.Id == selectedOpId)
                     {
                         grid.SelectSingle(selectedRowIndex);
-                        SF.frmDataGrid.iSelectedRow = selectedRowIndex;
+                        Workspace.DataGrid.iSelectedRow = selectedRowIndex;
                     }
                 }
                 if (firstVisibleRow >= 0 && firstVisibleRow < grid.OperationCount)
@@ -1037,7 +1037,7 @@ namespace Automation
 
         private void AddProc_Click(object sender, EventArgs e)
         {   
-            if (!SF.CanEditProcStructure())
+            if (!Workspace.Runtime.ProcessEditing.CanEditStructure())
             {
                 return;
             }
@@ -1045,7 +1045,7 @@ namespace Automation
             var draftHead = new ProcHead();
 
             proc_treeView.Enabled = false;
-            SF.BeginEditSession(new EditSession<ProcHead>("新增流程", draftHead,
+            Workspace.Runtime.Editor.Begin(new EditSession<ProcHead>("新增流程", draftHead,
                 draft => string.IsNullOrWhiteSpace(draft.Name) ? "流程名称为空。" : null,
                 draft =>
                 {
@@ -1064,7 +1064,7 @@ namespace Automation
             TreeNode selectdnode = proc_treeView.SelectedNode;
             if (selectdnode != null)
             {
-                if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+                if (!Workspace.Runtime.ProcessEditing.CanEditProcess(Workspace.Proc.SelectedProcNum))
                 {
                     return;
                 }
@@ -1072,7 +1072,7 @@ namespace Automation
                 int selectedStepIndex = SelectedStepNum;
                 var draftStep = new Step();
                 proc_treeView.Enabled = false;
-                SF.BeginEditSession(new EditSession<Step>("新增步骤", draftStep,
+                Workspace.Runtime.Editor.Begin(new EditSession<Step>("新增步骤", draftStep,
                     draft => string.IsNullOrWhiteSpace(draft.Name) ? "步骤名称为空。" : null,
                     draft =>
                     {
@@ -1106,7 +1106,7 @@ namespace Automation
             TreeNode parentnode = selectnode.Parent;
             if (parentnode == null)
             {
-                if (!SF.CanEditProcStructure())
+                if (!Workspace.Runtime.ProcessEditing.CanEditStructure())
                 {
                     return;
                 }
@@ -1121,7 +1121,7 @@ namespace Automation
                     procName = $"索引{procIndex}";
                 }
                 Guid procId = procsList[procIndex]?.head?.Id ?? Guid.Empty;
-                List<DicValue> ownedVariables = SF.valueStore?.GetValuesSnapshot()
+                List<DicValue> ownedVariables = Workspace.Runtime.Stores.Values?.GetValuesSnapshot()
                     .Where(value => value != null
                         && ValueConfigStore.IsProcessValue(value)
                         && value.OwnerProcId == procId)
@@ -1131,7 +1131,7 @@ namespace Automation
                     : $"\r\n同时删除{ownedVariables.Count}个私有变量："
                         + string.Join("、", ownedVariables.Select(value => value.Name));
                 bool confirmed = false;
-                new Message(
+                new Message(Workspace.Runtime,
                     "删除流程",
                     $"确定删除流程【{procName}】？{ownedVariableText}",
                     () => confirmed = true,
@@ -1150,7 +1150,7 @@ namespace Automation
                 List<Proc> draftProcesses = procsList.Select(ObjectGraphCloner.Clone).ToList();
                 Guid deletedProcId = draftProcesses[procIndex]?.head?.Id ?? Guid.Empty;
                 draftProcesses.RemoveAt(procIndex);
-                Dictionary<string, DicValue> draftVariables = SF.valueStore.BuildSaveData();
+                Dictionary<string, DicValue> draftVariables = Workspace.Runtime.Stores.Values.BuildSaveData();
                 ProcessVariableLifecycleService.RemoveOwnedVariables(
                     draftVariables, new[] { deletedProcId });
                 if (!TryCommitProcessVariableConfiguration(
@@ -1162,7 +1162,7 @@ namespace Automation
             }
             else
             {
-                if (!SF.CanEditProc(SelectedProcNum))
+                if (!Workspace.Runtime.ProcessEditing.CanEditProcess(SelectedProcNum))
                 {
                     return;
                 }
@@ -1187,7 +1187,7 @@ namespace Automation
                     stepName = $"索引{stepIndex}";
                 }
                 bool confirmed = false;
-                new Message(
+                new Message(Workspace.Runtime,
                     "删除步骤",
                     $"确定删除步骤【{stepName}】？\r\n所属流程：【{procName}】",
                     () => confirmed = true,
@@ -1208,7 +1208,7 @@ namespace Automation
                 Proc draft = ObjectGraphCloner.Clone(procsList[procIndex]);
                 draft.steps.RemoveAt(stepIndex);
                 ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-                if (!ProcessEditingService.TryCommitProcDraft(
+                if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                     procIndex, draft, out string commitError, "删除步骤"))
                 {
                     MessageBox.Show(commitError, "删除步骤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1229,7 +1229,7 @@ namespace Automation
 
                     SelectedStepNum = proc_treeView.SelectedNode.Index;
 
-                    SF.frmDataGrid.iSelectedRow = -1;
+                    Workspace.DataGrid.iSelectedRow = -1;
 
                     if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
                     {
@@ -1237,9 +1237,9 @@ namespace Automation
                         SelectedProcNum = -1;
                         SelectedStepNum = -1;
                         bindingSource.DataSource = null;
-                        SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
-                        SF.frmDataGrid.dataGridView1.DataSource = null;
-                        SF.frmInspector.ClearObject();
+                        Workspace.DataGrid.dataGridView1.SetFlowContext(-1, -1, null);
+                        Workspace.DataGrid.dataGridView1.DataSource = null;
+                        Workspace.Inspector.ClearObject();
                         return;
                     }
                     if (SelectedStepNum < 0 || SelectedStepNum >= procsList[SelectedProcNum].steps.Count)
@@ -1247,18 +1247,18 @@ namespace Automation
                         MessageBox.Show("步骤索引无效，无法加载指令。");
                         SelectedStepNum = -1;
                         bindingSource.DataSource = null;
-                        SF.frmDataGrid.dataGridView1.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
-                        SF.frmDataGrid.dataGridView1.DataSource = null;
-                        SF.frmInspector.ClearObject();
+                        Workspace.DataGrid.dataGridView1.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
+                        Workspace.DataGrid.dataGridView1.DataSource = null;
+                        Workspace.Inspector.ClearObject();
                         return;
                     }
-                    SF.frmDataGrid.dataGridView1.SetFlowContext(
+                    Workspace.DataGrid.dataGridView1.SetFlowContext(
                         SelectedProcNum,
                         SelectedStepNum,
                         procsList[SelectedProcNum]);
                     bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
 
-                    SF.frmInspector.ShowObject(procsList[SelectedProcNum].steps[SF.frmProc.SelectedStepNum]);
+                    Workspace.Inspector.ShowObject(procsList[SelectedProcNum].steps[Workspace.Proc.SelectedStepNum]);
 
 
                 }
@@ -1273,54 +1273,54 @@ namespace Automation
                         MessageBox.Show("流程索引无效，无法加载。");
                         SelectedProcNum = -1;
                         bindingSource.DataSource = null;
-                        SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
-                        SF.frmDataGrid.dataGridView1.DataSource = null;
-                        SF.frmInspector.ClearObject();
+                        Workspace.DataGrid.dataGridView1.SetFlowContext(-1, -1, null);
+                        Workspace.DataGrid.dataGridView1.DataSource = null;
+                        Workspace.Inspector.ClearObject();
                         return;
                     }
-                    SF.frmDataGrid.dataGridView1.SetFlowContext(
+                    Workspace.DataGrid.dataGridView1.SetFlowContext(
                         SelectedProcNum,
                         -1,
                         procsList[SelectedProcNum]);
                     bindingSource.DataSource = null;
 
-                    SF.frmInspector.ShowObject(procsList[SelectedProcNum].head);
+                    Workspace.Inspector.ShowObject(procsList[SelectedProcNum].head);
 
 
                 }
-                SF.frmDataGrid.dataGridView1.DataSource = bindingSource;
+                Workspace.DataGrid.dataGridView1.DataSource = bindingSource;
 
-                if (SF.DR != null && SF.frmProc.SelectedProcNum != -1)
+                if (Workspace.Runtime.ProcessEngine != null && Workspace.Proc.SelectedProcNum != -1)
                 {
-                    EngineSnapshot snapshot = SF.DR.GetSnapshot(SF.frmProc.SelectedProcNum);
+                    EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(Workspace.Proc.SelectedProcNum);
                     if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
                     {
-                        SF.frmToolBar.SetPauseButtonAction(false);
+                        Workspace.ToolBar.SetPauseButtonAction(false);
                     }
                     else if (snapshot != null && (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep))
                     {
-                        SF.frmToolBar.SetPauseButtonAction(true);
+                        Workspace.ToolBar.SetPauseButtonAction(true);
                     }
                     else
                     {
-                        SF.frmToolBar.SetPauseButtonAction(false);
+                        Workspace.ToolBar.SetPauseButtonAction(false);
                     }
                     if (snapshot != null)
                     {
-                        SF.frmToolBar.btnPause.Enabled = snapshot.State != ProcRunState.Paused;
-                        SF.frmToolBar.SingleRun.Enabled = snapshot.State == ProcRunState.SingleStep;
+                        Workspace.ToolBar.btnPause.Enabled = snapshot.State != ProcRunState.Paused;
+                        Workspace.ToolBar.SingleRun.Enabled = snapshot.State == ProcRunState.SingleStep;
                     }
                     else
                     {
-                        SF.frmToolBar.btnPause.Enabled = true;
-                        SF.frmToolBar.SingleRun.Enabled = true;
+                        Workspace.ToolBar.btnPause.Enabled = true;
+                        Workspace.ToolBar.SingleRun.Enabled = true;
                     }
                 }
                 else
                 {
-                    SF.frmToolBar.SetPauseButtonAction(false);
-                    SF.frmToolBar.btnPause.Enabled = true;
-                    SF.frmToolBar.SingleRun.Enabled = true;
+                    Workspace.ToolBar.SetPauseButtonAction(false);
+                    Workspace.ToolBar.btnPause.Enabled = true;
+                    Workspace.ToolBar.SingleRun.Enabled = true;
                 }
               
             }
@@ -1332,14 +1332,14 @@ namespace Automation
             {
                 return;
             }
-            if (SF.isAddOps || SF.isModify == ModifyKind.Operation)
+            if (Workspace.Runtime.Editor.IsAddingOperations || Workspace.Runtime.Editor.ModifyKind == ModifyKind.Operation)
             {
                 if (proc_treeView.SelectedNode != e.Node)
                 {
                     e.Cancel = true;
-                    if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                    if (Workspace.Info != null && !Workspace.Info.IsDisposed)
                     {
-                        SF.frmInfo.PrintInfo("新增或编辑指令中，禁止切换流程。", FrmInfo.Level.Error);
+                        Workspace.Info.PrintInfo("新增或编辑指令中，禁止切换流程。", FrmInfo.Level.Error);
                     }
                     else
                     {
@@ -1352,7 +1352,7 @@ namespace Automation
         private void proc_treeView_MouseDown(object sender, MouseEventArgs e)
         {
             suppressContextMenuOnce = false;
-            if (SF.isAddOps || SF.isModify == ModifyKind.Operation)
+            if (Workspace.Runtime.Editor.IsAddingOperations || Workspace.Runtime.Editor.ModifyKind == ModifyKind.Operation)
             {
                 if (e.Button == MouseButtons.Left || e.Button == MouseButtons.Right)
                 {
@@ -1364,9 +1364,9 @@ namespace Automation
                         {
                             suppressContextMenuOnce = true;
                         }
-                        if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                        if (Workspace.Info != null && !Workspace.Info.IsDisposed)
                         {
-                            SF.frmInfo.PrintInfo("新增或编辑指令中，禁止切换流程。", FrmInfo.Level.Error);
+                            Workspace.Info.PrintInfo("新增或编辑指令中，禁止切换流程。", FrmInfo.Level.Error);
                         }
                         else
                         {
@@ -1388,12 +1388,12 @@ namespace Automation
                     SelectedProcNum = -1;
 
                     SelectedStepNum = -1;
-                    SF.frmDataGrid.iSelectedRow = -1;
-                    SF.frmDataGrid.OperationTemp = null;
+                    Workspace.DataGrid.iSelectedRow = -1;
+                    Workspace.DataGrid.OperationTemp = null;
                     bindingSource.DataSource = null;
-                    SF.frmDataGrid.dataGridView1.SetFlowContext(-1, -1, null);
-                    SF.frmDataGrid.dataGridView1.DataSource = null;
-                    SF.frmInspector.ClearObject();
+                    Workspace.DataGrid.dataGridView1.SetFlowContext(-1, -1, null);
+                    Workspace.DataGrid.dataGridView1.DataSource = null;
+                    Workspace.Inspector.ClearObject();
                 }
                 if (clickedNode != null)
                 {
@@ -1410,24 +1410,24 @@ namespace Automation
                 MessageBox.Show("请选择流程或步骤");
                 return;
             }
-            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            if (!Workspace.Runtime.ProcessEditing.CanEditProcess(Workspace.Proc.SelectedProcNum))
             {
                 return;
             }
             int procIndex = SelectedProcNum;
             int stepIndex = SelectedStepNum;
-            object selected = SF.frmInspector.SelectedObject;
+            object selected = Workspace.Inspector.SelectedObject;
             proc_treeView.Enabled = false;
             if (selected is ProcHead sourceHead)
             {
                 ProcHead draft = ObjectGraphCloner.Clone(sourceHead);
-                SF.BeginEditSession(new EditSession<ProcHead>("修改流程", draft,
+                Workspace.Runtime.Editor.Begin(new EditSession<ProcHead>("修改流程", draft,
                     item => string.IsNullOrWhiteSpace(item.Name) ? "流程名称为空。" : null,
                     item =>
                     {
                         Proc procDraft = ObjectGraphCloner.Clone(procsList[procIndex]);
                         procDraft.head = item;
-                        if (!ProcessEditingService.TryCommitProcDraft(
+                        if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                             procIndex, procDraft, out string commitError, "修改流程"))
                         {
                             throw new InvalidOperationException(commitError);
@@ -1438,13 +1438,13 @@ namespace Automation
             else if (selected is Step sourceStep && stepIndex >= 0)
             {
                 Step draft = ObjectGraphCloner.Clone(sourceStep);
-                SF.BeginEditSession(new EditSession<Step>("修改步骤", draft,
+                Workspace.Runtime.Editor.Begin(new EditSession<Step>("修改步骤", draft,
                     item => string.IsNullOrWhiteSpace(item.Name) ? "步骤名称为空。" : null,
                     item =>
                     {
                         Proc procDraft = ObjectGraphCloner.Clone(procsList[procIndex]);
                         procDraft.steps[stepIndex] = item;
-                        if (!ProcessEditingService.TryCommitProcDraft(
+                        if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                             procIndex, procDraft, out string commitError, "修改步骤"))
                         {
                             throw new InvalidOperationException(commitError);
@@ -1469,7 +1469,7 @@ namespace Automation
                     return;
                 }
                 int procIndex = SelectedProcNum;
-                if (!SF.DR.TryValidateProcessStopped(procIndex, out string stateError))
+                if (!Workspace.Runtime.ProcessEngine.TryValidateProcessStopped(procIndex, out string stateError))
                 {
                     MessageBox.Show(stateError, "流程尚未结束", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
@@ -1480,14 +1480,14 @@ namespace Automation
                     procName = "未命名";
                 }
                 string message = $"确认启动流程：{procIndex}-{procName}";
-                Message confirmForm = new Message("启动确认", message,
+                Message confirmForm = new Message(Workspace.Runtime, "启动确认", message,
                     () =>
                     {
-                        if (SF.DR.StartProc(null, procIndex))
+                        if (Workspace.Runtime.ProcessEngine.StartProc(null, procIndex))
                         {
                             return;
                         }
-                        string error = SF.DR.TryValidateProcessStopped(procIndex, out string stoppedError)
+                        string error = Workspace.Runtime.ProcessEngine.TryValidateProcessStopped(procIndex, out string stoppedError)
                             ? "流程启动请求未被内核接受，请查看流程日志。"
                             : stoppedError;
                         MessageBox.Show(error, "流程启动失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1616,7 +1616,7 @@ namespace Automation
 
         private void PasteProc()
         {
-            if (!SF.CanEditProcStructure())
+            if (!Workspace.Runtime.ProcessEditing.CanEditStructure())
             {
                 return;
             }
@@ -1629,7 +1629,7 @@ namespace Automation
                 insertIndex = procsList.Count;
             }
             ProcessEditingService.AdaptGotoProcIndex(newProc, insertIndex);
-            Dictionary<string, DicValue> draftVariables = SF.valueStore.BuildSaveData();
+            Dictionary<string, DicValue> draftVariables = Workspace.Runtime.Stores.Values.BuildSaveData();
             ProcessVariableCopyResult variableCopy;
             try
             {
@@ -1642,7 +1642,8 @@ namespace Automation
                 return;
             }
             List<string> errors = new List<string>();
-            ProcessDefinitionService.NormalizeProc(insertIndex, newProc, errors);
+            ProcessDefinitionService.NormalizeProc(
+                insertIndex, newProc, errors, Workspace.Runtime.CreateProcessValidationContext());
             if (errors.Count > 0)
             {
                 MessageBox.Show(string.Join("\r\n", errors.Distinct()));
@@ -1684,37 +1685,37 @@ namespace Automation
             bool recordHistory = true)
         {
             error = null;
-            if (!SF.CanEditProcStructure())
+            if (!Workspace.Runtime.ProcessEditing.CanEditStructure())
             {
                 error = "流程结构当前不可编辑。";
                 return false;
             }
             List<Proc> oldProcesses = procsList.Select(ObjectGraphCloner.Clone).ToList();
-            Dictionary<string, DicValue> oldVariables = SF.valueStore.BuildSaveData();
+            Dictionary<string, DicValue> oldVariables = Workspace.Runtime.Stores.Values.BuildSaveData();
             List<Proc> committedProcesses = processes.Select(ObjectGraphCloner.Clone).ToList();
             Dictionary<string, DicValue> committedVariables = variables.ToDictionary(
                 item => item.Key,
                 item => ObjectGraphCloner.Clone(item.Value),
                 StringComparer.Ordinal);
             if (!AiConfigurationTransaction.Commit(
-                SF.ConfigPath,
+                Workspace.Runtime.Paths.ConfigPath,
                 committedProcesses,
                 committedVariables,
                 out error,
                 out bool rollbackFailed))
             {
-                if (rollbackFailed) SF.SetSecurityLock(error);
+                if (rollbackFailed) Workspace.Runtime.Safety.Lock(error);
                 return false;
             }
             try
             {
                 RefreshProcList();
                 ValueConfigStore.ValidateProcessOwners(committedVariables.Values, procsList);
-                SF.valueStore.ReplaceConfiguration(committedVariables);
-                SF.frmValue?.FreshFrmValue();
-                if (recordHistory && !SF.EditorHistory.IsReplaying)
+                Workspace.Runtime.Stores.Values.ReplaceConfiguration(committedVariables);
+                Workspace.Value?.FreshFrmValue();
+                if (recordHistory && !Workspace.Runtime.Editor.History.IsReplaying)
                 {
-                    SF.EditorHistory.Record(
+                    Workspace.Runtime.Editor.History.Record(
                         actionName,
                         delegate(out string historyError)
                         {
@@ -1740,14 +1741,14 @@ namespace Automation
             catch (Exception ex)
             {
                 bool diskRestored = AiConfigurationTransaction.Commit(
-                    SF.ConfigPath, oldProcesses, oldVariables,
+                    Workspace.Runtime.Paths.ConfigPath, oldProcesses, oldVariables,
                     out string restoreError, out bool restoreRollbackFailed);
                 bool memoryRestored = true;
                 try
                 {
                     RefreshProcList();
-                    SF.valueStore.ReplaceConfiguration(oldVariables);
-                    SF.frmValue?.FreshFrmValue();
+                    Workspace.Runtime.Stores.Values.ReplaceConfiguration(oldVariables);
+                    Workspace.Value?.FreshFrmValue();
                 }
                 catch
                 {
@@ -1757,7 +1758,7 @@ namespace Automation
                 if (!diskRestored || !memoryRestored || restoreRollbackFailed)
                 {
                     error += $"；回滚不完整：{restoreError}";
-                    SF.SetSecurityLock(error);
+                    Workspace.Runtime.Safety.Lock(error);
                 }
                 return false;
             }
@@ -1770,7 +1771,7 @@ namespace Automation
                 MessageBox.Show("请选择需要粘贴到的流程。");
                 return;
             }
-            if (!SF.CanEditProc(SelectedProcNum))
+            if (!Workspace.Runtime.ProcessEditing.CanEditProcess(SelectedProcNum))
             {
                 return;
             }
@@ -1786,7 +1787,7 @@ namespace Automation
             Proc draft = ObjectGraphCloner.Clone(procsList[procIndex]);
             draft.steps.Insert(insertIndex, newStep);
             ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-            if (!ProcessEditingService.TryCommitProcDraft(
+            if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                 procIndex, draft, out string commitError, "粘贴步骤"))
             {
                 MessageBox.Show(commitError, "粘贴步骤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1899,11 +1900,11 @@ namespace Automation
                 proc_treeView.SelectedNode = null;
                 SelectedProcNum = -1;
                 SelectedStepNum = -1;
-                if (SF.frmDataGrid != null) SF.frmDataGrid.iSelectedRow = -1;
+                if (Workspace.DataGrid != null) Workspace.DataGrid.iSelectedRow = -1;
                 return;
             }
             SelectProcNode(procIndex, stepIndex);
-            if (SF.frmDataGrid != null) SF.frmDataGrid.iSelectedRow = -1;
+            if (Workspace.DataGrid != null) Workspace.DataGrid.iSelectedRow = -1;
         }
 
         private void SelectProcNode(int procIndex, int stepIndex)
@@ -1939,11 +1940,11 @@ namespace Automation
             {
                 return;
             }
-            if (!SF.CanEditProc(procIndex))
+            if (!Workspace.Runtime.ProcessEditing.CanEditProcess(procIndex))
             {
                 return;
             }
-            EngineSnapshot snapshot = SF.DR?.GetSnapshot(procIndex);
+            EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex);
             if (snapshot != null && snapshot.State != ProcRunState.Stopped)
             {
                 MessageBox.Show("流程运行中禁止禁用或启用。");
@@ -1978,7 +1979,7 @@ namespace Automation
             string historyDescription = isStep
                 ? "切换步骤禁用状态"
                 : "切换流程禁用状态";
-            if (!ProcessEditingService.TryCommitProcDraft(
+            if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                 procIndex, draft, out string commitError, historyDescription))
             {
                 MessageBox.Show(commitError, "更新禁用状态失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1998,7 +1999,7 @@ namespace Automation
                 node.ForeColor = disabled ? UiPalette.DisabledSoft : UiPalette.TextPrimary;
                 node.Text = BuildProcNodeText(procIndex);
                 node.NodeFont = procNodeFont;
-                SetNodeImage(node, GetProcImageKey(procsList[procIndex], SF.DR?.GetSnapshot(procIndex)));
+                SetNodeImage(node, GetProcImageKey(procsList[procIndex], Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex)));
             }
         }
 
@@ -2029,7 +2030,7 @@ namespace Automation
                         procsList[procIndex],
                         procsList[procIndex].steps[stepIndex],
                         stepIndex,
-                        SF.DR?.GetSnapshot(procIndex)));
+                        Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex)));
             }
         }
 

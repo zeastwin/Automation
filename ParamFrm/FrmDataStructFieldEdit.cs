@@ -7,6 +7,7 @@ namespace Automation.ParamFrm
     public class FrmDataStructFieldEdit : Form
     {
         private readonly int structIndex;
+        private readonly DataStructStore dataStructStore;
         private readonly int itemIndex;
         private readonly int fieldIndex;
         private readonly bool isNew;
@@ -22,8 +23,9 @@ namespace Automation.ParamFrm
 
         public int ActualFieldIndex { get; private set; } = -1;
 
-        public FrmDataStructFieldEdit(int structIndex, int itemIndex)
+        public FrmDataStructFieldEdit(DataStructStore dataStructStore, int structIndex, int itemIndex)
         {
+            this.dataStructStore = dataStructStore ?? throw new ArgumentNullException(nameof(dataStructStore));
             this.structIndex = structIndex;
             this.itemIndex = itemIndex;
             fieldIndex = -1;
@@ -35,8 +37,10 @@ namespace Automation.ParamFrm
             comboType.SelectedIndex = 0;
         }
 
-        public FrmDataStructFieldEdit(int structIndex, int itemIndex, int fieldIndex, string fieldName, DataStructValueType fieldType, string fieldValue)
+        public FrmDataStructFieldEdit(DataStructStore dataStructStore, int structIndex, int itemIndex,
+            int fieldIndex, string fieldName, DataStructValueType fieldType, string fieldValue)
         {
+            this.dataStructStore = dataStructStore ?? throw new ArgumentNullException(nameof(dataStructStore));
             this.structIndex = structIndex;
             this.itemIndex = itemIndex;
             this.fieldIndex = fieldIndex;
@@ -170,7 +174,7 @@ namespace Automation.ParamFrm
 
             if (isNew)
             {
-                if (!SF.dataStructStore.AddField(structIndex, itemIndex, fieldName, type, value, -1, out int actualIndex, out string error))
+                if (!dataStructStore.AddField(structIndex, itemIndex, fieldName, type, value, -1, out int actualIndex, out string error))
                 {
                     MessageBox.Show(error);
                     return;
@@ -183,7 +187,7 @@ namespace Automation.ParamFrm
 
             if (!string.Equals(originalName, fieldName, StringComparison.Ordinal))
             {
-                if (!SF.dataStructStore.RenameField(structIndex, itemIndex, fieldIndex, fieldName, out string renameError))
+                if (!dataStructStore.RenameField(structIndex, itemIndex, fieldIndex, fieldName, out string renameError))
                 {
                     MessageBox.Show(renameError);
                     return;
@@ -192,7 +196,7 @@ namespace Automation.ParamFrm
 
             if (originalType != type)
             {
-                if (!SF.dataStructStore.SetFieldType(structIndex, itemIndex, fieldIndex, type, out string message))
+                if (!dataStructStore.SetFieldType(structIndex, itemIndex, fieldIndex, type, out string message))
                 {
                     MessageBox.Show(message);
                     return;
@@ -203,7 +207,7 @@ namespace Automation.ParamFrm
                 }
             }
 
-            if (!SF.dataStructStore.SetFieldValue(structIndex, itemIndex, fieldIndex, type, value, out string valueError))
+            if (!dataStructStore.SetFieldValue(structIndex, itemIndex, fieldIndex, type, value, out string valueError))
             {
                 MessageBox.Show(valueError);
                 return;

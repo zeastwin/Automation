@@ -4,7 +4,6 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 
 namespace Automation
 {
@@ -278,116 +277,36 @@ namespace Automation
                 }
             }
 
-            Control invoker = UiInvoker;
-            if (invoker == null || invoker.IsDisposed)
+            if (Context.PopupService == null)
             {
-                MarkAlarm(evt, "弹框界面句柄无效");
+                MarkAlarm(evt, "流程弹框服务未初始化");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-
-            var tcs = new TaskCompletionSource<AlarmDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Message dialog = null;
-
-            Message CreateDialog()
+            var popupRequest = new ProcessPopupRequest
             {
-                if (hasThirdButton)
-                {
-                    dialog = new Message(title, messageText,
-                        () => tcs.TrySetResult(AlarmDecision.Goto1),
-                        () => tcs.TrySetResult(AlarmDecision.Goto2),
-                        () => tcs.TrySetResult(AlarmDecision.Goto3),
-                        btn1Text, btn2Text, btn3Text, false, false);
-                }
-                else if (hasSecondButton)
-                {
-                    dialog = new Message(title, messageText,
-                        () => tcs.TrySetResult(AlarmDecision.Goto1),
-                        () => tcs.TrySetResult(AlarmDecision.Goto2),
-                        btn1Text, btn2Text, false, false);
-                }
-                else
-                {
-                    dialog = new Message(title, messageText, () => tcs.TrySetResult(AlarmDecision.Goto1),
-                        btn1Text, false, false);
-                }
-
-                if (popup.DelayClose)
-                {
-                    System.Windows.Forms.Timer closeTimer = new System.Windows.Forms.Timer();
-                    closeTimer.Interval = popup.DelayCloseTimeMs;
-                    dialog.FormClosed += (sender, args) =>
-                    {
-                        System.Windows.Forms.Timer timer = closeTimer;
-                        closeTimer = null;
-                        if (timer == null)
-                        {
-                            return;
-                        }
-                        timer.Stop();
-                        timer.Dispose();
-                    };
-                    closeTimer.Tick += (sender, args) =>
-                    {
-                        System.Windows.Forms.Timer timer = closeTimer;
-                        closeTimer = null;
-                        timer?.Stop();
-                        timer?.Dispose();
-                        if (dialog != null && !dialog.IsDisposed && !dialog.isChoiced)
-                        {
-                            dialog.btnCanel();
-                        }
-                        tcs.TrySetResult(AlarmDecision.Ignore);
-                    };
-                    closeTimer.Start();
-                }
-                return dialog;
-            }
-
+                ProcIndex = evt?.procNum ?? -1,
+                Title = title,
+                Message = messageText,
+                Button1 = btn1Text,
+                Button2 = btn2Text,
+                Button3 = btn3Text,
+                ButtonCount = hasThirdButton ? 3 : hasSecondButton ? 2 : 1,
+                AutoCloseMilliseconds = popup.DelayClose
+                    ? (int?)popup.DelayCloseTimeMs
+                    : null
+            };
             DateTime alarmStartTime = DateTime.Now;
-            void ReportPopupFailure(Exception exception)
-            {
-                tcs.TrySetException(exception ?? new InvalidOperationException("流程弹框创建失败。"));
-            }
-            void CancelPopup()
-            {
-                tcs.TrySetResult(AlarmDecision.Ignore);
-            }
-            if (invoker is FrmMain main)
-            {
-                main.EnqueueProcPopup(evt?.procNum ?? -1, CreateDialog, ReportPopupFailure, CancelPopup);
-            }
-            else
-            {
-                void ShowSafely()
-                {
-                    try
-                    {
-                        CreateDialog();
-                    }
-                    catch (Exception ex)
-                    {
-                        ReportPopupFailure(ex);
-                    }
-                }
-                if (invoker.InvokeRequired)
-                {
-                    try
-                    {
-                        invoker.BeginInvoke((Action)ShowSafely);
-                    }
-                    catch (Exception ex)
-                    {
-                        ReportPopupFailure(ex);
-                    }
-                }
-                else
-                {
-                    ShowSafely();
-                }
-            }
-
             AlarmDecision decision = AlarmDecision.Ignore;
-            Task<AlarmDecision> decisionTask = tcs.Task;
+            Task<AlarmDecision> decisionTask;
+            try
+            {
+                decisionTask = Context.PopupService.ShowAsync(popupRequest, token);
+            }
+            catch (Exception ex)
+            {
+                MarkAlarm(evt, $"流程弹框创建失败:{ex.Message}");
+                throw CreateAlarmException(evt, evt?.alarmMsg, ex);
+            }
             bool isCanceled = false;
 
             try
@@ -415,18 +334,6 @@ namespace Automation
             }
             catch (OperationCanceledException)
             {
-                if (dialog != null && !dialog.IsDisposed)
-                {
-                    if (dialog.InvokeRequired)
-                    {
-                        dialog.BeginInvoke((Action)(() => dialog.btnCanel()));
-                    }
-                    else
-                    {
-                        dialog.btnCanel();
-                    }
-                }
-                tcs.TrySetResult(AlarmDecision.Ignore);
                 isCanceled = true;
             }
             finally

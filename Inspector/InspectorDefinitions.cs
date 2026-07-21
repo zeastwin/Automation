@@ -269,7 +269,7 @@ namespace Automation
 
         public object GetService(Type serviceType)
         {
-            return null;
+            return EditorServiceRegistry.GetService(Instance, serviceType);
         }
 
         public void OnComponentChanged()

@@ -14,11 +14,17 @@ namespace Automation
 
     public class DataStructStore
     {
+        private readonly PlatformRuntime runtime;
         private readonly object dataLock = new object();
         private readonly List<DataStruct> dataStructs = new List<DataStruct>();
         private readonly List<int> structVersions = new List<int>();
         private volatile DataStructItem[][] runtimeItems = Array.Empty<DataStructItem[]>();
         private int version = 0;
+
+        internal DataStructStore(PlatformRuntime runtime)
+        {
+            this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+        }
 
         public int Version
         {
@@ -43,7 +49,7 @@ namespace Automation
                 Reset();
                 if (!Save(configPath))
                 {
-                    SF.SetSecurityLock("数据结构配置初始化保存失败");
+                    runtime.Safety.Lock("数据结构配置初始化保存失败");
                 }
                 return false;
             }
@@ -53,13 +59,13 @@ namespace Automation
                 List<DataStruct> data = AtomicJsonFileStore.Read<List<DataStruct>>(configPath, "DataStruct");
                 if (data == null)
                 {
-                    SF.SetSecurityLock("数据结构配置及其备份均无法读取，已保留原文件并禁止继续运行");
+                    runtime.Safety.Lock("数据结构配置及其备份均无法读取，已保留原文件并禁止继续运行");
                     return false;
                 }
                 if (!ValidateLoadedData(data, out string error))
                 {
-                    SF.DR?.Logger?.Log($"数据结构配置校验失败:{error}", LogLevel.Error);
-                    SF.SetSecurityLock(error);
+                    runtime.ProcessEngine?.Logger?.Log($"数据结构配置校验失败:{error}", LogLevel.Error);
+                    runtime.Safety.Lock(error);
                     return false;
                 }
                 LoadFromList(data);
@@ -67,8 +73,8 @@ namespace Automation
             }
             catch (Exception e)
             {
-                SF.DR?.Logger?.Log($"数据结构配置加载失败:{e}", LogLevel.Error);
-                SF.SetSecurityLock($"数据结构配置加载失败:{e.Message}");
+                runtime.ProcessEngine?.Logger?.Log($"数据结构配置加载失败:{e}", LogLevel.Error);
+                runtime.Safety.Lock($"数据结构配置加载失败:{e.Message}");
                 return false;
             }
         }
@@ -82,7 +88,7 @@ namespace Automation
             bool saved = AtomicJsonFileStore.Save(configPath, "DataStruct", BuildSaveData());
             if (!saved)
             {
-                SF.SetSecurityLock("数据结构配置保存失败，内存与磁盘状态可能不一致");
+                runtime.Safety.Lock("数据结构配置保存失败，内存与磁盘状态可能不一致");
             }
             return saved;
         }

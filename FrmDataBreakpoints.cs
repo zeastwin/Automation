@@ -288,7 +288,7 @@ namespace Automation
             Guid selectedStatePause = GetSelectedId(statePauseProcCombo);
             Guid currentProcId = GetCurrentProcId();
 
-            List<DicValue> valueSnapshots = SF.valueStore?.GetValuesSnapshot() ?? new List<DicValue>();
+            List<DicValue> valueSnapshots = owner.Runtime.Stores.Values.GetValuesSnapshot();
             List<ResourceOption> variables = valueSnapshots
                 .Select(value => new ResourceOption
                 {
@@ -298,7 +298,7 @@ namespace Automation
                 .ToList();
             if (selectedVariable == Guid.Empty)
             {
-                int selectedIndex = SF.frmValue?.GetSelectedVariableSlotIndex() ?? -1;
+                int selectedIndex = owner.frmValue?.GetSelectedVariableSlotIndex() ?? -1;
                 selectedVariable = valueSnapshots
                     .FirstOrDefault(value => value.Index == selectedIndex)?.Id ?? Guid.Empty;
             }
@@ -528,7 +528,7 @@ namespace Automation
         {
             if (rule.Kind == DataBreakpointKind.VariableChanged)
             {
-                DicValue value = SF.valueStore?.GetValuesSnapshot()
+                DicValue value = owner.Runtime.Stores.Values.GetValuesSnapshot()
                     .FirstOrDefault(candidate => candidate.Id == rule.VariableId);
                 return value == null
                     ? $"已失效变量 {rule.VariableId:D}"

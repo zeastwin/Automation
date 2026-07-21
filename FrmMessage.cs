@@ -13,18 +13,25 @@ namespace Automation
         private EventHandler1 btn2Action;
         private EventHandler1 btn3Action;
         private EventHandler1 closeFallback;
+        private readonly PlatformSafetyCoordinator safety;
+        private readonly IPlatformEditorUiAdapter editorUi;
         private int completionState;
 
         public bool isChoiced => Volatile.Read(ref completionState) != 0;
 
-        public Message(string headText, string msg, EventHandler1 eventHandler1, string btnTxt1, bool isWait)
-            : this(headText, msg, eventHandler1, btnTxt1, isWait, true)
+        public Message(PlatformRuntime runtime, string headText, string msg,
+            EventHandler1 eventHandler1, string btnTxt1, bool isWait)
+            : this(runtime?.Safety, runtime?.EditorUi, headText, msg,
+                eventHandler1, btnTxt1, isWait, true)
         {
         }
 
-        internal Message(string headText, string msg, EventHandler1 eventHandler1, string btnTxt1,
+        internal Message(PlatformSafetyCoordinator safety, IPlatformEditorUiAdapter editorUi,
+            string headText, string msg, EventHandler1 eventHandler1, string btnTxt1,
             bool isWait, bool presentImmediately)
         {
+            this.safety = safety ?? throw new ArgumentNullException(nameof(safety));
+            this.editorUi = editorUi;
             InitializeComponent();
             ConfigureContent(headText, msg);
             btn1.Visible = false;
@@ -40,15 +47,20 @@ namespace Automation
             }
         }
 
-        public Message(string headText, string msg, EventHandler1 eventHandler1, EventHandler1 eventHandler2,
+        public Message(PlatformRuntime runtime, string headText, string msg,
+            EventHandler1 eventHandler1, EventHandler1 eventHandler2,
             string btnTxt1, string btnTxt2, bool isWait)
-            : this(headText, msg, eventHandler1, eventHandler2, btnTxt1, btnTxt2, isWait, true)
+            : this(runtime?.Safety, runtime?.EditorUi, headText, msg,
+                eventHandler1, eventHandler2, btnTxt1, btnTxt2, isWait, true)
         {
         }
 
-        internal Message(string headText, string msg, EventHandler1 eventHandler1, EventHandler1 eventHandler2,
+        internal Message(PlatformSafetyCoordinator safety, IPlatformEditorUiAdapter editorUi,
+            string headText, string msg, EventHandler1 eventHandler1, EventHandler1 eventHandler2,
             string btnTxt1, string btnTxt2, bool isWait, bool presentImmediately)
         {
+            this.safety = safety ?? throw new ArgumentNullException(nameof(safety));
+            this.editorUi = editorUi;
             InitializeComponent();
             ConfigureContent(headText, msg);
             btn1.Visible = true;
@@ -69,17 +81,21 @@ namespace Automation
             }
         }
 
-        public Message(string headText, string msg, EventHandler1 eventHandler1, EventHandler1 eventHandler2,
+        public Message(PlatformRuntime runtime, string headText, string msg,
+            EventHandler1 eventHandler1, EventHandler1 eventHandler2,
             EventHandler1 eventHandler3, string btnTxt1, string btnTxt2, string btnTxt3, bool isWait)
-            : this(headText, msg, eventHandler1, eventHandler2, eventHandler3,
+            : this(runtime?.Safety, runtime?.EditorUi, headText, msg, eventHandler1, eventHandler2, eventHandler3,
                 btnTxt1, btnTxt2, btnTxt3, isWait, true)
         {
         }
 
-        internal Message(string headText, string msg, EventHandler1 eventHandler1, EventHandler1 eventHandler2,
+        internal Message(PlatformSafetyCoordinator safety, IPlatformEditorUiAdapter editorUi,
+            string headText, string msg, EventHandler1 eventHandler1, EventHandler1 eventHandler2,
             EventHandler1 eventHandler3, string btnTxt1, string btnTxt2, string btnTxt3,
             bool isWait, bool presentImmediately)
         {
+            this.safety = safety ?? throw new ArgumentNullException(nameof(safety));
+            this.editorUi = editorUi;
             InitializeComponent();
             ConfigureContent(headText, msg);
             btn1.Visible = true;
@@ -148,9 +164,7 @@ namespace Automation
             Form owner = Form.ActiveForm;
             if (owner == this || owner is Message || owner == null || owner.IsDisposed || !owner.Visible)
             {
-                owner = SF.mainfrm != null && !SF.mainfrm.IsDisposed && SF.mainfrm.Visible
-                    ? SF.mainfrm
-                    : null;
+                owner = editorUi?.DialogOwner as Form;
             }
             StartPosition = FormStartPosition.CenterScreen;
             if (modal)
@@ -266,7 +280,7 @@ namespace Automation
             }
             catch (Exception ex)
             {
-                SF.SetSecurityLock($"弹窗操作回调异常：{ex.Message}");
+                safety?.Lock($"弹窗操作回调异常：{ex.Message}");
             }
             finally
             {
@@ -323,7 +337,7 @@ namespace Automation
                 }
                 catch (Exception ex)
                 {
-                    SF.SetSecurityLock($"弹窗关闭回调异常：{ex.Message}");
+                    safety?.Lock($"弹窗关闭回调异常：{ex.Message}");
                 }
             }
             btn1Action = null;

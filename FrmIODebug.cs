@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -175,14 +174,15 @@ namespace Automation
 
         private bool TrySaveIoDebugMap()
         {
-            if (AtomicJsonFileStore.Save(SF.ConfigPath, "IODebugMap", IODebugMaps))
+            if (Workspace.Runtime.Stores.IoDebug.TryCommit(
+                    Workspace.Runtime.Paths.ConfigPath, IODebugMaps, out string error))
             {
                 return true;
             }
-            SF.DR?.Logger?.Log("IO调试配置保存失败", LogLevel.Error);
+            Workspace.Runtime.ProcessEngine?.Logger?.Log(error, LogLevel.Error);
             if (IsHandleCreated && !IsDisposed && !Disposing)
             {
-                MessageBox.Show("IO调试配置保存失败，本次配置未落盘。", "IO调试",
+                MessageBox.Show(error, "IO调试",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             return false;
@@ -727,7 +727,7 @@ namespace Automation
                         }
                     }
                 }
-                SF.DR?.Logger?.Log("输入输出关联配置字段缺失，已保留原文件，本次关联调试使用空配置", LogLevel.Error);
+                Workspace.Runtime.ProcessEngine?.Logger?.Log("输入输出关联配置字段缺失，已保留原文件，本次关联调试使用空配置", LogLevel.Error);
                 IODebugMaps = new IODebugMap();
             }
         }
@@ -914,7 +914,7 @@ namespace Automation
             {
                 while (!token.IsCancellationRequested)
                 {
-                    if (!ioRefreshEnabled || SF.isModify == ModifyKind.IO)
+                    if (!ioRefreshEnabled || Workspace.Runtime.Editor.ModifyKind == ModifyKind.IO)
                     {
                         await Task.Delay(ioRefreshIntervalMs, token);
                         continue;
@@ -944,7 +944,7 @@ namespace Automation
             }
             catch (Exception ex)
             {
-                SF.frmInfo?.PrintInfo($"IO监控刷新已停止：{ex.Message}", FrmInfo.Level.Error);
+                Workspace.Info?.PrintInfo($"IO监控刷新已停止：{ex.Message}", FrmInfo.Level.Error);
             }
         }
 
@@ -971,7 +971,7 @@ namespace Automation
             try
             {
                 UpdateIoCacheIfNeeded();
-                if (SF.motion == null || !SF.motion.IsCardInitialized)
+                if (Workspace.Runtime.Motion == null || !Workspace.Runtime.Motion.IsCardInitialized)
                 {
                     if (tabIndex == 0)
                     {
@@ -1030,7 +1030,7 @@ namespace Automation
                         }
                         bool open = false;
                         if (TryResolveIoByName(ioItem.Name, "通用输入", out IO io, false)
-                            && SF.io.GetInIO(io, ref open))
+                            && Workspace.Runtime.Io.GetInIO(io, ref open))
                         {
                             states[i] = open;
                             valid[i] = true;
@@ -1063,7 +1063,7 @@ namespace Automation
                         }
                         bool open = false;
                         if (TryResolveIoByName(ioItem.Name, "通用输出", out IO io, false)
-                            && SF.io.GetOutIO(io, ref open))
+                            && Workspace.Runtime.Io.GetOutIO(io, ref open))
                         {
                             states[i] = open;
                             valid[i] = true;
@@ -1103,7 +1103,7 @@ namespace Automation
                         }
                         bool open = false;
                         if (TryResolveIoByName(connect.Output.Name, "通用输出", out IO outputIo, false)
-                            && SF.io.GetOutIO(outputIo, ref open))
+                            && Workspace.Runtime.Io.GetOutIO(outputIo, ref open))
                         {
                             outStates[i] = open;
                             outValid[i] = true;
@@ -1114,7 +1114,7 @@ namespace Automation
                         }
                         if (connect.Intput1 != null && !string.IsNullOrWhiteSpace(connect.Intput1.Name)
                             && TryResolveIoByName(connect.Intput1.Name, "通用输入", out IO input1Io, false)
-                            && SF.io.GetInIO(input1Io, ref open))
+                            && Workspace.Runtime.Io.GetInIO(input1Io, ref open))
                         {
                             in1States[i] = open;
                             in1Valid[i] = true;
@@ -1125,7 +1125,7 @@ namespace Automation
                         }
                         if (connect.Intput2 != null && !string.IsNullOrWhiteSpace(connect.Intput2.Name)
                             && TryResolveIoByName(connect.Intput2.Name, "通用输入", out IO input2Io, false)
-                            && SF.io.GetInIO(input2Io, ref open))
+                            && Workspace.Runtime.Io.GetInIO(input2Io, ref open))
                         {
                             in2States[i] = open;
                             in2Valid[i] = true;
@@ -1356,7 +1356,7 @@ namespace Automation
 
         private void UpdateIoCacheIfNeeded()
         {
-            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+            List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
             if (cacheIOs == null)
             {
                 lock (ioCacheLock)
@@ -1469,7 +1469,7 @@ namespace Automation
             EnsureListViewSingleColumn(listView6, "通用输出2", 220);
 
 
-            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+            List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
 
             if (cacheIOs == null)
             {
@@ -1514,7 +1514,7 @@ namespace Automation
         private void DynamicMenuItem_Click(object sender, EventArgs e)
         {
             ToolStripMenuItem menuItem = (ToolStripMenuItem)sender;
-            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+            List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
             IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == menuItem.Text);
             if (cacheIO == null)
             {
@@ -1606,7 +1606,7 @@ namespace Automation
             {
                 ApplyIoRefresh(data);
             }
-            if (SF.frmIO?.IOMap?.FirstOrDefault() != null)
+            if (Workspace.IO?.IOMap?.FirstOrDefault() != null)
             {
                 if (listView6 == null)
                 {
@@ -2024,12 +2024,12 @@ namespace Automation
             {
                 return;
             }
-            if (SF.SecurityLocked)
+            if (Workspace.Runtime.Safety.IsLocked)
             {
-                MessageBox.Show(SF.SecurityLockReason, "系统已安全锁定", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(Workspace.Runtime.Safety.LockReason, "系统已安全锁定", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            if (SF.io == null || SF.motion == null || !SF.motion.IsCardInitialized)
+            if (Workspace.Runtime.Io == null || Workspace.Runtime.Motion == null || !Workspace.Runtime.Motion.IsCardInitialized)
             {
                 MessageBox.Show("运动控制卡未初始化，禁止操作输出。", "IO调试",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -2046,12 +2046,12 @@ namespace Automation
                         button.BackColor = UiPalette.Danger;
                         return;
                     }
-                    if (!SF.io.GetOutIO(outputIo, ref currentState))
+                    if (!Workspace.Runtime.Io.GetOutIO(outputIo, ref currentState))
                     {
                         throw new InvalidOperationException($"读取输出状态失败:{outputIo.Name}");
                     }
                     bool newState = !currentState;
-                    if (!SF.io.SetIO(outputIo, newState))
+                    if (!Workspace.Runtime.Io.SetIO(outputIo, newState))
                     {
                         throw new InvalidOperationException($"设置输出失败:{outputIo.Name}");
                     }
@@ -2060,7 +2060,7 @@ namespace Automation
                         && ioConnect.Output2.Name != ioConnect.Output.Name
                         && TryResolveIoByName(ioConnect.Output2.Name, "通用输出", out IO output2))
                     {
-                        if (!SF.io.SetIO(output2, !newState))
+                        if (!Workspace.Runtime.Io.SetIO(output2, !newState))
                         {
                             throw new InvalidOperationException($"联动输出失败:{output2.Name}");
                         }
@@ -2072,15 +2072,15 @@ namespace Automation
                     button.BackColor = UiPalette.Danger;
                     return;
                 }
-                if (!SF.io.GetOutIO(outputIo2, ref currentState)
-                    || !SF.io.SetIO(outputIo2, !currentState))
+                if (!Workspace.Runtime.Io.GetOutIO(outputIo2, ref currentState)
+                    || !Workspace.Runtime.Io.SetIO(outputIo2, !currentState))
                 {
                     throw new InvalidOperationException($"输出操作失败:{outputIo2.Name}");
                 }
             }
             catch (Exception ex)
             {
-                SF.DR?.Logger?.Log($"IO调试输出异常:{ex}", LogLevel.Error);
+                Workspace.Runtime.ProcessEngine?.Logger?.Log($"IO调试输出异常:{ex}", LogLevel.Error);
                 MessageBox.Show(ex.Message, "IO调试失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -2204,9 +2204,9 @@ namespace Automation
             listView1.Columns.Add("通用输入", 220);
             listView2.Columns.Add("通用输出", 220);
             UpdateIoCacheIfNeeded();
-            //for (int i = 0; i < SF.frmCard.card.controlCards.Count; i++)
+            //for (int i = 0; i < Workspace.Card.card.controlCards.Count; i++)
             //{
-            List<IO> cacheIOs = SF.frmIODebug.IODebugMaps.inputs;
+            List<IO> cacheIOs = Workspace.IODebug.IODebugMaps.inputs;
 
             IO cacheIO;
 
@@ -2236,7 +2236,7 @@ namespace Automation
                 }
             }
 
-            cacheIOs = SF.frmIODebug.IODebugMaps.outputs;
+            cacheIOs = Workspace.IODebug.IODebugMaps.outputs;
 
 
 
@@ -2298,33 +2298,23 @@ namespace Automation
         }
         public void RefreshIODebugMap()
         {
-            if (!Directory.Exists(SF.ConfigPath))
+            if (Workspace.Runtime.Stores.IoDebug.Load(
+                    Workspace.Runtime.Paths.ConfigPath, out string error))
             {
-                Directory.CreateDirectory(SF.ConfigPath);
-            }
-            string filePath = Path.Combine(SF.ConfigPath, "IODebugMap.json");
-            if (!File.Exists(filePath))
-            {
-                IODebugMaps = new IODebugMap();
-                TrySaveIoDebugMap();
+                IODebugMaps = Workspace.Runtime.Stores.IoDebug.Current;
+                EnsureConnectConfigReady();
                 return;
             }
-            try
-            {
-                IODebugMap IODebugMapTemp = AtomicJsonFileStore.Read<IODebugMap>(SF.ConfigPath, "IODebugMap");
-                if (IODebugMapTemp == null)
-                {
-                    throw new InvalidDataException("输入输出调试配置为空。");
-                }
-                IODebugMaps = IODebugMapTemp;
-                EnsureConnectConfigReady();
-            }
-            catch (Exception ex)
-            {
-                IODebugMaps = new IODebugMap();
-                EnsureConnectConfigReady();
-                SF.DR?.Logger?.Log($"输入输出调试配置加载失败:{ex}", LogLevel.Error);
-            }
+            IODebugMaps = new IODebugMap();
+            EnsureConnectConfigReady();
+            Workspace.Runtime.ProcessEngine?.Logger?.Log(
+                $"输入输出调试配置加载失败:{error}", LogLevel.Error);
+        }
+
+        internal void RefreshIODebugMapFromStore()
+        {
+            IODebugMaps = Workspace.Runtime.Stores.IoDebug.Current ?? new IODebugMap();
+            EnsureConnectConfigReady();
         }
         private void InputConfigItem_Click(object sender, EventArgs e)
         {
@@ -2352,7 +2342,7 @@ namespace Automation
         }
         private void OpenDebugConfig(string ioType)
         {
-            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+            List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
             if (cacheIOs == null)
             {
                 MessageBox.Show("轴卡未配置");
@@ -2457,7 +2447,7 @@ namespace Automation
         }
         private void OpenConnectConfig()
         {
-            List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+            List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
             if (cacheIOs == null)
             {
                 MessageBox.Show("轴卡未配置");
@@ -2769,9 +2759,9 @@ namespace Automation
             {
                 targetIndex = listView1.Items.Count;
             }
-            if (sourceIndex != targetIndex && sourceIndex >= 0 && sourceIndex < SF.frmIODebug.IODebugMaps.inputs.Count)
+            if (sourceIndex != targetIndex && sourceIndex >= 0 && sourceIndex < Workspace.IODebug.IODebugMaps.inputs.Count)
             {
-                List<IO> list = SF.frmIODebug.IODebugMaps.inputs;
+                List<IO> list = Workspace.IODebug.IODebugMaps.inputs;
                 IO moving = list[sourceIndex];
                 list.RemoveAt(sourceIndex);
                 if (targetIndex > sourceIndex)
@@ -2838,9 +2828,9 @@ namespace Automation
             {
                 targetIndex = listView2.Items.Count;
             }
-            if (sourceIndex != targetIndex && sourceIndex >= 0 && sourceIndex < SF.frmIODebug.IODebugMaps.outputs.Count)
+            if (sourceIndex != targetIndex && sourceIndex >= 0 && sourceIndex < Workspace.IODebug.IODebugMaps.outputs.Count)
             {
-                List<IO> list = SF.frmIODebug.IODebugMaps.outputs;
+                List<IO> list = Workspace.IODebug.IODebugMaps.outputs;
                 IO moving = list[sourceIndex];
                 list.RemoveAt(sourceIndex);
                 if (targetIndex > sourceIndex)
@@ -2990,7 +2980,7 @@ namespace Automation
                     }
 
                     listView4.ItemChecked += listView4_ItemChecked;
-                    List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+                    List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
                     IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == e.Item.Text);
                     IOConnect iOConnect = GetSelectedConnect();
                     if (cacheIO != null && iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
@@ -3038,7 +3028,7 @@ namespace Automation
                         }
                     }
                     listView5.ItemChecked += listView5_ItemChecked;
-                    List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+                    List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
                     IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == e.Item.Text);
                     IOConnect iOConnect = GetSelectedConnect();
                     if (cacheIO != null && iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
@@ -3090,7 +3080,7 @@ namespace Automation
                     }
 
                     listView6.ItemChecked += listView6_ItemChecked;
-                    List<IO> cacheIOs = SF.frmIO.IOMap.FirstOrDefault();
+                    List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
                     if (cacheIOs == null)
                     {
                         return;

@@ -106,9 +106,9 @@ namespace Automation
             int rowIndex = dataGridView1.CurrentIndex;
             iSelectedRow = rowIndex;
             if (rowIndex >= 0
-                && SF.frmProc != null
-                && SF.frmInspector != null
-                && !SF.frmInspector.IsDisposed)
+                && editorWorkspace?.Proc != null
+                && editorWorkspace.Inspector != null
+                && !editorWorkspace.Inspector.IsDisposed)
             {
                 // 此时原生选中状态已经稳定，只绘制最终状态，再同步更新检查器。
                 dataGridView1.Update();
@@ -120,18 +120,18 @@ namespace Automation
             object sender,
             InstructionListView.JumpLinkClickedEventArgs e)
         {
-            if (SF.frmProc == null
-                || SF.frmProc.IsDisposed
+            if (Workspace.Proc == null
+                || Workspace.Proc.IsDisposed
                 || e.ProcIndex < 0
-                || e.ProcIndex >= SF.frmProc.procsList.Count
-                || e.ProcIndex != SF.frmProc.SelectedProcNum)
+                || e.ProcIndex >= Workspace.Proc.procsList.Count
+                || e.ProcIndex != Workspace.Proc.SelectedProcNum)
             {
                 return;
             }
 
             int targetStepIndex = e.IsOutgoing ? e.TargetStepIndex : e.SourceStepIndex;
             int targetOpIndex = e.IsOutgoing ? e.TargetOpIndex : e.SourceOpIndex;
-            Proc proc = SF.frmProc.procsList[e.ProcIndex];
+            Proc proc = Workspace.Proc.procsList[e.ProcIndex];
             if (targetStepIndex < 0
                 || targetStepIndex >= (proc?.steps?.Count ?? 0)
                 || targetOpIndex < 0
@@ -140,19 +140,19 @@ namespace Automation
                 return;
             }
 
-            FrmInspector inspector = SF.frmInspector;
+            FrmInspector inspector = Workspace.Inspector;
             inspector?.BeginUpdate();
             try
             {
                 dataGridView1.BeginLinkedNavigation();
                 try
                 {
-                    if (SF.frmProc.SelectedStepNum != targetStepIndex)
+                    if (Workspace.Proc.SelectedStepNum != targetStepIndex)
                     {
                         SelectChildNode(e.ProcIndex, targetStepIndex);
                     }
-                    if (SF.frmProc.SelectedProcNum != e.ProcIndex
-                        || SF.frmProc.SelectedStepNum != targetStepIndex
+                    if (Workspace.Proc.SelectedProcNum != e.ProcIndex
+                        || Workspace.Proc.SelectedStepNum != targetStepIndex
                         || targetOpIndex >= dataGridView1.OperationCount)
                     {
                         return;
@@ -565,11 +565,11 @@ namespace Automation
 
             bool hasSelection = selectedOperation != null;
             viewCustomFunctionCode.Visible = selectedOperation is CallCustomFunc;
-            bool hasStep = SF.frmProc != null
-                && SF.frmProc.SelectedProcNum >= 0
-                && SF.frmProc.SelectedProcNum < SF.frmProc.procsList.Count
-                && SF.frmProc.SelectedStepNum >= 0
-                && SF.frmProc.SelectedStepNum < SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count;
+            bool hasStep = Workspace.Proc != null
+                && Workspace.Proc.SelectedProcNum >= 0
+                && Workspace.Proc.SelectedProcNum < Workspace.Proc.procsList.Count
+                && Workspace.Proc.SelectedStepNum >= 0
+                && Workspace.Proc.SelectedStepNum < Workspace.Proc.procsList[Workspace.Proc.SelectedProcNum].steps.Count;
             Add.Enabled = hasStep;
             Modify.Enabled = hasSelection;
             Delete.Enabled = hasSelection;
@@ -802,38 +802,38 @@ namespace Automation
             e.Handled = true;
             e.SuppressKeyPress = true;
 
-            if (SF.frmProc == null)
+            if (Workspace.Proc == null)
             {
-                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                if (Workspace.Info != null && !Workspace.Info.IsDisposed)
                 {
-                    SF.frmInfo.PrintInfo("快捷键：流程界面未初始化，无法操作。", FrmInfo.Level.Error);
+                    Workspace.Info.PrintInfo("快捷键：流程界面未初始化，无法操作。", FrmInfo.Level.Error);
                 }
                 return;
             }
 
-            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            if (Workspace.Proc.SelectedProcNum < 0 || Workspace.Proc.SelectedStepNum < 0)
             {
-                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                if (Workspace.Info != null && !Workspace.Info.IsDisposed)
                 {
-                    SF.frmInfo.PrintInfo("快捷键：未选择流程或步骤。", FrmInfo.Level.Error);
+                    Workspace.Info.PrintInfo("快捷键：未选择流程或步骤。", FrmInfo.Level.Error);
                 }
                 return;
             }
 
             if (iSelectedRow < 0 || iSelectedRow >= dataGridView1.OperationCount)
             {
-                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                if (Workspace.Info != null && !Workspace.Info.IsDisposed)
                 {
-                    SF.frmInfo.PrintInfo("快捷键：未选择指令。", FrmInfo.Level.Error);
+                    Workspace.Info.PrintInfo("快捷键：未选择指令。", FrmInfo.Level.Error);
                 }
                 return;
             }
 
-            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            if (!Workspace.Runtime.ProcessEditing.CanEditProcess(Workspace.Proc.SelectedProcNum))
             {
-                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                if (Workspace.Info != null && !Workspace.Info.IsDisposed)
                 {
-                    SF.frmInfo.PrintInfo("快捷键：当前流程运行中禁止编辑。", FrmInfo.Level.Error);
+                    Workspace.Info.PrintInfo("快捷键：当前流程运行中禁止编辑。", FrmInfo.Level.Error);
                 }
                 return;
             }
@@ -841,9 +841,9 @@ namespace Automation
             OperationType dataItem = dataGridView1.GetOperation(iSelectedRow);
             if (dataItem == null)
             {
-                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                if (Workspace.Info != null && !Workspace.Info.IsDisposed)
                 {
-                    SF.frmInfo.PrintInfo("快捷键：指令数据为空，无法操作。", FrmInfo.Level.Error);
+                    Workspace.Info.PrintInfo("快捷键：指令数据为空，无法操作。", FrmInfo.Level.Error);
                 }
                 return;
             }
@@ -853,9 +853,9 @@ namespace Automation
                 SetStopPoint_Click(sender, EventArgs.Empty);
                 string action = dataItem.IsBreakpoint ? "已设置断点" : "已取消断点";
                 string opName = string.IsNullOrWhiteSpace(dataItem.Name) ? "未命名" : dataItem.Name;
-                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                if (Workspace.Info != null && !Workspace.Info.IsDisposed)
                 {
-                    SF.frmInfo.PrintInfo($"快捷键：{SF.frmProc.SelectedProcNum}-{SF.frmProc.SelectedStepNum}-{iSelectedRow} {opName} {action}", FrmInfo.Level.Normal);
+                    Workspace.Info.PrintInfo($"快捷键：{Workspace.Proc.SelectedProcNum}-{Workspace.Proc.SelectedStepNum}-{iSelectedRow} {opName} {action}", FrmInfo.Level.Normal);
                 }
                 return;
             }
@@ -863,9 +863,9 @@ namespace Automation
             Enable_Click(sender, EventArgs.Empty);
             string enableAction = dataItem.Disable ? "已禁用" : "已启用";
             string enableOpName = string.IsNullOrWhiteSpace(dataItem.Name) ? "未命名" : dataItem.Name;
-            if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            if (Workspace.Info != null && !Workspace.Info.IsDisposed)
             {
-                SF.frmInfo.PrintInfo($"快捷键：{SF.frmProc.SelectedProcNum}-{SF.frmProc.SelectedStepNum}-{iSelectedRow} {enableOpName} {enableAction}", FrmInfo.Level.Normal);
+                Workspace.Info.PrintInfo($"快捷键：{Workspace.Proc.SelectedProcNum}-{Workspace.Proc.SelectedStepNum}-{iSelectedRow} {enableOpName} {enableAction}", FrmInfo.Level.Normal);
             }
         }
 
@@ -878,29 +878,29 @@ namespace Automation
                     return;
                 }
 
-                if (SF.frmProc == null || SF.mainfrm == null)
+                if (Workspace.Proc == null || Workspace.Main == null)
                 {
                     return;
                 }
 
-                if (SF.mainfrm.WindowState == FormWindowState.Minimized || !SF.mainfrm.ContainsFocus)
-                {
-                    ClearLastHighlight();
-                    return;
-                }
-
-                if (SF.curPage != 0)
+                if (Workspace.Main.WindowState == FormWindowState.Minimized || !Workspace.Main.ContainsFocus)
                 {
                     ClearLastHighlight();
                     return;
                 }
 
-                if (SF.mainfrm.IsDisposed || !SF.mainfrm.IsHandleCreated || !SF.mainfrm.Visible)
+                if (Workspace.CurrentPage != 0)
+                {
+                    ClearLastHighlight();
+                    return;
+                }
+
+                if (Workspace.Main.IsDisposed || !Workspace.Main.IsHandleCreated || !Workspace.Main.Visible)
                 {
                     return;
                 }
 
-                int selectedProc = SF.frmProc.SelectedProcNum;
+                int selectedProc = Workspace.Proc.SelectedProcNum;
                 if (selectedProc < 0)
                 {
                     ClearLastHighlight();
@@ -924,12 +924,12 @@ namespace Automation
                         }
                         else
                         {
-                            if (SF.frmProc.SelectedStepNum != snapshot.StepIndex)
+                            if (Workspace.Proc.SelectedStepNum != snapshot.StepIndex)
                             {
                                 if (snapshot.StepIndex >= 0
                                     && selectedProc >= 0
-                                    && selectedProc < SF.frmProc.proc_treeView.Nodes.Count
-                                    && snapshot.StepIndex < SF.frmProc.proc_treeView.Nodes[selectedProc].Nodes.Count)
+                                    && selectedProc < Workspace.Proc.proc_treeView.Nodes.Count
+                                    && snapshot.StepIndex < Workspace.Proc.proc_treeView.Nodes[selectedProc].Nodes.Count)
                                 {
                                     SelectChildNode(selectedProc, snapshot.StepIndex);
                                 }
@@ -940,7 +940,7 @@ namespace Automation
                     }
                 }
 
-                if (SF.frmProc.SelectedStepNum != snapshot.StepIndex)
+                if (Workspace.Proc.SelectedStepNum != snapshot.StepIndex)
                 {
                     ClearLastHighlight();
                     return;
@@ -983,7 +983,7 @@ namespace Automation
             }
             catch (Exception ex)
             {
-                SF.frmInfo.PrintInfo(ex.Message, FrmInfo.Level.Error);
+                Workspace.Info.PrintInfo(ex.Message, FrmInfo.Level.Error);
             }
         }
 
@@ -1036,12 +1036,12 @@ namespace Automation
         public void SelectChildNode(int parentIndex, int childIndex)
         {
 
-            TreeNode parentNode = SF.frmProc.proc_treeView.Nodes[parentIndex];
+            TreeNode parentNode = Workspace.Proc.proc_treeView.Nodes[parentIndex];
             if (childIndex >= 0 && childIndex < parentNode.Nodes.Count)
             {
                 Invoke(new Action(() =>
                 {
-                    SF.frmProc.proc_treeView.SelectedNode = parentNode.Nodes[childIndex];
+                    Workspace.Proc.proc_treeView.SelectedNode = parentNode.Nodes[childIndex];
 
                 }));
             }
@@ -1164,7 +1164,7 @@ namespace Automation
                 return;
             }
 
-            int currentStepIndex = SF.frmProc.SelectedStepNum;
+            int currentStepIndex = Workspace.Proc.SelectedStepNum;
             var targetRows = new List<(int rowIndex, Color color)>();
             foreach (var (stepIndex, opIndex, kind) in affectedOps)
             {
@@ -1254,17 +1254,17 @@ namespace Automation
         }
         private void Add_Click(object sender, EventArgs e)
         {
-            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            if (!Workspace.Runtime.ProcessEditing.CanEditProcess(Workspace.Proc.SelectedProcNum))
             {
                 return;
             }
-            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            if (Workspace.Proc.SelectedProcNum < 0 || Workspace.Proc.SelectedStepNum < 0)
             {
                 MessageBox.Show("请先选择流程步骤。");
                 return;
             }
-            if (SF.frmProc.SelectedProcNum >= SF.frmProc.procsList.Count
-                || SF.frmProc.SelectedStepNum >= SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count)
+            if (Workspace.Proc.SelectedProcNum >= Workspace.Proc.procsList.Count
+                || Workspace.Proc.SelectedStepNum >= Workspace.Proc.procsList[Workspace.Proc.SelectedProcNum].steps.Count)
             {
                 MessageBox.Show("流程或步骤索引无效，无法新增指令。");
                 return;
@@ -1273,19 +1273,19 @@ namespace Automation
                 iSelectedRow = -1;
             OperationTemp = new HomeRun() { Num = iSelectedRow == -1 ? dataGridView1.OperationCount : iSelectedRow + 1 };
             OperationTemp.RefleshPropertyAlarm();
-            SF.frmInspector.ShowObject(OperationTemp);
-            SF.isAddOps = true;
+            Workspace.Inspector.ShowObject(OperationTemp);
+            Workspace.Runtime.Editor.IsAddingOperations = true;
             BeginOperationEditSession(true);
             // 编辑期间保留指令表交互，用作跳转地址的拖拽来源。
         }
 
         private void Delete_Click(object sender, EventArgs e)
         {
-            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            if (Workspace.Proc.SelectedProcNum < 0 || Workspace.Proc.SelectedStepNum < 0)
             {
                 return;
             }
-            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            if (!Workspace.Runtime.ProcessEditing.CanEditProcess(Workspace.Proc.SelectedProcNum))
             {
                 return;
             }
@@ -1298,19 +1298,19 @@ namespace Automation
                 return;
             }
 
-            int procIndex = SF.frmProc.SelectedProcNum;
-            int stepIndex = SF.frmProc.SelectedStepNum;
-            if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+            int procIndex = Workspace.Proc.SelectedProcNum;
+            int stepIndex = Workspace.Proc.SelectedStepNum;
+            if (procIndex < 0 || procIndex >= Workspace.Proc.procsList.Count)
             {
                 MessageBox.Show("流程索引无效，无法删除指令。");
                 return;
             }
-            if (stepIndex < 0 || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count)
+            if (stepIndex < 0 || stepIndex >= Workspace.Proc.procsList[procIndex].steps.Count)
             {
                 MessageBox.Show("步骤索引无效，无法删除指令。");
                 return;
             }
-            Proc proc = SF.frmProc.procsList[procIndex];
+            Proc proc = Workspace.Proc.procsList[procIndex];
             Step step = proc.steps[stepIndex];
             string procName = string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"索引{procIndex}" : proc.head.Name;
             string stepName = string.IsNullOrWhiteSpace(step?.Name) ? $"索引{stepIndex}" : step.Name;
@@ -1329,7 +1329,7 @@ namespace Automation
                 warnMsg = $"警告：即将删除{selectedRowIndexes4Del.Count}条指令\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n确认删除？";
             }
             bool confirmed = false;
-            new Message(
+            new Message(Workspace.Runtime,
                 "删除指令确认",
                 warnMsg,
                 () => confirmed = true,
@@ -1353,7 +1353,7 @@ namespace Automation
                 }
             }
             ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-            if (!ProcessEditingService.TryCommitProcDraft(
+            if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                 procIndex, draft, out string commitError, "删除指令"))
             {
                 MessageBox.Show(commitError, "删除指令失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1363,34 +1363,34 @@ namespace Automation
 
         private void Modify_Click(object sender, EventArgs e)
         {
-            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            if (!Workspace.Runtime.ProcessEditing.CanEditProcess(Workspace.Proc.SelectedProcNum))
             {
                 return;
             }
-            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            if (Workspace.Proc.SelectedProcNum < 0 || Workspace.Proc.SelectedStepNum < 0)
             {
                 MessageBox.Show("请先选择流程步骤。");
                 return;
             }
-            int procIndex = SF.frmProc.SelectedProcNum;
-            int stepIndex = SF.frmProc.SelectedStepNum;
-            if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+            int procIndex = Workspace.Proc.SelectedProcNum;
+            int stepIndex = Workspace.Proc.SelectedStepNum;
+            if (procIndex < 0 || procIndex >= Workspace.Proc.procsList.Count)
             {
                 MessageBox.Show("流程索引无效，无法编辑指令。");
                 return;
             }
-            if (stepIndex < 0 || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count)
+            if (stepIndex < 0 || stepIndex >= Workspace.Proc.procsList[procIndex].steps.Count)
             {
                 MessageBox.Show("步骤索引无效，无法编辑指令。");
                 return;
             }
-            int opCount = SF.frmProc.procsList[procIndex].steps[stepIndex].Ops.Count;
+            int opCount = Workspace.Proc.procsList[procIndex].steps[stepIndex].Ops.Count;
             if (iSelectedRow < 0 || iSelectedRow >= opCount)
             {
                 MessageBox.Show("请选择需要编辑的指令。");
                 return;
             }
-            OperationType selectedOperation = SF.frmProc.procsList[procIndex]
+            OperationType selectedOperation = Workspace.Proc.procsList[procIndex]
                 .steps[stepIndex].Ops[iSelectedRow];
             if (selectedOperation == null)
             {
@@ -1398,15 +1398,16 @@ namespace Automation
                 return;
             }
             OperationTemp = (OperationType)selectedOperation.Clone();
+            EditorServiceRegistry.AttachGraph(OperationTemp, Workspace.Runtime);
             OperationTemp.RefreshInspector?.Invoke();
             TypeDescriptor.Refresh(OperationTemp);
             BeginOperationEditSession(false);
-            SF.frmProc.Enabled = false;
+            Workspace.Proc.Enabled = false;
         }
 
         private void dataGridView1_KeyDown(object sender, KeyEventArgs e)
         {
-            if (SF.TryHandleEditorHistoryShortcut(dataGridView1, e))
+            if (Workspace.Runtime.Editor.TryHandleHistoryShortcut(dataGridView1, e))
             {
                 return;
             }
@@ -1445,71 +1446,71 @@ namespace Automation
 
         private void SetStartOps_Click(object sender, EventArgs e)
         {
-            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            if (Workspace.Proc.SelectedProcNum < 0 || Workspace.Proc.SelectedStepNum < 0)
             {
                 MessageBox.Show("请先选择流程步骤。");
                 return;
             }
-            if (SF.frmProc.SelectedProcNum >= SF.frmProc.procsList.Count
-                || SF.frmProc.SelectedStepNum >= SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count)
+            if (Workspace.Proc.SelectedProcNum >= Workspace.Proc.procsList.Count
+                || Workspace.Proc.SelectedStepNum >= Workspace.Proc.procsList[Workspace.Proc.SelectedProcNum].steps.Count)
             {
                 MessageBox.Show("流程或步骤索引无效，无法设置启动点。");
                 return;
             }
-            int opCount = SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps[SF.frmProc.SelectedStepNum].Ops.Count;
+            int opCount = Workspace.Proc.procsList[Workspace.Proc.SelectedProcNum].steps[Workspace.Proc.SelectedStepNum].Ops.Count;
             if (iSelectedRow < 0 || iSelectedRow >= opCount)
             {
                 MessageBox.Show("请先选择需要设为启动点的指令。");
                 return;
             }
             ProcRunState startState = ProcRunState.SingleStep;
-            EngineSnapshot startSnapshot = SF.DR.GetSnapshot(SF.frmProc.SelectedProcNum);
+            EngineSnapshot startSnapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(Workspace.Proc.SelectedProcNum);
             if (startSnapshot != null && startSnapshot.State == ProcRunState.Paused)
             {
                 startState = ProcRunState.Paused;
             }
 
-            if (SF.frmProc.SelectedProcNum >= 0)
+            if (Workspace.Proc.SelectedProcNum >= 0)
             {
-                SF.DR.Stop(SF.frmProc.SelectedProcNum);
+                Workspace.Runtime.ProcessEngine.Stop(Workspace.Proc.SelectedProcNum);
             }
 
-            SF.DR.StartProcAt(
+            Workspace.Runtime.ProcessEngine.StartProcAt(
                 null,
-                SF.frmProc.SelectedProcNum,
-                SF.frmProc.SelectedStepNum,
+                Workspace.Proc.SelectedProcNum,
+                Workspace.Proc.SelectedStepNum,
                 iSelectedRow,
                 startState);
 
             Invoke(new Action(() =>
             {
-                SF.frmToolBar.SetPauseButtonAction(true);
-                SF.frmToolBar.btnPause.Enabled = startState != ProcRunState.Paused;
-                SF.frmToolBar.SingleRun.Enabled = startState == ProcRunState.SingleStep;
+                Workspace.ToolBar.SetPauseButtonAction(true);
+                Workspace.ToolBar.btnPause.Enabled = startState != ProcRunState.Paused;
+                Workspace.ToolBar.SingleRun.Enabled = startState == ProcRunState.SingleStep;
             }));
         }
 
         private void SetStopPoint_Click(object sender, EventArgs e)
         {
-            if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+            if (Workspace.Proc.SelectedProcNum < 0 || Workspace.Proc.SelectedStepNum < 0)
             {
                 return;
             }
-            if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+            if (!Workspace.Runtime.ProcessEditing.CanEditProcess(Workspace.Proc.SelectedProcNum))
             {
                 return;
             }
             if (iSelectedRow >= 0 && iSelectedRow < dataGridView1.OperationCount)
             {
-                int procIndex = SF.frmProc.SelectedProcNum;
-                int stepIndex = SF.frmProc.SelectedStepNum;
-                Proc draft = ObjectGraphCloner.Clone(SF.frmProc.procsList[procIndex]);
+                int procIndex = Workspace.Proc.SelectedProcNum;
+                int stepIndex = Workspace.Proc.SelectedStepNum;
+                Proc draft = ObjectGraphCloner.Clone(Workspace.Proc.procsList[procIndex]);
                 if (stepIndex >= 0 && stepIndex < draft.steps.Count
                     && iSelectedRow < draft.steps[stepIndex].Ops.Count)
                 {
                     OperationType operation = draft.steps[stepIndex].Ops[iSelectedRow];
                     operation.IsBreakpoint = !operation.IsBreakpoint;
-                    if (!ProcessEditingService.TryCommitProcDraft(
+                    if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                         procIndex, draft, out string error, "修改指令断点"))
                     {
                         MessageBox.Show(error, "断点修改失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1554,19 +1555,19 @@ namespace Automation
             insertIndex = -1;
             insertedCount = 0;
             error = null;
-            int procIndex = SF.frmProc.SelectedProcNum;
-            int stepIndex = SF.frmProc.SelectedStepNum;
+            int procIndex = Workspace.Proc.SelectedProcNum;
+            int stepIndex = Workspace.Proc.SelectedStepNum;
             if (procIndex < 0 || stepIndex < 0)
             {
                 error = "请先选择流程步骤。";
                 return false;
             }
-            if (!SF.CanEditProc(procIndex))
+            if (!Workspace.Runtime.ProcessEditing.CanEditProcess(procIndex))
             {
                 return false;
             }
-            if (procIndex >= SF.frmProc.procsList.Count
-                || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count)
+            if (procIndex >= Workspace.Proc.procsList.Count
+                || stepIndex >= Workspace.Proc.procsList[procIndex].steps.Count)
             {
                 error = "流程或步骤索引无效，无法粘贴指令。";
                 return false;
@@ -1577,7 +1578,7 @@ namespace Automation
                 return false;
             }
             insertIndex = iSelectedRow + 1;
-            Proc current = SF.frmProc.procsList[procIndex];
+            Proc current = Workspace.Proc.procsList[procIndex];
             int opCount = current.steps[stepIndex].Ops.Count;
             if (insertIndex < 0 || insertIndex > opCount)
             {
@@ -1588,7 +1589,7 @@ namespace Automation
             Proc draft = ObjectGraphCloner.Clone(current);
             draft.steps[stepIndex].Ops.InsertRange(insertIndex, copiedOperations);
             ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-            if (!ProcessEditingService.TryCommitProcDraft(
+            if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                 procIndex, draft, out error, "粘贴指令"))
             {
                 return false;
@@ -1679,15 +1680,15 @@ namespace Automation
                 return;
             }
 
-            int procIndex = SF.frmProc?.SelectedProcNum ?? -1;
-            int stepIndex = SF.frmProc?.SelectedStepNum ?? -1;
+            int procIndex = Workspace.Proc?.SelectedProcNum ?? -1;
+            int stepIndex = Workspace.Proc?.SelectedStepNum ?? -1;
             int sourceIndex = addressDragIndex;
             addressDragIndex = -1;
             if (procIndex < 0
                 || stepIndex < 0
-                || procIndex >= SF.frmProc.procsList.Count
-                || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count
-                || sourceIndex >= SF.frmProc.procsList[procIndex].steps[stepIndex].Ops.Count)
+                || procIndex >= Workspace.Proc.procsList.Count
+                || stepIndex >= Workspace.Proc.procsList[procIndex].steps.Count
+                || sourceIndex >= Workspace.Proc.procsList[procIndex].steps[stepIndex].Ops.Count)
             {
                 return;
             }
@@ -1702,10 +1703,11 @@ namespace Automation
             addressDragIndex = -1;
         }
 
-        private static bool IsOperationAddressDragEnabled()
+        private bool IsOperationAddressDragEnabled()
         {
-            return SF.ActiveEditSession?.Draft is OperationType
-                && (SF.isModify == ModifyKind.Operation || SF.isAddOps);
+            return editorWorkspace?.Runtime?.Editor.ActiveSession?.Draft is OperationType
+                && (editorWorkspace.Runtime.Editor.ModifyKind == ModifyKind.Operation
+                    || editorWorkspace.Runtime.Editor.IsAddingOperations);
         }
 
         private void dataGridView1_MouseDoubleClick(object sender, MouseEventArgs e)
@@ -1725,24 +1727,24 @@ namespace Automation
 
         private void ShowOperationProperties(int rowIndex)
         {
-            int procIndex = SF.frmProc.SelectedProcNum;
-            int stepIndex = SF.frmProc.SelectedStepNum;
+            int procIndex = Workspace.Proc.SelectedProcNum;
+            int stepIndex = Workspace.Proc.SelectedStepNum;
             if (rowIndex < 0
                 || procIndex < 0
                 || stepIndex < 0
-                || procIndex >= SF.frmProc.procsList.Count
-                || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count
-                || rowIndex >= SF.frmProc.procsList[procIndex].steps[stepIndex].Ops.Count)
+                || procIndex >= Workspace.Proc.procsList.Count
+                || stepIndex >= Workspace.Proc.procsList[procIndex].steps.Count
+                || rowIndex >= Workspace.Proc.procsList[procIndex].steps[stepIndex].Ops.Count)
             {
                 return;
             }
 
-            OperationType operation = SF.frmProc.procsList[procIndex].steps[stepIndex].Ops[rowIndex];
+            OperationType operation = Workspace.Proc.procsList[procIndex].steps[stepIndex].Ops[rowIndex];
             if (operation == null)
             {
                 return;
             }
-            FrmInspector inspector = SF.frmInspector;
+            FrmInspector inspector = Workspace.Inspector;
             if (ReferenceEquals(OperationTemp, operation)
                 && ReferenceEquals(inspector.SelectedObject, operation))
             {
@@ -1752,6 +1754,7 @@ namespace Automation
             inspector.BeginUpdate();
             try
             {
+                EditorServiceRegistry.AttachGraph(OperationTemp, Workspace.Runtime);
                 OperationTemp.RefreshInspector?.Invoke();
                 TypeDescriptor.Refresh(OperationTemp);
                 inspector.ShowObject(OperationTemp);
@@ -1784,15 +1787,15 @@ namespace Automation
 
         private void dataGridView1_DragDrop(object sender, DragEventArgs e)
         {
-            int procIndex = SF.frmProc.SelectedProcNum;
-            int stepIndex = SF.frmProc.SelectedStepNum;
-            if (!SF.CanEditProc(procIndex))
+            int procIndex = Workspace.Proc.SelectedProcNum;
+            int stepIndex = Workspace.Proc.SelectedStepNum;
+            if (!Workspace.Runtime.ProcessEditing.CanEditProcess(procIndex))
             {
                 dragIndex = -1;
                 return;
             }
-            if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count
-                || stepIndex < 0 || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count)
+            if (procIndex < 0 || procIndex >= Workspace.Proc.procsList.Count
+                || stepIndex < 0 || stepIndex >= Workspace.Proc.procsList[procIndex].steps.Count)
             {
                 dragIndex = -1;
                 return;
@@ -1801,7 +1804,7 @@ namespace Automation
             {
                 Point p = dataGridView1.PointToClient(new Point(e.X, e.Y));
                 int targetIndex = dataGridView1.IndexFromPoint(p);
-                Proc current = SF.frmProc.procsList[procIndex];
+                Proc current = Workspace.Proc.procsList[procIndex];
 
                 if (targetIndex >= 0 && targetIndex < current.steps[stepIndex].Ops.Count
                     && dragIndex < current.steps[stepIndex].Ops.Count && targetIndex != dragIndex)
@@ -1812,7 +1815,7 @@ namespace Automation
                     draft.steps[stepIndex].Ops.RemoveAt(dragIndex);
                     draft.steps[stepIndex].Ops.Insert(targetIndex, draggedItem);
                     ProcessEditingService.RewriteGotoTargets(before, draft, procIndex);
-                    if (!ProcessEditingService.TryCommitProcDraft(
+                    if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                         procIndex, draft, out string commitError, "移动指令"))
                     {
                         MessageBox.Show(commitError, "移动指令失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1830,20 +1833,20 @@ namespace Automation
 
         private void BeginOperationEditSession(bool isAdd)
         {
-            int procIndex = SF.frmProc.SelectedProcNum;
-            int stepIndex = SF.frmProc.SelectedStepNum;
+            int procIndex = Workspace.Proc.SelectedProcNum;
+            int stepIndex = Workspace.Proc.SelectedStepNum;
             int selectedRow = iSelectedRow;
-            SF.isAddOps = isAdd;
-            SF.isModify = isAdd ? ModifyKind.None : ModifyKind.Operation;
-            SF.BeginEditSession(new EditSession<OperationType>(isAdd ? "新增指令" : "修改指令", OperationTemp,
+            Workspace.Runtime.Editor.IsAddingOperations = isAdd;
+            Workspace.Runtime.Editor.ModifyKind = isAdd ? ModifyKind.None : ModifyKind.Operation;
+            Workspace.Runtime.Editor.Begin(new EditSession<OperationType>(isAdd ? "新增指令" : "修改指令", OperationTemp,
                 draft =>
                 {
                     if (draft == null)
                     {
                         return "指令草稿为空。";
                     }
-                    Proc proc = procIndex >= 0 && procIndex < SF.frmProc.procsList.Count
-                        ? SF.frmProc.procsList[procIndex]
+                    Proc proc = procIndex >= 0 && procIndex < Workspace.Proc.procsList.Count
+                        ? Workspace.Proc.procsList[procIndex]
                         : null;
                     return ProcessDefinitionService.TryValidateOperationGoto(draft, procIndex, proc, out string error)
                         ? null
@@ -1851,13 +1854,13 @@ namespace Automation
                 },
                 draft =>
                 {
-                    if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count
-                        || stepIndex < 0 || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count)
+                    if (procIndex < 0 || procIndex >= Workspace.Proc.procsList.Count
+                        || stepIndex < 0 || stepIndex >= Workspace.Proc.procsList[procIndex].steps.Count)
                     {
                         throw new InvalidOperationException("流程或步骤索引已失效。");
                     }
-                    Proc before = ObjectGraphCloner.Clone(SF.frmProc.procsList[procIndex]);
-                    Proc procDraft = ObjectGraphCloner.Clone(SF.frmProc.procsList[procIndex]);
+                    Proc before = ObjectGraphCloner.Clone(Workspace.Proc.procsList[procIndex]);
+                    Proc procDraft = ObjectGraphCloner.Clone(Workspace.Proc.procsList[procIndex]);
                     Step step = procDraft.steps[stepIndex];
                     int targetIndex;
                     if (isAdd)
@@ -1883,7 +1886,7 @@ namespace Automation
                         ProcessEditingService.RewriteAddedOperationGotoTargetsFromPreviousLayout(
                             draft, before, procDraft, procIndex);
                     }
-                    if (!ProcessEditingService.TryCommitProcDraft(
+                    if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                         procIndex,
                         procDraft,
                         out string commitError,
@@ -1891,42 +1894,42 @@ namespace Automation
                     {
                         throw new InvalidOperationException(commitError);
                     }
-                    OperationTemp = (OperationType)SF.frmProc.procsList[procIndex].steps[stepIndex].Ops[targetIndex].Clone();
+                    OperationTemp = (OperationType)Workspace.Proc.procsList[procIndex].steps[stepIndex].Ops[targetIndex].Clone();
                     iSelectedRow = targetIndex;
                     dataGridView1.Enabled = true;
-                    SF.frmProc.Enabled = true;
-                    SF.isAddOps = false;
-                    SF.isModify = ModifyKind.None;
+                    Workspace.Proc.Enabled = true;
+                    Workspace.Runtime.Editor.IsAddingOperations = false;
+                    Workspace.Runtime.Editor.ModifyKind = ModifyKind.None;
                 },
                 () =>
                 {
                     OperationTemp = null;
                     dataGridView1.Enabled = true;
-                    SF.frmProc.Enabled = true;
-                    SF.isAddOps = false;
-                    SF.isModify = ModifyKind.None;
+                    Workspace.Proc.Enabled = true;
+                    Workspace.Runtime.Editor.IsAddingOperations = false;
+                    Workspace.Runtime.Editor.ModifyKind = ModifyKind.None;
                 }));
         }
 
         private void Enable_Click(object sender, EventArgs e)
         {
-            int procIndex = SF.frmProc.SelectedProcNum;
-            int stepIndex = SF.frmProc.SelectedStepNum;
+            int procIndex = Workspace.Proc.SelectedProcNum;
+            int stepIndex = Workspace.Proc.SelectedStepNum;
             if (iSelectedRow >= 0 && procIndex >= 0 && stepIndex >= 0)
             {
-                if (!SF.CanEditProc(procIndex)
-                    || procIndex >= SF.frmProc.procsList.Count
-                    || stepIndex >= SF.frmProc.procsList[procIndex].steps.Count
-                    || iSelectedRow >= SF.frmProc.procsList[procIndex].steps[stepIndex].Ops.Count)
+                if (!Workspace.Runtime.ProcessEditing.CanEditProcess(procIndex)
+                    || procIndex >= Workspace.Proc.procsList.Count
+                    || stepIndex >= Workspace.Proc.procsList[procIndex].steps.Count
+                    || iSelectedRow >= Workspace.Proc.procsList[procIndex].steps[stepIndex].Ops.Count)
                 {
                     return;
                 }
-                Proc draft = ObjectGraphCloner.Clone(SF.frmProc.procsList[procIndex]);
+                Proc draft = ObjectGraphCloner.Clone(Workspace.Proc.procsList[procIndex]);
                 OperationType operation = draft.steps[stepIndex].Ops[iSelectedRow];
                 if (operation != null)
                 {
                     operation.Disable = !operation.Disable;
-                    if (!ProcessEditingService.TryCommitProcDraft(
+                    if (!ProcessEditingService.TryCommitProcDraft(Workspace.Runtime,
                         procIndex, draft, out string commitError, "切换指令禁用状态"))
                     {
                         MessageBox.Show(commitError, "更新指令状态失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1959,17 +1962,17 @@ namespace Automation
         {
             try
             {
-                if (!SF.CanEditProc(SF.frmProc.SelectedProcNum))
+                if (!Workspace.Runtime.ProcessEditing.CanEditProcess(Workspace.Proc.SelectedProcNum))
                 {
                     return;
                 }
-                if (SF.frmProc.SelectedProcNum < 0 || SF.frmProc.SelectedStepNum < 0)
+                if (Workspace.Proc.SelectedProcNum < 0 || Workspace.Proc.SelectedStepNum < 0)
                 {
                     MessageBox.Show("请先选择流程步骤。");
                     return;
                 }
-                if (SF.frmProc.SelectedProcNum >= SF.frmProc.procsList.Count
-                    || SF.frmProc.SelectedStepNum >= SF.frmProc.procsList[SF.frmProc.SelectedProcNum].steps.Count)
+                if (Workspace.Proc.SelectedProcNum >= Workspace.Proc.procsList.Count
+                    || Workspace.Proc.SelectedStepNum >= Workspace.Proc.procsList[Workspace.Proc.SelectedProcNum].steps.Count)
                 {
                     MessageBox.Show("流程或步骤索引无效，无法粘贴指令。");
                     return;

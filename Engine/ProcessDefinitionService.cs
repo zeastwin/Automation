@@ -16,7 +16,8 @@ namespace Automation
             IEnumerable<string> serialNames,
             IEnumerable<string> alarmInfoIds = null,
             IEnumerable<string> plcNames = null,
-            IEnumerable<KeyValuePair<string, DicValue>> variableDefinitions = null)
+            IEnumerable<KeyValuePair<string, DicValue>> variableDefinitions = null,
+            PlatformRuntime runtime = null)
         {
             VariableNames = new HashSet<string>(variableNames ?? Array.Empty<string>(), StringComparer.Ordinal);
             TcpNames = new HashSet<string>(tcpNames ?? Array.Empty<string>(), StringComparer.Ordinal);
@@ -28,6 +29,7 @@ namespace Automation
             VariableDefinitions = (variableDefinitions ?? Array.Empty<KeyValuePair<string, DicValue>>())
                 .Where(item => !string.IsNullOrWhiteSpace(item.Key) && item.Value != null)
                 .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+            Runtime = runtime;
         }
 
         public IReadOnlyCollection<string> VariableNames { get; }
@@ -45,6 +47,8 @@ namespace Automation
         public bool HasPlcCatalog { get; }
 
         public IReadOnlyDictionary<string, DicValue> VariableDefinitions { get; }
+
+        public PlatformRuntime Runtime { get; }
 
         public bool TryGetVariableForProcess(string name, Guid procId, out DicValue value)
         {
@@ -272,27 +276,28 @@ namespace Automation
             var errors = new List<string>();
             ValidateCommunicationOperation(operation, errors, location, validationContext);
             ValidatePlcOperation(operation, errors, location, validationContext);
-            ValidateCoordinatedStationMotion(operation, errors, location);
-            ValidateIoOutputOperation(operation, errors, location);
-            ValidateIoLogicGoto(operation, errors, location);
+            ValidateCoordinatedStationMotion(operation, errors, location, validationContext);
+            ValidateIoOutputOperation(operation, errors, location, validationContext);
+            ValidateIoLogicGoto(operation, errors, location, validationContext);
             return errors;
         }
 
         private static void ValidateIoLogicGoto(
             OperationType operation,
             List<string> errors,
-            string location)
+            string location,
+            ProcessDefinitionValidationContext validationContext)
         {
             if (!(operation is IoLogicGoto ioLogicGoto)
                 || ioLogicGoto.IoParams == null
-                || SF.frmIO?.DicIO == null)
+                || validationContext?.Runtime?.Stores.IoConfiguration.ByName == null)
             {
                 return;
             }
             foreach (IoLogicGotoParam condition in ioLogicGoto.IoParams)
             {
                 if (condition == null || string.IsNullOrWhiteSpace(condition.IoName)
-                    || !SF.frmIO.DicIO.TryGetValue(condition.IoName, out IO io)
+                    || !validationContext.Runtime.Stores.IoConfiguration.ByName.TryGetValue(condition.IoName, out IO io)
                     || io == null)
                 {
                     errors.Add($"{location} 的输入IO不存在：{condition?.IoName ?? string.Empty}。");
@@ -306,12 +311,13 @@ namespace Automation
         }
 
         private static void ValidateIoOutputOperation(OperationType operation, List<string> errors,
-            string location)
+            string location, ProcessDefinitionValidationContext validationContext)
         {
             CustomList<IoOutParam> outputs = operation is IoOperate ioOperate
                 ? ioOperate.IoParams
                 : (operation is IoGroup ioGroup ? ioGroup.OutIoParams : null);
-            if (outputs == null || outputs.Count == 0 || SF.frmIO?.DicIO == null)
+            if (outputs == null || outputs.Count == 0
+                || validationContext?.Runtime?.Stores.IoConfiguration.ByName == null)
             {
                 return;
             }
@@ -321,7 +327,7 @@ namespace Automation
             foreach (IoOutParam output in outputs)
             {
                 if (output == null || string.IsNullOrWhiteSpace(output.IoName)
-                    || !SF.frmIO.DicIO.TryGetValue(output.IoName, out IO io) || io == null)
+                    || !validationContext.Runtime.Stores.IoConfiguration.ByName.TryGetValue(output.IoName, out IO io) || io == null)
                 {
                     errors.Add($"{location} 的输出IO不存在：{output?.IoName ?? string.Empty}。");
                     continue;
@@ -347,7 +353,7 @@ namespace Automation
         }
 
         private static void ValidateCoordinatedStationMotion(OperationType operation, List<string> errors,
-            string location)
+            string location, ProcessDefinitionValidationContext validationContext)
         {
             string stationName;
             StationRunPos stationRunPos = operation as StationRunPos;
@@ -363,7 +369,7 @@ namespace Automation
             {
                 return;
             }
-            DataStation station = SF.frmCard?.dataStation?
+            DataStation station = validationContext?.Runtime?.Stores.Stations.Items
                 .FirstOrDefault(item => item != null && string.Equals(item.Name, stationName, StringComparison.Ordinal));
             if (station == null)
             {
@@ -409,7 +415,7 @@ namespace Automation
                 if (string.IsNullOrWhiteSpace(name)) return false;
                 if (validationContext?.HasPlcCatalog == true)
                     return validationContext.PlcNames.Contains(name);
-                return (SF.plcStore?.GetSnapshot().Devices ?? new List<PlcDeviceConfig>())
+                return (validationContext?.Runtime?.Stores.Plc.GetSnapshot().Devices ?? new List<PlcDeviceConfig>())
                     .Any(item => item != null && string.Equals(item.Name, name, StringComparison.Ordinal));
             }
             bool TryGetVariable(string name, out DicValue value)
@@ -418,7 +424,7 @@ namespace Automation
                 if (string.IsNullOrWhiteSpace(name)) return false;
                 if (validationContext != null && validationContext.VariableDefinitions.Count > 0)
                     return validationContext.VariableDefinitions.TryGetValue(name, out value);
-                return SF.valueStore != null && SF.valueStore.TryGetValueByName(name, out value);
+                return validationContext?.Runtime?.Stores.Values.TryGetValueByName(name, out value) == true;
             }
             bool ValidateVariable(string name, PlcDataType dataType, HashSet<string> unique, string field)
             {
@@ -617,7 +623,7 @@ namespace Automation
                     }
                     else
                     {
-                        SF.valueStore?.TryGetValueByIndex(firstVariable.Index + offset, out variable);
+                        validationContext?.Runtime?.Stores.Values.TryGetValueByIndex(firstVariable.Index + offset, out variable);
                     }
                     if (variable == null)
                     {
@@ -640,11 +646,11 @@ namespace Automation
             bool HasTcp(string name) => !string.IsNullOrWhiteSpace(name)
                 && (validationContext != null
                     ? validationContext.TcpNames.Contains(name)
-                    : SF.communicationStore != null && SF.communicationStore.TryGetSocket(name, out _));
+                    : validationContext?.Runtime?.Stores.Communication.TryGetSocket(name, out _) == true);
             bool HasSerial(string name) => !string.IsNullOrWhiteSpace(name)
                 && (validationContext != null
                     ? validationContext.SerialNames.Contains(name)
-                    : SF.communicationStore != null && SF.communicationStore.TryGetSerial(name, out _));
+                    : validationContext?.Runtime?.Stores.Communication.TryGetSerial(name, out _) == true);
 
             if (operation is TcpOps tcpOps)
             {

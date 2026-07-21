@@ -12,7 +12,6 @@ using System.Threading.Tasks;
 using Automation.MotionControl;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using static Automation.FrmCard;
 
 namespace Automation.Simulation
 {
@@ -100,9 +99,9 @@ namespace Automation.Simulation
         public void ApplyEndpointMappings(EngineContext context)
         {
             if (!IsCardInitialized) throw new InvalidOperationException("仿真网关尚未就绪");
-            if (context?.PlcRuntime != null && SF.plcStore != null)
+            if (context?.PlcRuntime != null && context.PlcStore != null)
             {
-                PlcConfiguration plcConfiguration = SF.plcStore.GetSnapshot();
+                PlcConfiguration plcConfiguration = context.PlcStore.GetSnapshot();
                 foreach (SimulationModbusMapping mapping in ModbusMappings)
                 {
                     PlcDeviceConfig device = plcConfiguration.Devices.FirstOrDefault(item => string.Equals(item.Name, mapping.Name, StringComparison.Ordinal));
@@ -221,12 +220,6 @@ namespace Automation.Simulation
                 ["acceleration"] = acc,
                 ["deceleration"] = dec
             }));
-        }
-
-        public void StageManualMotionParameters(ushort card, ushort axis, double minVel, double maxVel,
-            double acc, double dec, double stopVel, double sPara, int equiv)
-        {
-            SetMovParam(card, axis, minVel, maxVel, acc, dec, stopVel, sPara, equiv);
         }
 
         public void Mov(ushort card, ushort axis, double distance, ushort positionMode, bool wait)
@@ -655,7 +648,7 @@ namespace Automation.Simulation
                     }
                 }
             }
-            IReadOnlyList<PlcDeviceConfig> plcDevices = SF.plcStore?.GetSnapshot().Devices ?? new List<PlcDeviceConfig>();
+            IReadOnlyList<PlcDeviceConfig> plcDevices = context.PlcStore?.GetSnapshot().Devices ?? new List<PlcDeviceConfig>();
             var plc = new JArray(plcDevices.Select(item => new JObject
             {
                 ["name"] = item.Name,
@@ -667,7 +660,7 @@ namespace Automation.Simulation
             var serial = new JArray((context.SerialPortInfos ?? new List<SerialPortInfo>()).Where(item => item != null).Select(item => new JObject { ["name"] = item.Name, ["bitRate"] = item.BitRate, ["dataBit"] = item.DataBit, ["checkBit"] = item.CheckBit, ["stopBit"] = item.StopBit }));
             return new JObject
             {
-                ["configHash"] = ComputeConfigHash(SF.ConfigPath), ["io"] = io, ["axes"] = axes, ["plcDevices"] = plc, ["tcpChannels"] = tcp, ["serialChannels"] = serial
+                ["configHash"] = ComputeConfigHash(context.Paths?.ConfigPath), ["io"] = io, ["axes"] = axes, ["plcDevices"] = plc, ["tcpChannels"] = tcp, ["serialChannels"] = serial
             };
         }
 

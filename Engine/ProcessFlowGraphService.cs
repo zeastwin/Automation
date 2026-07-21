@@ -18,7 +18,9 @@ namespace Automation
 
         public static ProcessFlowGraphSnapshot BuildProject(
             IReadOnlyList<Proc> processes,
-            Func<int, EngineSnapshot> snapshotProvider = null)
+            Func<int, EngineSnapshot> snapshotProvider = null,
+            ProcessDefinitionValidationContext validationContext = null,
+            ValueConfigStore valueStore = null)
         {
             processes = processes ?? Array.Empty<Proc>();
             var graph = new ProcessFlowGraphSnapshot
@@ -39,7 +41,8 @@ namespace Automation
                 Proc proc = processes[procIndex];
                 string procId = EnsureId(proc?.head?.Id, "proc-index-" + procIndex);
                 EngineSnapshot runtime = snapshotProvider?.Invoke(procIndex);
-                ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(procIndex, proc, readinessProcesses);
+                ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
+                    procIndex, proc, readinessProcesses, validationContext, valueStore);
                 graph.Nodes.Add(new FlowGraphNode
                 {
                     Id = BuildProcNodeId(procId),

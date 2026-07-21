@@ -41,7 +41,7 @@ namespace Automation
         private void FrmSearch_FormClosing(object sender, FormClosingEventArgs e)
         {
             _searchCts?.Cancel();
-            SF.frmDataGrid.ClearAllRowColors();
+            Workspace.DataGrid.ClearAllRowColors();
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
@@ -68,9 +68,9 @@ namespace Automation
             bool isExactMatch = checkBox1.Checked;
             StringComparison comparison = checkBox2.Checked ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
             List<SearchTarget> targets = new List<SearchTarget>();
-            for (int i = 0; i < SF.frmProc.procsList.Count; i++)
+            for (int i = 0; i < Workspace.Proc.procsList.Count; i++)
             {
-                Proc proc = SF.frmProc.procsList[i];
+                Proc proc = Workspace.Proc.procsList[i];
                 if (proc?.steps == null)
                 {
                     continue;
@@ -162,7 +162,7 @@ namespace Automation
             catch (Exception ex)
             {
                 statusLabel.Text = "搜索失败：" + ex.Message;
-                SF.DR?.Logger?.Log($"流程搜索失败:{ex}", LogLevel.Error);
+                Workspace.Runtime.ProcessEngine?.Logger?.Log($"流程搜索失败:{ex}", LogLevel.Error);
             }
             finally
             {
@@ -186,14 +186,14 @@ namespace Automation
                     || !int.TryParse(values[1], out int stepIndex)
                     || !int.TryParse(values[2], out int opIndex))
                 {
-                    SF.frmInfo?.PrintInfo("搜索结果位置格式无效，无法定位流程。", FrmInfo.Level.Error);
+                    Workspace.Info?.PrintInfo("搜索结果位置格式无效，无法定位流程。", FrmInfo.Level.Error);
                     return;
                 }
 
-                SF.frmDataGrid.SelectChildNode(procIndex, stepIndex);
-                SF.frmDataGrid.ScrollRowToCenter(opIndex);
-                SF.frmDataGrid.ClearAllRowColors();
-                SF.frmDataGrid.SetRowColor(opIndex, UiPalette.SuccessSoft);
+                Workspace.DataGrid.SelectChildNode(procIndex, stepIndex);
+                Workspace.DataGrid.ScrollRowToCenter(opIndex);
+                Workspace.DataGrid.ClearAllRowColors();
+                Workspace.DataGrid.SetRowColor(opIndex, UiPalette.SuccessSoft);
             }
         }
 
@@ -201,7 +201,7 @@ namespace Automation
         {
             if (e.KeyCode == Keys.Enter)
             {
-                SF.frmSearch.btnSearch.PerformClick();
+                Workspace.Search.btnSearch.PerformClick();
             }
         }
 

@@ -12,13 +12,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 using Automation.MotionControl;
-using static Automation.FrmProc;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
-using static Automation.FrmCard;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.TaskbarClock;
 using System.Diagnostics;
 using Newtonsoft.Json.Linq;
 using System.Numerics;
@@ -65,7 +59,6 @@ namespace Automation
         private IDataBreakpointRuntimeSink dataBreakpointSink;
         public EngineContext Context { get; }
         public IAlarmHandler AlarmHandler { get; set; }
-        public Control UiInvoker { get; set; }
         public ILogger Logger { get; set; }
         public event Action<EngineSnapshot> SnapshotChanged;
         internal IDataBreakpointRuntimeSink DataBreakpointSink
@@ -1162,35 +1155,35 @@ namespace Automation
                     }
                 }
             }
-            if (!string.IsNullOrEmpty(stopError) && !SF.SecurityLocked)
+            if (!string.IsNullOrEmpty(stopError) && !Context.Safety.IsLocked)
             {
-                SF.SetSecurityLock(stopError);
+                Context.Safety.Lock(stopError);
             }
         }
 
         public bool TryValidateStartGate(out string error)
         {
             error = null;
-            if (SF.MaintenanceActive)
+            if (Context.Maintenance.Active)
             {
-                error = string.IsNullOrWhiteSpace(SF.MaintenanceReason)
+                error = string.IsNullOrWhiteSpace(Context.Maintenance.Reason)
                     ? "系统正在执行配置维护，禁止启动流程。"
-                    : $"系统正在执行配置维护:{SF.MaintenanceReason}";
+                    : $"系统正在执行配置维护:{Context.Maintenance.Reason}";
                 return false;
             }
-            if (SF.SecurityLocked)
+            if (Context.Safety.IsLocked)
             {
-                error = string.IsNullOrWhiteSpace(SF.SecurityLockReason)
+                error = string.IsNullOrWhiteSpace(Context.Safety.LockReason)
                     ? "系统处于安全锁定状态，禁止启动流程。"
-                    : $"系统处于安全锁定状态:{SF.SecurityLockReason}";
+                    : $"系统处于安全锁定状态:{Context.Safety.LockReason}";
                 return false;
             }
-            if (SF.ProcConfigFaulted)
+            if (Context.Readiness.ProcConfigFaulted)
             {
                 error = "流程配置异常，所有流程已停止且禁止启动。请处理流程配置报警。";
                 return false;
             }
-            if (SF.VersionRestartRequired)
+            if (Context.Readiness.VersionRestartRequired)
             {
                 error = "设备配置已还原，必须重启程序后才能启动流程。";
                 return false;
@@ -1218,7 +1211,8 @@ namespace Automation
                 return false;
             }
             ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
-                procIndex, proc, Context?.Procs, null, Context?.ValueStore);
+                procIndex, proc, Context?.Procs,
+                Context?.ValidationContextFactory?.Invoke(), Context?.ValueStore);
             if (readiness.Runnable)
             {
                 return true;
@@ -2447,7 +2441,7 @@ namespace Automation
                     runHandle.alarmMsg = message;
                     runHandle.TerminationReason = ProcTerminationReason.Alarm;
                     engine.Logger?.Log(message, LogLevel.Error);
-                    SF.SetSecurityLock(message);
+                    engine.Context.Safety.Lock(message);
                 }
                 if (runHandle.TerminationReason == ProcTerminationReason.None)
                 {

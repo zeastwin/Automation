@@ -8,16 +8,20 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 using Automation.MotionControl;
 using csLTDMC;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-using static Automation.FrmCard;
 
 namespace Automation
 {
     public class LS
     {
+        private readonly CardConfigStore cardStore;
+
+        public LS(CardConfigStore cardStore)
+        {
+            this.cardStore = cardStore ?? throw new ArgumentNullException(nameof(cardStore));
+        }
+
         public bool IsCardInitialized { get; private set; }
         private readonly object profileLock = new object();
         private readonly object ioOutputLock = new object();
@@ -58,7 +62,6 @@ namespace Automation
             if (num <= 0 || num > 8)
             {
                 IsCardInitialized = false;
-                SF.frmInfo.PrintInfo("获取卡信息失败",FrmInfo.Level.Error);
             }
             ushort _num = 0;
             ushort[] cardids = new ushort[8];
@@ -67,7 +70,6 @@ namespace Automation
             if (res != 0)
             {
                 IsCardInitialized = false;
-                SF.frmInfo.PrintInfo("获取卡信息失败", FrmInfo.Level.Error);
             }
             if (!IsCardInitialized)
             {
@@ -145,7 +147,6 @@ namespace Automation
 
             while (!GetInPos(card, axis) && wait)
             {
-                Application.DoEvents();
                 Thread.Sleep(1);
             }
         }
@@ -322,8 +323,7 @@ namespace Automation
         //设置回零参数
         public void SettHomeParam(ushort card, ushort axis, ushort dir, ushort speed, ushort homeMode)
         {
-            //LTDMC.dmc_set_pulse_outmode(SF.motion._CardID, axis, 0);//设置脉冲模式
-            //LTDMC.dmc_set_home_pin_logic(SF.motion._CardID, axis, 0, 0);//设置原点低电平有效
+            // 设置脉冲模式和原点逻辑由当前卡号参数决定。
             EnsureSuccess(LTDMC.dmc_set_homemode(card, axis, dir, speed, homeMode, 0), "设置回零模式", card, axis);
 
         }
@@ -481,10 +481,10 @@ namespace Automation
 
         public void SetAllAxisSevonOn()
         {
-            for (int i = 0; i < SF.cardStore.GetControlCardCount(); i++)
+            for (int i = 0; i < cardStore.GetControlCardCount(); i++)
             {
         
-                for (int j = 0; j < SF.cardStore.GetAxisCount(i); j++)
+                for (int j = 0; j < cardStore.GetAxisCount(i); j++)
                 {
                     SetAxisSevon((ushort)i, (ushort)j, true);
                 }
@@ -498,12 +498,12 @@ namespace Automation
             {
                 appliedProfiles.Clear();
             }
-            for (int i = 0; i < SF.cardStore.GetControlCardCount(); i++)
+            for (int i = 0; i < cardStore.GetControlCardCount(); i++)
             {
 
-                for (int j = 0; j < SF.cardStore.GetAxisCount(i); j++)
+                for (int j = 0; j < cardStore.GetAxisCount(i); j++)
                 {
-                    if (SF.cardStore.TryGetAxis(i, j, out Axis axisInfo))
+                    if (cardStore.TryGetAxis(i, j, out Axis axisInfo))
                     {
                         EnsureSuccess(LTDMC.dmc_set_equiv((ushort)i, (ushort)j, axisInfo.PulseToMM),
                             "设置脉冲当量", (ushort)i, (ushort)j);

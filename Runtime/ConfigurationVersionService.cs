@@ -60,6 +60,7 @@ namespace Automation
         private const string VersionDirectoryName = ".AutomationVersions";
         private readonly string configPath;
         private readonly string hmiSourceRoot;
+        private readonly PlatformRuntime runtime;
         private readonly object syncRoot = new object();
         private static readonly object nativeLibraryLock = new object();
         private static bool nativeLibraryConfigured;
@@ -67,13 +68,14 @@ namespace Automation
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool SetDllDirectory(string lpPathName);
 
-        public ConfigurationVersionService(string configPath)
+        public ConfigurationVersionService(string configPath, PlatformRuntime runtime)
         {
             if (string.IsNullOrWhiteSpace(configPath))
             {
                 throw new ArgumentException("配置目录不能为空。", nameof(configPath));
             }
             this.configPath = Path.GetFullPath(configPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             hmiSourceRoot = ResolveHmiSourceRoot();
         }
 
@@ -207,7 +209,7 @@ namespace Automation
         public bool Restore(ConfigurationVersionLayer layer, string commitId, Func<bool> allStopped, Action reloadProcess, Action markRestartRequired, out string error)
         {
             string layerName = layer == ConfigurationVersionLayer.Process ? "工艺层" : "设备层";
-            if (!SF.TryBeginMaintenance($"正在还原{layerName}配置", out IDisposable maintenanceLease, out error))
+            if (!runtime.Maintenance.TryBegin($"正在还原{layerName}配置", out IDisposable maintenanceLease, out error))
             {
                 return false;
             }
@@ -253,7 +255,7 @@ namespace Automation
                                     throw new InvalidOperationException("工艺层重载入口未配置。");
                                 }
                                 reloadProcess();
-                                if (SF.ProcConfigFaulted)
+                                if (runtime.Readiness.ProcConfigFaulted)
                                 {
                                     throw new InvalidOperationException("工艺层重新加载失败。");
                                 }
@@ -267,7 +269,7 @@ namespace Automation
                                 markRestartRequired();
                             }
 
-                            SF.EditorHistory.Clear();
+                            runtime.Editor.History.Clear();
                             error = null;
                             return true;
                         }
@@ -296,7 +298,7 @@ namespace Automation
                         {
                             reason += "；恢复原文件失败：" + restoreError;
                         }
-                        SF.SetSecurityLock(reason);
+                        runtime.Safety.Lock(reason);
                         error = reason;
                         return false;
                     }

@@ -68,7 +68,7 @@ namespace Automation
                 Name = e.Name,
                 Scope = e.Scope,
                 OwnerProcId = e.OwnerProcId,
-                OwnerProcName = AutomationPlatformHost.ResolveOwnerProcessName(e.OwnerProcId),
+                OwnerProcName = platform.ResolveOwnerProcessName(e.OwnerProcId),
                 OldValue = e.OldValue,
                 NewValue = e.NewValue,
                 Source = e.Source,

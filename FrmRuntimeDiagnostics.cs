@@ -296,7 +296,7 @@ namespace Automation
                     .EnsureRuntimeDiagnosticStartedAsync().ConfigureAwait(true);
                 GooseConfig config = CreateDiagnosticConfig(stored, diagnosticMcpUri);
 
-                client = new GooseAcpClient(config);
+                client = new GooseAcpClient(owner.Runtime, config);
                 client.PermissionRequestHandler = HandlePermissionRequest;
                 client.EventReceived += HandleAcpEvent;
                 PostAnalysisState(true, "正在分析…", "working", false);

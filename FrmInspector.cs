@@ -6,7 +6,7 @@ using System.Windows.Forms;
 
 namespace Automation
 {
-    public sealed class FrmInspector : Form
+    public sealed partial class FrmInspector : Form
     {
         private readonly Panel header = new Panel();
         private readonly InspectorIconButton operationTypeButton = new InspectorIconButton();
@@ -52,8 +52,9 @@ namespace Automation
 
         public void ShowObject(object value)
         {
-            bool allowEdit = SF.ActiveEditSession != null
-                && ReferenceEquals(SF.ActiveEditSession.Draft, value);
+            EditorServiceRegistry.AttachGraph(value, Workspace.Runtime);
+            bool allowEdit = Workspace.Runtime.Editor.ActiveSession != null
+                && ReferenceEquals(Workspace.Runtime.Editor.ActiveSession.Draft, value);
             editing = allowEdit;
             inspectorView.SetObject(value, allowEdit);
             UpdatePresentation(value);
@@ -130,7 +131,7 @@ namespace Automation
             inspectorView.Dock = DockStyle.None;
             inspectorView.FieldValueChanged += (sender, args) =>
             {
-                SF.CaptureActiveEditSnapshot();
+                Workspace.Runtime.Editor.CaptureSnapshot();
                 UpdatePresentation(inspectorView.SelectedObject);
             };
             Controls.Add(inspectorView);
@@ -360,29 +361,30 @@ namespace Automation
 
         private void ReplaceOperationType(OperationType current, OperationType template)
         {
-            ModifyKind originalModifyKind = SF.isModify;
-            bool originalIsAddOps = SF.isAddOps;
+            ModifyKind originalModifyKind = Workspace.Runtime.Editor.ModifyKind;
+            bool originalIsAddOps = Workspace.Runtime.Editor.IsAddingOperations;
             OperationType draft;
             try
             {
-                SF.isModify = ModifyKind.None;
-                SF.isAddOps = false;
+                Workspace.Runtime.Editor.ModifyKind = ModifyKind.None;
+                Workspace.Runtime.Editor.IsAddingOperations = false;
                 draft = (OperationType)template.Clone();
             }
             finally
             {
-                SF.isModify = originalModifyKind;
-                SF.isAddOps = originalIsAddOps;
+                Workspace.Runtime.Editor.ModifyKind = originalModifyKind;
+                Workspace.Runtime.Editor.IsAddingOperations = originalIsAddOps;
             }
             draft.Num = current.Num;
+            EditorServiceRegistry.AttachGraph(draft, Workspace.Runtime);
             draft.RefreshInspector?.Invoke();
-            SF.frmDataGrid.OperationTemp = draft;
-            SF.ReplaceActiveEditDraft(draft);
+            Workspace.DataGrid.OperationTemp = draft;
+            Workspace.Runtime.Editor.ReplaceDraft(draft);
         }
 
         private void FrmInspector_KeyDown(object sender, KeyEventArgs e)
         {
-            if (SF.TryHandleEditorHistoryShortcut(this, e))
+            if (Workspace.Runtime.Editor.TryHandleHistoryShortcut(this, e))
             {
                 return;
             }

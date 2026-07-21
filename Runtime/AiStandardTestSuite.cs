@@ -126,81 +126,87 @@ namespace Automation
         }
 
         public static bool Prepare(
+            PlatformRuntime runtime,
             AiStandardTestScenario scenario,
             out AiStandardTestFixtureState state,
             out string error)
         {
             state = null;
             error = null;
+            if (runtime == null)
+            {
+                error = "平台运行时为空。";
+                return false;
+            }
             if (scenario == null)
             {
                 error = "测试场景为空。";
                 return false;
             }
-            if (SF.frmProc == null || SF.frmProc.IsDisposed || SF.valueStore == null)
+            if (runtime.EditorUi?.IsReady != true)
             {
                 error = "流程编辑器或变量服务尚未初始化。";
                 return false;
             }
-            for (int index = 0; index < SF.frmProc.procsList.Count; index++)
+            for (int index = 0; index < runtime.Stores.Processes.Items.Count; index++)
             {
-                EngineSnapshot snapshot = SF.DR?.GetSnapshot(index);
+                EngineSnapshot snapshot = runtime.ProcessEngine?.GetSnapshot(index);
                 if (snapshot != null && snapshot.State != ProcRunState.Stopped)
                 {
-                    error = $"流程[{SF.frmProc.procsList[index]?.head?.Name ?? index.ToString()}]仍在运行，标准测试准备未修改配置。";
+                    error = $"流程[{runtime.Stores.Processes.Items[index]?.head?.Name ?? index.ToString()}]仍在运行，标准测试准备未修改配置。";
                     return false;
                 }
             }
 
             try
             {
-                List<Proc> processes = SF.frmProc.procsList
+                List<Proc> processes = runtime.Stores.Processes.Items
                     .Where(proc => !IsOwnedName(proc?.head?.Name))
                     .Select(ObjectGraphCloner.Clone).ToList();
-                Dictionary<string, DicValue> variables = SF.valueStore.BuildSaveData()
+                Dictionary<string, DicValue> variables = runtime.Stores.Values.BuildSaveData()
                     .Where(item => !IsOwnedName(item.Key))
                     .ToDictionary(item => item.Key, item => ObjectGraphCloner.Clone(item.Value), StringComparer.Ordinal);
 
                 if (scenario.SetupKind != AiStandardTestSetupKind.EmptyOwnedObjects)
                 {
                     AiChangeSetCompileResult fixture = AiChangeSetCompiler.Compile(
-                        BuildProductFixture(scenario.SetupKind), processes, variables);
+                        runtime, BuildProductFixture(scenario.SetupKind), processes, variables);
                     processes = fixture.Processes;
                     variables = fixture.Variables;
                 }
 
                 if (!AiConfigurationTransaction.Commit(
-                    SF.ConfigPath, processes, variables, out string commitError, out bool rollbackFailed))
+                    runtime.Paths.ConfigPath, processes, variables, out string commitError, out bool rollbackFailed))
                 {
-                    if (rollbackFailed) SF.SetSecurityLock(commitError);
+                    if (rollbackFailed) runtime.Safety.Lock(commitError);
                     error = commitError;
                     return false;
                 }
 
-                SF.valueStore.ReplaceConfiguration(variables);
-                SF.frmProc.RefreshProcList();
-                SF.frmValue?.FreshFrmValue();
+                runtime.Stores.Values.ReplaceConfiguration(variables);
+                runtime.EditorUi.RefreshProcesses();
+                runtime.EditorUi.RefreshVariables();
 
                 string selectedName = scenario.SetupKind == AiStandardTestSetupKind.EmptyOwnedObjects
                     ? null
                     : ProductProcessName;
                 if (!string.IsNullOrWhiteSpace(selectedName))
                 {
-                    int procIndex = SF.frmProc.procsList.FindIndex(proc =>
+                    int procIndex = runtime.Stores.Processes.Items.FindIndex(proc =>
                         string.Equals(proc?.head?.Name, selectedName, StringComparison.Ordinal));
                     if (procIndex < 0)
                     {
                         error = $"测试夹具流程未创建：{selectedName}";
                         return false;
                     }
-                    SF.frmProc.SelectAiContext(procIndex, 0);
+                    runtime.EditorUi.SelectProcessContext(procIndex, 0);
                 }
                 else
                 {
-                    SF.frmProc.SelectAiContext(-1, -1);
+                    runtime.EditorUi.SelectProcessContext(-1, -1);
                 }
 
-                Proc selectedProcess = FindProcess(selectedName);
+                Proc selectedProcess = FindProcess(runtime, selectedName);
                 state = new AiStandardTestFixtureState
                 {
                     ScenarioId = scenario.Id,
@@ -221,6 +227,7 @@ namespace Automation
         }
 
         public static AiStandardTestEvaluation Evaluate(
+            PlatformRuntime runtime,
             AiStandardTestScenario scenario,
             AiStandardTestFixtureState fixture)
         {
@@ -235,10 +242,10 @@ namespace Automation
             {
                 case "build":
                 {
-                    Proc proc = FindProcess(ProductProcessName);
+                    Proc proc = FindProcess(runtime, ProductProcessName);
                     result.Check(proc != null, "目标流程已创建", $"未找到流程“{ProductProcessName}”。");
                     result.Check(CountOperations(proc) >= 4, "流程包含可审查的业务结构", "流程指令不足4条，未形成可审查结构。");
-                    CheckGotoStructure(result, proc);
+                    CheckGotoStructure(runtime, result, proc);
                     break;
                 }
                 case "multi_process":
@@ -246,9 +253,9 @@ namespace Automation
                     foreach (string suffix in new[] { "上料流程", "检测流程", "分拣流程" })
                     {
                         string name = OwnedPrefix + suffix;
-                        result.Check(FindProcess(name) != null, $"已创建{name}", $"未找到流程“{name}”。");
+                        result.Check(FindProcess(runtime, name) != null, $"已创建{name}", $"未找到流程“{name}”。");
                     }
-                    Dictionary<string, DicValue> variables = SF.valueStore.BuildSaveData();
+                    Dictionary<string, DicValue> variables = runtime.Stores.Values.BuildSaveData();
                     foreach (string name in new[] { OwnedPrefix + "当前产品编号", ResultVariableName })
                     {
                         result.Check(variables.ContainsKey(name), $"已声明共享变量{name}", $"未找到共享变量“{name}”。");
@@ -257,7 +264,7 @@ namespace Automation
                 }
                 case "focused_edit":
                 {
-                    Proc proc = FindProcess(ProductProcessName);
+                    Proc proc = FindProcess(runtime, ProductProcessName);
                     List<OperationType> operations = proc?.steps?
                         .SelectMany(step => step.Ops ?? new List<OperationType>()).ToList()
                         ?? new List<OperationType>();
@@ -277,32 +284,32 @@ namespace Automation
                     result.Check(retainedIds.SequenceEqual(fixture.InitialOperationIds),
                         "既有指令身份与相对顺序保持不变",
                         "既有指令被替换、删除或改变了相对顺序。");
-                    CheckGotoStructure(result, proc);
+                    CheckGotoStructure(runtime, result, proc);
                     break;
                 }
                 case "diagnose_fix":
                 {
-                    Proc proc = FindProcess(ProductProcessName);
+                    Proc proc = FindProcess(runtime, ProductProcessName);
                     result.Check(proc != null, "诊断夹具仍存在", "诊断流程不存在。");
-                    result.Check(!HasReleaseSelfLoop(proc), "放行自循环已消除", "放行后的跳转仍返回放行指令。");
-                    CheckGotoStructure(result, proc);
+                    result.Check(!HasReleaseSelfLoop(runtime, proc), "放行自循环已消除", "放行后的跳转仍返回放行指令。");
+                    CheckGotoStructure(runtime, result, proc);
                     break;
                 }
                 case "iterative_refinement":
                 {
-                    Proc proc = FindProcess(ProductProcessName);
-                    Dictionary<string, DicValue> variables = SF.valueStore.BuildSaveData();
+                    Proc proc = FindProcess(runtime, ProductProcessName);
+                    Dictionary<string, DicValue> variables = runtime.Stores.Values.BuildSaveData();
                     result.Check(variables.ContainsKey(RetryVariableName), "重试变量已声明", $"未找到变量“{RetryVariableName}”。");
                     result.Check(CountOperations(proc) > fixture.InitialOperationCount, "流程包含新增的重试与人工路径", "流程结构没有新增指令。");
-                    CheckGotoStructure(result, proc);
+                    CheckGotoStructure(runtime, result, proc);
                     break;
                 }
                 case "large_process":
                 {
-                    Proc proc = FindProcess(ProductProcessName);
+                    Proc proc = FindProcess(runtime, ProductProcessName);
                     result.Check(proc != null, "检查目标仍存在", "检查目标流程不存在。");
-                    result.Check(!HasReleaseSelfLoop(proc), "已处理能够证明的放行自循环", "放行后的自循环仍然存在。");
-                    CheckGotoStructure(result, proc);
+                    result.Check(!HasReleaseSelfLoop(runtime, proc), "已处理能够证明的放行自循环", "放行后的自循环仍然存在。");
+                    CheckGotoStructure(runtime, result, proc);
                     break;
                 }
                 default:
@@ -421,10 +428,10 @@ namespace Automation
             };
         }
 
-        private static Proc FindProcess(string name)
+        private static Proc FindProcess(PlatformRuntime runtime, string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return null;
-            return SF.frmProc?.procsList?.FirstOrDefault(proc =>
+            return runtime.Stores.Processes.Items.FirstOrDefault(proc =>
                 string.Equals(proc?.head?.Name, name, StringComparison.Ordinal));
         }
 
@@ -438,10 +445,10 @@ namespace Automation
             return name?.StartsWith(OwnedPrefix, StringComparison.Ordinal) == true;
         }
 
-        private static bool HasReleaseSelfLoop(Proc proc)
+        private static bool HasReleaseSelfLoop(PlatformRuntime runtime, Proc proc)
         {
             if (proc?.steps == null) return false;
-            int procIndex = SF.frmProc.procsList.IndexOf(proc);
+            int procIndex = runtime.Stores.Processes.Items.IndexOf(proc);
             for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
             {
                 List<OperationType> operations = proc.steps[stepIndex]?.Ops;
@@ -459,14 +466,17 @@ namespace Automation
             return false;
         }
 
-        private static void CheckGotoStructure(AiStandardTestEvaluation result, Proc proc)
+        private static void CheckGotoStructure(
+            PlatformRuntime runtime,
+            AiStandardTestEvaluation result,
+            Proc proc)
         {
             if (proc == null)
             {
                 result.Check(false, string.Empty, "流程不存在，无法校验跳转结构。");
                 return;
             }
-            int procIndex = SF.frmProc.procsList.IndexOf(proc);
+            int procIndex = runtime.Stores.Processes.Items.IndexOf(proc);
             List<string> errors = ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc);
             result.Check(errors.Count == 0, "跳转目标结构有效", "跳转校验失败：" + string.Join("；", errors));
         }

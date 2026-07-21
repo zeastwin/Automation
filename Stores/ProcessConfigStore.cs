@@ -11,6 +11,60 @@ namespace Automation
     {
         private static readonly object transactionLock = new object();
 
+        public static List<Proc> Load(
+            string workPath,
+            ProcessDefinitionValidationContext validationContext,
+            out List<string> errors,
+            out string recoveryMessage)
+        {
+            lock (transactionLock)
+            {
+                errors = new List<string>();
+                recoveryMessage = null;
+                string workDir = (workPath ?? string.Empty).TrimEnd('\\');
+                if (string.IsNullOrWhiteSpace(workDir))
+                {
+                    errors.Add("流程配置目录无效。");
+                    return new List<Proc>();
+                }
+                if (!RecoverIfNeededCore(workDir, out recoveryMessage))
+                {
+                    errors.Add(recoveryMessage);
+                }
+
+                Directory.CreateDirectory(workDir);
+                Dictionary<int, string> indexMap =
+                    ProcessDefinitionService.BuildProcFileIndexMap(workDir, out int maxIndex);
+                errors.AddRange(ProcessDefinitionService.ValidateProcFileContinuity(indexMap, maxIndex));
+
+                var processes = new List<Proc>();
+                var procIds = new HashSet<Guid>();
+                for (int i = 0; i <= maxIndex; i++)
+                {
+                    Proc process = null;
+                    if (indexMap.ContainsKey(i))
+                    {
+                        process = AtomicJsonFileStore.Read<Proc>(
+                            workDir,
+                            i.ToString(),
+                            ProcessDefinitionService.CreateStrictJsonSettings());
+                    }
+                    if (process == null)
+                    {
+                        errors.Add($"流程文件加载失败：{i}.json");
+                        process = new Proc();
+                    }
+                    ProcessDefinitionService.NormalizeProc(i, process, errors, validationContext);
+                    if (process.head?.Id != Guid.Empty && !procIds.Add(process.head.Id))
+                    {
+                        errors.Add($"流程{i}的ID重复：{process.head.Id:D}");
+                    }
+                    processes.Add(process);
+                }
+                return processes;
+            }
+        }
+
         public static bool Rebuild(string workPath, IList<Proc> processes, int StartIndex,
             out string error, out bool rollbackFailed)
         {

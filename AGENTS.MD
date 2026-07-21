@@ -92,7 +92,6 @@
 - `Bridge/` — Automation Bridge，本机 Named Pipe 服务，暴露流程/Schema/意图预演能力。
 - `Communication/` — TCP/串口通讯枢纽 `CommunicationHub`。
 - `Engine/` — 流程引擎 `ProcessEngine`，按 `ExecuteOperation` 分发指令。
-- `IntentTemplates/` — 遗留中间意图模板，仅保留兼容；不属于 Goose 默认 Editor 写入链。
 - `McpServer/` — 独立进程，把 Bridge 透传为 MCP Streamable HTTP 服务。
 - `MotionControl/` — 运动控制（雷赛 LTDMC/LeiSei3000）。
 - `Hmi/` — 平台仓库保留的 HMI 调试界面源码；`Automation.exe` 根据 `AppConfig.StartupView` 选择启动该 HMI 或平台编辑器。
@@ -100,6 +99,8 @@
 - `Engine/CustomFunc.cs` — 平台内部的自定义函数注册与执行容器，AI 不得直接修改；平台内置 HMI 与独立设备 HMI 的业务函数分别写入各自的 `Hmi/CustomFunctions.cs`，并统一通过 `IAutomationPlatform.RegisterCustomFunction` 注册。
 - `PLC/` — PLC 通讯（S7/ModbusTcp）。
 - `Runtime/` — `AutomationPlatformHost`、`AppConfigStorage`、`GooseConfigStorage`、`AutomationMcpServerManager`。
+- `Runtime/PlatformRuntimeComposer.cs` — 无 WinForms 依赖的设备、EngineContext、流程引擎和手动运动服务组合入口。
+- `UI/` — WinForms 流程交互适配器和编辑器通用 UI 基础设施。
 - `Stores/` — 各类配置 Store 与 `LocalFileLogger`。
 - `FrmAiAssistant.cs` — AI 助手前台，承载 Goose ACP 聊天、预演确认、联调。
 - `GooseAcpClient.cs` — 隐藏启动 `goose acp`，JSON-RPC over stdio 通信；AI 执行日志统一落 `D:\AutomationLogs\AIExecution\`。
@@ -110,17 +111,17 @@
 - `../DeviceProject/MachineApp.exe` 是独立设备工程入口：同样读取自身 `Config/AppConfig.json` 的 `StartupView`，初始化平台内核后启动设备工程自己的 `FrmHmiMain` 或平台编辑器。
 - HMI 和平台处于同一 UI 线程、同一进程、同一程序集，共用 `<exe>/Config/`。
 
-## 运行时全局对象
-- `SF` 是全局容器，持有窗体、`ProcessEngine`、`MotionCtrl`、各 Store、权限会话。
-- `SF` 仅允许平台内部适配使用；`../DeviceProject/Hmi/` 禁止直接引用 `SF`、平台窗体、Store、引擎和原生运动对象。
-- `SF.ConfigPath = <exe>/Config/`，`SF.workPath = <exe>/Config/Work/`。
-- 权限入口：`SF.EnsurePermission`（动作级）、`SF.HasPermission`（状态级）、`SF.SetSecurityLock`（停机锁定）。
-- 流程发布：`SF.PublishProc(procIndex)`。
+## 运行时组合与编辑器协作
+- `AutomationPlatformHost` 拥有单个平台实例的 `PlatformRuntime`；运行引擎、运动与 IO、Store、安全锁、配置维护、就绪状态和编辑会话均由该实例组合并显式传递，不存在进程级全局容器。
+- 平台窗体通过 `EditorWorkspace` 协作；非 UI 模块通过 `IPlatformEditorUiAdapter` 与编辑器交互，禁止保存静态窗体引用。
+- 配置路径由 `PlatformRuntime.Paths.ConfigPath/WorkPath` 提供；安全停机、流程发布和结构编辑门禁分别由 `PlatformSafetyCoordinator`、`ProcessPublicationService`、`ProcessEditingPolicy` 负责。
+- `../DeviceProject/Hmi/` 只能通过 `IAutomationPlatform` 公开 SDK 访问平台能力，禁止直接引用 `PlatformRuntime`、平台窗体、Store、引擎和原生运动对象。
+- `SF.cs` 已删除；`Tests/ArchitectureBoundaryRegression.ps1` 对旧全局入口、`Application.MessageLoop` 和 `Application.DoEvents` 提供构建门禁。
 
 ## 配置文件（Config/ 目录）
 - `Work/*.json` — 流程（从 `0.json` 起连续索引）。
 - `value.json` — 变量表（固定 0..999，强制保留 `复位状态`、`系统状态`）。
-- `DataStruct.json`、`AlarmInfo.json`、`card.json`、`IOMap.json`、`DataStation.json`。
+- `DataStruct.json`、`AlarmInfo.json`、`card.json`、`IOMap.json`、`DataStation.json`、`IODebugMap.json`、`value_debug.json`。
 - `SocketInfo.json`、`SerialPortInfo.json`、`PlcConfig.json`。
 - `Account.json` — `ENC:` 前缀密文（AES-CBC + HMAC-SHA256 + PBKDF2）。
 - `AppConfig.json` — 缺失文件或字段时按当前契约生成默认值并持久化；已有值执行启动强校验。当前键 `CommMaxMessageQueueSize`（默认 1000）、`RuntimeMode`、`StartupView`、`EnablePerformanceAnalysis`、`EnableRuntimeDiagnostics`。

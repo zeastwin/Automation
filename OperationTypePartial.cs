@@ -9,6 +9,11 @@ namespace Automation
 {
     public class OperationTypePartial
     {
+        private static PlatformRuntime GetRuntime(ITypeDescriptorContext context)
+        {
+            return context?.GetService(typeof(PlatformRuntime)) as PlatformRuntime;
+        }
+
         public class IoOutItem : StringConverter
         {
             public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
@@ -17,7 +22,7 @@ namespace Automation
             }
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(SF.frmIO.IoOutItems);
+                return new StandardValuesCollection(GetRuntime(context)?.Stores.IoConfiguration?.OutputNames ?? new List<string>());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -32,7 +37,7 @@ namespace Automation
             }
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(SF.frmIO.IoInItems);
+                return new StandardValuesCollection(GetRuntime(context)?.Stores.IoConfiguration?.InputNames ?? new List<string>());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -48,7 +53,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(SF.customFunc.funcName);
+                return new StandardValuesCollection(GetRuntime(context)?.CustomFunctions.funcName ?? new List<string>());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -181,11 +186,11 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                if (SF.alarmInfoStore == null)
+                if (GetRuntime(context)?.Stores.Alarms == null)
                 {
                     return new StandardValuesCollection(new List<int>());
                 }
-                return new StandardValuesCollection(SF.alarmInfoStore.GetValidIndices());
+                return new StandardValuesCollection(GetRuntime(context)?.Stores.Alarms.GetValidIndices());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -201,7 +206,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(SF.dataStructStore.GetStructNames());
+                return new StandardValuesCollection(GetRuntime(context)?.Stores.DataStructures.GetStructNames() ?? new List<string>());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -217,7 +222,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                List<string> names = SF.frmProc?.procsList?
+                List<string> names = GetRuntime(context)?.Stores.Processes?.Items?
                     .Select((proc, index) => string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"流程{index}" : proc.head.Name)
                     .ToList() ?? new List<string>();
                 return new StandardValuesCollection(names);
@@ -297,20 +302,20 @@ namespace Automation
                 {
                     if (string.Equals(commMsg.CommType, "TCP", StringComparison.OrdinalIgnoreCase))
                     {
-                        return new StandardValuesCollection((SF.communicationStore?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>())
+                        return new StandardValuesCollection((GetRuntime(context)?.Stores.Communication?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>())
                             .Where(item => item != null).Select(item => item.Name).ToList());
                     }
                     if (string.Equals(commMsg.CommType, "串口", StringComparison.OrdinalIgnoreCase))
                     {
-                        return new StandardValuesCollection((SF.communicationStore?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>())
+                        return new StandardValuesCollection((GetRuntime(context)?.Stores.Communication?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>())
                             .Where(item => item != null).Select(item => item.Name).ToList());
                     }
                 }
 
                 List<string> all = new List<string>();
-                all.AddRange((SF.communicationStore?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>())
+                all.AddRange((GetRuntime(context)?.Stores.Communication?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>())
                     .Where(item => item != null).Select(item => item.Name));
-                all.AddRange((SF.communicationStore?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>())
+                all.AddRange((GetRuntime(context)?.Stores.Communication?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>())
                     .Where(item => item != null).Select(item => item.Name));
                 return new StandardValuesCollection(all);
             }
@@ -360,7 +365,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(SF.valueStore.GetValueNames());
+                return new StandardValuesCollection(GetRuntime(context)?.Stores.Values.GetValueNames() ?? new List<string>());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -376,7 +381,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection((SF.communicationStore?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>())
+                return new StandardValuesCollection((GetRuntime(context)?.Stores.Communication?.GetSocketSnapshot() ?? Array.Empty<SocketInfo>())
                     .Where(item => item != null).Select(item => item.Name).ToList());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
@@ -393,7 +398,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection((SF.communicationStore?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>())
+                return new StandardValuesCollection((GetRuntime(context)?.Stores.Communication?.GetSerialSnapshot() ?? Array.Empty<SerialPortInfo>())
                     .Where(item => item != null).Select(item => item.Name).ToList());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
@@ -491,11 +496,11 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                if (SF.plcStore == null)
+                if (GetRuntime(context)?.Stores.Plc == null)
                 {
                     return new StandardValuesCollection(new List<string>());
                 }
-                return new StandardValuesCollection(SF.plcStore.GetSnapshot().Devices
+                return new StandardValuesCollection(GetRuntime(context)?.Stores.Plc.GetSnapshot().Devices
                     .Select(device => device.Name).Where(name => !string.IsNullOrWhiteSpace(name)).ToList());
             }
 
@@ -662,25 +667,25 @@ namespace Automation
         }
         public class GotoItem : StringConverter
         {
-            List<string> Item()
+            List<string> Item(ITypeDescriptorContext context)
             {
                 List<string> gotoItem = new List<string>();
-                if (SF.frmProc == null || SF.frmProc.procsList == null)
+                if (GetRuntime(context)?.Stores.Processes?.Items == null)
                 {
                     return gotoItem;
                 }
-                int procIndex = SF.frmProc.SelectedProcNum;
-                if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+                int procIndex = GetRuntime(context)?.EditorUi?.GetSelection()?.ProcIndex ?? -1;
+                if (procIndex < 0 || procIndex >= GetRuntime(context)?.Stores.Processes.Items.Count)
                 {
                     return gotoItem;
                 }
-                if (SF.frmProc.procsList[procIndex]?.steps == null)
+                if (GetRuntime(context)?.Stores.Processes.Items[procIndex]?.steps == null)
                 {
                     return gotoItem;
                 }
-                for (int i = 0; i < SF.frmProc.procsList[procIndex].steps.Count; i++)
+                for (int i = 0; i < GetRuntime(context)?.Stores.Processes.Items[procIndex].steps.Count; i++)
                 {
-                    var ops = SF.frmProc.procsList[procIndex].steps[i]?.Ops;
+                    var ops = GetRuntime(context)?.Stores.Processes.Items[procIndex].steps[i]?.Ops;
                     if (ops == null)
                     {
                         continue;
@@ -700,7 +705,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(Item());
+                return new StandardValuesCollection(Item(context));
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -819,11 +824,11 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                if (SF.frmCard == null || SF.frmCard.dataStation == null)
+                if (GetRuntime(context)?.Stores.Stations?.Items == null)
                 {
                     return new StandardValuesCollection(new List<string>());
                 }
-                return new StandardValuesCollection(SF.frmCard.dataStation.Select(Info => Info.Name).ToList());
+                return new StandardValuesCollection(GetRuntime(context)?.Stores.Stations.Items.Select(Info => Info.Name).ToList());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -856,11 +861,11 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                if (SF.frmCard == null || SF.frmCard.dataStation == null)
+                if (GetRuntime(context)?.Stores.Stations?.Items == null)
                 {
                     return new StandardValuesCollection(new List<string>());
                 }
-                return new StandardValuesCollection(SF.frmCard.dataStation.Select(Info => Info.Name).ToList());
+                return new StandardValuesCollection(GetRuntime(context)?.Stores.Stations.Items.Select(Info => Info.Name).ToList());
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -903,27 +908,27 @@ namespace Automation
         }
         public class StationPosDic : StringConverter
         {
-            List<string> Item()
+            List<string> Item(ITypeDescriptorContext context)
             {
                 List<string> posItems = new List<string>();
-                if (SF.frmCard == null || SF.frmCard.dataStation == null)
+                if (GetRuntime(context)?.Stores.Stations?.Items == null)
                 {
                     return posItems;
                 }
                 string stationName = null;
-                if (SF.frmDataGrid?.OperationTemp is StationRunPos stationRunPos)
+                if (GetRuntime(context)?.EditorUi?.CurrentOperationContext is StationRunPos stationRunPos)
                 {
                     stationName = stationRunPos.StationName;
                 }
-                else if (SF.frmDataGrid?.OperationTemp is CreateTray createTray)
+                else if (GetRuntime(context)?.EditorUi?.CurrentOperationContext is CreateTray createTray)
                 {
                     stationName = createTray.StationName;
                 }
-                else if (SF.frmDataGrid?.OperationTemp is ModifyStationPos modifyStationPos)
+                else if (GetRuntime(context)?.EditorUi?.CurrentOperationContext is ModifyStationPos modifyStationPos)
                 {
                     stationName = modifyStationPos.StationName;
                 }
-                else if (SF.frmDataGrid?.OperationTemp is GetStationPos getStationPos)
+                else if (GetRuntime(context)?.EditorUi?.CurrentOperationContext is GetStationPos getStationPos)
                 {
                     stationName = getStationPos.StationName;
                 }
@@ -931,14 +936,14 @@ namespace Automation
                 {
                     return posItems;
                 }
-                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == stationName);
+                var station = GetRuntime(context)?.Stores.Stations.Items.FirstOrDefault(sc => sc.Name == stationName);
 
                 if (station != null)
                 {
-                    int stationIndex = SF.frmCard.dataStation.IndexOf(station);
+                    int stationIndex = GetRuntime(context)?.Stores.Stations.Items.IndexOf(station) ?? -1;
                     if (stationIndex != -1)
                     {
-                        var posList = SF.frmCard.dataStation[stationIndex].ListDataPos;
+                        var posList = GetRuntime(context)?.Stores.Stations.Items[stationIndex].ListDataPos;
                         if (posList != null)
                         {
                             posItems = posList
@@ -963,7 +968,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(Item());
+                return new StandardValuesCollection(Item(context));
             }
         }
 
@@ -1003,15 +1008,15 @@ namespace Automation
 
         public class StationPosWithSpecial : StringConverter
         {
-            List<string> Item()
+            List<string> Item(ITypeDescriptorContext context)
             {
                 List<string> posItems = new List<string> { "当前位置", "自定义坐标" };
-                if (SF.frmCard == null || SF.frmCard.dataStation == null)
+                if (GetRuntime(context)?.Stores.Stations?.Items == null)
                 {
                     return posItems;
                 }
                 string stationName = null;
-                if (SF.frmDataGrid?.OperationTemp is ModifyStationPos modifyStationPos)
+                if (GetRuntime(context)?.EditorUi?.CurrentOperationContext is ModifyStationPos modifyStationPos)
                 {
                     stationName = modifyStationPos.StationName;
                 }
@@ -1019,13 +1024,13 @@ namespace Automation
                 {
                     return posItems;
                 }
-                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == stationName);
+                var station = GetRuntime(context)?.Stores.Stations.Items.FirstOrDefault(sc => sc.Name == stationName);
                 if (station != null)
                 {
-                    int stationIndex = SF.frmCard.dataStation.IndexOf(station);
+                    int stationIndex = GetRuntime(context)?.Stores.Stations.Items.IndexOf(station) ?? -1;
                     if (stationIndex != -1)
                     {
-                        var posList = SF.frmCard.dataStation[stationIndex].ListDataPos;
+                        var posList = GetRuntime(context)?.Stores.Stations.Items[stationIndex].ListDataPos;
                         if (posList != null)
                         {
                             foreach (var info in posList)
@@ -1056,32 +1061,32 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(Item());
+                return new StandardValuesCollection(Item(context));
             }
         }
 
         public class StationAixsItem : StringConverter
         {
-            List<string> Item()
+            List<string> Item(ITypeDescriptorContext context)
             {
                 List<string> AxisItems = new List<string>();
-                if (SF.frmCard == null || SF.frmCard.dataStation == null)
+                if (GetRuntime(context)?.Stores.Stations?.Items == null)
                 {
                     return AxisItems;
                 }
-                if (!(SF.frmDataGrid?.OperationTemp is SetStationVel setStationVel) || string.IsNullOrEmpty(setStationVel.StationName))
+                if (!(GetRuntime(context)?.EditorUi?.CurrentOperationContext is SetStationVel setStationVel) || string.IsNullOrEmpty(setStationVel.StationName))
                 {
                     return AxisItems;
                 }
-                var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == setStationVel.StationName);
+                var station = GetRuntime(context)?.Stores.Stations.Items.FirstOrDefault(sc => sc.Name == setStationVel.StationName);
 
                 if (station != null)
                 {
-                    int stationIndex = SF.frmCard.dataStation.IndexOf(station);
+                    int stationIndex = GetRuntime(context)?.Stores.Stations.Items.IndexOf(station) ?? -1;
                     if (stationIndex != -1)
                     {
                         AxisItems.Add("工站");
-                        var axisConfigs = SF.frmCard.dataStation[stationIndex].dataAxis?.axisConfigs;
+                        var axisConfigs = GetRuntime(context)?.Stores.Stations.Items[stationIndex].dataAxis?.axisConfigs;
                         if (axisConfigs == null)
                         {
                             return AxisItems;
@@ -1110,7 +1115,7 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(Item());
+                return new StandardValuesCollection(Item(context));
             }
         }
     }

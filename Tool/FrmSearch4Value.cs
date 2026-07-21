@@ -61,7 +61,7 @@ namespace Automation
             dataGridView1.Rows.Clear();
             for (int k = 0; k < ValueConfigStore.ValueCapacity; k++)
             {
-                if (!SF.valueStore.TryGetValueByIndex(k, out DicValue obj))
+                if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(k, out DicValue obj))
                 {
                     continue;
                 }
@@ -84,7 +84,11 @@ namespace Automation
                 row.Cells[0].Value = k;
                 row.Cells[1].Value = obj.Name;
                 row.Cells[2].Value = obj.Scope;
-                row.Cells[3].Value = AutomationPlatformHost.ResolveOwnerProcessName(obj.OwnerProcId);
+                row.Cells[3].Value = !obj.OwnerProcId.HasValue
+                    ? string.Empty
+                    : Workspace.Runtime.Stores.Processes.Items
+                        .FirstOrDefault(proc => proc?.head?.Id == obj.OwnerProcId.Value)?.head?.Name
+                        ?? string.Empty;
             }
 
         }
@@ -99,7 +103,7 @@ namespace Automation
                 {
                     return;
                 }
-                SF.frmValue.LocateValueIndex(rowIndex);
+                Workspace.Value.LocateValueIndex(rowIndex);
             }
         }
 
@@ -107,7 +111,7 @@ namespace Automation
         {
             if (e.KeyCode == Keys.Enter)
             {
-                SF.frmSearch4Value.btnSearch.PerformClick();
+                Workspace.Search4Value.btnSearch.PerformClick();
             }
         }
     }

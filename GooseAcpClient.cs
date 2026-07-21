@@ -113,8 +113,12 @@ namespace Automation
         private bool supportsImagePrompt;
         private bool disposed;
 
-        public GooseAcpClient(GooseConfig config, string restoredConversationContext = null)
+        private readonly PlatformRuntime runtime;
+
+        public GooseAcpClient(PlatformRuntime runtime, GooseConfig config,
+            string restoredConversationContext = null)
         {
+            this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             this.config = config ?? throw new ArgumentNullException(nameof(config));
             this.restoredConversationContext = restoredConversationContext;
         }
@@ -1204,27 +1208,19 @@ namespace Automation
             {"automation__get_operation_guide", "获取指令调用说明"},
             {"automation__op_meta", "获取指令元数据"},
             {"automation__get_reference_catalog", "获取引用目录"},
-            {"automation__list_intent_templates", "列出意图模板"},
-            {"automation__get_intent_template", "获取意图模板"},
-            {"automation__build_patch_from_intent", "构建补丁"},
-            {"automation__preview_intent", "预览意图"},
-            {"automation__apply_intent", "提交意图"},
-            {"automation__preview_patch", "预览补丁"},
-            {"automation__apply_patch", "提交补丁"},
+            {"automation__get_semantic_operation_schema", "获取语义指令契约"},
+            {"automation__preview_change_set", "预演流程变更"},
+            {"automation__apply_change_set", "提交流程变更"},
+            {"automation__discard_change_set_preview", "丢弃流程变更预演"},
             {"automation__get_runtime_snapshot", "获取运行时快照"},
             {"automation__get_info_log_tail", "读取运行日志"},
             {"automation__diagnose_proc", "诊断流程"},
-            {"automation__get_patch_contract", "获取调用约束"},
-            {"automation__create_proc", "创建流程"},
-            {"automation__create_proc_batch", "批量创建完整流程"},
-            {"automation__apply_create_proc", "提交流程创建"},
-            {"automation__delete_procs", "批量删除流程"},
-            {"automation__apply_delete_procs", "提交流程删除"},
-            {"automation__reorder_proc", "重排流程"},
-            {"automation__apply_reorder_proc", "提交流程重排"},
-            {"automation__copy_proc", "复制流程"},
-            {"automation__apply_copy_proc", "提交流程复制"},
-            {"automation__control_proc", "控制流程运行"},
+            {"automation__validate_proc", "校验流程"},
+            {"automation__run_proc_test", "有界测试流程"},
+            {"automation__start_proc", "启动流程"},
+            {"automation__stop_proc", "停止流程"},
+            {"automation__pause_proc", "暂停流程"},
+            {"automation__resume_proc", "继续流程"},
             {"automation__get_snapshot", "获取平台快照"},
             {"automation__list_variables", "列出变量"},
             {"automation__search_variables", "搜索变量"},
@@ -1245,18 +1241,10 @@ namespace Automation
             {"reference.catalog", "引用目录"},
             {"operation.types", "指令类型"},
             {"operation.schema", "指令Schema"},
-            {"intent.catalog", "意图模板列表"},
-            {"intent.template", "意图模板"},
-            {"intent.patch", "意图补丁"},
-            {"intent.preview", "意图预演"},
-            {"intent.apply", "意图提交"},
             {"preview.confirm", "预演确认"},
-            {"patch.preview", "补丁预演"},
-            {"patch.apply", "补丁提交"},
-            {"proc.manage.preview", "流程结构预演"},
-            {"proc.manage.apply", "流程结构提交"},
+            {"change_set.preview", "流程变更预演"},
+            {"change_set.apply", "流程变更提交"},
             {"proc.control", "流程控制"},
-            {"proc.create_batch", "完整流程变更集"},
             {"op.meta", "指令元数据"},
             {"io.list", "IO 列表"},
             {"variable.list", "变量列表"},
@@ -1694,7 +1682,7 @@ namespace Automation
         /// 构建当前用户选中流程/步骤/指令的背景信息，附加到 prompt 中。
         /// 只展开到用户实际选中的最深层级，避免把未选中的下级对象误传给 AI。
         /// </summary>
-        private static string BuildSelectionContext()
+        private string BuildSelectionContext()
         {
             JObject selection = BuildSelectionAnalysis();
             if (selection?["hasSelection"]?.Value<bool?>() != true)
@@ -1707,21 +1695,23 @@ namespace Automation
                 + "\n用户口语中的\"N号流程\"即 procIndex=N。";
         }
 
-        private static JObject BuildSelectionAnalysis()
+        private JObject BuildSelectionAnalysis()
         {
             try
             {
-                if (SF.frmProc == null || SF.frmProc.IsDisposed)
+                PlatformEditorSelection editorSelection = runtime.EditorUi?.GetSelection();
+                List<Proc> processes = runtime.Stores.Processes.Items;
+                if (editorSelection == null || processes == null)
                 {
                     return new JObject { ["hasSelection"] = false };
                 }
-                int procIndex = SF.frmProc.SelectedProcNum;
-                if (procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+                int procIndex = editorSelection.ProcIndex;
+                if (procIndex < 0 || procIndex >= processes.Count)
                 {
                     return new JObject { ["hasSelection"] = false };
                 }
 
-                Proc proc = SF.frmProc.procsList[procIndex];
+                Proc proc = processes[procIndex];
                 int stepCount = proc.steps?.Count ?? 0;
                 var selection = new JObject
                 {
@@ -1735,7 +1725,7 @@ namespace Automation
                     }
                 };
 
-                int stepIndex = SF.frmProc.SelectedStepNum;
+                int stepIndex = editorSelection.StepIndex;
                 if (stepIndex >= 0 && stepIndex < stepCount)
                 {
                     Step step = proc.steps[stepIndex];
@@ -1748,7 +1738,7 @@ namespace Automation
                         ["operationCount"] = opCount
                     };
 
-                    int opIndex = SF.frmDataGrid?.iSelectedRow ?? -1;
+                    int opIndex = editorSelection.OperationIndex;
                     if (opIndex >= 0 && opIndex < opCount)
                     {
                         OperationType operation = step.Ops[opIndex];

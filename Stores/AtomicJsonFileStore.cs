@@ -12,6 +12,8 @@ namespace Automation
     public static class AtomicJsonFileStore
     {
         private static readonly object SaveLock = new object();
+        private static readonly LocalFileLogger Logger =
+            new LocalFileLogger(@"D:\AutomationLogs\Configuration");
         private static readonly JsonSerializerSettings Settings = new JsonSerializerSettings
         {
             // 只为多态对象写入 $type；Color 等已知字段类型不写冗余类型元数据。
@@ -161,11 +163,7 @@ namespace Automation
 
         private static void LogError(string message)
         {
-            SF.DR?.Logger?.Log(message, LogLevel.Error);
-            if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
-            {
-                SF.frmInfo.PrintInfo(message, FrmInfo.Level.Error);
-            }
+            Logger.Log(message, LogLevel.Error);
         }
     }
 }

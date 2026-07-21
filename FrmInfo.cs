@@ -748,12 +748,12 @@ namespace Automation
                 {
                     return;
                 }
-                if (SF.DR == null)
+                if (Workspace.Runtime.ProcessEngine == null)
                 {
                     ClearStatusRows();
                     return;
                 }
-                IReadOnlyList<EngineSnapshot> snapshots = SF.DR.GetSnapshots();
+                IReadOnlyList<EngineSnapshot> snapshots = Workspace.Runtime.ProcessEngine.GetSnapshots();
                 if (snapshots == null)
                 {
                     ClearStatusRows();
@@ -1031,10 +1031,10 @@ namespace Automation
         private string GetProcDisplayName(int procIndex, string snapshotName)
         {
             string procName = snapshotName;
-            if (string.IsNullOrWhiteSpace(procName) && SF.frmProc?.procsList != null && procIndex >= 0
-                && procIndex < SF.frmProc.procsList.Count)
+            if (string.IsNullOrWhiteSpace(procName) && Workspace.Proc?.procsList != null && procIndex >= 0
+                && procIndex < Workspace.Proc.procsList.Count)
             {
-                procName = SF.frmProc.procsList[procIndex]?.head?.Name;
+                procName = Workspace.Proc.procsList[procIndex]?.head?.Name;
             }
             if (string.IsNullOrWhiteSpace(procName))
             {
@@ -1127,11 +1127,11 @@ namespace Automation
             {
                 return "-";
             }
-            if (SF.frmProc?.procsList == null || procIndex >= SF.frmProc.procsList.Count)
+            if (Workspace.Proc?.procsList == null || procIndex >= Workspace.Proc.procsList.Count)
             {
                 return "-";
             }
-            Proc proc = SF.frmProc.procsList[procIndex];
+            Proc proc = Workspace.Proc.procsList[procIndex];
             if (proc?.steps == null || stepIndex >= proc.steps.Count)
             {
                 return "-";
@@ -1189,22 +1189,22 @@ namespace Automation
                 PrintInfo("当前位置无效，无法跳转。", Level.Error);
                 return;
             }
-            if (SF.ActiveEditSession != null)
+            if (Workspace.Runtime.Editor.ActiveSession != null)
             {
                 PrintInfo("当前处于编辑状态，禁止跳转。", Level.Error);
                 return;
             }
-            if (SF.frmMenu == null || SF.frmProc == null || SF.frmDataGrid == null || SF.frmInspector == null)
+            if (Workspace.Menu == null || Workspace.Proc == null || Workspace.DataGrid == null || Workspace.Inspector == null)
             {
                 PrintInfo("流程界面未就绪，无法跳转。", Level.Error);
                 return;
             }
-            if (SF.frmProc.procsList == null || procIndex >= SF.frmProc.procsList.Count)
+            if (Workspace.Proc.procsList == null || procIndex >= Workspace.Proc.procsList.Count)
             {
                 PrintInfo("流程索引超出范围，无法跳转。", Level.Error);
                 return;
             }
-            Proc proc = SF.frmProc.procsList[procIndex];
+            Proc proc = Workspace.Proc.procsList[procIndex];
             if (proc?.steps == null || stepIndex >= proc.steps.Count)
             {
                 PrintInfo("步骤索引超出范围，无法跳转。", Level.Error);
@@ -1217,14 +1217,14 @@ namespace Automation
                 return;
             }
 
-            TreeView tree = SF.frmProc.proc_treeView;
+            TreeView tree = Workspace.Proc.proc_treeView;
             if (tree == null || procIndex >= tree.Nodes.Count || stepIndex >= tree.Nodes[procIndex].Nodes.Count)
             {
                 PrintInfo("流程树未就绪，无法跳转。", Level.Error);
                 return;
             }
             tree.SelectedNode = tree.Nodes[procIndex].Nodes[stepIndex];
-            if (SF.frmProc.SelectedProcNum != procIndex || SF.frmProc.SelectedStepNum != stepIndex)
+            if (Workspace.Proc.SelectedProcNum != procIndex || Workspace.Proc.SelectedStepNum != stepIndex)
             {
                 PrintInfo("流程选择被阻止，无法跳转。", Level.Error);
                 return;
@@ -1238,26 +1238,26 @@ namespace Automation
 
         private bool TrySelectOperationInGrid(int opIndex)
         {
-            InstructionListView grid = SF.frmDataGrid.dataGridView1;
+            InstructionListView grid = Workspace.DataGrid.dataGridView1;
             if (grid == null || opIndex < 0 || opIndex >= grid.OperationCount)
             {
                 return false;
             }
             grid.SelectSingle(opIndex);
-            SF.frmDataGrid.iSelectedRow = opIndex;
-            SF.frmDataGrid.ScrollRowToCenter(opIndex);
+            Workspace.DataGrid.iSelectedRow = opIndex;
+            Workspace.DataGrid.ScrollRowToCenter(opIndex);
 
-            if (SF.frmProc?.procsList == null)
+            if (Workspace.Proc?.procsList == null)
             {
                 return true;
             }
-            int procIndex = SF.frmProc.SelectedProcNum;
-            int stepIndex = SF.frmProc.SelectedStepNum;
-            if (procIndex < 0 || stepIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+            int procIndex = Workspace.Proc.SelectedProcNum;
+            int stepIndex = Workspace.Proc.SelectedStepNum;
+            if (procIndex < 0 || stepIndex < 0 || procIndex >= Workspace.Proc.procsList.Count)
             {
                 return true;
             }
-            Proc proc = SF.frmProc.procsList[procIndex];
+            Proc proc = Workspace.Proc.procsList[procIndex];
             if (proc?.steps == null || stepIndex >= proc.steps.Count)
             {
                 return true;
@@ -1272,9 +1272,11 @@ namespace Automation
             {
                 return true;
             }
-            SF.frmDataGrid.OperationTemp = (OperationType)op.Clone();
-            SF.frmDataGrid.OperationTemp.RefreshInspector?.Invoke();
-            SF.frmInspector.ShowObject(SF.frmDataGrid.OperationTemp);
+            Workspace.DataGrid.OperationTemp = (OperationType)op.Clone();
+            EditorServiceRegistry.AttachGraph(
+                Workspace.DataGrid.OperationTemp, Workspace.Runtime);
+            Workspace.DataGrid.OperationTemp.RefreshInspector?.Invoke();
+            Workspace.Inspector.ShowObject(Workspace.DataGrid.OperationTemp);
             return true;
         }
 

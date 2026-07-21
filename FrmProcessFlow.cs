@@ -138,6 +138,7 @@ namespace Automation
             buildCancellation = new CancellationTokenSource();
             CancellationToken token = buildCancellation.Token;
             List<Proc> processes = owner.frmProc.procsList.Select(ObjectGraphCloner.Clone).ToList();
+            ProcessDefinitionValidationContext validationContext = owner.Runtime.CreateProcessValidationContext();
             int? procIndex = currentProcIndex;
             var runtimes = owner.dataRun.GetSnapshots().ToDictionary(item => item.ProcIndex);
             PostMessage(new JObject
@@ -154,7 +155,8 @@ namespace Automation
                         runtimes.TryGetValue(index, out EngineSnapshot runtime) ? runtime : null;
                     return procIndex.HasValue
                         ? ProcessFlowGraphService.BuildProcess(processes, procIndex.Value, provider)
-                        : ProcessFlowGraphService.BuildProject(processes, provider);
+                        : ProcessFlowGraphService.BuildProject(
+                            processes, provider, validationContext, owner.Runtime.Stores.Values);
                 }, token);
                 if (token.IsCancellationRequested || generation != buildGeneration || IsDisposed)
                 {

@@ -138,6 +138,7 @@
     <Compile Include="Engine\ProcessVariableLifecycleService.cs" />
     <Compile Include="Engine\ProcessRuntimeBinder.cs" />
     <Compile Include="Engine\ProcessEditingService.cs" />
+    <Compile Include="Engine\ProcessAccessServices.cs" />
     <Compile Include="Engine\AiChangeSetCompiler.cs" />
     <Compile Include="Engine\AiOperationCompilerRegistry.cs" />
     <Compile Include="Engine\StructuredOperationCompiler.cs" />
@@ -174,13 +175,20 @@
     <Compile Include="PLC\\PlcRuntimeService.cs" />
     <Compile Include="Stores\\PlcConfigStore.cs" />
     <Compile Include="Stores\\DataStructModels.cs" />
+    <Compile Include="Stores\\CardConfigurationModels.cs" />
     <Compile Include="Stores\\DataStructStore.cs" />
+    <Compile Include="Stores\\IoConfigurationStore.cs" />
+    <Compile Include="Stores\\IoDebugConfigurationStore.cs" />
+    <Compile Include="Stores\\ValueDebugConfigurationStore.cs" />
     <Compile Include="Stores\\ProcessEngineLogger.cs" />
     <Compile Include="Stores\\ProcessEngineStore.cs" />
+    <Compile Include="Stores\\ProcessDefinitionStore.cs" />
     <Compile Include="Stores\\ProcessConfigStore.cs" />
+    <Compile Include="Stores\\StationDefinitionStore.cs" />
     <Compile Include="Stores\\TrayPointStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
     <Compile Include="Runtime\\AppConfigStorage.cs" />
+    <Compile Include="Runtime\\ManualMotionService.cs" />
     <Compile Include="Runtime\\HighResolutionWaiter.cs" />
     <Compile Include="Runtime\\ProcessPerformanceAnalyzer.cs" />
     <Compile Include="Runtime\\RuntimeExceptionLogger.cs" />
@@ -193,6 +201,16 @@
     <Compile Include="Runtime\\ObjectGraphCloner.cs" />
     <Compile Include="Runtime\\AutomationConfigSerializationBinder.cs" />
     <Compile Include="Runtime\\OperationClipboardService.cs" />
+    <Compile Include="Runtime\\PlatformEditorUiAdapter.cs" />
+    <Compile Include="Runtime\\PlatformPaths.cs" />
+    <Compile Include="Runtime\\PlatformLifecycleServices.cs" />
+    <Compile Include="Runtime\\PlatformRuntime.cs" />
+    <Compile Include="Runtime\\PlatformRuntimeComposer.cs" />
+    <Compile Include="Runtime\\PlatformDeviceCoordinator.cs" />
+    <Compile Include="Runtime\\PlatformRuntimeInitializer.cs" />
+    <Compile Include="Runtime\\RuntimeLogBuffer.cs" />
+    <Compile Include="Runtime\\PlatformSystemStatusService.cs" />
+    <Compile Include="Runtime\\EditorSessionCoordinator.cs" />
     <Compile Include="Runtime\\AutomationPlatformHost.cs" />
     <Compile Include="Runtime\\AutomationPlatformBootstrap.cs" />
     <Compile Include="Runtime\\PlatformValueStoreFacade.cs" />
@@ -211,7 +229,12 @@
     <Compile Include="Simulation\\SimulationGatewayClient.cs" />
     <Compile Include="Bridge\\AutomationBridgeHost.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.ChangeSet.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.Diagnostics.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.Migration.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.ProcessInspection.cs" />
     <Compile Include="GooseAcpClient.cs" />
+    <Compile Include="EditorWorkspace.cs" />
     <Compile Include="Hmi\CustomFunctions.cs" />
     <Compile Include="Hmi\\FrmHmiMain.cs">
       <SubType>Form</SubType>
@@ -324,6 +347,8 @@
     <Compile Include="FrmIODebugConfig.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="UI\\EditorUiInfrastructure.cs" />
+    <Compile Include="UI\\WinFormsProcessInteractionCoordinator.cs" />
     <Compile Include="FrmMain.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -358,6 +383,7 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Inspector\InspectorDefinitions.cs" />
+    <Compile Include="Inspector\EditorServiceRegistry.cs" />
     <Compile Include="Inspector\InspectorSelectionPickerPanel.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -419,7 +445,6 @@
     </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="SF.cs" />
     <Compile Include="Tool\FrmSearch4Value.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -544,9 +569,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <None Include="app.config" />
-    <Content Include="IntentTemplates\intent_templates.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <None Include="packages.config" />
     <None Include="Properties\DataSources\FrmProc.datasource" />
     <None Include="Properties\DataSources\FrmState.datasource" />
@@ -582,12 +604,6 @@
     </ItemGroup>
     <Copy Condition="'@(SourceDllFiles)' != ''" SourceFiles="@(SourceDllFiles)" DestinationFiles="@(SourceDllFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
-  <Target Name="CopyIntentTemplateFiles" AfterTargets="Build">
-    <ItemGroup>
-      <IntentTemplateFiles Include="IntentTemplates\**\*.*" />
-    </ItemGroup>
-    <Copy Condition="'@(IntentTemplateFiles)' != ''" SourceFiles="@(IntentTemplateFiles)" DestinationFiles="@(IntentTemplateFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
-  </Target>
   <Target Name="ProvisionProcessAuthoringSkillInOutput" AfterTargets="Build">
     <PropertyGroup>
       <ProcessAuthoringSkillOutputDirectory>$(TargetDir).agents\skills\automation-process-authoring</ProcessAuthoringSkillOutputDirectory>
@@ -621,9 +637,9 @@
     <ItemGroup>
       <RedundantOutputFile Include="$(TargetDir)*.xml" Exclude="$(TargetDir)Automation.DeviceSdk.xml" />
       <RedundantOutputFile Include="$(TargetDir)README.md" />
-      <RedundantOutputFile Include="$(TargetDir)intent_templates.json" />
     </ItemGroup>
     <Delete Files="@(RedundantOutputFile)" />
+    <RemoveDir Directories="$(TargetDir)IntentTemplates" />
   </Target>
   <Target Name="WritePlatformRuntimeManifest" AfterTargets="Build">
     <WriteLinesToFile File="$(TargetDir)PlatformRuntimeManifest.json" Lines="{ &quot;apiVersion&quot;: &quot;$(PlatformApiVersion)&quot;, &quot;platformVersion&quot;: &quot;$(PlatformRuntimeVersion)&quot;, &quot;architecture&quot;: &quot;x64&quot;, &quot;configuration&quot;: &quot;$(Configuration)&quot; }" Overwrite="true" Encoding="UTF-8" />
@@ -656,6 +672,9 @@
   </Target>
   <Target Name="EnsureApplicationIconExists" BeforeTargets="PrepareForBuild">
     <Error Condition="!Exists('$(MSBuildProjectDirectory)\Resources\AutomationChick.ico')" Text="应用程序图标缺失：Resources\AutomationChick.ico。请确认已完整拉取 Git 仓库。" />
+  </Target>
+  <Target Name="ValidateArchitectureBoundaries" BeforeTargets="BeforeBuild">
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Tests\ArchitectureBoundaryRegression.ps1&quot;" />
   </Target>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>

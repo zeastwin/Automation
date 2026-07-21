@@ -59,7 +59,7 @@ namespace Automation
         {
             runtimeDiagnostics_Page.Name = "runtimeDiagnostics_Page";
             runtimeDiagnostics_Page.Text = "智能诊断";
-            runtimeDiagnostics_Page.Click += (sender, args) => SF.mainfrm?.ShowRuntimeDiagnostics();
+            runtimeDiagnostics_Page.Click += (sender, args) => Workspace.Main?.ShowRuntimeDiagnostics();
             panel1.Controls.Add(runtimeDiagnostics_Page);
         }
 
@@ -290,19 +290,19 @@ namespace Automation
 
         private void value_Page_Click(object sender, EventArgs e)
         {
-            SF.frmValue.FreshFrmValue();
-           // SF.frmValue.Owner = this;
-            SF.frmValue.StartPosition = FormStartPosition.CenterScreen;
-            SF.frmValue.Show();
-            SF.frmValue.BringToFront();
-            SF.frmValue.WindowState = FormWindowState.Normal;
+            Workspace.Value.FreshFrmValue();
+           // Workspace.Value.Owner = this;
+            Workspace.Value.StartPosition = FormStartPosition.CenterScreen;
+            Workspace.Value.Show();
+            Workspace.Value.BringToFront();
+            Workspace.Value.WindowState = FormWindowState.Normal;
         }
 
         private void aiAssistant_Page_Click(object sender, EventArgs e)
         {
-            SF.mainfrm.EnsureAiInfrastructureStarted();
+            Workspace.Main.EnsureAiInfrastructureStarted();
             // 切换 ai_panel 显示/隐藏，不切换主页面（curPage 不变）
-            var p = SF.mainfrm.ai_panel;
+            var p = Workspace.Main.ai_panel;
             if (p.Visible)
             {
                 p.Visible = false;
@@ -317,7 +317,7 @@ namespace Automation
             else
             {
                 // 优先使用 40% 宽度；窗口较小时为主工作区保留空间，避免遮挡或裁掉操作控件。
-                SF.mainfrm.UpdateAiPanelWidth();
+                Workspace.Main.UpdateAiPanelWidth();
                 p.Visible = true;
                 aiAssistantActive = true;
                 aiAssistant_Page.BackColor = UiPalette.Navigation;
@@ -325,16 +325,16 @@ namespace Automation
                 aiAssistant_Page.Invalidate();
                 hoverAnimator.RefreshRestingColors();
                 SetNoteColumnVisible(false);
-                if (SF.frmAiAssistant != null && !SF.frmAiAssistant.IsDisposed)
+                if (Workspace.AiAssistant != null && !Workspace.AiAssistant.IsDisposed)
                 {
-                    SF.frmAiAssistant.RefreshAssistantView();
+                    Workspace.AiAssistant.RefreshAssistantView();
                 }
             }
         }
 
         public void ShowAiAssistant()
         {
-            if (SF.mainfrm?.ai_panel != null && !SF.mainfrm.ai_panel.Visible)
+            if (Workspace.Main?.ai_panel != null && !Workspace.Main.ai_panel.Visible)
             {
                 aiAssistant_Page_Click(aiAssistant_Page, EventArgs.Empty);
             }
@@ -342,169 +342,165 @@ namespace Automation
 
         private void version_Page_Click(object sender, EventArgs e)
         {
-            if (SF.frmVersionManager == null || SF.frmVersionManager.IsDisposed)
-            {
-                SF.frmVersionManager = new FrmVersionManager();
-            }
-            ShowEmbeddedMainPage(SF.frmVersionManager, version_Page, VersionPageIndex);
+            ShowEmbeddedMainPage(Workspace.GetOrCreateVersionManager(), version_Page, VersionPageIndex);
         }
 
         // AI 助手打开时隐藏流程列表的"备注"列，腾出空间给助手窗体
         private void SetNoteColumnVisible(bool visible)
         {
-            if (SF.frmDataGrid?.dataGridView1 != null)
+            if (Workspace.DataGrid?.dataGridView1 != null)
             {
-                SF.frmDataGrid.dataGridView1.SetNoteColumnVisible(visible);
+                Workspace.DataGrid.dataGridView1.SetNoteColumnVisible(visible);
             }
         }
 
         private void Card_Page_Click(object sender, EventArgs e)
         {
-            if (SF.curPage != 5)
+            if (Workspace.CurrentPage != 5)
             {
-                SF.curPage = 5;
+                Workspace.CurrentPage = 5;
                 SetActiveMenuButton(Card_Page);
                 SetMainPanelScrollSize(Size.Empty);
-                SF.mainfrm.ShowEditorWorkspace();
-                SF.mainfrm.panel_Info.Visible = false;
+                Workspace.Main.ShowEditorWorkspace();
+                Workspace.Main.panel_Info.Visible = false;
 
-                if (!SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
+                if (!Workspace.Main.DataGrid_panel.Controls.Contains(Workspace.IO))
                 {
-                    SF.mainfrm.loadFillForm(SF.mainfrm.DataGrid_panel, SF.frmIO);
+                    Workspace.Main.loadFillForm(Workspace.Main.DataGrid_panel, Workspace.IO);
                 }
-                if (!SF.mainfrm.treeView_panel.Controls.Contains(SF.frmCard))
+                if (!Workspace.Main.treeView_panel.Controls.Contains(Workspace.Card))
                 {
-                    SF.mainfrm.loadFillForm(SF.mainfrm.treeView_panel, SF.frmCard);
+                    Workspace.Main.loadFillForm(Workspace.Main.treeView_panel, Workspace.Card);
                 }
 
-                SF.mainfrm.ToolBar_panel.Visible = true;
-                SF.mainfrm.treeView_panel.Visible = true;
-                SF.mainfrm.inspector_panel.Visible = true;
-                SF.mainfrm.DataGrid_panel.Visible = true;
-                SF.mainfrm.panel_Info.Visible = false;
-                SF.mainfrm.state_panel.Visible = true;
+                Workspace.Main.ToolBar_panel.Visible = true;
+                Workspace.Main.treeView_panel.Visible = true;
+                Workspace.Main.inspector_panel.Visible = true;
+                Workspace.Main.DataGrid_panel.Visible = true;
+                Workspace.Main.panel_Info.Visible = false;
+                Workspace.Main.state_panel.Visible = true;
 
-                SF.frmIO.Visible = true;
-                SF.frmCard.Visible = true;
-                SF.frmDataGrid.Visible = false;
-                SF.frmProc.Visible = false;
-                SF.frmCard.BringToFront();
-                SF.frmIO.BringToFront();
+                Workspace.IO.Visible = true;
+                Workspace.Card.Visible = true;
+                Workspace.DataGrid.Visible = false;
+                Workspace.Proc.Visible = false;
+                Workspace.Card.BringToFront();
+                Workspace.IO.BringToFront();
 
-                SF.frmToolBar.btnPause.Visible = false;
-                SF.frmToolBar.btnStop.Visible = false;
-                SF.frmToolBar.btnStopAll.Visible = false;
-                SF.frmToolBar.SingleRun.Visible = false;
-                SF.frmToolBar.btnAlarm.Visible = false;
-                SF.frmToolBar.btnLocate.Visible = false;
-                SF.frmToolBar.btnSearch.Visible = false;
-                SF.frmToolBar.btnIOMonitor.Visible = true;
-                SF.frmToolBar.btnIOMonitor.Enabled = true;
-                SF.frmToolBar.btnIOMonitor.Text = SF.frmIO.IsIOMonitoring ? "停止监视" : "IO监视";
+                Workspace.ToolBar.btnPause.Visible = false;
+                Workspace.ToolBar.btnStop.Visible = false;
+                Workspace.ToolBar.btnStopAll.Visible = false;
+                Workspace.ToolBar.SingleRun.Visible = false;
+                Workspace.ToolBar.btnAlarm.Visible = false;
+                Workspace.ToolBar.btnLocate.Visible = false;
+                Workspace.ToolBar.btnSearch.Visible = false;
+                Workspace.ToolBar.btnIOMonitor.Visible = true;
+                Workspace.ToolBar.btnIOMonitor.Enabled = true;
+                Workspace.ToolBar.btnIOMonitor.Text = Workspace.IO.IsIOMonitoring ? "停止监视" : "IO监视";
             }
         }
 
 
         private void process_Page_Click(object sender, EventArgs e)
         {
-            if (SF.curPage != 0)
+            if (Workspace.CurrentPage != 0)
             {
-                SF.curPage = 0;
+                Workspace.CurrentPage = 0;
                 SetActiveMenuButton(process_Page);
                 SetMainPanelScrollSize(Size.Empty);
-                SF.mainfrm.ShowEditorWorkspace();
-                SF.mainfrm.panel_Info.Visible = true;
+                Workspace.Main.ShowEditorWorkspace();
+                Workspace.Main.panel_Info.Visible = true;
 
-                if (!SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmDataGrid))
+                if (!Workspace.Main.DataGrid_panel.Controls.Contains(Workspace.DataGrid))
                 {
-                    SF.mainfrm.loadFillForm(SF.mainfrm.DataGrid_panel, SF.frmDataGrid);
+                    Workspace.Main.loadFillForm(Workspace.Main.DataGrid_panel, Workspace.DataGrid);
                 }
-                if (!SF.mainfrm.treeView_panel.Controls.Contains(SF.frmProc))
+                if (!Workspace.Main.treeView_panel.Controls.Contains(Workspace.Proc))
                 {
-                    SF.mainfrm.loadFillForm(SF.mainfrm.treeView_panel, SF.frmProc);
+                    Workspace.Main.loadFillForm(Workspace.Main.treeView_panel, Workspace.Proc);
                 }
 
-                SF.mainfrm.ToolBar_panel.Visible = true;
-                SF.mainfrm.treeView_panel.Visible = true;
-                SF.mainfrm.inspector_panel.Visible = true;
-                SF.mainfrm.DataGrid_panel.Visible = true;
-                SF.mainfrm.panel_Info.Visible = true;
-                SF.mainfrm.state_panel.Visible = true;
+                Workspace.Main.ToolBar_panel.Visible = true;
+                Workspace.Main.treeView_panel.Visible = true;
+                Workspace.Main.inspector_panel.Visible = true;
+                Workspace.Main.DataGrid_panel.Visible = true;
+                Workspace.Main.panel_Info.Visible = true;
+                Workspace.Main.state_panel.Visible = true;
 
-                SF.frmDataGrid.Visible = true;
-                SF.frmProc.Visible = true;
-                if (SF.mainfrm.DataGrid_panel.Controls.Contains(SF.frmIO))
+                Workspace.DataGrid.Visible = true;
+                Workspace.Proc.Visible = true;
+                if (Workspace.Main.DataGrid_panel.Controls.Contains(Workspace.IO))
                 {
-                    SF.frmIO.Visible = false;
+                    Workspace.IO.Visible = false;
                 }
-                if (SF.mainfrm.treeView_panel.Controls.Contains(SF.frmCard))
+                if (Workspace.Main.treeView_panel.Controls.Contains(Workspace.Card))
                 {
-                    SF.frmCard.Visible = false;
+                    Workspace.Card.Visible = false;
                 }
-                SF.frmToolBar.btnPause.Visible = true;
-                SF.frmToolBar.btnStop.Visible = true;
-                SF.frmToolBar.btnStopAll.Visible = true;
-                SF.frmToolBar.SingleRun.Visible = true;
-                SF.frmToolBar.btnAlarm.Visible = true;
-                SF.frmToolBar.btnLocate.Visible = true;
-                SF.frmToolBar.btnSearch.Visible = true;
+                Workspace.ToolBar.btnPause.Visible = true;
+                Workspace.ToolBar.btnStop.Visible = true;
+                Workspace.ToolBar.btnStopAll.Visible = true;
+                Workspace.ToolBar.SingleRun.Visible = true;
+                Workspace.ToolBar.btnAlarm.Visible = true;
+                Workspace.ToolBar.btnLocate.Visible = true;
+                Workspace.ToolBar.btnSearch.Visible = true;
 
-                SF.frmToolBar.btnPause.Enabled = true;
-                SF.frmToolBar.btnStop.Enabled = true;
-                SF.frmToolBar.btnStopAll.Enabled = true;
-                SF.frmToolBar.SingleRun.Enabled = true;
-                SF.frmToolBar.btnLocate.Enabled = true;
-                SF.frmToolBar.btnSearch.Enabled = true;
-                SF.frmToolBar.btnAlarm.Enabled = true;
-                SF.frmToolBar.btnIOMonitor.Visible = false;
-                SF.frmIO.StopIOMonitor();
-                SF.frmToolBar.btnIOMonitor.Text = "IO监视";
-                if (SF.isAddOps)
+                Workspace.ToolBar.btnPause.Enabled = true;
+                Workspace.ToolBar.btnStop.Enabled = true;
+                Workspace.ToolBar.btnStopAll.Enabled = true;
+                Workspace.ToolBar.SingleRun.Enabled = true;
+                Workspace.ToolBar.btnLocate.Enabled = true;
+                Workspace.ToolBar.btnSearch.Enabled = true;
+                Workspace.ToolBar.btnAlarm.Enabled = true;
+                Workspace.ToolBar.btnIOMonitor.Visible = false;
+                Workspace.IO.StopIOMonitor();
+                Workspace.ToolBar.btnIOMonitor.Text = "IO监视";
+                if (Workspace.Runtime.Editor.IsAddingOperations)
                 {
-                    SF.frmInspector.ShowObject(SF.frmDataGrid.OperationTemp);
+                    Workspace.Inspector.ShowObject(Workspace.DataGrid.OperationTemp);
                 }
                 else
                 {
-                    SF.frmInspector.ClearObject();
+                    Workspace.Inspector.ClearObject();
                 }
             }
         }
 
         private void station_Page_Click(object sender, EventArgs e)
         {
-            if (SF.curPage != 1)
+            if (Workspace.CurrentPage != 1)
             {
-                SF.curPage = 1;
+                Workspace.CurrentPage = 1;
                 SetActiveMenuButton(station_Page);
                 SetMainPanelScrollSize(Size.Empty);
-                if (!SF.frmStation.panel1.Controls.Contains(SF.frmControl))
+                if (!Workspace.Station.panel1.Controls.Contains(Workspace.Control))
                 {
-                    SF.mainfrm.loadFillForm(SF.frmStation.panel1, SF.frmControl);
+                    Workspace.Main.loadFillForm(Workspace.Station.panel1, Workspace.Control);
                 }
-                SF.frmControl.comboBox1.DisplayMember = "Name";
-                SF.frmControl.comboBox1.DataSource = SF.frmCard.dataStation;
-                SF.mainfrm.ShowWorkspacePage(SF.frmStation);
+                Workspace.Control.comboBox1.DisplayMember = "Name";
+                Workspace.Control.comboBox1.DataSource = Workspace.Card.dataStation;
+                Workspace.Main.ShowWorkspacePage(Workspace.Station);
 
-                SF.frmToolBar.btnIOMonitor.Visible = false;
-                SF.frmIO.StopIOMonitor();
-                SF.frmToolBar.btnIOMonitor.Text = "IO监视";
+                Workspace.ToolBar.btnIOMonitor.Visible = false;
+                Workspace.IO.StopIOMonitor();
+                Workspace.ToolBar.btnIOMonitor.Text = "IO监视";
              
             }
         }
 
         private void communication_Page_Click(object sender, EventArgs e)
         {
-            ShowEmbeddedMainPage(SF.frmComunication, communication_Page, CommunicationPageIndex);
+            ShowEmbeddedMainPage(Workspace.Communication, communication_Page, CommunicationPageIndex);
         }
 
         private void Io_Page_Click(object sender, EventArgs e)
         {
-            if (SF.curPage != 2)
+            if (Workspace.CurrentPage != 2)
             {
-                SF.frmIODebug.StartPosition = FormStartPosition.CenterScreen;
-                SF.frmIODebug.Show();
-                SF.frmIODebug.BringToFront();
-                SF.frmIODebug.WindowState = FormWindowState.Normal;
+                Workspace.IODebug.StartPosition = FormStartPosition.CenterScreen;
+                Workspace.IODebug.Show();
+                Workspace.IODebug.BringToFront();
+                Workspace.IODebug.WindowState = FormWindowState.Normal;
 
 
             }
@@ -512,28 +508,24 @@ namespace Automation
 
         private void valueDebug_Page_Click(object sender, EventArgs e)
         {
-            if (SF.curPage != 6)
+            if (Workspace.CurrentPage != 6)
             {
-                SF.curPage = 6;
+                Workspace.CurrentPage = 6;
                 SetActiveMenuButton(valueDebug_Page);
                 SetMainPanelScrollSize(Size.Empty);
-                SF.frmValueDebug.RefreshCheckList();
-                SF.frmValueDebug.RefreshEditList();
-                SF.mainfrm.ShowWorkspacePage(SF.frmValueDebug);
+                Workspace.ValueDebug.RefreshCheckList();
+                Workspace.ValueDebug.RefreshEditList();
+                Workspace.Main.ShowWorkspacePage(Workspace.ValueDebug);
 
-                SF.frmToolBar.btnIOMonitor.Visible = false;
-                SF.frmIO.StopIOMonitor();
-                SF.frmToolBar.btnIOMonitor.Text = "IO监视";
+                Workspace.ToolBar.btnIOMonitor.Visible = false;
+                Workspace.IO.StopIOMonitor();
+                Workspace.ToolBar.btnIOMonitor.Text = "IO监视";
             }
         }
 
         private void Plc_Page_Click(object sender, EventArgs e)
         {
-            if (SF.frmPlc == null || SF.frmPlc.IsDisposed)
-            {
-                SF.frmPlc = new FrmPlc();
-            }
-            ShowEmbeddedMainPage(SF.frmPlc, Plc_Page, PlcPageIndex);
+            ShowEmbeddedMainPage(Workspace.GetOrCreatePlc(), Plc_Page, PlcPageIndex);
         }
 
         private void ShowEmbeddedMainPage(Form page, Button menuButton, int pageIndex)
@@ -543,20 +535,20 @@ namespace Automation
                 return;
             }
 
-            SF.curPage = pageIndex;
+            Workspace.CurrentPage = pageIndex;
             SetActiveMenuButton(menuButton);
             SetMainPanelScrollSize(page.MinimumSize);
-            SF.mainfrm.ShowWorkspacePage(page);
+            Workspace.Main.ShowWorkspacePage(page);
 
-            SF.frmToolBar.btnIOMonitor.Visible = false;
-            SF.frmIO.StopIOMonitor();
-            SF.frmToolBar.btnIOMonitor.Text = "IO监视";
+            Workspace.ToolBar.btnIOMonitor.Visible = false;
+            Workspace.IO.StopIOMonitor();
+            Workspace.ToolBar.btnIOMonitor.Text = "IO监视";
         }
 
-        private static void SetMainPanelScrollSize(Size minimumSize)
+        private void SetMainPanelScrollSize(Size minimumSize)
         {
-            SF.mainfrm.main_panel.AutoScrollMinSize = minimumSize;
-            SF.mainfrm.main_panel.AutoScrollPosition = Point.Empty;
+            Workspace.Main.main_panel.AutoScrollMinSize = minimumSize;
+            Workspace.Main.main_panel.AutoScrollPosition = Point.Empty;
         }
 
     }

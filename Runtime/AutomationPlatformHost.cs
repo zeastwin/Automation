@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Automation.DeviceSdk;
 
@@ -73,12 +74,24 @@ namespace Automation
         private readonly int uiThreadId = Thread.CurrentThread.ManagedThreadId;
         private readonly Dictionary<string, CustomFunc.FunctionDelegate> pendingCustomFunctions =
             new Dictionary<string, CustomFunc.FunctionDelegate>(StringComparer.Ordinal);
+        private readonly PlatformRuntime runtime;
+        private readonly IDisposable exceptionSafetyRegistration;
+        private readonly RuntimeLogBuffer runtimeLogBuffer;
+        private readonly WinFormsProcessInteractionCoordinator processInteraction;
+        private PlatformRuntimeInitializationResult initializationResult;
         private FrmMain platformEditor;
         private PlatformRuntimeState state = PlatformRuntimeState.Created;
+        private bool autoStartTriggered;
+        private bool runtimeCoreStopped;
         private bool disposed;
 
         public AutomationPlatformHost()
         {
+            runtime = new PlatformRuntime();
+            runtimeLogBuffer = new RuntimeLogBuffer();
+            processInteraction = new WinFormsProcessInteractionCoordinator(runtime);
+            runtime.ProcessInteraction = processInteraction;
+            exceptionSafetyRegistration = RuntimeExceptionLogger.RegisterSafetyCoordinator(runtime.Safety);
             Values = new PlatformValueStoreFacade(this);
             Processes = new PlatformProcessStoreFacade(this);
         }
@@ -105,7 +118,7 @@ namespace Automation
         {
             get
             {
-                string configRoot = SF.ConfigPath;
+                string configRoot = runtime.Paths.ConfigPath;
                 if (string.IsNullOrWhiteSpace(configRoot))
                 {
                     throw new InvalidOperationException("无法确定 Automation 配置目录。");
@@ -117,14 +130,7 @@ namespace Automation
         public string StateMessage { get; private set; } = "尚未初始化";
         public bool IsPlatformVisible => platformEditor != null && !platformEditor.IsDisposed && platformEditor.Visible;
 
-        internal FrmMain PlatformEditor
-        {
-            get
-            {
-                EnsureReadyOrFaulted();
-                return platformEditor;
-            }
-        }
+        internal PlatformRuntime Runtime => runtime;
 
         /// <summary>
         /// 将已经初始化的平台编辑器作为设备程序主窗口运行。
@@ -134,14 +140,11 @@ namespace Automation
         {
             EnsureUiThread();
             EnsureReadyOrFaulted();
-            if (platformEditor == null || platformEditor.IsDisposed)
-            {
-                HandleDisposedPlatformEditor();
-            }
-            platformEditor.HideOnUserClose = false;
-            platformEditor.Owner = null;
-            platformEditor.ShowInTaskbar = true;
-            return platformEditor;
+            FrmMain editor = EnsurePlatformEditorCreated();
+            editor.HideOnUserClose = false;
+            editor.Owner = null;
+            editor.ShowInTaskbar = true;
+            return editor;
         }
 
         public void RegisterCustomFunction(string name, CustomFunc.FunctionDelegate function)
@@ -193,24 +196,28 @@ namespace Automation
             try
             {
                 ValidateConfigLayout();
-                platformEditor = new FrmMain
-                {
-                    HideOnUserClose = true
-                };
                 foreach (KeyValuePair<string, CustomFunc.FunctionDelegate> item in pendingCustomFunctions)
                 {
-                    platformEditor.customFunc.RegisterFunction(item.Key, item.Value);
+                    runtime.CustomFunctions.RegisterFunction(item.Key, item.Value);
                 }
-
-                platformEditor.dataRun.SnapshotChanged += OnProcessSnapshotChanged;
-                SF.valueStore.ValueChanged += OnValueChanged;
-                platformEditor.InitializePlatform();
+                PlatformRuntimeComposition composition = PlatformRuntimeComposer.Compose(
+                    runtime,
+                    processInteraction,
+                    processInteraction,
+                    new CompositeLogger(
+                        runtimeLogBuffer,
+                        new LocalFileLogger(@"D:\AutomationLogs\ProcessLog")));
+                processInteraction.AttachEngine(composition.ProcessEngine);
+                composition.ProcessEngine.SnapshotChanged += OnProcessSnapshotChanged;
+                runtime.Devices.Faulted += OnDeviceFaulted;
+                runtime.Stores.Values.ValueChanged += OnValueChanged;
+                initializationResult = PlatformRuntimeInitializer.Initialize(runtime);
                 MonitorSystemValue("复位状态");
                 MonitorSystemValue("系统状态");
 
-                SetState(PlatformRuntimeState.Ready, SF.SecurityLocked
-                    ? $"平台已初始化，但处于安全锁定状态:{SF.SecurityLockReason}"
-                    : SF.ProcConfigFaulted
+                SetState(PlatformRuntimeState.Ready, runtime.Safety.IsLocked
+                    ? $"平台已初始化，但处于安全锁定状态:{runtime.Safety.LockReason}"
+                    : runtime.Readiness.ProcConfigFaulted
                         ? "平台已初始化，但流程配置异常；所有流程已停止且禁止启动，请处理流程配置报警。"
                         : "平台已就绪");
                 return true;
@@ -221,7 +228,7 @@ namespace Automation
                 SetState(PlatformRuntimeState.Faulted, $"平台初始化失败:{ex.Message}");
                 try
                 {
-                    platformEditor?.ShutdownPlatform();
+                    ShutdownRuntimeCore();
                 }
                 catch
                 {
@@ -234,31 +241,29 @@ namespace Automation
         {
             EnsureUiThread();
             EnsureReadyOrFaulted();
-            if (platformEditor == null || platformEditor.IsDisposed)
-            {
-                HandleDisposedPlatformEditor();
-            }
+            FrmMain editor = EnsurePlatformEditorCreated();
             try
             {
-                platformEditor.HideOnUserClose = true;
-                platformEditor.EnsureAiInfrastructureStarted();
-                platformEditor.Owner = null;
-                platformEditor.ShowInTaskbar = true;
-                if (!platformEditor.Visible)
+                editor.HideOnUserClose = true;
+                editor.EnsureAiInfrastructureStarted();
+                editor.Owner = null;
+                editor.ShowInTaskbar = true;
+                if (!editor.Visible)
                 {
-                    platformEditor.Show();
+                    editor.Show();
                 }
-                if (platformEditor.WindowState == FormWindowState.Minimized)
+                if (editor.WindowState == FormWindowState.Minimized)
                 {
-                    platformEditor.WindowState = FormWindowState.Maximized;
+                    editor.WindowState = FormWindowState.Maximized;
                 }
-                platformEditor.BringToFront();
-                platformEditor.Activate();
-                platformEditor.NotifyProcessInteractionUiReady();
+                editor.BringToFront();
+                editor.Activate();
+                NotifyInteractionUiReady();
             }
             catch (ObjectDisposedException)
             {
-                HandleDisposedPlatformEditor();
+                platformEditor = null;
+                throw;
             }
         }
 
@@ -266,7 +271,8 @@ namespace Automation
         {
             EnsureUiThread();
             EnsureReadyOrFaulted();
-            platformEditor?.NotifyProcessInteractionUiReady();
+            processInteraction.NotifyUiReady();
+            TryStartAutoProcesses();
         }
 
         public void HidePlatformEditor()
@@ -282,7 +288,7 @@ namespace Automation
         {
             EnsureReadyOrFaulted();
             List<PlatformProcessInfo> result = new List<PlatformProcessInfo>();
-            IList<Proc> procs = platformEditor.dataRun?.Context?.Procs;
+            IList<Proc> procs = runtime.ProcessEngine?.Context?.Procs;
             if (procs == null)
             {
                 return result;
@@ -290,7 +296,7 @@ namespace Automation
             for (int i = 0; i < procs.Count; i++)
             {
                 Proc proc = procs[i];
-                EngineSnapshot snapshot = platformEditor.dataRun.GetSnapshot(i);
+                EngineSnapshot snapshot = runtime.ProcessEngine.GetSnapshot(i);
                 result.Add(new PlatformProcessInfo
                 {
                     Index = i,
@@ -311,7 +317,7 @@ namespace Automation
             {
                 return false;
             }
-            IList<Proc> procs = platformEditor.dataRun?.Context?.Procs;
+            IList<Proc> procs = runtime.ProcessEngine?.Context?.Procs;
             if (procs == null || procIndex < 0 || procIndex >= procs.Count || procs[procIndex] == null)
             {
                 error = $"流程索引无效:{procIndex}";
@@ -322,20 +328,21 @@ namespace Automation
                 error = $"流程已禁用:{procIndex}";
                 return false;
             }
-            if (!platformEditor.dataRun.TryValidateProcessStopped(procIndex, out error))
+            if (!runtime.ProcessEngine.TryValidateProcessStopped(procIndex, out error))
             {
                 return false;
             }
             ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
-                procIndex, procs[procIndex], procs);
+                procIndex, procs[procIndex], procs,
+                runtime.CreateProcessValidationContext(), runtime.Stores.Values);
             if (!readiness.Runnable)
             {
                 error = "流程配置尚不可运行：" + string.Join("；", readiness.RunBlockers);
                 return false;
             }
-            if (!SF.procStore.StartProc(procIndex))
+            if (!runtime.ProcessStore.StartProc(procIndex))
             {
-                error = platformEditor.dataRun.TryValidateProcessStopped(procIndex, out string stoppedError)
+                error = runtime.ProcessEngine.TryValidateProcessStopped(procIndex, out string stoppedError)
                     ? $"流程启动请求未被内核接受:{procIndex}"
                     : stoppedError;
                 return false;
@@ -345,23 +352,23 @@ namespace Automation
 
         public bool TryPauseProcess(int procIndex, out string error)
         {
-            return TryExecuteProcessCommand(procIndex, index => SF.procStore != null && SF.procStore.Pause(index), "暂停", false, out error);
+            return TryExecuteProcessCommand(procIndex, index => runtime.ProcessStore != null && runtime.ProcessStore.Pause(index), "暂停", false, out error);
         }
 
         public bool TryResumeProcess(int procIndex, out string error)
         {
-            return TryExecuteProcessCommand(procIndex, index => SF.procStore != null && SF.procStore.Resume(index), "继续", true, out error);
+            return TryExecuteProcessCommand(procIndex, index => runtime.ProcessStore != null && runtime.ProcessStore.Resume(index), "继续", true, out error);
         }
 
         public bool TryStopProcess(int procIndex, out string error)
         {
-            return TryExecuteProcessCommand(procIndex, index => SF.procStore != null && SF.procStore.Stop(index), "停止", false, out error);
+            return TryExecuteProcessCommand(procIndex, index => runtime.ProcessStore != null && runtime.ProcessStore.Stop(index), "停止", false, out error);
         }
 
         public bool TryStopAllProcesses(out string error)
         {
             error = null;
-            if (platformEditor == null || state == PlatformRuntimeState.Created || state == PlatformRuntimeState.Stopped)
+            if (state == PlatformRuntimeState.Created || state == PlatformRuntimeState.Stopped)
             {
                 error = $"当前状态禁止停止流程:{state}";
                 return false;
@@ -371,7 +378,7 @@ namespace Automation
             List<string> failures = new List<string>();
             foreach (PlatformProcessInfo process in processes)
             {
-                if (SF.procStore == null || !SF.procStore.Stop(process.Index))
+                if (runtime.ProcessStore == null || !runtime.ProcessStore.Stop(process.Index))
                 {
                     success = false;
                     failures.Add(process.Index.ToString(CultureInfo.InvariantCulture));
@@ -398,7 +405,7 @@ namespace Automation
                 error = "变量名称不能为空。";
                 return false;
             }
-            if (SF.valueStore == null || !SF.valueStore.TryGetValueByName(name, out DicValue value) || value == null)
+            if (runtime.Stores.Values == null || !runtime.Stores.Values.TryGetValueByName(name, out DicValue value) || value == null)
             {
                 error = $"变量不存在:{name}";
                 return false;
@@ -422,22 +429,14 @@ namespace Automation
         {
             EnsureUiThread();
             EnsureReadyOrFaulted();
-            if (platformEditor == null || platformEditor.IsDisposed)
-            {
-                HandleDisposedPlatformEditor();
-            }
-            platformEditor.ShowRuntimeDiagnostics();
+            EnsurePlatformEditorCreated().ShowRuntimeDiagnostics();
         }
 
         public void ShowPerformanceAnalysis()
         {
             EnsureUiThread();
             EnsureReadyOrFaulted();
-            if (platformEditor == null || platformEditor.IsDisposed)
-            {
-                HandleDisposedPlatformEditor();
-            }
-            platformEditor.ShowPerformanceAnalysis();
+            EnsurePlatformEditorCreated().ShowPerformanceAnalysis();
         }
 
         public bool TryGetValue(int index, out PlatformValueSnapshot snapshot, out string error)
@@ -449,7 +448,7 @@ namespace Automation
                 error = $"当前状态禁止读取变量:{state}";
                 return false;
             }
-            if (SF.valueStore == null || !SF.valueStore.TryGetValueByIndex(index, out DicValue value) || value == null)
+            if (runtime.Stores.Values == null || !runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value) || value == null)
             {
                 error = $"变量索引不存在:{index}";
                 return false;
@@ -472,13 +471,13 @@ namespace Automation
         public IReadOnlyList<string> GetValueNames()
         {
             EnsureReadyOrFaulted();
-            return SF.valueStore?.GetValueNames() ?? new List<string>();
+            return runtime.Stores.Values?.GetValueNames() ?? new List<string>();
         }
 
-        internal static string ResolveOwnerProcessName(Guid? ownerProcId)
+        internal string ResolveOwnerProcessName(Guid? ownerProcId)
         {
             if (!ownerProcId.HasValue) return string.Empty;
-            return (SF.frmProc?.procsList ?? new List<Proc>())
+            return (runtime.Stores.Processes?.Items ?? new List<Proc>())
                 .FirstOrDefault(proc => proc?.head?.Id == ownerProcId.Value)?.head?.Name ?? string.Empty;
         }
 
@@ -498,7 +497,7 @@ namespace Automation
                 error = "变量值不能为空。";
                 return false;
             }
-            if (SF.valueStore == null || !SF.valueStore.setValueByName(name, value, "HMI 代码"))
+            if (runtime.Stores.Values == null || !runtime.Stores.Values.setValueByName(name, value, "HMI 代码"))
             {
                 error = $"变量写入失败:{name}";
                 return false;
@@ -522,7 +521,7 @@ namespace Automation
                 error = "变量值不能为空。";
                 return false;
             }
-            if (SF.valueStore == null || !SF.valueStore.setValueByIndex(index, value, "HMI 代码"))
+            if (runtime.Stores.Values == null || !runtime.Stores.Values.setValueByIndex(index, value, "HMI 代码"))
             {
                 error = $"变量写入失败:{index}";
                 return false;
@@ -538,13 +537,13 @@ namespace Automation
                 error = $"当前状态禁止设置变量监控:{state}";
                 return false;
             }
-            if (SF.valueStore == null || !SF.valueStore.TryGetValueByName(name, out DicValue value) || value == null)
+            if (runtime.Stores.Values == null || !runtime.Stores.Values.TryGetValueByName(name, out DicValue value) || value == null)
             {
                 error = $"变量不存在:{name}";
                 return false;
             }
-            SF.valueStore.SetMonitorFlag(value.Index, enabled);
-            SF.valueStore.SetMonitorEnabled(true);
+            runtime.Stores.Values.SetMonitorFlag(value.Index, enabled);
+            runtime.Stores.Values.SetMonitorEnabled(true);
             return true;
         }
 
@@ -555,12 +554,12 @@ namespace Automation
             {
                 return new List<PlatformLogEntry>();
             }
-            IReadOnlyList<FrmInfo.InfoLogSnapshot> source = platformEditor.frmInfo.GetInfoLogTail(maxCount);
+            IReadOnlyList<RuntimeLogRecord> source = runtimeLogBuffer.GetTail(maxCount);
             return source.Select(item => new PlatformLogEntry
             {
-                TimeText = item.TimeText,
+                TimeText = $"[{item.Timestamp:yyyy-MM-dd HH时mm分ss秒}]",
                 Message = item.Message,
-                Level = item.Level
+                Level = item.Level == LogLevel.Error ? FrmInfo.Level.Error : FrmInfo.Level.Normal
             }).ToList();
         }
 
@@ -571,31 +570,34 @@ namespace Automation
             {
                 return;
             }
+            if (state == PlatformRuntimeState.Created)
+            {
+                processInteraction.Dispose();
+                SetState(PlatformRuntimeState.Stopped, "控制平台已关闭");
+                return;
+            }
             SetState(PlatformRuntimeState.ShuttingDown, "正在安全关闭控制平台");
             try
             {
-                if (platformEditor != null)
+                if (platformEditor != null && !platformEditor.IsDisposed)
                 {
-                    if (platformEditor.dataRun != null)
-                    {
-                        platformEditor.dataRun.SnapshotChanged -= OnProcessSnapshotChanged;
-                    }
-                    if (SF.valueStore != null)
-                    {
-                        SF.valueStore.ValueChanged -= OnValueChanged;
-                    }
                     platformEditor.ShutdownPlatform();
+                    runtimeCoreStopped = true;
                     platformEditor.AllowFinalClose();
-                    if (!platformEditor.IsDisposed)
-                    {
-                        platformEditor.Close();
-                        platformEditor.Dispose();
-                    }
+                    platformEditor.Close();
+                    platformEditor.Dispose();
                 }
             }
             finally
             {
-                SetState(PlatformRuntimeState.Stopped, "控制平台已关闭");
+                try
+                {
+                    ShutdownRuntimeCore();
+                }
+                finally
+                {
+                    SetState(PlatformRuntimeState.Stopped, "控制平台已关闭");
+                }
             }
         }
 
@@ -606,7 +608,14 @@ namespace Automation
                 return;
             }
             disposed = true;
-            Shutdown();
+            try
+            {
+                Shutdown();
+            }
+            finally
+            {
+                exceptionSafetyRegistration.Dispose();
+            }
         }
 
         private bool TryExecuteProcessCommand(int procIndex, Func<int, bool> command, string action, bool requireWritableState, out string error)
@@ -637,26 +646,26 @@ namespace Automation
                 error = $"当前状态禁止控制操作:{state}";
                 return false;
             }
-            if (SF.MaintenanceActive)
+            if (runtime.Maintenance.Active)
             {
-                error = string.IsNullOrWhiteSpace(SF.MaintenanceReason)
+                error = string.IsNullOrWhiteSpace(runtime.Maintenance.Reason)
                     ? "系统正在执行配置维护。"
-                    : $"系统正在执行配置维护:{SF.MaintenanceReason}";
+                    : $"系统正在执行配置维护:{runtime.Maintenance.Reason}";
                 return false;
             }
-            if (SF.SecurityLocked)
+            if (runtime.Safety.IsLocked)
             {
-                error = string.IsNullOrWhiteSpace(SF.SecurityLockReason)
+                error = string.IsNullOrWhiteSpace(runtime.Safety.LockReason)
                     ? "系统处于安全锁定状态。"
-                    : $"系统处于安全锁定状态:{SF.SecurityLockReason}";
+                    : $"系统处于安全锁定状态:{runtime.Safety.LockReason}";
                 return false;
             }
-            if (SF.ProcConfigFaulted)
+            if (runtime.Readiness.ProcConfigFaulted)
             {
                 error = "流程配置异常，禁止控制操作。";
                 return false;
             }
-            if (SF.VersionRestartRequired)
+            if (runtime.Readiness.VersionRestartRequired)
             {
                 error = "设备配置已还原，必须重启程序后才能继续操作。";
                 return false;
@@ -680,6 +689,15 @@ namespace Automation
         private void OnValueChanged(object sender, ValueChangedEventArgs e)
         {
             DispatchSdkEvent(() => ValueChanged?.Invoke(this, e));
+        }
+
+        private void OnDeviceFaulted(string message)
+        {
+            if (state == PlatformRuntimeState.ShuttingDown || state == PlatformRuntimeState.Stopped)
+            {
+                return;
+            }
+            SetState(PlatformRuntimeState.Faulted, message ?? "设备运行时发生故障。");
         }
 
         private void SetState(PlatformRuntimeState nextState, string message)
@@ -708,49 +726,145 @@ namespace Automation
                 }
                 catch (Exception ex)
                 {
-                    SF.DR?.Logger?.Log($"设备 SDK 事件处理异常:{ex.Message}", LogLevel.Error);
+                    runtime.ProcessEngine?.Logger?.Log($"设备 SDK 事件处理异常:{ex.Message}", LogLevel.Error);
                 }
             }
 
-            FrmMain dispatcher = platformEditor;
-            if (Thread.CurrentThread.ManagedThreadId == uiThreadId || dispatcher == null)
+            if (Thread.CurrentThread.ManagedThreadId == uiThreadId)
             {
                 InvokeSafely();
                 return;
             }
-            if (dispatcher.IsDisposed || dispatcher.Disposing || !dispatcher.IsHandleCreated)
-            {
-                return;
-            }
-            try
-            {
-                dispatcher.BeginInvoke((Action)InvokeSafely);
-            }
-            catch (InvalidOperationException)
-            {
-            }
+            processInteraction.Post(InvokeSafely);
         }
 
         private void EnsureReadyOrFaulted()
         {
-            if (platformEditor == null || (state != PlatformRuntimeState.Ready && state != PlatformRuntimeState.Faulted))
+            if (state != PlatformRuntimeState.Ready && state != PlatformRuntimeState.Faulted)
             {
                 throw new InvalidOperationException($"平台尚未初始化，当前状态:{state}");
             }
         }
 
-        private void HandleDisposedPlatformEditor()
+        private FrmMain EnsurePlatformEditorCreated()
         {
-            const string reason = "平台编辑器窗体已释放，无法确认运行时资源状态。已停止全部流程，请重启程序。";
+            EnsureUiThread();
+            if (runtimeCoreStopped || initializationResult == null)
+            {
+                throw new InvalidOperationException(
+                    $"平台运行时未完成初始化，无法创建编辑器:{StateMessage}");
+            }
+            if (platformEditor != null && !platformEditor.IsDisposed)
+            {
+                return platformEditor;
+            }
+            FrmMain editor = new FrmMain(runtime)
+            {
+                HideOnUserClose = true
+            };
             try
             {
-                SF.StopAllProcs(reason);
+                editor.AttachInitializedPlatform(initializationResult);
+                platformEditor = editor;
+                return editor;
+            }
+            catch
+            {
+                editor.Dispose();
+                throw;
+            }
+        }
+
+        private void TryStartAutoProcesses()
+        {
+            ProcessEngine engine = runtime.ProcessEngine;
+            IList<Proc> procs = engine?.Context?.Procs;
+            if (engine == null || procs == null || !engine.TryValidateStartGate(out _))
+            {
+                autoStartTriggered = false;
+                return;
+            }
+            if (autoStartTriggered)
+            {
+                return;
+            }
+            autoStartTriggered = true;
+            for (int i = 0; i < procs.Count; i++)
+            {
+                Proc proc = procs[i];
+                if (proc?.head?.AutoStart != true || proc.head.Disable)
+                {
+                    continue;
+                }
+                EngineSnapshot snapshot = engine.GetSnapshot(i);
+                if (snapshot == null || snapshot.State == ProcRunState.Stopped)
+                {
+                    engine.StartProcAuto(proc, i);
+                }
+            }
+        }
+
+        private void ShutdownRuntimeCore()
+        {
+            if (runtime.ProcessEngine != null)
+            {
+                runtime.ProcessEngine.SnapshotChanged -= OnProcessSnapshotChanged;
+            }
+            runtime.Stores.Values.ValueChanged -= OnValueChanged;
+            if (runtime.Devices != null)
+            {
+                runtime.Devices.Faulted -= OnDeviceFaulted;
+            }
+            if (runtimeCoreStopped)
+            {
+                processInteraction.Dispose();
+                return;
+            }
+            runtimeCoreStopped = true;
+            runtime.Safety.StopAllProcesses("系统关闭，停止所有流程。");
+            runtime.SystemStatus?.Dispose();
+            runtime.SystemStatus = null;
+            runtime.Devices?.Stop();
+            processInteraction.CloseAll();
+            try
+            {
+                runtime.Stores.Values.Save(runtime.Paths.ConfigPath);
+                runtime.Stores.DataStructures.Save(runtime.Paths.ConfigPath);
+                runtime.Stores.Alarms.Save(runtime.Paths.ConfigPath);
+            }
+            catch (Exception ex)
+            {
+                runtime.ProcessEngine?.Logger?.Log($"保存运行配置失败:{ex.Message}", LogLevel.Error);
+            }
+            try
+            {
+                runtime.PlcRuntime.Dispose();
+            }
+            catch (Exception ex)
+            {
+                runtime.ProcessEngine?.Logger?.Log($"关闭PLC运行时失败:{ex.Message}", LogLevel.Error);
+            }
+            try
+            {
+                Task disposeCommunication = Task.Run(() => runtime.Communication.Dispose());
+                if (!disposeCommunication.Wait(3000))
+                {
+                    runtime.ProcessEngine?.Logger?.Log("关闭通讯超时，继续关闭程序。", LogLevel.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                runtime.ProcessEngine?.Logger?.Log($"关闭通讯失败:{ex.Message}", LogLevel.Error);
+            }
+            try
+            {
+                runtime.Devices?.Dispose();
+                runtime.ProcessEngine?.Dispose();
             }
             finally
             {
-                SetState(PlatformRuntimeState.Faulted, reason);
+                processInteraction.Dispose();
             }
-            throw new InvalidOperationException(reason);
         }
 
         private void EnsureUiThread()
