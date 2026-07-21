@@ -29,7 +29,12 @@ namespace Automation
             BackColor = UiPalette.Surface;
             DoubleBuffered = true;
             Font = InspectorFonts.Regular85;
-            categoryFont = new Font(InspectorFonts.Bold9, FontStyle.Bold);
+            // 紧凑选择页使用 Semibold 建立层级，避免合成 Bold 造成笔画发胀。
+            categoryFont = new Font(
+                InspectorFonts.Bold9.FontFamily,
+                10F,
+                FontStyle.Regular,
+                GraphicsUnit.Point);
             TabStop = true;
             BuildPicker();
             SizeChanged += (sender, args) => RefreshPickerLayout();

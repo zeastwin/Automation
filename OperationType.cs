@@ -688,8 +688,10 @@ namespace Automation
     }
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
-    public class ParamGotoParam
+    public class ParamGotoParam : IPropertyVisibilityProvider
     {
+        private string judgeMode = "值在区间内";
+
         [DisplayName("变量索引"), Category("参数"), Description("变量索引地址；运行时按索引读取或写入数据。"), ReadOnly(false)]
         public string ValueIndex { get; set; }
 
@@ -702,8 +704,12 @@ namespace Automation
         [DisplayName("变量名称二级"), Category("参数"), Description("二级变量名称；用于嵌套对象或二维结构的第二层定位。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string ValueName2Index { get; set; }
 
-        [DisplayName("判断模式"), Category("参数"), Description("值在区间左：IncludeBoundary=true 时变量值<=Down，否则<Down；值在区间右：IncludeBoundary=true 时变量值>=Down，否则>Down；值在区间内：IncludeBoundary=true 时 Down<=变量值<=Up，否则 Down<变量值<Up；等于特征字符：变量文本等于 ExpectedText。"), ReadOnly(false), TypeConverter(typeof(JudgeMode))]
-        public string JudgeMode { get; set; } = "值在区间内";
+        [DisplayName("判断模式"), Category("参数"), Description("值在区间左：IncludeBoundary=true 时变量值<=Down，否则<Down；值在区间右：IncludeBoundary=true 时变量值>=Down，否则>Down；值在区间内：IncludeBoundary=true 时 Down<=变量值<=Up，否则 Down<变量值<Up；等于特征字符：变量文本等于 ExpectedText。"), ReadOnly(false), RefreshProperties(RefreshProperties.All), TypeConverter(typeof(JudgeMode))]
+        public string JudgeMode
+        {
+            get => judgeMode;
+            set => judgeMode = value;
+        }
 
         [DisplayName("上限"), Category("参数"), Description("区间判断上限值。"), ReadOnly(false)]
         public double Up { get; set; }
@@ -719,6 +725,23 @@ namespace Automation
 
         [DisplayName("运算符"), Category("参数"), Description("比较运算符（=、!=、>、<等）。"), ReadOnly(false), TypeConverter(typeof(Operator))]
         public string Operator { get; set; } = "且";
+
+        public bool IsPropertyVisible(string propertyName, bool defaultVisibility)
+        {
+            bool textMode = string.Equals(judgeMode, "等于特征字符", StringComparison.Ordinal);
+            switch (propertyName)
+            {
+                case nameof(Up):
+                    return string.Equals(judgeMode, "值在区间内", StringComparison.Ordinal);
+                case nameof(Down):
+                case nameof(IncludeBoundary):
+                    return !textMode;
+                case nameof(ExpectedText):
+                    return textMode;
+                default:
+                    return defaultVisibility;
+            }
+        }
 
         public override string ToString()
         {

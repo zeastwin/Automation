@@ -25,7 +25,7 @@ namespace Automation
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr windowHandle, int message, IntPtr wordParameter, IntPtr longParameter);
 
-        //临时保存操作对象
+        // 当前检查器中的指令；只读查看引用源对象，进入编辑时替换为隔离草稿。
         public OperationType OperationTemp;
         //鼠标选定的行数
         public int iSelectedRow = -1;
@@ -74,13 +74,15 @@ namespace Automation
             {
                 return;
             }
-            int rowIndex = dataGridView1.GetSelectedIndexes().DefaultIfEmpty(-1).First();
+            int rowIndex = dataGridView1.CurrentIndex;
             iSelectedRow = rowIndex;
             if (rowIndex >= 0
                 && SF.frmProc != null
                 && SF.frmInspector != null
                 && !SF.frmInspector.IsDisposed)
             {
+                // 先把列表选中态立即绘制出来，再同步更新检查器；检查器内部按对象身份去重。
+                dataGridView1.Update();
                 ShowOperationProperties(rowIndex);
             }
         }
@@ -1357,6 +1359,16 @@ namespace Automation
                 MessageBox.Show("请选择需要编辑的指令。");
                 return;
             }
+            OperationType selectedOperation = SF.frmProc.procsList[procIndex]
+                .steps[stepIndex].Ops[iSelectedRow];
+            if (selectedOperation == null)
+            {
+                MessageBox.Show("当前指令为空，无法编辑。");
+                return;
+            }
+            OperationTemp = (OperationType)selectedOperation.Clone();
+            OperationTemp.RefreshInspector?.Invoke();
+            TypeDescriptor.Refresh(OperationTemp);
             BeginOperationEditSession(false);
             SF.frmProc.Enabled = false;
         }
@@ -1677,7 +1689,6 @@ namespace Automation
                 return;
             }
             iSelectedRow = rowIndex;
-            ShowOperationProperties(rowIndex);
             Modify_Click(sender, EventArgs.Empty);
         }
 
@@ -1701,7 +1712,12 @@ namespace Automation
                 return;
             }
             FrmInspector inspector = SF.frmInspector;
-            OperationTemp = (OperationType)operation.Clone();
+            if (ReferenceEquals(OperationTemp, operation)
+                && ReferenceEquals(inspector.SelectedObject, operation))
+            {
+                return;
+            }
+            OperationTemp = operation;
             inspector.BeginUpdate();
             try
             {
@@ -1730,6 +1746,7 @@ namespace Automation
             }
             iSelectedRow = rowIndex;
             dataGridView1.SelectSingle(rowIndex);
+            dataGridView1.Update();
             ShowOperationProperties(rowIndex);
             return true;
         }

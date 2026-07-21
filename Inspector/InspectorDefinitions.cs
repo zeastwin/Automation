@@ -19,6 +19,7 @@ namespace Automation
     {
         public string Key { get; set; }
         public string Title { get; set; }
+        public bool ShowHeader { get; set; } = true;
         public int Priority { get; set; }
         public List<InspectorFieldDefinition> Fields { get; } = new List<InspectorFieldDefinition>();
     }
@@ -294,7 +295,7 @@ namespace Automation
                 OrderForPresentation(instance, sections);
             }
             string signature = string.Join("|", sections.Select(section =>
-                "S:" + section.Key + ":" + section.Title + "["
+                "S:" + section.Key + ":" + section.Title + ":" + section.ShowHeader + "["
                 + string.Join(",", section.Fields.Select(field =>
                     field.GetType().Name + ":" + field.Key)) + "]"));
             return new InspectorDocument
@@ -305,14 +306,39 @@ namespace Automation
             };
         }
 
-        public static IReadOnlyList<InspectorFieldDefinition> BuildItemFields(object item, string path)
+        public static IReadOnlyList<InspectorFieldDefinition> BuildItemFields(
+            object item,
+            string path,
+            int itemIndex = -1)
         {
             var sections = new List<InspectorSectionDefinition>();
             if (item != null)
             {
                 BuildObject(item, path, null, sections, 0);
             }
-            return sections.SelectMany(section => section.Fields).ToList();
+            IEnumerable<InspectorFieldDefinition> fields = sections
+                .SelectMany(section => section.Fields);
+            if (item is ParamGotoParam)
+            {
+                fields = fields
+                    .Where(field => itemIndex != 0
+                        || !(field.Key ?? string.Empty).EndsWith(
+                            ".Operator",
+                            StringComparison.Ordinal))
+                    .OrderBy(field =>
+                    {
+                        string key = field.Key ?? string.Empty;
+                        if (key.Contains(".ValueIndex") || key.Contains(".ValueName")) return 0;
+                        if (key.EndsWith(".JudgeMode", StringComparison.Ordinal)) return 10;
+                        if (key.EndsWith(".Down", StringComparison.Ordinal)) return 20;
+                        if (key.EndsWith(".Up", StringComparison.Ordinal)) return 21;
+                        if (key.EndsWith(".ExpectedText", StringComparison.Ordinal)) return 20;
+                        if (key.EndsWith(".IncludeBoundary", StringComparison.Ordinal)) return 30;
+                        if (key.EndsWith(".Operator", StringComparison.Ordinal)) return 40;
+                        return 50;
+                    });
+            }
+            return fields.ToList();
         }
 
         private static void BuildObject(
@@ -577,7 +603,7 @@ namespace Automation
                         switch (rootName)
                         {
                             case nameof(OperationType.Name):
-                                priority = 40;
+                                priority = -100;
                                 break;
                             case nameof(OperationType.Disable):
                                 priority = 45;
@@ -589,15 +615,38 @@ namespace Automation
                                 priority = 55;
                                 break;
                             case nameof(OperationType.AlarmType):
-                                priority = 60;
+                                priority = -90;
                                 break;
                             case nameof(OperationType.AlarmInfoId):
                             case nameof(OperationType.Goto1):
                             case nameof(OperationType.Goto2):
                             case nameof(OperationType.Goto3):
-                                priority = 65;
+                                priority = -85;
                                 break;
                         }
+                        if (instance is ParamGoto)
+                        {
+                            switch (rootName)
+                            {
+                                case nameof(ParamGoto.Params):
+                                    priority = 0;
+                                    break;
+                                case nameof(ParamGoto.TrueGoto):
+                                    priority = 10;
+                                    break;
+                                case nameof(ParamGoto.FalseGoto):
+                                    priority = 11;
+                                    break;
+                                case nameof(ParamGoto.InvalidDelayMs):
+                                    priority = 12;
+                                    break;
+                            }
+                        }
+                    }
+                    else if (string.Equals(rootName, "Name", StringComparison.Ordinal))
+                    {
+                        // 名称是对象识别的首要信息，应始终先于集合和其他配置显示。
+                        priority = -100;
                     }
                     if (field.IsReadOnly)
                     {
@@ -617,6 +666,8 @@ namespace Automation
                 section.Priority = section.Fields.Count == 0
                     ? int.MaxValue
                     : section.Fields.Min(field => field.Priority);
+                section.ShowHeader = !(instance is OperationType
+                    && string.Equals(section.Key, "指令信息", StringComparison.Ordinal));
             }
 
             List<InspectorSectionDefinition> orderedSections = sections
@@ -675,8 +726,9 @@ namespace Automation
                     case nameof(OperationType.Goto1):
                     case nameof(OperationType.Goto2):
                     case nameof(OperationType.Goto3):
-                        return "异常处理";
+                        return "报警配置";
                     case nameof(OperationType.Name):
+                        return "指令信息";
                     case nameof(OperationType.Disable):
                     case nameof(OperationType.IsBreakpoint):
                     case nameof(OperationType.Note):
