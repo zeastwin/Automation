@@ -177,8 +177,8 @@ namespace Automation
                 : UiPalette.Stroke;
             button.FlatStyle = FlatStyle.Flat;
             button.Font = InspectorFonts.Bold95;
-            button.ImageAlign = ContentAlignment.MiddleCenter;
-            button.TextAlign = ContentAlignment.MiddleCenter;
+            button.ImageAlign = ContentAlignment.MiddleRight;
+            button.TextAlign = ContentAlignment.MiddleLeft;
             button.TextImageRelation = TextImageRelation.ImageBeforeText;
             button.Padding = Padding.Empty;
             button.Margin = Padding.Empty;
@@ -205,7 +205,7 @@ namespace Automation
                 enabled
                     ? primary ? UiPalette.SurfaceStrong : UiPalette.TextSecondary
                     : UiPalette.TextDisabled,
-                21);
+                24);
             previousImage?.Dispose();
         }
 

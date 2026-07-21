@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 namespace Automation
@@ -8,8 +9,9 @@ namespace Automation
     public partial class FrmMenu : Form
     {
         private const int DefaultMenuButtonWidth = 143;
-        private readonly Font normalMenuButtonFont = new Font("Microsoft YaHei UI", 13.5F, FontStyle.Regular);
-        private readonly Font compactMenuButtonFont = new Font("Microsoft YaHei UI", 12.5F, FontStyle.Regular);
+        private const int MenuIconSize = 48;
+        private readonly Font normalMenuButtonFont = new Font("Microsoft YaHei UI", 11.5F, FontStyle.Regular);
+        private readonly Font compactMenuButtonFont = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
         private readonly Button version_Page = new Button();
         private readonly Button runtimeDiagnostics_Page = new Button();
         private readonly Dictionary<Button, UiIconKind> menuIcons = new Dictionary<Button, UiIconKind>();
@@ -100,7 +102,7 @@ namespace Automation
                 button.FlatAppearance.MouseDownBackColor = UiPalette.Navigation;
                 button.UseVisualStyleBackColor = false;
                 button.TabStop = false;
-                SetMenuIcon(button, UiPalette.NavigationText);
+                SetMenuIcon(button, false);
                 button.Tag = label;
                 button.AccessibleName = label;
                 button.Text = string.Empty;
@@ -122,7 +124,7 @@ namespace Automation
             {
                 activeMenuButton.BackColor = UiPalette.Navigation;
                 activeMenuButton.ForeColor = UiPalette.NavigationText;
-                SetMenuIcon(activeMenuButton, UiPalette.NavigationText);
+                SetMenuIcon(activeMenuButton, false);
                 activeMenuButton.Invalidate();
             }
             activeMenuButton = button;
@@ -130,7 +132,7 @@ namespace Automation
             {
                 activeMenuButton.BackColor = UiPalette.NavigationActive;
                 activeMenuButton.ForeColor = UiPalette.TextInverse;
-                SetMenuIcon(activeMenuButton, UiPalette.NavigationAccent);
+                SetMenuIcon(activeMenuButton, true);
                 activeMenuButton.Invalidate();
             }
             hoverAnimator.RefreshRestingColors();
@@ -138,17 +140,17 @@ namespace Automation
 
         private bool IsMenuButtonActive(Button button)
         {
-            return button == activeMenuButton || (button == aiAssistant_Page && aiAssistantActive);
+            return button == activeMenuButton;
         }
 
-        private void SetMenuIcon(Button button, Color color)
+        private void SetMenuIcon(Button button, bool active)
         {
             if (!menuIcons.TryGetValue(button, out UiIconKind icon))
             {
                 return;
             }
             menuIconImages.TryGetValue(button, out Image previous);
-            menuIconImages[button] = UiIconFactory.Create(icon, color, 28);
+            menuIconImages[button] = UiIconFactory.CreateNavigation(icon, MenuIconSize, active);
             previous?.Dispose();
             button.Invalidate();
         }
@@ -163,38 +165,56 @@ namespace Automation
 
             string label = button.Tag as string ?? string.Empty;
             menuIconImages.TryGetValue(button, out Image icon);
-            TextFormatFlags textFlags = TextFormatFlags.NoPadding
-                | TextFormatFlags.SingleLine
+            TextFormatFlags textFlags = TextFormatFlags.SingleLine
                 | TextFormatFlags.HorizontalCenter
-                | TextFormatFlags.VerticalCenter;
-            Size textSize = TextRenderer.MeasureText(e.Graphics, label, button.Font, Size.Empty, textFlags);
-            int iconWidth = icon?.Width ?? 0;
-            int gap = icon == null || string.IsNullOrEmpty(label) ? 0 : 9;
-            int contentWidth = iconWidth + gap + textSize.Width;
-            int contentHeight = Math.Max(icon?.Height ?? 0, textSize.Height);
-            int contentLeft = Math.Max(0, (button.ClientSize.Width - contentWidth) / 2);
-            int contentTop = Math.Max(0, (button.ClientSize.Height - 3 - contentHeight) / 2) + button.Padding.Top;
+                | TextFormatFlags.VerticalCenter
+                | TextFormatFlags.EndEllipsis
+                | TextFormatFlags.NoPrefix;
+            int textHeight = Math.Max(button.Font.Height + 4, 18);
+            int iconSize = icon == null
+                ? 0
+                : Math.Min(icon.Width, Math.Max(20, Math.Min(button.ClientSize.Width - 24, button.ClientSize.Height - textHeight - 12)));
+            int gap = icon == null || string.IsNullOrEmpty(label) ? 0 : 3;
+            int contentHeight = iconSize + gap + textHeight;
+            int contentTop = Math.Max(0, (button.ClientSize.Height - 2 - contentHeight) / 2) + button.Padding.Top;
+            int iconLeft = Math.Max(0, (button.ClientSize.Width - iconSize) / 2);
             if (icon != null)
             {
-                e.Graphics.DrawImageUnscaled(icon, contentLeft, contentTop + (contentHeight - icon.Height) / 2);
+                InterpolationMode interpolationMode = e.Graphics.InterpolationMode;
+                e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                e.Graphics.DrawImage(icon, new Rectangle(iconLeft, contentTop, iconSize, iconSize));
+                e.Graphics.InterpolationMode = interpolationMode;
+            }
+            if (button == aiAssistant_Page && aiAssistantActive && icon != null)
+            {
+                int statusSize = Math.Max(5, iconSize / 9);
+                int statusLeft = Math.Min(
+                    button.ClientSize.Width - statusSize - 4,
+                    iconLeft + iconSize - statusSize);
+                using (SolidBrush statusBrush = new SolidBrush(UiPalette.NavigationAccent))
+                using (Pen statusBorder = new Pen(UiPalette.Navigation, 1.5F))
+                {
+                    e.Graphics.FillEllipse(statusBrush, statusLeft, contentTop + 1, statusSize, statusSize);
+                    e.Graphics.DrawEllipse(statusBorder, statusLeft, contentTop + 1, statusSize, statusSize);
+                }
             }
             Rectangle textBounds = new Rectangle(
-                contentLeft + iconWidth + gap,
-                contentTop,
-                textSize.Width,
-                contentHeight);
+                6,
+                contentTop + iconSize + gap,
+                Math.Max(1, button.ClientSize.Width - 12),
+                textHeight);
             TextRenderer.DrawText(e.Graphics, label, button.Font, textBounds, button.ForeColor, textFlags);
 
-            if (button == activeMenuButton || (button == aiAssistant_Page && aiAssistantActive))
+            if (button == activeMenuButton)
             {
                 using (SolidBrush brush = new SolidBrush(UiPalette.NavigationAccent))
                 {
                     e.Graphics.FillRectangle(
                         brush,
                         0,
-                        button.ClientSize.Height - 3,
+                        button.ClientSize.Height - 2,
                         button.ClientSize.Width,
-                        3);
+                        2);
                 }
             }
         }
@@ -251,27 +271,20 @@ namespace Automation
             }
 
             int availableWidth = Math.Max(0, panel1.ClientSize.Width);
-            int defaultTotalWidth = DefaultMenuButtonWidth * buttons.Length;
-            int rowCount = availableWidth >= defaultTotalWidth ? 1 : 2;
-            int columnCount = rowCount == 1
-                ? buttons.Length
-                : (buttons.Length + rowCount - 1) / rowCount;
-            Font buttonFont = rowCount == 1 ? normalMenuButtonFont : compactMenuButtonFont;
             int targetWidth = availableWidth > 0
-                ? Math.Max(1, availableWidth / columnCount)
+                ? Math.Max(1, availableWidth / buttons.Length)
                 : DefaultMenuButtonWidth;
-            int targetHeight = Math.Max(1, panel1.ClientSize.Height / rowCount);
+            Font buttonFont = targetWidth >= 110 ? normalMenuButtonFont : compactMenuButtonFont;
+            int targetHeight = Math.Max(1, panel1.ClientSize.Height);
 
             for (int i = 0; i < buttons.Length; i++)
             {
-                int row = i / columnCount;
-                int column = i % columnCount;
-                int left = column * targetWidth;
-                int width = column == columnCount - 1
+                int left = i * targetWidth;
+                int width = i == buttons.Length - 1
                     ? Math.Max(1, availableWidth - left)
                     : targetWidth;
                 buttons[i].Font = buttonFont;
-                buttons[i].SetBounds(left, row * targetHeight, width, targetHeight);
+                buttons[i].SetBounds(left, 0, width, targetHeight);
             }
         }
 
@@ -296,7 +309,7 @@ namespace Automation
                 p.Width = 0;
                 aiAssistantActive = false;
                 aiAssistant_Page.BackColor = UiPalette.Navigation;
-                SetMenuIcon(aiAssistant_Page, UiPalette.NavigationTextMuted);
+                SetMenuIcon(aiAssistant_Page, false);
                 aiAssistant_Page.Invalidate();
                 hoverAnimator.RefreshRestingColors();
                 SetNoteColumnVisible(true);
@@ -307,8 +320,8 @@ namespace Automation
                 SF.mainfrm.UpdateAiPanelWidth();
                 p.Visible = true;
                 aiAssistantActive = true;
-                aiAssistant_Page.BackColor = UiPalette.NavigationActive;
-                SetMenuIcon(aiAssistant_Page, UiPalette.NavigationAccent);
+                aiAssistant_Page.BackColor = UiPalette.Navigation;
+                SetMenuIcon(aiAssistant_Page, true);
                 aiAssistant_Page.Invalidate();
                 hoverAnimator.RefreshRestingColors();
                 SetNoteColumnVisible(false);
