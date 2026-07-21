@@ -3,8 +3,6 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Drawing;
-using System.Drawing.Design;
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -782,8 +780,6 @@ namespace Automation
             infoType = "自定义提示信息";
             alarmLightEnable = "禁用";
             buzzerTimeType = "自定义时间";
-            PopupBackColor = Color.White;
-            PopupFontColor = Color.Black;
             Btn1Text = "是";
             Btn2Text = "否";
             Btn3Text = "取消";
@@ -809,14 +805,6 @@ namespace Automation
                 }
             }
         }
-
-        [Browsable(true)]
-        [DisplayName("弹框背景颜色"), Category("弹框相关设置"), Description("弹框背景色，用于区分提示等级与视觉强调。"), ReadOnly(false)]
-        public Color PopupBackColor { get; set; }
-
-        [Browsable(true)]
-        [DisplayName("弹框字体颜色"), Category("弹框相关设置"), Description("弹框文字颜色，提升可读性与状态区分。"), ReadOnly(false)]
-        public Color PopupFontColor { get; set; }
 
         [Browsable(true)]
         [DisplayName("按钮1文本"), Category("弹框相关设置"), Description("按钮1显示文本，对应“确定”分支语义。"), ReadOnly(false)]

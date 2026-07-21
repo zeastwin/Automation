@@ -311,7 +311,6 @@ namespace Automation
                         btn1Text, false, false);
                 }
 
-                dialog.ApplyContentTheme(popup.PopupBackColor, popup.PopupFontColor);
                 if (popup.DelayClose)
                 {
                     System.Windows.Forms.Timer closeTimer = new System.Windows.Forms.Timer();

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Automation
@@ -381,6 +382,79 @@ namespace Automation
 
             public Label Label { get; }
             public List<Button> Buttons { get; } = new List<Button>();
+        }
+    }
+
+    internal sealed class InstantToolStripDropDown : ToolStripDropDown
+    {
+        private const int WmSetRedraw = 0x000B;
+        private const uint RedrawInvalidate = 0x0001;
+        private const uint RedrawErase = 0x0004;
+        private const uint RedrawAllChildren = 0x0080;
+        private const uint RedrawUpdateNow = 0x0100;
+        private const uint RedrawFrame = 0x0400;
+        private const int DwmTransitionsForcedDisabled = 3;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(
+            IntPtr windowHandle,
+            int message,
+            IntPtr wordParameter,
+            IntPtr longParameter);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool RedrawWindow(
+            IntPtr windowHandle,
+            IntPtr updateRectangle,
+            IntPtr updateRegion,
+            uint flags);
+
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmSetWindowAttribute(
+            IntPtr windowHandle,
+            int attribute,
+            ref int attributeValue,
+            int attributeSize);
+
+        public void ShowInstant(Control anchor, Point location, Control content)
+        {
+            if (anchor == null) throw new ArgumentNullException(nameof(anchor));
+            if (content == null) throw new ArgumentNullException(nameof(content));
+
+            CreateControl();
+            CreateChildHandles(content);
+            IntPtr handle = Handle;
+            int disableTransitions = 1;
+            DwmSetWindowAttribute(
+                handle,
+                DwmTransitionsForcedDisabled,
+                ref disableTransitions,
+                sizeof(int));
+            SendMessage(handle, WmSetRedraw, IntPtr.Zero, IntPtr.Zero);
+            try
+            {
+                Show(anchor, location);
+            }
+            finally
+            {
+                SendMessage(handle, WmSetRedraw, new IntPtr(1), IntPtr.Zero);
+                RedrawWindow(
+                    handle,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    RedrawInvalidate | RedrawErase | RedrawAllChildren
+                        | RedrawUpdateNow | RedrawFrame);
+            }
+        }
+
+        private static void CreateChildHandles(Control control)
+        {
+            control.CreateControl();
+            foreach (Control child in control.Controls)
+            {
+                CreateChildHandles(child);
+            }
         }
     }
 

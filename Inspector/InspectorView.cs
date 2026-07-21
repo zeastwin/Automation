@@ -591,6 +591,204 @@ namespace Automation
         }
     }
 
+    /// <summary>
+    /// 检查器的常态值单元格。默认只绘制信息，用户激活当前单元格后，
+    /// 由字段控件在同一矩形内覆盖真实编辑器，避免整页始终呈现为输入表单。
+    /// </summary>
+    internal sealed class InspectorValueCell : Control
+    {
+        private string displayText = string.Empty;
+        private bool editable;
+        private bool showDropDownArrow;
+        private bool pointerOver;
+        private bool pointerDown;
+
+        public InspectorValueCell()
+        {
+            BackColor = UiPalette.Surface;
+            Cursor = Cursors.Default;
+            Font = InspectorFonts.Regular9;
+            ForeColor = UiPalette.TextPrimary;
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw
+                | ControlStyles.Selectable
+                | ControlStyles.UserPaint,
+                true);
+        }
+
+        public string DisplayText
+        {
+            get => displayText;
+            set
+            {
+                string next = value ?? string.Empty;
+                if (string.Equals(displayText, next, StringComparison.Ordinal))
+                {
+                    return;
+                }
+                displayText = next;
+                Invalidate();
+            }
+        }
+
+        public bool Editable
+        {
+            get => editable;
+            set
+            {
+                if (editable == value)
+                {
+                    return;
+                }
+                editable = value;
+                TabStop = value;
+                Cursor = value
+                    ? ShowDropDownArrow ? Cursors.Hand : Cursors.IBeam
+                    : Cursors.Default;
+                if (!value)
+                {
+                    pointerOver = false;
+                    pointerDown = false;
+                }
+                Invalidate();
+            }
+        }
+
+        public bool ShowDropDownArrow
+        {
+            get => showDropDownArrow;
+            set
+            {
+                if (showDropDownArrow == value)
+                {
+                    return;
+                }
+                showDropDownArrow = value;
+                Cursor = Editable && value ? Cursors.Hand : Editable ? Cursors.IBeam : Cursors.Default;
+                Invalidate();
+            }
+        }
+
+        public event EventHandler ActivationRequested;
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            pointerOver = Editable;
+            Invalidate();
+            base.OnMouseEnter(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            pointerOver = false;
+            pointerDown = false;
+            Invalidate();
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (Editable && e.Button == MouseButtons.Left)
+            {
+                pointerDown = true;
+                Focus();
+                Invalidate();
+            }
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            bool activate = Editable
+                && pointerDown
+                && e.Button == MouseButtons.Left
+                && ClientRectangle.Contains(e.Location);
+            pointerDown = false;
+            Invalidate();
+            base.OnMouseUp(e);
+            if (activate)
+            {
+                ActivationRequested?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (Editable && (e.KeyCode == Keys.Enter
+                    || e.KeyCode == Keys.Space
+                    || e.KeyCode == Keys.F2
+                    || e.Alt && e.KeyCode == Keys.Down))
+            {
+                ActivationRequested?.Invoke(this, EventArgs.Empty);
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+            base.OnKeyDown(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Color background = pointerDown
+                ? UiPalette.SurfacePressed
+                : pointerOver ? UiPalette.SurfaceHover : UiPalette.Surface;
+            e.Graphics.Clear(background);
+
+            int arrowWidth = ShowDropDownArrow ? 26 : 0;
+            TextRenderer.DrawText(
+                e.Graphics,
+                string.IsNullOrEmpty(DisplayText) ? "未设置" : DisplayText,
+                Font,
+                new Rectangle(7, 0, Math.Max(1, Width - 11 - arrowWidth), Height),
+                string.IsNullOrEmpty(DisplayText) ? UiPalette.TextDisabled : ForeColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                    | TextFormatFlags.NoPadding);
+
+            if (ShowDropDownArrow)
+            {
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                float centerX = Width - 13F;
+                float centerY = Height / 2F;
+                using (var pen = new Pen(
+                    Editable ? UiPalette.TextMuted : UiPalette.TextDisabled,
+                    1.2F)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round
+                })
+                {
+                    e.Graphics.DrawLine(
+                        pen,
+                        centerX - 3F,
+                        centerY - 1.5F,
+                        centerX,
+                        centerY + 1.5F);
+                    e.Graphics.DrawLine(
+                        pen,
+                        centerX,
+                        centerY + 1.5F,
+                        centerX + 3F,
+                        centerY - 1.5F);
+                }
+            }
+
+            if (Focused && ShowFocusCues && Editable)
+            {
+                using (var pen = new Pen(UiPalette.Focus))
+                {
+                    e.Graphics.DrawRectangle(
+                        pen,
+                        0,
+                        0,
+                        Math.Max(0, Width - 1),
+                        Math.Max(0, Height - 1));
+                }
+            }
+        }
+    }
+
     internal sealed class InspectorTextBox : TextBox
     {
         private const int EmSetMargins = 0xD3;
@@ -709,7 +907,7 @@ namespace Automation
                 TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Height;
             int top = Math.Min(
                 ClientSize.Height - textHeight - 1,
-                Math.Max(1, (ClientSize.Height - textHeight) / 2 + 4));
+                Math.Max(1, (ClientSize.Height - textHeight) / 2));
             var rectangle = new NativeRectangle
             {
                 Left = 6,
@@ -732,6 +930,8 @@ namespace Automation
         private const int SelectionPickerArrowWidth = 28;
         private readonly InspectorComboArrow dropDownButton = new InspectorComboArrow();
         private bool selectionPickerRequestPending;
+        private bool standardValueDropDownRequestPending;
+        private InstantToolStripDropDown activeStandardValueDropDown;
 
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(
@@ -747,7 +947,7 @@ namespace Automation
             FlatStyle = FlatStyle.Flat;
             Font = InspectorFonts.Regular9;
             DrawMode = DrawMode.OwnerDrawFixed;
-            ItemHeight = 24;
+            ItemHeight = 22;
             dropDownButton.AccessibleName = "展开选项";
             dropDownButton.Click += (sender, args) => OpenDropDownFromArrow();
             Controls.Add(dropDownButton);
@@ -760,7 +960,7 @@ namespace Automation
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            SendMessage(Handle, CbSetItemHeight, new IntPtr(-1), new IntPtr(26));
+            SendMessage(Handle, CbSetItemHeight, new IntPtr(-1), new IntPtr(22));
             LayoutDropDownButton();
             dropDownButton.BringToFront();
             ClearTextSelection();
@@ -794,10 +994,10 @@ namespace Automation
                 GetItemText(Items[e.Index]),
                 Font,
                 new Rectangle(
-                    e.Bounds.X + 6,
-                    e.Bounds.Y + (selectionField ? 2 : 0),
-                    Math.Max(1, e.Bounds.Width - 8),
-                    Math.Max(1, e.Bounds.Height - (selectionField ? 2 : 0))),
+                    e.Bounds.X + 7,
+                    e.Bounds.Y,
+                    Math.Max(1, e.Bounds.Width - 9),
+                    Math.Max(1, e.Bounds.Height)),
                 foreColor,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                     | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
@@ -832,16 +1032,11 @@ namespace Automation
 
         protected override void OnDropDown(EventArgs e)
         {
-            if (CanOpenSelectionPicker())
+            if (DroppedDown)
             {
-                if (DroppedDown)
-                {
-                    DroppedDown = false;
-                }
-                QueueSelectionPickerRequest();
-                return;
+                DroppedDown = false;
             }
-            base.OnDropDown(e);
+            QueueDropDownRequest();
         }
 
         protected override void OnSelectionChangeCommitted(EventArgs e)
@@ -861,6 +1056,10 @@ namespace Automation
 
         protected override void OnEnabledChanged(EventArgs e)
         {
+            if (!Enabled)
+            {
+                activeStandardValueDropDown?.Close();
+            }
             BackColor = Enabled ? UiPalette.Input : UiPalette.SurfaceSubtle;
             ForeColor = Enabled ? UiPalette.TextPrimary : UiPalette.TextDisabled;
             base.OnEnabledChanged(e);
@@ -870,30 +1069,27 @@ namespace Automation
 
         protected override void WndProc(ref System.Windows.Forms.Message message)
         {
-            if (CanOpenSelectionPicker())
+            if (message.Msg == CbShowDropDown && message.WParam != IntPtr.Zero)
             {
-                if (message.Msg == CbShowDropDown && message.WParam != IntPtr.Zero)
-                {
-                    message.Result = IntPtr.Zero;
-                    QueueSelectionPickerRequest();
-                    return;
-                }
-                if ((message.Msg == WmLeftButtonDown
-                        || message.Msg == WmLeftButtonDoubleClick)
-                    && ShouldOpenSelectionPickerFromMouse(message.LParam))
-                {
-                    Focus();
-                    message.Result = IntPtr.Zero;
-                    QueueSelectionPickerRequest();
-                    return;
-                }
-                if ((message.Msg == WmKeyDown || message.Msg == WmSysKeyDown)
-                    && ShouldOpenSelectionPickerFromKeyboard(message))
-                {
-                    message.Result = IntPtr.Zero;
-                    QueueSelectionPickerRequest();
-                    return;
-                }
+                message.Result = IntPtr.Zero;
+                QueueDropDownRequest();
+                return;
+            }
+            if ((message.Msg == WmLeftButtonDown
+                    || message.Msg == WmLeftButtonDoubleClick)
+                && ShouldOpenDropDownFromMouse(message.LParam))
+            {
+                Focus();
+                message.Result = IntPtr.Zero;
+                QueueDropDownRequest();
+                return;
+            }
+            if ((message.Msg == WmKeyDown || message.Msg == WmSysKeyDown)
+                && ShouldOpenDropDownFromKeyboard(message))
+            {
+                message.Result = IntPtr.Zero;
+                QueueDropDownRequest();
+                return;
             }
             base.WndProc(ref message);
         }
@@ -905,12 +1101,7 @@ namespace Automation
                 return;
             }
             Focus();
-            if (CanOpenSelectionPicker())
-            {
-                QueueSelectionPickerRequest();
-                return;
-            }
-            DroppedDown = true;
+            QueueDropDownRequest();
         }
 
         private void LayoutDropDownButton()
@@ -934,7 +1125,7 @@ namespace Automation
                 && !IsDisposed;
         }
 
-        private bool ShouldOpenSelectionPickerFromMouse(IntPtr position)
+        private bool ShouldOpenDropDownFromMouse(IntPtr position)
         {
             if (DropDownStyle == ComboBoxStyle.DropDownList)
             {
@@ -944,7 +1135,7 @@ namespace Automation
             return x >= Math.Max(0, ClientSize.Width - SelectionPickerArrowWidth);
         }
 
-        private static bool ShouldOpenSelectionPickerFromKeyboard(
+        private static bool ShouldOpenDropDownFromKeyboard(
             System.Windows.Forms.Message message)
         {
             Keys key = (Keys)message.WParam.ToInt32();
@@ -969,6 +1160,149 @@ namespace Automation
             }));
         }
 
+        private void QueueDropDownRequest()
+        {
+            if (CanOpenSelectionPicker())
+            {
+                QueueSelectionPickerRequest();
+                return;
+            }
+            if (standardValueDropDownRequestPending || !IsHandleCreated || IsDisposed)
+            {
+                return;
+            }
+            standardValueDropDownRequestPending = true;
+            BeginInvoke((Action)(() =>
+            {
+                standardValueDropDownRequestPending = false;
+                if (!IsDisposed && Enabled)
+                {
+                    ShowStandardValueDropDown();
+                }
+            }));
+        }
+
+        private void ShowStandardValueDropDown()
+        {
+            activeStandardValueDropDown?.Close();
+            base.OnDropDown(EventArgs.Empty);
+            if (Items.Count == 0 || IsDisposed || !Visible)
+            {
+                return;
+            }
+
+            Rectangle anchorBounds = RectangleToScreen(ClientRectangle);
+            Rectangle workingArea = Screen.FromRectangle(anchorBounds).WorkingArea;
+            int itemHeight = Math.Max(22, ItemHeight);
+            int desiredHeight = itemHeight * Items.Count + 2;
+            int maximumHeight = Math.Max(
+                itemHeight + 2,
+                Math.Min(
+                    DropDownHeight > 0 ? DropDownHeight : 320,
+                    workingArea.Height - 24));
+            int height = Math.Min(desiredHeight, maximumHeight);
+            int measuredWidth = Items.Cast<object>()
+                .Select(item => TextRenderer.MeasureText(
+                    GetItemText(item),
+                    Font,
+                    Size.Empty,
+                    TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width)
+                .DefaultIfEmpty(0)
+                .Max() + 18;
+            if (desiredHeight > height)
+            {
+                measuredWidth += SystemInformation.VerticalScrollBarWidth;
+            }
+            int width = Math.Min(
+                Math.Max(120, workingArea.Width - 24),
+                Math.Max(Width, measuredWidth));
+
+            var list = new InspectorStandardValueListBox(GetItemText)
+            {
+                CausesValidation = false,
+                Font = Font,
+                ItemHeight = itemHeight,
+                Size = new Size(width, height)
+            };
+            foreach (object item in Items)
+            {
+                list.Items.Add(item);
+            }
+            list.SelectedIndex = SelectedIndex;
+
+            var host = new ToolStripControlHost(list)
+            {
+                AutoSize = false,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty,
+                Size = list.Size
+            };
+            var dropDown = new InstantToolStripDropDown
+            {
+                AutoClose = true,
+                AutoSize = false,
+                BackColor = UiPalette.Surface,
+                CausesValidation = false,
+                DropShadowEnabled = false,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty,
+                Renderer = new BorderlessDropDownRenderer(),
+                Size = list.Size
+            };
+            dropDown.Items.Add(host);
+
+            void CommitSelection()
+            {
+                int selectedIndex = list.SelectedIndex;
+                if (selectedIndex < 0 || selectedIndex >= Items.Count)
+                {
+                    return;
+                }
+                SelectedIndex = selectedIndex;
+                OnSelectionChangeCommitted(EventArgs.Empty);
+                if (!dropDown.IsDisposed)
+                {
+                    dropDown.Close(ToolStripDropDownCloseReason.ItemClicked);
+                }
+            }
+
+            list.SelectionAccepted += CommitSelection;
+            list.CancelRequested += () =>
+                dropDown.Close(ToolStripDropDownCloseReason.Keyboard);
+            dropDown.Closed += (sender, args) =>
+            {
+                if (ReferenceEquals(activeStandardValueDropDown, dropDown))
+                {
+                    activeStandardValueDropDown = null;
+                }
+                OnDropDownClosed(EventArgs.Empty);
+                if (!IsDisposed && IsHandleCreated)
+                {
+                    BeginInvoke(new Action(dropDown.Dispose));
+                }
+                else
+                {
+                    dropDown.Dispose();
+                }
+            };
+            activeStandardValueDropDown = dropDown;
+            dropDown.ShowInstant(
+                this,
+                new Point(Math.Min(0, Width - width), Height),
+                list);
+            list.Focus();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                activeStandardValueDropDown?.Dispose();
+                activeStandardValueDropDown = null;
+            }
+            base.Dispose(disposing);
+        }
+
         internal void ClearTextSelection()
         {
             if (DropDownStyle == ComboBoxStyle.DropDownList || IsDisposed)
@@ -977,6 +1311,93 @@ namespace Automation
             }
             SelectionStart = Text?.Length ?? 0;
             SelectionLength = 0;
+        }
+
+        private sealed class InspectorStandardValueListBox : ListBox
+        {
+            private readonly Func<object, string> getItemText;
+
+            public InspectorStandardValueListBox(Func<object, string> getItemText)
+            {
+                this.getItemText = getItemText
+                    ?? throw new ArgumentNullException(nameof(getItemText));
+                BackColor = UiPalette.Surface;
+                BorderStyle = BorderStyle.FixedSingle;
+                DrawMode = DrawMode.OwnerDrawFixed;
+                ForeColor = UiPalette.TextPrimary;
+                IntegralHeight = false;
+                TabStop = true;
+            }
+
+            public event Action SelectionAccepted;
+            public event Action CancelRequested;
+
+            protected override void OnDrawItem(DrawItemEventArgs e)
+            {
+                if (e.Index < 0 || e.Index >= Items.Count)
+                {
+                    return;
+                }
+                bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+                using (var brush = new SolidBrush(
+                    selected ? UiPalette.BrandSoft : UiPalette.Surface))
+                {
+                    e.Graphics.FillRectangle(brush, e.Bounds);
+                }
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    getItemText(Items[e.Index]),
+                    Font,
+                    new Rectangle(
+                        e.Bounds.X + 7,
+                        e.Bounds.Y,
+                        Math.Max(1, e.Bounds.Width - 10),
+                        e.Bounds.Height),
+                    ForeColor,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                        | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                        | TextFormatFlags.NoPadding);
+            }
+
+            protected override void OnMouseMove(MouseEventArgs e)
+            {
+                base.OnMouseMove(e);
+                int index = IndexFromPoint(e.Location);
+                if (index >= 0 && index < Items.Count && SelectedIndex != index)
+                {
+                    SelectedIndex = index;
+                }
+            }
+
+            protected override void OnMouseUp(MouseEventArgs e)
+            {
+                base.OnMouseUp(e);
+                if (e.Button == MouseButtons.Left && IndexFromPoint(e.Location) >= 0)
+                {
+                    SelectionAccepted?.Invoke();
+                }
+            }
+
+            protected override void OnKeyDown(KeyEventArgs e)
+            {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    SelectionAccepted?.Invoke();
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                    return;
+                }
+                if (e.KeyCode == Keys.Escape
+                    || e.KeyCode == Keys.F4
+                    || e.Alt && e.KeyCode == Keys.Up)
+                {
+                    CancelRequested?.Invoke();
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                    return;
+                }
+                base.OnKeyDown(e);
+            }
         }
     }
 
@@ -1256,7 +1677,7 @@ namespace Automation
             content.BackColor = BackColor;
             content.Dock = DockStyle.Fill;
             content.FlowDirection = FlowDirection.TopDown;
-            content.Padding = new Padding(6);
+            content.Padding = new Padding(3);
             content.WrapContents = false;
             Controls.Add(content);
 
@@ -1684,7 +2105,7 @@ namespace Automation
 
     internal sealed class InspectorSectionControl : UserControl
     {
-        private const int HeaderHeight = 32;
+        private const int HeaderHeight = 26;
         private readonly InspectorSectionButton headerButton = new InspectorSectionButton();
         private readonly InspectorFlowPanel body = new InspectorFlowPanel();
         private readonly List<InspectorFieldControl> fields = new List<InspectorFieldControl>();
@@ -1698,7 +2119,7 @@ namespace Automation
         {
             AutoSize = false;
             BackColor = UiPalette.Surface;
-            Margin = new Padding(0, 0, 0, 5);
+            Margin = new Padding(0, 0, 0, 2);
             Padding = Padding.Empty;
 
             headerButton.AutoSize = false;
@@ -1721,7 +2142,7 @@ namespace Automation
             body.AutoSize = false;
             body.BackColor = UiPalette.Surface;
             body.FlowDirection = FlowDirection.TopDown;
-            body.Padding = new Padding(8, 3, 8, 5);
+            body.Padding = new Padding(4, 0, 4, 1);
             body.WrapContents = false;
             Controls.Add(body);
             body.BringToFront();
@@ -1819,6 +2240,13 @@ namespace Automation
         private void ToggleExpanded()
         {
             expanded = !expanded;
+            if (!expanded)
+            {
+                foreach (InspectorFieldControl field in fields)
+                {
+                    field.EndEdit();
+                }
+            }
             body.Visible = expanded;
             headerButton.Expanded = expanded;
             UpdateWidths();
@@ -1855,8 +2283,8 @@ namespace Automation
 
     internal abstract class InspectorFieldControl : UserControl
     {
-        protected const int PropertyRowHeight = 33;
-        protected const int PropertyEditorHeight = 28;
+        protected const int PropertyRowHeight = 26;
+        protected const int PropertyEditorHeight = 24;
         protected InspectorFieldDefinition Definition;
         protected readonly ToolTip DescriptionToolTip;
         protected bool Editable;
@@ -1880,6 +2308,10 @@ namespace Automation
         public abstract void RefreshValue();
         public abstract bool FocusEditor();
         public abstract void Rebind(InspectorFieldDefinition definition, bool editable);
+
+        public virtual void EndEdit()
+        {
+        }
 
         public virtual bool CanRebind(InspectorFieldDefinition definition)
         {
@@ -1916,6 +2348,12 @@ namespace Automation
             }
             using (var divider = new Pen(UiPalette.Divider))
             {
+                e.Graphics.DrawLine(
+                    divider,
+                    Math.Max(0, labelWidth - 1),
+                    0,
+                    Math.Max(0, labelWidth - 1),
+                    Math.Max(0, Height - 1));
                 e.Graphics.DrawLine(
                     divider,
                     0,
@@ -1989,8 +2427,10 @@ namespace Automation
     {
         private InspectorScalarFieldDefinition definition;
         private readonly Control editor;
+        private readonly InspectorValueCell displayCell;
         private string validationMessage = string.Empty;
         private bool refreshing;
+        private bool endingEdit;
         private bool standardValuesLoaded;
         private bool gotoDropConfigured;
         private bool selectionPickerConfigured;
@@ -2010,7 +2450,23 @@ namespace Automation
             editor.TabIndex = 0;
             Controls.Add(editor);
 
-            AttachDescription(this, editor);
+            if (!(editor is InspectorToggle))
+            {
+                editor.Visible = false;
+                editor.TabStop = false;
+                displayCell = new InspectorValueCell
+                {
+                    AccessibleName = definition.Label,
+                    Font = InspectorFonts.Regular9,
+                    ShowDropDownArrow = editor is InspectorComboBox,
+                    TabIndex = 0
+                };
+                displayCell.ActivationRequested += (sender, args) => ActivateEditor();
+                Controls.Add(displayCell);
+                displayCell.BringToFront();
+            }
+
+            AttachDescription(this, editor, displayCell);
 
             Resize += (sender, args) => LayoutControls();
             SetEditable(editable);
@@ -2052,10 +2508,18 @@ namespace Automation
         {
             Editable = editable;
             bool allow = editable && !definition.IsReadOnly;
+            if (!allow)
+            {
+                DeactivateEditor(true);
+            }
+            if (displayCell != null)
+            {
+                displayCell.Editable = allow;
+            }
             if (editor is TextBox textBox)
             {
                 textBox.ReadOnly = !allow;
-                textBox.BackColor = allow ? UiPalette.Input : UiPalette.SurfaceSubtle;
+                textBox.BackColor = UiPalette.Input;
             }
             else
             {
@@ -2094,13 +2558,19 @@ namespace Automation
                         definition.Property,
                         value,
                         false);
-                }
-                else if (editor is TextBox textBox)
-                {
-                    textBox.Text = InspectorValueConversion.ToDisplayText(
+                    displayCell.DisplayText = InspectorValueConversion.ToDisplayText(
                         definition.Owner,
                         definition.Property,
                         value);
+                }
+                else if (editor is TextBox textBox)
+                {
+                    string displayText = InspectorValueConversion.ToDisplayText(
+                        definition.Owner,
+                        definition.Property,
+                        value);
+                    textBox.Text = displayText;
+                    displayCell.DisplayText = displayText;
                 }
                 ShowMessage(definition.Description, false);
             }
@@ -2120,8 +2590,17 @@ namespace Automation
             {
                 return false;
             }
-            editor.Focus();
-            return true;
+            if (editor is InspectorToggle)
+            {
+                editor.Focus();
+                return true;
+            }
+            return ActivateEditor();
+        }
+
+        public override void EndEdit()
+        {
+            DeactivateEditor(true);
         }
 
         public override bool CanRebind(InspectorFieldDefinition next)
@@ -2145,9 +2624,14 @@ namespace Automation
 
         public override void Rebind(InspectorFieldDefinition next, bool editable)
         {
+            DeactivateEditor(false);
             definition = (InspectorScalarFieldDefinition)next;
             Definition = next;
             AccessibleName = definition.Label;
+            if (displayCell != null)
+            {
+                displayCell.AccessibleName = definition.Label;
+            }
             standardValuesLoaded = false;
             if (editor is InspectorComboBox comboBox)
             {
@@ -2159,7 +2643,7 @@ namespace Automation
                 ConfigureSelectionPicker(comboBox);
             }
             ConfigureGotoDrop(editor);
-            AttachDescription(this, editor);
+            AttachDescription(this, editor, displayCell);
             SetEditable(editable);
             RefreshValue(true);
             Invalidate();
@@ -2177,7 +2661,7 @@ namespace Automation
                     BackColor = UiPalette.Surface,
                     Font = InspectorFonts.Regular9,
                     ForeColor = UiPalette.TextSecondary,
-                    Height = 28,
+                    Height = 24,
                     TextAlign = ContentAlignment.MiddleLeft,
                     UseVisualStyleBackColor = false
                 };
@@ -2208,13 +2692,23 @@ namespace Automation
                 comboBox.DropDown += (sender, args) =>
                     EnsureStandardValuesLoaded(comboBox);
                 comboBox.SelectionChangeCommitted += (sender, args) => CommitComboBox(comboBox);
-                comboBox.Validated += (sender, args) =>
+                comboBox.DropDownClosed += (sender, args) =>
                 {
-                    if (comboBox.DropDownStyle != ComboBoxStyle.DropDownList)
+                    if (comboBox.Visible && !comboBox.UseSelectionPicker)
                     {
-                        CommitComboBox(comboBox);
+                        BeginInvoke((Action)(() => DeactivateEditor(true)));
                     }
                 };
+                comboBox.Validated += (sender, args) =>
+                {
+                    if (comboBox.Visible
+                        && comboBox.DropDownStyle != ComboBoxStyle.DropDownList
+                        && CommitComboBox(comboBox))
+                    {
+                        DeactivateEditor(true);
+                    }
+                };
+                comboBox.KeyDown += Editor_KeyDown;
                 ConfigureGotoDrop(comboBox);
                 ConfigureSelectionPicker(comboBox);
                 return comboBox;
@@ -2224,18 +2718,115 @@ namespace Automation
             {
                 Font = InspectorFonts.Regular9
             };
-            textEditor.Validated += (sender, args) => CommitText(textEditor);
+            textEditor.Validated += (sender, args) =>
+            {
+                if (textEditor.Visible && CommitText(textEditor))
+                {
+                    DeactivateEditor(true);
+                }
+            };
             textEditor.KeyDown += (sender, args) =>
             {
                 if (args.KeyCode == Keys.Enter)
                 {
-                    CommitText(textEditor);
+                    if (CommitText(textEditor))
+                    {
+                        DeactivateEditor(true);
+                    }
+                    args.Handled = true;
+                    args.SuppressKeyPress = true;
+                }
+                else if (args.KeyCode == Keys.Escape)
+                {
+                    RefreshValue(true);
+                    DeactivateEditor(false);
                     args.Handled = true;
                     args.SuppressKeyPress = true;
                 }
             };
             ConfigureGotoDrop(textEditor);
             return textEditor;
+        }
+
+        private bool ActivateEditor()
+        {
+            if (displayCell == null || !displayCell.Editable
+                || editor.IsDisposed || !editor.Enabled)
+            {
+                return false;
+            }
+
+            displayCell.Visible = false;
+            editor.Visible = true;
+            editor.TabStop = true;
+            editor.BringToFront();
+            editor.Focus();
+
+            if (editor is InspectorTextBox textBox)
+            {
+                textBox.SelectAll();
+                return true;
+            }
+
+            if (editor is InspectorComboBox comboBox)
+            {
+                if (!comboBox.UseSelectionPicker)
+                {
+                    EnsureStandardValuesLoaded(comboBox);
+                }
+                BeginInvoke((Action)(() =>
+                {
+                    if (IsDisposed || !comboBox.Visible || !comboBox.Enabled)
+                    {
+                        return;
+                    }
+                    if (comboBox.UseSelectionPicker)
+                    {
+                        ShowSelectionPicker(comboBox);
+                    }
+                    else
+                    {
+                        comboBox.DroppedDown = true;
+                    }
+                }));
+            }
+            return true;
+        }
+
+        private void DeactivateEditor(bool refreshDisplay)
+        {
+            if (displayCell == null || endingEdit)
+            {
+                return;
+            }
+            endingEdit = true;
+            try
+            {
+                if (refreshDisplay)
+                {
+                    RefreshValue(true);
+                }
+                editor.Visible = false;
+                editor.TabStop = false;
+                displayCell.Visible = true;
+                displayCell.BringToFront();
+            }
+            finally
+            {
+                endingEdit = false;
+            }
+        }
+
+        private void Editor_KeyDown(object sender, KeyEventArgs args)
+        {
+            if (args.KeyCode != Keys.Escape)
+            {
+                return;
+            }
+            RefreshValue(true);
+            DeactivateEditor(false);
+            args.Handled = true;
+            args.SuppressKeyPress = true;
         }
 
         private void ConfigureGotoDrop(Control control)
@@ -2310,7 +2901,11 @@ namespace Automation
                 definition.Property,
                 Convert.ToString(definition.GetValue(), CultureInfo.CurrentCulture),
                 selectedValue => CommitValue(selectedValue),
-                () => activeSelectionPicker = null);
+                () =>
+                {
+                    activeSelectionPicker = null;
+                    DeactivateEditor(true);
+                });
         }
 
         private void EnsureStandardValuesLoaded(InspectorComboBox comboBox)
@@ -2337,26 +2932,35 @@ namespace Automation
             }
         }
 
-        private void CommitComboBox(ComboBox comboBox)
+        private bool CommitComboBox(ComboBox comboBox)
         {
             if (refreshing || !comboBox.Enabled)
             {
-                return;
+                return false;
             }
-            object value = comboBox.SelectedItem is InspectorStandardValue selected
-                ? selected.Value
-                : InspectorValueConversion.FromText(
-                    definition.Owner,
-                    definition.Property,
-                    comboBox.Text);
-            CommitValue(value);
+            try
+            {
+                object value = comboBox.SelectedItem is InspectorStandardValue selected
+                    ? selected.Value
+                    : InspectorValueConversion.FromText(
+                        definition.Owner,
+                        definition.Property,
+                        comboBox.Text);
+                return CommitValue(value);
+            }
+            catch (Exception ex)
+            {
+                ShowMessage(Unwrap(ex).Message, true);
+                comboBox.Focus();
+                return false;
+            }
         }
 
-        private void CommitText(TextBox textBox)
+        private bool CommitText(TextBox textBox)
         {
             if (refreshing || textBox.ReadOnly)
             {
-                return;
+                return false;
             }
             try
             {
@@ -2364,17 +2968,18 @@ namespace Automation
                     definition.Owner,
                     definition.Property,
                     textBox.Text);
-                CommitValue(value);
+                return CommitValue(value);
             }
             catch (Exception ex)
             {
                 ShowMessage(Unwrap(ex).Message, true);
                 textBox.SelectAll();
                 textBox.Focus();
+                return false;
             }
         }
 
-        private void CommitValue(object value)
+        private bool CommitValue(object value)
         {
             try
             {
@@ -2382,16 +2987,18 @@ namespace Automation
                 if (Equals(current, value))
                 {
                     ShowMessage(definition.Description, false);
-                    return;
+                    return true;
                 }
                 definition.SetValue(value);
                 ShowMessage(definition.Description, false);
                 OnFieldValueChanged();
+                return true;
             }
             catch (Exception ex)
             {
                 ShowMessage(Unwrap(ex).Message, true);
                 RefreshValue();
+                return false;
             }
         }
 
@@ -2411,13 +3018,22 @@ namespace Automation
         {
             int width = Math.Max(120, ClientSize.Width);
             int labelWidth = GetLabelWidth(width);
-            int editorLeft = labelWidth + 6;
-            int editorTop = 2;
+            int editorLeft = labelWidth;
+            int editorTop = 1;
+            int editorWidth = Math.Max(48, width - editorLeft);
             editor.SetBounds(
                 editorLeft,
                 editorTop,
                 editor is InspectorToggle ? 38 : Math.Max(48, width - editorLeft),
                 PropertyEditorHeight);
+            if (displayCell != null)
+            {
+                displayCell.SetBounds(
+                    editorLeft,
+                    editorTop,
+                    editorWidth,
+                    PropertyEditorHeight);
+            }
             Height = PropertyRowHeight
                 + (string.IsNullOrEmpty(validationMessage) ? 0 : 20);
         }
@@ -2445,8 +3061,11 @@ namespace Automation
         private InspectorValueReferenceFieldDefinition definition;
         private readonly InspectorComboBox kind = new InspectorComboBox();
         private readonly InspectorComboBox value = new InspectorComboBox();
+        private readonly InspectorValueCell kindDisplay = new InspectorValueCell();
+        private readonly InspectorValueCell valueDisplay = new InspectorValueCell();
         private string validationMessage = string.Empty;
         private bool refreshing;
+        private bool endingEdit;
         private bool valueOptionsLoaded;
         private ToolStripDropDown activeSelectionPicker;
 
@@ -2463,6 +3082,11 @@ namespace Automation
             kind.DropDownStyle = ComboBoxStyle.DropDownList;
             kind.Font = InspectorFonts.Regular9;
             kind.SelectionChangeCommitted += Kind_SelectionChangeCommitted;
+            kind.DropDownClosed += (sender, args) =>
+                BeginInvoke((Action)(() => DeactivateEditors(true)));
+            kind.KeyDown += Editor_KeyDown;
+            kind.Visible = false;
+            kind.TabStop = false;
             Controls.Add(kind);
 
             value.Font = InspectorFonts.Regular9;
@@ -2471,10 +3095,39 @@ namespace Automation
             value.DropDown += (sender, args) => EnsureValueOptionsLoaded();
             value.SelectionPickerRequested += (sender, args) => ShowSelectionPicker();
             value.SelectionChangeCommitted += (sender, args) => CommitValue();
-            value.Validated += (sender, args) => CommitValue();
+            value.DropDownClosed += (sender, args) =>
+            {
+                if (value.Visible && !value.UseSelectionPicker)
+                {
+                    BeginInvoke((Action)(() => DeactivateEditors(true)));
+                }
+            };
+            value.Validated += (sender, args) =>
+            {
+                if (value.Visible && CommitValue())
+                {
+                    DeactivateEditors(true);
+                }
+            };
+            value.KeyDown += Editor_KeyDown;
+            value.Visible = false;
+            value.TabStop = false;
             Controls.Add(value);
 
-            AttachDescription(this, kind, value);
+            kindDisplay.AccessibleName = definition.Label + "引用方式";
+            kindDisplay.Font = InspectorFonts.Regular9;
+            kindDisplay.ShowDropDownArrow = true;
+            kindDisplay.ActivationRequested += (sender, args) => ActivateKindEditor();
+            Controls.Add(kindDisplay);
+
+            valueDisplay.AccessibleName = definition.Label;
+            valueDisplay.Font = InspectorFonts.Regular9;
+            valueDisplay.ActivationRequested += (sender, args) => ActivateValueEditor();
+            Controls.Add(valueDisplay);
+            kindDisplay.BringToFront();
+            valueDisplay.BringToFront();
+
+            AttachDescription(this, kind, value, kindDisplay, valueDisplay);
 
             Resize += (sender, args) => LayoutControls();
             SetEditable(editable);
@@ -2515,8 +3168,14 @@ namespace Automation
         {
             Editable = editable;
             bool allow = editable && !definition.IsReadOnly;
+            if (!allow)
+            {
+                DeactivateEditors(true);
+            }
             kind.Enabled = allow;
             value.Enabled = allow;
+            kindDisplay.Editable = allow;
+            valueDisplay.Editable = allow;
         }
 
         public override void RefreshValue()
@@ -2550,6 +3209,7 @@ namespace Automation
                 InspectorReferenceKindItem selectedKind = kind.Items.Cast<InspectorReferenceKindItem>()
                     .FirstOrDefault(item => item.Kind == current);
                 kind.SelectedItem = selectedKind ?? kind.Items.Cast<InspectorReferenceKindItem>().FirstOrDefault();
+                kindDisplay.DisplayText = kind.SelectedItem?.ToString() ?? string.Empty;
                 ConfigureValueEditor(CurrentKind());
                 ShowMessage(definition.Description, false);
             }
@@ -2569,17 +3229,24 @@ namespace Automation
             {
                 return false;
             }
-            value.Focus();
-            return true;
+            return ActivateValueEditor();
+        }
+
+        public override void EndEdit()
+        {
+            DeactivateEditors(true);
         }
 
         public override void Rebind(InspectorFieldDefinition next, bool editable)
         {
+            DeactivateEditors(false);
             definition = (InspectorValueReferenceFieldDefinition)next;
             Definition = next;
             AccessibleName = definition.Label;
+            kindDisplay.AccessibleName = definition.Label + "引用方式";
+            valueDisplay.AccessibleName = definition.Label;
             valueOptionsLoaded = false;
-            AttachDescription(this, kind, value);
+            AttachDescription(this, kind, value, kindDisplay, valueDisplay);
             SetEditable(editable);
             RefreshValue(true);
             Invalidate();
@@ -2595,6 +3262,7 @@ namespace Automation
             try
             {
                 definition.SetKind(selected.Kind);
+                kindDisplay.DisplayText = selected.Text;
                 ConfigureValueEditor(selected.Kind);
                 // 引用方式只有在写入新值后才可由模型事实反推；此处不触发整页刷新，
                 // 避免空值状态立即回落到默认方式，导致用户无法继续输入索引。
@@ -2615,6 +3283,9 @@ namespace Automation
                 value.Items.Clear();
                 value.Text = string.Empty;
                 value.Enabled = false;
+                valueDisplay.DisplayText = string.Empty;
+                valueDisplay.ShowDropDownArrow = false;
+                valueDisplay.Editable = false;
                 return;
             }
             value.DropDownStyle = InspectorValueConversion.StandardValuesExclusive(
@@ -2625,6 +3296,10 @@ namespace Automation
             value.UseSelectionPicker = InspectorSelectionPickerResolver.TryResolve(
                 property,
                 out InspectorSelectionPickerKind _);
+            valueDisplay.ShowDropDownArrow = value.UseSelectionPicker
+                || InspectorValueConversion.HasStandardValues(definition.Owner, property)
+                || (Nullable.GetUnderlyingType(property.PropertyType)
+                    ?? property.PropertyType).IsEnum;
             PopulateStandardValues(
                 value,
                 definition.Owner,
@@ -2632,6 +3307,121 @@ namespace Automation
                 definition.GetValue(selectedKind),
                 false);
             value.Enabled = Editable && !definition.IsReadOnly;
+            valueDisplay.Editable = value.Enabled;
+            valueDisplay.DisplayText = InspectorValueConversion.ToDisplayText(
+                definition.Owner,
+                property,
+                definition.GetValue(selectedKind));
+        }
+
+        private bool ActivateKindEditor()
+        {
+            if (!kindDisplay.Editable || !kind.Enabled || kind.IsDisposed)
+            {
+                return false;
+            }
+            DeactivateEditors(false);
+            kindDisplay.Visible = false;
+            kind.Visible = true;
+            kind.TabStop = true;
+            kind.BringToFront();
+            kind.Focus();
+            BeginInvoke((Action)(() =>
+            {
+                if (!IsDisposed && kind.Visible && kind.Enabled)
+                {
+                    kind.DroppedDown = true;
+                }
+            }));
+            return true;
+        }
+
+        private bool ActivateValueEditor()
+        {
+            InspectorValueReferenceKind selectedKind = CurrentKind();
+            PropertyDescriptor property = definition.GetActiveProperty(selectedKind);
+            if (!valueDisplay.Editable || !value.Enabled
+                || value.IsDisposed || property == null)
+            {
+                return false;
+            }
+            DeactivateEditors(false);
+            valueDisplay.Visible = false;
+            value.Visible = true;
+            value.TabStop = true;
+            value.BringToFront();
+            value.Focus();
+
+            if (value.UseSelectionPicker)
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    if (!IsDisposed && value.Visible && value.Enabled)
+                    {
+                        ShowSelectionPicker();
+                    }
+                }));
+                return true;
+            }
+
+            if (InspectorValueConversion.HasStandardValues(definition.Owner, property)
+                || (Nullable.GetUnderlyingType(property.PropertyType)
+                    ?? property.PropertyType).IsEnum)
+            {
+                EnsureValueOptionsLoaded();
+                BeginInvoke((Action)(() =>
+                {
+                    if (!IsDisposed && value.Visible && value.Enabled)
+                    {
+                        value.DroppedDown = true;
+                    }
+                }));
+            }
+            else
+            {
+                value.SelectAll();
+            }
+            return true;
+        }
+
+        private void DeactivateEditors(bool refreshDisplay)
+        {
+            if (endingEdit)
+            {
+                return;
+            }
+            endingEdit = true;
+            try
+            {
+                if (refreshDisplay)
+                {
+                    RefreshValue(true);
+                }
+                kind.Visible = false;
+                kind.TabStop = false;
+                value.Visible = false;
+                value.TabStop = false;
+                kindDisplay.Visible = true;
+                valueDisplay.Visible = true;
+                kindDisplay.BringToFront();
+                valueDisplay.BringToFront();
+            }
+            finally
+            {
+                endingEdit = false;
+            }
+        }
+
+        private void Editor_KeyDown(object sender, KeyEventArgs args)
+        {
+            if (args.KeyCode != Keys.Escape)
+            {
+                return;
+            }
+            RefreshValue(true);
+            DeactivateEditors(false);
+            args.Handled = true;
+            args.SuppressKeyPress = true;
         }
 
         private void ShowSelectionPicker()
@@ -2655,7 +3445,11 @@ namespace Automation
                     definition.GetValue(selectedKind),
                     CultureInfo.CurrentCulture),
                 selectedValue => CommitPickerValue(selectedKind, selectedValue),
-                () => activeSelectionPicker = null);
+                () =>
+                {
+                    activeSelectionPicker = null;
+                    DeactivateEditors(true);
+                });
         }
 
         private void CommitPickerValue(
@@ -2704,17 +3498,17 @@ namespace Automation
             }
         }
 
-        private void CommitValue()
+        private bool CommitValue()
         {
             if (refreshing || !value.Enabled)
             {
-                return;
+                return false;
             }
             InspectorValueReferenceKind selectedKind = CurrentKind();
             PropertyDescriptor property = definition.GetActiveProperty(selectedKind);
             if (property == null)
             {
-                return;
+                return false;
             }
             try
             {
@@ -2724,11 +3518,13 @@ namespace Automation
                 definition.SetValue(selectedKind, converted);
                 ShowMessage(definition.Description, false);
                 OnFieldValueChanged();
+                return true;
             }
             catch (Exception ex)
             {
                 ShowMessage(ex.Message, true);
                 value.Focus();
+                return false;
             }
         }
 
@@ -2758,14 +3554,20 @@ namespace Automation
         {
             int width = Math.Max(180, ClientSize.Width);
             int labelWidth = GetLabelWidth(width);
-            int editorLeft = labelWidth + 6;
+            int editorLeft = labelWidth;
             int editorWidth = Math.Max(80, width - editorLeft);
             int kindWidth = Math.Min(92, Math.Max(72, editorWidth * 40 / 100));
-            kind.SetBounds(editorLeft, 2, kindWidth, PropertyEditorHeight);
+            kind.SetBounds(editorLeft, 1, kindWidth, PropertyEditorHeight);
+            kindDisplay.SetBounds(editorLeft, 1, kindWidth, PropertyEditorHeight);
             value.SetBounds(
-                editorLeft + kindWidth + 4,
-                2,
-                Math.Max(48, editorWidth - kindWidth - 4),
+                editorLeft + kindWidth + 2,
+                1,
+                Math.Max(48, editorWidth - kindWidth - 2),
+                PropertyEditorHeight);
+            valueDisplay.SetBounds(
+                editorLeft + kindWidth + 2,
+                1,
+                Math.Max(48, editorWidth - kindWidth - 2),
                 PropertyEditorHeight);
             int messageHeight = string.IsNullOrEmpty(validationMessage) ? 0 : 20;
             Height = PropertyRowHeight + messageHeight;
@@ -2879,6 +3681,15 @@ namespace Automation
             InspectorCollectionItemControl first = itemsPanel.Controls
                 .OfType<InspectorCollectionItemControl>().FirstOrDefault();
             return first?.FocusFirstEditor() == true;
+        }
+
+        public override void EndEdit()
+        {
+            foreach (InspectorCollectionItemControl item in itemsPanel.Controls
+                .OfType<InspectorCollectionItemControl>())
+            {
+                item.EndEdit();
+            }
         }
 
         public override bool CanRebind(InspectorFieldDefinition next)
@@ -3146,18 +3957,18 @@ namespace Automation
                 int right = width;
                 if (showAddButton)
                 {
-                    addButton.SetBounds(Math.Max(0, right - 64), 1, 64, 27);
-                    right -= 68;
+                    addButton.SetBounds(Math.Max(0, right - 60), 1, 60, 23);
+                    right -= 64;
                 }
-                title.SetBounds(0, 0, Math.Max(70, right), 29);
+                title.SetBounds(0, 0, Math.Max(70, right), 25);
                 foreach (InspectorCollectionItemControl item in itemsPanel.Controls
                     .OfType<InspectorCollectionItemControl>())
                 {
                     item.Width = width;
                 }
                 int itemsHeight = itemsPanel.GetPreferredSize(new Size(width, 0)).Height;
-                itemsPanel.SetBounds(0, 31, width, itemsHeight);
-                Height = 31 + itemsHeight;
+                itemsPanel.SetBounds(0, 26, width, itemsHeight);
+                Height = 26 + itemsHeight;
             }
             finally
             {
@@ -3168,7 +3979,7 @@ namespace Automation
 
     internal sealed class InspectorCollectionItemControl : UserControl
     {
-        private const int HeaderHeight = 30;
+        private const int HeaderHeight = 25;
         private readonly InspectorSectionButton header = new InspectorSectionButton();
         private readonly InspectorIconButton delete = new InspectorIconButton();
         private readonly InspectorIconButton moveUp = new InspectorIconButton();
@@ -3201,7 +4012,7 @@ namespace Automation
             this.expanded = expanded;
             AutoSize = false;
             BackColor = UiPalette.Stroke;
-            Margin = new Padding(0, 0, 0, 3);
+            Margin = new Padding(0, 0, 0, 1);
             Padding = new Padding(1);
 
             header.BackColor = UiPalette.SurfaceSubtle;
@@ -3236,7 +4047,7 @@ namespace Automation
             fieldsPanel.AutoSize = false;
             fieldsPanel.BackColor = UiPalette.Surface;
             fieldsPanel.FlowDirection = FlowDirection.TopDown;
-            fieldsPanel.Padding = new Padding(6, 2, 6, 3);
+            fieldsPanel.Padding = new Padding(3, 0, 3, 1);
             fieldsPanel.WrapContents = false;
             fieldsPanel.Visible = expanded;
             Controls.Add(fieldsPanel);
@@ -3287,6 +4098,14 @@ namespace Automation
                 ToggleExpanded();
             }
             return fieldControls.Any(field => field.FocusEditor());
+        }
+
+        public void EndEdit()
+        {
+            foreach (InspectorFieldControl field in fieldControls)
+            {
+                field.EndEdit();
+            }
         }
 
         public bool TryRebind(
@@ -3395,6 +4214,10 @@ namespace Automation
         private void ToggleExpanded()
         {
             expanded = !expanded;
+            if (!expanded)
+            {
+                EndEdit();
+            }
             fieldsPanel.Visible = expanded;
             header.Expanded = expanded;
             UpdateHeaderText();
@@ -3437,12 +4260,12 @@ namespace Automation
                 int right = width - 4;
                 if (editable)
                 {
-                    delete.SetBounds(right - 27, 2, 26, 26);
-                    right -= 30;
-                    moveDown.SetBounds(right - 27, 2, 26, 26);
-                    right -= 30;
-                    moveUp.SetBounds(right - 27, 2, 26, 26);
-                    right -= 30;
+                    delete.SetBounds(right - 22, 2, 21, 21);
+                    right -= 25;
+                    moveDown.SetBounds(right - 22, 2, 21, 21);
+                    right -= 25;
+                    moveUp.SetBounds(right - 22, 2, 21, 21);
+                    right -= 25;
                 }
                 header.SetBounds(1, 1, Math.Max(80, right - 1), HeaderHeight);
                 fieldsPanel.Width = width - 2;

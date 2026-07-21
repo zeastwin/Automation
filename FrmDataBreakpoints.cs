@@ -298,7 +298,7 @@ namespace Automation
                 .ToList();
             if (selectedVariable == Guid.Empty)
             {
-                int selectedIndex = SF.frmValue?.dgvValue?.CurrentRow?.Index ?? -1;
+                int selectedIndex = SF.frmValue?.GetSelectedVariableSlotIndex() ?? -1;
                 selectedVariable = valueSnapshots
                     .FirstOrDefault(value => value.Index == selectedIndex)?.Id ?? Guid.Empty;
             }

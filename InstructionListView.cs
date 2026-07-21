@@ -940,7 +940,14 @@ namespace Automation
             bool selected = SelectedIndices.Contains(index);
             bool isRuntime = index == runtimeIndex;
             bool hasTransientColor = rowBackColors.ContainsKey(index) || !allRowsBackColor.IsEmpty;
-            Color backColor = ResolveRowBackColor(operation, index, selected, isRuntime);
+            // 第0列承载流程轨道和跳转动画，不叠加选中蓝底。
+            // 选择变化时只重绘轨道事实，避免原生选中刷新与动画刷新产生半拍色差。
+            bool paintSelection = e.ColumnIndex != 0 && selected;
+            Color backColor = ResolveRowBackColor(
+                operation,
+                index,
+                paintSelection,
+                isRuntime);
             Color foreColor = operation?.Disable == true && !hasTransientColor
                 ? UiPalette.DisabledSoft
                 : UiPalette.TextPrimary;

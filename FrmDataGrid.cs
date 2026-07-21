@@ -40,6 +40,7 @@ namespace Automation
         private int singleStepFollowProcIndex = -1;
         private bool contextMenuByMouse = false;
         private int contextMenuRowIndex = -1;
+        private bool operationSelectionRefreshPending;
         private readonly ToolStripMenuItem viewCustomFunctionCode = new ToolStripMenuItem();
 
         // 数据网格变动动效：AI 改动当前显示的流程后，闪烁整个网格提示用户。
@@ -74,6 +75,34 @@ namespace Automation
             {
                 return;
             }
+
+            // ListView 在切换选中行时会先后发送旧行取消、新行选中的通知。
+            // 等本轮原生通知完成后再读取 CurrentIndex，避免在中间状态强制绘制并重复重建检查器。
+            if (operationSelectionRefreshPending
+                || dataGridView1.IsDisposed
+                || !dataGridView1.IsHandleCreated)
+            {
+                return;
+            }
+            operationSelectionRefreshPending = true;
+            try
+            {
+                dataGridView1.BeginInvoke((Action)RefreshStableOperationSelection);
+            }
+            catch (InvalidOperationException)
+            {
+                operationSelectionRefreshPending = false;
+            }
+        }
+
+        private void RefreshStableOperationSelection()
+        {
+            operationSelectionRefreshPending = false;
+            if (IsDisposed || Disposing || dataGridView1.IsDisposed)
+            {
+                return;
+            }
+
             int rowIndex = dataGridView1.CurrentIndex;
             iSelectedRow = rowIndex;
             if (rowIndex >= 0
@@ -81,7 +110,7 @@ namespace Automation
                 && SF.frmInspector != null
                 && !SF.frmInspector.IsDisposed)
             {
-                // 先把列表选中态立即绘制出来，再同步更新检查器；检查器内部按对象身份去重。
+                // 此时原生选中状态已经稳定，只绘制最终状态，再同步更新检查器。
                 dataGridView1.Update();
                 ShowOperationProperties(rowIndex);
             }
@@ -1293,20 +1322,22 @@ namespace Automation
                 string opType = op?.OperaType ?? "未知类型";
                 string opName = string.IsNullOrWhiteSpace(op?.Name) ? "未命名" : op.Name;
                 string opText = $"{opIndex}({opType}) {opName}";
-                warnMsg = $"警告：即将删除指令【{opText}】\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n删除后可在当前会话使用 Ctrl+Z 撤销，确认删除？";
+                warnMsg = $"警告：即将删除指令【{opText}】\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n确认删除？";
             }
             else
             {
-                warnMsg = $"警告：即将删除{selectedRowIndexes4Del.Count}条指令\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n删除后可在当前会话使用 Ctrl+Z 撤销，确认删除？";
+                warnMsg = $"警告：即将删除{selectedRowIndexes4Del.Count}条指令\r\n所属流程：【{procName}】\r\n所属步骤：【{stepName}】\r\n确认删除？";
             }
-            DialogResult confirmResult = MessageBox.Show(
-                this,
-                warnMsg,
+            bool confirmed = false;
+            new Message(
                 "删除指令确认",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Warning,
-                MessageBoxDefaultButton.Button2);
-            if (confirmResult != DialogResult.Yes)
+                warnMsg,
+                () => confirmed = true,
+                null,
+                "删除",
+                "取消",
+                true);
+            if (!confirmed)
             {
                 return;
             }

@@ -1133,7 +1133,7 @@ namespace Automation
                 bool confirmed = false;
                 new Message(
                     "删除流程",
-                    $"确定删除流程【{procName}】？{ownedVariableText}\r\n删除后可在当前会话使用 Ctrl+Z 撤销。",
+                    $"确定删除流程【{procName}】？{ownedVariableText}",
                     () => confirmed = true,
                     null,
                     "删除",
@@ -1189,7 +1189,7 @@ namespace Automation
                 bool confirmed = false;
                 new Message(
                     "删除步骤",
-                    $"确定删除步骤【{stepName}】？\r\n所属流程：【{procName}】\r\n删除后可在当前会话使用 Ctrl+Z 撤销。",
+                    $"确定删除步骤【{stepName}】？\r\n所属流程：【{procName}】",
                     () => confirmed = true,
                     null,
                     "删除",

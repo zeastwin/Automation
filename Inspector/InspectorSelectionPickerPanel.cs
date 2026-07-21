@@ -54,12 +54,13 @@ namespace Automation
     internal sealed class InspectorSelectionPickerPanel : UserControl
     {
         private const int OuterPadding = 8;
-        private const int ColumnCount = 3;
+        private const int MaximumColumnCount = 3;
         private const int ColumnGap = 8;
         private const int GroupGap = 4;
         private const int BandGap = 8;
         private const int MaximumColumnHeight = 464;
-        private const int PreferredWidth = 550;
+        private const int MinimumGroupWidth = 168;
+        private const int MaximumGroupWidth = 260;
 
         private readonly List<PickerGroupControl> groupControls
             = new List<PickerGroupControl>();
@@ -96,7 +97,16 @@ namespace Automation
         {
             get
             {
-                return PreferredWidth;
+                int columnCount = GetPreferredColumnCount();
+                int groupWidth = groupControls.Count == 0
+                    ? MinimumGroupWidth
+                    : groupControls.Max(group => group.PreferredContentWidth);
+                groupWidth = Math.Min(
+                    MaximumGroupWidth,
+                    Math.Max(MinimumGroupWidth, groupWidth));
+                return OuterPadding * 2
+                    + groupWidth * columnCount
+                    + ColumnGap * (columnCount - 1);
             }
         }
 
@@ -116,27 +126,35 @@ namespace Automation
 
         public void RefreshPickerLayout()
         {
+            int requestedColumns = GetPreferredColumnCount();
+            int scrollBarWidth = ContentHeight > ClientSize.Height
+                ? SystemInformation.VerticalScrollBarWidth
+                : 0;
             int availableWidth = Math.Max(
-                260,
+                MinimumGroupWidth,
                 ClientSize.Width - OuterPadding * 2
-                    - SystemInformation.VerticalScrollBarWidth);
+                    - scrollBarWidth);
+            int columnCount = Math.Min(
+                requestedColumns,
+                Math.Max(1, (availableWidth + ColumnGap)
+                    / (MinimumGroupWidth + ColumnGap)));
             int groupWidth = Math.Max(
                 80,
-                (availableWidth - ColumnGap * (ColumnCount - 1)) / ColumnCount);
-            int[] columnY = { OuterPadding, OuterPadding, OuterPadding };
+                (availableWidth - ColumnGap * (columnCount - 1)) / columnCount);
+            int[] columnY = Enumerable.Repeat(OuterPadding, columnCount).ToArray();
             int bandTop = OuterPadding;
             int column = 0;
             foreach (PickerGroupControl groupControl in groupControls)
             {
                 groupControl.RefreshPickerLayout(groupWidth);
-                if (column < ColumnCount - 1
+                if (column < columnCount - 1
                     && columnY[column] > bandTop
                     && columnY[column] + groupControl.ContentHeight
                         > bandTop + MaximumColumnHeight)
                 {
                     column++;
                 }
-                else if (column == ColumnCount - 1
+                else if (column == columnCount - 1
                     && columnY[column] > bandTop
                     && columnY[column] + groupControl.ContentHeight
                         > bandTop + MaximumColumnHeight)
@@ -159,6 +177,34 @@ namespace Automation
                 70,
                 columnY.Max() - GroupGap + OuterPadding);
             AutoScrollMinSize = new Size(0, ContentHeight);
+        }
+
+        private int GetPreferredColumnCount()
+        {
+            if (groupControls.Count == 0)
+            {
+                return 1;
+            }
+            int columns = 1;
+            int columnHeight = OuterPadding;
+            foreach (PickerGroupControl group in groupControls)
+            {
+                int groupHeight = group.ContentHeight > 0
+                    ? group.ContentHeight
+                    : group.PreferredContentHeight;
+                if (columnHeight > OuterPadding
+                    && columnHeight + groupHeight > MaximumColumnHeight + OuterPadding)
+                {
+                    columns++;
+                    columnHeight = OuterPadding;
+                    if (columns >= MaximumColumnCount)
+                    {
+                        return MaximumColumnCount;
+                    }
+                }
+                columnHeight += groupHeight + GroupGap;
+            }
+            return Math.Min(MaximumColumnCount, columns);
         }
 
         private void BuildGroups(
@@ -314,6 +360,27 @@ namespace Automation
             public event Action<Button, Keys> MoveFocusRequested;
 
             public int ContentHeight { get; private set; }
+            public int PreferredContentHeight => HeaderHeight + 1
+                + Math.Max(1, buttons.Count) * (ItemHeight + RowGap);
+
+            public int PreferredContentWidth
+            {
+                get
+                {
+                    int width = MeasureTextWidth(definition.Title, header.Font) + 40;
+                    foreach (Button button in buttons)
+                    {
+                        if (button.Tag is PickerChoice choice)
+                        {
+                            width = Math.Max(
+                                width,
+                                MeasureTextWidth(choice.Primary, button.Font) + 18);
+                        }
+                    }
+                    return width;
+                }
+            }
+
             public Button SelectedButton { get; }
             public Button FirstSelectableButton => SelectableButtons.FirstOrDefault();
             public IEnumerable<Button> SelectableButtons => buttons.Where(button => button.Enabled);
@@ -339,6 +406,19 @@ namespace Automation
                 }
                 ContentHeight = HeaderHeight + 1
                     + Math.Max(1, buttons.Count) * (ItemHeight + RowGap);
+            }
+
+            private static int MeasureTextWidth(string text, Font font)
+            {
+                if (string.IsNullOrEmpty(text))
+                {
+                    return 0;
+                }
+                return TextRenderer.MeasureText(
+                    text,
+                    font,
+                    Size.Empty,
+                    TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width;
             }
 
             private void Header_Paint(object sender, PaintEventArgs e)
@@ -739,6 +819,10 @@ namespace Automation
 
     internal static class InspectorSelectionPickerDropDown
     {
+        private const int MinimumPickerWidth = 180;
+        private const int MaximumPickerWidth = 760;
+        private const int WorkingAreaMargin = 24;
+
         public static ToolStripDropDown Show(
             Control anchor,
             InspectorSelectionPickerKind kind,
@@ -755,14 +839,19 @@ namespace Automation
                 owner,
                 property,
                 currentValue);
+            int maximumWidth = Math.Max(
+                MinimumPickerWidth,
+                Math.Min(MaximumPickerWidth, workingArea.Width - WorkingAreaMargin));
             int width = Math.Min(
-                panel.PreferredPickerWidth,
-                Math.Max(300, workingArea.Width - 24));
+                maximumWidth,
+                Math.Max(
+                    MinimumPickerWidth,
+                    Math.Max(anchor.Width, panel.PreferredPickerWidth)));
             panel.Size = new Size(width, 80);
             panel.RefreshPickerLayout();
             int maximumHeight = Math.Min(
                 480,
-                Math.Max(160, workingArea.Height - 24));
+                Math.Max(160, workingArea.Height - WorkingAreaMargin));
             int height = Math.Min(panel.ContentHeight, maximumHeight);
             panel.Size = new Size(width, Math.Max(70, height));
             panel.RefreshPickerLayout();
@@ -774,12 +863,12 @@ namespace Automation
                 Padding = Padding.Empty,
                 Size = panel.Size
             };
-            var dropDown = new ToolStripDropDown
+            var dropDown = new InstantToolStripDropDown
             {
                 AutoClose = true,
                 AutoSize = false,
                 BackColor = UiPalette.Surface,
-                DropShadowEnabled = true,
+                DropShadowEnabled = false,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty,
                 Renderer = new BorderlessDropDownRenderer(),
@@ -805,9 +894,10 @@ namespace Automation
                     dropDown.Dispose();
                 }
             };
-            dropDown.Show(
+            dropDown.ShowInstant(
                 anchor,
-                new Point(Math.Min(0, anchor.Width - width), anchor.Height));
+                new Point(Math.Min(0, anchor.Width - width), anchor.Height),
+                panel);
             panel.FocusPicker();
             return dropDown;
         }

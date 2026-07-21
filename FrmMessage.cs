@@ -112,16 +112,6 @@ namespace Automation
             txtMsg.Text = msg ?? string.Empty;
         }
 
-        public void ApplyContentTheme(Color backgroundColor, Color foregroundColor)
-        {
-            panelMessage.BackColor = backgroundColor;
-            contentLayout.BackColor = backgroundColor;
-            txtMsg.BackColor = backgroundColor;
-            txtMsg.ForeColor = foregroundColor;
-            lblCaption.BackColor = backgroundColor;
-            lblCaption.ForeColor = foregroundColor;
-        }
-
         public void btnCanel()
         {
             if (IsDisposed || Disposing)

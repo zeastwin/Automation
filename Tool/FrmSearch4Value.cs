@@ -95,7 +95,7 @@ namespace Automation
             {
                 DataGridViewCell cell = dataGridView1.Rows[e.RowIndex].Cells[0];
                 if (!int.TryParse(Convert.ToString(cell.Value), out int rowIndex)
-                    || rowIndex < 0 || rowIndex >= SF.frmValue.dgvValue.Rows.Count)
+                    || rowIndex < 0 || rowIndex >= ValueConfigStore.ValueCapacity)
                 {
                     return;
                 }

@@ -17,6 +17,8 @@ namespace Automation
         private const string AllVariableScopes = "all";
         private const int EmSetCueBanner = 0x1501;
         private const int WmSetRedraw = 0x000B;
+        private const int TvmSetExtendedStyle = 0x112C;
+        private const int TvsExDoubleBuffer = 0x0004;
 
         private sealed class CommonValueItem
         {
@@ -54,8 +56,8 @@ namespace Automation
 
         private sealed class VariableGridViewState
         {
-            public int FirstDisplayedRowIndex { get; set; }
-            public int CurrentRowIndex { get; set; }
+            public int FirstDisplayedSlotIndex { get; set; }
+            public int CurrentSlotIndex { get; set; }
             public int CurrentColumnIndex { get; set; }
         }
 
@@ -64,6 +66,24 @@ namespace Automation
             Primary,
             Tonal,
             Danger
+        }
+
+        private sealed class BufferedTreeView : TreeView
+        {
+            public BufferedTreeView()
+            {
+                SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
+            }
+
+            protected override void OnHandleCreated(EventArgs e)
+            {
+                base.OnHandleCreated(e);
+                SendMessage(
+                    Handle,
+                    TvmSetExtendedStyle,
+                    new IntPtr(TvsExDoubleBuffer),
+                    new IntPtr(TvsExDoubleBuffer));
+            }
         }
 
         private sealed class MaterialButton : Button
@@ -360,22 +380,38 @@ namespace Automation
         private readonly DataGridViewTextBoxColumn scopeColumn;
         private readonly Button btnClearSearch;
         private readonly TextBox txtVariableSearch;
-        private readonly TextBox txtScopeSearch;
-        private readonly Label lblVariableTitle;
-        private readonly Label lblVariableSubtitle;
         private readonly Label lblEmptyState;
-        private readonly Label lblScopeFooter;
         private readonly ToolTip uiToolTip;
+        private readonly Timer variableSearchTimer;
+        private readonly Timer runtimeValueRefreshTimer;
+        private readonly Font scopeGroupFont;
+        private readonly Font scopeChevronFont;
+        private readonly DicValue[] variableSnapshot = new DicValue[ValueConfigStore.ValueCapacity];
+        private readonly int[] variableRowLoadedVersions = new int[ValueConfigStore.ValueCapacity];
+        private readonly int[] displayRowByVariableSlot = new int[ValueConfigStore.ValueCapacity];
+        private List<int> displayedVariableSlots = new List<int>();
+        private Dictionary<Guid, string> processNamesById = new Dictionary<Guid, string>();
         private List<VariableScopeOption> variableScopeOptions = new List<VariableScopeOption>();
         private readonly Dictionary<string, VariableGridViewState> variableGridViewStates =
             new Dictionary<string, VariableGridViewState>(StringComparer.Ordinal);
         private string selectedScope = AllVariableScopes;
         private Guid? selectedOwnerProcId;
+        private TreeNode hoveredScopeNode;
         private bool isStructViewAttached;
         private bool isValueGridReady;
         private bool isValueEditValid = true;
         private bool isScopeFilterPending;
         private bool refreshScopeTreePending;
+        private bool isScopeSelectionApplyPending;
+        private bool suppressScopeSelectionChanged;
+        private bool hasVariableSnapshot;
+        private bool variableGridRowsInitialized;
+        private bool isRebuildingVariableRows;
+        private bool configurationRefreshPending;
+        private int variableGridPresentationVersion = 1;
+        private string appliedGridScopeKey;
+        private int variableGridUpdateDepth;
+        private bool variableGridRedrawSuspended;
         private const int MaxMonitorHistoryRows = 2000;
         private const int MonitorHistoryTrimRows = 200;
 
@@ -388,6 +424,10 @@ namespace Automation
         public FrmValue()
         {
             InitializeComponent();
+            for (int i = 0; i < displayRowByVariableSlot.Length; i++)
+            {
+                displayRowByVariableSlot[i] = -1;
+            }
             btnMonitor = new MaterialButton();
             btnMonitor.Click += btnMonitor_Click;
             btnMonitorAdd = new MaterialButton();
@@ -411,9 +451,8 @@ namespace Automation
             };
             dgvValue.Columns.Add(scopeColumn);
 
-            labelCommon.Text = "变量作用域";
             listCommon.Visible = false;
-            scopeTree = new TreeView
+            scopeTree = new BufferedTreeView
             {
                 Dock = DockStyle.Fill,
                 BorderStyle = BorderStyle.None,
@@ -432,22 +471,30 @@ namespace Automation
             scopeTree.AfterSelect += ScopeTree_AfterSelect;
             scopeTree.DrawNode += ScopeTree_DrawNode;
             scopeTree.NodeMouseClick += ScopeTree_NodeMouseClick;
+            scopeTree.MouseMove += ScopeTree_MouseMove;
+            scopeTree.MouseLeave += ScopeTree_MouseLeave;
+            scopeGroupFont = new Font(scopeTree.Font, FontStyle.Bold);
+            scopeChevronFont = new Font("Microsoft YaHei UI", 11F);
 
             btnNormalVariables.Text = "新增变量";
             btnSystemVariables.Visible = false;
             btnClearSearch = new MaterialButton { Text = "×" };
             txtVariableSearch = new TextBox();
-            txtScopeSearch = new TextBox();
-            lblVariableTitle = new Label();
-            lblVariableSubtitle = new Label();
             lblEmptyState = new Label();
-            lblScopeFooter = new Label();
             uiToolTip = new ToolTip
             {
                 AutoPopDelay = 6000,
                 InitialDelay = 350,
                 ReshowDelay = 100
             };
+            variableSearchTimer = new Timer { Interval = 160 };
+            variableSearchTimer.Tick += (sender, args) =>
+            {
+                variableSearchTimer.Stop();
+                ApplyScopeFilter();
+            };
+            runtimeValueRefreshTimer = new Timer { Interval = 150 };
+            runtimeValueRefreshTimer.Tick += (sender, args) => RefreshDisplayedRuntimeValues();
             btnPrevious.Visible = false;
             BtnNext.Visible = false;
             btnCancel.Visible = false;
@@ -462,13 +509,18 @@ namespace Automation
             type.DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton;
             type.DisplayStyleForCurrentCellOnly = true;
             type.FlatStyle = FlatStyle.Flat;
+            type.SortMode = DataGridViewColumnSortMode.NotSortable;
             dgvValue.RowHeadersVisible = false;
             dgvValue.AutoGenerateColumns = false;
-
-
-            Type dgvType = this.dgvValue.GetType();
-            PropertyInfo pi = dgvType.GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
-            pi.SetValue(this.dgvValue, true, null);
+            dgvValue.Scroll += (sender, args) =>
+            {
+                if (variableGridUpdateDepth == 0) RefreshViewportRows();
+            };
+            dgvValue.Resize += (sender, args) =>
+            {
+                if (variableGridUpdateDepth == 0) RefreshViewportRows();
+            };
+            DoubleBuffered = true;
 
             dgvValue.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             BuildModernLayout();
@@ -573,86 +625,7 @@ namespace Automation
             panelCommon.Padding = new Padding(8, 0, 8, 8);
             panelCommon.BackColor = UiPalette.SurfaceSubtle;
 
-            var scopeHeader = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 72,
-                Padding = new Padding(10, 10, 8, 4),
-                BackColor = UiPalette.SurfaceSubtle
-            };
-            labelCommon.Dock = DockStyle.Top;
-            labelCommon.Height = 31;
-            labelCommon.Padding = Padding.Empty;
-            labelCommon.Text = "变量空间";
-            labelCommon.TextAlign = ContentAlignment.MiddleLeft;
-            var scopeSubtitle = new Label
-            {
-                Dock = DockStyle.Bottom,
-                Height = 24,
-                Text = "按作用域浏览与管理",
-                TextAlign = ContentAlignment.MiddleLeft,
-                Font = new Font("Microsoft YaHei UI", 9F),
-                ForeColor = UiPalette.TextSecondary
-            };
-            scopeHeader.Controls.Add(scopeSubtitle);
-            scopeHeader.Controls.Add(labelCommon);
-
-            var scopeFilterHost = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 72,
-                Padding = new Padding(8, 0, 8, 7),
-                BackColor = UiPalette.SurfaceSubtle
-            };
-            var scopeFilterLabel = new Label
-            {
-                Dock = DockStyle.Top,
-                Height = 26,
-                Text = "筛选流程",
-                TextAlign = ContentAlignment.MiddleLeft,
-                Font = new Font("Microsoft YaHei UI", 8.5F),
-                ForeColor = UiPalette.TextSecondary
-            };
-            var scopeFilterField = new MaterialInputHost
-            {
-                Dock = DockStyle.Fill,
-                Padding = Padding.Empty,
-                BackColor = UiPalette.SurfaceStrong
-            };
-            txtScopeSearch.Dock = DockStyle.None;
-            txtScopeSearch.AutoSize = false;
-            txtScopeSearch.BorderStyle = BorderStyle.None;
-            txtScopeSearch.BackColor = UiPalette.SurfaceStrong;
-            txtScopeSearch.Font = new Font("Microsoft YaHei UI", 9.5F);
-            txtScopeSearch.AccessibleName = "筛选流程";
-            txtScopeSearch.TextChanged += txtScopeSearch_TextChanged;
-            SendMessage(txtScopeSearch.Handle, EmSetCueBanner, IntPtr.Zero, "输入流程名称");
-            scopeFilterField.Controls.Add(txtScopeSearch);
-            scopeFilterField.Resize += (sender, args) =>
-            {
-                int textHeight = 24;
-                txtScopeSearch.SetBounds(
-                    12,
-                    Math.Max(0, (scopeFilterField.ClientSize.Height - textHeight) / 2),
-                    Math.Max(20, scopeFilterField.ClientSize.Width - 24),
-                    textHeight);
-            };
-            scopeFilterHost.Controls.Add(scopeFilterField);
-            scopeFilterHost.Controls.Add(scopeFilterLabel);
-
-            lblScopeFooter.Dock = DockStyle.Bottom;
-            lblScopeFooter.Height = 45;
-            lblScopeFooter.Padding = new Padding(10, 8, 8, 0);
-            lblScopeFooter.Text = "名称与槽位在全平台唯一";
-            lblScopeFooter.TextAlign = ContentAlignment.TopLeft;
-            lblScopeFooter.Font = new Font("Microsoft YaHei UI", 8.5F);
-            lblScopeFooter.ForeColor = UiPalette.TextSecondary;
-            lblScopeFooter.BackColor = UiPalette.SurfaceSubtle;
-
             panelCommon.Controls.Add(scopeTree);
-            panelCommon.Controls.Add(lblScopeFooter);
-            panelCommon.Controls.Add(scopeFilterHost);
-            panelCommon.Controls.Add(scopeHeader);
 
             var gridHost = new Panel
             {
@@ -666,26 +639,6 @@ namespace Automation
                 BackColor = UiPalette.SurfaceStrong,
                 BorderStyle = BorderStyle.None
             };
-            var gridHeader = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 66,
-                Padding = new Padding(16, 8, 16, 6),
-                BackColor = UiPalette.SurfaceStrong
-            };
-            lblVariableTitle.Dock = DockStyle.Top;
-            lblVariableTitle.Height = 28;
-            lblVariableTitle.Font = new Font("Microsoft YaHei UI", 11.5F, FontStyle.Bold);
-            lblVariableTitle.ForeColor = UiPalette.TextPrimary;
-            lblVariableTitle.TextAlign = ContentAlignment.MiddleLeft;
-            lblVariableSubtitle.Dock = DockStyle.Bottom;
-            lblVariableSubtitle.Height = 22;
-            lblVariableSubtitle.Font = new Font("Microsoft YaHei UI", 9F);
-            lblVariableSubtitle.ForeColor = UiPalette.TextSecondary;
-            lblVariableSubtitle.TextAlign = ContentAlignment.MiddleLeft;
-            gridHeader.Controls.Add(lblVariableSubtitle);
-            gridHeader.Controls.Add(lblVariableTitle);
-
             dgvValue.Dock = DockStyle.Fill;
             dgvValue.BorderStyle = BorderStyle.None;
             lblEmptyState.Dock = DockStyle.Fill;
@@ -702,45 +655,16 @@ namespace Automation
             gridBody.Controls.Add(dgvValue);
             gridBody.Controls.Add(lblEmptyState);
             gridCard.Controls.Add(gridBody);
-            gridCard.Controls.Add(gridHeader);
             gridHost.Controls.Add(gridCard);
             splitContainerMain.Panel1.Controls.Clear();
             splitContainerMain.Panel1.Controls.Add(gridHost);
             splitContainerMain.Panel1.Controls.Add(panelCommon);
 
-            var structHeader = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 58,
-                Padding = new Padding(16, 8, 12, 6),
-                BackColor = UiPalette.Background
-            };
-            var structTitle = new Label
-            {
-                Dock = DockStyle.Top,
-                Height = 26,
-                Text = "数据结构",
-                TextAlign = ContentAlignment.MiddleLeft,
-                Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold),
-                ForeColor = UiPalette.TextPrimary
-            };
-            var structSubtitle = new Label
-            {
-                Dock = DockStyle.Bottom,
-                Height = 20,
-                Text = "变量相关结构定义",
-                TextAlign = ContentAlignment.MiddleLeft,
-                Font = new Font("Microsoft YaHei UI", 8.5F),
-                ForeColor = UiPalette.TextSecondary
-            };
-            structHeader.Controls.Add(structSubtitle);
-            structHeader.Controls.Add(structTitle);
             panelStructHost.Dock = DockStyle.Fill;
             panelStructHost.Padding = new Padding(8);
             panelStructHost.BackColor = UiPalette.Surface;
             splitContainerMain.Panel2.Controls.Clear();
             splitContainerMain.Panel2.Controls.Add(panelStructHost);
-            splitContainerMain.Panel2.Controls.Add(structHeader);
             splitContainerMain.SplitterWidth = 1;
             splitContainerMain.BorderStyle = BorderStyle.None;
             Text = "变量管理";
@@ -757,8 +681,17 @@ namespace Automation
             Note.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
 
             uiToolTip.SetToolTip(txtVariableSearch, "跨作用域搜索名称、槽位、类型、备注或所属流程");
-            uiToolTip.SetToolTip(txtScopeSearch, "按流程名称筛选左侧私有变量区域");
             uiToolTip.SetToolTip(btnMonitorAdd, "把所选变量加入运行值监控");
+
+            EnableDoubleBuffer(panel1);
+            EnableDoubleBuffer(splitContainerMain);
+            EnableDoubleBuffer(splitContainerMain.Panel1);
+            EnableDoubleBuffer(splitContainerMain.Panel2);
+            EnableDoubleBuffer(panelCommon);
+            EnableDoubleBuffer(scopeTree);
+            EnableDoubleBuffer(gridHost);
+            EnableDoubleBuffer(gridCard);
+            EnableDoubleBuffer(gridBody);
 
             splitContainerMain.Panel2.ResumeLayout();
             splitContainerMain.Panel1.ResumeLayout();
@@ -784,10 +717,6 @@ namespace Automation
             panelStructHost.BackColor = UiPalette.Surface;
             splitContainerMain.BackColor = UiPalette.Stroke;
             splitContainerMain.BorderStyle = BorderStyle.None;
-            labelCommon.BackColor = UiPalette.SurfaceSubtle;
-            labelCommon.ForeColor = UiPalette.TextPrimary;
-            labelCommon.Font = new Font("Microsoft YaHei UI", 13F, FontStyle.Bold);
-
             listCommon.BackColor = UiPalette.SurfaceStrong;
             listCommon.ForeColor = UiPalette.TextPrimary;
             listCommon.BorderStyle = BorderStyle.FixedSingle;
@@ -814,6 +743,7 @@ namespace Automation
 
         private static void ApplyGridStyle(DataGridView grid)
         {
+            EnableDoubleBuffer(grid);
             grid.Font = new Font("Microsoft YaHei UI", 10F);
             grid.BackgroundColor = UiPalette.SurfaceStrong;
             grid.BorderStyle = BorderStyle.None;
@@ -824,9 +754,13 @@ namespace Automation
             grid.ColumnHeadersHeight = 42;
             grid.ColumnHeadersDefaultCellStyle.BackColor = UiPalette.Background;
             grid.ColumnHeadersDefaultCellStyle.ForeColor = UiPalette.TextPrimary;
+            grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = UiPalette.Background;
+            grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = UiPalette.TextPrimary;
             grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
             grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            grid.ColumnHeadersDefaultCellStyle.WrapMode = DataGridViewTriState.False;
             grid.RowTemplate.Height = 38;
+            grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
             grid.DefaultCellStyle.BackColor = UiPalette.SurfaceStrong;
             grid.DefaultCellStyle.ForeColor = UiPalette.TextPrimary;
             grid.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
@@ -838,6 +772,13 @@ namespace Automation
             {
                 grid.Columns["Note"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
             }
+        }
+
+        private static void EnableDoubleBuffer(Control control)
+        {
+            PropertyInfo property = typeof(Control).GetProperty(
+                "DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
+            property?.SetValue(control, true, null);
         }
 
         private static void ApplyButtonStyle(Button button, bool primary, bool danger)
@@ -924,6 +865,8 @@ namespace Automation
 
         private void FrmValue_Disposed(object sender, EventArgs e)
         {
+            runtimeValueRefreshTimer?.Dispose();
+            variableSearchTimer?.Dispose();
             if (isValueStoreHooked && hookedValueStore != null)
             {
                 hookedValueStore.ValueChanged -= ValueStore_ValueChanged;
@@ -935,6 +878,8 @@ namespace Automation
                 monitorForm.Dispose();
             }
             monitorForm = null;
+            scopeGroupFont?.Dispose();
+            scopeChevronFont?.Dispose();
             uiToolTip?.Dispose();
         }
         //从文件更新变量表
@@ -951,69 +896,14 @@ namespace Automation
   
         public void RefreshValue()
         {
-            dgvValue.Rows.Clear();
-            RefreshVariableScopeOptions();
-
-            for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
-            {
-                dgvValue.Rows.Add();
-
-                dgvValue.Rows[i].Cells[0].Value = i;
-                dgvValue.Rows[i].Cells[1].Value = string.Empty;
-                dgvValue.Rows[i].Cells[2].Value = DefaultValueType;
-                dgvValue.Rows[i].Cells[3].Value = DefaultValueText;
-                dgvValue.Rows[i].Cells[4].Value = string.Empty;
-                if (SF.valueStore.TryGetValueByIndex(i, out DicValue cachedValue))
-                {
-                    dgvValue.Rows[i].Cells[1].Value = cachedValue.Name;
-                    dgvValue.Rows[i].Cells[2].Value = cachedValue.Type;
-                    dgvValue.Rows[i].Cells[3].Value = cachedValue.Value;
-                    dgvValue.Rows[i].Cells[4].Value = cachedValue.Note;
-                }
-                ConfigureVariableScopeCell(dgvValue.Rows[i], cachedValue);
-                ApplyVariableRowEditingState(dgvValue.Rows[i], cachedValue);
-            }
-            RefreshScopeTree();
-            ApplyScopeFilter();
-            RefreshMonitorTitle();
-            RefreshMonitorRows();
-        }
-        //刷新变量界面
-        public void FreshFrmValue()
-        {
-            bool allowRefresh = isValueGridReady;
+            bool allowGridEvents = isValueGridReady;
             isValueGridReady = false;
+            BeginVariableGridUpdate();
             try
             {
-                if (dgvValue.Rows.Count != ValueConfigStore.ValueCapacity)
-                {
-                    RefreshValue();
-                    return;
-                }
+                RefreshVariableSnapshot();
                 RefreshVariableScopeOptions();
-                for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
-                {
-                    if (SF.valueStore.TryGetValueByIndex(i, out DicValue cachedValue))
-                    {
-                        dgvValue.Rows[i].Cells[0].Value = i;
-                        dgvValue.Rows[i].Cells[1].Value = cachedValue.Name;
-                        dgvValue.Rows[i].Cells[2].Value = cachedValue.Type;
-                        dgvValue.Rows[i].Cells[3].Value = cachedValue.Value;
-                        dgvValue.Rows[i].Cells[4].Value = cachedValue.Note;
-                        ConfigureVariableScopeCell(dgvValue.Rows[i], cachedValue);
-                        ApplyVariableRowEditingState(dgvValue.Rows[i], cachedValue);
-                    }
-                    else
-                    {
-                        dgvValue.Rows[i].Cells[0].Value = i;
-                        dgvValue.Rows[i].Cells[1].Value = string.Empty;
-                        dgvValue.Rows[i].Cells[2].Value = DefaultValueType;
-                        dgvValue.Rows[i].Cells[3].Value = DefaultValueText;
-                        dgvValue.Rows[i].Cells[4].Value = string.Empty;
-                        ConfigureVariableScopeCell(dgvValue.Rows[i], null);
-                        ApplyVariableRowEditingState(dgvValue.Rows[i], null);
-                    }
-                }
+                EnsureVariableGridRowsInitialized();
                 RefreshScopeTree();
                 ApplyScopeFilter();
                 RefreshMonitorTitle();
@@ -1021,80 +911,353 @@ namespace Automation
             }
             finally
             {
+                EndVariableGridUpdate();
+                isValueGridReady = allowGridEvents;
+            }
+        }
+
+        private void EnsureVariableGridRowsInitialized()
+        {
+            if (variableGridRowsInitialized
+                && dgvValue.Rows.Count == ValueConfigStore.ValueCapacity)
+            {
+                return;
+            }
+
+            isRebuildingVariableRows = true;
+            try
+            {
+                dgvValue.Rows.Clear();
+                displayedVariableSlots.Clear();
+                for (int slotIndex = 0; slotIndex < ValueConfigStore.ValueCapacity; slotIndex++)
+                {
+                    displayedVariableSlots.Add(slotIndex);
+                    displayRowByVariableSlot[slotIndex] = slotIndex;
+                }
+                dgvValue.Rows.Add(ValueConfigStore.ValueCapacity);
+                variableGridRowsInitialized = true;
+                AdvanceVariableGridPresentationVersion();
+            }
+            finally
+            {
+                isRebuildingVariableRows = false;
+            }
+        }
+        //刷新变量界面
+        public void FreshFrmValue()
+        {
+            if (!Visible && isValueGridReady)
+            {
+                configurationRefreshPending = true;
+                return;
+            }
+            configurationRefreshPending = false;
+            bool allowRefresh = isValueGridReady;
+            isValueGridReady = false;
+            BeginVariableGridUpdate();
+            try
+            {
+                if (!variableGridRowsInitialized)
+                {
+                    RefreshValue();
+                    return;
+                }
+                RefreshVariableSnapshot();
+                RefreshVariableScopeOptions();
+                RefreshScopeTree();
+                ApplyScopeFilter();
+                RefreshMonitorTitle();
+                RefreshMonitorRows();
+            }
+            finally
+            {
+                EndVariableGridUpdate();
                 isValueGridReady = allowRefresh;
+            }
+        }
+
+        private void RefreshVariableSnapshot()
+        {
+            Array.Clear(variableSnapshot, 0, variableSnapshot.Length);
+            foreach (DicValue variable in SF.valueStore?.GetValuesSnapshot() ?? new List<DicValue>())
+            {
+                if (variable != null && variable.Index >= 0 && variable.Index < variableSnapshot.Length)
+                {
+                    variableSnapshot[variable.Index] = variable;
+                }
+            }
+            hasVariableSnapshot = true;
+            AdvanceVariableGridPresentationVersion();
+        }
+
+        private void UpdateVariableGridRow(int rowIndex, int slotIndex, DicValue variable)
+        {
+            DataGridViewRow row = dgvValue.Rows[rowIndex];
+            SetCellValueIfChanged(row.Cells[0], slotIndex);
+            SetCellValueIfChanged(row.Cells[1], variable?.Name ?? string.Empty);
+            SetCellValueIfChanged(row.Cells[2], variable?.Type ?? DefaultValueType);
+            SetCellValueIfChanged(row.Cells[3], variable?.Value ?? DefaultValueText);
+            SetCellValueIfChanged(row.Cells[4], variable?.Note ?? string.Empty);
+            ConfigureVariableScopeCell(row, slotIndex, variable);
+            ApplyVariableRowEditingState(row, variable);
+            variableRowLoadedVersions[slotIndex] = variableGridPresentationVersion;
+        }
+
+        private void RefreshViewportRows()
+        {
+            if (!hasVariableSnapshot || dgvValue.Rows.Count == 0)
+            {
+                return;
+            }
+            var rowIndexes = new List<int>();
+            int firstDisplayed = dgvValue.Rows.GetFirstRow(DataGridViewElementStates.Displayed);
+            if (firstDisplayed < 0)
+            {
+                return;
+            }
+            int rowIndex = firstDisplayed;
+            while (rowIndex >= 0)
+            {
+                rowIndexes.Add(rowIndex);
+                rowIndex = dgvValue.Rows.GetNextRow(rowIndex, DataGridViewElementStates.Displayed);
+            }
+
+            int nearbyIndex = firstDisplayed;
+            for (int count = 0; count < 8; count++)
+            {
+                nearbyIndex = dgvValue.Rows.GetPreviousRow(nearbyIndex, DataGridViewElementStates.Visible);
+                if (nearbyIndex < 0) break;
+                rowIndexes.Add(nearbyIndex);
+            }
+            nearbyIndex = rowIndexes[0];
+            int lastDisplayed = dgvValue.Rows.GetLastRow(DataGridViewElementStates.Displayed);
+            if (lastDisplayed >= 0)
+            {
+                nearbyIndex = lastDisplayed;
+            }
+            for (int count = 0; count < 12; count++)
+            {
+                nearbyIndex = dgvValue.Rows.GetNextRow(nearbyIndex, DataGridViewElementStates.Visible);
+                if (nearbyIndex < 0) break;
+                rowIndexes.Add(nearbyIndex);
+            }
+
+            int editingRowIndex = dgvValue.IsCurrentCellInEditMode && dgvValue.CurrentCell != null
+                ? dgvValue.CurrentCell.RowIndex
+                : -1;
+            bool allowGridEvents = isValueGridReady;
+            isValueGridReady = false;
+            BeginVariableGridUpdate();
+            try
+            {
+                foreach (int index in rowIndexes)
+                {
+                    if (index != editingRowIndex)
+                    {
+                        int slotIndex = GetVariableSlotIndex(index);
+                        if (slotIndex < 0) continue;
+                        if (variableSnapshot[slotIndex] != null
+                            && SF.valueStore.TryGetValueByIndex(slotIndex, out DicValue liveVariable))
+                        {
+                            variableSnapshot[slotIndex].Value = liveVariable.Value;
+                        }
+                        if (variableRowLoadedVersions[slotIndex] != variableGridPresentationVersion)
+                        {
+                            UpdateVariableGridRow(index, slotIndex, variableSnapshot[slotIndex]);
+                        }
+                        else
+                        {
+                            SetCellValueIfChanged(
+                                dgvValue.Rows[index].Cells[3],
+                                variableSnapshot[slotIndex]?.Value ?? DefaultValueText);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                EndVariableGridUpdate();
+                isValueGridReady = allowGridEvents;
+            }
+        }
+
+        private int GetVariableSlotIndex(int displayRowIndex)
+        {
+            return displayRowIndex >= 0 && displayRowIndex < displayedVariableSlots.Count
+                ? displayedVariableSlots[displayRowIndex]
+                : -1;
+        }
+
+        private int GetVariableDisplayRowIndex(int slotIndex)
+        {
+            return slotIndex >= 0 && slotIndex < displayRowByVariableSlot.Length
+                ? displayRowByVariableSlot[slotIndex]
+                : -1;
+        }
+
+        public int GetSelectedVariableSlotIndex()
+        {
+            return GetVariableSlotIndex(dgvValue.CurrentCell?.RowIndex ?? -1);
+        }
+
+        private static void SetCellValueIfChanged(DataGridViewCell cell, object value)
+        {
+            if (!Equals(cell.Value, value))
+            {
+                cell.Value = value;
+            }
+        }
+
+        private void AdvanceVariableGridPresentationVersion()
+        {
+            if (variableGridPresentationVersion == int.MaxValue)
+            {
+                Array.Clear(variableRowLoadedVersions, 0, variableRowLoadedVersions.Length);
+                variableGridPresentationVersion = 1;
+                return;
+            }
+            variableGridPresentationVersion++;
+        }
+
+        private void BeginVariableGridUpdate()
+        {
+            if (variableGridUpdateDepth++ != 0)
+            {
+                return;
+            }
+            dgvValue.SuspendLayout();
+            variableGridRedrawSuspended = dgvValue.IsHandleCreated;
+            if (variableGridRedrawSuspended)
+            {
+                SendMessage(dgvValue.Handle, WmSetRedraw, IntPtr.Zero, IntPtr.Zero);
+            }
+        }
+
+        private void EndVariableGridUpdate()
+        {
+            if (variableGridUpdateDepth <= 0)
+            {
+                return;
+            }
+            if (variableGridUpdateDepth > 1)
+            {
+                variableGridUpdateDepth--;
+                return;
+            }
+            try
+            {
+                dgvValue.ResumeLayout();
+                if (variableGridRedrawSuspended && dgvValue.IsHandleCreated)
+                {
+                    SendMessage(dgvValue.Handle, WmSetRedraw, new IntPtr(1), IntPtr.Zero);
+                }
+                variableGridRedrawSuspended = false;
+                dgvValue.Invalidate();
+            }
+            finally
+            {
+                variableGridUpdateDepth = 0;
             }
         }
 
         private void RefreshScopeTree()
         {
             if (scopeTree == null) return;
+            if (!hasVariableSnapshot)
+            {
+                RefreshVariableSnapshot();
+                RefreshVariableScopeOptions();
+            }
             scopeTree.BeginUpdate();
-            scopeTree.Nodes.Clear();
-            List<DicValue> variables = SF.valueStore?.BuildSaveData().Values
-                .Where(value => value != null)
-                .ToList() ?? new List<DicValue>();
-            int publicCount = variables.Count(value => string.Equals(
-                value.Scope, VariableScopeContract.Public, StringComparison.Ordinal));
-            int systemCount = variables.Count(value => string.Equals(
-                value.Scope, VariableScopeContract.System, StringComparison.Ordinal));
-            int processCount = variables.Count(value => string.Equals(
-                value.Scope, VariableScopeContract.Process, StringComparison.Ordinal));
-
-            TreeNode allNode = new TreeNode($"全部槽位    {ValueConfigStore.ValueCapacity}")
+            try
             {
-                Tag = new VariableScopeSelection { Scope = AllVariableScopes }
-            };
-            TreeNode publicNode = new TreeNode($"公共变量    {publicCount}")
-            {
-                Tag = new VariableScopeSelection { Scope = VariableScopeContract.Public }
-            };
-            TreeNode systemNode = new TreeNode($"系统变量    {systemCount}")
-            {
-                Tag = new VariableScopeSelection { Scope = VariableScopeContract.System }
-            };
-            TreeNode processRoot = new TreeNode($"流程私有变量    {processCount}");
-            string processFilter = txtScopeSearch?.Text?.Trim() ?? string.Empty;
-            IEnumerable<Proc> processes = (SF.frmProc?.procsList ?? new List<Proc>())
-                .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
-                .Where(proc => string.IsNullOrEmpty(processFilter)
-                    || (proc.head.Name ?? string.Empty).IndexOf(processFilter, StringComparison.OrdinalIgnoreCase) >= 0)
-                .OrderBy(proc => proc.head.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase);
-            foreach (Proc proc in processes)
-            {
-                int ownedCount = variables.Count(value =>
-                    string.Equals(value.Scope, VariableScopeContract.Process, StringComparison.Ordinal)
-                    && value.OwnerProcId == proc.head.Id);
-                string processName = proc.head.Name ?? proc.head.Id.ToString("D");
-                processRoot.Nodes.Add(new TreeNode($"{processName}    {ownedCount}")
+                scopeTree.Nodes.Clear();
+                List<DicValue> variables = variableSnapshot.Where(value => value != null).ToList();
+                int publicCount = 0;
+                int systemCount = 0;
+                int processCount = 0;
+                var processVariableCounts = new Dictionary<Guid, int>();
+                foreach (DicValue variable in variables)
                 {
-                    ToolTipText = processName,
-                    Tag = new VariableScopeSelection
+                    if (string.Equals(variable.Scope, VariableScopeContract.Public, StringComparison.Ordinal))
                     {
-                        Scope = VariableScopeContract.Process,
-                        OwnerProcId = proc.head.Id
+                        publicCount++;
                     }
-                });
+                    else if (string.Equals(variable.Scope, VariableScopeContract.System, StringComparison.Ordinal))
+                    {
+                        systemCount++;
+                    }
+                    else if (string.Equals(variable.Scope, VariableScopeContract.Process, StringComparison.Ordinal))
+                    {
+                        processCount++;
+                        if (variable.OwnerProcId.HasValue)
+                        {
+                            processVariableCounts.TryGetValue(variable.OwnerProcId.Value, out int ownedCount);
+                            processVariableCounts[variable.OwnerProcId.Value] = ownedCount + 1;
+                        }
+                    }
+                }
+
+                TreeNode allNode = new TreeNode($"全部槽位    {ValueConfigStore.ValueCapacity}")
+                {
+                    Tag = new VariableScopeSelection { Scope = AllVariableScopes }
+                };
+                TreeNode publicNode = new TreeNode($"公共变量    {publicCount}")
+                {
+                    Tag = new VariableScopeSelection { Scope = VariableScopeContract.Public }
+                };
+                TreeNode systemNode = new TreeNode($"系统变量    {systemCount}")
+                {
+                    Tag = new VariableScopeSelection { Scope = VariableScopeContract.System }
+                };
+                TreeNode processRoot = new TreeNode($"流程私有变量    {processCount}");
+                IEnumerable<Proc> processes = (SF.frmProc?.procsList ?? new List<Proc>())
+                    .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
+                    .OrderBy(proc => proc.head.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase);
+                foreach (Proc proc in processes)
+                {
+                    processVariableCounts.TryGetValue(proc.head.Id, out int ownedCount);
+                    string processName = proc.head.Name ?? proc.head.Id.ToString("D");
+                    processRoot.Nodes.Add(new TreeNode($"{processName}    {ownedCount}")
+                    {
+                        ToolTipText = processName,
+                        Tag = new VariableScopeSelection
+                        {
+                            Scope = VariableScopeContract.Process,
+                            OwnerProcId = proc.head.Id
+                        }
+                    });
+                }
+                if (processRoot.Nodes.Count == 0)
+                {
+                    processRoot.Nodes.Add(new TreeNode("暂无流程"));
+                }
+                scopeTree.Nodes.Add(allNode);
+                scopeTree.Nodes.Add(publicNode);
+                scopeTree.Nodes.Add(processRoot);
+                scopeTree.Nodes.Add(systemNode);
+                processRoot.Expand();
+                TreeNode selectedNode = scopeTree.Nodes.Cast<TreeNode>()
+                    .SelectMany(FlattenTree)
+                    .FirstOrDefault(node => node.Tag is VariableScopeSelection selection
+                        && string.Equals(selection.Scope, selectedScope, StringComparison.Ordinal)
+                        && selection.OwnerProcId == selectedOwnerProcId)
+                    ?? allNode;
+                suppressScopeSelectionChanged = true;
+                try
+                {
+                    scopeTree.SelectedNode = selectedNode;
+                    selectedNode.EnsureVisible();
+                }
+                finally
+                {
+                    suppressScopeSelectionChanged = false;
+                }
             }
-            if (processRoot.Nodes.Count == 0)
+            finally
             {
-                processRoot.Nodes.Add(new TreeNode(string.IsNullOrEmpty(processFilter)
-                    ? "暂无流程"
-                    : "没有匹配的流程"));
+                scopeTree.EndUpdate();
             }
-            scopeTree.Nodes.Add(allNode);
-            scopeTree.Nodes.Add(publicNode);
-            scopeTree.Nodes.Add(processRoot);
-            scopeTree.Nodes.Add(systemNode);
-            processRoot.Expand();
-            TreeNode selectedNode = scopeTree.Nodes.Cast<TreeNode>()
-                .SelectMany(FlattenTree)
-                .FirstOrDefault(node => node.Tag is VariableScopeSelection selection
-                    && string.Equals(selection.Scope, selectedScope, StringComparison.Ordinal)
-                    && selection.OwnerProcId == selectedOwnerProcId)
-                ?? allNode;
-            scopeTree.SelectedNode = selectedNode;
-            selectedNode.EnsureVisible();
-            scopeTree.EndUpdate();
         }
 
         private void ScopeTree_DrawNode(object sender, DrawTreeNodeEventArgs e)
@@ -1106,15 +1269,17 @@ namespace Automation
                 Math.Max(0, scopeTree.ItemHeight - 6));
             bool selectable = e.Node.Tag is VariableScopeSelection;
             bool selected = selectable && e.Node == scopeTree.SelectedNode;
+            bool hovered = selectable && e.Node == hoveredScopeNode;
 
             using (var background = new SolidBrush(scopeTree.BackColor))
             {
                 e.Graphics.FillRectangle(background, new Rectangle(0, e.Bounds.Top, scopeTree.ClientSize.Width, scopeTree.ItemHeight));
             }
-            if (selected && rowBounds.Width > 0 && rowBounds.Height > 0)
+            if ((selected || hovered) && rowBounds.Width > 0 && rowBounds.Height > 0)
             {
                 using (GraphicsPath path = CreateRoundedPath(rowBounds, 10))
-                using (var selectionBrush = new SolidBrush(UiPalette.Selection))
+                using (var selectionBrush = new SolidBrush(
+                    selected ? UiPalette.Selection : UiPalette.SurfacePressed))
                 {
                     e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
                     e.Graphics.FillPath(selectionBrush, path);
@@ -1129,9 +1294,7 @@ namespace Automation
                 e.Bounds.Top,
                 Math.Max(0, scopeTree.ClientSize.Width - left - 28),
                 scopeTree.ItemHeight);
-            Font font = groupNode
-                ? new Font(scopeTree.Font, FontStyle.Bold)
-                : scopeTree.Font;
+            Font font = groupNode ? scopeGroupFont : scopeTree.Font;
             Color textColor = placeholderNode
                 ? UiPalette.TextSecondary
                 : selected ? UiPalette.SelectionText : UiPalette.TextPrimary;
@@ -1145,20 +1308,13 @@ namespace Automation
             if (groupNode && e.Node.Nodes.Count > 0)
             {
                 Rectangle chevronBounds = new Rectangle(scopeTree.ClientSize.Width - 30, e.Bounds.Top, 18, scopeTree.ItemHeight);
-                using (var chevronFont = new Font("Microsoft YaHei UI", 11F))
-                {
-                    TextRenderer.DrawText(
-                        e.Graphics,
-                        e.Node.IsExpanded ? "⌄" : "›",
-                        chevronFont,
-                        chevronBounds,
-                        UiPalette.TextSecondary,
-                        TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
-                }
-            }
-            if (groupNode)
-            {
-                font.Dispose();
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    e.Node.IsExpanded ? "⌄" : "›",
+                    scopeChevronFont,
+                    chevronBounds,
+                    UiPalette.TextSecondary,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
             }
         }
 
@@ -1207,13 +1363,96 @@ namespace Automation
 
         private void ScopeTree_AfterSelect(object sender, TreeViewEventArgs e)
         {
+            if (suppressScopeSelectionChanged) return;
             if (!(e.Node?.Tag is VariableScopeSelection selection)) return;
-            SaveVariableGridViewState();
+
+            if (!isScopeSelectionApplyPending)
+            {
+                SaveVariableGridViewState();
+            }
             selectedScope = selection.Scope;
             selectedOwnerProcId = selection.OwnerProcId;
-            ApplyScopeFilter();
-            RestoreVariableGridViewState();
-            RefreshDisplayedRuntimeValues();
+
+            // AfterSelect运行在鼠标消息内部。先完成树节点绘制，再把表格筛选放到下一条UI消息，
+            // 避免1200行显隐处理阻塞左侧选中反馈。
+            scopeTree.Invalidate();
+            scopeTree.Update();
+            ScheduleScopeSelectionApply();
+        }
+
+        private void ScopeTree_MouseMove(object sender, MouseEventArgs e)
+        {
+            TreeNode node = scopeTree.GetNodeAt(e.Location);
+            TreeNode hoverTarget = node?.Tag is VariableScopeSelection ? node : null;
+            if (hoveredScopeNode == hoverTarget)
+            {
+                return;
+            }
+            TreeNode previous = hoveredScopeNode;
+            hoveredScopeNode = hoverTarget;
+            scopeTree.Cursor = hoveredScopeNode == null ? Cursors.Default : Cursors.Hand;
+            InvalidateScopeNode(previous);
+            InvalidateScopeNode(hoveredScopeNode);
+        }
+
+        private void ScopeTree_MouseLeave(object sender, EventArgs e)
+        {
+            if (hoveredScopeNode == null)
+            {
+                return;
+            }
+            TreeNode previous = hoveredScopeNode;
+            hoveredScopeNode = null;
+            scopeTree.Cursor = Cursors.Default;
+            InvalidateScopeNode(previous);
+        }
+
+        private void InvalidateScopeNode(TreeNode node)
+        {
+            if (node == null)
+            {
+                return;
+            }
+            scopeTree.Invalidate(new Rectangle(
+                0,
+                node.Bounds.Top,
+                scopeTree.ClientSize.Width,
+                scopeTree.ItemHeight));
+        }
+
+        private void ScheduleScopeSelectionApply()
+        {
+            if (isScopeSelectionApplyPending || IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return;
+            }
+            isScopeSelectionApplyPending = true;
+            try
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    isScopeSelectionApplyPending = false;
+                    if (IsDisposed || Disposing || !Visible)
+                    {
+                        return;
+                    }
+                    BeginVariableGridUpdate();
+                    try
+                    {
+                        ApplyScopeFilter();
+                        RestoreVariableGridViewState();
+                        RefreshDisplayedRuntimeValues();
+                    }
+                    finally
+                    {
+                        EndVariableGridUpdate();
+                    }
+                }));
+            }
+            catch (InvalidOperationException)
+            {
+                isScopeSelectionApplyPending = false;
+            }
         }
 
         private void SaveVariableGridViewState()
@@ -1233,8 +1472,8 @@ namespace Automation
             variableGridViewStates[BuildVariableGridViewStateKey(selectedScope, selectedOwnerProcId)] =
                 new VariableGridViewState
                 {
-                    FirstDisplayedRowIndex = firstDisplayedRowIndex,
-                    CurrentRowIndex = dgvValue.CurrentCell?.RowIndex ?? -1,
+                    FirstDisplayedSlotIndex = GetVariableSlotIndex(firstDisplayedRowIndex),
+                    CurrentSlotIndex = GetSelectedVariableSlotIndex(),
                     CurrentColumnIndex = dgvValue.CurrentCell?.ColumnIndex ?? -1
                 };
         }
@@ -1248,29 +1487,28 @@ namespace Automation
             {
                 return;
             }
-            if (state.CurrentRowIndex >= 0
-                && state.CurrentRowIndex < dgvValue.Rows.Count
-                && dgvValue.Rows[state.CurrentRowIndex].Visible)
+            int currentRowIndex = GetVariableDisplayRowIndex(state.CurrentSlotIndex);
+            if (currentRowIndex >= 0 && dgvValue.Rows[currentRowIndex].Visible)
             {
                 int columnIndex = state.CurrentColumnIndex >= 0
                     && state.CurrentColumnIndex < dgvValue.Columns.Count
                     ? state.CurrentColumnIndex
                     : 0;
-                dgvValue.CurrentCell = dgvValue.Rows[state.CurrentRowIndex].Cells[columnIndex];
-                dgvValue.Rows[state.CurrentRowIndex].Selected = true;
+                dgvValue.CurrentCell = dgvValue.Rows[currentRowIndex].Cells[columnIndex];
+                dgvValue.Rows[currentRowIndex].Selected = true;
             }
-            if (state.FirstDisplayedRowIndex >= 0
-                && state.FirstDisplayedRowIndex < dgvValue.Rows.Count
-                && dgvValue.Rows[state.FirstDisplayedRowIndex].Visible)
+            int firstDisplayedRowIndex = GetVariableDisplayRowIndex(state.FirstDisplayedSlotIndex);
+            if (firstDisplayedRowIndex >= 0 && dgvValue.Rows[firstDisplayedRowIndex].Visible)
             {
                 try
                 {
-                    dgvValue.FirstDisplayedScrollingRowIndex = state.FirstDisplayedRowIndex;
+                    dgvValue.FirstDisplayedScrollingRowIndex = firstDisplayedRowIndex;
                 }
                 catch (InvalidOperationException)
                 {
                 }
             }
+            RefreshViewportRows();
         }
 
         private static string BuildVariableGridViewStateKey(string scope, Guid? ownerProcId)
@@ -1278,14 +1516,15 @@ namespace Automation
             return $"{scope}:{ownerProcId?.ToString("D") ?? string.Empty}";
         }
 
-        private void txtScopeSearch_TextChanged(object sender, EventArgs e)
-        {
-            RefreshScopeTree();
-        }
-
         private void txtVariableSearch_TextChanged(object sender, EventArgs e)
         {
-            ApplyScopeFilter();
+            variableSearchTimer.Stop();
+            if (string.IsNullOrWhiteSpace(txtVariableSearch.Text))
+            {
+                ApplyScopeFilter();
+                return;
+            }
+            variableSearchTimer.Start();
         }
 
         private void txtVariableSearch_KeyDown(object sender, KeyEventArgs e)
@@ -1303,82 +1542,65 @@ namespace Automation
 
         private void ApplyScopeFilter()
         {
-            if (dgvValue.Rows.Count == 0) return;
-            int visibleCount = 0;
+            EnsureVariableGridRowsInitialized();
             string searchText = txtVariableSearch?.Text?.Trim() ?? string.Empty;
             bool searching = searchText.Length > 0;
             bool allScopesSelected = string.Equals(selectedScope, AllVariableScopes, StringComparison.Ordinal);
-            if (dgvValue.CurrentCell != null
-                && !ShouldDisplayVariableRow(
-                    dgvValue.CurrentCell.RowIndex, searching, searchText, allScopesSelected))
+            var targetVisibility = new bool[ValueConfigStore.ValueCapacity];
+            int visibleCount = 0;
+            for (int slotIndex = 0; slotIndex < ValueConfigStore.ValueCapacity; slotIndex++)
             {
-                dgvValue.CurrentCell = null;
+                bool visible = ShouldDisplayVariableRow(
+                    slotIndex, searching, searchText, allScopesSelected);
+                targetVisibility[slotIndex] = visible;
+                if (visible) visibleCount++;
             }
-            bool suspendRedraw = dgvValue.IsHandleCreated;
-            if (suspendRedraw)
+            string gridScopeKey = BuildVariableGridViewStateKey(selectedScope, selectedOwnerProcId);
+            if (!string.Equals(appliedGridScopeKey, gridScopeKey, StringComparison.Ordinal))
             {
-                SendMessage(dgvValue.Handle, WmSetRedraw, IntPtr.Zero, IntPtr.Zero);
+                appliedGridScopeKey = gridScopeKey;
+                AdvanceVariableGridPresentationVersion();
             }
-            dgvValue.SuspendLayout();
+            BeginVariableGridUpdate();
             try
             {
-                for (int index = 0; index < dgvValue.Rows.Count; index++)
+                int currentRowIndex = dgvValue.CurrentCell?.RowIndex ?? -1;
+                if (currentRowIndex >= 0 && !targetVisibility[currentRowIndex])
                 {
-                    bool visible = ShouldDisplayVariableRow(index, searching, searchText, allScopesSelected);
-                    DataGridViewRow row = dgvValue.Rows[index];
-                    if (row.Visible != visible)
-                    {
-                        row.Visible = visible;
-                    }
-                    bool scopeEditable = allScopesSelected
-                        && SF.valueStore.TryGetValueByIndex(index, out DicValue editableVariable)
-                        && !ValueConfigStore.IsSystemValueIndex(editableVariable.Index)
-                        && row.Cells[5] is DataGridViewComboBoxCell;
-                    if (row.Cells[5].ReadOnly == scopeEditable)
-                    {
-                        row.Cells[5].ReadOnly = !scopeEditable;
-                    }
-                    if (visible) visibleCount++;
+                    dgvValue.CurrentCell = null;
                 }
+                for (int rowIndex = 0; rowIndex < ValueConfigStore.ValueCapacity; rowIndex++)
+                {
+                    DataGridViewRow row = dgvValue.Rows[rowIndex];
+                    bool targetVisible = targetVisibility[rowIndex];
+                    if (row.Visible != targetVisible)
+                    {
+                        row.Visible = targetVisible;
+                    }
+                }
+                lblEmptyState.Text = searching
+                    ? "没有找到匹配的变量\r\n可尝试名称、槽位、类型、备注或流程名称"
+                    : string.Equals(selectedScope, VariableScopeContract.System, StringComparison.Ordinal)
+                        ? "当前没有可显示的系统变量"
+                        : "当前筛选范围没有已配置变量";
+                lblEmptyState.Visible = visibleCount == 0;
+                if (btnClearSearch.Visible != searching)
+                {
+                    btnClearSearch.Visible = searching;
+                }
+                RefreshViewportRows();
             }
             finally
             {
-                dgvValue.ResumeLayout();
-                if (suspendRedraw)
-                {
-                    SendMessage(dgvValue.Handle, WmSetRedraw, new IntPtr(1), IntPtr.Zero);
-                    dgvValue.Invalidate();
-                }
-            }
-            string scopeTitle = allScopesSelected
-                ? "全部变量槽位"
-                : string.Equals(selectedScope, VariableScopeContract.Process, StringComparison.Ordinal)
-                ? $"{ResolveOwnerProcessName(selectedOwnerProcId)} · 私有变量"
-                : string.Equals(selectedScope, VariableScopeContract.System, StringComparison.Ordinal)
-                    ? "系统变量"
-                    : "公共变量";
-            lblVariableTitle.Text = searching ? $"搜索结果 · {visibleCount}" : $"{scopeTitle} · {visibleCount}";
-            lblVariableSubtitle.Text = searching
-                ? $"正在跨全部作用域查找“{searchText}”"
-                : allScopesSelected
-                    ? "显示全部固定槽位；空槽可直接输入，系统槽位也可手动维护"
-                    : "左侧仅筛选显示范围，变量仍在表格中直接编辑";
-            lblEmptyState.Text = searching
-                ? "没有找到匹配的变量\r\n可尝试名称、槽位、类型、备注或流程名称"
-                : string.Equals(selectedScope, VariableScopeContract.System, StringComparison.Ordinal)
-                    ? "当前没有可显示的系统变量"
-                    : "当前筛选范围没有已配置变量";
-            lblEmptyState.Visible = visibleCount == 0;
-            if (btnClearSearch.Visible != searching)
-            {
-                btnClearSearch.Visible = searching;
+                EndVariableGridUpdate();
             }
         }
 
         private bool ShouldDisplayVariableRow(
             int index, bool searching, string searchText, bool allScopesSelected)
         {
-            if (!SF.valueStore.TryGetValueByIndex(index, out DicValue variable))
+            DicValue variable = variableSnapshot[index];
+            if (variable == null)
             {
                 return !searching
                     && (allScopesSelected
@@ -1417,6 +1639,7 @@ namespace Automation
                         if (rebuildScopeTree)
                         {
                             RefreshScopeTree();
+                            ApplyScopeFilter();
                         }
                         else
                         {
@@ -1434,6 +1657,17 @@ namespace Automation
 
         private void RefreshVariableScopeOptions()
         {
+            List<Proc> processes = (SF.frmProc?.procsList ?? new List<Proc>())
+                .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
+                .OrderBy(proc => proc.head.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+            var names = new Dictionary<Guid, string>();
+            foreach (Proc proc in processes)
+            {
+                names[proc.head.Id] = proc.head.Name ?? proc.head.Id.ToString("D");
+            }
+            processNamesById = names;
+
             var options = new List<VariableScopeOption>
             {
                 new VariableScopeOption
@@ -1443,20 +1677,31 @@ namespace Automation
                     Scope = VariableScopeContract.Public
                 }
             };
-            options.AddRange((SF.frmProc?.procsList ?? new List<Proc>())
-                .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
-                .OrderBy(proc => proc.head.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
-                .Select(proc => new VariableScopeOption
+            options.AddRange(processes.Select(proc => new VariableScopeOption
                 {
                     Key = BuildVariableScopeOptionKey(VariableScopeContract.Process, proc.head.Id),
                     Text = $"流程私有 · {proc.head.Name}",
                     Scope = VariableScopeContract.Process,
                     OwnerProcId = proc.head.Id
                 }));
-            variableScopeOptions = options;
+            bool optionsChanged = options.Count != variableScopeOptions.Count;
+            for (int i = 0; !optionsChanged && i < options.Count; i++)
+            {
+                VariableScopeOption current = variableScopeOptions[i];
+                VariableScopeOption updated = options[i];
+                optionsChanged = !string.Equals(current.Key, updated.Key, StringComparison.Ordinal)
+                    || !string.Equals(current.Text, updated.Text, StringComparison.Ordinal)
+                    || !string.Equals(current.Scope, updated.Scope, StringComparison.Ordinal)
+                    || current.OwnerProcId != updated.OwnerProcId;
+            }
+            if (optionsChanged)
+            {
+                variableScopeOptions = options;
+                AdvanceVariableGridPresentationVersion();
+            }
         }
 
-        private void ConfigureVariableScopeCell(DataGridViewRow row, DicValue variable)
+        private void ConfigureVariableScopeCell(DataGridViewRow row, int slotIndex, DicValue variable)
         {
             if (variable != null && !ValueConfigStore.IsSystemValueIndex(variable.Index))
             {
@@ -1468,15 +1713,19 @@ namespace Automation
                     {
                         comboCell = new DataGridViewComboBoxCell();
                         row.Cells[5] = comboCell;
+                        comboCell.DisplayMember = nameof(VariableScopeOption.Text);
+                        comboCell.ValueMember = nameof(VariableScopeOption.Key);
+                        comboCell.DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton;
+                        comboCell.DisplayStyleForCurrentCellOnly = true;
+                        comboCell.FlatStyle = FlatStyle.Flat;
                     }
-                    comboCell.DataSource = variableScopeOptions;
-                    comboCell.DisplayMember = nameof(VariableScopeOption.Text);
-                    comboCell.ValueMember = nameof(VariableScopeOption.Key);
-                    comboCell.DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton;
-                    comboCell.DisplayStyleForCurrentCellOnly = true;
-                    comboCell.FlatStyle = FlatStyle.Flat;
-                    comboCell.Value = optionKey;
-                    comboCell.ReadOnly = !string.Equals(selectedScope, AllVariableScopes, StringComparison.Ordinal);
+                    if (!ReferenceEquals(comboCell.DataSource, variableScopeOptions))
+                    {
+                        comboCell.DataSource = variableScopeOptions;
+                    }
+                    SetCellValueIfChanged(comboCell, optionKey);
+                    bool readOnly = !string.Equals(selectedScope, AllVariableScopes, StringComparison.Ordinal);
+                    if (comboCell.ReadOnly != readOnly) comboCell.ReadOnly = readOnly;
                     return;
                 }
             }
@@ -1487,10 +1736,11 @@ namespace Automation
                 textCell = new DataGridViewTextBoxCell();
                 row.Cells[5] = textCell;
             }
-            textCell.Value = variable == null
-                ? ValueConfigStore.IsSystemValueIndex(row.Index) ? "系统" : "未配置"
+            string scopeText = variable == null
+                ? ValueConfigStore.IsSystemValueIndex(slotIndex) ? "系统" : "未配置"
                 : FormatVariableScope(variable);
-            textCell.ReadOnly = true;
+            SetCellValueIfChanged(textCell, scopeText);
+            if (!textCell.ReadOnly) textCell.ReadOnly = true;
         }
 
         private bool TryResolveVariableScopeOption(
@@ -1515,11 +1765,17 @@ namespace Automation
         {
             bool protectedSystemVariable = variable != null
                 && ValueConfigStore.IsProtectedValueName(variable.Name);
-            row.Cells[1].ReadOnly = protectedSystemVariable;
-            row.Cells[2].ReadOnly = protectedSystemVariable;
+            if (row.Cells[1].ReadOnly != protectedSystemVariable)
+            {
+                row.Cells[1].ReadOnly = protectedSystemVariable;
+            }
+            if (row.Cells[2].ReadOnly != protectedSystemVariable)
+            {
+                row.Cells[2].ReadOnly = protectedSystemVariable;
+            }
         }
 
-        private static bool IsVariableSearchMatch(DicValue value, string searchText)
+        private bool IsVariableSearchMatch(DicValue value, string searchText)
         {
             if (value == null || string.IsNullOrEmpty(searchText)) return false;
             string ownerName = ResolveOwnerProcessName(value.OwnerProcId);
@@ -1531,7 +1787,7 @@ namespace Automation
                 || (value.Scope ?? string.Empty).IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static string FormatVariableScope(DicValue value)
+        private string FormatVariableScope(DicValue value)
         {
             if (value == null) return "未配置";
             if (string.Equals(value.Scope, VariableScopeContract.Process, StringComparison.Ordinal))
@@ -1543,11 +1799,12 @@ namespace Automation
             return "公共";
         }
 
-        private static string ResolveOwnerProcessName(Guid? ownerProcId)
+        private string ResolveOwnerProcessName(Guid? ownerProcId)
         {
             if (!ownerProcId.HasValue) return string.Empty;
-            return (SF.frmProc?.procsList ?? new List<Proc>())
-                .FirstOrDefault(proc => proc?.head?.Id == ownerProcId.Value)?.head?.Name ?? string.Empty;
+            return processNamesById.TryGetValue(ownerProcId.Value, out string processName)
+                ? processName
+                : string.Empty;
         }
 
         public void LocateProcessVariables(Guid procId)
@@ -1573,8 +1830,33 @@ namespace Automation
         protected override void OnVisibleChanged(EventArgs e)
         {
             base.OnVisibleChanged(e);
-            if (!Visible) return;
-            FreshFrmValue();
+            if (!Visible)
+            {
+                runtimeValueRefreshTimer?.Stop();
+                return;
+            }
+            if (configurationRefreshPending
+                || !hasVariableSnapshot
+                || !variableGridRowsInitialized)
+            {
+                FreshFrmValue();
+            }
+            else
+            {
+                RefreshViewportRows();
+                RefreshDisplayedRuntimeValues();
+            }
+            runtimeValueRefreshTimer?.Start();
+            if (IsHandleCreated)
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    if (!IsDisposed && !Disposing && Visible)
+                    {
+                        RefreshViewportRows();
+                    }
+                }));
+            }
         }
 
         private void RefreshDisplayedRuntimeValues()
@@ -1586,28 +1868,46 @@ namespace Automation
             int editingRowIndex = dgvValue.IsCurrentCellInEditMode && dgvValue.CurrentCell != null
                 ? dgvValue.CurrentCell.RowIndex
                 : -1;
+            var updates = new List<KeyValuePair<int, string>>();
+            int rowIndex = dgvValue.Rows.GetFirstRow(DataGridViewElementStates.Displayed);
+            while (rowIndex >= 0)
+            {
+                int slotIndex = GetVariableSlotIndex(rowIndex);
+                if (rowIndex != editingRowIndex
+                    && slotIndex >= 0
+                    && SF.valueStore.TryGetValueByIndex(slotIndex, out DicValue variable))
+                {
+                    string currentValue = variable.Value ?? string.Empty;
+                    DataGridViewCell valueCell = dgvValue.Rows[rowIndex].Cells[3];
+                    if (!string.Equals(Convert.ToString(valueCell.Value), currentValue, StringComparison.Ordinal))
+                    {
+                        if (variableSnapshot[slotIndex] != null)
+                        {
+                            variableSnapshot[slotIndex].Value = currentValue;
+                        }
+                        updates.Add(new KeyValuePair<int, string>(rowIndex, currentValue));
+                    }
+                }
+                rowIndex = dgvValue.Rows.GetNextRow(rowIndex, DataGridViewElementStates.Displayed);
+            }
+            if (updates.Count == 0)
+            {
+                return;
+            }
+
             bool allowGridEvents = isValueGridReady;
             isValueGridReady = false;
+            BeginVariableGridUpdate();
             try
             {
-                int rowIndex = dgvValue.Rows.GetFirstRow(DataGridViewElementStates.Displayed);
-                while (rowIndex >= 0)
+                foreach (KeyValuePair<int, string> update in updates)
                 {
-                    if (rowIndex != editingRowIndex
-                        && SF.valueStore.TryGetValueByIndex(rowIndex, out DicValue variable))
-                    {
-                        string currentValue = variable.Value ?? string.Empty;
-                        DataGridViewCell valueCell = dgvValue.Rows[rowIndex].Cells[3];
-                        if (!string.Equals(Convert.ToString(valueCell.Value), currentValue, StringComparison.Ordinal))
-                        {
-                            valueCell.Value = currentValue;
-                        }
-                    }
-                    rowIndex = dgvValue.Rows.GetNextRow(rowIndex, DataGridViewElementStates.Displayed);
+                    SetCellValueIfChanged(dgvValue.Rows[update.Key].Cells[3], update.Value);
                 }
             }
             finally
             {
+                EndVariableGridUpdate();
                 isValueGridReady = allowGridEvents;
             }
         }
@@ -1710,9 +2010,9 @@ namespace Automation
             }
         }
 
-        private bool TryGetSingleSelectedRowIndex(out int rowIndex)
+        private bool TryGetSingleSelectedSlotIndex(out int slotIndex)
         {
-            rowIndex = -1;
+            slotIndex = -1;
             if (dgvValue.SelectedRows != null && dgvValue.SelectedRows.Count > 0)
             {
                 if (dgvValue.SelectedRows.Count > 1)
@@ -1720,19 +2020,19 @@ namespace Automation
                     MessageBox.Show("一次只能操作一行");
                     return false;
                 }
-                rowIndex = dgvValue.SelectedRows[0].Index;
-                return rowIndex >= 0;
+                slotIndex = GetVariableSlotIndex(dgvValue.SelectedRows[0].Index);
+                return slotIndex >= 0;
             }
             if (dgvValue.CurrentCell == null)
             {
                 MessageBox.Show("没有选定的变量");
                 return false;
             }
-            rowIndex = dgvValue.CurrentCell.RowIndex;
-            return rowIndex >= 0;
+            slotIndex = GetSelectedVariableSlotIndex();
+            return slotIndex >= 0;
         }
 
-        private List<int> GetSelectedRowIndexes()
+        private List<int> GetSelectedSlotIndexes()
         {
             HashSet<int> indexes = new HashSet<int>();
             if (dgvValue.SelectedRows != null && dgvValue.SelectedRows.Count > 0)
@@ -1741,13 +2041,15 @@ namespace Automation
                 {
                     if (row != null && row.Index >= 0)
                     {
-                        indexes.Add(row.Index);
+                        int slotIndex = GetVariableSlotIndex(row.Index);
+                        if (slotIndex >= 0) indexes.Add(slotIndex);
                     }
                 }
             }
             else if (dgvValue.CurrentCell != null)
             {
-                indexes.Add(dgvValue.CurrentCell.RowIndex);
+                int slotIndex = GetSelectedVariableSlotIndex();
+                if (slotIndex >= 0) indexes.Add(slotIndex);
             }
             return new List<int>(indexes);
         }
@@ -1780,7 +2082,7 @@ namespace Automation
 
         private void CopySelectedValueRow()
         {
-            if (!TryGetSingleSelectedRowIndex(out int rowIndex))
+            if (!TryGetSingleSelectedSlotIndex(out int rowIndex))
             {
                 return;
             }
@@ -1811,7 +2113,7 @@ namespace Automation
                 MessageBox.Show("没有可粘贴的数据");
                 return;
             }
-            if (!TryGetSingleSelectedRowIndex(out int rowIndex)) return;
+            if (!TryGetSingleSelectedSlotIndex(out int rowIndex)) return;
             SF.valueStore.TryGetValueByIndex(rowIndex, out DicValue targetVariable);
             if (targetVariable != null && ValueConfigStore.IsProtectedValueName(targetVariable.Name))
             {
@@ -1878,7 +2180,7 @@ namespace Automation
         private void ClearSelectedValueRows(bool requireConfirm = false)
         {
             if (!SF.CanEditProcStructure()) return;
-            List<int> indexes = GetSelectedRowIndexes();
+            List<int> indexes = GetSelectedSlotIndexes();
             if (indexes.Count == 0)
             {
                 MessageBox.Show("没有选定的变量");
@@ -1936,7 +2238,11 @@ namespace Automation
             note = string.Empty;
 
             DataGridViewRow row = dataGridView.Rows[rowIndex];
-            num = (int)row.Cells[0].Value;
+            num = GetVariableSlotIndex(rowIndex);
+            if (num < 0)
+            {
+                return false;
+            }
             key = row.Cells[1].Value?.ToString()?.Trim();
             if (string.IsNullOrEmpty(key))
             {
@@ -1978,8 +2284,10 @@ namespace Automation
                 if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
                 {
                     DataGridView dataGridView = (DataGridView)sender;
+                    int editedSlotIndex = GetVariableSlotIndex(e.RowIndex);
+                    if (editedSlotIndex < 0) return;
                     if (e.ColumnIndex == 3
-                        && SF.valueStore.TryGetValueByIndex(e.RowIndex, out DicValue existing))
+                        && SF.valueStore.TryGetValueByIndex(editedSlotIndex, out DicValue existing))
                     {
                         string editedValue = dataGridView.Rows[e.RowIndex].Cells[3].Value?.ToString() ?? string.Empty;
                         if (!SF.valueStore.setValueByIndex(existing.Index, editedValue, "变量页设置当前值"))
@@ -1989,6 +2297,10 @@ namespace Automation
                                 MessageBoxButtons.OK, MessageBoxIcon.Error);
                             FreshFrmValue();
                             return;
+                        }
+                        if (variableSnapshot[editedSlotIndex] != null)
+                        {
+                            variableSnapshot[editedSlotIndex].Value = editedValue;
                         }
                         isValueEditValid = true;
                         return;
@@ -2053,7 +2365,7 @@ namespace Automation
                                 out targetOwnerProcId))
                         {
                             isValueEditValid = false;
-                            ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], scopedVariable);
+                            ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], num, scopedVariable);
                             return;
                         }
                         bool scopeChanged = !string.Equals(
@@ -2076,7 +2388,7 @@ namespace Automation
                                 if (!confirmed)
                                 {
                                     isValueEditValid = false;
-                                    ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], scopedVariable);
+                                    ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], num, scopedVariable);
                                     return;
                                 }
                             }
@@ -2103,8 +2415,9 @@ namespace Automation
                         Scope = targetScope,
                         OwnerProcId = targetOwnerProcId
                     };
-                    ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], committedVariable);
+                    ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], num, committedVariable);
                     ApplyVariableRowEditingState(dataGridView.Rows[e.RowIndex], committedVariable);
+                    RefreshVariableSnapshot();
                     ScheduleScopeFilter(true);
                     isValueEditValid = true;
                 }
@@ -2113,7 +2426,6 @@ namespace Automation
 
         private void dgvValue_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
-            RefreshDisplayedRuntimeValues();
             if (e.Button == MouseButtons.Right && e.RowIndex >= 0)
             {
                 dgvValue.ClearSelection();
@@ -2153,7 +2465,12 @@ namespace Automation
             if (previousIndex != -1)
             {
                 currentIndex = previousIndex;
-                dgvValue.FirstDisplayedScrollingRowIndex = currentIndex;
+                int rowIndex = GetVariableDisplayRowIndex(currentIndex);
+                if (rowIndex >= 0)
+                {
+                    dgvValue.FirstDisplayedScrollingRowIndex = rowIndex;
+                    RefreshViewportRows();
+                }
             }
 
         }
@@ -2188,7 +2505,12 @@ namespace Automation
             if (nextIndex != -1)
             {
                 currentIndex = nextIndex;
-                dgvValue.FirstDisplayedScrollingRowIndex = currentIndex;
+                int rowIndex = GetVariableDisplayRowIndex(currentIndex);
+                if (rowIndex >= 0)
+                {
+                    dgvValue.FirstDisplayedScrollingRowIndex = rowIndex;
+                    RefreshViewportRows();
+                }
             }
         }
 
@@ -2217,10 +2539,51 @@ namespace Automation
 
         private void dgvValue_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {
-            if (e.ColumnIndex == 0 && e.RowIndex >= 0)
+            if (isRebuildingVariableRows) return;
+            int slotIndex = GetVariableSlotIndex(e.RowIndex);
+            DataGridViewCell currentCell = dgvValue.CurrentCell;
+            if (hasVariableSnapshot
+                && slotIndex >= 0
+                && variableRowLoadedVersions[slotIndex] != variableGridPresentationVersion
+                && e.ColumnIndex >= 0
+                && e.ColumnIndex <= scopeColumn.Index
+                && !(dgvValue.IsCurrentCellInEditMode
+                    && currentCell != null
+                    && currentCell.RowIndex == e.RowIndex
+                    && currentCell.ColumnIndex == e.ColumnIndex))
+            {
+                DicValue variable = variableSnapshot[slotIndex];
+                switch (e.ColumnIndex)
+                {
+                    case 0:
+                        e.Value = slotIndex;
+                        break;
+                    case 1:
+                        e.Value = variable?.Name ?? string.Empty;
+                        break;
+                    case 2:
+                        e.Value = variable?.Type ?? DefaultValueType;
+                        break;
+                    case 3:
+                        e.Value = variable?.Value ?? DefaultValueText;
+                        break;
+                    case 4:
+                        e.Value = variable?.Note ?? string.Empty;
+                        break;
+                    case 5:
+                        if (!(dgvValue.Rows[e.RowIndex].Cells[e.ColumnIndex] is DataGridViewComboBoxCell))
+                        {
+                            e.Value = variable == null
+                                ? ValueConfigStore.IsSystemValueIndex(slotIndex) ? "系统" : "未配置"
+                                : FormatVariableScope(variable);
+                        }
+                        break;
+                }
+            }
+            if (e.ColumnIndex == 0 && slotIndex >= 0)
             {
                 // 获取当前行对应的数据项
-                if (SF.valueStore.IsMarked(e.RowIndex))
+                if (SF.valueStore.IsMarked(slotIndex))
                 {
                     e.CellStyle.BackColor = UiPalette.DangerSoft;
                     e.CellStyle.ForeColor = UiPalette.DangerHover;
@@ -2247,7 +2610,7 @@ namespace Automation
 
         public void LocateValueIndex(int index)
         {
-            if (index < 0 || index >= dgvValue.Rows.Count)
+            if (index < 0 || index >= ValueConfigStore.ValueCapacity)
             {
                 return;
             }
@@ -2257,10 +2620,19 @@ namespace Automation
                 selectedOwnerProcId = value.OwnerProcId;
                 RefreshScopeTree();
             }
+            else
+            {
+                selectedScope = AllVariableScopes;
+                selectedOwnerProcId = null;
+                RefreshScopeTree();
+            }
             ApplyScopeFilter();
+            int rowIndex = GetVariableDisplayRowIndex(index);
+            if (rowIndex < 0) return;
             dgvValue.ClearSelection();
-            dgvValue.CurrentCell = dgvValue.Rows[index].Cells[0];
-            dgvValue.FirstDisplayedScrollingRowIndex = index;
+            dgvValue.CurrentCell = dgvValue.Rows[rowIndex].Cells[0];
+            dgvValue.FirstDisplayedScrollingRowIndex = rowIndex;
+            RefreshViewportRows();
             dgvValue.Focus();
         }
 
@@ -2515,8 +2887,8 @@ namespace Automation
                 MessageBox.Show("没有选定的变量");
                 return;
             }
-            int rowIndex = dgvValue.CurrentCell.RowIndex;
-            RemoveMonitor(rowIndex);
+            int slotIndex = GetSelectedVariableSlotIndex();
+            if (slotIndex >= 0) RemoveMonitor(slotIndex);
         }
 
         private void AddMonitorFromSelection()
@@ -2526,14 +2898,14 @@ namespace Automation
                 MessageBox.Show("没有选定的变量");
                 return;
             }
-            int rowIndex = dgvValue.CurrentCell.RowIndex;
-            if (!SF.valueStore.TryGetValueByIndex(rowIndex, out _))
+            int slotIndex = GetSelectedVariableSlotIndex();
+            if (slotIndex < 0 || !SF.valueStore.TryGetValueByIndex(slotIndex, out _))
             {
                 MessageBox.Show("当前槽位尚未配置变量。", "加入监控",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            AddMonitor(rowIndex);
+            AddMonitor(slotIndex);
         }
 
         private void RemoveMonitorFromMonitorSelection()
@@ -2562,13 +2934,15 @@ namespace Automation
             if (listCommon.SelectedItem is CommonValueItem item)
             {
                 int index = item.Index;
-                if (index >= 0 && index < dgvValue.Rows.Count)
+                int rowIndex = GetVariableDisplayRowIndex(index);
+                if (rowIndex >= 0)
                 {
                     currentIndex = index;
                     dgvValue.ClearSelection();
-                    dgvValue.CurrentCell = dgvValue.Rows[index].Cells[0];
-                    dgvValue.Rows[index].Selected = true;
-                    dgvValue.FirstDisplayedScrollingRowIndex = index;
+                    dgvValue.CurrentCell = dgvValue.Rows[rowIndex].Cells[0];
+                    dgvValue.Rows[rowIndex].Selected = true;
+                    dgvValue.FirstDisplayedScrollingRowIndex = rowIndex;
+                    RefreshViewportRows();
                 }
             }
         }

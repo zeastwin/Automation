@@ -45,6 +45,7 @@ namespace Automation
             ConfigureActionButton(cancelButton, false);
             actionBar.Controls.Add(saveButton);
             actionBar.Controls.Add(cancelButton);
+            AcceptButton = saveButton;
             UpdateActionBar();
             LayoutControls();
         }
@@ -148,9 +149,9 @@ namespace Automation
                     args.Graphics.DrawLine(
                         pen,
                         0,
-                        actionBar.Height - 1,
+                        0,
                         actionBar.Width,
-                        actionBar.Height - 1);
+                        0);
                 }
             };
             Controls.Add(actionBar);
@@ -213,11 +214,13 @@ namespace Automation
         {
             int width = ClientSize.Width;
             int contentTop = 0;
+            int contentBottom = ClientSize.Height;
             bool showActionBar = saveButton != null && cancelButton != null;
             if (showActionBar)
             {
-                actionBar.SetBounds(0, contentTop, width, 48);
-                contentTop += 48;
+                int actionBarHeight = Math.Min(48, Math.Max(0, contentBottom));
+                contentBottom -= actionBarHeight;
+                actionBar.SetBounds(0, contentBottom, width, actionBarHeight);
             }
             if (inspectorView.SelectedObject is OperationType)
             {
@@ -228,7 +231,7 @@ namespace Automation
                 0,
                 contentTop,
                 width,
-                Math.Max(0, ClientSize.Height - contentTop));
+                Math.Max(0, contentBottom - contentTop));
             if (inspectorView.SelectedObject is OperationType)
             {
                 operationTypeButton.SetBounds(8, 4, Math.Max(100, width - 16), 30);
@@ -310,12 +313,12 @@ namespace Automation
                 Padding = Padding.Empty,
                 Size = pickerPanel.Size
             };
-            var dropDown = new ToolStripDropDown
+            var dropDown = new InstantToolStripDropDown
             {
                 AutoClose = true,
                 AutoSize = false,
                 BackColor = UiPalette.Surface,
-                DropShadowEnabled = true,
+                DropShadowEnabled = false,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty,
                 Renderer = new BorderlessDropDownRenderer(),
@@ -348,9 +351,10 @@ namespace Automation
                 }
             };
             activeOperationTypePicker = dropDown;
-            dropDown.Show(
+            dropDown.ShowInstant(
                 anchorControl,
-                new Point(Math.Min(0, anchorControl.Width - pickerWidth), anchorControl.Height));
+                new Point(Math.Min(0, anchorControl.Width - pickerWidth), anchorControl.Height),
+                pickerPanel);
             pickerPanel.FocusPicker();
         }
 
@@ -386,13 +390,7 @@ namespace Automation
             {
                 return;
             }
-            if (e.Control && e.KeyCode == Keys.Enter)
-            {
-                saveButton?.PerformClick();
-                e.Handled = true;
-                e.SuppressKeyPress = true;
-            }
-            else if (e.KeyCode == Keys.Escape)
+            if (e.KeyCode == Keys.Escape)
             {
                 cancelButton?.PerformClick();
                 e.Handled = true;
