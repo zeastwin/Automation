@@ -9,7 +9,7 @@ namespace Automation
     public static class GooseRuntimeProvisioner
     {
         public const int SystemPromptVersion = 19;
-        public const int IntegrationContextVersion = 45;
+        public const int IntegrationContextVersion = 46;
         public static int ProcessAuthoringSkillVersion { get; } = ReadBundledProcessAuthoringSkillVersion();
         public const string ProcessAuthoringSkillName = "automation-process-authoring";
         private const string PromptResourceName = "Automation.Assets.Goose.system.md";
@@ -18,6 +18,8 @@ namespace Automation
             "Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md";
         private const string ProcessAuthoringSkillVersionResourceName =
             "Automation.Assets.Goose.Skills.automation-process-authoring.skill-version";
+        private const string ProcessDesignFaqResourceName =
+            "Automation.Assets.Goose.ProcessDesignFaq.md";
         private const string VersionFileName = ".automation-system-prompt-version";
         private const string IntegrationContextVersionFileName = ".automation-context-version";
         private const string ProcessAuthoringSkillVersionFileName = ".automation-skill-version";
@@ -298,6 +300,7 @@ namespace Automation
                 "name: automation-process-authoring",
                 "description:",
                 "# Automation 流程编写",
+                "ProcessDesignFaq",
                 "get_process_design_guide",
                 "get_semantic_operation_schema",
                 "get_native_operation_schemas",
@@ -330,6 +333,46 @@ namespace Automation
             {
                 throw new InvalidDataException(
                     "Automation 流程编写 Skill 仍引用旧写入链：" + retiredRoute);
+            }
+        }
+
+        public static string ReadProcessDesignFaq()
+        {
+            return ReadEmbeddedResourceText(ProcessDesignFaqResourceName);
+        }
+
+        private static string ReadEmbeddedResourceText(string resourceName)
+        {
+            Stream source = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
+            if (source == null)
+            {
+                string fallbackPath;
+                if (string.Equals(resourceName, ProcessDesignFaqResourceName, StringComparison.Ordinal))
+                {
+                    fallbackPath = Path.Combine(
+                        AppDomain.CurrentDomain.BaseDirectory,
+                        "Assets",
+                        "Goose",
+                        "ProcessDesignFaq.md");
+                }
+                else
+                {
+                    throw new InvalidOperationException("未知的 Goose 受管资源：" + resourceName);
+                }
+                if (File.Exists(fallbackPath))
+                {
+                    source = new FileStream(fallbackPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        "程序内置 Goose 资源及随程序文件均不存在：" + resourceName + "；" + fallbackPath);
+                }
+            }
+            using (source)
+            using (var reader = new StreamReader(source, Encoding.UTF8, true, 128, false))
+            {
+                return reader.ReadToEnd();
             }
         }
 

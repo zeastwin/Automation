@@ -23,3 +23,16 @@
 - `saveRequired` 决定配置能否保存；`runRequired`、晚绑定资源和 Readiness 决定能否启动。保存配置、修改运行值和运行流程属于不同工具链。
 - `apply_change_set` 成功只证明当前阶段已提交；结构、可运行性和实际行为分别使用 `validate_proc`、Readiness 结果以及用户明确授权后的运行证据验证。
 - 用户明确要求有界测试时使用 `run_proc_test`；明确要求持续运行时才使用持续运行能力。设备、人员或流程安全状态不确定时保持受影响流程停止并依据平台事实报警。
+
+## ChangeSet V2 构造检查清单（预演前必读）
+
+调用 `preview_change_set` 前逐项核对，漏填任一必填字段会立即返回 `INVALID_ARGUMENT`：
+
+- `process.create` 的 `process`：必须提供 `key`（本阶段引用）和 `name`（显示名）。
+- `step.append/insert` 的 `step`：必须提供 `key`（本阶段引用）和 `name`（显示名）。
+- `operation.append/insert/update/replace` 的 `operation`：必须提供 `key`（跳转目标/身份）、`kind`（指令类型）、`name`（显示名）。
+- `changeSet.variables[]` 的每一项：必须提供 `name`（精确变量名）、`scope`（public/process/system）、`type`（double/string）、`policy`（reuse/create/update/replace/require）。`scope=process` 时还必须提供 `ownerProcess`。
+
+常见失败示例：`variables[0].name 不能为空` 即 `variables` 数组中某一项缺少 `name`。修正方法：补齐 `{ "name": "变量名", "scope": "public", "type": "double", "policy": "reuse" }`。
+
+完整骨架与边界演算参见 `get_process_design_faq` 返回的 `ProcessDesignFaq.md`；本清单只保留跨任务稳定的必填项检查点。
