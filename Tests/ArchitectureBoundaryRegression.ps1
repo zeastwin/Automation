@@ -597,7 +597,6 @@ foreach ($pattern in @(
     "new EngineContext",
     "new ProcessEngine",
     "new MotionCtrl",
-    "new SimulationGatewayClient",
     "new ManualMotionService"))
 {
     Select-String -LiteralPath $mainFormPath -SimpleMatch $pattern | ForEach-Object {

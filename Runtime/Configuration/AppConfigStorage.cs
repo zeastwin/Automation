@@ -18,7 +18,6 @@ namespace Automation
     public sealed class AppConfig
     {
         public int CommMaxMessageQueueSize { get; set; }
-        public AutomationRuntimeMode RuntimeMode { get; set; }
         public AutomationStartupView StartupView { get; set; }
         public bool EnablePerformanceAnalysis { get; set; }
         public bool EnableRuntimeDiagnostics { get; set; }
@@ -29,7 +28,6 @@ namespace Automation
         public const string ConfigFolderName = "Config";
         public const string ConfigFileName = "AppConfig.json";
         public const string CommMaxMessageQueueSizeKey = "CommMaxMessageQueueSize";
-        public const string RuntimeModeKey = "RuntimeMode";
         public const string StartupViewKey = "StartupView";
         public const string EnablePerformanceAnalysisKey = "EnablePerformanceAnalysis";
         public const string EnableRuntimeDiagnosticsKey = "EnableRuntimeDiagnostics";
@@ -49,7 +47,6 @@ namespace Automation
                 AppConfig defaultConfig = new AppConfig
                 {
                     CommMaxMessageQueueSize = DefaultCommMaxMessageQueueSize,
-                    RuntimeMode = AutomationRuntimeMode.Hardware,
                     StartupView = AutomationStartupView.Hmi,
                     EnablePerformanceAnalysis = true,
                     EnableRuntimeDiagnostics = true
@@ -66,7 +63,8 @@ namespace Automation
             {
                 string json = File.ReadAllText(path, Encoding.UTF8);
                 JObject obj = JObject.Parse(json);
-                bool saveRequired = false;
+                // AppConfig 只持久化当前四个字段；发现未知旧字段时按当前契约重写文件。
+                bool saveRequired = obj.Count != 4;
                 if (!obj.TryGetValue(CommMaxMessageQueueSizeKey, StringComparison.Ordinal, out JToken token))
                 {
                     token = new JValue(DefaultCommMaxMessageQueueSize);
@@ -83,17 +81,6 @@ namespace Automation
                     error = $"队列长度配置无效:{value}";
                     return false;
                 }
-                if (!obj.TryGetValue(RuntimeModeKey, StringComparison.Ordinal, out token))
-                {
-                    token = new JValue((int)AutomationRuntimeMode.Hardware);
-                    saveRequired = true;
-                }
-                if (token.Type != JTokenType.Integer || (token.Value<int>() != (int)AutomationRuntimeMode.Hardware && token.Value<int>() != (int)AutomationRuntimeMode.Simulation))
-                {
-                    error = $"运行模式配置无效:{token}";
-                    return false;
-                }
-                AutomationRuntimeMode runtimeMode = (AutomationRuntimeMode)token.Value<int>();
                 if (!obj.TryGetValue(StartupViewKey, StringComparison.Ordinal, out token))
                 {
                     token = new JValue((int)AutomationStartupView.Hmi);
@@ -132,7 +119,6 @@ namespace Automation
                 config = new AppConfig
                 {
                     CommMaxMessageQueueSize = value,
-                    RuntimeMode = runtimeMode,
                     StartupView = startupView,
                     EnablePerformanceAnalysis = enablePerformanceAnalysis,
                     EnableRuntimeDiagnostics = enableRuntimeDiagnostics
@@ -182,11 +168,6 @@ namespace Automation
                 error = $"队列长度配置无效:{config.CommMaxMessageQueueSize}";
                 return false;
             }
-            if (config.RuntimeMode != AutomationRuntimeMode.Hardware && config.RuntimeMode != AutomationRuntimeMode.Simulation)
-            {
-                error = $"运行模式配置无效:{config.RuntimeMode}";
-                return false;
-            }
             if (config.StartupView != AutomationStartupView.Hmi
                 && config.StartupView != AutomationStartupView.PlatformEditor)
             {
@@ -196,7 +177,6 @@ namespace Automation
             JObject obj = new JObject
             {
                 [CommMaxMessageQueueSizeKey] = config.CommMaxMessageQueueSize,
-                [RuntimeModeKey] = (int)config.RuntimeMode,
                 [StartupViewKey] = (int)config.StartupView,
                 [EnablePerformanceAnalysisKey] = config.EnablePerformanceAnalysis,
                 [EnableRuntimeDiagnosticsKey] = config.EnableRuntimeDiagnostics
@@ -232,7 +212,6 @@ namespace Automation
             return new AppConfig
             {
                 CommMaxMessageQueueSize = config.CommMaxMessageQueueSize,
-                RuntimeMode = config.RuntimeMode,
                 StartupView = config.StartupView,
                 EnablePerformanceAnalysis = config.EnablePerformanceAnalysis,
                 EnableRuntimeDiagnostics = config.EnableRuntimeDiagnostics

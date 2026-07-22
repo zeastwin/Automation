@@ -551,7 +551,7 @@ namespace Automation
             frmDataGrid.UpdateHighlight(snapshot);
         }
 
-        internal void AttachInitializedPlatform(PlatformRuntimeInitializationResult initialization)
+        internal void AttachInitializedPlatform()
         {
             if (platformInitialized)
             {
@@ -572,10 +572,6 @@ namespace Automation
             frmCommunication.RefreshSerialPortInfo();
             frmAlarmConfig.RefreshAlarmInfoFromStore();
             frmIODebug.RefleshIODebug();
-            if (!string.IsNullOrWhiteSpace(initialization?.Device?.WindowTitle))
-            {
-                Text = initialization.Device.WindowTitle;
-            }
             frmControl?.RefreshMotionControlAvailability();
             platformInitialized = true;
         }

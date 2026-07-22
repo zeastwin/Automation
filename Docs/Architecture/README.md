@@ -50,7 +50,7 @@ flowchart TD
 | 配置状态 | [`Stores/`](../../Stores)、[`Stores/README.md`](../../Stores/README.md) | 加载、校验、内存状态和持久化 | 弹窗和窗体导航 |
 | 流程内核 | [`Engine/`](../../Engine)、[`Engine/README.md`](../../Engine/README.md) | 流程定义、编译、编辑、就绪分析、执行与状态快照 | 编辑器布局和配置存储 |
 | 运行契约 | [`Automation.Runtime.Contracts/`](../../Automation.Runtime.Contracts) | 流程状态、终止原因、报警交互、日志和弹窗端口 | Store、WinForms、设备实现 |
-| 设备适配 | [`MotionControl/`](../../MotionControl)、[`PLC/`](../../PLC)、[`Communication/`](../../Communication) | 对接硬件、通讯或仿真实现 | 读取平台窗体 |
+| 设备适配 | [`MotionControl/`](../../MotionControl)、[`PLC/`](../../PLC)、[`Communication/`](../../Communication) | 对接硬件与通讯实现 | 读取平台窗体 |
 | 平台编辑器 | [`Editor/`](../../Editor)、[`Editor/README.md`](../../Editor/README.md) | 按功能组织 WinForms 页面、编辑会话和用户交互 | 作为非 UI 模块的服务定位器 |
 | AI 接入 | [`Bridge/`](../../Bridge)、[`Bridge/README.md`](../../Bridge/README.md)、[`McpServer/`](../../McpServer)、[`Editor/Ai/FrmAiAssistant.cs`](../../Editor/Ai/FrmAiAssistant.cs) | 精确读取、预演确认、提交和诊断 | 绕过正式配置与运行门禁 |
 | 设备工程 SDK | [`Automation.DeviceSdk/`](../../Automation.DeviceSdk) | 向独立 HMI 暴露稳定平台能力 | 暴露 `PlatformRuntime` 或平台窗体 |

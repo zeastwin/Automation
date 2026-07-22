@@ -5,55 +5,37 @@ using System;
 
 using System.Threading;
 using System.Threading.Tasks;
-using Automation.Simulation;
 
 namespace Automation
 {
-    internal sealed class PlatformDeviceInitializationResult
-    {
-        public bool SimulationMode { get; set; }
-        public bool SimulationConnected { get; set; }
-        public string WindowTitle { get; set; }
-    }
-
     /// <summary>
-    /// 运动设备初始化、仿真故障处理和轴状态监视的实例级生命周期入口。
+    /// 运动设备初始化和轴状态监视的实例级生命周期入口。
     /// </summary>
     internal sealed class PlatformDeviceCoordinator : IDisposable
     {
         private readonly PlatformRuntime runtime;
-        private readonly SimulationGatewayClient simulationGateway;
         private readonly object monitorLock = new object();
         private CancellationTokenSource monitorCts;
         private Task monitorTask;
-        private bool simulationFaultSubscribed;
         private bool disposed;
 
-        public PlatformDeviceCoordinator(
-            PlatformRuntime runtime,
-            SimulationGatewayClient simulationGateway)
+        public PlatformDeviceCoordinator(PlatformRuntime runtime)
         {
             this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
-            this.simulationGateway = simulationGateway;
         }
 
         public event Action<string> Faulted;
 
-        public PlatformDeviceInitializationResult Initialize()
+        public void Initialize()
         {
             ThrowIfDisposed();
-            if (AutomationRuntimeOptions.Current.IsSimulation)
-            {
-                return InitializeSimulation();
-            }
-
             int configuredCardCount = runtime.Stores.Cards?.GetControlCardCount() ?? 0;
             if (configuredCardCount == 0)
             {
                 runtime.ProcessEngine?.Logger?.Log(
                     "未配置运动控制卡，已跳过运动控制卡初始化。",
                     LogLevel.Normal);
-                return new PlatformDeviceInitializationResult();
+                return;
             }
             try
             {
@@ -63,7 +45,7 @@ namespace Automation
                     runtime.ProcessEngine?.Logger?.Log(
                         "运动控制卡初始化失败，运动操作已禁用。",
                         LogLevel.Error);
-                    return new PlatformDeviceInitializationResult();
+                    return;
                 }
                 runtime.Motion.DownLoadConfig();
                 runtime.Motion.SetAllAxisSevonOn();
@@ -76,7 +58,6 @@ namespace Automation
                     $"运动控制卡初始化异常，运动操作已禁用:{ex.Message}",
                     LogLevel.Error);
             }
-            return new PlatformDeviceInitializationResult();
         }
 
         public void StartAxisMonitor()
@@ -121,47 +102,7 @@ namespace Automation
                 return;
             }
             disposed = true;
-            if (simulationFaultSubscribed && simulationGateway != null)
-            {
-                simulationGateway.Faulted -= HandleSimulationGatewayFault;
-                simulationFaultSubscribed = false;
-            }
             Stop();
-        }
-
-        private PlatformDeviceInitializationResult InitializeSimulation()
-        {
-            var result = new PlatformDeviceInitializationResult
-            {
-                SimulationMode = true,
-                WindowTitle = "Automation - 仿真模式（模拟器未连接）"
-            };
-            if (simulationGateway == null)
-            {
-                runtime.ProcessEngine?.Logger?.Log("仿真网关未初始化。", LogLevel.Error);
-                return result;
-            }
-            if (!simulationFaultSubscribed)
-            {
-                simulationGateway.Faulted += HandleSimulationGatewayFault;
-                simulationFaultSubscribed = true;
-            }
-            try
-            {
-                simulationGateway.Connect(250);
-                simulationGateway.ApplyEndpointMappings(runtime.ProcessEngine.Context);
-                StartAxisMonitor();
-                result.SimulationConnected = true;
-                result.WindowTitle = "Automation - 仿真模式（未连接实机）";
-                runtime.ProcessEngine?.Logger?.Log(
-                    $"仿真模式已就绪，使用正式配置目录:{runtime.Paths.ConfigPath}",
-                    LogLevel.Normal);
-            }
-            catch (Exception ex)
-            {
-                runtime.ProcessEngine?.Logger?.Log($"模拟器不可用:{ex.Message}", LogLevel.Error);
-            }
-            return result;
         }
 
         private void MonitorAxes(CancellationToken token)
@@ -224,14 +165,6 @@ namespace Automation
                     break;
                 }
             }
-        }
-
-        private void HandleSimulationGatewayFault(string reason)
-        {
-            string message = $"仿真连接故障:{reason}";
-            ClearAxisRuntimeState();
-            runtime.Safety.StopAllProcesses(message);
-            Faulted?.Invoke(message);
         }
 
         private void TryStopMotion()

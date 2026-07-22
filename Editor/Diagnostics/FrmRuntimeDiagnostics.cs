@@ -574,7 +574,6 @@ namespace Automation
                 case "variable.changed": return "变量变化";
                 case "plc.runtime": return "PLC 运行事件";
                 case "communication.frames_dropped": return "通讯丢帧";
-                case "simulation.connection.faulted": return "仿真连接故障";
                 default: return eventName ?? string.Empty;
             }
         }
@@ -586,8 +585,7 @@ namespace Automation
                 || string.Equals(outcome, "alarm", StringComparison.OrdinalIgnoreCase)) return "danger";
             if (string.Equals(eventName, "process.started", StringComparison.Ordinal)
                 || string.Equals(eventName, "process.completed", StringComparison.Ordinal)) return "success";
-            if (string.Equals(eventName, "communication.frames_dropped", StringComparison.Ordinal)
-                || string.Equals(eventName, "simulation.connection.faulted", StringComparison.Ordinal)) return "warning";
+            if (string.Equals(eventName, "communication.frames_dropped", StringComparison.Ordinal)) return "warning";
             return "neutral";
         }
 

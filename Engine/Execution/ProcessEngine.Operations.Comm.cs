@@ -527,12 +527,6 @@ namespace Automation
 
         private bool TryGetSocketConfig(string name, out SocketInfo info)
         {
-            if (AutomationRuntimeOptions.Current.IsSimulation)
-            {
-                info = Context?.SocketInfos?.FirstOrDefault(item => item != null
-                    && string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
-                return info != null;
-            }
             if (Context?.CommunicationStore != null)
             {
                 return Context.CommunicationStore.TryGetSocket(name, out info);
@@ -544,12 +538,6 @@ namespace Automation
 
         private bool TryGetSerialConfig(string name, out SerialPortInfo info)
         {
-            if (AutomationRuntimeOptions.Current.IsSimulation)
-            {
-                info = Context?.SerialPortInfos?.FirstOrDefault(item => item != null
-                    && string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
-                return info != null;
-            }
             if (Context?.CommunicationStore != null)
             {
                 return Context.CommunicationStore.TryGetSerial(name, out info);

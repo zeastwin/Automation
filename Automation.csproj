@@ -163,15 +163,20 @@
     </Compile>
     <Compile Include="Editor\Ai\FrmAiAssistant.Dialogs.cs">
       <DependentUpon>FrmAiAssistant.cs</DependentUpon>
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="Editor\Ai\FrmAiAssistant.Rendering.cs">
       <DependentUpon>FrmAiAssistant.cs</DependentUpon>
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="Editor\Ai\FrmAiAssistant.WebTemplate.cs">
       <DependentUpon>FrmAiAssistant.cs</DependentUpon>
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="Editor\Ai\GooseAcpClient.cs" />
-    <Compile Include="Editor\Common\EditorUiInfrastructure.cs" />
+    <Compile Include="Editor\Common\EditorUiInfrastructure.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Editor\Common\FrmMessage.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -271,20 +276,36 @@
       <DependentUpon>FrmStation.cs</DependentUpon>
     </Compile>
     <Compile Include="Editor\Process\Inspector\EditorServiceRegistry.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorCollectionFieldControls.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorComboBoxControl.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorCollectionFieldControls.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Editor\Process\Inspector\InspectorComboBoxControl.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Editor\Process\Inspector\InspectorControls.cs" />
     <Compile Include="Editor\Process\Inspector\InspectorDefinitions.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorFieldControls.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorScalarFieldControl.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorFieldControls.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Editor\Process\Inspector\InspectorScalarFieldControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="Editor\Process\Inspector\InspectorSelectionPickerPanel.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="Editor\Process\Inspector\InspectorToggleControls.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorValueCellControls.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorToggleControls.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Editor\Process\Inspector\InspectorValueCellControls.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Editor\Process\Inspector\InspectorValueConversion.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorValueReferenceFieldControl.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorView.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorValueReferenceFieldControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Editor\Process\Inspector\InspectorView.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="Editor\Process\Inspector\OperationTypePickerPanel.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -326,9 +347,11 @@
     </Compile>
     <Compile Include="Editor\Shell\FrmMain.Lifecycle.cs">
       <DependentUpon>FrmMain.cs</DependentUpon>
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="Editor\Shell\FrmMain.Navigation.cs">
       <DependentUpon>FrmMain.cs</DependentUpon>
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="Editor\Shell\FrmMenu.cs">
       <SubType>Form</SubType>
@@ -495,7 +518,6 @@
     <Compile Include="Runtime\Process\PlatformProcessStoreFacade.cs" />
     <Compile Include="Runtime\Process\PlatformValueStoreFacade.cs" />
     <Compile Include="Runtime\Process\ProcessRuntimeControl.cs" />
-    <Compile Include="Simulation\SimulationGatewayClient.cs" />
     <Compile Include="Stores\Data\AlarmInfoStore.cs" />
     <Compile Include="Stores\Data\DataStructModels.cs" />
     <Compile Include="Stores\Data\DataStructStore.cs" />
@@ -701,10 +723,6 @@
       <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\win32\x86" />
     </ItemGroup>
     <RemoveDir Directories="@(UnsupportedNativeGitDirectory)" />
-  </Target>
-  <!-- 旧仿真工具遗留目录不属于正式运行包，生成后强制清理，避免携带配置快照和账户文件。 -->
-  <Target Name="RemoveLegacySimulationArtifacts" AfterTargets="Build">
-    <RemoveDir Directories="$(TargetDir)SimulationRuns;$(TargetDir)SimulationScenarios" />
   </Target>
   <!-- Goose 受管 Markdown 同时保留程序集资源和程序目录副本；这里只清理根目录冗余文件。 -->
   <Target Name="RemoveRedundantOutputArtifacts" AfterTargets="Build">

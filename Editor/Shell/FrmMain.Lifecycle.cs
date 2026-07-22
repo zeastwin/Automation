@@ -39,9 +39,8 @@ namespace Automation
             platformInitializationStarted = true;
             try
             {
-                PlatformRuntimeInitializationResult initialization =
-                    PlatformRuntimeInitializer.Initialize(Runtime);
-                AttachInitializedPlatform(initialization);
+                PlatformRuntimeInitializer.Initialize(Runtime);
+                AttachInitializedPlatform();
             }
             catch (Exception ex)
             {

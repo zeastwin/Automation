@@ -73,7 +73,6 @@ namespace Automation
         private readonly PlatformRuntime runtime;
         private readonly IDisposable exceptionSafetyRegistration;
         private readonly WinFormsProcessInteractionCoordinator processInteraction;
-        private PlatformRuntimeInitializationResult initializationResult;
         private FrmMain platformEditor;
         private PlatformRuntimeState state = PlatformRuntimeState.Created;
         private bool autoStartTriggered;
@@ -207,7 +206,7 @@ namespace Automation
                 composition.ProcessEngine.SnapshotChanged += OnProcessSnapshotChanged;
                 runtime.Devices.Faulted += OnDeviceFaulted;
                 runtime.Stores.Values.ValueChanged += OnValueChanged;
-                initializationResult = PlatformRuntimeInitializer.Initialize(runtime);
+                PlatformRuntimeInitializer.Initialize(runtime);
                 MonitorSystemValue("复位状态");
                 MonitorSystemValue("系统状态");
 
@@ -730,7 +729,7 @@ namespace Automation
         private FrmMain EnsurePlatformEditorCreated()
         {
             EnsureUiThread();
-            if (runtimeCoreStopped || initializationResult == null)
+            if (runtimeCoreStopped || runtime.ProcessEngine == null)
             {
                 throw new InvalidOperationException(
                     $"平台运行时未完成初始化，无法创建编辑器:{StateMessage}");
@@ -745,7 +744,7 @@ namespace Automation
             };
             try
             {
-                editor.AttachInitializedPlatform(initializationResult);
+                editor.AttachInitializedPlatform();
                 platformEditor = editor;
                 return editor;
             }

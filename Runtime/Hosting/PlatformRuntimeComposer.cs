@@ -1,11 +1,10 @@
 using System;
 // 模块：运行时 / 宿主组合。
 // 职责范围：负责平台入口、实例组合、初始化、路径和宿主对外生命周期。
-// 排查入口：设备实现选择只由 AutomationRuntimeOptions 决定；仿真与真实硬件装配错误从 Compose 定位。
+// 排查入口：运动和 IO 统一由 MotionCtrl 装配；对象缺失或重复组合从 Compose 定位。
 
 using System.Collections.Generic;
 using Automation.MotionControl;
-using Automation.Simulation;
 
 namespace Automation
 {
@@ -50,25 +49,13 @@ namespace Automation
                 throw new InvalidOperationException("当前平台实例已经完成内核组合。");
             }
 
-            IMotionRuntime motion;
-            IIoRuntime io;
-            SimulationGatewayClient simulationGateway = null;
-            if (AutomationRuntimeOptions.Current.IsSimulation)
-            {
-                simulationGateway = new SimulationGatewayClient();
-                motion = simulationGateway;
-                io = simulationGateway;
-            }
-            else
-            {
-                var hardwareMotion = new MotionCtrl(
-                    runtime.Stores.Values,
-                    runtime.Stores.Cards,
-                    runtime.Safety,
-                    runtime.Readiness);
-                motion = hardwareMotion;
-                io = hardwareMotion;
-            }
+            var hardwareMotion = new MotionCtrl(
+                runtime.Stores.Values,
+                runtime.Stores.Cards,
+                runtime.Safety,
+                runtime.Readiness);
+            IMotionRuntime motion = hardwareMotion;
+            IIoRuntime io = hardwareMotion;
 
             var engineContext = new EngineContext
             {
@@ -114,7 +101,7 @@ namespace Automation
                 runtime.Stores.Values,
                 () => runtime.Readiness.MotionConfigRestartRequired,
                 runtime.Safety.Lock);
-            runtime.Devices = new PlatformDeviceCoordinator(runtime, simulationGateway);
+            runtime.Devices = new PlatformDeviceCoordinator(runtime);
 
             return new PlatformRuntimeComposition(processEngine, motion, io);
         }

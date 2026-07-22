@@ -576,7 +576,6 @@ Assert-True ([Math]::Abs($dataSnapshot[0].dataStructItems[0].num[0] - 3.75) -lt 
 
 $analysisConfig = [Automation.AppConfig]::new()
 $analysisConfig.CommMaxMessageQueueSize = 1000
-$analysisConfig.RuntimeMode = [Automation.AutomationRuntimeMode]::Hardware
 $analysisConfig.StartupView = [Automation.AutomationStartupView]::Hmi
 $analysisConfig.EnablePerformanceAnalysis = $true
 $analysisConfig.EnableRuntimeDiagnostics = $true

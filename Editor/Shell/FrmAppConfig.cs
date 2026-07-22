@@ -12,7 +12,6 @@ namespace Automation
     public class FrmAppConfig : Form
     {
         private readonly TextBox txtQueueSize = new TextBox();
-        private readonly ComboBox cmbRuntimeMode = new ComboBox();
         private readonly CheckBox chkPerformanceAnalysis = new CheckBox();
         private readonly CheckBox chkRuntimeDiagnostics = new CheckBox();
         private readonly ComboBox cmbStartupView = new ComboBox();
@@ -107,13 +106,13 @@ namespace Automation
                 BackColor = Color.Transparent,
                 Padding = new Padding(22, 8, 22, 8),
                 ColumnCount = 2,
-                RowCount = 6
+                RowCount = 5
             };
             fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 53F));
             fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 47F));
-            for (int i = 0; i < 6; i++)
+            for (int i = 0; i < 5; i++)
             {
-                fields.RowStyles.Add(new RowStyle(SizeType.Percent, 16.6667F));
+                fields.RowStyles.Add(new RowStyle(SizeType.Percent, 20F));
             }
 
             fields.Controls.Add(CreateFieldDescription(
@@ -124,49 +123,39 @@ namespace Automation
             fields.Controls.Add(CreateInputHost(txtQueueSize), 1, 0);
 
             fields.Controls.Add(CreateFieldDescription(
-                "运行模式",
-                "选择真实硬件环境或离线仿真环境"), 0, 1);
-            cmbRuntimeMode.DropDownStyle = ComboBoxStyle.DropDownList;
-            cmbRuntimeMode.FlatStyle = FlatStyle.Flat;
-            cmbRuntimeMode.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
-            cmbRuntimeMode.Items.Add(new RuntimeModeItem(AutomationRuntimeMode.Hardware, "正常模式"));
-            cmbRuntimeMode.Items.Add(new RuntimeModeItem(AutomationRuntimeMode.Simulation, "仿真模式"));
-            fields.Controls.Add(CreateInputHost(cmbRuntimeMode), 1, 1);
-
-            fields.Controls.Add(CreateFieldDescription(
                 "运行时性能分析",
-                "独立采样性能；异常只报告、不终止流程"), 0, 2);
+                "独立采样性能；异常只报告、不终止流程"), 0, 1);
             chkPerformanceAnalysis.Text = "启用性能分析";
             chkPerformanceAnalysis.AutoSize = true;
             chkPerformanceAnalysis.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
-            fields.Controls.Add(CreateInputHost(chkPerformanceAnalysis), 1, 2);
+            fields.Controls.Add(CreateInputHost(chkPerformanceAnalysis), 1, 1);
 
             fields.Controls.Add(CreateFieldDescription(
                 "程序启动界面",
-                "下次启动时优先显示平台或 HMI"), 0, 3);
+                "下次启动时优先显示平台或 HMI"), 0, 2);
             cmbStartupView.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbStartupView.FlatStyle = FlatStyle.Flat;
             cmbStartupView.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
             cmbStartupView.Items.Add(new StartupViewItem(AutomationStartupView.Hmi, "HMI 操作界面"));
             cmbStartupView.Items.Add(new StartupViewItem(AutomationStartupView.PlatformEditor, "平台编辑器"));
-            fields.Controls.Add(CreateInputHost(cmbStartupView), 1, 3);
+            fields.Controls.Add(CreateInputHost(cmbStartupView), 1, 2);
 
             fields.Controls.Add(CreateFieldDescription(
                 "智能诊断中心",
-                "控制诊断页面、专属服务、黑匣子和事故窗口"), 0, 4);
+                "控制诊断页面、专属服务、黑匣子和事故窗口"), 0, 3);
             chkRuntimeDiagnostics.Text = "启用智能诊断中心";
             chkRuntimeDiagnostics.AutoSize = true;
             chkRuntimeDiagnostics.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
-            fields.Controls.Add(CreateInputHost(chkRuntimeDiagnostics), 1, 4);
+            fields.Controls.Add(CreateInputHost(chkRuntimeDiagnostics), 1, 3);
 
             fields.Controls.Add(CreateFieldDescription(
                 "配置文件",
-                "当前程序实例实际读取的配置位置"), 0, 5);
+                "当前程序实例实际读取的配置位置"), 0, 4);
             txtConfigPath.ReadOnly = true;
             txtConfigPath.ShortcutsEnabled = true;
             txtConfigPath.Font = new Font("Consolas", 9.5F, FontStyle.Regular);
             txtConfigPath.BackColor = UiPalette.SurfaceStrong;
-            fields.Controls.Add(CreateInputHost(txtConfigPath), 1, 5);
+            fields.Controls.Add(CreateInputHost(txtConfigPath), 1, 4);
             toolTip.SetToolTip(txtConfigPath, "单击后可使用 Ctrl+C 复制完整路径");
             settingsCard.Controls.Add(fields);
 
@@ -331,14 +320,12 @@ namespace Automation
             if (AppConfigStorage.TryLoad(out AppConfig config, out string error))
             {
                 txtQueueSize.Text = config.CommMaxMessageQueueSize.ToString();
-                SelectRuntimeMode(config.RuntimeMode);
                 chkPerformanceAnalysis.Checked = config.EnablePerformanceAnalysis;
                 chkRuntimeDiagnostics.Checked = config.EnableRuntimeDiagnostics;
                 SelectStartupView(config.StartupView);
                 return;
             }
             txtQueueSize.Text = string.Empty;
-            cmbRuntimeMode.SelectedIndex = -1;
             chkPerformanceAnalysis.Checked = false;
             chkRuntimeDiagnostics.Checked = false;
             cmbStartupView.SelectedIndex = -1;
@@ -368,11 +355,6 @@ namespace Automation
                 MessageBox.Show("队列长度必须大于0。", "参数错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            if (!(cmbRuntimeMode.SelectedItem is RuntimeModeItem runtimeModeItem))
-            {
-                MessageBox.Show("请选择运行模式。", "参数错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
             if (!(cmbStartupView.SelectedItem is StartupViewItem startupViewItem))
             {
                 MessageBox.Show("请选择程序启动界面。", "参数错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -381,7 +363,6 @@ namespace Automation
             AppConfig config = new AppConfig
             {
                 CommMaxMessageQueueSize = value,
-                RuntimeMode = runtimeModeItem.Mode,
                 StartupView = startupViewItem.View,
                 EnablePerformanceAnalysis = chkPerformanceAnalysis.Checked,
                 EnableRuntimeDiagnostics = chkRuntimeDiagnostics.Checked
@@ -413,19 +394,6 @@ namespace Automation
             return text.Length > 0;
         }
 
-        private void SelectRuntimeMode(AutomationRuntimeMode mode)
-        {
-            for (int i = 0; i < cmbRuntimeMode.Items.Count; i++)
-            {
-                if (((RuntimeModeItem)cmbRuntimeMode.Items[i]).Mode == mode)
-                {
-                    cmbRuntimeMode.SelectedIndex = i;
-                    return;
-                }
-            }
-            cmbRuntimeMode.SelectedIndex = -1;
-        }
-
         private void SelectStartupView(AutomationStartupView view)
         {
             for (int i = 0; i < cmbStartupView.Items.Count; i++)
@@ -437,23 +405,6 @@ namespace Automation
                 }
             }
             cmbStartupView.SelectedIndex = -1;
-        }
-
-        private sealed class RuntimeModeItem
-        {
-            public RuntimeModeItem(AutomationRuntimeMode mode, string displayName)
-            {
-                Mode = mode;
-                DisplayName = displayName;
-            }
-
-            public AutomationRuntimeMode Mode { get; }
-            public string DisplayName { get; }
-
-            public override string ToString()
-            {
-                return DisplayName;
-            }
         }
 
         private sealed class StartupViewItem
