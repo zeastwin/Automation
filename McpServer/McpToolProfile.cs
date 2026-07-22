@@ -504,9 +504,12 @@ namespace Automation.McpServer
                 VariableScopeContract.Process,
                 VariableScopeContract.System);
             JsonArray required = variableSchema["required"] as JsonArray ?? new JsonArray();
-            if (!required.Any(item => string.Equals(item?.GetValue<string>(), "scope", StringComparison.Ordinal)))
+            foreach (string requiredField in new[] { "name", "scope", "type", "policy" })
             {
-                required.Add("scope");
+                if (!required.Any(item => string.Equals(item?.GetValue<string>(), requiredField, StringComparison.Ordinal)))
+                {
+                    required.Add(requiredField);
+                }
             }
             variableSchema["required"] = required;
             variableSchema["allOf"] = new JsonArray
