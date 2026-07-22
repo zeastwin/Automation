@@ -67,11 +67,13 @@ namespace Automation
         public static IReadOnlyCollection<string> OperationKinds => AiOperationCompilerRegistry.Kinds;
 
         public static AiChangeSetCompileResult Compile(
+            PlatformRuntime runtime,
             AiChangeSet changeSet,
             IList<Proc> currentProcesses,
             IDictionary<string, DicValue> currentVariables,
             AiResourceSnapshot resources = null)
         {
+            if (runtime == null) throw new ArgumentNullException(nameof(runtime));
             if (changeSet == null)
             {
                 throw new InvalidOperationException("changeSet 不能为空。");
@@ -126,7 +128,7 @@ namespace Automation
             IReadOnlyCollection<string> alarmInfoIds = GetReferenceValues(resources, "alarm.infoId");
             IReadOnlyCollection<string> plcNames = GetReferenceValues(resources, "plc.device");
             var validationContext = new ProcessDefinitionValidationContext(
-                variables.Keys, tcpNames, serialNames, alarmInfoIds, plcNames, variables);
+                variables.Keys, tcpNames, serialNames, alarmInfoIds, plcNames, variables, runtime);
             for (int procIndex = 0; procIndex < processes.Count; procIndex++)
             {
                 var errors = new List<string>();

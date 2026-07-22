@@ -20,7 +20,7 @@ using System.Windows.Forms;
 
 namespace Automation
 {
-    public sealed class FrmAiAssistant : Form
+    public sealed partial class FrmAiAssistant : Form
     {
         private readonly TableLayoutPanel rootLayout = new TableLayoutPanel();
         private WebView2 webViewConversation;
@@ -1933,13 +1933,13 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 try
                 {
-                    if (SF.mainfrm?.McpServerManager == null)
+                    if (Workspace.Main?.McpServerManager == null)
                     {
                         throw new InvalidOperationException("MCP Server管理器未初始化");
                     }
                     if (uriChanged)
                     {
-                        await SF.mainfrm.McpServerManager.EnsureStartedAsync(config.McpUri, config.ToolProfile)
+                        await Workspace.Main.McpServerManager.EnsureStartedAsync(config.McpUri, config.ToolProfile)
                             .ConfigureAwait(true);
                         await AutomationMcpServerManager.SetToolProfileAsync(
                             config.McpUri, config.ToolProfile,
@@ -2050,7 +2050,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             try
             {
-                if (SF.mainfrm?.McpServerManager == null)
+                if (Workspace.Main?.McpServerManager == null)
                 {
                     throw new InvalidOperationException("MCP Server管理器未初始化");
                 }
@@ -2096,7 +2096,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
 
             ShowWebToast("正在检查 AI 运行组件...");
-            string result = await Task.Run(() => CheckGooseCore(config)).ConfigureAwait(true);
+            string result = await Task.Run(() => CheckGooseCore(Workspace.Runtime, config)).ConfigureAwait(true);
             AppendConversation("系统", result, UiPalette.TextPrimary);
             ShowWebToast("检查完成，结果已写入对话。");
             PushWebAppState();
@@ -2546,6 +2546,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     AppendConversation("系统", "标准测试：" + scenario.Name, UiPalette.TextSecondary);
 
                     if (!AiStandardTestSuite.Prepare(
+                        Workspace.Runtime,
                         scenario, out AiStandardTestFixtureState fixture, out string prepareError))
                     {
                         failedScenarios++;
@@ -2590,7 +2591,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
                     if (scenarioCompleted)
                     {
-                        AiStandardTestEvaluation evaluation = AiStandardTestSuite.Evaluate(scenario, fixture);
+                        AiStandardTestEvaluation evaluation = AiStandardTestSuite.Evaluate(
+                            Workspace.Runtime, scenario, fixture);
                         if (evaluation.Passed) passedScenarios++;
                         else failedScenarios++;
                         AiAnalysisLogger.Write(new JObject
@@ -2931,7 +2933,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     return runtime.Client;
                 }
 
-                runtime.Client = new GooseAcpClient(config, runtime.RestoredContext);
+                runtime.Client = new GooseAcpClient(Workspace.Runtime, config, runtime.RestoredContext);
                 runtime.RestoredContext = null;
                 runtime.Client.EventReceived += item => TaskClient_EventReceived(runtime, item);
                 runtime.Client.PermissionRequestHandler = HandlePermissionRequest;
@@ -3851,20 +3853,20 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             catch (Exception ex)
             {
                 // 只有 Automation 的流程工具进入这里；其返回形状异常需要记录，但不得中断工具主链路。
-                SF.DR?.Logger?.Log($"AI流程可视化解析失败:{ex}", LogLevel.Error);
+                Workspace.Runtime.ProcessEngine?.Logger?.Log($"AI流程可视化解析失败:{ex}", LogLevel.Error);
             }
         }
 
-        private static JObject BuildUnifiedFlowVisualization(int procIndex)
+        private JObject BuildUnifiedFlowVisualization(int procIndex)
         {
-            if (SF.frmProc == null || procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+            if (Workspace.Proc == null || procIndex < 0 || procIndex >= Workspace.Proc.procsList.Count)
             {
                 return null;
             }
             ProcessFlowGraphSnapshot graph = ProcessFlowGraphService.BuildProcess(
-                SF.frmProc.procsList,
+                Workspace.Proc.procsList,
                 procIndex,
-                index => SF.DR?.GetSnapshot(index));
+                index => Workspace.Runtime.ProcessEngine?.GetSnapshot(index));
             JObject data = ProcessFlowGraphService.ToJObject(graph);
             JObject process = BuildFlowVisualizationFromGraph(data).FirstOrDefault();
             if (process != null) process["action"] = "committed";
@@ -5282,7 +5284,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
         }
 
-        private static string CheckGooseCore(GooseConfig config)
+        private static string CheckGooseCore(PlatformRuntime runtime, GooseConfig config)
         {
             StringBuilder builder = new StringBuilder();
             string gooseExecutable = ResolveGooseExecutablePath(config.GooseExecutablePath);
@@ -5307,7 +5309,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     ToolProfile = config.ToolProfile,
                     AutoApproveMode = config.AutoApproveMode
                 };
-                using (GooseAcpClient client = new GooseAcpClient(resolvedConfig))
+                using (GooseAcpClient client = new GooseAcpClient(runtime, resolvedConfig))
                 using (CancellationTokenSource cts = new CancellationTokenSource(30000))
                 {
                     client.InitializeAsync(cts.Token).GetAwaiter().GetResult();

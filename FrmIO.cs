@@ -2,27 +2,26 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using static Automation.FrmCard;
 using static Automation.OperationTypePartial;
 
 namespace Automation
 {
     public partial class FrmIO : Form
     {
-        public List<List<IO>> IOMap = new List<List<IO>>();
-        public Dictionary<string,IO> DicIO = new Dictionary<string,IO>();
+        private readonly IoConfigurationStore configurationStore;
+        public List<List<IO>> IOMap => configurationStore.Map;
+        public Dictionary<string,IO> DicIO => configurationStore.ByName;
         public System.Drawing.Image validImage = UiStatusImages.CreateValidImage();
         public System.Drawing.Image invalidImage = UiStatusImages.CreateInvalidImage();
         public int iSelectedIORow = -1;
-        public List<string> IoOutItems = new List<string>();
-        public List<string> IoInItems = new List<string>();
-        public List<string> IoItems = new List<string>();
+        public List<string> IoOutItems => configurationStore.OutputNames;
+        public List<string> IoInItems => configurationStore.InputNames;
+        public List<string> IoItems => configurationStore.AllNames;
         private const int IoMonitorIntervalMs = 200;
         private const int IoMonitorStaleTimeoutMs = 2000;
         private readonly object ioMonitorLifecycleLock = new object();
@@ -63,7 +62,14 @@ namespace Automation
             public IoMonitorValue[] Values { get; set; }
         }
         public FrmIO()
+            : this(new IoConfigurationStore())
         {
+        }
+
+        public FrmIO(IoConfigurationStore configurationStore)
+        {
+            this.configurationStore = configurationStore
+                ?? throw new ArgumentNullException(nameof(configurationStore));
             InitializeComponent();
 
             dgvIO.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
@@ -86,79 +92,18 @@ namespace Automation
         public bool IsIOMonitoring => ioMonitorEnabled;
         public void RefleshIODic()
         {
-            var dictionary = new Dictionary<string, IO>(StringComparer.Ordinal);
-            var outputNames = new List<string>();
-            var inputNames = new List<string>();
-            var allNames = new List<string>();
-            if (IOMap == null)
+            if (!configurationStore.TryRebuildIndex(out string error))
             {
-                SF.SetSecurityLock("IO配置为空，禁止加载IO字典。");
-                return;
+                Workspace.Runtime.Safety.Lock(error);
             }
-            foreach (List<IO> list in IOMap)
-            {
-                if (list == null)
-                {
-                    SF.SetSecurityLock("IO配置包含空卡列表，禁止加载IO字典。");
-                    return;
-                }
-                foreach (IO item in list)
-                {
-                    if (item == null || string.IsNullOrWhiteSpace(item.Name))
-                    {
-                        continue;
-                    }
-                    if (dictionary.ContainsKey(item.Name))
-                    {
-                        SF.SetSecurityLock($"IO名称重复：{item.Name}");
-                        return;
-                    }
-                    dictionary.Add(item.Name, item);
-                    if (item.IOType == "通用输出")
-                    {
-                        outputNames.Add(item.Name);
-                    }
-                    if (item.IOType == "通用输入")
-                    {
-                        inputNames.Add(item.Name);
-                    }
-                    allNames.Add(item.Name);
-                }
-            }
-            DicIO.Clear();
-            foreach (KeyValuePair<string, IO> pair in dictionary)
-            {
-                DicIO.Add(pair.Key, pair.Value);
-            }
-            IoOutItems.Clear();
-            IoOutItems.AddRange(outputNames);
-            IoInItems.Clear();
-            IoInItems.AddRange(inputNames);
-            IoItems.Clear();
-            IoItems.AddRange(allNames);
         }
         //从文件更新表
         public void RefreshIOMap()
         {
-
-            if (!Directory.Exists(SF.ConfigPath))
+            if (!configurationStore.Load(Workspace.Runtime.Paths.ConfigPath, out string error))
             {
-                Directory.CreateDirectory(SF.ConfigPath);
+                Workspace.Runtime.Safety.Lock(error);
             }
-            if (!File.Exists(SF.ConfigPath + "IOMap.json"))
-            {
-                IOMap = new List<List<IO>>();
-                AtomicJsonFileStore.Save(SF.ConfigPath, "IOMap", IOMap);
-            }
-            List<List<IO>> loadedMap = AtomicJsonFileStore.Read<List<List<IO>>>(SF.ConfigPath, "IOMap");
-            if (loadedMap == null)
-            {
-                IOMap = new List<List<IO>>();
-                SF.SetSecurityLock("IO配置文件为空或格式无效。");
-                RefreshIODgv();
-                return;
-            }
-            IOMap = loadedMap;
             RefreshIODgv();
         }
 
@@ -170,9 +115,9 @@ namespace Automation
                 return;
             }
             RefleshIODic();
-            if (SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
+            if (Workspace.Card.TryGetSelectedCardIndex(out int cardIndex))
             {
-                if (SF.cardStore.TryGetCardHead(cardIndex, out CardHead cardHead) && IOMap.Count > cardIndex)
+                if (Workspace.Runtime.Stores.Cards.TryGetCardHead(cardIndex, out CardHead cardHead) && IOMap.Count > cardIndex)
                 {
                     int inputCount = cardHead.InputCount;
                     int outputCount = cardHead.OutputCount;
@@ -184,7 +129,7 @@ namespace Automation
                     return;
                 }
             }
-            if (SF.isModify != ModifyKind.IO)
+            if (Workspace.Runtime.Editor.ModifyKind != ModifyKind.IO)
             {
                 dgvIO.Rows.Clear();
             }
@@ -203,19 +148,19 @@ namespace Automation
             }
             catch (OverflowException)
             {
-                SF.SetSecurityLock("IO数量配置溢出，禁止加载IO界面。");
+                Workspace.Runtime.Safety.Lock("IO数量配置溢出，禁止加载IO界面。");
                 return;
             }
             if (totalCount != cacheIOs.Count)
             {
-                SF.SetSecurityLock($"IO配置数量不一致：需要{totalCount}，实际{cacheIOs.Count}。");
+                Workspace.Runtime.Safety.Lock($"IO配置数量不一致：需要{totalCount}，实际{cacheIOs.Count}。");
                 return;
             }
 
             dgvIO.SuspendLayout();
             try
             {
-                if (SF.isModify != ModifyKind.IO)
+                if (Workspace.Runtime.Editor.ModifyKind != ModifyKind.IO)
                 {
                     dgvIO.Rows.Clear();
                     if (totalCount > 0)
@@ -225,7 +170,7 @@ namespace Automation
                 }
                 if (dgvIO.Rows.Count < totalCount)
                 {
-                    SF.SetSecurityLock("IO界面行数与配置数量不一致，禁止继续刷新。");
+                    Workspace.Runtime.Safety.Lock("IO界面行数与配置数量不一致，禁止继续刷新。");
                     return;
                 }
                 for (int i = 0; i < totalCount; i++)
@@ -275,7 +220,7 @@ namespace Automation
         {
             if (e.RowIndex >= 0)
             {
-                if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex)
+                if (!Workspace.Card.TryGetSelectedCardIndex(out int cardIndex)
                     || IOMap == null || cardIndex < 0 || cardIndex >= IOMap.Count
                     || IOMap[cardIndex] == null || e.RowIndex >= IOMap[cardIndex].Count)
                 {
@@ -284,7 +229,7 @@ namespace Automation
                 }
                 dgvIO.ClearSelection();
                 dgvIO.Rows[e.RowIndex].Selected = true;
-                SF.frmInspector.ShowObject(IOMap[cardIndex][e.RowIndex]);
+                Workspace.Inspector.ShowObject(IOMap[cardIndex][e.RowIndex]);
             }
 
             iSelectedIORow = e.RowIndex;
@@ -293,14 +238,14 @@ namespace Automation
         private void Modify_Click(object sender, EventArgs e)
         {
             if (iSelectedIORow != -1
-                && SF.frmCard.TryGetSelectedCardIndex(out int cardIndex)
+                && Workspace.Card.TryGetSelectedCardIndex(out int cardIndex)
                 && IOMap != null && cardIndex >= 0 && cardIndex < IOMap.Count
                 && IOMap[cardIndex] != null && iSelectedIORow < IOMap[cardIndex].Count)
             {
                 int rowIndex = iSelectedIORow;
                 IO draft = IOMap[cardIndex][rowIndex].CloneForDebug();
                 dgvIO.Enabled = false;
-                SF.BeginEditSession(new EditSession<IO>("修改IO", draft,
+                Workspace.Runtime.Editor.Begin(new EditSession<IO>("修改IO", draft,
                     item =>
                     {
                         string name = item.Name?.Trim();
@@ -315,12 +260,12 @@ namespace Automation
                     },
                     item =>
                     {
-                        IO original = IOMap[cardIndex][rowIndex];
-                        IOMap[cardIndex][rowIndex] = item;
-                        if (!AtomicJsonFileStore.Save(SF.ConfigPath, "IOMap", IOMap))
+                        List<List<IO>> candidate = configurationStore.CreateSnapshot();
+                        candidate[cardIndex][rowIndex] = item;
+                        if (!configurationStore.TryCommit(
+                                Workspace.Runtime.Paths.ConfigPath, candidate, out string error))
                         {
-                            IOMap[cardIndex][rowIndex] = original;
-                            throw new InvalidOperationException("IO配置保存失败。");
+                            throw new InvalidOperationException(error);
                         }
                         dgvIO.Enabled = true;
                         RefreshIODgv();
@@ -359,7 +304,7 @@ namespace Automation
                 MessageBox.Show("请先选择起始行。");
                 return;
             }
-            if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
+            if (!Workspace.Card.TryGetSelectedCardIndex(out int cardIndex))
             {
                 MessageBox.Show("请先选择控制卡。");
                 return;
@@ -370,7 +315,8 @@ namespace Automation
                 return;
             }
 
-            List<IO> cacheIOs = IOMap[cardIndex];
+            List<List<IO>> candidate = configurationStore.CreateSnapshot();
+            List<IO> cacheIOs = candidate[cardIndex];
             if (iSelectedIORow >= cacheIOs.Count)
             {
                 MessageBox.Show("起始行超出范围。");
@@ -384,7 +330,7 @@ namespace Automation
             }
 
             HashSet<string> existingNames = new HashSet<string>();
-            foreach (List<IO> list in IOMap)
+            foreach (List<IO> list in candidate)
             {
                 if (list == null)
                 {
@@ -445,13 +391,12 @@ namespace Automation
                 }
             }
 
-            AtomicJsonFileStore.Save(SF.ConfigPath, "IOMap", IOMap);
-            RefreshIODgv();
+            TryCommitIoMap(candidate);
         }
 
         private void ClearSelected_Click(object sender, EventArgs e)
         {
-            if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
+            if (!Workspace.Card.TryGetSelectedCardIndex(out int cardIndex))
             {
                 MessageBox.Show("请先选择控制卡。");
                 return;
@@ -483,7 +428,8 @@ namespace Automation
                 return;
             }
 
-            List<IO> cacheIOs = IOMap[cardIndex];
+            List<List<IO>> candidate = configurationStore.CreateSnapshot();
+            List<IO> cacheIOs = candidate[cardIndex];
             foreach (int index in rowIndexes)
             {
                 if (index < 0 || index >= cacheIOs.Count)
@@ -503,8 +449,7 @@ namespace Automation
                 io.IsRemark = false;
             }
 
-            AtomicJsonFileStore.Save(SF.ConfigPath, "IOMap", IOMap);
-            RefreshIODgv();
+            TryCommitIoMap(candidate);
         }
 
         private void InvertInput_Click(object sender, EventArgs e)
@@ -519,7 +464,7 @@ namespace Automation
 
         private void SetIoEffectLevel(string ioType, string effectLevel)
         {
-            if (!SF.frmCard.TryGetSelectedCardIndex(out int cardIndex))
+            if (!Workspace.Card.TryGetSelectedCardIndex(out int cardIndex))
             {
                 MessageBox.Show("请先选择控制卡。");
                 return;
@@ -531,7 +476,8 @@ namespace Automation
             }
 
             bool hasMatched = false;
-            List<IO> cacheIOs = IOMap[cardIndex];
+            List<List<IO>> candidate = configurationStore.CreateSnapshot();
+            List<IO> cacheIOs = candidate[cardIndex];
             for (int i = 0; i < cacheIOs.Count; i++)
             {
                 IO io = cacheIOs[i];
@@ -548,8 +494,20 @@ namespace Automation
                 return;
             }
 
-            AtomicJsonFileStore.Save(SF.ConfigPath, "IOMap", IOMap);
-            RefreshIODgv();
+            TryCommitIoMap(candidate);
+        }
+
+        private bool TryCommitIoMap(List<List<IO>> candidate)
+        {
+            if (configurationStore.TryCommit(
+                    Workspace.Runtime.Paths.ConfigPath, candidate, out string error))
+            {
+                RefreshIODgv();
+                return true;
+            }
+            Workspace.Runtime.ProcessEngine?.Logger?.Log(error, LogLevel.Error);
+            MessageBox.Show(error, "IO配置", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
         }
 
         public bool ToggleIOMonitor()
@@ -612,8 +570,8 @@ namespace Automation
         private void RefreshIoMonitorRequest()
         {
             if (!ioMonitorEnabled || IsDisposed || Disposing || !IsHandleCreated
-                || SF.io == null
-                || !SF.frmCard.TryGetSelectedCardIndex(out int cardIndex)
+                || Workspace.Runtime.Io == null
+                || !Workspace.Card.TryGetSelectedCardIndex(out int cardIndex)
                 || IOMap == null || cardIndex < 0 || cardIndex >= IOMap.Count
                 || IOMap[cardIndex] == null)
             {
@@ -692,7 +650,7 @@ namespace Automation
         private IoMonitorSnapshot CollectIoMonitorSnapshot(IoMonitorRequest request, CancellationToken token)
         {
             var values = new IoMonitorValue[request.Items.Length];
-            var ioRuntime = SF.io;
+            var ioRuntime = Workspace.Runtime.Io;
             for (int i = 0; i < request.Items.Length; i++)
             {
                 if (token.IsCancellationRequested || !ioMonitorEnabled
@@ -773,7 +731,7 @@ namespace Automation
             if (!ioMonitorEnabled || snapshot == null || snapshot.Request == null
                 || !ReferenceEquals(snapshot.Request, Volatile.Read(ref ioMonitorRequest))
                 || snapshot.Values == null
-                || !SF.frmCard.TryGetSelectedCardIndex(out int selectedCardIndex)
+                || !Workspace.Card.TryGetSelectedCardIndex(out int selectedCardIndex)
                 || selectedCardIndex != snapshot.Request.CardIndex)
             {
                 return;
@@ -848,7 +806,7 @@ namespace Automation
             }
             if (Interlocked.CompareExchange(ref lastIoMonitorErrorUtcTicks, nowTicks, lastTicks) == lastTicks)
             {
-                SF.frmInfo?.PrintInfo(message, FrmInfo.Level.Error);
+                Workspace.Info?.PrintInfo(message, FrmInfo.Level.Error);
             }
         }
 

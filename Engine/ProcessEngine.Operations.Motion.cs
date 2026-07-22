@@ -11,13 +11,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 using Automation.MotionControl;
-using static Automation.FrmProc;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
-using static Automation.FrmCard;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.TaskbarClock;
 using System.Diagnostics;
 using Newtonsoft.Json.Linq;
 using System.Numerics;
@@ -1780,7 +1774,7 @@ namespace Automation
                     {
                     }
                 }
-                SF.SetSecurityLock($"工站停止指令下发失败，目标轴已尝试急停:{ex.Message}");
+                Context.Safety.Lock($"工站停止指令下发失败，目标轴已尝试急停:{ex.Message}");
                 throw CreateAlarmException(evt, "工站停止指令下发失败，系统已锁定。");
             }
             Stopwatch stopwatch = Stopwatch.StartNew();
@@ -1792,7 +1786,7 @@ namespace Automation
                     {
                         Context.Motion.StopOneAxis(target.Card, target.Axis, 1);
                     }
-                    SF.SetSecurityLock("工站停止超时，所有目标轴已急停。");
+                    Context.Safety.Lock("工站停止超时，所有目标轴已急停。");
                     throw CreateAlarmException(evt, "工站停止超时，所有目标轴已急停并锁定系统。");
                 }
                 Thread.Sleep(5);
@@ -1815,7 +1809,7 @@ namespace Automation
             catch (Exception stopException)
             {
                 string message = $"多轴指令部分下发失败且安全停止失败:{commandException.Message}; {stopException.Message}";
-                SF.SetSecurityLock(message);
+                Context.Safety.Lock(message);
                 return new InvalidOperationException(message, commandException);
             }
         }

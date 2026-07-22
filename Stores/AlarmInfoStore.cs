@@ -10,6 +10,7 @@ namespace Automation
 {
     public class AlarmInfoStore
     {
+        private readonly PlatformRuntime runtime;
         public const int AlarmCapacity = 1000;
 
         private readonly object alarmLock = new object();
@@ -17,8 +18,9 @@ namespace Automation
 
         public BindingList<AlarmInfo> Alarms => alarms;
 
-        public AlarmInfoStore()
+        internal AlarmInfoStore(PlatformRuntime runtime)
         {
+            this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             ResetAlarms();
         }
 
@@ -56,7 +58,7 @@ namespace Automation
             catch (Exception ex)
             {
                 ResetAlarms();
-                SF.SetSecurityLock($"报警配置加载失败:{ex.Message}");
+                runtime.Safety.Lock($"报警配置加载失败:{ex.Message}");
                 return false;
             }
         }

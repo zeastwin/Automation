@@ -10,7 +10,7 @@ using System.Windows.Forms;
 
 namespace Automation
 {
-    public sealed class FrmPlc : Form
+    public sealed partial class FrmPlc : Form
     {
         private readonly ListBox deviceList = new ListBox();
         private readonly InspectorView deviceInspector = new InspectorView();
@@ -394,11 +394,11 @@ namespace Automation
 
         private void ReloadDraft()
         {
-            if (SF.plcStore == null) return;
+            if (Workspace.Runtime.Stores.Plc == null) return;
             loading = true;
             try
             {
-                draft = SF.plcStore.GetSnapshot();
+                draft = Workspace.Runtime.Stores.Plc.GetSnapshot();
                 currentDevice = null;
                 deviceList.DataSource = null;
                 deviceList.DataSource = draft.Devices;
@@ -470,17 +470,17 @@ namespace Automation
         private void SaveConfiguration(object sender, EventArgs e)
         {
             if (!CommitMaps(currentDevice, out string error)) { ShowError(error); return; }
-            if ((SF.plcRuntime?.GetSnapshots() ?? new List<PlcDeviceRuntimeSnapshot>())
+            if ((Workspace.Runtime.PlcRuntime?.GetSnapshots() ?? new List<PlcDeviceRuntimeSnapshot>())
                 .Any(item => item.State == PlcRuntimeState.Mapping))
             { ShowError("保存配置前必须停止全部PLC设备映射。" ); return; }
-            if (!SF.plcStore.Save(SF.ConfigPath, draft, SF.valueStore, out error)) { ShowError(error); return; }
-            if (SF.plcRuntime == null || !SF.plcRuntime.ReloadConfiguration(false, out error))
+            if (!Workspace.Runtime.Stores.Plc.Save(Workspace.Runtime.Paths.ConfigPath, draft, Workspace.Runtime.Stores.Values, out error)) { ShowError(error); return; }
+            if (Workspace.Runtime.PlcRuntime == null || !Workspace.Runtime.PlcRuntime.ReloadConfiguration(false, out error))
             {
                 ShowError(error ?? "PLC运行时未初始化，配置已保存但未加载。");
                 return;
             }
             const string message = "PLC配置已保存并加载；未自动连接设备，可按需重新初始化或启动映射。";
-            SF.frmInfo?.PrintInfo(message, FrmInfo.Level.Normal);
+            Workspace.Info?.PrintInfo(message, FrmInfo.Level.Normal);
             MessageBox.Show(message, "PLC配置",
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
             ReloadDraft();
@@ -490,8 +490,8 @@ namespace Automation
         {
             ExecuteDeviceAction("重新初始化", (string name, out string error) =>
             {
-                if (SF.plcRuntime == null) { error = "PLC运行时未初始化。"; return false; }
-                return SF.plcRuntime.TryReinitialize(name, out error);
+                if (Workspace.Runtime.PlcRuntime == null) { error = "PLC运行时未初始化。"; return false; }
+                return Workspace.Runtime.PlcRuntime.TryReinitialize(name, out error);
             });
         }
 
@@ -499,8 +499,8 @@ namespace Automation
         {
             ExecuteDeviceAction("启动映射", (string name, out string error) =>
             {
-                if (SF.plcRuntime == null) { error = "PLC运行时未初始化。"; return false; }
-                return SF.plcRuntime.TryStartMapping(name, out error);
+                if (Workspace.Runtime.PlcRuntime == null) { error = "PLC运行时未初始化。"; return false; }
+                return Workspace.Runtime.PlcRuntime.TryStartMapping(name, out error);
             });
         }
 
@@ -508,8 +508,8 @@ namespace Automation
         {
             ExecuteDeviceAction("停止映射", (string name, out string error) =>
             {
-                if (SF.plcRuntime == null) { error = "PLC运行时未初始化。"; return false; }
-                return SF.plcRuntime.TryStopMapping(name, out error);
+                if (Workspace.Runtime.PlcRuntime == null) { error = "PLC运行时未初始化。"; return false; }
+                return Workspace.Runtime.PlcRuntime.TryStopMapping(name, out error);
             });
         }
 
@@ -552,7 +552,7 @@ namespace Automation
                 var names = new List<string>();
                 for (int offset = 0; offset < count; offset++)
                 {
-                    if (!SF.valueStore.TryGetValueByIndex(first.Index + offset, out DicValue value) || value == null)
+                    if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(first.Index + offset, out DicValue value) || value == null)
                     { ShowError($"变量表中不存在连续第{offset + 1}个变量，无法按数量展开。" ); return; }
                     if (!string.Equals(value.Type, requiredType, StringComparison.OrdinalIgnoreCase))
                     { ShowError($"变量[{value.Name}]类型为{value.Type}，当前{dataType}映射要求{requiredType}变量。" ); return; }
@@ -575,7 +575,7 @@ namespace Automation
             string side = resolution == PlcConflictResolution.UsePlcValue ? "PLC" : "本地";
             string message = $"确认以{side}值为准解除冲突？\r\nPLC：{FormatValues(mapRuntime.PlcValues)}\r\n本地：{FormatValues(mapRuntime.LocalValues)}\r\n此操作会覆盖另一侧。";
             if (MessageBox.Show(message, "PLC冲突处理", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-            if (!SF.plcRuntime.TryResolveConflict(currentDevice.Name, mapId, resolution, out string error)) ShowError(error);
+            if (!Workspace.Runtime.PlcRuntime.TryResolveConflict(currentDevice.Name, mapId, resolution, out string error)) ShowError(error);
             RefreshRuntimeState();
         }
 
@@ -637,7 +637,7 @@ namespace Automation
             Stopwatch watch = Stopwatch.StartNew();
             var result = await Task.Run(() =>
             {
-                bool ok = SF.plcRuntime.TryRead(deviceName, request, out object[] values, out string readError);
+                bool ok = Workspace.Runtime.PlcRuntime.TryRead(deviceName, request, out object[] values, out string readError);
                 return new DebugResult { Success = ok, Values = values, Error = readError };
             });
             watch.Stop();
@@ -655,7 +655,7 @@ namespace Automation
             if (MessageBox.Show($"确认写入PLC？\r\n设备：{deviceName}\r\n地址：{request.Area}/{request.StartAddress}\r\n值：{FormatValues(values)}",
                 "PLC写入确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             Stopwatch watch = Stopwatch.StartNew();
-            bool success = await Task.Run(() => SF.plcRuntime.TryWrite(deviceName, request, values, out error));
+            bool success = await Task.Run(() => Workspace.Runtime.PlcRuntime.TryWrite(deviceName, request, values, out error));
             watch.Stop();
             AddHistory("单次写入", success, success ? FormatValues(values) : error, watch.ElapsedMilliseconds);
         }
@@ -696,7 +696,7 @@ namespace Automation
                 Stopwatch watch = Stopwatch.StartNew();
                 DebugResult result = await Task.Run(() =>
                 {
-                    bool ok = SF.plcRuntime.TryRead(deviceName, request, out object[] values, out string readError);
+                    bool ok = Workspace.Runtime.PlcRuntime.TryRead(deviceName, request, out object[] values, out string readError);
                     return new DebugResult { Success = ok, Values = values, Error = readError };
                 });
                 watch.Stop();
@@ -739,7 +739,7 @@ namespace Automation
                 for (int i = 0; i < 100; i++)
                 {
                     Stopwatch watch = Stopwatch.StartNew();
-                    bool ok = SF.plcRuntime.TryRead(deviceName, request, out _, out string readError);
+                    bool ok = Workspace.Runtime.PlcRuntime.TryRead(deviceName, request, out _, out string readError);
                     watch.Stop();
                     if (ok) { success++; samples.Add(watch.ElapsedMilliseconds); }
                     else lastError = readError;
@@ -828,25 +828,25 @@ namespace Automation
 
         private PlcDeviceRuntimeSnapshot GetCurrentRuntime()
         {
-            if (currentDevice == null || SF.plcRuntime == null) return null;
-            return SF.plcRuntime.GetSnapshots().FirstOrDefault(item =>
+            if (currentDevice == null || Workspace.Runtime.PlcRuntime == null) return null;
+            return Workspace.Runtime.PlcRuntime.GetSnapshots().FirstOrDefault(item =>
                 string.Equals(item.DeviceName, currentDevice.Name, StringComparison.OrdinalIgnoreCase));
         }
 
         private void RefreshSummary()
         {
-            IReadOnlyList<PlcDeviceRuntimeSnapshot> states = SF.plcRuntime?.GetSnapshots() ?? new List<PlcDeviceRuntimeSnapshot>();
+            IReadOnlyList<PlcDeviceRuntimeSnapshot> states = Workspace.Runtime.PlcRuntime?.GetSnapshots() ?? new List<PlcDeviceRuntimeSnapshot>();
             summaryLabel.Text = $"设备 {draft.Devices.Count} 台 · 映射 {draft.Devices.Sum(item => item.Mappings?.Count ?? 0)} 项 · 在线 {states.Count(item => item.State == PlcRuntimeState.Ready || item.State == PlcRuntimeState.Mapping || item.State == PlcRuntimeState.Stopped)} 台 · 故障 {states.Count(item => item.State == PlcRuntimeState.Faulted)} 台";
         }
 
         private void RefreshVariableSelector()
         {
             List<VariableChoice> choices = new List<VariableChoice>();
-            if (SF.valueStore != null)
+            if (Workspace.Runtime.Stores.Values != null)
             {
-                foreach (string name in SF.valueStore.GetValueNames())
+                foreach (string name in Workspace.Runtime.Stores.Values.GetValueNames())
                 {
-                    if (SF.valueStore.TryGetValueByName(name, out DicValue value) && value != null)
+                    if (Workspace.Runtime.Stores.Values.TryGetValueByName(name, out DicValue value) && value != null)
                     {
                         choices.Add(new VariableChoice { Index = value.Index, Name = value.Name, Type = value.Type });
                     }

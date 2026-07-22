@@ -137,11 +137,11 @@ namespace Automation
         private bool TryGetSystemStatus(out SystemStatus status)
         {
             status = SystemStatus.Uninitialized;
-            if (SF.valueStore == null)
+            if (Workspace.Runtime.Stores.Values == null)
             {
                 return false;
             }
-            if (!SF.valueStore.TryGetValueByName(SystemStatusValueName, out DicValue value) || value == null)
+            if (!Workspace.Runtime.Stores.Values.TryGetValueByName(SystemStatusValueName, out DicValue value) || value == null)
             {
                 return false;
             }

@@ -885,13 +885,17 @@ namespace Automation
         //从文件更新变量表
         public void RefreshDic()
         {
-            SF.valueStore.Load(SF.ConfigPath, SF.frmProc?.procsList);
+            Workspace.Runtime.Stores.Values.Load(Workspace.Runtime.Paths.ConfigPath, Workspace.Proc?.procsList);
+            RefreshFromStore();
+        }
+
+        internal void RefreshFromStore()
+        {
             EnsureValueStoreHooked();
 
             RefreshValue();
 
             isValueGridReady = true;
-
         }
   
         public void RefreshValue()
@@ -979,7 +983,7 @@ namespace Automation
         private void RefreshVariableSnapshot()
         {
             Array.Clear(variableSnapshot, 0, variableSnapshot.Length);
-            foreach (DicValue variable in SF.valueStore?.GetValuesSnapshot() ?? new List<DicValue>())
+            foreach (DicValue variable in Workspace.Runtime.Stores.Values?.GetValuesSnapshot() ?? new List<DicValue>())
             {
                 if (variable != null && variable.Index >= 0 && variable.Index < variableSnapshot.Length)
                 {
@@ -1057,7 +1061,7 @@ namespace Automation
                         int slotIndex = GetVariableSlotIndex(index);
                         if (slotIndex < 0) continue;
                         if (variableSnapshot[slotIndex] != null
-                            && SF.valueStore.TryGetValueByIndex(slotIndex, out DicValue liveVariable))
+                            && Workspace.Runtime.Stores.Values.TryGetValueByIndex(slotIndex, out DicValue liveVariable))
                         {
                             variableSnapshot[slotIndex].Value = liveVariable.Value;
                         }
@@ -1211,7 +1215,7 @@ namespace Automation
                     Tag = new VariableScopeSelection { Scope = VariableScopeContract.System }
                 };
                 TreeNode processRoot = new TreeNode($"流程私有变量    {processCount}");
-                IEnumerable<Proc> processes = (SF.frmProc?.procsList ?? new List<Proc>())
+                IEnumerable<Proc> processes = (Workspace.Proc?.procsList ?? new List<Proc>())
                     .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
                     .OrderBy(proc => proc.head.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase);
                 foreach (Proc proc in processes)
@@ -1657,7 +1661,7 @@ namespace Automation
 
         private void RefreshVariableScopeOptions()
         {
-            List<Proc> processes = (SF.frmProc?.procsList ?? new List<Proc>())
+            List<Proc> processes = (Workspace.Proc?.procsList ?? new List<Proc>())
                 .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
                 .OrderBy(proc => proc.head.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
@@ -1861,7 +1865,7 @@ namespace Automation
 
         private void RefreshDisplayedRuntimeValues()
         {
-            if (!Visible || !isValueGridReady || SF.valueStore == null || dgvValue.Rows.Count == 0)
+            if (!Visible || !isValueGridReady || Workspace.Runtime.Stores.Values == null || dgvValue.Rows.Count == 0)
             {
                 return;
             }
@@ -1875,7 +1879,7 @@ namespace Automation
                 int slotIndex = GetVariableSlotIndex(rowIndex);
                 if (rowIndex != editingRowIndex
                     && slotIndex >= 0
-                    && SF.valueStore.TryGetValueByIndex(slotIndex, out DicValue variable))
+                    && Workspace.Runtime.Stores.Values.TryGetValueByIndex(slotIndex, out DicValue variable))
                 {
                     string currentValue = variable.Value ?? string.Empty;
                     DataGridViewCell valueCell = dgvValue.Rows[rowIndex].Cells[3];
@@ -1918,22 +1922,22 @@ namespace Automation
             {
                 return;
             }
-            if (SF.frmdataStruct == null || SF.frmdataStruct.IsDisposed)
+            if (Workspace.DataStruct == null || Workspace.DataStruct.IsDisposed)
             {
                 return;
             }
 
-            SF.frmdataStruct.TopLevel = false;
-            SF.frmdataStruct.FormBorderStyle = FormBorderStyle.None;
-            SF.frmdataStruct.Dock = DockStyle.Fill;
+            Workspace.DataStruct.TopLevel = false;
+            Workspace.DataStruct.FormBorderStyle = FormBorderStyle.None;
+            Workspace.DataStruct.Dock = DockStyle.Fill;
 
-            if (!panelStructHost.Controls.Contains(SF.frmdataStruct))
+            if (!panelStructHost.Controls.Contains(Workspace.DataStruct))
             {
-                panelStructHost.Controls.Add(SF.frmdataStruct);
+                panelStructHost.Controls.Add(Workspace.DataStruct);
             }
 
-            SF.frmdataStruct.Show();
-            SF.frmdataStruct.BringToFront();
+            Workspace.DataStruct.Show();
+            Workspace.DataStruct.BringToFront();
             isStructViewAttached = true;
         }
 
@@ -1977,7 +1981,7 @@ namespace Automation
 
         private void dgvValue_KeyDown(object sender, KeyEventArgs e)
         {
-            if (SF.TryHandleEditorHistoryShortcut(dgvValue, e))
+            if (Workspace.Runtime.Editor.TryHandleHistoryShortcut(dgvValue, e))
             {
                 return;
             }
@@ -2086,7 +2090,7 @@ namespace Automation
             {
                 return;
             }
-            if (!SF.valueStore.TryGetValueByIndex(rowIndex, out DicValue value))
+            if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(rowIndex, out DicValue value))
             {
                 MessageBox.Show("当前行没有可复制的变量");
                 return;
@@ -2107,14 +2111,14 @@ namespace Automation
 
         private void PasteToSelectedValueRow()
         {
-            if (!SF.CanEditProcStructure()) return;
+            if (!Workspace.Runtime.ProcessEditing.CanEditStructure()) return;
             if (clipboardItem == null)
             {
                 MessageBox.Show("没有可粘贴的数据");
                 return;
             }
             if (!TryGetSingleSelectedSlotIndex(out int rowIndex)) return;
-            SF.valueStore.TryGetValueByIndex(rowIndex, out DicValue targetVariable);
+            Workspace.Runtime.Stores.Values.TryGetValueByIndex(rowIndex, out DicValue targetVariable);
             if (targetVariable != null && ValueConfigStore.IsProtectedValueName(targetVariable.Name))
             {
                 MessageBox.Show("系统保留变量不能被粘贴内容覆盖。", "粘贴变量",
@@ -2168,7 +2172,7 @@ namespace Automation
             while (suffix < 100000)
             {
                 string candidate = $"{name}{suffix}";
-                if (!SF.valueStore.TryGetValueByName(candidate, out _))
+                if (!Workspace.Runtime.Stores.Values.TryGetValueByName(candidate, out _))
                 {
                     return candidate;
                 }
@@ -2179,7 +2183,7 @@ namespace Automation
 
         private void ClearSelectedValueRows(bool requireConfirm = false)
         {
-            if (!SF.CanEditProcStructure()) return;
+            if (!Workspace.Runtime.ProcessEditing.CanEditStructure()) return;
             List<int> indexes = GetSelectedSlotIndexes();
             if (indexes.Count == 0)
             {
@@ -2187,7 +2191,7 @@ namespace Automation
                 return;
             }
             List<DicValue> variables = indexes
-                .Select(index => SF.valueStore.TryGetValueByIndex(index, out DicValue value) ? value : null)
+                .Select(index => Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value) ? value : null)
                 .Where(value => value != null)
                 .ToList();
             if (variables.Count == 0)
@@ -2212,13 +2216,13 @@ namespace Automation
                     return;
                 }
             }
-            Dictionary<string, DicValue> draft = SF.valueStore.BuildSaveData();
+            Dictionary<string, DicValue> draft = Workspace.Runtime.Stores.Values.BuildSaveData();
             foreach (DicValue variable in variables)
             {
                 draft.Remove(variable.Name);
             }
-            if (!SF.valueStore.TryCommitConfiguration(
-                SF.ConfigPath,
+            if (!Workspace.Runtime.Stores.Values.TryCommitConfiguration(
+                Workspace.Runtime.Paths.ConfigPath,
                 draft,
                 out string error,
                 historyDescription: "删除变量"))
@@ -2287,10 +2291,10 @@ namespace Automation
                     int editedSlotIndex = GetVariableSlotIndex(e.RowIndex);
                     if (editedSlotIndex < 0) return;
                     if (e.ColumnIndex == 3
-                        && SF.valueStore.TryGetValueByIndex(editedSlotIndex, out DicValue existing))
+                        && Workspace.Runtime.Stores.Values.TryGetValueByIndex(editedSlotIndex, out DicValue existing))
                     {
                         string editedValue = dataGridView.Rows[e.RowIndex].Cells[3].Value?.ToString() ?? string.Empty;
-                        if (!SF.valueStore.setValueByIndex(existing.Index, editedValue, "变量页设置当前值"))
+                        if (!Workspace.Runtime.Stores.Values.setValueByIndex(existing.Index, editedValue, "变量页设置当前值"))
                         {
                             isValueEditValid = false;
                             MessageBox.Show($"变量[{existing.Name}]当前值无效。", "设置当前值失败",
@@ -2305,7 +2309,7 @@ namespace Automation
                         isValueEditValid = true;
                         return;
                     }
-                    if (!SF.CanEditProcStructure())
+                    if (!Workspace.Runtime.ProcessEditing.CanEditStructure())
                     {
                         isValueEditValid = false;
                         FreshFrmValue();
@@ -2318,14 +2322,14 @@ namespace Automation
                         return;
                     }
                     if (e.ColumnIndex == 1
-                        && SF.valueStore.TryGetValueByIndex(num, out DicValue renamedVariable)
+                        && Workspace.Runtime.Stores.Values.TryGetValueByIndex(num, out DicValue renamedVariable)
                         && !string.Equals(renamedVariable.Name, key, StringComparison.Ordinal))
                     {
                         int usageCount = CountVariableUsages(renamedVariable);
                         if (usageCount > 0)
                         {
                             bool confirmed = false;
-                            new Message(
+                            new Message(Workspace.Runtime,
                                 "确认重命名变量",
                                 $"变量[{renamedVariable.Name}]存在{usageCount}个已知引用。重命名后引用文本保持不变，受影响流程会变为 incomplete。是否提交？",
                                 () => confirmed = true,
@@ -2349,7 +2353,7 @@ namespace Automation
                     Guid? targetOwnerProcId = string.Equals(targetScope, VariableScopeContract.Process, StringComparison.Ordinal)
                         ? selectedOwnerProcId
                         : null;
-                    if (SF.valueStore.TryGetValueByIndex(num, out DicValue scopedVariable))
+                    if (Workspace.Runtime.Stores.Values.TryGetValueByIndex(num, out DicValue scopedVariable))
                     {
                         targetScope = scopedVariable.Scope;
                         targetOwnerProcId = scopedVariable.OwnerProcId;
@@ -2377,7 +2381,7 @@ namespace Automation
                             if (usageCount > 0)
                             {
                                 bool confirmed = false;
-                                new Message(
+                                new Message(Workspace.Runtime,
                                     "确认更改变量归属",
                                     $"变量[{scopedVariable.Name}]存在{usageCount}个已知引用。更改归属后，不可访问该变量的流程会变为 incomplete。是否提交？",
                                     () => confirmed = true,
@@ -2445,7 +2449,7 @@ namespace Automation
             }
             for (int i = StartIndex; i >= 0; i--)
             {
-                if (SF.valueStore.IsMarked(i))
+                if (Workspace.Runtime.Stores.Values.IsMarked(i))
                 {
                     previousIndex = i;
                     break;
@@ -2455,7 +2459,7 @@ namespace Automation
             {
                 for (int i = ValueConfigStore.ValueCapacity - 1; i >= 0; i--)
                 {
-                    if (SF.valueStore.IsMarked(i))
+                    if (Workspace.Runtime.Stores.Values.IsMarked(i))
                     {
                         previousIndex = i;
                         break;
@@ -2485,7 +2489,7 @@ namespace Automation
             }
             for (int i = StartIndex; i < ValueConfigStore.ValueCapacity; i++)
             {
-                if (SF.valueStore.IsMarked(i))
+                if (Workspace.Runtime.Stores.Values.IsMarked(i))
                 {
                     nextIndex = i;
                     break;
@@ -2495,7 +2499,7 @@ namespace Automation
             {
                 for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
                 {
-                    if (SF.valueStore.IsMarked(i))
+                    if (Workspace.Runtime.Stores.Values.IsMarked(i))
                     {
                         nextIndex = i;
                         break;
@@ -2516,8 +2520,8 @@ namespace Automation
 
         private void btnCancel_Click(object sender, EventArgs e)
         {
-            SF.valueStore.ClearMarks();
-            SF.valueStore.Save(SF.ConfigPath);
+            Workspace.Runtime.Stores.Values.ClearMarks();
+            Workspace.Runtime.Stores.Values.Save(Workspace.Runtime.Paths.ConfigPath);
             dgvValue.Refresh();
             RefreshCommonList();
         }
@@ -2583,7 +2587,7 @@ namespace Automation
             if (e.ColumnIndex == 0 && slotIndex >= 0)
             {
                 // 获取当前行对应的数据项
-                if (SF.valueStore.IsMarked(slotIndex))
+                if (Workspace.Runtime.Stores.Values.IsMarked(slotIndex))
                 {
                     e.CellStyle.BackColor = UiPalette.DangerSoft;
                     e.CellStyle.ForeColor = UiPalette.DangerHover;
@@ -2614,7 +2618,7 @@ namespace Automation
             {
                 return;
             }
-            if (SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+            if (Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
             {
                 selectedScope = value.Scope;
                 selectedOwnerProcId = value.OwnerProcId;
@@ -2641,10 +2645,10 @@ namespace Automation
             ApplyScopeFilter();
         }
 
-        private static int CountVariableUsages(DicValue variable)
+        private int CountVariableUsages(DicValue variable)
         {
             int count = 0;
-            foreach (Proc proc in SF.frmProc?.procsList ?? new List<Proc>())
+            foreach (Proc proc in Workspace.Proc?.procsList ?? new List<Proc>())
             {
                 foreach (OperationType operation in (proc?.steps ?? new List<Step>())
                     .Where(step => step?.Ops != null).SelectMany(step => step.Ops))
@@ -2658,7 +2662,7 @@ namespace Automation
             return count;
         }
 
-        private static bool TryCommitVariableRow(
+        private bool TryCommitVariableRow(
             int index,
             string name,
             string type,
@@ -2671,7 +2675,7 @@ namespace Automation
             out string error)
         {
             error = null;
-            Dictionary<string, DicValue> draft = SF.valueStore.BuildSaveData();
+            Dictionary<string, DicValue> draft = Workspace.Runtime.Stores.Values.BuildSaveData();
             DicValue current = draft.Values.FirstOrDefault(value => value?.Index == index);
             if (draft.TryGetValue(name, out DicValue sameName) && sameName.Index != index)
             {
@@ -2694,8 +2698,8 @@ namespace Automation
             }
             updated.Note = note;
             draft[name] = updated;
-            return SF.valueStore.TryCommitConfiguration(
-                SF.ConfigPath,
+            return Workspace.Runtime.Stores.Values.TryCommitConfiguration(
+                Workspace.Runtime.Paths.ConfigPath,
                 draft,
                 out error,
                 setCurrentValue
@@ -2711,11 +2715,11 @@ namespace Automation
             {
                 return;
             }
-            if (SF.valueStore == null)
+            if (Workspace.Runtime.Stores.Values == null)
             {
                 return;
             }
-            hookedValueStore = SF.valueStore;
+            hookedValueStore = Workspace.Runtime.Stores.Values;
             hookedValueStore.ValueChanged += ValueStore_ValueChanged;
             isValueStoreHooked = true;
         }
@@ -2804,12 +2808,12 @@ namespace Automation
             }
             EnsureMonitorForm();
             DataGridView grid = monitorForm.Grid;
-            if (!SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+            if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
             {
                 return;
             }
             if (monitoredVariableIds.Contains(value.Id)) return;
-            SF.valueStore.SetMonitorFlag(index, true);
+            Workspace.Runtime.Stores.Values.SetMonitorFlag(index, true);
             monitoredVariableIds.Add(value.Id);
             int rowIndex = grid.Rows.Add();
             DataGridViewRow row = grid.Rows[rowIndex];
@@ -2826,14 +2830,14 @@ namespace Automation
 
         private void RemoveMonitor(int index)
         {
-            if (!SF.valueStore.TryGetValueByIndex(index, out DicValue value)) return;
+            if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value)) return;
             RemoveMonitor(value.Id);
         }
 
         private void RemoveMonitor(Guid variableId)
         {
             if (!monitoredVariableIds.Remove(variableId)) return;
-            SF.valueStore.SetMonitorFlag(variableId, false);
+            Workspace.Runtime.Stores.Values.SetMonitorFlag(variableId, false);
             RefreshMonitorTitle();
         }
 
@@ -2842,13 +2846,13 @@ namespace Automation
             if (monitoredVariableIds.Count == 0)
             {
                 RefreshMonitorTitle();
-                SF.valueStore.SetMonitorEnabled(false);
+                Workspace.Runtime.Stores.Values.SetMonitorEnabled(false);
                 return;
             }
             List<Guid> variableIds = new List<Guid>(monitoredVariableIds);
             foreach (Guid variableId in variableIds)
             {
-                SF.valueStore.SetMonitorFlag(variableId, false);
+                Workspace.Runtime.Stores.Values.SetMonitorFlag(variableId, false);
             }
             monitoredVariableIds.Clear();
             if (monitorForm != null && !monitorForm.IsDisposed)
@@ -2856,13 +2860,13 @@ namespace Automation
                 monitorForm.Grid.Rows.Clear();
             }
             RefreshMonitorTitle();
-            SF.valueStore.SetMonitorEnabled(false);
+            Workspace.Runtime.Stores.Values.SetMonitorEnabled(false);
         }
 
         private void btnMonitor_Click(object sender, EventArgs e)
         {
             EnsureMonitorForm();
-            SF.valueStore.SetMonitorEnabled(true);
+            Workspace.Runtime.Stores.Values.SetMonitorEnabled(true);
             monitorForm.Show();
             monitorForm.BringToFront();
             RefreshMonitorTitle();
@@ -2874,7 +2878,7 @@ namespace Automation
             AddMonitorFromSelection();
             if (monitorForm != null && !monitorForm.IsDisposed)
             {
-                SF.valueStore.SetMonitorEnabled(true);
+                Workspace.Runtime.Stores.Values.SetMonitorEnabled(true);
                 monitorForm.Show();
                 monitorForm.BringToFront();
             }
@@ -2899,7 +2903,7 @@ namespace Automation
                 return;
             }
             int slotIndex = GetSelectedVariableSlotIndex();
-            if (slotIndex < 0 || !SF.valueStore.TryGetValueByIndex(slotIndex, out _))
+            if (slotIndex < 0 || !Workspace.Runtime.Stores.Values.TryGetValueByIndex(slotIndex, out _))
             {
                 MessageBox.Show("当前槽位尚未配置变量。", "加入监控",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);

@@ -306,14 +306,14 @@ namespace Automation
             }
             else if (index.HasValue)
             {
-                ValueConfigStore store = valueStore ?? SF.valueStore;
+                ValueConfigStore store = valueStore;
                 exists = store != null
                     && store.TryGetValueByIndex(index.Value, out value);
                 accessible = exists && ValueConfigStore.CanProcessAccess(value, procId);
             }
             else
             {
-                ValueConfigStore store = valueStore ?? SF.valueStore;
+                ValueConfigStore store = valueStore;
                 exists = !string.IsNullOrWhiteSpace(name)
                     && store != null
                     && store.TryGetValueByName(name, out value);
@@ -521,8 +521,8 @@ namespace Automation
                 }
                 else
                 {
-                    exists = SF.alarmInfoStore != null
-                        && SF.alarmInfoStore.TryGetByIndex(alarmIndex, out AlarmInfo alarm)
+                    exists = validationContext?.Runtime?.Stores.Alarms != null
+                        && validationContext.Runtime.Stores.Alarms.TryGetByIndex(alarmIndex, out AlarmInfo alarm)
                         && alarm != null
                         && !string.IsNullOrWhiteSpace(alarm.Name);
                 }

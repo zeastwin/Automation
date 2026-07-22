@@ -30,10 +30,15 @@ $proc.steps.Add($step)
 
 $processes = [System.Collections.Generic.List[Automation.Proc]]::new()
 $processes.Add($proc)
-$valueStore = [Automation.ValueConfigStore]::new()
+$platformRuntime = [Automation.PlatformRuntime]::new()
+$valueStore = $platformRuntime.Stores.Values
 $context = [Automation.EngineContext]::new()
 $context.Procs = $processes
 $context.ValueStore = $valueStore
+$context.Maintenance = $platformRuntime.Maintenance
+$context.Safety = $platformRuntime.Safety
+$context.Readiness = $platformRuntime.Readiness
+$context.Paths = $platformRuntime.Paths
 $engine = [Automation.ProcessEngine]::new($context)
 
 $recorderType = $assembly.GetType('Automation.RuntimeBlackBoxRecorder', $true)

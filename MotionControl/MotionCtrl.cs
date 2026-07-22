@@ -2,9 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using System.Threading;
-using System.Windows.Forms;
 using csLTDMC;
 using static Automation.MotionControl.MotionCtrl;
 
@@ -12,7 +10,20 @@ namespace Automation.MotionControl
 {
     public class MotionCtrl : IMotionRuntime, IIoRuntime
     {
+        private readonly ValueConfigStore valueStore;
+        private readonly CardConfigStore cardStore;
+        private readonly PlatformSafetyCoordinator safety;
+        private readonly PlatformReadinessState readiness;
         public LS ls;
+
+        public MotionCtrl(ValueConfigStore valueStore, CardConfigStore cardStore,
+            PlatformSafetyCoordinator safety, PlatformReadinessState readiness)
+        {
+            this.valueStore = valueStore ?? throw new ArgumentNullException(nameof(valueStore));
+            this.cardStore = cardStore ?? throw new ArgumentNullException(nameof(cardStore));
+            this.safety = safety ?? throw new ArgumentNullException(nameof(safety));
+            this.readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
+        }
 
         public delegate ushort InitCardHandler();
         public delegate bool SetIOHandler(IO io, bool isOpen);
@@ -76,22 +87,6 @@ namespace Automation.MotionControl
         [ThreadStatic]
         private static HashSet<long> validatedCommands;
 
-        [ThreadStatic]
-        private static PendingManualMotionProfile pendingManualMotionProfile;
-
-        private sealed class PendingManualMotionProfile
-        {
-            public ushort Card;
-            public ushort Axis;
-            public double MinVel;
-            public double MaxVel;
-            public double Acc;
-            public double Dec;
-            public double StopVel;
-            public double SPara;
-            public int Equiv;
-        }
-
         private sealed class CommandValidationLease : IDisposable
         {
             private HashSet<long> commands;
@@ -120,49 +115,22 @@ namespace Automation.MotionControl
             }
         }
 
-        private static bool EnsureResetCompleted()
+        private void EnsureResetCompleted()
         {
-            if (SF.SecurityLocked
-                || SF.valueStore == null
-                || !SF.valueStore.TryGetValueByName("复位状态", out DicValue resetValue)
+            if (safety.IsLocked
+                || !valueStore.TryGetValueByName("复位状态", out DicValue resetValue)
                 || resetValue == null
                 || !string.Equals(resetValue.Type, "double", StringComparison.OrdinalIgnoreCase)
                 || !double.TryParse(resetValue.Value, out double resetRaw)
                 || resetRaw != (double)ResetStatus.ResetCompleted)
             {
-                const string message = "系统尚未复位完成，禁止手动运动。";
-                if (Application.MessageLoop)
-                {
-                    MessageBox.Show(message, "运动门禁", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return false;
-                }
-                throw new InvalidOperationException(message);
+                throw new InvalidOperationException("系统尚未复位完成，禁止轴运动。");
             }
-            return true;
-        }
-
-        private static bool TryAcquireManualMotionResource(ushort card, ushort axis)
-        {
-            if (!Application.MessageLoop)
-            {
-                return true;
-            }
-            if (SF.DR == null)
-            {
-                MessageBox.Show("流程内核未初始化，禁止手动运动。", "运动门禁", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return false;
-            }
-            if (SF.DR.TryAcquireManualMotionResource(card, axis, out string error))
-            {
-                return true;
-            }
-            MessageBox.Show(error, "运动资源占用", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return false;
         }
 
         public IDisposable ValidateAxesForCommand(IReadOnlyCollection<AxisCommandRequest> requests)
         {
-            if (SF.MotionConfigRestartRequired)
+            if (readiness.MotionConfigRestartRequired)
             {
                 throw new InvalidOperationException("运动设备配置已变更，必须重启程序后才能执行轴运动。");
             }
@@ -263,24 +231,9 @@ namespace Automation.MotionControl
         public void StartHome(ushort card, ushort axis)
         {
             EnsureCardInitialized();
-            if (!EnsureResetCompleted())
-            {
-                return;
-            }
-            if (!TryAcquireManualMotionResource(card, axis))
-            {
-                return;
-            }
-            try
-            {
-                EnsureCommandValidated(card, axis, AxisCommandKind.Home, false);
-                startHome?.Invoke(card, axis);
-            }
-            catch
-            {
-                SF.DR?.ReleaseManualMotionResource(card, axis);
-                throw;
-            }
+            EnsureResetCompleted();
+            EnsureCommandValidated(card, axis, AxisCommandKind.Home, false);
+            startHome?.Invoke(card, axis);
         }
         public void CleanPos(ushort card, ushort axis)
         {
@@ -297,89 +250,25 @@ namespace Automation.MotionControl
             EnsureCardInitialized();
             setMovParam?.Invoke(card, axis, minVel, dMaxVel, acc, dec, dStopVel, dS_para, equiv);
         }
-        public void StageManualMotionParameters(ushort card, ushort axis, double minVel, double maxVel,
-            double acc, double dec, double stopVel, double sPara, int equiv)
-        {
-            if (maxVel <= 0 || acc <= 0 || dec <= 0 || equiv <= 0
-                || double.IsNaN(maxVel) || double.IsInfinity(maxVel))
-            {
-                throw new ArgumentOutOfRangeException(nameof(maxVel), "手动调试运动参数无效。");
-            }
-            pendingManualMotionProfile = new PendingManualMotionProfile
-            {
-                Card = card,
-                Axis = axis,
-                MinVel = minVel,
-                MaxVel = maxVel,
-                Acc = acc,
-                Dec = dec,
-                StopVel = stopVel,
-                SPara = sPara,
-                Equiv = equiv
-            };
-        }
-
-        private void ApplyPendingManualMotionParameters(ushort card, ushort axis)
-        {
-            PendingManualMotionProfile profile = pendingManualMotionProfile;
-            if (profile == null || profile.Card != card || profile.Axis != axis)
-            {
-                throw new InvalidOperationException($"手动调试运动参数尚未设置:{card}-{axis}");
-            }
-            pendingManualMotionProfile = null;
-            setMovParam?.Invoke(card, axis, profile.MinVel, profile.MaxVel, profile.Acc, profile.Dec,
-                profile.StopVel, profile.SPara, profile.Equiv);
-        }
         public void Mov(ushort card, ushort axis, double dDist, ushort sPosi_mode, bool wait)
         {
             EnsureCardInitialized();
-            if (!EnsureResetCompleted())
+            EnsureResetCompleted();
+            EnsureCommandValidated(card, axis, AxisCommandKind.Motion, false);
+            mov?.Invoke(card, axis, dDist, sPosi_mode, false);
+            if (wait)
             {
-                return;
-            }
-            if (!TryAcquireManualMotionResource(card, axis))
-            {
-                return;
-            }
-            bool manualOperation = Application.MessageLoop;
-            try
-            {
-                EnsureCommandValidated(card, axis, AxisCommandKind.Motion, false);
-                if (manualOperation)
+                while (!GetInPos(card, axis))
                 {
-                    ApplyPendingManualMotionParameters(card, axis);
+                    Thread.Sleep(5);
                 }
-                mov?.Invoke(card, axis, dDist, sPosi_mode, false);
-                if (wait)
-                {
-                    while (!GetInPos(card, axis))
-                    {
-                        Thread.Sleep(5);
-                    }
-                }
-                if (wait)
-                {
-                    SF.DR?.ReleaseManualMotionResource(card, axis);
-                }
-                else if (manualOperation)
-                {
-                    _ = MonitorManualMoveCompletionAsync(card, axis);
-                }
-            }
-            catch
-            {
-                SF.DR?.ReleaseManualMotionResource(card, axis);
-                throw;
             }
         }
 
         public void MoveCoordinatedLinear(CoordinatedLinearMoveRequest request)
         {
             EnsureCardInitialized();
-            if (!EnsureResetCompleted())
-            {
-                return;
-            }
+            EnsureResetCompleted();
             if (request?.Axes == null || request.Positions == null || request.Axes.Count == 0
                 || request.Axes.Count != request.Positions.Count)
             {
@@ -409,80 +298,17 @@ namespace Automation.MotionControl
                 .Invoke(card, coordinateSystem, stopMode);
         }
 
-        private async Task MonitorManualMoveCompletionAsync(ushort card, ushort axis)
-        {
-            bool safeToRelease = false;
-            try
-            {
-                DateTime deadline = DateTime.UtcNow.AddSeconds(120);
-                while (DateTime.UtcNow < deadline)
-                {
-                    bool isStopped = (bool)getInPos?.Invoke(card, axis);
-                    if (isStopped)
-                    {
-                        safeToRelease = true;
-                        return;
-                    }
-                    await Task.Delay(10).ConfigureAwait(false);
-                }
-                throw new TimeoutException($"手动运动超时:{card}-{axis}");
-            }
-            catch (Exception ex)
-            {
-                try
-                {
-                    stopOneAxis?.Invoke(card, axis, 0);
-                    SF.DR?.ReleaseManualMotionResource(card, axis);
-                    safeToRelease = false;
-                    SF.SetSecurityLock($"手动运动监控异常，轴已停止:{card}-{axis} {ex.Message}");
-                }
-                catch (Exception stopException)
-                {
-                    SF.SetSecurityLock($"手动运动监控失败且停止轴失败:{card}-{axis} {ex.Message}; {stopException.Message}");
-                }
-            }
-            finally
-            {
-                if (safeToRelease)
-                {
-                    SF.DR?.ReleaseManualMotionResource(card, axis);
-                }
-            }
-        }
         public void Jog(ushort card, ushort axis, ushort sDir)
         {
             EnsureCardInitialized();
-            if (!EnsureResetCompleted())
-            {
-                return;
-            }
-            if (!TryAcquireManualMotionResource(card, axis))
-            {
-                return;
-            }
-            try
-            {
-                EnsureCommandValidated(card, axis, AxisCommandKind.Motion, true);
-                if (Application.MessageLoop)
-                {
-                    ApplyPendingManualMotionParameters(card, axis);
-                }
-                jog?.Invoke(card, axis, sDir);
-            }
-            catch
-            {
-                SF.DR?.ReleaseManualMotionResource(card, axis);
-                throw;
-            }
+            EnsureResetCompleted();
+            EnsureCommandValidated(card, axis, AxisCommandKind.Motion, true);
+            jog?.Invoke(card, axis, sDir);
         }
         public void StopOneAxis(ushort card, ushort axis, ushort stop_mode)
         {
             EnsureCardInitialized();
             stopOneAxis?.Invoke(card, axis, stop_mode);
-            if (Application.MessageLoop)
-            {
-                SF.DR?.ReleaseManualMotionResource(card, axis);
-            }
         }
         public void StopConnect()
         {
@@ -548,7 +374,7 @@ namespace Automation.MotionControl
         }
         public void InitCardType()
         {
-            ls = new LS();
+            ls = new LS(cardStore);
             initCard = ls.InitCard;
             setIO = ls.SetIO;
             setOutputs = ls.SetOutputs;

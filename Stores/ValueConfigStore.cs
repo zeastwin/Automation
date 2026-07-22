@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using System.Windows.Forms;
 using Automation.Protocol;
 using Newtonsoft.Json;
 
@@ -12,6 +11,7 @@ namespace Automation
 {
     public class ValueConfigStore
     {
+        private readonly PlatformRuntime runtime;
         public const int NormalValueCapacity = VariableIndexContract.NormalValueCapacity;
         public const int SystemValueCapacity = VariableIndexContract.SystemValueCapacity;
         public const int SystemValueStartIndex = VariableIndexContract.SystemValueStartIndex;
@@ -51,8 +51,9 @@ namespace Automation
 
         public bool ConfigurationFaulted { get; private set; }
 
-        public ValueConfigStore()
+        internal ValueConfigStore(PlatformRuntime runtime)
         {
+            this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             ResetValues();
         }
 
@@ -132,7 +133,7 @@ namespace Automation
                 if (!Save(configPath))
                 {
                     ConfigurationFaulted = true;
-                    SF.SetSecurityLock("变量配置初始化保存失败");
+                    runtime.Safety.Lock("变量配置初始化保存失败");
                 }
                 return false;
             }
@@ -143,7 +144,7 @@ namespace Automation
                 if (temp == null)
                 {
                     ConfigurationFaulted = true;
-                    SF.SetSecurityLock("变量配置及其备份均无法读取，已保留原文件并禁止继续运行");
+                    runtime.Safety.Lock("变量配置及其备份均无法读取，已保留原文件并禁止继续运行");
                     return false;
                 }
                 Dictionary<string, DicValue> snapshot = CreateValidatedConfigurationSnapshot(temp);
@@ -154,8 +155,8 @@ namespace Automation
             catch (Exception e)
             {
                 ConfigurationFaulted = true;
-                SF.DR?.Logger?.Log($"变量配置加载失败:{e}", LogLevel.Error);
-                SF.SetSecurityLock($"变量配置加载失败:{e.Message}");
+                runtime.ProcessEngine?.Logger?.Log($"变量配置加载失败:{e}", LogLevel.Error);
+                runtime.Safety.Lock($"变量配置加载失败:{e.Message}");
                 return false;
             }
         }
@@ -169,7 +170,7 @@ namespace Automation
             bool saved = AtomicJsonFileStore.Save(configPath, "value", BuildSaveData());
             if (!saved)
             {
-                SF.SetSecurityLock("变量配置保存失败，内存与磁盘状态可能不一致");
+                runtime.Safety.Lock("变量配置保存失败，内存与磁盘状态可能不一致");
             }
             return saved;
         }
@@ -443,7 +444,7 @@ namespace Automation
             try
             {
                 snapshot = CreateValidatedConfigurationSnapshot(source);
-                ValidateProcessOwners(snapshot.Values, SF.frmProc?.procsList);
+                ValidateProcessOwners(snapshot.Values, runtime.Stores.Processes.Items);
                 if (currentValueOverrides != null)
                 {
                     foreach (KeyValuePair<string, string> item in currentValueOverrides)
@@ -509,7 +510,7 @@ namespace Automation
                 error = $"变量配置刷新失败：{ex.Message}；diskRestored={diskRestored}，memoryRestored={memoryRestored}";
                 if (!diskRestored || !memoryRestored)
                 {
-                    SF.SetSecurityLock(error);
+                    runtime.Safety.Lock(error);
                 }
                 return false;
             }
@@ -521,13 +522,13 @@ namespace Automation
             IDictionary<string, DicValue> before,
             IDictionary<string, DicValue> after)
         {
-            if (SF.EditorHistory.IsReplaying)
+            if (runtime.Editor.History.IsReplaying)
             {
                 return;
             }
             if (string.IsNullOrWhiteSpace(historyDescription))
             {
-                SF.EditorHistory.Clear();
+                runtime.Editor.History.Clear();
                 return;
             }
 
@@ -539,7 +540,7 @@ namespace Automation
                 item => item.Key,
                 item => ObjectGraphCloner.Clone(item.Value),
                 StringComparer.Ordinal);
-            SF.EditorHistory.Record(
+            runtime.Editor.History.Record(
                 historyDescription,
                 delegate(out string historyError)
                 {
@@ -558,7 +559,7 @@ namespace Automation
             IDictionary<string, DicValue> snapshot,
             out string error)
         {
-            if (!SF.CanEditProcStructure())
+            if (!runtime.ProcessEditing.CanEditStructure())
             {
                 error = "变量配置当前不可编辑。";
                 return false;
@@ -569,7 +570,7 @@ namespace Automation
                 out error);
             if (success)
             {
-                SF.frmValue?.FreshFrmValue();
+                runtime.EditorUi?.RefreshVariables();
             }
             return success;
         }

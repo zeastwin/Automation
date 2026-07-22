@@ -49,7 +49,7 @@ namespace Automation
         public static string ActiveConfigFile(string fileName)
         {
             if (string.IsNullOrWhiteSpace(fileName)) throw new ArgumentException("配置文件名为空", nameof(fileName));
-            return Path.Combine(SF.ConfigPath, fileName);
+            return Path.Combine(new PlatformPaths().ConfigPath, fileName);
         }
     }
 }

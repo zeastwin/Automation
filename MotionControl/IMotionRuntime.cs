@@ -65,7 +65,6 @@ namespace Automation.MotionControl
         void CleanPos(ushort card, ushort axis);
         double GetAxisPos(ushort card, ushort axis);
         void SetMovParam(ushort card, ushort axis, double minVel, double maxVel, double acc, double dec, double stopVel, double sPara, int equiv);
-        void StageManualMotionParameters(ushort card, ushort axis, double minVel, double maxVel, double acc, double dec, double stopVel, double sPara, int equiv);
         void Mov(ushort card, ushort axis, double distance, ushort positionMode, bool wait);
         void MoveCoordinatedLinear(CoordinatedLinearMoveRequest request);
         bool IsCoordinatedLinearDone(ushort card, ushort coordinateSystem);

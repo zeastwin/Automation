@@ -84,7 +84,7 @@ namespace Automation.McpServer
                         skillRoot,
                         scope = "sourceDirectory 是由当前宿主身份解析出的 HMI 源码目录：Automation 对应平台 Hmi，MachineApp 对应 DeviceProject/Hmi；发布包对应程序目录下的 Hmi。",
                         access = isDeviceProject
-                            ? "设备 HMI 只通过 Automation.DeviceSdk 的公开契约访问平台能力；SF、平台窗体、Store、ProcessEngine 和原生运动对象不属于设备工程 API。"
+                            ? "设备 HMI 只通过 Automation.DeviceSdk 的公开契约访问平台能力；PlatformRuntime、平台窗体、Store、ProcessEngine 和原生运动对象不属于设备工程 API。"
                             : "平台 HMI 属于 Automation 平台源码；修改内部适配前读取实际签名，并把可复用设备能力保持在 Automation.DeviceSdk 公开边界。",
                         workflow = new[]
                         {
@@ -114,8 +114,8 @@ namespace Automation.McpServer
                             : "Automation.DeviceSdk 的 IAutomationPlatform 是平台向设备 HMI 暴露能力的公开边界。",
                         discovery = "先读取 publicContract 和当前任务涉及的公开类型签名；仅在需要核对实现行为时读取 implementation，不要凭说明猜测不存在的 API。",
                         boundary = isDeviceProject
-                            ? "SF、平台窗体、Store、引擎和原生设备对象属于平台内部适配，不向设备 HMI 直接开放。"
-                            : "平台内部适配可以核对 SF、窗体、Store 和引擎实现；面向设备工程的能力仍以 Automation.DeviceSdk 为唯一公开契约。",
+                            ? "PlatformRuntime、平台窗体、Store、引擎和原生设备对象属于平台内部实现，不向设备 HMI 直接开放。"
+                            : "平台内部适配可以核对 PlatformRuntime、窗体、Store 和引擎实现；面向设备工程的能力仍以 Automation.DeviceSdk 为唯一公开契约。",
                         safety = "设备、通讯或流程状态不确定时停止受影响动作并明确报警；不得绕过运行闸门。"
                     };
                     break;

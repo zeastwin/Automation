@@ -14,7 +14,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WinFormsButton = System.Windows.Forms.Button;
-using static Automation.FrmCard;
 using static Automation.OperationTypePartial;
 using static System.Collections.Specialized.BitVector32;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
@@ -45,13 +44,13 @@ namespace Automation
             ToolBar_Panel.Controls.Add(btnDataBreakpoints);
             ToolBar_Panel.Controls.Add(btnFlowGraph);
             ToolBar_Panel.Controls.Add(btnPerformanceAnalysis);
-            btnNavigateBack.Click += (sender, args) => SF.mainfrm?.NavigateEditorBack();
-            btnNavigateForward.Click += (sender, args) => SF.mainfrm?.NavigateEditorForward();
+            btnNavigateBack.Click += (sender, args) => Workspace.Main?.NavigateEditorBack();
+            btnNavigateForward.Click += (sender, args) => Workspace.Main?.NavigateEditorForward();
             btnUndo.Click += (sender, args) => ExecuteHistoryAction(true);
             btnRedo.Click += (sender, args) => ExecuteHistoryAction(false);
-            btnDataBreakpoints.Click += (sender, args) => SF.mainfrm?.ShowDataBreakpoints();
-            btnFlowGraph.Click += (sender, args) => SF.mainfrm?.ShowProcessFlowGraph();
-            btnPerformanceAnalysis.Click += (sender, args) => SF.mainfrm?.ShowPerformanceAnalysis();
+            btnDataBreakpoints.Click += (sender, args) => Workspace.Main?.ShowDataBreakpoints();
+            btnFlowGraph.Click += (sender, args) => Workspace.Main?.ShowProcessFlowGraph();
+            btnPerformanceAnalysis.Click += (sender, args) => Workspace.Main?.ShowPerformanceAnalysis();
             ConfigureToolbarAppearance();
             btnSave.Enabled = false;
             btnCancel.Enabled = false;
@@ -60,14 +59,21 @@ namespace Automation
             btnUndo.Enabled = false;
             btnRedo.Enabled = false;
             btnIOMonitor.Visible = false;
-            SF.EditorHistory.StateChanged += EditorHistory_StateChanged;
-            RefreshHistoryAvailability();
             Disposed += (sender, args) =>
             {
-                SF.EditorHistory.StateChanged -= EditorHistory_StateChanged;
+                if (editorWorkspace != null)
+                {
+                    editorWorkspace.Runtime.Editor.History.StateChanged -= EditorHistory_StateChanged;
+                }
                 hoverAnimator.Dispose();
                 toolbarToolTip.Dispose();
             };
+        }
+
+        internal void OnEditorWorkspaceAttached()
+        {
+            Workspace.Runtime.Editor.History.StateChanged += EditorHistory_StateChanged;
+            RefreshHistoryAvailability();
         }
 
         private void ConfigureToolbarAppearance()
@@ -271,11 +277,11 @@ namespace Automation
                 return;
             }
 
-            IEditSession editSession = SF.ActiveEditSession;
-            bool canUndo = editSession?.CanUndo ?? SF.EditorHistory.CanUndo;
-            bool canRedo = editSession?.CanRedo ?? SF.EditorHistory.CanRedo;
-            string undoDescription = editSession?.Name ?? SF.EditorHistory.UndoDescription;
-            string redoDescription = editSession?.Name ?? SF.EditorHistory.RedoDescription;
+            IEditSession editSession = Workspace.Runtime.Editor.ActiveSession;
+            bool canUndo = editSession?.CanUndo ?? Workspace.Runtime.Editor.History.CanUndo;
+            bool canRedo = editSession?.CanRedo ?? Workspace.Runtime.Editor.History.CanRedo;
+            string undoDescription = editSession?.Name ?? Workspace.Runtime.Editor.History.UndoDescription;
+            string redoDescription = editSession?.Name ?? Workspace.Runtime.Editor.History.RedoDescription;
             btnUndo.Enabled = canUndo;
             btnRedo.Enabled = canRedo;
             btnUndo.AccessibleName = canUndo
@@ -302,8 +308,8 @@ namespace Automation
             string description;
             string error;
             bool success = undo
-                ? SF.TryUndoEditorChange(out description, out error)
-                : SF.TryRedoEditorChange(out description, out error);
+                ? Workspace.Runtime.Editor.TryUndo(out description, out error)
+                : Workspace.Runtime.Editor.TryRedo(out description, out error);
             if (!success)
             {
                 if (!string.IsNullOrWhiteSpace(error))
@@ -317,9 +323,9 @@ namespace Automation
                 RefreshHistoryAvailability();
                 return;
             }
-            if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            if (Workspace.Info != null && !Workspace.Info.IsDisposed)
             {
-                SF.frmInfo.PrintInfo(
+                Workspace.Info.PrintInfo(
                     $"已{(undo ? "撤销" : "重做")}：{description}",
                     FrmInfo.Level.Normal);
             }
@@ -377,27 +383,27 @@ namespace Automation
                 if (frm.ShowDialog(this) == DialogResult.OK
                     && AppConfigStorage.TryGetCached(out AppConfig config, out _))
                 {
-                    SF.mainfrm?.ApplyRuntimeDiagnosticsConfiguration(config.EnableRuntimeDiagnostics);
+                    Workspace.Main?.ApplyRuntimeDiagnosticsConfiguration(config.EnableRuntimeDiagnostics);
                 }
             }
         }
       
         private void btnSave_Click(object sender, EventArgs e)
         {
-            if (SF.ActiveEditSession == null)
+            if (Workspace.Runtime.Editor.ActiveSession == null)
             {
                 MessageBox.Show("当前没有可保存的编辑会话。");
                 return;
             }
             try
             {
-                if (!SF.TryCommitEditSession(out string error))
+                if (!Workspace.Runtime.Editor.TryCommit(out string error))
                 {
                     MessageBox.Show(error, "配置校验失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
-                SF.frmDataGrid.dataGridView1.Enabled = true;
-                SF.frmProc.Enabled = true;
+                Workspace.DataGrid.dataGridView1.Enabled = true;
+                Workspace.Proc.Enabled = true;
             }
             catch (Exception ex)
             {
@@ -407,69 +413,69 @@ namespace Automation
 
         private void btnCancel_Click(object sender, EventArgs e)
         {
-            if (SF.ActiveEditSession == null)
+            if (Workspace.Runtime.Editor.ActiveSession == null)
             {
                 return;
             }
-            SF.CancelEditSession();
-            SF.frmDataGrid.dataGridView1.Enabled = true;
-            SF.frmProc.Enabled = true;
+            Workspace.Runtime.Editor.Cancel();
+            Workspace.DataGrid.dataGridView1.Enabled = true;
+            Workspace.Proc.Enabled = true;
         }
 
         private void button1_Click(object sender, EventArgs e)
         {
-            string path = SF.ConfigPath.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+            string path = Workspace.Runtime.Paths.ConfigPath.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
             System.Diagnostics.Process.Start("explorer.exe", path);
 
         }
         
         private void btnSearch_Click(object sender, EventArgs e)
         {
-            SF.frmSearch.StartPosition = FormStartPosition.CenterScreen;
-            SF.frmSearch.Show();
-            SF.frmSearch.BringToFront();
-            SF.frmSearch.WindowState = FormWindowState.Normal;
-            SF.frmSearch.textBox1.Focus();
+            Workspace.Search.StartPosition = FormStartPosition.CenterScreen;
+            Workspace.Search.Show();
+            Workspace.Search.BringToFront();
+            Workspace.Search.WindowState = FormWindowState.Normal;
+            Workspace.Search.textBox1.Focus();
         }
 
         private void btnIOMonitor_Click(object sender, EventArgs e)
         {
-            if (SF.frmIO == null)
+            if (Workspace.IO == null)
             {
                 return;
             }
-            bool enabled = SF.frmIO.ToggleIOMonitor();
+            bool enabled = Workspace.IO.ToggleIOMonitor();
             btnIOMonitor.AccessibleName = enabled ? "停止监视" : "IO监视";
             toolbarToolTip.SetToolTip(btnIOMonitor, btnIOMonitor.AccessibleName);
         }
 
         private async void btnPause_Click(object sender, EventArgs e)
         {
-            int procIndex = SF.frmProc.SelectedProcNum;
+            int procIndex = Workspace.Proc.SelectedProcNum;
             if (procIndex < 0)
             {
                 return;
             }
-            EngineSnapshot snapshot = SF.DR.GetSnapshot(procIndex);
+            EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(procIndex);
             if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
             {
-                SF.DR.Pause(procIndex);
+                Workspace.Runtime.ProcessEngine.Pause(procIndex);
                 SetPauseButtonAction(true);
             }
             else if (snapshot != null && snapshot.State == ProcRunState.Paused)
             {
-                if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                if (Workspace.Info != null && !Workspace.Info.IsDisposed)
                 {
-                    SF.frmInfo.PrintInfo("流程已暂停，禁止继续运行。", FrmInfo.Level.Error);
+                    Workspace.Info.PrintInfo("流程已暂停，禁止继续运行。", FrmInfo.Level.Error);
                 }
                 return;
             }
             else if (snapshot != null && snapshot.State == ProcRunState.SingleStep)
             {
                 Proc proc = null;
-                if (SF.frmProc?.procsList != null && procIndex >= 0 && procIndex < SF.frmProc.procsList.Count)
+                if (Workspace.Proc?.procsList != null && procIndex >= 0 && procIndex < Workspace.Proc.procsList.Count)
                 {
-                    proc = SF.frmProc.procsList[procIndex];
+                    proc = Workspace.Proc.procsList[procIndex];
                 }
                 string procName = snapshot.ProcName ?? proc?.head?.Name ?? $"索引{procIndex}";
                 int stepIndex = snapshot.StepIndex;
@@ -495,7 +501,7 @@ namespace Automation
                 try
                 {
                     var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    Message confirmForm = new Message(
+                    Message confirmForm = new Message(Workspace.Runtime,
                         "继续运行确认",
                         message,
                         () => tcs.TrySetResult(true),
@@ -510,7 +516,7 @@ namespace Automation
                     {
                         return;
                     }
-                    SF.DR.Resume(procIndex);
+                    Workspace.Runtime.ProcessEngine.Resume(procIndex);
                     SetPauseButtonAction(false);
                 }
                 finally
@@ -522,80 +528,80 @@ namespace Automation
 
         private void SingleRun_Click(object sender, EventArgs e)
         {
-            int procIndex = SF.frmProc.SelectedProcNum;
+            int procIndex = Workspace.Proc.SelectedProcNum;
             if (procIndex != -1)
             {
-                EngineSnapshot snapshot = SF.DR.GetSnapshot(procIndex);
+                EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(procIndex);
                 if (snapshot != null && snapshot.State == ProcRunState.Paused)
                 {
-                    if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+                    if (Workspace.Info != null && !Workspace.Info.IsDisposed)
                     {
-                        SF.frmInfo.PrintInfo("流程已暂停，禁止单步继续。", FrmInfo.Level.Error);
+                        Workspace.Info.PrintInfo("流程已暂停，禁止单步继续。", FrmInfo.Level.Error);
                     }
                     return;
                 }
-                if (SF.frmProc.SelectedStepNum != -1 && snapshot != null
+                if (Workspace.Proc.SelectedStepNum != -1 && snapshot != null
                     && snapshot.State == ProcRunState.SingleStep)
                 {
-                    SF.DR.Step(procIndex);
-                    SF.frmDataGrid.RequestSingleStepFollow(procIndex);
+                    Workspace.Runtime.ProcessEngine.Step(procIndex);
+                    Workspace.DataGrid.RequestSingleStepFollow(procIndex);
                 }
             }
                 
         }
         private void btnStop_Click(object sender, EventArgs e)
         {
-            if (SF.frmProc.SelectedProcNum >= 0)
+            if (Workspace.Proc.SelectedProcNum >= 0)
             {
-                SF.DR.Stop(SF.frmProc.SelectedProcNum);
+                Workspace.Runtime.ProcessEngine.Stop(Workspace.Proc.SelectedProcNum);
             }
 
         }
 
         private void btnStopAll_Click(object sender, EventArgs e)
         {
-            if (SF.frmProc?.procsList == null)
+            if (Workspace.Proc?.procsList == null)
             {
                 return;
             }
 
-            int count = SF.frmProc.procsList.Count;
+            int count = Workspace.Proc.procsList.Count;
             for (int i = 0; i < count; i++)
             {
-                Proc proc = SF.frmProc.procsList[i];
+                Proc proc = Workspace.Proc.procsList[i];
                 string procName = proc?.head?.Name;
                 if (!string.IsNullOrEmpty(procName) && procName.StartsWith("系统", StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                SF.DR.Stop(i);
+                Workspace.Runtime.ProcessEngine.Stop(i);
             }
         }
 
         private void btnAlarm_Click(object sender, EventArgs e)
         {
-            SF.frmAlarmConfig.StartPosition = FormStartPosition.CenterScreen;
-            SF.frmAlarmConfig.Show();
-            SF.frmAlarmConfig.BringToFront();
-            SF.frmAlarmConfig.WindowState = FormWindowState.Normal;
+            Workspace.AlarmConfig.StartPosition = FormStartPosition.CenterScreen;
+            Workspace.AlarmConfig.Show();
+            Workspace.AlarmConfig.BringToFront();
+            Workspace.AlarmConfig.WindowState = FormWindowState.Normal;
         }
 
         private void btnLocate_Click(object sender, EventArgs e)
         {
-            int procIndex = SF.frmProc.SelectedProcNum;
+            int procIndex = Workspace.Proc.SelectedProcNum;
             if (procIndex < 0)
             {
                 return;
             }
-            EngineSnapshot snapshot = SF.DR.GetSnapshot(procIndex);
+            EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(procIndex);
             if (snapshot == null || snapshot.StepIndex < 0 || snapshot.OpIndex < 0)
             {
                 return;
             }
-            SF.frmDataGrid.SelectChildNode(procIndex, snapshot.StepIndex);
-            SF.frmDataGrid.ScrollRowToCenter(snapshot.OpIndex);
-            SF.frmDataGrid.SetRowColor(snapshot.OpIndex, UiPalette.InfoSoft);
+            Workspace.DataGrid.SelectChildNode(procIndex, snapshot.StepIndex);
+            Workspace.DataGrid.ScrollRowToCenter(snapshot.OpIndex);
+            Workspace.DataGrid.SetRowColor(snapshot.OpIndex, UiPalette.InfoSoft);
         }
     }
 }

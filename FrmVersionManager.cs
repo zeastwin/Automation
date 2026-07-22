@@ -16,7 +16,7 @@ namespace Automation
     /// <summary>
     /// 使用 WebView2 呈现的运行时版本管理模块。
     /// </summary>
-    public sealed class FrmVersionManager : Form
+    public sealed partial class FrmVersionManager : Form
     {
         private readonly WebView2 webView = new WebView2
         {
@@ -123,7 +123,7 @@ namespace Automation
                 ConfigurationVersionLayer layer = currentLayer;
                 string error = null;
                 bool success = await Task.Run(() =>
-                    SF.versionService.CreateManualSnapshot(layer, note, null, out error));
+                    Workspace.Runtime.VersionService.CreateManualSnapshot(layer, note, null, out error));
                 if (!success)
                 {
                     PushToast(error, true);
@@ -162,7 +162,7 @@ namespace Automation
                 string commitId = selectedCommitId;
                 string error = null;
                 bool success = await Task.Run(() =>
-                    SF.versionService.DeleteSnapshot(layer, commitId, out error));
+                    Workspace.Runtime.VersionService.DeleteSnapshot(layer, commitId, out error));
                 if (!success)
                 {
                     PushToast(error, true);
@@ -201,10 +201,10 @@ namespace Automation
                 ConfigurationVersionLayer layer = currentLayer;
                 string commitId = selectedCommitId;
                 string error = null;
-                bool success = await Task.Run(() => SF.versionService.Restore(layer, commitId,
-                    () => (bool)SF.mainfrm.Invoke(new Func<bool>(SF.mainfrm.AreAllProcessesStopped)),
-                    () => SF.mainfrm.Invoke(new Action(SF.mainfrm.ReloadProcessVersionedConfiguration)),
-                    () => SF.mainfrm.Invoke(new Action(SF.mainfrm.RequireRestartAfterEquipmentRestore)),
+                bool success = await Task.Run(() => Workspace.Runtime.VersionService.Restore(layer, commitId,
+                    () => (bool)Workspace.Main.Invoke(new Func<bool>(Workspace.Main.AreAllProcessesStopped)),
+                    () => Workspace.Main.Invoke(new Action(Workspace.Main.ReloadProcessVersionedConfiguration)),
+                    () => Workspace.Main.Invoke(new Action(Workspace.Main.RequireRestartAfterEquipmentRestore)),
                     out error));
                 if (!success)
                 {
@@ -224,7 +224,7 @@ namespace Automation
 
         private async Task PushStateAsync()
         {
-            if (webView.CoreWebView2 == null || SF.versionService == null)
+            if (webView.CoreWebView2 == null || Workspace.Runtime.VersionService == null)
             {
                 return;
             }
@@ -242,12 +242,12 @@ namespace Automation
             ExecuteScript("setState(" + result.Payload.ToString(Formatting.None) + ");");
         }
 
-        private static VersionPageState BuildPageState(
+        private VersionPageState BuildPageState(
             ConfigurationVersionLayer layer,
             string selectedCommit,
             bool comparePrevious)
         {
-            IReadOnlyList<ConfigurationVersionRecord> history = SF.versionService.GetHistory(
+            IReadOnlyList<ConfigurationVersionRecord> history = Workspace.Runtime.VersionService.GetHistory(
                 layer, out bool dirty, out string historyError);
             if (!history.Any(item => item.CommitId == selectedCommit))
             {
@@ -257,7 +257,7 @@ namespace Automation
             string diffError = null;
             if (!string.IsNullOrWhiteSpace(selectedCommit))
             {
-                diff = SF.versionService.GetStructuredDiff(
+                diff = Workspace.Runtime.VersionService.GetStructuredDiff(
                     layer, selectedCommit, comparePrevious, out diffError).ToList();
             }
             List<ConfigurationVersionDiffEntry> variableDiff = diff.Where(item => item.Category == "变量").ToList();
@@ -267,7 +267,7 @@ namespace Automation
             {
                 ["layer"] = layer == ConfigurationVersionLayer.Process ? "process" : "equipment",
                 ["dirty"] = dirty,
-                ["mustRestart"] = SF.VersionRestartRequired,
+                ["mustRestart"] = Workspace.Runtime.Readiness.VersionRestartRequired,
                 ["selectedCommitId"] = selectedCommit,
                 ["compareMode"] = comparePrevious ? "previous" : "current",
                 ["historyError"] = historyError,

@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Globalization;
-using System.Windows.Forms;
-using static Automation.FrmCard;
 
 namespace Automation
 {
@@ -14,8 +12,9 @@ namespace Automation
 
         public Card CardData => cardData;
 
-        public bool Load(string configPath)
+        public bool Load(string configPath, out string error)
         {
+            error = null;
             if (!Directory.Exists(configPath))
             {
                 Directory.CreateDirectory(configPath);
@@ -24,8 +23,7 @@ namespace Automation
             if (!File.Exists(filePath))
             {
                 cardData = Normalize(null);
-                Save(configPath);
-                return true;
+                return Save(configPath, true, out error);
             }
 
             try
@@ -38,22 +36,22 @@ namespace Automation
                 cardData = Normalize(temp);
                 if (!TryValidateAllAxes(out List<string> errors))
                 {
-                    MessageBox.Show("轴配置校验失败：\r\n" + string.Join("\r\n", errors),
-                        "轴配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    error = "轴配置校验失败：" + string.Join("；", errors);
                     return false;
                 }
                 return true;
             }
             catch (Exception e)
             {
-                MessageBox.Show(e.Message);
+                error = e.Message;
                 cardData = Normalize(null);
                 return false;
             }
         }
 
-        public bool Save(string configPath, bool validate = true)
+        public bool Save(string configPath, bool validate, out string error)
         {
+            error = null;
             if (!Directory.Exists(configPath))
             {
                 Directory.CreateDirectory(configPath);
@@ -61,11 +59,15 @@ namespace Automation
             cardData = Normalize(cardData);
             if (validate && !TryValidateAllAxes(out List<string> errors))
             {
-                MessageBox.Show("轴配置校验失败：\r\n" + string.Join("\r\n", errors),
-                    "轴配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                error = "轴配置校验失败：" + string.Join("；", errors);
                 return false;
             }
-            return AtomicJsonFileStore.Save(configPath, "card", cardData);
+            if (AtomicJsonFileStore.Save(configPath, "card", cardData))
+            {
+                return true;
+            }
+            error = "控制卡配置保存失败。";
+            return false;
         }
 
         public bool TryValidateAllAxes(out List<string> errors)

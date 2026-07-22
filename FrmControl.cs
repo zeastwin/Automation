@@ -15,7 +15,6 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using static System.Windows.Forms.AxHost;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
-using static Automation.FrmCard;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Globalization;
@@ -210,6 +209,10 @@ namespace Automation
                 UiPalette.Warning,
                 UiPalette.WarningSoft);
             btnReSet.BackColor = UiPalette.WarningSoft;
+        }
+
+        internal void OnEditorWorkspaceAttached()
+        {
             RefreshMotionControlAvailability();
         }
 
@@ -259,7 +262,7 @@ namespace Automation
             {
                 pictureBox1, pictureBox2, pictureBox3, pictureBox4, pictureBox5, pictureBox6
             };
-            bool motionReady = SF.motion?.IsCardInitialized == true && !SF.MotionConfigRestartRequired;
+            bool motionReady = Workspace.Runtime.Motion?.IsCardInitialized == true && !Workspace.Runtime.Readiness.MotionConfigRestartRequired;
             bool hasAvailableAxis = false;
 
             for (int i = 0; i < axisLabels.Length; i++)
@@ -339,7 +342,7 @@ namespace Automation
             {
                 return;
             }
-            if (SF.frmStation != null && SF.frmStation.IsPointEditing)
+            if (Workspace.Station != null && Workspace.Station.IsPointEditing)
             {
                 suppressStationChange = true;
                 comboBox1.SelectedIndex = lastStationIndex;
@@ -375,22 +378,22 @@ namespace Automation
                 lastStationIndex = -1;
                 return;
             }
-            if (SF.frmCard == null || SF.frmCard.dataStation == null || selectedIndex >= SF.frmCard.dataStation.Count)
+            if (Workspace.Card == null || Workspace.Card.dataStation == null || selectedIndex >= Workspace.Card.dataStation.Count)
             {
                 temp = null;
                 lastStationIndex = -1;
                 return;
             }
 
-            temp = SF.frmCard.dataStation[selectedIndex];
+            temp = Workspace.Card.dataStation[selectedIndex];
             trackBar1.Maximum = 100;
             trackBar1.Minimum = 1;
             trackBar1.Value = (int)temp.ManualSpeedPercent;
             label6.Text = trackBar1.Value.ToString() + "%";
             bindingSource.DataSource = temp.ListDataPos;
-            SF.frmStation.dataGridView1.DataSource = bindingSource;
-            SF.frmStation.dataGridView1.Columns[0].HeaderText = "索引";
-            SF.frmStation.dataGridView1.Columns[1].HeaderText = "名称";
+            Workspace.Station.dataGridView1.DataSource = bindingSource;
+            Workspace.Station.dataGridView1.Columns[0].HeaderText = "索引";
+            Workspace.Station.dataGridView1.Columns[1].HeaderText = "名称";
             AxisName1.Text = "-------";
             AxisName2.Text = "-------";
             AxisName3.Text = "-------";
@@ -417,7 +420,7 @@ namespace Automation
             pictureBox6.Image = invalidImage;
             for (int i = 0; i < 6; i++)
             {
-                SF.frmStation.dataGridView1.Columns[i + 2].HeaderText = temp.dataAxis.axisConfigs[i].AxisName;
+                Workspace.Station.dataGridView1.Columns[i + 2].HeaderText = temp.dataAxis.axisConfigs[i].AxisName;
             }
 
             AxisName1.Text = temp.dataAxis.axisConfig1.AxisName;
@@ -460,18 +463,18 @@ namespace Automation
 
             RefreshMotionControlAvailability();
 
-            SF.frmStation.RefleshDgvState();
+            Workspace.Station.RefleshDgvState();
             lastStationIndex = selectedIndex;
         }
     
         //轴按顺序回原
         public async Task HomeStationByseq(int dataStationIndex)
         {
-            if (SF.frmCard?.dataStation == null || dataStationIndex < 0 || dataStationIndex >= SF.frmCard.dataStation.Count)
+            if (Workspace.Card?.dataStation == null || dataStationIndex < 0 || dataStationIndex >= Workspace.Card.dataStation.Count)
             {
                 throw new InvalidOperationException("工站索引无效");
             }
-            DataStation station = SF.frmCard.dataStation[dataStationIndex];
+            DataStation station = Workspace.Card.dataStation[dataStationIndex];
             if (station.homeSeq?.axisSeq == null || station.dataAxis?.axisConfigs == null)
             {
                 throw new InvalidOperationException("工站回零配置不完整");
@@ -494,11 +497,11 @@ namespace Automation
         //所有轴同步回
         public async Task HomeStationByAll(int dataStationIndex)
         {
-            if (SF.frmCard?.dataStation == null || dataStationIndex < 0 || dataStationIndex >= SF.frmCard.dataStation.Count)
+            if (Workspace.Card?.dataStation == null || dataStationIndex < 0 || dataStationIndex >= Workspace.Card.dataStation.Count)
             {
                 throw new InvalidOperationException("工站索引无效");
             }
-            DataStation station = SF.frmCard.dataStation[dataStationIndex];
+            DataStation station = Workspace.Card.dataStation[dataStationIndex];
             if (station.dataAxis?.axisConfigs == null)
             {
                 throw new InvalidOperationException("工站回零配置不完整");
@@ -522,11 +525,11 @@ namespace Automation
 
         public void HomeSingleAxis(ushort cardNum, ushort axis)
         {
-            if (SF.DR == null || !SF.DR.TryValidateStartGate(out _))
+            if (Workspace.Runtime.ProcessEngine == null || !Workspace.Runtime.ProcessEngine.TryValidateStartGate(out _))
             {
                 throw new InvalidOperationException("系统尚未复位完成，禁止手动回零。");
             }
-            if (!SF.DR.TryAcquireManualMotionResource(cardNum, axis, out string resourceError))
+            if (!Workspace.Runtime.ProcessEngine.TryAcquireManualMotionResource(cardNum, axis, out string resourceError))
             {
                 throw new InvalidOperationException(resourceError);
             }
@@ -534,12 +537,12 @@ namespace Automation
             bool completed = false;
             try
             {
-            if (!SF.motion.GetInPos(cardNum, axis))
+            if (!Workspace.Runtime.Motion.GetInPos(cardNum, axis))
             {
                 throw new InvalidOperationException($"轴正在运动，禁止启动回零:{cardNum}-{axis}");
             }
             ushort dir = 0;
-            if (SF.cardStore == null || !SF.cardStore.TryGetAxis(cardNum, axis, out axisInfo)
+            if (Workspace.Runtime.Stores.Cards == null || !Workspace.Runtime.Stores.Cards.TryGetAxis(cardNum, axis, out axisInfo)
                 || axisInfo.PulseToMM <= 0 || axisInfo.AccMax <= 0 || axisInfo.DecMax <= 0
                 || !double.TryParse(axisInfo.HomeSpeed, out double homeSpeed) || homeSpeed <= 0)
             {
@@ -553,7 +556,7 @@ namespace Automation
             Stopwatch timeout = Stopwatch.StartNew();
             while (!completed)
             {
-                if (!SF.DR.TryValidateStartGate(out _))
+                if (!Workspace.Runtime.ProcessEngine.TryValidateStartGate(out _))
                 {
                     throw new InvalidOperationException("回零过程中复位状态失效");
                 }
@@ -564,26 +567,26 @@ namespace Automation
                 switch (sfc)
                 {
                     case 10:
-                        using (SF.motion.ValidateAxesForCommand(new[]
+                        using (Workspace.Runtime.Motion.ValidateAxesForCommand(new[]
                         {
                             new AxisCommandRequest(cardNum, axis, AxisCommandKind.Home)
                         }))
                         {
-                            SF.motion.SetMovParam(cardNum, axis, 0, homeSpeed, axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
-                            SF.motion.SettHomeParam(cardNum, axis, dir, 1, 1);
-                            SF.motion.StartHome(cardNum, axis);
+                            Workspace.Runtime.Motion.SetMovParam(cardNum, axis, 0, homeSpeed, axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
+                            Workspace.Runtime.Motion.SettHomeParam(cardNum, axis, dir, 1, 1);
+                            Workspace.Runtime.Motion.StartHome(cardNum, axis);
                         }
                         Thread.Sleep(20);
                         sfc = 20;
                         break;
                     case 20:
-                        EnsureHomeHardwareSafety(SF.motion, cardNum, axis);
-                        if (SF.motion.GetInPos(cardNum, axis))
+                        EnsureHomeHardwareSafety(Workspace.Runtime.Motion, cardNum, axis);
+                        if (Workspace.Runtime.Motion.GetInPos(cardNum, axis))
                         {
                             Thread.Sleep(300);
-                            if (SF.motion.HomeStatus(cardNum, axis))
+                            if (Workspace.Runtime.Motion.HomeStatus(cardNum, axis))
                             {
-                                SF.motion.CleanPos(cardNum, axis);
+                                Workspace.Runtime.Motion.CleanPos(cardNum, axis);
                                 completed = true;
                             }
                             else
@@ -602,14 +605,14 @@ namespace Automation
                 {
                     try
                     {
-                        SF.motion?.StopOneAxis(cardNum, axis, 0);
+                        Workspace.Runtime.Motion?.StopOneAxis(cardNum, axis, 0);
                     }
                     catch (Exception ex)
                     {
-                        SF.DR?.Logger?.Log($"手动回零失败后停止轴异常:{cardNum}-{axis} {ex.Message}", LogLevel.Error);
+                        Workspace.Runtime.ProcessEngine?.Logger?.Log($"手动回零失败后停止轴异常:{cardNum}-{axis} {ex.Message}", LogLevel.Error);
                     }
                 }
-                SF.DR?.ReleaseManualMotionResource(cardNum, axis);
+                Workspace.Runtime.ProcessEngine?.ReleaseManualMotionResource(cardNum, axis);
             }
         }
 
@@ -712,15 +715,15 @@ namespace Automation
 
         private void Handle1_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp,0);
+            Workspace.Station.SetStationParam(temp,0);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig1.CardNum),(ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 1);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig1.CardNum),(ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 1);
                 return;
             }
             if (TryGetStepDistance(txtMovPos1.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -729,7 +732,7 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, double.Parse(txtMovPos1.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, double.Parse(txtMovPos1.Text), 1, false);
             }
 
         }
@@ -737,20 +740,20 @@ namespace Automation
         private void Handle1_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 0);
         }
 
         private void Handle2_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp, 0);
+            Workspace.Station.SetStationParam(temp, 0);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 0);
                 return;
             }
             if (TryGetStepDistance(txtMovPos1.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, -distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, -distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -759,27 +762,27 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, double.Parse(txtMovPos1.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, double.Parse(txtMovPos1.Text), 1, false);
             }
         }
 
         private void Handle2_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 0);
         }
 
         private void Handle3_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp, 1);
+            Workspace.Station.SetStationParam(temp, 1);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 1);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 1);
                 return;
             }
             if (TryGetStepDistance(txtMovPos2.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -788,26 +791,26 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, double.Parse(txtMovPos2.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, double.Parse(txtMovPos2.Text), 1, false);
             }
         }
 
         private void Handle3_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 0);
         }
         private void Handle4_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp, 1);
+            Workspace.Station.SetStationParam(temp, 1);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 0);
                 return;
             }
             if (TryGetStepDistance(txtMovPos2.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, -distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, -distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -816,7 +819,7 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, double.Parse(txtMovPos2.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, double.Parse(txtMovPos2.Text), 1, false);
             }
 
         }
@@ -824,19 +827,19 @@ namespace Automation
         private void Handle4_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 0);
         }
         private void Handle5_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp, 2);
+            Workspace.Station.SetStationParam(temp, 2);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 1);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 1);
                 return;
             }
             if (TryGetStepDistance(txtMovPos3.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -845,27 +848,27 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, double.Parse(txtMovPos3.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, double.Parse(txtMovPos3.Text), 1, false);
             }
         }
 
         private void Handle5_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 0);
         }
 
         private void Handle6_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp, 2);
+            Workspace.Station.SetStationParam(temp, 2);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 0);
                 return;
             }
             if (TryGetStepDistance(txtMovPos3.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, -distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, -distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -874,7 +877,7 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, double.Parse(txtMovPos3.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, double.Parse(txtMovPos3.Text), 1, false);
             }
 
         }
@@ -882,20 +885,20 @@ namespace Automation
         private void Handle6_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 0);
         }
 
         private void Handle7_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp, 3);
+            Workspace.Station.SetStationParam(temp, 3);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 1);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 1);
                 return;
             }
             if (TryGetStepDistance(txtMovPos4.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -904,27 +907,27 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, double.Parse(txtMovPos4.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, double.Parse(txtMovPos4.Text), 1, false);
             }
         }
 
         private void Handle7_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 0);
         }
 
         private void Handle8_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp, 3);
+            Workspace.Station.SetStationParam(temp, 3);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 0);
                 return;
             }
             if (TryGetStepDistance(txtMovPos4.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, -distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, -distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -933,7 +936,7 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, double.Parse(txtMovPos4.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, double.Parse(txtMovPos4.Text), 1, false);
             }
 
         }
@@ -941,20 +944,20 @@ namespace Automation
         private void Handle8_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 0);
         }
 
         private void Handle9_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp, 4);
+            Workspace.Station.SetStationParam(temp, 4);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 1);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 1);
                 return;
             }
             if (TryGetStepDistance(txtMovPos5.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -963,27 +966,27 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, double.Parse(txtMovPos5.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, double.Parse(txtMovPos5.Text), 1, false);
             }
         }
 
         private void Handle9_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 0);
         }
 
         private void Handle10_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp, 4);
+            Workspace.Station.SetStationParam(temp, 4);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 0);
                 return;
             }
             if (TryGetStepDistance(txtMovPos5.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, -distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, -distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -992,7 +995,7 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, double.Parse(txtMovPos5.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, double.Parse(txtMovPos5.Text), 1, false);
             }
 
         }
@@ -1000,20 +1003,20 @@ namespace Automation
         private void Handle10_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 0);
         }
 
         private void Handle11_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp, 5);
+            Workspace.Station.SetStationParam(temp, 5);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 1);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 1);
                 return;
             }
             if (TryGetStepDistance(txtMovPos6.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -1022,27 +1025,27 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, double.Parse(txtMovPos6.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, double.Parse(txtMovPos6.Text), 1, false);
             }
         }
 
         private void Handle11_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 0);
         }
 
         private void Handle12_MouseDown(object sender, MouseEventArgs e)
         {
-            SF.frmStation.SetStationParam(temp, 5);
+            Workspace.Station.SetStationParam(temp, 5);
             if (radioButton3.Checked)
             {
-                SF.motion.Jog(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 0);
                 return;
             }
             if (TryGetStepDistance(txtMovPos6.Text, out double distance))
             {
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, -distance, 0, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, -distance, 0, false);
                 return;
             }
             if (radioButton1.Checked)
@@ -1051,7 +1054,7 @@ namespace Automation
                 {
                     return;
                 }
-                SF.motion.Mov(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, double.Parse(txtMovPos6.Text), 1, false);
+                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, double.Parse(txtMovPos6.Text), 1, false);
             }
 
         }
@@ -1059,7 +1062,7 @@ namespace Automation
         private void Handle12_MouseUp(object sender, MouseEventArgs e)
         {
             if (radioButton3.Checked)
-                SF.motion.StopOneAxis(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 0);
+                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 0);
         }
 
         private async void btnStationHome_Click(object sender, EventArgs e)
@@ -1068,9 +1071,9 @@ namespace Automation
             {
                 int stationIndex = comboBox1.SelectedIndex;
                 bool hasHomeSequence = stationIndex >= 0
-                    && SF.frmCard?.dataStation != null
-                    && stationIndex < SF.frmCard.dataStation.Count
-                    && SF.frmCard.dataStation[stationIndex].homeSeq?.axisSeq?.Any(item => item?.Name != "-1") == true;
+                    && Workspace.Card?.dataStation != null
+                    && stationIndex < Workspace.Card.dataStation.Count
+                    && Workspace.Card.dataStation[stationIndex].homeSeq?.axisSeq?.Any(item => item?.Name != "-1") == true;
 
                 if (hasHomeSequence)
                 {
@@ -1103,10 +1106,15 @@ namespace Automation
         {
             if (temp == null)
                 return;
+            double originalPercent = temp.ManualSpeedPercent;
             label6.Text = trackBar1.Value.ToString() + "%";
             temp.ManualSpeedPercent = trackBar1.Value;
-           // SF.frmStation.SetStationParam(temp);
-            AtomicJsonFileStore.Save(SF.ConfigPath, "DataStation", SF.frmCard.dataStation);
+            if (!Workspace.Runtime.Stores.Stations.TryPersistCurrent(
+                    Workspace.Runtime.Paths.ConfigPath, out string error))
+            {
+                temp.ManualSpeedPercent = originalPercent;
+                MessageBox.Show(error, "工站配置", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void txtMovPos1_KeyPress(object sender, KeyPressEventArgs e)
@@ -1130,15 +1138,15 @@ namespace Automation
 
         private void pictureBox1_Click(object sender, EventArgs e)
         {
-            int index = SF.frmControl.pictureBoxes.IndexOf((PictureBox)sender);
-            if (SF.frmControl.temp.dataAxis.axisConfigs[index].CardNum == "-1")
+            int index = Workspace.Control.pictureBoxes.IndexOf((PictureBox)sender);
+            if (Workspace.Control.temp.dataAxis.axisConfigs[index].CardNum == "-1")
                 return;
-            bool isSevon = SF.motion.GetAxisSevon(ushort.Parse(SF.frmControl.temp.dataAxis.axisConfigs[index].CardNum),(ushort)SF.frmControl.temp.dataAxis.axisConfigs[index].axis.AxisNum);
+            bool isSevon = Workspace.Runtime.Motion.GetAxisSevon(ushort.Parse(Workspace.Control.temp.dataAxis.axisConfigs[index].CardNum),(ushort)Workspace.Control.temp.dataAxis.axisConfigs[index].axis.AxisNum);
             if (!isSevon)
             {
                 if (DialogResult.OK == MessageBox.Show($"确定开轴{index}使能吗？", "提示", MessageBoxButtons.OKCancel))
                 {
-                    SF.motion.SetAxisSevon(ushort.Parse(SF.frmControl.temp.dataAxis.axisConfigs[index].CardNum), (ushort)SF.frmControl.temp.dataAxis.axisConfigs[index].axis.AxisNum,true);
+                    Workspace.Runtime.Motion.SetAxisSevon(ushort.Parse(Workspace.Control.temp.dataAxis.axisConfigs[index].CardNum), (ushort)Workspace.Control.temp.dataAxis.axisConfigs[index].axis.AxisNum,true);
                 }
                 else
                 {
@@ -1149,7 +1157,7 @@ namespace Automation
             {
                 if (DialogResult.OK == MessageBox.Show($"确定断轴{index}使能吗？", "提示", MessageBoxButtons.OKCancel))
                 {
-                    SF.motion.SetAxisSevon(ushort.Parse(SF.frmControl.temp.dataAxis.axisConfigs[index].CardNum), (ushort)SF.frmControl.temp.dataAxis.axisConfigs[index].axis.AxisNum, false);
+                    Workspace.Runtime.Motion.SetAxisSevon(ushort.Parse(Workspace.Control.temp.dataAxis.axisConfigs[index].CardNum), (ushort)Workspace.Control.temp.dataAxis.axisConfigs[index].axis.AxisNum, false);
                 }
                 else
                 {
@@ -1175,7 +1183,7 @@ namespace Automation
         private async Task StopStationAsync(DataStation station)
         {
             List<AxisCommandRequest> axes = GetStationAxisRequests(station);
-            if (!SF.DR.TryReserveManualMotionResources(axes, out IDisposable lease, out string error))
+            if (!Workspace.Runtime.ProcessEngine.TryReserveManualMotionResources(axes, out IDisposable lease, out string error))
             {
                 throw new InvalidOperationException(error);
             }
@@ -1188,7 +1196,7 @@ namespace Automation
         private async Task ResetStationAsync(DataStation station)
         {
             List<AxisCommandRequest> axes = GetStationAxisRequests(station);
-            if (!SF.DR.TryReserveManualMotionResources(axes, out IDisposable lease, out string error))
+            if (!Workspace.Runtime.ProcessEngine.TryReserveManualMotionResources(axes, out IDisposable lease, out string error))
             {
                 throw new InvalidOperationException(error);
             }
@@ -1199,12 +1207,12 @@ namespace Automation
                     StopAxesAndWait(axes, 30000);
                     foreach (AxisCommandRequest request in axes)
                     {
-                        SF.motion.ResetAxisAlarm(request.Card, request.Axis);
+                        Workspace.Runtime.Motion.ResetAxisAlarm(request.Card, request.Axis);
                     }
                     Thread.Sleep(200);
                     foreach (AxisCommandRequest request in axes)
                     {
-                        uint ioStatus = SF.motion.GetAxisIoStatus(request.Card, request.Axis);
+                        uint ioStatus = Workspace.Runtime.Motion.GetAxisIoStatus(request.Card, request.Axis);
                         if ((ioStatus & 1u) != 0)
                         {
                             throw new InvalidOperationException($"轴报警复位后仍然有效:{request.Card}-{request.Axis}");
@@ -1213,15 +1221,15 @@ namespace Automation
                         {
                             throw new InvalidOperationException($"轴急停信号尚未解除:{request.Card}-{request.Axis}");
                         }
-                        if (!SF.motion.GetInPos(request.Card, request.Axis))
+                        if (!Workspace.Runtime.Motion.GetInPos(request.Card, request.Axis))
                         {
                             throw new InvalidOperationException($"轴复位后未处于停止状态:{request.Card}-{request.Axis}");
                         }
-                        if (!SF.motion.GetAxisSevon(request.Card, request.Axis))
+                        if (!Workspace.Runtime.Motion.GetAxisSevon(request.Card, request.Axis))
                         {
                             throw new InvalidOperationException($"轴报警已清除，但伺服尚未使能:{request.Card}-{request.Axis}");
                         }
-                        if (!SF.motion.HomeStatus(request.Card, request.Axis))
+                        if (!Workspace.Runtime.Motion.HomeStatus(request.Card, request.Axis))
                         {
                             throw new InvalidOperationException($"轴报警已清除，但需要重新回原:{request.Card}-{request.Axis}");
                         }
@@ -1256,13 +1264,13 @@ namespace Automation
             return axes.GroupBy(item => ((long)item.Card << 32) | item.Axis).Select(group => group.First()).ToList();
         }
 
-        private static void StopAxesAndWait(IReadOnlyCollection<AxisCommandRequest> axes, int timeoutMilliseconds)
+        private void StopAxesAndWait(IReadOnlyCollection<AxisCommandRequest> axes, int timeoutMilliseconds)
         {
             try
             {
                 foreach (AxisCommandRequest request in axes)
                 {
-                    SF.motion.StopOneAxis(request.Card, request.Axis, 0);
+                    Workspace.Runtime.Motion.StopOneAxis(request.Card, request.Axis, 0);
                 }
             }
             catch (Exception ex)
@@ -1271,25 +1279,25 @@ namespace Automation
                 {
                     try
                     {
-                        SF.motion.StopOneAxis(request.Card, request.Axis, 1);
+                        Workspace.Runtime.Motion.StopOneAxis(request.Card, request.Axis, 1);
                     }
                     catch
                     {
                     }
                 }
-                SF.SetSecurityLock($"工站停止指令下发失败，目标轴已尝试急停:{ex.Message}");
+                Workspace.Runtime.Safety.Lock($"工站停止指令下发失败，目标轴已尝试急停:{ex.Message}");
                 throw new InvalidOperationException("工站停止指令下发失败，系统已锁定。", ex);
             }
             Stopwatch stopwatch = Stopwatch.StartNew();
-            while (axes.Any(request => !SF.motion.GetInPos(request.Card, request.Axis)))
+            while (axes.Any(request => !Workspace.Runtime.Motion.GetInPos(request.Card, request.Axis)))
             {
                 if (stopwatch.ElapsedMilliseconds > timeoutMilliseconds)
                 {
                     foreach (AxisCommandRequest request in axes)
                     {
-                        SF.motion.StopOneAxis(request.Card, request.Axis, 1);
+                        Workspace.Runtime.Motion.StopOneAxis(request.Card, request.Axis, 1);
                     }
-                    SF.SetSecurityLock("工站停止超时，所有目标轴已急停。");
+                    Workspace.Runtime.Safety.Lock("工站停止超时，所有目标轴已急停。");
                     throw new TimeoutException("工站停止超时，所有目标轴已急停并锁定系统。");
                 }
                 Thread.Sleep(5);
@@ -1298,7 +1306,7 @@ namespace Automation
 
         public void StopAxis(int card,int axis)
         {
-            SF.motion.StopOneAxis((ushort)card, (ushort)axis, 0);
+            Workspace.Runtime.ManualMotion.TryStop((ushort)card, (ushort)axis, 0);
         }
     }
 

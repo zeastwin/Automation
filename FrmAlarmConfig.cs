@@ -60,16 +60,16 @@ namespace Automation
 
         public void RefreshAlarmInfo()
         {
-            if (SF.alarmInfoStore == null)
-            {
-                SF.alarmInfoStore = new AlarmInfoStore();
-            }
+            Workspace.Runtime.Stores.Alarms.Load(Workspace.Runtime.Paths.ConfigPath);
+            RefreshAlarmInfoFromStore();
+        }
 
+        internal void RefreshAlarmInfoFromStore()
+        {
             isLoading = true;
             try
             {
-                SF.alarmInfoStore.Load(SF.ConfigPath);
-                alarmBindingSource.DataSource = SF.alarmInfoStore.Alarms;
+                alarmBindingSource.DataSource = Workspace.Runtime.Stores.Alarms.Alarms;
                 dataGridView1.DataSource = alarmBindingSource;
                 alarmBindingSource.ResetBindings(false);
             }
@@ -127,7 +127,7 @@ namespace Automation
 
         private void dataGridView1_RowValidated(object sender, DataGridViewCellEventArgs e)
         {
-            if (isLoading || e.RowIndex < 0 || SF.alarmInfoStore == null)
+            if (isLoading || e.RowIndex < 0 || Workspace.Runtime.Stores.Alarms == null)
             {
                 return;
             }
@@ -147,7 +147,7 @@ namespace Automation
             alarm.Btn3 = alarm.Btn3?.Trim();
             try
             {
-                SF.alarmInfoStore.Save(SF.ConfigPath);
+                Workspace.Runtime.Stores.Alarms.Save(Workspace.Runtime.Paths.ConfigPath);
                 row.ErrorText = string.Empty;
             }
             catch (Exception ex)

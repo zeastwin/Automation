@@ -189,17 +189,17 @@ namespace Automation
             dataGridView2.Rows.Clear();
             axisRowMap = Array.Empty<int>();
 
-            int stationIndex = SF.frmControl.CurrentStationIndex;
+            int stationIndex = Workspace.Control.CurrentStationIndex;
             if (stationIndex == -1)
             {
                 return;
             }
-            if (SF.frmCard.dataStation == null || stationIndex >= SF.frmCard.dataStation.Count)
+            if (Workspace.Card.dataStation == null || stationIndex >= Workspace.Card.dataStation.Count)
             {
                 return;
             }
 
-            List<AxisConfig> axisConfigs = SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs;
+            List<AxisConfig> axisConfigs = Workspace.Card.dataStation[stationIndex].dataAxis.axisConfigs;
             if (axisConfigs == null)
             {
                 return;
@@ -278,26 +278,26 @@ namespace Automation
         {
             try
             {
-                if (SF.curPage != 1)
+                if (Workspace.CurrentPage != 1)
                 {
                     return;
                 }
-                if (SF.motion == null || !SF.motion.IsCardInitialized)
+                if (Workspace.Runtime.Motion == null || !Workspace.Runtime.Motion.IsCardInitialized)
                 {
                     return;
                 }
 
-                int stationIndex = SF.frmControl.CurrentStationIndex;
+                int stationIndex = Workspace.Control.CurrentStationIndex;
                 if (stationIndex == -1)
                 {
                     return;
                 }
-                if (SF.frmCard.dataStation == null || stationIndex >= SF.frmCard.dataStation.Count)
+                if (Workspace.Card.dataStation == null || stationIndex >= Workspace.Card.dataStation.Count)
                 {
                     return;
                 }
 
-                List<AxisConfig> axisConfigs = SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs;
+                List<AxisConfig> axisConfigs = Workspace.Card.dataStation[stationIndex].dataAxis.axisConfigs;
                 if (axisConfigs == null)
                 {
                     return;
@@ -337,8 +337,8 @@ namespace Automation
                     }
                     DataGridViewRow row = dataGridView2.Rows[rowIndex];
                     row.Cells[0].Value = $"({axisConfig.axis.AxisName})";
-                    if (SF.DR?.Context?.AxisStatuses == null
-                        || !SF.DR.Context.AxisStatuses.TryGet((ushort)selectCard, (ushort)selectAxis,
+                    if (Workspace.Runtime.ProcessEngine?.Context?.AxisStatuses == null
+                        || !Workspace.Runtime.ProcessEngine.Context.AxisStatuses.TryGet((ushort)selectCard, (ushort)selectAxis,
                             out AxisStatusSnapshot snapshot)
                         || !snapshot.IsIoFresh(AxisStatusCache.UiIoMaxAgeMilliseconds))
                     {
@@ -359,19 +359,19 @@ namespace Automation
                     row.Cells[9].Value = snapshot.IsSignalOn(10) ? validImage : invalidImage;
                 }
 
-                if (SF.frmControl.temp?.dataAxis?.axisConfigs != null)
+                if (Workspace.Control.temp?.dataAxis?.axisConfigs != null)
                 {
-                    int displayCount = Math.Min(SF.frmControl.temp.dataAxis.axisConfigs.Count,
-                        Math.Min(SF.frmControl.PosTextBox.Count,
-                            Math.Min(SF.frmControl.pictureBoxes.Count, SF.frmControl.VelLabel.Count)));
+                    int displayCount = Math.Min(Workspace.Control.temp.dataAxis.axisConfigs.Count,
+                        Math.Min(Workspace.Control.PosTextBox.Count,
+                            Math.Min(Workspace.Control.pictureBoxes.Count, Workspace.Control.VelLabel.Count)));
                     for (int i = 0; i < displayCount; i++)
                     {
-                        AxisConfig axisConfig = SF.frmControl.temp.dataAxis.axisConfigs[i];
+                        AxisConfig axisConfig = Workspace.Control.temp.dataAxis.axisConfigs[i];
                         if (axisConfig == null || axisConfig.AxisName == "-1" || axisConfig.axis == null)
                         {
-                            SF.frmControl.PosTextBox[i].Text = "--";
-                            SF.frmControl.pictureBoxes[i].Image = null;
-                            SF.frmControl.VelLabel[i].Text = "--";
+                            Workspace.Control.PosTextBox[i].Text = "--";
+                            Workspace.Control.pictureBoxes[i].Image = null;
+                            Workspace.Control.VelLabel[i].Text = "--";
                             continue;
                         }
                         if (!ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
@@ -380,25 +380,25 @@ namespace Automation
                         }
                         if (axisConfig.axis.AxisNum < 0 || axisConfig.axis.AxisNum > ushort.MaxValue)
                         {
-                            SF.frmControl.PosTextBox[i].Text = "--";
-                            SF.frmControl.pictureBoxes[i].Image = null;
-                            SF.frmControl.VelLabel[i].Text = "--";
+                            Workspace.Control.PosTextBox[i].Text = "--";
+                            Workspace.Control.pictureBoxes[i].Image = null;
+                            Workspace.Control.VelLabel[i].Text = "--";
                             continue;
                         }
                         ushort axisNum = (ushort)axisConfig.axis.AxisNum;
-                        if (SF.DR?.Context?.AxisStatuses != null
-                            && SF.DR.Context.AxisStatuses.TryGet(cardNum, axisNum, out AxisStatusSnapshot snapshot)
+                        if (Workspace.Runtime.ProcessEngine?.Context?.AxisStatuses != null
+                            && Workspace.Runtime.ProcessEngine.Context.AxisStatuses.TryGet(cardNum, axisNum, out AxisStatusSnapshot snapshot)
                             && snapshot.IsDetailFresh(AxisStatusCache.UiDetailMaxAgeMilliseconds))
                         {
-                            SF.frmControl.PosTextBox[i].Text = snapshot.Position.ToString();
-                            SF.frmControl.pictureBoxes[i].Image = snapshot.ServoOn ? validImage : invalidImage;
-                            SF.frmControl.VelLabel[i].Text = snapshot.Speed.ToString();
+                            Workspace.Control.PosTextBox[i].Text = snapshot.Position.ToString();
+                            Workspace.Control.pictureBoxes[i].Image = snapshot.ServoOn ? validImage : invalidImage;
+                            Workspace.Control.VelLabel[i].Text = snapshot.Speed.ToString();
                         }
                         else
                         {
-                            SF.frmControl.PosTextBox[i].Text = "--";
-                            SF.frmControl.pictureBoxes[i].Image = null;
-                            SF.frmControl.VelLabel[i].Text = "--";
+                            Workspace.Control.PosTextBox[i].Text = "--";
+                            Workspace.Control.pictureBoxes[i].Image = null;
+                            Workspace.Control.VelLabel[i].Text = "--";
                         }
                     }
                 }
@@ -408,9 +408,9 @@ namespace Automation
                 if (!stateTimerErrorReported)
                 {
                     stateTimerErrorReported = true;
-                    if (SF.frmInfo != null)
+                    if (Workspace.Info != null)
                     {
-                        SF.frmInfo.PrintInfo($"工站状态刷新异常：{ex.Message}", FrmInfo.Level.Error);
+                        Workspace.Info.PrintInfo($"工站状态刷新异常：{ex.Message}", FrmInfo.Level.Error);
                     }
                 }
             }
@@ -495,11 +495,12 @@ namespace Automation
                 return;
             }
 
-            if (SF.cardStore.TryGetAxis(cardNum, axisNum, out FrmCard.Axis axis))
+            if (Workspace.Runtime.Stores.Cards.TryGetAxis(cardNum, axisNum, out Axis axis))
             {
-                SF.motion.StageManualMotionParameters((ushort)cardNum, (ushort)axisNum, 0,
-                    axis.SpeedMax * (dataStation.ManualSpeedPercent / 100), axis.AccMax, axis.DecMax,
-                    0, 0, axis.PulseToMM);
+                Workspace.Runtime.ManualMotion.ConfigureAxis((ushort)cardNum, (ushort)axisNum,
+                    new ManualMotionParameters(0,
+                        axis.SpeedMax * (dataStation.ManualSpeedPercent / 100d),
+                        axis.AccMax, axis.DecMax, 0, 0, axis.PulseToMM));
             }
 
         }
@@ -576,11 +577,11 @@ namespace Automation
 
         private void ResetPointBinding(List<DataPos> list)
         {
-            if (SF.frmControl?.bindingSource != null)
+            if (Workspace.Control?.bindingSource != null)
             {
-                SF.frmControl.bindingSource.DataSource = list;
-                SF.frmControl.bindingSource.ResetBindings(false);
-                dataGridView1.DataSource = SF.frmControl.bindingSource;
+                Workspace.Control.bindingSource.DataSource = list;
+                Workspace.Control.bindingSource.ResetBindings(false);
+                dataGridView1.DataSource = Workspace.Control.bindingSource;
                 return;
             }
             dataGridView1.DataSource = null;
@@ -589,16 +590,16 @@ namespace Automation
 
         private void CapturePointSnapshot()
         {
-            if (SF.frmControl?.temp == null)
+            if (Workspace.Control?.temp == null)
             {
                 pointSnapshot.Clear();
                 pointEditStation = null;
                 pointEditStationIndex = -1;
                 return;
             }
-            pointSnapshot = CloneDataPosList(SF.frmControl.temp.ListDataPos);
-            pointEditStation = SF.frmControl.temp;
-            pointEditStationIndex = SF.frmControl.comboBox1.SelectedIndex;
+            pointSnapshot = CloneDataPosList(Workspace.Control.temp.ListDataPos);
+            pointEditStation = Workspace.Control.temp;
+            pointEditStationIndex = Workspace.Control.comboBox1.SelectedIndex;
         }
 
         private void RestorePointSnapshot()
@@ -609,7 +610,7 @@ namespace Automation
             }
             pointEditStation.ListDataPos = CloneDataPosList(pointSnapshot);
             pointEditStation.dicDataPos = BuildDataPosDictionary(pointEditStation.ListDataPos);
-            if (SF.frmControl?.temp == pointEditStation || SF.frmControl?.comboBox1?.SelectedIndex == pointEditStationIndex)
+            if (Workspace.Control?.temp == pointEditStation || Workspace.Control?.comboBox1?.SelectedIndex == pointEditStationIndex)
             {
                 ResetPointBinding(pointEditStation.ListDataPos);
             }
@@ -637,7 +638,7 @@ namespace Automation
             {
                 return;
             }
-            if (SF.frmControl?.temp == null)
+            if (Workspace.Control?.temp == null)
             {
                 MessageBox.Show("未选择工站，无法编辑。");
                 return;
@@ -653,8 +654,8 @@ namespace Automation
                 return;
             }
             dataGridView1.EndEdit();
-            SF.frmControl?.bindingSource?.EndEdit();
-            DataStation station = pointEditStation ?? SF.frmControl?.temp;
+            Workspace.Control?.bindingSource?.EndEdit();
+            DataStation station = pointEditStation ?? Workspace.Control?.temp;
             if (station == null)
             {
                 MessageBox.Show("未选择工站，无法保存。");
@@ -663,7 +664,8 @@ namespace Automation
                 return;
             }
             RebuildPointDictionary(station);
-            if (!AtomicJsonFileStore.Save(SF.ConfigPath, "DataStation", SF.frmCard.dataStation))
+            if (!Workspace.Runtime.Stores.Stations.TryPersistCurrent(
+                    Workspace.Runtime.Paths.ConfigPath, out _))
             {
                 RestorePointSnapshot();
                 MessageBox.Show("点位配置保存失败，已恢复到编辑前状态。", "保存失败",
@@ -683,7 +685,7 @@ namespace Automation
                 return;
             }
             dataGridView1.CancelEdit();
-            SF.frmControl?.bindingSource?.CancelEdit();
+            Workspace.Control?.bindingSource?.CancelEdit();
             RestorePointSnapshot();
             SetPointEditMode(false);
             ClearPointSnapshot();
@@ -699,7 +701,7 @@ namespace Automation
                     return;
                 }
                 DataGridView dataGridView = (DataGridView)sender;
-                if (SF.frmControl.temp == null)
+                if (Workspace.Control.temp == null)
                 {
                     return;
                 }
@@ -714,7 +716,7 @@ namespace Automation
                 {
                     object cellValue = editedRow.Cells[1].Value;
                     string newName = cellValue == null ? string.Empty : cellValue.ToString();
-                    KeyValuePair<string, DataPos> oldEntry = SF.frmControl.temp.dicDataPos.FirstOrDefault(item => item.Value != null && item.Value.Index == dataPos.Index);
+                    KeyValuePair<string, DataPos> oldEntry = Workspace.Control.temp.dicDataPos.FirstOrDefault(item => item.Value != null && item.Value.Index == dataPos.Index);
                     string oldName = oldEntry.Key ?? string.Empty;
                     if (string.IsNullOrWhiteSpace(newName))
                     {
@@ -723,7 +725,7 @@ namespace Automation
                         dataPos.Name = oldName;
                         return;
                     }
-                    if (oldName != newName && SF.frmControl.temp.dicDataPos.TryGetValue(newName, out DataPos existed) && existed != null && existed.Index != dataPos.Index)
+                    if (oldName != newName && Workspace.Control.temp.dicDataPos.TryGetValue(newName, out DataPos existed) && existed != null && existed.Index != dataPos.Index)
                     {
                         MessageBox.Show($"点位名称已存在：{newName}");
                         editedRow.Cells[1].Value = oldName;
@@ -732,15 +734,15 @@ namespace Automation
                     }
                     if (!string.IsNullOrEmpty(oldName) && oldName != newName)
                     {
-                        SF.frmControl.temp.dicDataPos.Remove(oldName);
+                        Workspace.Control.temp.dicDataPos.Remove(oldName);
                     }
                     dataPos.Name = newName;
-                    SF.frmControl.temp.dicDataPos[newName] = dataPos;
+                    Workspace.Control.temp.dicDataPos[newName] = dataPos;
                 }
 
-                if (dataPos.Index >= 0 && dataPos.Index < SF.frmControl.temp.ListDataPos.Count)
+                if (dataPos.Index >= 0 && dataPos.Index < Workspace.Control.temp.ListDataPos.Count)
                 {
-                    SF.frmControl.temp.ListDataPos[dataPos.Index] = dataPos;
+                    Workspace.Control.temp.ListDataPos[dataPos.Index] = dataPos;
                 }
             }
         }
@@ -752,7 +754,7 @@ namespace Automation
                 MessageBox.Show("请先点击编辑。");
                 return;
             }
-            if (SF.frmControl.temp == null)
+            if (Workspace.Control.temp == null)
             {
                 return;
             }
@@ -761,7 +763,7 @@ namespace Automation
                 return;
             }
 
-            if (SF.motion == null || !SF.motion.IsCardInitialized)
+            if (Workspace.Runtime.Motion == null || !Workspace.Runtime.Motion.IsCardInitialized)
             {
                 MessageBox.Show("运动控制卡未初始化，无法取点。", "工站取点",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -771,9 +773,9 @@ namespace Automation
             var positions = new List<(int columnIndex, double value)>();
             try
             {
-                for (int i = 0; i < SF.frmControl.temp.dataAxis.axisConfigs.Count; i++)
+                for (int i = 0; i < Workspace.Control.temp.dataAxis.axisConfigs.Count; i++)
                 {
-                    AxisConfig axisConfig = SF.frmControl.temp.dataAxis.axisConfigs[i];
+                    AxisConfig axisConfig = Workspace.Control.temp.dataAxis.axisConfigs[i];
                     if (axisConfig == null || axisConfig.AxisName == "-1")
                     {
                         continue;
@@ -787,7 +789,7 @@ namespace Automation
                             MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
-                    positions.Add((2 + i, SF.motion.GetAxisPos(cardNum, (ushort)axisConfig.axis.AxisNum)));
+                    positions.Add((2 + i, Workspace.Runtime.Motion.GetAxisPos(cardNum, (ushort)axisConfig.axis.AxisNum)));
                 }
             }
             catch (Exception ex)
@@ -805,7 +807,7 @@ namespace Automation
 
         private void MovePoint_Click(object sender, EventArgs e)
         {
-            DataStation station = SF.frmControl.temp;
+            DataStation station = Workspace.Control.temp;
             if (station?.dataAxis?.axisConfigs == null)
             {
                 return;
@@ -819,7 +821,7 @@ namespace Automation
                 MessageBox.Show("点位名称为空，无法移动。");
                 return;
             }
-            var commands = new List<(ushort card, ushort axis, double target, FrmCard.Axis config)>();
+            var commands = new List<(ushort card, ushort axis, double target, Axis config)>();
             for (int i = 0; i < station.dataAxis.axisConfigs.Count; i++)
             {
                 AxisConfig axisConfig = station.dataAxis.axisConfigs[i];
@@ -858,7 +860,7 @@ namespace Automation
                     return;
                 }
                 ushort axisNum = (ushort)axisNumValue;
-                if (!SF.cardStore.TryGetAxis(cardNum, axisNum, out FrmCard.Axis runtimeAxis) || runtimeAxis == null)
+                if (!Workspace.Runtime.Stores.Cards.TryGetAxis(cardNum, axisNum, out Axis runtimeAxis) || runtimeAxis == null)
                 {
                     MessageBox.Show($"未找到第{i + 1}个轴的运行配置，未执行任何轴移动。");
                     return;
@@ -872,53 +874,13 @@ namespace Automation
                 return;
             }
 
-            var startedAxes = new List<(ushort card, ushort axis)>();
-            try
-            {
-                List<AxisCommandRequest> requests = commands
-                    .Select(command => new AxisCommandRequest(command.card, command.axis, AxisCommandKind.Motion))
-                    .ToList();
-                if (!SF.DR.TryReserveManualMotionResources(requests, out IDisposable resourceLease, out string resourceError))
-                {
-                    throw new InvalidOperationException(resourceError);
-                }
-                using (resourceLease)
-                using (SF.motion.ValidateAxesForCommand(requests))
-                {
-                    foreach (var command in commands)
-                    {
-                        SF.motion.SetMovParam(command.card, command.axis, 0,
-                            command.config.SpeedMax * (station.ManualSpeedPercent / 100),
-                            command.config.AccMax, command.config.DecMax, 0, 0, command.config.PulseToMM);
-                    }
-                    foreach (var command in commands)
-                    {
-                        SF.motion.Mov(command.card, command.axis, command.target, 1, false);
-                        startedAxes.Add((command.card, command.axis));
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                var stopErrors = new List<string>();
-                foreach (var startedAxis in startedAxes)
-                {
-                    try
-                    {
-                        SF.motion.StopOneAxis(startedAxis.card, startedAxis.axis, 0);
-                    }
-                    catch (Exception stopException)
-                    {
-                        stopErrors.Add($"{startedAxis.card}-{startedAxis.axis}:{stopException.Message}");
-                    }
-                }
-                if (stopErrors.Count > 0)
-                {
-                    SF.SetSecurityLock("工站移动异常后停止轴失败：" + string.Join(";", stopErrors));
-                }
-                MessageBox.Show($"工站移动失败，已停止本次已启动轴：{ex.Message}", "工站移动",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+            List<ManualAxisMoveRequest> moveRequests = commands.Select(command =>
+                new ManualAxisMoveRequest(command.card, command.axis, command.target, 1,
+                    new ManualMotionParameters(0,
+                        command.config.SpeedMax * (station.ManualSpeedPercent / 100d),
+                        command.config.AccMax, command.config.DecMax, 0, 0,
+                        command.config.PulseToMM))).ToList();
+            Workspace.Runtime.ManualMotion.TryMoveAxes(moveRequests);
         }
 
         private void ClearData_Click(object sender, EventArgs e)
@@ -938,12 +900,12 @@ namespace Automation
             }
             DataGridViewRow rowToClear = dataGridView1.Rows[iSelectedRow];
             DataPos dataPos = rowToClear.DataBoundItem as DataPos;
-            if (dataPos != null && SF.frmControl.temp != null)
+            if (dataPos != null && Workspace.Control.temp != null)
             {
                 string oldName = dataPos.Name;
-                if (!string.IsNullOrWhiteSpace(oldName) && SF.frmControl.temp.dicDataPos.ContainsKey(oldName))
+                if (!string.IsNullOrWhiteSpace(oldName) && Workspace.Control.temp.dicDataPos.ContainsKey(oldName))
                 {
-                    SF.frmControl.temp.dicDataPos.Remove(oldName);
+                    Workspace.Control.temp.dicDataPos.Remove(oldName);
                 }
                 dataPos.Name = string.Empty;
                 dataPos.X = -1;
@@ -952,9 +914,9 @@ namespace Automation
                 dataPos.U = -1;
                 dataPos.V = -1;
                 dataPos.W = -1;
-                if (dataPos.Index >= 0 && dataPos.Index < SF.frmControl.temp.ListDataPos.Count)
+                if (dataPos.Index >= 0 && dataPos.Index < Workspace.Control.temp.ListDataPos.Count)
                 {
-                    SF.frmControl.temp.ListDataPos[dataPos.Index] = dataPos;
+                    Workspace.Control.temp.ListDataPos[dataPos.Index] = dataPos;
                 }
             }
 
@@ -1067,11 +1029,11 @@ namespace Automation
                 MessageBox.Show("请先点击编辑。");
                 return;
             }
-            if (SF.frmControl.temp == null)
+            if (Workspace.Control.temp == null)
             {
                 return;
             }
-            if (iSelectedRow < 0 || iSelectedRow >= SF.frmControl.temp.ListDataPos.Count)
+            if (iSelectedRow < 0 || iSelectedRow >= Workspace.Control.temp.ListDataPos.Count)
             {
                 return;
             }
@@ -1080,7 +1042,7 @@ namespace Automation
                 return;
             }
 
-            int maxPasteCount = Math.Min(ListDataPos4Copy.Count, SF.frmControl.temp.ListDataPos.Count - iSelectedRow);
+            int maxPasteCount = Math.Min(ListDataPos4Copy.Count, Workspace.Control.temp.ListDataPos.Count - iSelectedRow);
             if (maxPasteCount <= 0)
             {
                 return;
@@ -1089,7 +1051,7 @@ namespace Automation
             HashSet<string> replaceNames = new HashSet<string>();
             for (int i = 0; i < maxPasteCount; i++)
             {
-                DataPos oldPos = SF.frmControl.temp.ListDataPos[iSelectedRow + i];
+                DataPos oldPos = Workspace.Control.temp.ListDataPos[iSelectedRow + i];
                 if (oldPos != null && !string.IsNullOrWhiteSpace(oldPos.Name))
                 {
                     replaceNames.Add(oldPos.Name);
@@ -1109,7 +1071,7 @@ namespace Automation
                     MessageBox.Show($"粘贴失败：名称重复（{source.Name}），请先修改名称。");
                     return;
                 }
-                if (SF.frmControl.temp.dicDataPos.ContainsKey(source.Name) && !replaceNames.Contains(source.Name))
+                if (Workspace.Control.temp.dicDataPos.ContainsKey(source.Name) && !replaceNames.Contains(source.Name))
                 {
                     MessageBox.Show($"粘贴失败：名称重复（{source.Name}），请先修改名称。");
                     return;
@@ -1125,14 +1087,14 @@ namespace Automation
             for (int i = 0; i < deepCopy.Count; i++)
             {
                 int targetIndex = iSelectedRow + i;
-                string oldName = SF.frmControl.temp.ListDataPos[targetIndex]?.Name;
-                if (!string.IsNullOrEmpty(oldName) && SF.frmControl.temp.dicDataPos.ContainsKey(oldName))
+                string oldName = Workspace.Control.temp.ListDataPos[targetIndex]?.Name;
+                if (!string.IsNullOrEmpty(oldName) && Workspace.Control.temp.dicDataPos.ContainsKey(oldName))
                 {
-                    SF.frmControl.temp.dicDataPos.Remove(oldName);
+                    Workspace.Control.temp.dicDataPos.Remove(oldName);
                 }
                 deepCopy[i].Index = targetIndex;
-                SF.frmControl.temp.dicDataPos[deepCopy[i].Name] = deepCopy[i];
-                SF.frmControl.temp.ListDataPos[targetIndex] = deepCopy[i];
+                Workspace.Control.temp.dicDataPos[deepCopy[i].Name] = deepCopy[i];
+                Workspace.Control.temp.ListDataPos[targetIndex] = deepCopy[i];
             }
             int rowCountAfterPaste = iSelectedRow + deepCopy.Count;
             for (int i = iSelectedRow; i < rowCountAfterPaste && i < dataGridView1.Rows.Count; i++)

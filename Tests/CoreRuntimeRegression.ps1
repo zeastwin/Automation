@@ -37,7 +37,8 @@ function New-TestProcess {
 function New-TestEngine {
     param(
         [Automation.Proc]$Process,
-        [Automation.ValueConfigStore]$ValueStore = $null
+        [Automation.ValueConfigStore]$ValueStore = $null,
+        $Runtime = $script:platformRuntime
     )
 
     $processes = [System.Collections.Generic.List[Automation.Proc]]::new()
@@ -45,6 +46,12 @@ function New-TestEngine {
     $context = [Automation.EngineContext]::new()
     $context.Procs = $processes
     $context.ValueStore = $ValueStore
+    if ($null -ne $Runtime) {
+        $context.Maintenance = $Runtime.Maintenance
+        $context.Safety = $Runtime.Safety
+        $context.Readiness = $Runtime.Readiness
+        $context.Paths = $Runtime.Paths
+    }
     return [Automation.ProcessEngine]::new($context)
 }
 
@@ -126,6 +133,7 @@ function Wait-ProcessState {
 $resolvedAssembly = [IO.Path]::GetFullPath($AssemblyPath)
 Assert-True (Test-Path -LiteralPath $resolvedAssembly) "找不到待测程序集：$resolvedAssembly"
 $automationAssembly = [Reflection.Assembly]::LoadFrom($resolvedAssembly)
+$script:platformRuntime = [Automation.PlatformRuntime]::new()
 Assert-True ($automationAssembly.GetManifestResourceNames() -contains 'Automation.Assets.PerformanceAnalysis.index.html') '性能分析 WebView2 页面资源未嵌入程序集。'
 Assert-True ($null -ne $automationAssembly.GetType('Automation.FrmPerformanceAnalysis', $false)) '性能分析独立窗体未编译。'
 
@@ -171,7 +179,7 @@ $maintenanceEngine = New-TestEngine -Process $maintenanceProc
 $lease = $null
 $maintenanceError = $null
 try {
-    Assert-True ([Automation.SF]::TryBeginMaintenance('核心回归测试', [ref]$lease, [ref]$maintenanceError)) "进入维护状态失败：$maintenanceError"
+    Assert-True ($script:platformRuntime.Maintenance.TryBegin('核心回归测试', [ref]$lease, [ref]$maintenanceError)) "进入维护状态失败：$maintenanceError"
     Assert-True (-not $maintenanceEngine.StartProc($maintenanceProc, 0)) '配置维护期间必须拒绝启动。'
     $lease.Dispose()
     $lease = $null
@@ -254,7 +262,7 @@ try {
         [Reflection.BindingFlags]'Instance,NonPublic')
     $runWorker.Invoke($agent, @($backgroundProc, $handle, $control))
     Assert-True $backgroundTask.IsCompleted '流程结束时必须取消并收敛后台任务。'
-    Assert-True (-not [Automation.SF]::SecurityLocked) '已正常取消的后台任务不应触发安全锁定。'
+    Assert-True (-not $script:platformRuntime.Safety.IsLocked) '已正常取消的后台任务不应触发安全锁定。'
     Assert-True ($handle.TerminationReason -eq [Automation.ProcTerminationReason]::Completed) '后台任务收尾不得改变自然结束原因。'
 }
 finally {
@@ -264,7 +272,7 @@ finally {
     $backgroundEngine.Dispose()
 }
 
-$valueStore = [Automation.ValueConfigStore]::new()
+$valueStore = $script:platformRuntime.Stores.Values
 Assert-True ($valueStore.TrySetValue(10, '高速数值变量', 'double', '1.25', '回归测试')) '数值变量创建失败。'
 Assert-True ($valueStore.setValueByIndex(10, 2.5)) '数值变量运行值写入失败。'
 Assert-True ([Math]::Abs($valueStore.get_D_ValueByIndex(10) - 2.5) -lt 0.000001) '数值变量原子缓存读取结果错误。'
@@ -409,7 +417,8 @@ Assert-True ($dynamicRef.TryResolveValue(
     $valueStore, '动态变量', $otherProcess.head.Id, [ref]$dynamicValue, [ref]$dynamicError)) "动态索引切换到公共变量后应立即恢复：$dynamicError"
 Assert-True ($dynamicValue.Index -eq 10) '动态索引重新解析结果错误。'
 
-$recoveryStore = [Automation.ValueConfigStore]::new()
+$recoveryRuntime = [Automation.PlatformRuntime]::new()
+$recoveryStore = $recoveryRuntime.Stores.Values
 Assert-True ($recoveryStore.TrySetValue(21, '恢复输出变量', 'double', '0', '引用恢复回归')) '引用恢复输出变量创建失败。'
 $recoveryProc = [Automation.Proc]::new()
 $recoveryProc.head = [Automation.ProcHead]::new()
@@ -465,7 +474,8 @@ $aiChangeSet.Processes.Add($aiProcess)
 $aiCurrentProcesses = [System.Collections.Generic.List[Automation.Proc]]::new()
 $aiCurrentProcesses.Add($privateOwner)
 $aiCompileResult = [Automation.AiChangeSetCompiler]::Compile(
-    $aiChangeSet, $aiCurrentProcesses, $valueStore.BuildSaveData(), [Automation.AiResourceSnapshot]::new())
+    $script:platformRuntime, $aiChangeSet, $aiCurrentProcesses,
+    $valueStore.BuildSaveData(), [Automation.AiResourceSnapshot]::new())
 Assert-True ($aiCompileResult.ReadinessStatus -eq 'incomplete') 'AI应允许保存其他流程私有变量引用并标记incomplete。'
 Assert-True (-not $aiCompileResult.Runnable) 'AI编译出的其他流程私有变量引用不得可运行。'
 Assert-True (($aiCompileResult.RunBlockers.ToString()).Contains('其他流程的私有变量')) 'AI预演应返回私有变量访问阻塞。'
@@ -482,7 +492,8 @@ $aiVariable.Value = '5'
 $aiVariable.Policy = 'create'
 $aiChangeSet.Variables.Add($aiVariable)
 $aiOwnedCompileResult = [Automation.AiChangeSetCompiler]::Compile(
-    $aiChangeSet, $aiCurrentProcesses, $valueStore.BuildSaveData(), [Automation.AiResourceSnapshot]::new())
+    $script:platformRuntime, $aiChangeSet, $aiCurrentProcesses,
+    $valueStore.BuildSaveData(), [Automation.AiResourceSnapshot]::new())
 Assert-True $aiOwnedCompileResult.Runnable 'AI同阶段新建流程应能访问通过key归属的私有变量。'
 $aiVariableResolution = $aiOwnedCompileResult.VariableResolutions[0]
 Assert-True ($aiVariableResolution.scope.ToString() -eq 'process') 'AI变量解析结果必须返回process作用域。'
@@ -548,7 +559,7 @@ finally {
     $bindingEngine.Dispose()
 }
 
-$dataStore = [Automation.DataStructStore]::new()
+$dataStore = $script:platformRuntime.Stores.DataStructures
 $dataError = $null
 Assert-True ($dataStore.AddStruct('高速结构', [ref]$dataError)) "数据结构创建失败：$dataError"
 $itemIndex = -1
@@ -627,7 +638,8 @@ try {
     $invalidValueFile = Join-Path $invalidValueConfigPath 'value.json'
     $legacyValueJson = '{"旧变量":{"Index":0,"Type":"double","Name":"旧变量","Value":"1","Note":"旧格式"}}'
     [IO.File]::WriteAllText($invalidValueFile, $legacyValueJson, [Text.UTF8Encoding]::new($false))
-    $invalidValueStore = [Automation.ValueConfigStore]::new()
+    $invalidRuntime = [Automation.PlatformRuntime]::new($invalidValueConfigPath)
+    $invalidValueStore = $invalidRuntime.Stores.Values
     Assert-True (-not $invalidValueStore.Load($invalidValueConfigPath, [Automation.Proc[]]@())) '旧value.json必须按不兼容契约拒绝加载。'
     Assert-True $invalidValueStore.ConfigurationFaulted '旧value.json加载失败后必须进入变量配置故障状态。'
     Assert-True ([IO.File]::ReadAllText($invalidValueFile) -eq $legacyValueJson) '非法旧value.json必须原样保留，平台不得自动覆盖。'

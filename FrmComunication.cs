@@ -193,14 +193,14 @@ namespace Automation
         private void UpdateLogSubscription()
         {
             captureUiLogs = Visible && !IsDisposed && !Disposing;
-            if (SF.comm == null)
+            if (Workspace.Runtime.Communication == null)
             {
                 return;
             }
-            SF.comm.Log -= Comm_Log;
+            Workspace.Runtime.Communication.Log -= Comm_Log;
             if (captureUiLogs)
             {
-                SF.comm.Log += Comm_Log;
+                Workspace.Runtime.Communication.Log += Comm_Log;
             }
         }
 
@@ -224,7 +224,7 @@ namespace Automation
 
         private void UpdateOnlineState()
         {
-            if (SF.comm == null)
+            if (Workspace.Runtime.Communication == null)
             {
                 return;
             }
@@ -237,7 +237,7 @@ namespace Automation
                     continue;
                 }
 
-                TcpStatus status = SF.comm.GetTcpStatus(info.Name);
+                TcpStatus status = Workspace.Runtime.Communication.GetTcpStatus(info.Name);
                 string droppedSuffix = status.DroppedFrames > 0 ? $" 丢帧:{status.DroppedFrames}" : string.Empty;
                 if (ReferenceEquals(status, TcpStatus.Empty))
                 {
@@ -271,7 +271,7 @@ namespace Automation
                     continue;
                 }
 
-                SerialStatus status = SF.comm.GetSerialStatus(info.Name);
+                SerialStatus status = Workspace.Runtime.Communication.GetSerialStatus(info.Name);
                 string droppedSuffix = status.DroppedFrames > 0 ? $" 丢帧:{status.DroppedFrames}" : string.Empty;
                 SetRowCellValue(dataGridView2.Rows[i], SerialStateColumnName,
                     (status.IsOpen ? "已打开" : "已关闭") + droppedSuffix);
@@ -473,27 +473,27 @@ namespace Automation
 
         public void RefreshSocketMap()
         {
-            socketInfos = SF.communicationStore?.GetSocketSnapshot().ToList() ?? new List<SocketInfo>();
+            socketInfos = Workspace.Runtime.Stores.Communication?.GetSocketSnapshot().ToList() ?? new List<SocketInfo>();
         }
 
         public void RefreshSerialPortInfo()
         {
-            serialPortInfos = SF.communicationStore?.GetSerialSnapshot().ToList() ?? new List<SerialPortInfo>();
+            serialPortInfos = Workspace.Runtime.Stores.Communication?.GetSerialSnapshot().ToList() ?? new List<SerialPortInfo>();
         }
 
         private bool TryPersistSocketConfigs()
         {
             string error = null;
-            if (SF.communicationStore == null
-                || !SF.communicationStore.TryReplaceSocketsAndSave(socketInfos, SF.ConfigPath, out error))
+            if (Workspace.Runtime.Stores.Communication == null
+                || !Workspace.Runtime.Stores.Communication.TryReplaceSocketsAndSave(socketInfos, Workspace.Runtime.Paths.ConfigPath, out error))
             {
                 MessageBox.Show(error ?? "通讯配置存储未初始化。", "TCP配置错误",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
-            if (SF.DR?.Context != null)
+            if (Workspace.Runtime.ProcessEngine?.Context != null)
             {
-                SF.DR.Context.SocketInfos = SF.communicationStore.GetSocketSnapshot().ToList();
+                Workspace.Runtime.ProcessEngine.Context.SocketInfos = Workspace.Runtime.Stores.Communication.GetSocketSnapshot().ToList();
             }
             return true;
         }
@@ -501,16 +501,16 @@ namespace Automation
         private bool TryPersistSerialConfigs()
         {
             string error = null;
-            if (SF.communicationStore == null
-                || !SF.communicationStore.TryReplaceSerialPortsAndSave(serialPortInfos, SF.ConfigPath, out error))
+            if (Workspace.Runtime.Stores.Communication == null
+                || !Workspace.Runtime.Stores.Communication.TryReplaceSerialPortsAndSave(serialPortInfos, Workspace.Runtime.Paths.ConfigPath, out error))
             {
                 MessageBox.Show(error ?? "通讯配置存储未初始化。", "串口配置错误",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
-            if (SF.DR?.Context != null)
+            if (Workspace.Runtime.ProcessEngine?.Context != null)
             {
-                SF.DR.Context.SerialPortInfos = SF.communicationStore.GetSerialSnapshot().ToList();
+                Workspace.Runtime.ProcessEngine.Context.SerialPortInfos = Workspace.Runtime.Stores.Communication.GetSerialSnapshot().ToList();
             }
             return true;
         }
@@ -629,9 +629,9 @@ namespace Automation
             }
             try
             {
-                if (selected != null && SF.comm != null)
+                if (selected != null && Workspace.Runtime.Communication != null)
                 {
-                    await SF.comm.StopTcpAsync(selected.Name);
+                    await Workspace.Runtime.Communication.StopTcpAsync(selected.Name);
                 }
             }
             catch (Exception ex)
@@ -695,12 +695,12 @@ namespace Automation
                 ApplySocketInfoToRow(e.RowIndex, previous);
                 return;
             }
-            if (previous != null && SF.comm?.GetTcpStatus(previous.Name).IsRunning == true)
+            if (previous != null && Workspace.Runtime.Communication?.GetTcpStatus(previous.Name).IsRunning == true)
             {
                 try
                 {
-                    await SF.comm.StopTcpAsync(previous.Name);
-                    SF.frmInfo?.PrintInfo($"TCP配置已修改，原连接已停止:{previous.Name}", FrmInfo.Level.Normal);
+                    await Workspace.Runtime.Communication.StopTcpAsync(previous.Name);
+                    Workspace.Info?.PrintInfo($"TCP配置已修改，原连接已停止:{previous.Name}", FrmInfo.Level.Normal);
                 }
                 catch (Exception ex)
                 {
@@ -871,16 +871,16 @@ namespace Automation
                     sendTimeoutCts.CancelAfter(DebugSendTimeoutMs);
                     if (useTcp)
                     {
-                        if (SF.comm == null
-                            || !await SF.comm.SendTcpAsync(targetName, text, convert, sendTimeoutCts.Token))
+                        if (Workspace.Runtime.Communication == null
+                            || !await Workspace.Runtime.Communication.SendTcpAsync(targetName, text, convert, sendTimeoutCts.Token))
                         {
                             throw new InvalidOperationException($"TCP发送失败:{targetName}");
                         }
                     }
                     else
                     {
-                        if (SF.comm == null
-                            || !await SF.comm.SendSerialAsync(targetName, text, convert, sendTimeoutCts.Token))
+                        if (Workspace.Runtime.Communication == null
+                            || !await Workspace.Runtime.Communication.SendSerialAsync(targetName, text, convert, sendTimeoutCts.Token))
                         {
                             throw new InvalidOperationException($"串口发送失败:{targetName}");
                         }
@@ -930,7 +930,7 @@ namespace Automation
             {
                 return;
             }
-            if (SF.comm == null)
+            if (Workspace.Runtime.Communication == null)
             {
                 MessageBox.Show("通讯未初始化。", "TCP启动失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -938,7 +938,7 @@ namespace Automation
 
             try
             {
-                await SF.comm.StartTcpAsync(socketInfos[iSelectedSocketRow]);
+                await Workspace.Runtime.Communication.StartTcpAsync(socketInfos[iSelectedSocketRow]);
                 UpdateOnlineState();
             }
             catch (Exception ex)
@@ -1005,7 +1005,7 @@ namespace Automation
             {
                 return;
             }
-            if (SF.comm == null)
+            if (Workspace.Runtime.Communication == null)
             {
                 MessageBox.Show("通讯未初始化。", "TCP断开失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -1014,7 +1014,7 @@ namespace Automation
             try
             {
                 string name = socketInfos[iSelectedSocketRow].Name;
-                await SF.comm.StopTcpAsync(name);
+                await Workspace.Runtime.Communication.StopTcpAsync(name);
                 UpdateOnlineState();
             }
             catch (Exception ex)
@@ -1077,9 +1077,9 @@ namespace Automation
             }
             try
             {
-                if (selected != null && SF.comm != null)
+                if (selected != null && Workspace.Runtime.Communication != null)
                 {
-                    await SF.comm.StopSerialAsync(selected.Name);
+                    await Workspace.Runtime.Communication.StopSerialAsync(selected.Name);
                 }
             }
             catch (Exception ex)
@@ -1111,7 +1111,7 @@ namespace Automation
             {
                 return;
             }
-            if (SF.comm == null)
+            if (Workspace.Runtime.Communication == null)
             {
                 MessageBox.Show("通讯未初始化。", "串口打开失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -1119,7 +1119,7 @@ namespace Automation
 
             try
             {
-                await SF.comm.StartSerialAsync(serialPortInfos[iSelectedSerialPortRow]);
+                await Workspace.Runtime.Communication.StartSerialAsync(serialPortInfos[iSelectedSerialPortRow]);
                 UpdateOnlineState();
             }
             catch (Exception ex)
@@ -1134,7 +1134,7 @@ namespace Automation
             {
                 return;
             }
-            if (SF.comm == null)
+            if (Workspace.Runtime.Communication == null)
             {
                 MessageBox.Show("通讯未初始化。", "串口关闭失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -1142,7 +1142,7 @@ namespace Automation
 
             try
             {
-                await SF.comm.StopSerialAsync(serialPortInfos[iSelectedSerialPortRow].Name);
+                await Workspace.Runtime.Communication.StopSerialAsync(serialPortInfos[iSelectedSerialPortRow].Name);
                 UpdateOnlineState();
             }
             catch (Exception ex)
@@ -1181,12 +1181,12 @@ namespace Automation
                 ApplySerialInfoToRow(e.RowIndex, previous);
                 return;
             }
-            if (previous != null && SF.comm?.GetSerialStatus(previous.Name).IsOpen == true)
+            if (previous != null && Workspace.Runtime.Communication?.GetSerialStatus(previous.Name).IsOpen == true)
             {
                 try
                 {
-                    await SF.comm.StopSerialAsync(previous.Name);
-                    SF.frmInfo?.PrintInfo($"串口配置已修改，原连接已停止:{previous.Name}", FrmInfo.Level.Normal);
+                    await Workspace.Runtime.Communication.StopSerialAsync(previous.Name);
+                    Workspace.Info?.PrintInfo($"串口配置已修改，原连接已停止:{previous.Name}", FrmInfo.Level.Normal);
                 }
                 catch (Exception ex)
                 {
@@ -1305,17 +1305,17 @@ namespace Automation
             return false;
         }
 
-        private static bool TryFindCommunicationReference(string name, bool tcp, out string reference)
+        private bool TryFindCommunicationReference(string name, bool tcp, out string reference)
         {
             reference = null;
-            if (string.IsNullOrWhiteSpace(name) || SF.frmProc?.procsList == null)
+            if (string.IsNullOrWhiteSpace(name) || Workspace.Proc?.procsList == null)
             {
                 return false;
             }
             bool IsSameName(string candidate) => string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase);
-            for (int procIndex = 0; procIndex < SF.frmProc.procsList.Count; procIndex++)
+            for (int procIndex = 0; procIndex < Workspace.Proc.procsList.Count; procIndex++)
             {
-                Proc proc = SF.frmProc.procsList[procIndex];
+                Proc proc = Workspace.Proc.procsList[procIndex];
                 if (proc?.steps == null) continue;
                 for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
                 {
@@ -1498,9 +1498,9 @@ namespace Automation
 
             try
             {
-                if (SF.comm != null)
+                if (Workspace.Runtime.Communication != null)
                 {
-                    SF.comm.Log -= Comm_Log;
+                    Workspace.Runtime.Communication.Log -= Comm_Log;
                 }
             }
             catch

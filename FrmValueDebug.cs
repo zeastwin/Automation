@@ -2,9 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
-using System.IO;
 using System.Windows.Forms;
-using Newtonsoft.Json;
 
 namespace Automation
 {
@@ -23,25 +21,11 @@ namespace Automation
             }
         }
 
-        private sealed class ValueDebugConfig
-        {
-            public List<int> CheckIndexes { get; set; }
-            public List<int> EditIndexes { get; set; }
-            public Dictionary<int, string> Notes { get; set; }
-        }
-
         private readonly HashSet<int> checkIndexSet = new HashSet<int>();
         private readonly HashSet<int> editIndexSet = new HashSet<int>();
         private readonly Dictionary<int, string> debugNotes = new Dictionary<int, string>();
         private bool isSyncing;
         private bool isConfigLoaded;
-        private const string DebugConfigName = "value_debug";
-        private static readonly JsonSerializerSettings DebugJsonSettings = new JsonSerializerSettings
-        {
-            TypeNameHandling = TypeNameHandling.None,
-            ObjectCreationHandling = ObjectCreationHandling.Replace
-        };
-
         public FrmValueDebug()
         {
             InitializeComponent();
@@ -220,7 +204,7 @@ namespace Automation
 
         public void RefreshCheckList()
         {
-            if (SF.valueStore == null)
+            if (Workspace.Runtime.Stores.Values == null)
             {
                 ShowCheckError("变量库未初始化");
                 return;
@@ -231,7 +215,7 @@ namespace Automation
             dgvCheck.Rows.Clear();
             foreach (int index in checkIndexSet)
             {
-                if (!SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+                if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
                 {
                     continue;
                 }
@@ -242,7 +226,7 @@ namespace Automation
 
         public void RefreshEditList()
         {
-            if (SF.valueStore == null)
+            if (Workspace.Runtime.Stores.Values == null)
             {
                 ShowEditError("变量库未初始化");
                 return;
@@ -253,7 +237,7 @@ namespace Automation
             dgvEdit.Rows.Clear();
             foreach (int index in editIndexSet)
             {
-                if (!SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+                if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
                 {
                     continue;
                 }
@@ -275,7 +259,7 @@ namespace Automation
                 ShowCheckError("变量已在复选框调试列表中");
                 return;
             }
-            if (SF.valueStore == null || !SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+            if (Workspace.Runtime.Stores.Values == null || !Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
             {
                 ShowCheckError($"变量不存在:{index:D3}");
                 return;
@@ -401,7 +385,7 @@ namespace Automation
                 ShowEditError("变量已在编辑框调试列表中");
                 return;
             }
-            if (SF.valueStore == null || !SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+            if (Workspace.Runtime.Stores.Values == null || !Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
             {
                 ShowEditError($"变量不存在:{index:D3}");
                 return;
@@ -492,7 +476,7 @@ namespace Automation
                 txtEditValue.Text = string.Empty;
                 return;
             }
-            if (SF.valueStore == null || !SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+            if (Workspace.Runtime.Stores.Values == null || !Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
             {
                 txtEditValue.Text = string.Empty;
                 return;
@@ -531,11 +515,11 @@ namespace Automation
 
         private void RefreshCheckRow(DataGridViewRow row, int index)
         {
-            if (SF.valueStore == null || row == null)
+            if (Workspace.Runtime.Stores.Values == null || row == null)
             {
                 return;
             }
-            if (!SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+            if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
             {
                 return;
             }
@@ -548,11 +532,11 @@ namespace Automation
 
         private void RefreshEditRow(DataGridViewRow row, int index)
         {
-            if (SF.valueStore == null || row == null)
+            if (Workspace.Runtime.Stores.Values == null || row == null)
             {
                 return;
             }
-            if (!SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+            if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
             {
                 return;
             }
@@ -602,7 +586,7 @@ namespace Automation
 
         private void RefreshValueOptions()
         {
-            if (SF.valueStore == null)
+            if (Workspace.Runtime.Stores.Values == null)
             {
                 return;
             }
@@ -620,27 +604,16 @@ namespace Automation
             {
                 return;
             }
-            if (SF.valueStore == null)
+            if (Workspace.Runtime.Stores.Values == null)
             {
-                return;
-            }
-            string path = GetDebugConfigPath();
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                LogError("变量调试配置路径无效");
-                return;
-            }
-            if (!File.Exists(path) && !File.Exists(path + ".bak"))
-            {
-                SaveDebugConfig();
-                isConfigLoaded = true;
                 return;
             }
             try
             {
-                ValueDebugConfig config = AtomicJsonFileStore.Read<ValueDebugConfig>(
-                    SF.ConfigPath, DebugConfigName, DebugJsonSettings);
-                if (!TryValidateConfig(config, out string error))
+                if (!Workspace.Runtime.Stores.ValueDebug.Load(
+                    Workspace.Runtime.Paths.ConfigPath,
+                    Workspace.Runtime.Stores.Values,
+                    out string error))
                 {
                     checkIndexSet.Clear();
                     editIndexSet.Clear();
@@ -649,6 +622,7 @@ namespace Automation
                     isConfigLoaded = true;
                     return;
                 }
+                ValueDebugConfiguration config = Workspace.Runtime.Stores.ValueDebug.Current;
                 checkIndexSet.Clear();
                 editIndexSet.Clear();
                 debugNotes.Clear();
@@ -676,123 +650,29 @@ namespace Automation
             }
         }
 
-        private bool TryValidateConfig(ValueDebugConfig config, out string error)
-        {
-            error = null;
-            if (config == null)
-            {
-                error = "配置为空";
-                return false;
-            }
-            if (config.CheckIndexes == null || config.EditIndexes == null || config.Notes == null)
-            {
-                error = "配置字段缺失";
-                return false;
-            }
-            if (!TryValidateIndexList(config.CheckIndexes, out error))
-            {
-                return false;
-            }
-            if (!TryValidateIndexList(config.EditIndexes, out error))
-            {
-                return false;
-            }
-            if (!TryValidateNotes(config, out error))
-            {
-                return false;
-            }
-            return true;
-        }
-
-        private bool TryValidateIndexList(List<int> indexes, out string error)
-        {
-            error = null;
-            HashSet<int> unique = new HashSet<int>();
-            foreach (int index in indexes)
-            {
-                if (!TryValidateIndex(index, out error))
-                {
-                    return false;
-                }
-                if (!unique.Add(index))
-                {
-                    error = $"索引重复:{index:D3}";
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        private bool TryValidateNotes(ValueDebugConfig config, out string error)
-        {
-            error = null;
-            HashSet<int> allow = new HashSet<int>(config.CheckIndexes);
-            foreach (int index in config.EditIndexes)
-            {
-                allow.Add(index);
-            }
-            foreach (var item in config.Notes)
-            {
-                if (!allow.Contains(item.Key))
-                {
-                    error = $"备注索引未在调试列表中:{item.Key:D3}";
-                    return false;
-                }
-                if (item.Value == null)
-                {
-                    error = $"备注为空:{item.Key:D3}";
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        private bool TryValidateIndex(int index, out string error)
-        {
-            error = null;
-            if (index < 0 || index >= ValueConfigStore.ValueCapacity)
-            {
-                error = $"索引超出范围:{index}";
-                return false;
-            }
-            if (SF.valueStore == null || !SF.valueStore.TryGetValueByIndex(index, out _))
-            {
-                error = $"变量不存在:{index:D3}";
-                return false;
-            }
-            return true;
-        }
-
         private void SaveDebugConfig()
         {
-            string path = GetDebugConfigPath();
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                LogError("变量调试配置路径无效");
-                return;
-            }
             try
             {
-                string directory = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
                 List<int> checkList = new List<int>(checkIndexSet);
                 List<int> editList = new List<int>(editIndexSet);
                 checkList.Sort();
                 editList.Sort();
                 CleanNotes(checkList, editList);
                 Dictionary<int, string> noteSnapshot = new Dictionary<int, string>(debugNotes);
-                ValueDebugConfig config = new ValueDebugConfig
+                ValueDebugConfiguration config = new ValueDebugConfiguration
                 {
                     CheckIndexes = checkList,
                     EditIndexes = editList,
                     Notes = noteSnapshot
                 };
-                if (!AtomicJsonFileStore.Save(SF.ConfigPath, DebugConfigName, config, DebugJsonSettings))
+                if (!Workspace.Runtime.Stores.ValueDebug.TryCommit(
+                    Workspace.Runtime.Paths.ConfigPath,
+                    config,
+                    Workspace.Runtime.Stores.Values,
+                    out string error))
                 {
-                    LogError("变量调试配置保存失败");
+                    LogError(error);
                 }
             }
             catch (Exception ex)
@@ -801,21 +681,12 @@ namespace Automation
             }
         }
 
-        private string GetDebugConfigPath()
-        {
-            if (string.IsNullOrWhiteSpace(SF.ConfigPath))
-            {
-                return null;
-            }
-            return Path.Combine(SF.ConfigPath, DebugConfigName + ".json");
-        }
-
-        private static List<ValueOption> BuildValueOptions()
+        private List<ValueOption> BuildValueOptions()
         {
             List<ValueOption> options = new List<ValueOption>();
             for (int i = 0; i < ValueConfigStore.ValueCapacity; i++)
             {
-                if (!SF.valueStore.TryGetValueByIndex(i, out DicValue value))
+                if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(i, out DicValue value))
                 {
                     continue;
                 }
@@ -880,12 +751,12 @@ namespace Automation
         private bool TryApplyValue(int index, string newValue, string source, out string error)
         {
             error = null;
-            if (SF.valueStore == null)
+            if (Workspace.Runtime.Stores.Values == null)
             {
                 error = "变量库未初始化";
                 return false;
             }
-            if (!SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+            if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
             {
                 error = $"变量不存在:{index:D3}";
                 return false;
@@ -895,19 +766,19 @@ namespace Automation
                 return false;
             }
             string oldValue = value.Value;
-            if (!SF.valueStore.TryModifyValueByIndex(index, _ => newValue, out string updateError, source))
+            if (!Workspace.Runtime.Stores.Values.TryModifyValueByIndex(index, _ => newValue, out string updateError, source))
             {
                 error = string.IsNullOrWhiteSpace(updateError) ? "变量写入失败" : updateError;
                 return false;
             }
             string message = $"变量调试修改成功：[{index:D3}] {value.Name} {oldValue} -> {newValue}";
-            if (SF.DR?.Logger != null)
+            if (Workspace.Runtime.ProcessEngine?.Logger != null)
             {
-                SF.DR.Logger.Log(message, LogLevel.Normal);
+                Workspace.Runtime.ProcessEngine.Logger.Log(message, LogLevel.Normal);
             }
-            else if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            else if (Workspace.Info != null && !Workspace.Info.IsDisposed)
             {
-                SF.frmInfo.PrintInfo(message, FrmInfo.Level.Normal);
+                Workspace.Info.PrintInfo(message, FrmInfo.Level.Normal);
             }
             return true;
         }
@@ -915,12 +786,12 @@ namespace Automation
         private bool TryUpdateNote(int index, string newNote, out string error)
         {
             error = null;
-            if (SF.valueStore == null)
+            if (Workspace.Runtime.Stores.Values == null)
             {
                 error = "变量库未初始化";
                 return false;
             }
-            if (!SF.valueStore.TryGetValueByIndex(index, out DicValue value))
+            if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
             {
                 error = $"变量不存在:{index:D3}";
                 return false;
@@ -941,13 +812,13 @@ namespace Automation
             }
             SaveDebugConfig();
             string message = $"变量调试备注修改成功：[{index:D3}] {value.Name} {oldNote} -> {nextNote}";
-            if (SF.DR?.Logger != null)
+            if (Workspace.Runtime.ProcessEngine?.Logger != null)
             {
-                SF.DR.Logger.Log(message, LogLevel.Normal);
+                Workspace.Runtime.ProcessEngine.Logger.Log(message, LogLevel.Normal);
             }
-            else if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            else if (Workspace.Info != null && !Workspace.Info.IsDisposed)
             {
-                SF.frmInfo.PrintInfo(message, FrmInfo.Level.Normal);
+                Workspace.Info.PrintInfo(message, FrmInfo.Level.Normal);
             }
             return true;
         }
@@ -1199,13 +1070,13 @@ namespace Automation
 
         private void LogError(string message)
         {
-            if (SF.DR?.Logger != null)
+            if (Workspace.Runtime.ProcessEngine?.Logger != null)
             {
-                SF.DR.Logger.Log(message, LogLevel.Error);
+                Workspace.Runtime.ProcessEngine.Logger.Log(message, LogLevel.Error);
             }
-            else if (SF.frmInfo != null && !SF.frmInfo.IsDisposed)
+            else if (Workspace.Info != null && !Workspace.Info.IsDisposed)
             {
-                SF.frmInfo.PrintInfo(message, FrmInfo.Level.Error);
+                Workspace.Info.PrintInfo(message, FrmInfo.Level.Error);
             }
         }
     }

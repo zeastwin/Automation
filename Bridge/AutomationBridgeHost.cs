@@ -370,7 +370,7 @@ namespace Automation.Bridge
         {
             try
             {
-                owner.BeginInvoke((Action)(() => SF.frmInfo?.PrintInfo(message, FrmInfo.Level.Normal)));
+                owner.BeginInvoke((Action)(() => owner.frmInfo?.PrintInfo(message, FrmInfo.Level.Normal)));
             }
             catch
             {
@@ -381,7 +381,7 @@ namespace Automation.Bridge
         {
             try
             {
-                owner.BeginInvoke((Action)(() => SF.frmInfo?.PrintInfo(message, FrmInfo.Level.Error)));
+                owner.BeginInvoke((Action)(() => owner.frmInfo?.PrintInfo(message, FrmInfo.Level.Error)));
             }
             catch
             {

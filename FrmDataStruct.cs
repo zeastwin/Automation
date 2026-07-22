@@ -81,7 +81,7 @@ namespace Automation
             treeView1.BeginUpdate();
             treeView1.Nodes.Clear();
 
-            List<DataStruct> snapshot = SF.dataStructStore.GetSnapshot();
+            List<DataStruct> snapshot = Workspace.Runtime.Stores.DataStructures.GetSnapshot();
             if (snapshot != null)
             {
                 for (int i = 0; i < snapshot.Count; i++)
@@ -259,12 +259,12 @@ namespace Automation
                     return;
                 }
                 string name = (dialog.InputText ?? string.Empty).Trim();
-                if (!SF.dataStructStore.AddStruct(name, out string error))
+                if (!Workspace.Runtime.Stores.DataStructures.AddStruct(name, out string error))
                 {
                     MessageBox.Show(error);
                     return;
                 }
-                SF.dataStructStore.Save(SF.ConfigPath);
+                Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
                 ReloadTree();
             }
         }
@@ -289,7 +289,7 @@ namespace Automation
             }
             if (tag.NodeType == DataStructNodeType.Struct)
             {
-                if (!SF.dataStructStore.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
+                if (!Workspace.Runtime.Stores.DataStructures.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
                 {
                     MessageBox.Show("结构体不存在");
                     return;
@@ -303,7 +303,7 @@ namespace Automation
             }
             if (tag.NodeType == DataStructNodeType.Item)
             {
-                if (!SF.dataStructStore.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
+                if (!Workspace.Runtime.Stores.DataStructures.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
                 {
                     MessageBox.Show("结构体不存在");
                     return;
@@ -361,12 +361,12 @@ namespace Automation
                     return;
                 }
                 string newName = BuildUniqueStructName(clipboard.StructData.Name);
-                if (!SF.dataStructStore.AddStruct(newName, out string error))
+                if (!Workspace.Runtime.Stores.DataStructures.AddStruct(newName, out string error))
                 {
                     MessageBox.Show(error);
                     return;
                 }
-                if (!SF.dataStructStore.TryGetStructIndexByName(newName, out int newStructIndex))
+                if (!Workspace.Runtime.Stores.DataStructures.TryGetStructIndexByName(newName, out int newStructIndex))
                 {
                     MessageBox.Show("结构体创建失败");
                     return;
@@ -381,7 +381,7 @@ namespace Automation
                         {
                             continue;
                         }
-                        if (!SF.dataStructStore.TryInsertItem(newStructIndex, i, sourceItem.Clone()))
+                        if (!Workspace.Runtime.Stores.DataStructures.TryInsertItem(newStructIndex, i, sourceItem.Clone()))
                         {
                             success = false;
                             break;
@@ -390,11 +390,11 @@ namespace Automation
                 }
                 if (!success)
                 {
-                    SF.dataStructStore.RemoveStructAt(newStructIndex, out _);
+                    Workspace.Runtime.Stores.DataStructures.RemoveStructAt(newStructIndex, out _);
                     MessageBox.Show("粘贴结构体失败");
                     return;
                 }
-                SF.dataStructStore.Save(SF.ConfigPath);
+                Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
                 ReloadTree();
                 return;
             }
@@ -414,9 +414,9 @@ namespace Automation
                 int structIndex = tag.StructIndex;
                 int insertIndex = tag.NodeType == DataStructNodeType.Item
                     ? tag.ItemIndex + 1
-                    : SF.dataStructStore.GetItemCount(structIndex);
+                    : Workspace.Runtime.Stores.DataStructures.GetItemCount(structIndex);
                 string itemName = BuildUniqueItemName(structIndex, clipboard.ItemData.Name);
-                if (!SF.dataStructStore.CreateItem(structIndex, itemName, insertIndex, out int itemIndex, out string error))
+                if (!Workspace.Runtime.Stores.DataStructures.CreateItem(structIndex, itemName, insertIndex, out int itemIndex, out string error))
                 {
                     MessageBox.Show(error);
                     return;
@@ -424,14 +424,14 @@ namespace Automation
 
                 if (!CopyFieldsToItem(structIndex, itemIndex, clipboard.ItemData, out string copyError))
                 {
-                    SF.dataStructStore.DeleteItem(structIndex, itemIndex, out _);
+                    Workspace.Runtime.Stores.DataStructures.DeleteItem(structIndex, itemIndex, out _);
                     MessageBox.Show(copyError);
                     return;
                 }
-                SF.dataStructStore.Save(SF.ConfigPath);
+                Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
 
                 TreeNode structNode = GetStructNode(structIndex);
-                if (structNode == null || !SF.dataStructStore.TryGetStructSnapshotByIndex(structIndex, out DataStruct dataStruct))
+                if (structNode == null || !Workspace.Runtime.Stores.DataStructures.TryGetStructSnapshotByIndex(structIndex, out DataStruct dataStruct))
                 {
                     ReloadTree();
                     return;
@@ -470,12 +470,12 @@ namespace Automation
                 {
                     valueText = "0";
                 }
-                if (!SF.dataStructStore.AddField(structIndex, itemIndex, fieldName, clipboard.FieldType, valueText, -1, out int fieldIndex, out string error))
+                if (!Workspace.Runtime.Stores.DataStructures.AddField(structIndex, itemIndex, fieldName, clipboard.FieldType, valueText, -1, out int fieldIndex, out string error))
                 {
                     MessageBox.Show(error);
                     return;
                 }
-                SF.dataStructStore.Save(SF.ConfigPath);
+                Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
 
                 TreeNode itemNode = tag.NodeType == DataStructNodeType.Field ? node.Parent : node;
                 if (itemNode == null)
@@ -500,7 +500,7 @@ namespace Automation
             {
                 return;
             }
-            if (!SF.dataStructStore.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
+            if (!Workspace.Runtime.Stores.DataStructures.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
             {
                 MessageBox.Show("结构体不存在");
                 return;
@@ -512,12 +512,12 @@ namespace Automation
                     return;
                 }
                 string name = (dialog.InputText ?? string.Empty).Trim();
-                if (!SF.dataStructStore.RenameStruct(tag.StructIndex, name, out string error))
+                if (!Workspace.Runtime.Stores.DataStructures.RenameStruct(tag.StructIndex, name, out string error))
                 {
                     MessageBox.Show(error);
                     return;
                 }
-                SF.dataStructStore.Save(SF.ConfigPath);
+                Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
                 node.Text = BuildStructNodeText(tag.StructIndex, name);
             }
         }
@@ -534,12 +534,12 @@ namespace Automation
             {
                 return;
             }
-            if (!SF.dataStructStore.RemoveStructAt(tag.StructIndex, out string error))
+            if (!Workspace.Runtime.Stores.DataStructures.RemoveStructAt(tag.StructIndex, out string error))
             {
                 MessageBox.Show(error);
                 return;
             }
-            SF.dataStructStore.Save(SF.ConfigPath);
+            Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
             ReloadTree();
         }
 
@@ -558,20 +558,20 @@ namespace Automation
                     return;
                 }
                 string name = (dialog.InputText ?? string.Empty).Trim();
-                int insertIndex = SF.dataStructStore.GetItemCount(tag.StructIndex);
-                if (!SF.dataStructStore.CreateItem(tag.StructIndex, name, insertIndex, out int itemIndex, out string error))
+                int insertIndex = Workspace.Runtime.Stores.DataStructures.GetItemCount(tag.StructIndex);
+                if (!Workspace.Runtime.Stores.DataStructures.CreateItem(tag.StructIndex, name, insertIndex, out int itemIndex, out string error))
                 {
                     MessageBox.Show(error);
                     return;
                 }
-                SF.dataStructStore.Save(SF.ConfigPath);
+                Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
                 TreeNode structNode = GetStructNode(tag.StructIndex);
                 if (structNode == null)
                 {
                     ReloadTree();
                     return;
                 }
-                if (!SF.dataStructStore.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
+                if (!Workspace.Runtime.Stores.DataStructures.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
                 {
                     ReloadTree();
                     return;
@@ -592,7 +592,7 @@ namespace Automation
             {
                 return;
             }
-            if (!SF.dataStructStore.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
+            if (!Workspace.Runtime.Stores.DataStructures.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
             {
                 MessageBox.Show("结构体不存在");
                 return;
@@ -610,12 +610,12 @@ namespace Automation
                     return;
                 }
                 string name = (dialog.InputText ?? string.Empty).Trim();
-                if (!SF.dataStructStore.RenameItem(tag.StructIndex, tag.ItemIndex, name, out string error))
+                if (!Workspace.Runtime.Stores.DataStructures.RenameItem(tag.StructIndex, tag.ItemIndex, name, out string error))
                 {
                     MessageBox.Show(error);
                     return;
                 }
-                SF.dataStructStore.Save(SF.ConfigPath);
+                Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
                 node.Text = BuildItemNodeText(tag.ItemIndex, name);
             }
         }
@@ -632,19 +632,19 @@ namespace Automation
             {
                 return;
             }
-            if (!SF.dataStructStore.DeleteItem(tag.StructIndex, tag.ItemIndex, out string error))
+            if (!Workspace.Runtime.Stores.DataStructures.DeleteItem(tag.StructIndex, tag.ItemIndex, out string error))
             {
                 MessageBox.Show(error);
                 return;
             }
-            SF.dataStructStore.Save(SF.ConfigPath);
+            Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
             TreeNode structNode = GetStructNode(tag.StructIndex);
             if (structNode == null)
             {
                 ReloadTree();
                 return;
             }
-            if (!SF.dataStructStore.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
+            if (!Workspace.Runtime.Stores.DataStructures.TryGetStructSnapshotByIndex(tag.StructIndex, out DataStruct dataStruct))
             {
                 ReloadTree();
                 return;
@@ -664,7 +664,8 @@ namespace Automation
             {
                 return;
             }
-            using (FrmDataStructFieldEdit dialog = new FrmDataStructFieldEdit(tag.StructIndex, tag.ItemIndex))
+            using (FrmDataStructFieldEdit dialog = new FrmDataStructFieldEdit(
+                Workspace.Runtime.Stores.DataStructures, tag.StructIndex, tag.ItemIndex))
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK)
                 {
@@ -674,7 +675,7 @@ namespace Automation
                 {
                     return;
                 }
-                SF.dataStructStore.Save(SF.ConfigPath);
+                Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
                 AddFieldNodeToTree(itemNode, tag.StructIndex, tag.ItemIndex, dialog.ActualFieldIndex);
             }
         }
@@ -710,12 +711,12 @@ namespace Automation
                     return;
                 }
                 string newName = (dialog.InputText ?? string.Empty).Trim();
-                if (!SF.dataStructStore.RenameField(tag.StructIndex, tag.ItemIndex, tag.FieldIndex, newName, out string error))
+                if (!Workspace.Runtime.Stores.DataStructures.RenameField(tag.StructIndex, tag.ItemIndex, tag.FieldIndex, newName, out string error))
                 {
                     MessageBox.Show(error);
                     return;
                 }
-                SF.dataStructStore.Save(SF.ConfigPath);
+                Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
                 UpdateFieldNode(fieldNode, tag.StructIndex, tag.ItemIndex, tag.FieldIndex, newName, fieldType, fieldValue);
             }
         }
@@ -738,7 +739,7 @@ namespace Automation
             {
                 return;
             }
-            if (!SF.dataStructStore.SetFieldType(tag.StructIndex, tag.ItemIndex, tag.FieldIndex, newType, out string message))
+            if (!Workspace.Runtime.Stores.DataStructures.SetFieldType(tag.StructIndex, tag.ItemIndex, tag.FieldIndex, newType, out string message))
             {
                 MessageBox.Show(message);
                 return;
@@ -747,7 +748,7 @@ namespace Automation
             {
                 MessageBox.Show(message);
             }
-            SF.dataStructStore.Save(SF.ConfigPath);
+            Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
             UpdateFieldNodeFromStore(fieldNode, tag.StructIndex, tag.ItemIndex, tag.FieldIndex);
         }
 
@@ -763,12 +764,12 @@ namespace Automation
             {
                 return;
             }
-            if (!SF.dataStructStore.RemoveField(tag.StructIndex, tag.ItemIndex, tag.FieldIndex, out string error))
+            if (!Workspace.Runtime.Stores.DataStructures.RemoveField(tag.StructIndex, tag.ItemIndex, tag.FieldIndex, out string error))
             {
                 MessageBox.Show(error);
                 return;
             }
-            SF.dataStructStore.Save(SF.ConfigPath);
+            Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
             TreeNode itemNode = fieldNode.Parent;
             if (itemNode != null)
             {
@@ -803,13 +804,15 @@ namespace Automation
             {
                 valueText = fieldValue?.ToString() ?? string.Empty;
             }
-            using (FrmDataStructFieldEdit dialog = new FrmDataStructFieldEdit(structIndex, itemIndex, fieldIndex, fieldName, fieldType, valueText))
+            using (FrmDataStructFieldEdit dialog = new FrmDataStructFieldEdit(
+                Workspace.Runtime.Stores.DataStructures, structIndex, itemIndex,
+                fieldIndex, fieldName, fieldType, valueText))
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK)
                 {
                     return;
                 }
-                SF.dataStructStore.Save(SF.ConfigPath);
+                Workspace.Runtime.Stores.DataStructures.Save(Workspace.Runtime.Paths.ConfigPath);
                 UpdateFieldNodeFromStore(fieldNode, structIndex, itemIndex, fieldIndex);
             }
         }
@@ -817,7 +820,7 @@ namespace Automation
         private void LoadFieldNodes(TreeNode itemNode, int structIndex, int itemIndex)
         {
             itemNode.Nodes.Clear();
-            if (!SF.dataStructStore.TryGetStructSnapshotByIndex(structIndex, out DataStruct dataStruct))
+            if (!Workspace.Runtime.Stores.DataStructures.TryGetStructSnapshotByIndex(structIndex, out DataStruct dataStruct))
             {
                 return;
             }
@@ -1026,7 +1029,7 @@ namespace Automation
         {
             string baseName = string.IsNullOrWhiteSpace(sourceName) ? "结构体" : sourceName;
             string name = $"{baseName}_复制";
-            HashSet<string> exist = new HashSet<string>(SF.dataStructStore.GetStructNames());
+            HashSet<string> exist = new HashSet<string>(Workspace.Runtime.Stores.DataStructures.GetStructNames());
             if (!exist.Contains(name))
             {
                 return name;
@@ -1047,7 +1050,7 @@ namespace Automation
         {
             string baseName = string.IsNullOrWhiteSpace(sourceName) ? "数据项" : sourceName;
             string name = $"{baseName}_复制";
-            if (!SF.dataStructStore.TryGetStructSnapshotByIndex(structIndex, out DataStruct dataStruct) || dataStruct.dataStructItems == null)
+            if (!Workspace.Runtime.Stores.DataStructures.TryGetStructSnapshotByIndex(structIndex, out DataStruct dataStruct) || dataStruct.dataStructItems == null)
             {
                 return name;
             }
@@ -1111,7 +1114,7 @@ namespace Automation
                         valueText = strValue ?? string.Empty;
                     }
                 }
-                if (!SF.dataStructStore.AddField(structIndex, itemIndex, fieldName, type, valueText, fieldIndex, out _, out string fieldError))
+                if (!Workspace.Runtime.Stores.DataStructures.AddField(structIndex, itemIndex, fieldName, type, valueText, fieldIndex, out _, out string fieldError))
                 {
                     error = fieldError;
                     return false;
@@ -1125,7 +1128,7 @@ namespace Automation
             fieldName = string.Empty;
             fieldType = DataStructValueType.Text;
             fieldValue = null;
-            if (!SF.dataStructStore.TryGetStructSnapshotByIndex(structIndex, out DataStruct dataStruct))
+            if (!Workspace.Runtime.Stores.DataStructures.TryGetStructSnapshotByIndex(structIndex, out DataStruct dataStruct))
             {
                 return false;
             }

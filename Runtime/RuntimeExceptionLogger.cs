@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,6 +14,9 @@ namespace Automation
     public static class RuntimeExceptionLogger
     {
         private static readonly LocalFileLogger logger = new LocalFileLogger(@"D:\AutomationLogs\RuntimeExceptions");
+        private static readonly object safetyLock = new object();
+        private static readonly HashSet<PlatformSafetyCoordinator> safetyCoordinators =
+            new HashSet<PlatformSafetyCoordinator>();
 
         [ThreadStatic]
         private static bool isWriting;
@@ -33,13 +37,23 @@ namespace Automation
             Application.ThreadException += Application_ThreadException;
         }
 
+        public static IDisposable RegisterSafetyCoordinator(PlatformSafetyCoordinator coordinator)
+        {
+            if (coordinator == null) throw new ArgumentNullException(nameof(coordinator));
+            lock (safetyLock)
+            {
+                safetyCoordinators.Add(coordinator);
+            }
+            return new SafetyRegistration(coordinator);
+        }
+
         private static void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
         {
             Exception exception = e?.ExceptionObject as Exception;
             Write("未处理（AppDomain）", exception, $"正在终止:{e?.IsTerminating}");
             try
             {
-                SF.SetSecurityLock($"发生未处理异常，已触发安全停止:{exception?.Message}");
+                LockRegisteredRuntimes($"发生未处理异常，已触发安全停止:{exception?.Message}");
             }
             catch
             {
@@ -51,7 +65,7 @@ namespace Automation
             Write("未观察任务异常", e?.Exception, null);
             try
             {
-                SF.SetSecurityLock($"发生未观察任务异常，已触发安全停止:{e?.Exception?.GetBaseException().Message}");
+                LockRegisteredRuntimes($"发生未观察任务异常，已触发安全停止:{e?.Exception?.GetBaseException().Message}");
             }
             catch
             {
@@ -72,7 +86,7 @@ namespace Automation
                 Write("未处理（UI 线程）", exception, fatal
                     ? "异常不可安全恢复，将执行停机退出。"
                     : "已停止全部流程并进入安全锁定，HMI继续运行。");
-                SF.SetSecurityLock($"UI线程发生未处理异常，已触发安全停止:{exception?.Message}");
+                LockRegisteredRuntimes($"UI线程发生未处理异常，已触发安全停止:{exception?.Message}");
                 MessageBox.Show(
                     fatal
                         ? "发生不可恢复的运行时异常，已写入本地日志，程序将安全退出。"
@@ -121,6 +135,49 @@ namespace Automation
                 current = current.InnerException;
             }
             return false;
+        }
+
+        private static void LockRegisteredRuntimes(string reason)
+        {
+            PlatformSafetyCoordinator[] snapshot;
+            lock (safetyLock)
+            {
+                snapshot = new PlatformSafetyCoordinator[safetyCoordinators.Count];
+                safetyCoordinators.CopyTo(snapshot);
+            }
+            foreach (PlatformSafetyCoordinator coordinator in snapshot)
+            {
+                try
+                {
+                    coordinator.Lock(reason);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private sealed class SafetyRegistration : IDisposable
+        {
+            private PlatformSafetyCoordinator coordinator;
+
+            public SafetyRegistration(PlatformSafetyCoordinator coordinator)
+            {
+                this.coordinator = coordinator;
+            }
+
+            public void Dispose()
+            {
+                PlatformSafetyCoordinator current = Interlocked.Exchange(ref coordinator, null);
+                if (current == null)
+                {
+                    return;
+                }
+                lock (safetyLock)
+                {
+                    safetyCoordinators.Remove(current);
+                }
+            }
         }
 
         private static void Write(string category, Exception exception, string detail)

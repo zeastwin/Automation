@@ -173,6 +173,20 @@ namespace Automation
         }
 
         [Browsable(false)]
+        [JsonIgnore]
+        protected PlatformRuntime EditorRuntime => EditorServiceRegistry.GetRuntime(this);
+
+        [Browsable(false)]
+        [JsonIgnore]
+        protected bool IsOperationEditorActive => EditorRuntime?.Editor.ModifyKind == ModifyKind.Operation
+            || EditorRuntime?.Editor.IsAddingOperations == true;
+
+        [Browsable(false)]
+        [JsonIgnore]
+        protected List<DataStation> EditorStations => EditorRuntime?.Stores.Stations.Items
+            ?? new List<DataStation>();
+
+        [Browsable(false)]
         public Guid Id { get; set; }
 
         [Browsable(false)]
@@ -201,7 +215,7 @@ namespace Automation
                 if (alarmType != value)
                 {
                     alarmType = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshPropertyAlarm();
                     }
@@ -798,7 +812,7 @@ namespace Automation
                 if (popupType != value)
                 {
                     popupType = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshPropertyPopup();
                     }
@@ -844,7 +858,7 @@ namespace Automation
                 if (infoType != value)
                 {
                     infoType = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshPropertyPopup();
                     }
@@ -874,7 +888,7 @@ namespace Automation
                 if (delayClose != value)
                 {
                     delayClose = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshPropertyPopup();
                     }
@@ -901,7 +915,7 @@ namespace Automation
                 if (alarmLightEnable != value)
                 {
                     alarmLightEnable = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshPropertyPopup();
                     }
@@ -936,7 +950,7 @@ namespace Automation
                 if (buzzerTimeType != value)
                 {
                     buzzerTimeType = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshPropertyPopup();
                     }
@@ -1224,7 +1238,7 @@ namespace Automation
                 if (replaceType != value)
                 {
                     replaceType = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshProperty();
                     }
@@ -2184,7 +2198,7 @@ namespace Automation
                 if (isDisableAxis != value)
                 {
                     isDisableAxis = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshPropertyName();
                     }
@@ -2234,7 +2248,7 @@ namespace Automation
                 if (changeVel != value)
                 {
                     changeVel = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshPropertyVel();
                     }
@@ -2292,7 +2306,7 @@ namespace Automation
                 return;
             }
 
-            if (SF.frmCard == null || SF.frmCard.dataStation == null)
+            if (EditorRuntime == null)
             {
                 for (int i = 0; i < 6; i++)
                 {
@@ -2301,7 +2315,7 @@ namespace Automation
                 return;
             }
 
-            var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == StationName);
+            var station = EditorStations.FirstOrDefault(sc => sc.Name == StationName);
             if (station == null)
             {
                 for (int i = 0; i < 6; i++)
@@ -2311,16 +2325,16 @@ namespace Automation
                 return;
             }
 
-            int stationIndex = SF.frmCard.dataStation.IndexOf(station);
+            int stationIndex = EditorStations.IndexOf(station);
             if (stationIndex != -1)
             {
-                for (int j = 0; j < SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs.Count; j++)
+                for (int j = 0; j < EditorStations[stationIndex].dataAxis.axisConfigs.Count; j++)
                 {
                     ushort index = (ushort)j;
-                    if (SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
+                    if (EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
                     {
                         SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
-                        SetDisplayName(typeof(StationRunPos), AxisName[j], SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName);
+                        SetDisplayName(typeof(StationRunPos), AxisName[j], EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName);
                     }
                     else
                     {
@@ -2379,7 +2393,7 @@ namespace Automation
                 if (refPosName != value)
                 {
                     refPosName = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshRefPosMode();
                     }
@@ -2449,7 +2463,7 @@ namespace Automation
                 if (sourceType != value)
                 {
                     sourceType = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshProperty();
                     }
@@ -2470,7 +2484,7 @@ namespace Automation
                 if (saveType != value)
                 {
                     saveType = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshProperty();
                     }
@@ -2621,7 +2635,7 @@ namespace Automation
                 if (stationName != value)
                 {
                     stationName = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshPropertyName();
                     }
@@ -2714,7 +2728,7 @@ namespace Automation
                 if (changeVel != value)
                 {
                     changeVel = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshPropertyVel();
                     }
@@ -2786,7 +2800,7 @@ namespace Automation
         {
             string[] AxisName = { "Axis1", "Axis2", "Axis3", "Axis4", "Axis5", "Axis6" };
 
-            if (SF.frmCard == null || SF.frmCard.dataStation == null)
+            if (EditorRuntime == null)
             {
                 for (int i = 0; i < 6; i++)
                 {
@@ -2796,7 +2810,7 @@ namespace Automation
                 return;
             }
 
-            var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == StationName);
+            var station = EditorStations.FirstOrDefault(sc => sc.Name == StationName);
 
             if (station == null)
             {
@@ -2808,18 +2822,18 @@ namespace Automation
                 return;
             }
 
-            int stationIndex = SF.frmCard.dataStation.IndexOf(station);
+            int stationIndex = EditorStations.IndexOf(station);
             if (stationIndex != -1)
             {
-                for (int j = 0; j < SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs.Count; j++)
+                for (int j = 0; j < EditorStations[stationIndex].dataAxis.axisConfigs.Count; j++)
                 {
                     ushort index = (ushort)j;
-                    if (SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
+                    if (EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
                     {
                         SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
                         SetPropertyAttribute(this, AxisName[j] + "V", typeof(BrowsableAttribute), "browsable", true);
-                        SetDisplayName(typeof(StationRunRel), AxisName[j], SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName);
-                        SetDisplayName(typeof(StationRunRel), AxisName[j] + "V", SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName + "变量");
+                        SetDisplayName(typeof(StationRunRel), AxisName[j], EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName);
+                        SetDisplayName(typeof(StationRunRel), AxisName[j] + "V", EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName + "变量");
                     }
                     else
                     {
@@ -2906,7 +2920,7 @@ namespace Automation
                 if (stationName != value)
                 {
                     stationName = value;
-                    if (SF.isModify == ModifyKind.Operation || SF.isAddOps)
+                    if (IsOperationEditorActive)
                     {
                         RefleshPropertyName();
                     }
@@ -2952,7 +2966,7 @@ namespace Automation
         {
             string[] AxisName = { "Axis1", "Axis2", "Axis3", "Axis4", "Axis5", "Axis6" };
 
-            if (SF.frmCard == null || SF.frmCard.dataStation == null)
+            if (EditorRuntime == null)
             {
                 for (int i = 0; i < 6; i++)
                 {
@@ -2961,7 +2975,7 @@ namespace Automation
                 return;
             }
 
-            var station = SF.frmCard.dataStation.FirstOrDefault(sc => sc.Name == StationName);
+            var station = EditorStations.FirstOrDefault(sc => sc.Name == StationName);
 
             if (station == null)
             {
@@ -2972,16 +2986,16 @@ namespace Automation
                 return;
             }
 
-            int stationIndex = SF.frmCard.dataStation.IndexOf(station);
+            int stationIndex = EditorStations.IndexOf(station);
             if (stationIndex != -1)
             {
-                for (int j = 0; j < SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs.Count; j++)
+                for (int j = 0; j < EditorStations[stationIndex].dataAxis.axisConfigs.Count; j++)
                 {
                     ushort index = (ushort)j;
-                    if (SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
+                    if (EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
                     {
                         SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
-                        SetDisplayName(typeof(StationStop), AxisName[j], SF.frmCard.dataStation[stationIndex].dataAxis.axisConfigs[j].AxisName);
+                        SetDisplayName(typeof(StationStop), AxisName[j], EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName);
                     }
                     else
                     {

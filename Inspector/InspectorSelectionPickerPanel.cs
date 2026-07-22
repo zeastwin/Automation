@@ -511,26 +511,27 @@ namespace Automation
             PropertyDescriptor property,
             string currentValue)
         {
+            PlatformRuntime runtime = EditorServiceRegistry.GetRuntime(owner);
             switch (kind)
             {
                 case InspectorSelectionPickerKind.Variable:
-                    return BuildVariables();
+                    return BuildVariables(runtime);
                 case InspectorSelectionPickerKind.InputOutput:
-                    return BuildInputOutput(property);
+                    return BuildInputOutput(runtime, property);
                 case InspectorSelectionPickerKind.Point:
-                    return BuildPoints(owner, property);
+                    return BuildPoints(runtime, owner, property);
                 case InspectorSelectionPickerKind.Address:
-                    return BuildAddresses();
+                    return BuildAddresses(runtime);
                 default:
                     return Array.Empty<PickerGroupDefinition>();
             }
         }
 
-        private static IReadOnlyList<PickerGroupDefinition> BuildVariables()
+        private static IReadOnlyList<PickerGroupDefinition> BuildVariables(PlatformRuntime runtime)
         {
-            List<DicValue> values = SF.valueStore?.GetValuesSnapshot()
+            List<DicValue> values = runtime?.Stores.Values.GetValuesSnapshot()
                 ?? new List<DicValue>();
-            Guid currentProcId = GetCurrentProcessId();
+            Guid currentProcId = GetCurrentProcessId(runtime);
             return new[]
             {
                 CreateVariableGroup(
@@ -575,10 +576,11 @@ namespace Automation
         }
 
         private static IReadOnlyList<PickerGroupDefinition> BuildInputOutput(
+            PlatformRuntime runtime,
             PropertyDescriptor property)
         {
             Type converterType = property?.Converter?.GetType();
-            List<IO> configured = SF.frmIO?.DicIO?.Values
+            List<IO> configured = runtime?.Stores.IoConfiguration.ByName.Values
                 .Where(item => item != null && !string.IsNullOrWhiteSpace(item.Name))
                 .OrderBy(item => item.CardNum)
                 .ThenBy(item => item.Module)
@@ -628,11 +630,12 @@ namespace Automation
         }
 
         private static IReadOnlyList<PickerGroupDefinition> BuildPoints(
+            PlatformRuntime runtime,
             object owner,
             PropertyDescriptor property)
         {
-            string stationName = GetStationName(owner);
-            DataStation station = SF.frmCard?.dataStation?.FirstOrDefault(item =>
+            string stationName = GetStationName(runtime, owner);
+            DataStation station = runtime?.Stores.Stations.Items.FirstOrDefault(item =>
                 item != null && string.Equals(item.Name, stationName, StringComparison.Ordinal));
             var groups = new List<PickerGroupDefinition>();
             if (property?.Converter?.GetType() == typeof(StationPosWithSpecial))
@@ -669,13 +672,14 @@ namespace Automation
             return groups;
         }
 
-        private static IReadOnlyList<PickerGroupDefinition> BuildAddresses()
+        private static IReadOnlyList<PickerGroupDefinition> BuildAddresses(PlatformRuntime runtime)
         {
-            int procIndex = SF.frmProc?.SelectedProcNum ?? -1;
-            int currentStepIndex = SF.frmProc?.SelectedStepNum ?? -1;
-            Proc process = SF.frmProc?.procsList != null
-                && procIndex >= 0 && procIndex < SF.frmProc.procsList.Count
-                ? SF.frmProc.procsList[procIndex]
+            PlatformEditorSelection selection = runtime?.EditorUi?.GetSelection();
+            int procIndex = selection?.ProcIndex ?? -1;
+            int currentStepIndex = selection?.StepIndex ?? -1;
+            Proc process = runtime?.Stores.Processes.Items != null
+                && procIndex >= 0 && procIndex < runtime.Stores.Processes.Items.Count
+                ? runtime.Stores.Processes.Items[procIndex]
                 : null;
             if (process?.steps == null)
             {
@@ -727,25 +731,25 @@ namespace Automation
             return choices;
         }
 
-        private static Guid GetCurrentProcessId()
+        private static Guid GetCurrentProcessId(PlatformRuntime runtime)
         {
-            int procIndex = SF.frmProc?.SelectedProcNum ?? -1;
-            if (SF.frmProc?.procsList == null
-                || procIndex < 0 || procIndex >= SF.frmProc.procsList.Count)
+            int procIndex = runtime?.EditorUi?.GetSelection()?.ProcIndex ?? -1;
+            if (runtime?.Stores.Processes.Items == null
+                || procIndex < 0 || procIndex >= runtime.Stores.Processes.Items.Count)
             {
                 return Guid.Empty;
             }
-            return SF.frmProc.procsList[procIndex]?.head?.Id ?? Guid.Empty;
+            return runtime.Stores.Processes.Items[procIndex]?.head?.Id ?? Guid.Empty;
         }
 
-        private static string GetStationName(object owner)
+        private static string GetStationName(PlatformRuntime runtime, object owner)
         {
             string stationName = ReadStationName(owner);
             if (!string.IsNullOrWhiteSpace(stationName))
             {
                 return stationName;
             }
-            return ReadStationName(SF.frmDataGrid?.OperationTemp);
+            return ReadStationName(runtime?.EditorUi?.CurrentOperationContext);
         }
 
         private static string ReadStationName(object instance)

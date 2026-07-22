@@ -19,7 +19,8 @@ $bindingFlags = [System.Reflection.BindingFlags]::Instance -bor
     [System.Reflection.BindingFlags]::Public -bor
     [System.Reflection.BindingFlags]::NonPublic
 
-$store = [Automation.ValueConfigStore]::new()
+$platformRuntime = [Automation.PlatformRuntime]::new()
+$store = $platformRuntime.Stores.Values
 $proc = [Automation.Proc]::new()
 $proc.head = [Automation.ProcHead]::new()
 $proc.head.Id = [Guid]::NewGuid()
@@ -39,6 +40,10 @@ $processes.Add($proc)
 $context = [Automation.EngineContext]::new()
 $context.Procs = $processes
 $context.ValueStore = $store
+$context.Maintenance = $platformRuntime.Maintenance
+$context.Safety = $platformRuntime.Safety
+$context.Readiness = $platformRuntime.Readiness
+$context.Paths = $platformRuntime.Paths
 $engine = [Automation.ProcessEngine]::new($context)
 $service = [Activator]::CreateInstance(
     $serviceType,
