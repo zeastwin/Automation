@@ -3,6 +3,10 @@ using System.Drawing;
 using System.Windows.Forms;
 using Automation.DeviceSdk;
 
+// 模块：平台内置 HMI / 主窗口。
+// 职责范围：切换 HMI 页面并投影平台状态，不创建或持有 PlatformRuntime 实现对象。
+// 排查入口：状态不刷新时检查 IAutomationPlatform.RuntimeStatusChanged 订阅和 refreshTimer，不要从窗体反查 Store。
+
 namespace Automation.Hmi
 {
     public sealed partial class FrmHmiMain : Form

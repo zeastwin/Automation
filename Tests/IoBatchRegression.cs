@@ -4,6 +4,9 @@ using System.ComponentModel;
 using Automation;
 using Automation.MotionControl;
 using Automation.Protocol;
+// 模块：测试 / IO 批量写回归。
+// 职责范围：验证语义编译、运行时批量输出和失败回滚边界。
+// 排查入口：失败时区分编译结果、IIoRuntime 调用次数与最终输出状态。
 
 internal static class IoBatchRegression
 {

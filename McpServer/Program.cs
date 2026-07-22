@@ -8,6 +8,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
 using Automation.Protocol;
+// 模块：MCP / 独立进程入口。
+// 职责范围：解析配置、校验工具 Profile、启动本机 Streamable HTTP 服务和可选托盘。
+// 排查入口：进程启动失败先看命令行与监听地址；工具异常使用 --verify-profile，再检查 Bridge 连通性。
 
 namespace Automation.McpServer
 {

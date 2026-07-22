@@ -1,5 +1,6 @@
 // 模块：编辑器 / 外壳。
 // 职责范围：页面装配、菜单、工具栏、导航、生命周期和程序设置。
+// 导航提示：内核由宿主创建；本窗体只装配编辑页面。启动/关闭看 Lifecycle，页面切换看 Navigation。
 
 using Automation.Bridge;
 using Automation.MotionControl;

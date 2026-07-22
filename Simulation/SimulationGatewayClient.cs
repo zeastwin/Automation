@@ -12,6 +12,10 @@ using Automation.MotionControl;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
+// 模块：仿真 / 网关客户端。
+// 职责范围：通过 Named Pipe 把 IMotionRuntime、IIoRuntime 和通讯映射请求转发给独立 SimulationAPP。
+// 排查入口：仿真无响应时依次检查管道连接、requestId 应答、场景端状态和超时；不要回退到真实硬件实现。
+
 namespace Automation.Simulation
 {
     public sealed class SimulationGatewayClient : IMotionRuntime, IIoRuntime, IDisposable

@@ -5,6 +5,9 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Automation.Protocol;
+// 模块：MCP / Bridge 客户端。
+// 职责范围：通过本机 Named Pipe 发送长度前缀 JSON，并把 Bridge 错误原样投影给 MCP。
+// 排查入口：超时或断连依次检查管道名、AutomationBridgeHost、报文长度和 D:\AutomationLogs\Bridge。
 
 namespace Automation.McpServer
 {

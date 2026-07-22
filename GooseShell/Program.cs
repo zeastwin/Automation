@@ -6,6 +6,9 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+// 模块：Goose / PowerShell 代理入口。
+// 职责范围：为 Goose 子进程提供稳定 UTF-8 PowerShell 执行环境，并透传退出码和输出。
+// 排查入口：Shell 命令失败先看 AUTOMATION_GOOSE_POWERSHELL、编码初始化和实际子进程退出码。
 
 namespace Automation.GooseShell
 {

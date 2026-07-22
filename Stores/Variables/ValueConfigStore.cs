@@ -1,6 +1,7 @@
 using System;
 // 模块：持久化 / 变量。
 // 职责范围：管理变量定义与变量调试配置。
+// 状态所有权：变量定义与当前运行值共处一张固定槽位表；配置提交必须保留同一变量的当前值。
 
 using System.Collections.Generic;
 using System.Diagnostics;

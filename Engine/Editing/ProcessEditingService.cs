@@ -1,6 +1,7 @@
 using System;
 // 模块：引擎 / 结构编辑。
 // 职责范围：执行流程与指令结构变换、跳转重写、发布门禁和变量生命周期处理。
+// 失败语义：磁盘、编辑内存和运行发布必须一起成功；任一步失败都沿本服务的回滚结果排查。
 
 using System.Collections;
 using System.Collections.Generic;

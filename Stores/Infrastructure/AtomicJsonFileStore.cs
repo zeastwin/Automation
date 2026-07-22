@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 // 模块：持久化 / 基础设施。
 // 职责范围：提供 JSON 原子读写和跨文件批量提交能力。
+// 排查入口：写盘失败先检查临时文件、替换步骤和目标目录权限；上层 Store 只在本层成功后替换内存快照。
 
 using System;
 using System.IO;

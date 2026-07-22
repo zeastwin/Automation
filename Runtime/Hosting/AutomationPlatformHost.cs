@@ -1,6 +1,7 @@
 using System;
 // 模块：运行时 / 宿主组合。
 // 职责范围：负责平台入口、实例组合、初始化、路径和宿主对外生命周期。
+// 排查入口：先看 RuntimeStatus/StateMessage，再沿 Initialize、SetState 或 ShutdownRuntimeCore 找到失败阶段。
 
 using System.Collections.Generic;
 using System.Globalization;
@@ -175,6 +176,8 @@ namespace Automation
         {
             EnsureUiThread();
             error = null;
+            // Initialize 只允许 Created -> Initializing -> Ready/Faulted。
+            // 若现场看到其他状态再次进入这里，应先追查宿主生命周期，不能重复组合一套运行时来掩盖问题。
             if (state == PlatformRuntimeState.Ready)
             {
                 return true;
@@ -189,6 +192,7 @@ namespace Automation
             try
             {
                 ValidateConfigLayout();
+                // 设备 HMI 会在平台组合前注册业务函数；必须先写入容器，再让流程加载和就绪检查解析这些函数。
                 foreach (KeyValuePair<string, CustomFunc.FunctionDelegate> item in pendingCustomFunctions)
                 {
                     runtime.CustomFunctions.RegisterFunction(item.Key, item.Value);
@@ -198,6 +202,7 @@ namespace Automation
                     processInteraction,
                     processInteraction,
                     new LocalFileLogger(@"D:\AutomationLogs\ProcessLog"));
+                // Compose 只建立对象图，Initializer 才恢复事务、加载配置并启动设备；排障时不要把两个阶段混为一谈。
                 processInteraction.AttachEngine(composition.ProcessEngine);
                 composition.ProcessEngine.SnapshotChanged += OnProcessSnapshotChanged;
                 runtime.Devices.Faulted += OnDeviceFaulted;
@@ -219,6 +224,7 @@ namespace Automation
                 SetState(PlatformRuntimeState.Faulted, $"平台初始化失败:{ex.Message}");
                 try
                 {
+                    // 初始化可能只完成了一半，仍统一走幂等关闭链释放已经创建的资源。
                     ShutdownRuntimeCore();
                 }
                 catch
@@ -781,6 +787,7 @@ namespace Automation
 
         private void ShutdownRuntimeCore()
         {
+            // 先解除外部事件，避免关闭期间的设备/变量回调再次触发 UI 或宿主逻辑。
             DetachRuntimeEvents();
             if (runtimeCoreStopped)
             {

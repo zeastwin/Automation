@@ -1,6 +1,7 @@
 // 模块：编辑器 / 外壳。
 // 职责范围：页面装配、菜单、工具栏、导航、生命周期和程序设置。
 // 文件职责：维护编辑器初始化、辅助服务启动与关闭流程。
+// 排查入口：编辑器关闭只释放 Bridge/MCP/页面资源，设备、通讯和引擎最终进入 PlatformShutdownCoordinator。
 
 using System;
 using System.Diagnostics;

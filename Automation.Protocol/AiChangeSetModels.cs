@@ -1,5 +1,8 @@
 using System.Collections.Generic;
 using System.ComponentModel;
+// 模块：Automation 协议 / ChangeSet V2。
+// 职责范围：定义 MCP、Bridge 与编译器共用的强类型变更请求；字段含义以本 DTO 和生成 Schema 为准。
+// 排查入口：序列化或字段校验异常先核对 discriminator、局部 key 作用域和对应 Operation Schema。
 
 namespace Automation.Protocol
 {

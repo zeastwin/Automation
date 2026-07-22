@@ -2,6 +2,9 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
+// 模块：MCP / 平台开发上下文。
+// 职责范围：按主题返回 HMI、平台 API 和自定义函数开发事实，不常驻注入全部源码知识。
+// 排查入口：路径或哈希异常时检查 AUTOMATION_* 环境变量与部署源，不从客户 Hmi 目录猜测平台规范。
 
 namespace Automation.McpServer
 {

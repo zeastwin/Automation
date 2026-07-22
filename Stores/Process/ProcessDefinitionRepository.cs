@@ -1,6 +1,7 @@
 using System;
 // 模块：持久化 / 流程。
 // 职责范围：管理流程配置、工作目录事务、流程变量联合提交和运行日志落盘。
+// 状态所有权：Items 是编辑态事实源；ProcessEngine 持有运行克隆，排查数据不一致时先确认观察的是哪一份。
 
 using System.Collections.Generic;
 using System.Linq;

@@ -1,6 +1,7 @@
 using System;
 // 模块：运行时 / 生命周期。
 // 职责范围：协调平台安全、设备状态、系统状态和幂等关闭。
+// 状态所有权：Readiness、Maintenance 与 Safety 分别表示运行条件、配置维护互斥和安全锁，三者不可合并。
 
 using System.Threading;
 

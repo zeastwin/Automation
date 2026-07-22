@@ -7,6 +7,10 @@ using HslCommunication;
 using HslCommunication.Core;
 using HslCommunication.ModBus;
 
+// 模块：PLC / HSL Modbus 适配。
+// 职责范围：把平台 PLC 读写请求转换为 HslCommunication 调用，并返回原始通讯失败事实。
+// 排查入口：连接或读写失败时先核对 PlcDeviceConfig、地址转换和 HSL 返回消息，再检查 PlcRuntimeService 会话状态。
+
 namespace Automation
 {
     internal interface IPlcAdapter : IDisposable

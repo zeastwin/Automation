@@ -1,6 +1,7 @@
 using System;
 // 模块：运行时 / 生命周期。
 // 职责范围：协调平台安全、设备状态、系统状态和幂等关闭。
+// 排查入口：设备初始化、监视循环和 Faulted 事件集中在此；设备异常不得通过 UI 定时器自行恢复。
 
 using System.Threading;
 using System.Threading.Tasks;

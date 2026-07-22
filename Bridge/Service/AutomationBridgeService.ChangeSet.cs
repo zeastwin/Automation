@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 // 模块：Bridge / 服务。
 // 职责范围：实现 Named Pipe 请求的路由、投影、诊断、预演和事务提交。
+// 状态机：preview 冻结编译结果与基础哈希，前台只确认，apply 仅凭 previewId 校验后事务提交。
 
 using Newtonsoft.Json.Linq;
 using Automation.Protocol;
@@ -360,6 +361,7 @@ namespace Automation.Bridge
             lock (previewLock)
             {
                 record = previewRecords[previewId];
+                // 预演冻结编译结果和基线哈希；apply 只接受 previewId，不会重新解释模型原始输入。
                 record.AiChangeSetPreview = draft;
                 record.BaseStateHash = AiChangeSetCompiler.ComputeStateHash(runtime.Stores.Processes.Items, variables);
             }
@@ -646,6 +648,7 @@ namespace Automation.Bridge
 
             Dictionary<string, DicValue> currentVariables = runtime.Stores.Values?.BuildSaveData()
                 ?? throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+            // 前台确认不锁住编辑器；因此提交前必须重新比较基线，避免覆盖确认后发生的人工修改。
             string currentStateHash = AiChangeSetCompiler.ComputeStateHash(runtime.Stores.Processes.Items, currentVariables);
             if (!string.Equals(expectedStateHash, currentStateHash, StringComparison.Ordinal))
             {
@@ -659,6 +662,7 @@ namespace Automation.Bridge
                     }.ToString(Formatting.None));
             }
 
+            // 提交的是预演时冻结的结果。成功后立即关闭局部 key 作用域，后续编辑改用返回的稳定 ID。
             CommitChangeSet(draft);
             RemovePreview(previewId);
             var createdProcesses = new JArray();
@@ -752,6 +756,7 @@ namespace Automation.Bridge
                 draft.VariableValueOverrides?.Keys ?? Enumerable.Empty<Guid>());
             foreach (DicValue variable in commitVariables.Values)
             {
+                // 配置变更默认保留当前运行值；只有本次 ChangeSet 明确赋值的变量才覆盖 Value。
                 if (variable != null && !explicitValueIds.Contains(variable.Id)
                     && currentById.TryGetValue(variable.Id, out DicValue current))
                 {

@@ -5,6 +5,10 @@ using System.IO;
 using System.Text;
 using System.Windows.Forms;
 
+// 模块：平台内置 HMI / 报警历史。
+// 职责范围：按用户选择的日志目录读取并展示报警记录，不参与流程报警状态判定。
+// 排查入口：页面没有数据时先检查所选目录与日志文件，再检查流程引擎的报警日志是否落盘。
+
 namespace Automation.Hmi
 {
     public partial class AlarmHistoryPage : Form

@@ -1,6 +1,7 @@
 using System;
 // 模块：引擎 / 校验。
 // 职责范围：分别执行配置可保存性与流程可运行性检查。
+// 排查入口：启动被拒绝时以 RunBlockers 为准；Warnings 只表示可保存但仍需完善的事实。
 
 using System.Collections.Generic;
 using System.Linq;

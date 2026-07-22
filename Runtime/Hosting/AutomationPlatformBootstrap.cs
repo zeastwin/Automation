@@ -1,6 +1,7 @@
 using System;
 // 模块：运行时 / 宿主组合。
 // 职责范围：负责平台入口、实例组合、初始化、路径和宿主对外生命周期。
+// 排查入口：启动参数、默认配置和 Goose 受管资源部署问题从本文件开始，不要在 Program 中增加旁路。
 
 using System.Collections.Generic;
 

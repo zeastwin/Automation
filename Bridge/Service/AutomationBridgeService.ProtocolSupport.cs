@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 // 模块：Bridge / 服务。
 // 职责范围：实现 Named Pipe 请求的路由、投影、诊断、预演和事务提交。
+// 线程边界：基础类型、字段和体积错误必须在这里或 MCP 工作线程发现，进入 UI 线程后只访问平台状态。
 
 using Newtonsoft.Json.Linq;
 using Automation.Protocol;

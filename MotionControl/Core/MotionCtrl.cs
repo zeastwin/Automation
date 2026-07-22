@@ -1,6 +1,7 @@
 ﻿using System;
 // 模块：运动控制 / 核心。
 // 职责范围：定义统一运动运行契约、运动协调和轴状态缓存。
+// 安全边界：命令先经过 Readiness、Safety 和 ValidateAxesForCommand；驱动事件只在 InitCardType 中绑定。
 
 using System.Collections.Generic;
 using System.Linq;
@@ -178,6 +179,7 @@ namespace Automation.MotionControl
                     throw new InvalidOperationException($"轴尚未回原完成:{request.Card}-{request.Axis}");
                 }
             }
+            // 校验结果只在当前线程、当前 using 作用域有效，避免“先校验、状态变化后很久再执行”的窗口。
             validatedCommands = commands;
             return new CommandValidationLease(commands);
         }

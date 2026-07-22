@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 // 模块：Bridge / 服务。
 // 职责范围：实现 Named Pipe 请求的路由、投影、诊断、预演和事务提交。
+// 状态所有权：预演的过期、确认、替换和删除都由本文件管理；聊天文本不是预演状态源。
 
 using Newtonsoft.Json.Linq;
 using Automation.Protocol;

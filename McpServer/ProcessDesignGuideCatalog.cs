@@ -1,6 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+// 模块：MCP / 流程设计 Guide。
+// 职责范围：按主题读取内嵌流程设计知识；字段 Schema 和运行行为仍由各自权威代码生成。
+// 排查入口：Guide 缺失检查 EmbeddedResource 名称和哈希，字段不符应查 Protocol/行为 Catalog。
 
 namespace Automation.McpServer
 {

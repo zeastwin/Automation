@@ -1,5 +1,6 @@
 // 模块：编辑器 / 流程。
 // 职责范围：流程树、指令表、对象选择、搜索和导航。
+// 排查入口：树节点显示异常先核对 ProcessSelection 的稳定 ID 与索引，再检查 Repository；不要从其他窗体反读状态。
 
 using System;
 using System.Collections;

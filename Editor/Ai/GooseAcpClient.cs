@@ -1,5 +1,6 @@
 // 模块：编辑器 / AI。
 // 职责范围：AI 前台、ACP 会话、预演确认与对话渲染。
+// 排查入口：按子进程启动、JSON-RPC initialize/session/prompt、MCP 调用和取消四段定位，完整证据看 AIExecution 日志。
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;

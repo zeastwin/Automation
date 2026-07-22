@@ -1,6 +1,7 @@
 using Automation.MotionControl;
 // 模块：运行时 / 宿主组合。
 // 职责范围：负责平台入口、实例组合、初始化、路径和宿主对外生命周期。
+// 状态所有权：本对象是单实例组合根；某运行服务为空通常表示 Compose/Initialize 尚未完成或已进入关闭。
 
 using System;
 using System.Collections.Generic;

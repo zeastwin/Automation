@@ -2,6 +2,10 @@ using System;
 using System.Diagnostics;
 using Automation.DeviceSdk;
 
+// 模块：平台内置 HMI / 自定义函数。
+// 职责范围：注册 HMI 业务函数；仅通过 IAutomationPlatform 使用平台能力。
+// 排查入口：函数未执行时先检查 Register 是否在宿主初始化前调用，再检查函数名与流程配置是否一致。
+
 namespace Automation.Hmi
 {
     /// <summary>

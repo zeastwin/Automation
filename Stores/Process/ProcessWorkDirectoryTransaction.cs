@@ -1,6 +1,7 @@
 using System;
 // 模块：持久化 / 流程。
 // 职责范围：管理流程配置、工作目录事务、流程变量联合提交和运行日志落盘。
+// 排查入口：Work 缺失或编号不连续时检查 Work_tmp、Work_bak 与 .complete，再看 Load 返回的恢复消息。
 
 using System.Collections.Generic;
 using System.IO;

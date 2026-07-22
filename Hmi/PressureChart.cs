@@ -4,6 +4,10 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
+// 模块：平台内置 HMI / 自绘控件。
+// 职责范围：维护压力趋势的页面内绘制状态，不承担数据采集、持久化或报警判断。
+// 排查入口：曲线不刷新时检查 UpdatePressureData 调用与控件可见性，再检查绘制缓存。
+
 namespace Automation.Hmi
 {
     /// <summary>

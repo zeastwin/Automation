@@ -1,6 +1,7 @@
 using System;
 // 模块：运行时 / 宿主组合。
 // 职责范围：负责平台入口、实例组合、初始化、路径和宿主对外生命周期。
+// 排查入口：设备实现选择只由 AutomationRuntimeOptions 决定；仿真与真实硬件装配错误从 Compose 定位。
 
 using System.Collections.Generic;
 using Automation.MotionControl;

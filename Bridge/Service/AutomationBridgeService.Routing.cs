@@ -1,6 +1,7 @@
 using Automation.Protocol;
 // 模块：Bridge / 服务。
 // 职责范围：实现 Named Pipe 请求的路由、投影、诊断、预演和事务提交。
+// 排查入口：工具存在但请求未到业务 handler 时，核对 route、method、线程切换和本文件的分发表。
 
 using Newtonsoft.Json.Linq;
 using System;

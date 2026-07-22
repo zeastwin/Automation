@@ -1,5 +1,8 @@
 using System.Collections.Generic;
 using System.ComponentModel;
+// 模块：Automation 协议 / 数据结构配置。
+// 职责范围：定义数据结构整对象提交契约；字段 Description 会进入 MCP 参数 Schema。
+// 排查入口：同名更新或类型失败时核对名称、完整 Items 列表和 Bridge 的数据结构校验结果。
 
 namespace Automation.Protocol
 {

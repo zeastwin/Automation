@@ -1,5 +1,6 @@
 // 模块：编辑器 / 外壳。
 // 职责范围：页面装配、菜单、工具栏、导航、生命周期和程序设置。
+// 状态所有权：窗体协作和当前选择从 Workspace 获取；Attach 前访问失败表示构造顺序错误，不应改成静态兜底。
 
 using System;
 using System.Collections.Generic;

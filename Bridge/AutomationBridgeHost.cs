@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 // 模块：Bridge / 宿主。
 // 职责范围：管理 Named Pipe 监听、连接生命周期和请求分发。
+// 排查入口：先区分管道连接、长度帧、JSON 反序列化和 Service handler 四个阶段；异常证据写入 Bridge 日志。
 
 using Newtonsoft.Json.Linq;
 using System;

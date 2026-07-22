@@ -3,6 +3,9 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+// 模块：测试 / AI WebView 启动夹具。
+// 职责范围：验证聊天前台 WebView 初始化、导航和消息桥接的最小链路。
+// 排查入口：失败先检查 WebView2 Runtime、EnsureCoreWebView2Async 和页面脚本消息。
 
 namespace Automation.Tests
 {

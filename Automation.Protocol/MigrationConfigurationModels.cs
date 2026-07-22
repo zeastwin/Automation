@@ -1,5 +1,8 @@
 using System.Collections.Generic;
 using System.ComponentModel;
+// 模块：Automation 协议 / 配置迁移。
+// 职责范围：定义控制卡、IO、工站和 PLC 等成组迁移 DTO，不承载设备驱动实现。
+// 排查入口：迁移失败先核对列表索引引用、数量一致性和目标资源名称。
 
 namespace Automation.Protocol
 {

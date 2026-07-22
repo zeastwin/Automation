@@ -1,4 +1,7 @@
 using Automation.Protocol;
+// 模块：MCP / ChangeSet 参数校验。
+// 职责范围：在进入 Bridge 前执行 DTO 级结构校验，不负责资源、流程状态或运行语义判断。
+// 排查入口：参数被拒绝先看这里的字段错误；资源与提交状态错误继续查 Bridge 和编译器。
 
 namespace Automation.McpServer
 {

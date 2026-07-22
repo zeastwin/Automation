@@ -1,6 +1,7 @@
 using System;
 // 模块：引擎 / 校验。
 // 职责范围：分别执行配置可保存性与流程可运行性检查。
+// 边界说明：本服务判断结构和可保存性；缺少运行资源等启动条件交给 ProcessReadinessService。
 
 using System.Collections.Generic;
 using System.IO;

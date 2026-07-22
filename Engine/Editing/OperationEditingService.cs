@@ -1,6 +1,7 @@
 using System;
 // 模块：引擎 / 结构编辑。
 // 职责范围：执行流程与指令结构变换、跳转重写、发布门禁和变量生命周期处理。
+// 排查入口：指令增删移动错误先检查草稿、稳定 ID 和跳转重算，再检查统一提交与历史记录。
 
 using System.Collections.Generic;
 using System.Linq;

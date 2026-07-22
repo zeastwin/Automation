@@ -1,4 +1,7 @@
 using Microsoft.Extensions.Configuration;
+// 模块：MCP / 进程配置。
+// 职责范围：承载 HTTP 监听、Bridge 管道、超时和工具 Profile 配置。
+// 排查入口：服务未监听或工具集合不符时先核对启动参数、环境变量和最终绑定值。
 
 namespace Automation.McpServer
 {

@@ -1,6 +1,7 @@
 using System;
 // 模块：运行时 / 生命周期。
 // 职责范围：协调平台安全、设备状态、系统状态和幂等关闭。
+// 排查入口：关闭卡顿或资源未释放时查看 PlatformShutdownReport 的阶段、耗时和 Error，不要复制第二条关闭链。
 
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -43,6 +44,8 @@ namespace Automation
             TimeSpan processTimeout = processStopTimeout ?? TimeSpan.FromSeconds(2);
             TimeSpan communicationTimeout = communicationStopTimeout ?? TimeSpan.FromSeconds(3);
 
+            // 顺序是安全边界：先拒绝新动作并停止设备，再等待流程退出，最后释放通讯和驱动资源。
+            // RunStage 会记录失败并继续后续阶段，避免一个异常让整条释放链中断。
             RunStage(stages, "停止全部流程", () =>
                 runtime.Safety.StopAllProcesses("系统关闭，停止所有流程。"));
             RunStage(stages, "停止设备动作", () => runtime.Devices?.Stop());
@@ -133,6 +136,7 @@ namespace Automation
             }
             catch (Exception ex)
             {
+                // 此处不重抛；调用方应读取最终报告判断哪些资源未正常释放。
                 results.Add(new PlatformShutdownStageResult(name, stopwatch.Elapsed, ex.Message));
                 runtime.ProcessEngine?.Logger?.Log($"关闭阶段[{name}]失败:{ex.Message}", LogLevel.Error);
             }

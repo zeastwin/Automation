@@ -1,6 +1,7 @@
 ﻿using System;
 // 模块：运动控制 / 驱动。
 // 职责范围：封装雷赛运动控制卡 SDK 与具体硬件调用。
+// 排查入口：本层负责把 LTDMC 返回码转成明确异常；参数来源和运动互斥问题应回到 MotionCtrl/ProcessEngine 排查。
 
 using System.Collections;
 using System.Collections.Generic;

@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+// 模块：Automation 协议 / 流程图投影。
+// 职责范围：定义流程控制流的只读图快照，用稳定 ID 表达节点身份。
+// 排查入口：跳转边缺失时检查 operationId、targetId 和编译后的符号跳转，不用显示索引推断身份。
 
 namespace Automation.Protocol
 {

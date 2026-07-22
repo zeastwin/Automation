@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 // 模块：持久化 / 基础设施。
 // 职责范围：提供 JSON 原子读写和跨文件批量提交能力。
+// 失败语义：跨文件提交以事务目录和提交标记判断完成状态；启动恢复负责处理上次中断，不猜测半成品内容。
 
 using System;
 using System.Collections.Generic;
@@ -82,7 +83,9 @@ namespace Automation
         {
             try
             {
+                // 先把目标是否存在写入持久化清单；没有清单时不能安全推断应恢复还是删除目标文件。
                 var manifest = new Manifest();
+                // 逐文件替换可能被进程中断，备份和 .new 的存在状态就是下次启动的恢复依据。
                 foreach (Entry entry in entries)
                 {
                     entry.TargetExisted = File.Exists(entry.TargetPath);
@@ -112,6 +115,7 @@ namespace Automation
                     }
                     entry.Replaced = true;
                 }
+                // 只有全部目标替换成功后才写提交标记。
                 AtomicJsonFileStore.WriteDurable(Path.Combine(transactionPath, CommittedFileName), "committed");
             }
             catch

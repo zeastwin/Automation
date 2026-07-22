@@ -1,6 +1,7 @@
 using System;
 // 模块：运行时 / 宿主组合。
 // 职责范围：负责平台入口、实例组合、初始化、路径和宿主对外生命周期。
+// 失败语义：初始化尽量完成并收集 Messages；Safety Lock 与 Readiness 才决定哪些能力禁止运行。
 
 using System.Collections.Generic;
 using System.Linq;
@@ -31,11 +32,14 @@ namespace Automation
             }
 
             var messages = new List<string>();
+            // 持久化事务必须先恢复，否则后续 Store 可能分别读到新旧两代配置。
             RecoverTransactions(runtime, messages);
+            // 流程和变量互相引用：先得到流程集合，再加载变量并补齐平台保留变量。
             List<Proc> processes = LoadProcesses(runtime, messages);
             runtime.Stores.Values.Load(runtime.Paths.ConfigPath, processes);
             EnsureSystemValues(runtime, messages);
 
+            // 下列配置按受影响能力分别降级。需要安全锁的配置会禁止危险动作，但不能阻止 HMI 完成初始化。
             if (!runtime.Stores.Cards.Load(runtime.Paths.ConfigPath, out string cardError))
             {
                 Log(runtime,
@@ -83,12 +87,14 @@ namespace Automation
                 Log(runtime, plcRuntimeError, LogLevel.Error, messages);
             }
 
+            // 先发布已验证的资源可用性，再初始化实际设备；运行闸门据此给出精确的不可用原因。
             PublishResourceState(runtime);
             PlatformDeviceInitializationResult deviceResult = runtime.Devices.Initialize();
             runtime.SystemStatus = new PlatformSystemStatusService(runtime);
             runtime.SystemStatus.Start();
             if (runtime.Safety.IsLocked)
             {
+                // 初始化仍返回可用平台，但所有流程保持停止；这是降级成功，不是通过异常终止启动。
                 string lockReason = string.IsNullOrWhiteSpace(runtime.Safety.LockReason)
                     ? "系统处于安全锁定模式，禁止自动启动流程。"
                     : $"系统处于安全锁定模式，禁止自动启动流程。锁定原因：{runtime.Safety.LockReason}";

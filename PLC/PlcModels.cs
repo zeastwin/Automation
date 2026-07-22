@@ -2,6 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
+// 模块：PLC / 配置与运行模型。
+// 职责范围：定义 PLC 设备、映射和批量请求结构；具体连接生命周期由 PlcRuntimeService 持有。
+// 排查入口：字段含义以 Store 校验和运行适配器为准，模型对象本身不执行宽松修复。
+
 namespace Automation
 {
     public enum PlcDeviceProfile

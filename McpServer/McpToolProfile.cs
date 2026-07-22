@@ -3,6 +3,9 @@ using Automation.Protocol;
 using ModelContextProtocol.Server;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+// 模块：MCP / 工具 Profile。
+// 职责范围：这是 Editor、Diagnostic 与 RuntimeDiagnostic 对外工具集合的权威来源。
+// 排查入口：工具缺失、越权或退役工具复现时运行 --verify-profile，并核对本文件集合而非 Markdown。
 
 namespace Automation.McpServer
 {

@@ -6,6 +6,10 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+// 模块：PLC / 运行时。
+// 职责范围：按设备维护 PLC 会话、映射轮询和读写调度，并将结果投影到变量 Store。
+// 排查入口：先区分配置校验失败、连接失败、映射轮询失败和单次指令失败；四类错误不要混为同一重连问题。
+
 namespace Automation
 {
     public sealed class PlcRuntimeService : IDisposable

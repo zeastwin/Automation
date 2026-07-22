@@ -1,6 +1,7 @@
 using System;
 // 模块：引擎 / 执行。
 // 职责范围：负责运行绑定、调度、状态管理以及各类流程指令的确定性执行。
+// 排查入口：运行状态先看 EngineSnapshot；启动/停止看 ProcAgent；在线发布看 published/applied revision 与 pendingProcUpdates。
 
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -216,12 +217,14 @@ namespace Automation
                 var update = new PendingProcUpdate(proc, revision);
                 if (state == ProcRunState.Stopped)
                 {
+                    // 停止态可立即采用新定义；运行态绝不能替换 ProcAgent 正在执行的对象图。
                     pendingProcUpdates.TryRemove(procIndex, out _);
                     appliedProcRevisions[procIndex] = revision;
                     Guid procId = proc.head?.Id ?? Guid.Empty;
                     UpdateSnapshot(procIndex, procId, proc.head?.Name, ProcRunState.Stopped, -1, -1, false, null);
                     return true;
                 }
+                // 运行中的发布只登记待应用版本，当前实例结束后再切换；两个 revision 可用于定位“保存了但未生效”。
                 pendingProcUpdates[procIndex] = update;
                 PublishRevisionSnapshot(procIndex);
                 return true;
@@ -706,6 +709,7 @@ namespace Automation
             }
             if (!TryValidateProcessStopped(procIndex, out string stateError))
             {
+                // 重复启动是异常请求：保留当前实例并返回失败，不得先强制结束再重启。
                 Logger?.Log($"启动流程失败:{stateError}", LogLevel.Error);
                 return false;
             }

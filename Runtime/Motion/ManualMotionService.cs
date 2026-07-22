@@ -1,6 +1,7 @@
 using Automation.MotionControl;
 // 模块：运行时 / 手动运动。
 // 职责范围：在平台安全门禁下协调手动运动请求。
+// 安全边界：拒绝原因通过 CommandRejected 返回；流程资源占用或状态不确定时不允许绕过门禁直接调用驱动。
 
 using System;
 using System.Collections.Generic;

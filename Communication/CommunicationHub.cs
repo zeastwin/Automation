@@ -1,6 +1,7 @@
 using System;
 // 模块：通讯运行时。
 // 职责范围：管理 TCP/串口通道、帧解码、接收分发、事务等待和通讯配置模型。
+// 排查入口：用 Log 区分生命周期/发送/接收错误，用 FramesDropped 判断积压；同名通道由 lifecycleGate 串行变更。
 
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -1303,6 +1304,7 @@ namespace Automation
         {
             ThrowIfDisposed();
             ParsedSocketInfo parsed = ParseSocketInfo(info, connectTimeoutMs);
+            // 同名通道的启停共用 lifecycleGate，防止并发重连把新通道误删或留下两个接收循环。
             SemaphoreSlim lifecycleGate = lifecycleGates.GetOrAdd("TCP:" + parsed.Name, _ => new SemaphoreSlim(1, 1));
             await lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -1657,6 +1659,7 @@ namespace Automation
         {
             ThrowIfDisposed();
             ParsedSerialInfo parsed = ParseSerialInfo(info);
+            // 串口和 TCP 使用相同生命周期规则；配置不变且已运行时 Start 是幂等操作。
             SemaphoreSlim lifecycleGate = lifecycleGates.GetOrAdd("SERIAL:" + parsed.Name, _ => new SemaphoreSlim(1, 1));
             await lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try

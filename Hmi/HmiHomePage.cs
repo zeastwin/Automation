@@ -2,6 +2,10 @@ using System;
 using System.Windows.Forms;
 using Automation.DeviceSdk;
 
+// 模块：平台内置 HMI / 首页。
+// 职责范围：显示平台与系统变量摘要；页面只消费 IAutomationPlatform 的稳定快照。
+// 排查入口：系统状态异常时先核对 SDK 事件和“系统状态”变量，不要在页面内补偿或改写运行状态。
+
 namespace Automation.Hmi
 {
     public partial class HmiHomePage : Form

@@ -3,6 +3,9 @@ using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Automation.Protocol;
+// 模块：MCP / Automation 工具入口。
+// 职责范围：提供强类型参数、短描述和 Bridge 调用；工具是否公开以 McpToolProfile 为准。
+// 排查入口：模型看不到工具查 Profile；参数错误查 DTO/Schema；业务错误查 Bridge 结构化 recovery。
 
 namespace Automation.McpServer
 {

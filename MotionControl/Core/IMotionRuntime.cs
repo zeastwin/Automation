@@ -1,17 +1,20 @@
 using System;
 // 模块：运动控制 / 核心。
 // 职责范围：定义统一运动运行契约、运动协调和轴状态缓存。
+// 边界说明：真实卡与仿真实现都遵守此契约；业务层不得依赖 LTDMC 返回码或具体驱动对象。
 
 using System.Collections.Generic;
 
 namespace Automation.MotionControl
 {
+    /// <summary>轴命令的安全校验类别；回原允许的前置状态与普通运动不同。</summary>
     public enum AxisCommandKind
     {
         Motion,
         Home
     }
 
+    /// <summary>一次命令前需要共同校验的控制卡、轴和命令类别。</summary>
     public sealed class AxisCommandRequest
     {
         public ushort Card { get; }
@@ -26,6 +29,7 @@ namespace Automation.MotionControl
         }
     }
 
+    /// <summary>多轴直线插补请求；Axes 与 Positions 必须一一对应。</summary>
     public sealed class CoordinatedLinearMoveRequest
     {
         public ushort Card { get; set; }
@@ -38,6 +42,7 @@ namespace Automation.MotionControl
         public double DecelerationTime { get; set; }
     }
 
+    /// <summary>批量输出中的单点目标状态。</summary>
     public sealed class IoOutputCommand
     {
         public IO Io { get; }
@@ -50,6 +55,7 @@ namespace Automation.MotionControl
         }
     }
 
+    /// <summary>流程引擎与调试界面共用的数字 IO 运行契约。</summary>
     public interface IIoRuntime
     {
         bool SetIO(IO io, bool isOpen);
@@ -58,6 +64,10 @@ namespace Automation.MotionControl
         bool GetInIO(IO io, ref bool value);
     }
 
+    /// <summary>
+    /// 与具体运动卡解耦的运行契约。调用运动命令前必须持有
+    /// <see cref="ValidateAxesForCommand"/> 返回的校验作用域。
+    /// </summary>
     public interface IMotionRuntime
     {
         bool IsCardInitialized { get; }
@@ -86,6 +96,9 @@ namespace Automation.MotionControl
         double GetAxisCurSpeed(ushort card, ushort axis);
         uint GetAxisIoStatus(ushort card, ushort axis);
         ushort GetAxisAlarmCode(ushort card, ushort axis);
+        /// <summary>
+        /// 在当前线程校验安全锁、复位、报警、急停、使能及回原状态；返回值释放后校验不再有效。
+        /// </summary>
         IDisposable ValidateAxesForCommand(IReadOnlyCollection<AxisCommandRequest> requests);
     }
 }

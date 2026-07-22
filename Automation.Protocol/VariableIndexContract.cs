@@ -1,3 +1,7 @@
+// 模块：Automation 协议 / 变量索引。
+// 职责范围：集中定义变量作用域和公开索引边界，供持久化、Bridge 与 MCP 共同引用。
+// 排查入口：变量定位异常时先区分稳定 Id、名称和当前物理索引，避免把索引当跨版本身份。
+
 namespace Automation.Protocol
 {
     /// <summary>

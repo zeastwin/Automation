@@ -1,6 +1,7 @@
 using System;
 // 模块：运行时 / AI 集成。
 // 职责范围：管理 AI 会话、配置、ACP/MCP 进程、受管运行环境和分析记录。
+// 状态所有权：会话、活动任务、取消和持久化都在此；FrmAiAssistant 只投影状态并处理用户交互。
 
 using System.Collections.Generic;
 using System.Linq;

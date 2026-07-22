@@ -1,5 +1,6 @@
 // 模块：应用入口。
 // 职责范围：启动 WinForms 进程并进入平台 Bootstrap；不承载运行时组合。
+// 排查入口：按 TryPrepare -> AppConfigStorage -> AutomationPlatformHost.Initialize 的顺序定位启动失败。
 
 using System;
 using System.Collections.Generic;

@@ -1,5 +1,6 @@
 // 模块：编辑器 / 流程。
 // 职责范围：流程树、指令表、对象选择、搜索和导航。
+// 排查入口：本页负责选择、确认和渲染；指令结构变更结果应沿 OperationEditingService 与统一提交链排查。
 
 using System;
 using System.Collections.Generic;

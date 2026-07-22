@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 // 模块：持久化 / 流程。
 // 职责范围：管理流程配置、工作目录事务、流程变量联合提交和运行日志落盘。
+// 排查入口：关注 .change-set-transaction-* 中的 manifest、旧/新文件和 .committed，禁止人工拼接部分提交结果。
 
 using System;
 using System.Collections.Generic;
@@ -73,6 +74,7 @@ namespace Automation
 
             try
             {
+                // 阶段一：在事务目录完整生成新配置。此阶段失败不会触碰正式 Work/value.json。
                 Directory.CreateDirectory(transactionPath);
                 Directory.CreateDirectory(newWorkPath);
                 List<Proc> stagedProcesses = processes.Select(ObjectGraphCloner.Clone).ToList();
@@ -93,10 +95,12 @@ namespace Automation
                     Path.Combine(transactionPath, ManifestFileName),
                     JsonConvert.SerializeObject(manifest));
 
+                // 阶段二：清单已持久化后才切换正式文件；启动恢复可据此判断事务前文件是否存在。
                 if (manifest.WorkExisted) Directory.Move(activeWorkPath, oldWorkPath);
                 Directory.Move(newWorkPath, activeWorkPath);
                 if (manifest.ValueExisted) File.Move(activeValuePath, oldValuePath);
                 File.Move(newValuePath, activeValuePath);
+                // .committed 是唯一提交完成证据，必须最后落盘；目录删除失败不影响提交结论。
                 AtomicJsonFileStore.WriteDurable(Path.Combine(transactionPath, CommittedFileName), "committed");
                 TryDeleteDirectory(transactionPath);
                 return true;

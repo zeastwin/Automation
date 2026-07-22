@@ -3,6 +3,9 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Security.Cryptography;
+// 模块：MCP / 工具调用审计。
+// 职责范围：记录工具开始、结束、耗时与脱敏摘要，供 turnId/seq 串联 AI 执行链。
+// 排查入口：优先看 D:\AutomationLogs\AIExecution\Analysis；完整报文仅用于底层取证。
 
 namespace Automation.McpServer
 {

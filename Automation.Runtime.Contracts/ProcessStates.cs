@@ -1,5 +1,10 @@
+// 模块：运行时契约 / 流程状态。
+// 职责范围：定义引擎、宿主与 UI 共同使用的流程状态、终止原因和运行日志端口。
+// 排查入口：停止原因看 ProcTerminationReason，运行状态看 ProcRunState；二者含义不同，不要互相替代。
+
 namespace Automation
 {
+    /// <summary>流程实例当前状态；Stopping/Pausing 是尚未完成的过渡态。</summary>
     public enum ProcRunState
     {
         Stopped = 0,
@@ -11,6 +16,7 @@ namespace Automation
         Stopping = 6
     }
 
+    /// <summary>流程实例结束原因，用于运行摘要和故障复盘，不代替当前运行状态。</summary>
     public enum ProcTerminationReason
     {
         None = 0,
@@ -23,7 +29,7 @@ namespace Automation
         EngineDisposed = 7
     }
 
-    // 变量表中的复位状态。
+    /// <summary>变量表中“复位状态”的固定数值契约。</summary>
     public enum ResetStatus
     {
         NotReset = 0,
@@ -31,7 +37,7 @@ namespace Automation
         ResetCompleted = 2
     }
 
-    // 变量表中的系统状态。
+    /// <summary>变量表中“系统状态”的固定数值契约。</summary>
     public enum SystemStatus
     {
         Uninitialized = 0,
