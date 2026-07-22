@@ -132,15 +132,6 @@ namespace Automation.MotionControl
             return snapshots.TryGetValue(BuildKey(card, axis), out snapshot);
         }
 
-        public AxisStatusSnapshot GetRequired(ushort card, ushort axis)
-        {
-            if (!TryGet(card, axis, out AxisStatusSnapshot snapshot))
-            {
-                throw new InvalidOperationException($"轴状态缓存不存在:{card}-{axis}");
-            }
-            return snapshot;
-        }
-
         public void Clear()
         {
             snapshots.Clear();

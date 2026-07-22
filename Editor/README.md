@@ -10,7 +10,7 @@
 | `Variables/` | `FrmValue`、`FrmValueDebug` | 变量配置与运行值调试 | 配置规则和提交进入 `VariableEditorService` |
 | `Io/` | `FrmIO`、`FrmIODebug` | IO 配置、监视、调试布局和关联 | 设备读取进入 `IoDebugMonitorService`；配置提交进入 `IoDebugConfigurationEditorService` |
 | `Motion/` | `FrmCard`、`FrmStation`、`FrmControl` | 控制卡、工站和手动运动 | 运动命令进入 `ManualMotionService` 与安全门禁 |
-| `Communication/` | `FrmComunication`、`FrmPlc` | 串口、Socket 与 PLC 配置调试 | 配置由对应 Store 持有，运行连接由通讯和 PLC Runtime 持有 |
+| `Communication/` | `FrmCommunication`、`FrmPlc` | 串口、Socket 与 PLC 配置调试 | 配置由对应 Store 持有，运行连接由通讯和 PLC Runtime 持有 |
 | `Data/` | `FrmDataStruct`、`FrmAlarmConfig` | 数据结构与报警配置 | 正式配置由对应 Store 持有 |
 | `Diagnostics/` | `FrmInfo`、`FrmRuntimeDiagnostics` | 日志、状态、流程图、断点、性能和事故诊断 | 只投影运行事实，不改变流程状态 |
 | `Ai/` | `FrmAiAssistant`、`GooseAcpClient` | AI 对话、ACP、预演确认和渲染 | 会话由 `AiConversationCoordinator` 持有；写入走 ChangeSet V2 |

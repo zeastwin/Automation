@@ -457,20 +457,6 @@ namespace Automation
             }
         }
 
-        public bool TryGetStructNameByIndex(int index, out string name)
-        {
-            name = null;
-            lock (dataLock)
-            {
-                if (index < 0 || index >= dataStructs.Count)
-                {
-                    return false;
-                }
-                name = dataStructs[index].Name;
-                return true;
-            }
-        }
-
         public bool TryGetStructIndexByName(string name, out int index)
         {
             index = -1;
@@ -485,31 +471,6 @@ namespace Automation
                     if (dataStructs[i].Name == name)
                     {
                         index = i;
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        public bool TryGetStructVersionByName(string name, out int structVersion)
-        {
-            structVersion = -1;
-            if (string.IsNullOrEmpty(name))
-            {
-                return false;
-            }
-            lock (dataLock)
-            {
-                for (int i = 0; i < dataStructs.Count; i++)
-                {
-                    if (dataStructs[i].Name == name)
-                    {
-                        if (i >= structVersions.Count)
-                        {
-                            return false;
-                        }
-                        structVersion = structVersions[i];
                         return true;
                     }
                 }
@@ -949,58 +910,6 @@ namespace Automation
             }
         }
 
-        public bool TrySetStructItemByName(string structName, int itemIndex, string itemName, List<string> strings, List<double> doubles, string param)
-        {
-            if (string.IsNullOrEmpty(structName))
-            {
-                return false;
-            }
-            lock (dataLock)
-            {
-                if (!TryGetStructByNameNoLock(structName, out DataStruct dataStruct, out int structIndex))
-                {
-                    return false;
-                }
-                if (!TryBuildItem(itemName, strings, doubles, param, out DataStructItem dataStructItem))
-                {
-                    return false;
-                }
-                if (!TryInsertOrReplaceItem(dataStruct, itemIndex, dataStructItem))
-                {
-                    return false;
-                }
-                RebuildRuntimeItemsNoLock();
-                MarkChangedNoLock();
-                MarkStructChangedNoLock(structIndex);
-                return true;
-            }
-        }
-
-        public bool TrySetStructItemByIndex(int structIndex, int itemIndex, List<string> strings, List<double> doubles, string param)
-        {
-            lock (dataLock)
-            {
-                if (structIndex < 0 || structIndex >= dataStructs.Count)
-                {
-                    return false;
-                }
-                DataStruct dataStruct = dataStructs[structIndex];
-                NormalizeStruct(dataStruct);
-                if (!TryBuildItem(string.Empty, strings, doubles, param, out DataStructItem dataStructItem))
-                {
-                    return false;
-                }
-                if (!TryInsertOrReplaceItem(dataStruct, itemIndex, dataStructItem))
-                {
-                    return false;
-                }
-                RebuildRuntimeItemsNoLock();
-                MarkChangedNoLock();
-                MarkStructChangedNoLock(structIndex);
-                return true;
-            }
-        }
-
         public bool TrySetItemValueByIndex(int structIndex, int itemIndex, int ValueIndex, string value)
         {
             return TrySetItemValueByIndex(structIndex, itemIndex, ValueIndex, value, null);
@@ -1217,48 +1126,6 @@ namespace Automation
             }
         }
 
-        public bool TryRemoveFirstItem(int structIndex)
-        {
-            lock (dataLock)
-            {
-                if (structIndex < 0 || structIndex >= dataStructs.Count)
-                {
-                    return false;
-                }
-                DataStruct dataStruct = dataStructs[structIndex];
-                if (dataStruct.dataStructItems.Count == 0)
-                {
-                    return false;
-                }
-                dataStruct.dataStructItems.RemoveAt(0);
-                RebuildRuntimeItemsNoLock();
-                MarkChangedNoLock();
-                MarkStructChangedNoLock(structIndex);
-                return true;
-            }
-        }
-
-        public bool TryRemoveLastItem(int structIndex)
-        {
-            lock (dataLock)
-            {
-                if (structIndex < 0 || structIndex >= dataStructs.Count)
-                {
-                    return false;
-                }
-                DataStruct dataStruct = dataStructs[structIndex];
-                if (dataStruct.dataStructItems.Count == 0)
-                {
-                    return false;
-                }
-                dataStruct.dataStructItems.RemoveAt(dataStruct.dataStructItems.Count - 1);
-                RebuildRuntimeItemsNoLock();
-                MarkChangedNoLock();
-                MarkStructChangedNoLock(structIndex);
-                return true;
-            }
-        }
-
         public bool TryFindItemByName(int structIndex, string key, out string value)
         {
             value = null;
@@ -1358,38 +1225,6 @@ namespace Automation
             }
         }
 
-        private bool TryGetStructByNameNoLock(string name, out DataStruct dataStruct)
-        {
-            dataStruct = dataStructs.FirstOrDefault(ds => ds.Name == name);
-            if (dataStruct == null)
-            {
-                return false;
-            }
-            NormalizeStruct(dataStruct);
-            return true;
-        }
-
-        private bool TryGetStructByNameNoLock(string name, out DataStruct dataStruct, out int index)
-        {
-            dataStruct = null;
-            index = -1;
-            if (string.IsNullOrEmpty(name))
-            {
-                return false;
-            }
-            for (int i = 0; i < dataStructs.Count; i++)
-            {
-                if (dataStructs[i].Name == name)
-                {
-                    dataStruct = dataStructs[i];
-                    index = i;
-                    NormalizeStruct(dataStruct);
-                    return true;
-                }
-            }
-            return false;
-        }
-
         private bool TryGetItemNoLock(int structIndex, int itemIndex, out DataStructItem item)
         {
             item = null;
@@ -1484,63 +1319,5 @@ namespace Automation
             return true;
         }
 
-        private static bool TryBuildItem(string itemName, List<string> strings, List<double> doubles, string param, out DataStructItem dataStructItem)
-        {
-            dataStructItem = null;
-            string format = param ?? string.Empty;
-            int expectedStrCount = format.Count(ch => ch == '1');
-            int expectedNumCount = format.Count(ch => ch == '0');
-            if ((strings?.Count ?? 0) != expectedStrCount || (doubles?.Count ?? 0) != expectedNumCount)
-            {
-                return false;
-            }
-
-            dataStructItem = new DataStructItem
-            {
-                Name = itemName ?? string.Empty,
-                FieldNames = new Dictionary<int, string>(),
-                FieldTypes = new Dictionary<int, DataStructValueType>(),
-                str = new Dictionary<int, string>(),
-                num = new Dictionary<int, double>()
-            };
-
-            List<string> strList = strings ?? new List<string>();
-            List<double> numList = doubles ?? new List<double>();
-            int strIndex = 0;
-            int numIndex = 0;
-
-            for (int i = 0; i < format.Length; i++)
-            {
-                char digitChar = format[i];
-                if (digitChar == '0')
-                {
-                    if (numIndex >= numList.Count)
-                    {
-                        return false;
-                    }
-                    dataStructItem.num[i] = numList[numIndex];
-                    dataStructItem.FieldNames[i] = $"字段{i}";
-                    dataStructItem.FieldTypes[i] = DataStructValueType.Number;
-                    numIndex++;
-                }
-                else if (digitChar == '1')
-                {
-                    if (strIndex >= strList.Count)
-                    {
-                        return false;
-                    }
-                    dataStructItem.str[i] = strList[strIndex];
-                    dataStructItem.FieldNames[i] = $"字段{i}";
-                    dataStructItem.FieldTypes[i] = DataStructValueType.Text;
-                    strIndex++;
-                }
-                else
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
     }
 }

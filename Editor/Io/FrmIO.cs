@@ -207,12 +207,6 @@ namespace Automation
                 dgvIO.ResumeLayout();
             }
         }
-        //刷新IO界面
-        public void FreshFrmIO()
-        {
-            RefreshIODgv();
-        }
-
         private void dgvIO_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
             

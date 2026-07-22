@@ -22,24 +22,6 @@ namespace Automation.Bridge
 {
     internal sealed partial class AutomationBridgeService
     {
-        private JObject BuildOperationFields(OperationType op)
-        {
-            return WithOperationReadContext(op, () =>
-            {
-                RefreshOperationContext(op);
-                JObject fields = new JObject();
-                foreach (PropertyDescriptor descriptor in TypeDescriptor.GetProperties(op).Cast<PropertyDescriptor>())
-                {
-                    if (descriptor == null || !descriptor.IsBrowsable)
-                    {
-                        continue;
-                    }
-                    fields[descriptor.Name] = ConvertValueToToken(descriptor.GetValue(op));
-                }
-                return fields;
-            });
-        }
-
         private JObject BuildOperationSchema(OperationType op)
         {
             return WithOperationReadContext(op, () =>

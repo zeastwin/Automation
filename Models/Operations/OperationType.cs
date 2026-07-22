@@ -115,21 +115,6 @@ namespace Automation
 
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
-    public class DataStructC
-    {
-        [DisplayName("数据结构索引"), Category("参数"), Description("数据结构索引；用于按索引定位结构体。"), ReadOnly(false)]
-        [NumericRange(0)]
-        public int DataStructIndex { get; set; }
-
-        [DisplayName("数据结构名称"), Category("参数"), Description("数据结构名称；用于按名称定位结构体。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
-        public string DataStructName { get; set; }
-        public override string ToString()
-        {
-            return "";
-        }
-    }
-    [TypeConverter(typeof(SerializableExpandableObjectConverter))]
-    [Serializable]
     public class TimeoutSetting
     {
         public const int DefaultTimeoutMs = 3000;

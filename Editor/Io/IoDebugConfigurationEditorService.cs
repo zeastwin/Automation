@@ -210,31 +210,6 @@ namespace Automation
             return TryCommit(draft, out committed, out error);
         }
 
-        public bool TryAddConnection(
-            IODebugMap current,
-            int pageIndex,
-            IO output,
-            out IODebugMap committed,
-            out string error)
-        {
-            committed = null;
-            if (output == null || string.IsNullOrWhiteSpace(output.Name))
-            {
-                error = "关联输出不存在。";
-                return false;
-            }
-            IODebugMap draft = CloneMap(current);
-            List<IOConnect> connections = GetConnections(draft, pageIndex);
-            if (connections.Any(item => string.Equals(
-                item?.Output?.Name, output.Name, StringComparison.Ordinal)))
-            {
-                error = "调试列表已存在同名输出连接。";
-                return false;
-            }
-            connections.Add(new IOConnect { Output = output.CloneForDebug() });
-            return TryCommit(draft, out committed, out error);
-        }
-
         public bool TrySetConnectionEndpoint(
             IODebugMap current,
             int pageIndex,

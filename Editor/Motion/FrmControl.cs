@@ -1307,10 +1307,6 @@ namespace Automation
             }
         }
 
-        public void StopAxis(int card,int axis)
-        {
-            Workspace.Runtime.ManualMotion.TryStop((ushort)card, (ushort)axis, 0);
-        }
     }
 
 }

@@ -22,36 +22,6 @@ namespace Automation.Bridge
 {
     internal sealed partial class AutomationBridgeService
     {
-        private static bool TryReadString(JObject obj, string fieldName, out string value, out JObject error)
-        {
-            value = null;
-            error = null;
-            JToken token = obj?[fieldName];
-            if (token == null || token.Type != JTokenType.String || string.IsNullOrWhiteSpace(token.Value<string>()))
-            {
-                error = BridgeError(400, "INVALID_ARGUMENT", $"字段 {fieldName} 必须是非空字符串。",
-                    "当前类型：" + (token?.Type.ToString() ?? "缺失"));
-                return false;
-            }
-            value = token.Value<string>();
-            return true;
-        }
-
-        private static bool TryReadInteger(JObject obj, string fieldName, out int value, out JObject error)
-        {
-            value = 0;
-            error = null;
-            JToken token = obj?[fieldName];
-            if (token == null || token.Type != JTokenType.Integer)
-            {
-                error = BridgeError(400, "INVALID_ARGUMENT", $"字段 {fieldName} 必须是整数。",
-                    "当前类型：" + (token?.Type.ToString() ?? "缺失"));
-                return false;
-            }
-            value = token.Value<int>();
-            return true;
-        }
-
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleConfirmPreview(JObject request)
         {

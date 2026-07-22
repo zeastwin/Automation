@@ -15,7 +15,7 @@ using System.Windows.Forms;
 
 namespace Automation
 {
-    public partial class FrmComunication : Form
+    public partial class FrmCommunication : Form
     {
         private const int MaxLogLength = 200000;
         private const int MaxPendingUiLogEntries = 2000;
@@ -40,11 +40,11 @@ namespace Automation
         private CancellationTokenSource sendLoopCts;
         private int runtimeReleased;
 
-        public FrmComunication()
+        public FrmCommunication()
         {
             InitializeComponent();
             ConfigureResponsiveLayout();
-            Disposed += FrmComunication_Disposed;
+            Disposed += FrmCommunication_Disposed;
 
             dataGridView1.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
             dataGridView1.RowHeadersVisible = false;
@@ -66,7 +66,7 @@ namespace Automation
 
             iSelectedSocketRow = -1;
             iSelectedSerialPortRow = -1;
-            VisibleChanged += FrmComunication_VisibleChanged;
+            VisibleChanged += FrmCommunication_VisibleChanged;
             checkBox2.CheckedChanged += (s, e) =>
             {
                 if (!checkBox2.Checked)
@@ -168,7 +168,7 @@ namespace Automation
             button.ForeColor = foreColor;
         }
 
-        private void FrmComunication_Load(object sender, EventArgs e)
+        private void FrmCommunication_Load(object sender, EventArgs e)
         {
             RefleshSocketDgv();
             RefleshSerialPortDgv();
@@ -181,7 +181,7 @@ namespace Automation
             UpdateOnlineState();
         }
 
-        private void FrmComunication_VisibleChanged(object sender, EventArgs e)
+        private void FrmCommunication_VisibleChanged(object sender, EventArgs e)
         {
             UpdateLogSubscription();
             if (!Visible)
@@ -446,7 +446,7 @@ namespace Automation
             ReceiveTextBox.ScrollToCaret();
         }
 
-        private void FrmComunication_FormClosing(object sender, FormClosingEventArgs e)
+        private void FrmCommunication_FormClosing(object sender, FormClosingEventArgs e)
         {
             sendLoopCts?.Cancel();
             sendLoopCts?.Dispose();
@@ -464,9 +464,9 @@ namespace Automation
             ReleaseRuntimeResources();
         }
 
-        private void FrmComunication_Disposed(object sender, EventArgs e)
+        private void FrmCommunication_Disposed(object sender, EventArgs e)
         {
-            VisibleChanged -= FrmComunication_VisibleChanged;
+            VisibleChanged -= FrmCommunication_VisibleChanged;
             ReleaseRuntimeResources();
             stateTimer.Dispose();
             logFlushTimer.Stop();

@@ -64,13 +64,6 @@ namespace Automation
         public string Note { get; set; }
     }
 
-    public sealed class PlatformLogEntry
-    {
-        public string TimeText { get; set; }
-        public string Message { get; set; }
-        public FrmInfo.Level Level { get; set; }
-    }
-
     public sealed class AutomationPlatformHost : IAutomationPlatform
     {
         private readonly int uiThreadId = Thread.CurrentThread.ManagedThreadId;
@@ -78,7 +71,6 @@ namespace Automation
             new Dictionary<string, CustomFunc.FunctionDelegate>(StringComparer.Ordinal);
         private readonly PlatformRuntime runtime;
         private readonly IDisposable exceptionSafetyRegistration;
-        private readonly RuntimeLogBuffer runtimeLogBuffer;
         private readonly WinFormsProcessInteractionCoordinator processInteraction;
         private PlatformRuntimeInitializationResult initializationResult;
         private FrmMain platformEditor;
@@ -90,7 +82,6 @@ namespace Automation
         public AutomationPlatformHost()
         {
             runtime = new PlatformRuntime();
-            runtimeLogBuffer = new RuntimeLogBuffer();
             processInteraction = new WinFormsProcessInteractionCoordinator(runtime);
             runtime.ProcessInteraction = processInteraction;
             exceptionSafetyRegistration = RuntimeExceptionLogger.RegisterSafetyCoordinator(runtime.Safety);
@@ -206,9 +197,7 @@ namespace Automation
                     runtime,
                     processInteraction,
                     processInteraction,
-                    new CompositeLogger(
-                        runtimeLogBuffer,
-                        new LocalFileLogger(@"D:\AutomationLogs\ProcessLog")));
+                    new LocalFileLogger(@"D:\AutomationLogs\ProcessLog"));
                 processInteraction.AttachEngine(composition.ProcessEngine);
                 composition.ProcessEngine.SnapshotChanged += OnProcessSnapshotChanged;
                 runtime.Devices.Faulted += OnDeviceFaulted;
@@ -547,22 +536,6 @@ namespace Automation
             runtime.Stores.Values.SetMonitorFlag(value.Index, enabled);
             runtime.Stores.Values.SetMonitorEnabled(true);
             return true;
-        }
-
-        public IReadOnlyList<PlatformLogEntry> GetRecentLogs(int maxCount)
-        {
-            EnsureReadyOrFaulted();
-            if (maxCount <= 0)
-            {
-                return new List<PlatformLogEntry>();
-            }
-            IReadOnlyList<RuntimeLogRecord> source = runtimeLogBuffer.GetTail(maxCount);
-            return source.Select(item => new PlatformLogEntry
-            {
-                TimeText = $"[{item.Timestamp:yyyy-MM-dd HH时mm分ss秒}]",
-                Message = item.Message,
-                Level = item.Level == LogLevel.Error ? FrmInfo.Level.Error : FrmInfo.Level.Normal
-            }).ToList();
         }
 
         public void Shutdown()

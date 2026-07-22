@@ -31,7 +31,7 @@ namespace Automation
         public FrmStation Station { get; }
         public FrmDataStruct DataStruct { get; }
         public FrmIODebug IODebug { get; }
-        public FrmComunication Communication { get; }
+        public FrmCommunication Communication { get; }
         public FrmState State { get; }
         public FrmAlarmConfig AlarmConfig { get; }
         public FrmSearch Search { get; }
@@ -63,7 +63,7 @@ namespace Automation
             Station = main.frmStation;
             DataStruct = main.frmdataStruct;
             IODebug = main.frmIODebug;
-            Communication = main.frmComunication;
+            Communication = main.frmCommunication;
             State = main.frmState;
             AlarmConfig = main.frmAlarmConfig;
             Search = main.frmSearch;
@@ -244,10 +244,10 @@ namespace Automation
         }
     }
 
-    public partial class FrmComunication : IEditorWorkspaceParticipant
+    public partial class FrmCommunication : IEditorWorkspaceParticipant
     {
         private EditorWorkspace editorWorkspace;
-        internal EditorWorkspace Workspace => EditorWorkspaceGuard.Require(editorWorkspace, nameof(FrmComunication));
+        internal EditorWorkspace Workspace => EditorWorkspaceGuard.Require(editorWorkspace, nameof(FrmCommunication));
         void IEditorWorkspaceParticipant.AttachEditorWorkspace(EditorWorkspace workspace) => editorWorkspace = workspace;
     }
 

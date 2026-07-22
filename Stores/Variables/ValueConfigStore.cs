@@ -293,17 +293,6 @@ namespace Automation
             return value;
         }
 
-        public DicValue GetValueByIndexForProcess(int index, Guid procId)
-        {
-            DicValue value = GetValueByIndex(index);
-            if (!CanProcessAccess(value, procId))
-            {
-                throw new InvalidOperationException(
-                    $"流程无权访问其他流程的私有变量索引:{index}");
-            }
-            return value;
-        }
-
         public bool TryGetValueByIndex(int index, out DicValue value)
         {
             value = null;
@@ -840,57 +829,6 @@ namespace Automation
             return true;
         }
 
-        public bool ClearValueByIndex(int index, string source = null)
-        {
-            if (index < 0 || index >= ValueCapacity)
-            {
-                return false;
-            }
-            DicValue changedValue = null;
-            string oldRuntime = null;
-            lock (valueLock)
-            {
-                DicValue currentValue = values[index];
-                if (currentValue == null)
-                {
-                    return false;
-                }
-                if (ProtectedValueNames.Contains(currentValue.Name))
-                {
-                    return false;
-                }
-                lock (currentValue.SyncRoot)
-                {
-                    string oldName = currentValue.Name;
-                    oldRuntime = currentValue.Value;
-                    if (!string.IsNullOrEmpty(oldName))
-                    {
-                        nameIndex.Remove(oldName);
-                    }
-                    currentValue.Name = string.Empty;
-                    currentValue.Id = Guid.Empty;
-                    currentValue.Type = "double";
-                    currentValue.Scope = IsSystemValueIndex(index)
-                        ? VariableScopeContract.System
-                        : VariableScopeContract.Public;
-                    currentValue.OwnerProcId = null;
-                    currentValue.Note = string.Empty;
-                    currentValue.Value = "0";
-                    currentValue.isMark = false;
-                    nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
-                    if (!string.IsNullOrEmpty(oldRuntime))
-                    {
-                        changedValue = currentValue;
-                    }
-                }
-            }
-            if (changedValue != null)
-            {
-                RaiseValueChanged(changedValue, oldRuntime, "0", source);
-            }
-            return true;
-        }
-
         public bool IsMarked(int index)
         {
             if (index < 0 || index >= ValueCapacity)
@@ -900,19 +838,6 @@ namespace Automation
             lock (valueLock)
             {
                 return values[index].isMark;
-            }
-        }
-
-        public bool ToggleMark(int index)
-        {
-            if (index < 0 || index >= ValueCapacity)
-            {
-                return false;
-            }
-            lock (valueLock)
-            {
-                values[index].isMark = !values[index].isMark;
-                return true;
             }
         }
 
@@ -931,25 +856,6 @@ namespace Automation
         {
             DicValue value = GetValueByIndex(index);
             return value.GetDValue();
-        }
-
-        public string get_Str_ValueByIndex(int index)
-        {
-            DicValue value = GetValueByIndex(index);
-            return value.GetCValue();
-        }
-
-        public double get_D_ValueByName(string key)
-        {
-            DicValue value = GetValueByName(key);
-            return value.GetDValue();
-        }
-
-        public string get_Str_ValueByName(string key)
-        {
-            DicValue value = GetValueByName(key);
-            return value.GetCValue();
-
         }
 
         private bool TryValidateCurrentValue(DicValue value, string currentValue, out string error)

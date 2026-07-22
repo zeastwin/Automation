@@ -1735,14 +1735,6 @@ namespace Automation
             }
         }
 
-        public void LocateProcessVariables(Guid procId)
-        {
-            if (procId == Guid.Empty) return;
-            selectedScope = VariableScopeContract.Process;
-            selectedOwnerProcId = procId;
-            RefreshScopeTree();
-            ApplyScopeFilter();
-        }
         /*=============================================================================================*/
         private void FrmValue_Load(object sender, EventArgs e)
         {

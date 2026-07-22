@@ -126,11 +126,6 @@ namespace Automation
             ConfigureContent("提示", string.Empty);
         }
 
-        public void SetMsgFrom(string msg)
-        {
-            txtMsg.Text = msg ?? string.Empty;
-        }
-
         public void btnCanel()
         {
             if (IsDisposed || Disposing)

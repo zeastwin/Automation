@@ -1911,67 +1911,6 @@ namespace Automation
             }
         }
 
-        private void UpdateProcNodeStyle(int procIndex)
-        {
-            if (procIndex < 0 || procIndex >= proc_treeView.Nodes.Count || procIndex >= procsList.Count)
-            {
-                return;
-            }
-            bool disabled = procsList[procIndex]?.head?.Disable == true;
-            TreeNode node = proc_treeView.Nodes[procIndex];
-            if (node != null)
-            {
-                node.ForeColor = disabled ? UiPalette.DisabledSoft : UiPalette.TextPrimary;
-                node.Text = BuildProcNodeText(procIndex);
-                node.NodeFont = procNodeFont;
-                SetNodeImage(node, GetProcImageKey(procsList[procIndex], Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex)));
-            }
-        }
-
-        private void UpdateStepNodeStyle(int procIndex, int stepIndex)
-        {
-            if (procIndex < 0 || procIndex >= proc_treeView.Nodes.Count || procIndex >= procsList.Count)
-            {
-                return;
-            }
-            if (stepIndex < 0 || stepIndex >= procsList[procIndex].steps.Count)
-            {
-                return;
-            }
-            if (stepIndex >= proc_treeView.Nodes[procIndex].Nodes.Count)
-            {
-                return;
-            }
-            bool disabled = procsList[procIndex]?.head?.Disable == true || procsList[procIndex].steps[stepIndex]?.Disable == true;
-            TreeNode node = proc_treeView.Nodes[procIndex].Nodes[stepIndex];
-            if (node != null)
-            {
-                node.ForeColor = disabled ? UiPalette.DisabledSoft : UiPalette.TextPrimary;
-                node.Text = BuildStepNodeText(procIndex, stepIndex);
-                node.NodeFont = stepNodeFont;
-                SetNodeImage(
-                    node,
-                    GetStepImageKey(
-                        procsList[procIndex],
-                        procsList[procIndex].steps[stepIndex],
-                        stepIndex,
-                        Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex)));
-            }
-        }
-
-        private void UpdateStepNodeStylesForProc(int procIndex)
-        {
-            if (procIndex < 0 || procIndex >= procsList.Count)
-            {
-                return;
-            }
-            int stepCount = procsList[procIndex].steps.Count;
-            for (int i = 0; i < stepCount; i++)
-            {
-                UpdateStepNodeStyle(procIndex, i);
-            }
-        }
-
         private string BuildProcNodeText(int procIndex)
         {
             if (procIndex < 0 || procIndex >= procsList.Count)
@@ -2072,27 +2011,6 @@ namespace Automation
             string stepName = string.IsNullOrWhiteSpace(step?.Name) ? $"步骤{stepIndex}" : step.Name;
             return $"{stepIndex}：{stepName}";
         }
-        public Tuple<int, int, int> FindOperationTypeIndex(OperationType hash)
-        {
-            
-            for (int procIndex = 0; procIndex < procsList.Count; procIndex++)
-            {
-                Proc proc = procsList[procIndex];
-                for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
-                {
-                    Step step = proc.steps[stepIndex];
-                    for (int opIndex = 0; opIndex < step.Ops.Count; opIndex++)
-                    {
-                        if (step.Ops[opIndex] == hash)
-                        {
-                            return new Tuple<int, int, int>(procIndex, stepIndex, opIndex);
-                        }
-                    }
-                }
-            }
-            return new Tuple<int, int, int>(-1, -1, -1);
-        }
-
     }
 
     internal static class ProcessPageFont

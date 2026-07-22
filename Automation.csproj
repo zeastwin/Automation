@@ -24,10 +24,6 @@
     <PlatformRuntimeVersion>1.0.0.0</PlatformRuntimeVersion>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="Automation.Runtime.Contracts\Automation.Runtime.Contracts.csproj">
-      <Project>{E23DE03C-33B2-4A28-A178-528507F8787A}</Project>
-      <Name>Automation.Runtime.Contracts</Name>
-    </ProjectReference>
     <ProjectReference Include="Automation.DeviceSdk\Automation.DeviceSdk.csproj">
       <Project>{A6A8D87F-DCB2-4D6D-8C98-730E0E527A20}</Project>
       <Name>Automation.DeviceSdk</Name>
@@ -35,6 +31,10 @@
     <ProjectReference Include="Automation.Protocol\Automation.Protocol.csproj">
       <Project>{9B777468-5118-4A4B-AB0E-6D02861C6B5F}</Project>
       <Name>Automation.Protocol</Name>
+    </ProjectReference>
+    <ProjectReference Include="Automation.Runtime.Contracts\Automation.Runtime.Contracts.csproj">
+      <Project>{E23DE03C-33B2-4A28-A178-528507F8787A}</Project>
+      <Name>Automation.Runtime.Contracts</Name>
     </ProjectReference>
     <ProjectReference Include="GooseShell\GooseShell.csproj">
       <Project>{D812DDE6-B0F2-4609-9E4E-10D72CD3CB52}</Project>
@@ -72,17 +72,10 @@
     <StartupObject />
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Runtime\Ai\AiConversationStorage.cs" />
-    <Compile Include="Runtime\Ai\AiConversationCoordinator.cs" />
-    <Compile Include="Runtime\Ai\GooseAcpEventReader.cs" />
-    <Compile Include="Runtime\Ai\AiStandardTestSuite.cs" />
-    <Compile Include="Runtime\Lifecycle\PlatformShutdownCoordinator.cs" />
-    <Compile Include="Editor\Io\IoDebugMonitorService.cs" />
-    <Compile Include="Editor\Io\IoDebugConfigurationEditorService.cs" />
-    <Compile Include="Editor\Process\ProcessEditorSelectionState.cs" />
-    <Compile Include="Editor\Ai\AiPreviewConfirmationCoordinator.cs" />
-    <Compile Include="Editor\Variables\VariableEditorService.cs" />
-    <Compile Include="Runtime\Ai\AttachmentTextExtractor.cs" />
+    <Reference Include="HslCommunication, Version=7.0.1.0, Culture=neutral, PublicKeyToken=null, processorArchitecture=MSIL">
+      <HintPath>ThirdParty\HslCommunication\7.0.1\HslCommunication.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="LibGit2Sharp, Version=0.31.0.0, Culture=neutral, PublicKeyToken=7cbde695407f0333, processorArchitecture=MSIL">
       <HintPath>packages\LibGit2Sharp.0.31.0\lib\net472\LibGit2Sharp.dll</HintPath>
     </Reference>
@@ -92,6 +85,7 @@
     <Reference Include="Microsoft.Bcl.HashCode">
       <HintPath>packages\Microsoft.Bcl.HashCode.6.0.0\lib\net462\Microsoft.Bcl.HashCode.dll</HintPath>
     </Reference>
+    <Reference Include="Microsoft.CSharp" />
     <Reference Include="Microsoft.Web.WebView2.Core, Version=1.0.4078.44, Culture=neutral, PublicKeyToken=2a8ab48044d2601e, processorArchitecture=MSIL">
       <HintPath>packages\Microsoft.Web.WebView2.1.0.4078.44\lib\net462\Microsoft.Web.WebView2.Core.dll</HintPath>
     </Reference>
@@ -104,15 +98,14 @@
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>packages\Newtonsoft.Json.13.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
-    <Reference Include="HslCommunication, Version=7.0.1.0, Culture=neutral, PublicKeyToken=null, processorArchitecture=MSIL">
-      <HintPath>ThirdParty\HslCommunication\7.0.1\HslCommunication.dll</HintPath>
-      <Private>True</Private>
-    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Buffers, Version=4.0.5.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
       <HintPath>packages\System.Buffers.4.6.1\lib\net462\System.Buffers.dll</HintPath>
     </Reference>
     <Reference Include="System.Core" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="System.Drawing" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Memory, Version=4.0.5.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
@@ -131,201 +124,76 @@
     <Reference Include="System.Runtime.InteropServices.RuntimeInformation, Version=4.0.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <HintPath>packages\System.Runtime.InteropServices.RuntimeInformation.4.3.0\lib\net45\System.Runtime.InteropServices.RuntimeInformation.dll</HintPath>
       <Private>True</Private>
-      <Private>True</Private>
     </Reference>
     <Reference Include="System.Security" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Communication\\CommunicationHub.cs" />
-    <Compile Include="Communication\\CommunicationModels.cs" />
-    <Compile Include="Engine\Models\ValueRef.cs" />
-    <Compile Include="Engine\Definitions\VariableReferenceCatalog.cs" />
-    <Compile Include="Engine\Editing\ProcessVariableLifecycleService.cs" />
-    <Compile Include="Engine\Execution\ProcessRuntimeBinder.cs" />
-    <Compile Include="Engine\Editing\ProcessEditingService.cs" />
-    <Compile Include="Engine\Editing\OperationEditingService.cs" />
-    <Compile Include="Engine\Editing\ProcessAccessServices.cs" />
-    <Compile Include="Engine\Compilation\AiChangeSetCompiler.cs" />
-    <Compile Include="Engine\Compilation\AiOperationCompilerRegistry.cs" />
-    <Compile Include="Engine\Compilation\StructuredOperationCompiler.cs" />
-    <Compile Include="Engine\Validation\ProcessReadinessService.cs" />
-    <Compile Include="Engine\Definitions\OperationDefinitionRegistry.cs" />
-    <Compile Include="Engine\Validation\ProcessDefinitionService.cs" />
-    <Compile Include="Engine\Editing\ProcessFlowGraphService.cs" />
-    <Compile Include="Engine\Models\ProcessModels.cs" />
-    <Compile Include="Engine\Definitions\OperationBehaviorCatalog.cs" />
-    <Compile Include="Engine\Definitions\OperationGotoReferenceCatalog.cs" />
-    <Compile Include="Stores\Data\AlarmInfoStore.cs" />
-    <Compile Include="Stores\Infrastructure\AtomicJsonFileStore.cs" />
-    <Compile Include="Stores\Devices\CardConfigStore.cs" />
-    <Compile Include="Stores\Infrastructure\ConfigurationBatchWriter.cs" />
-    <Compile Include="Stores\Process\ProcessVariableConfigurationTransaction.cs" />
-    <Compile Include="Runtime\Editing\ProcessVariableConfigurationService.cs" />
-    <Compile Include="Stores\Devices\CommunicationConfigStore.cs" />
-    <Compile Include="Engine\Extensibility\CustomFunc.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Core.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Operations.Comm.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Operations.Custom.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Operations.DataStruct.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Operations.Io.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Operations.Motion.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Operations.Popup.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Operations.Proc.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Operations.String.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Operations.Value.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Operations.Plc.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Operations.cs" />
-    <Compile Include="Engine\Execution\ProcessEngine.Models.cs" />
-    <Compile Include="PLC\\PlcModels.cs" />
-    <Compile Include="PLC\\PlcDirectOperationValidator.cs" />
-    <Compile Include="PLC\\HslModbusAdapter.cs" />
-    <Compile Include="PLC\\PlcRuntimeService.cs" />
-    <Compile Include="Stores\Devices\PlcConfigStore.cs" />
-    <Compile Include="Stores\Data\DataStructModels.cs" />
-    <Compile Include="Stores\Devices\CardConfigurationModels.cs" />
-    <Compile Include="Stores\Data\DataStructStore.cs" />
-    <Compile Include="Stores\Devices\IoConfigurationStore.cs" />
-    <Compile Include="Stores\Devices\IoDebugConfigurationStore.cs" />
-    <Compile Include="Stores\Devices\IoDebugModels.cs" />
-    <Compile Include="Stores\Variables\ValueDebugConfigurationStore.cs" />
-    <Compile Include="Stores\Process\ProcessEngineLogger.cs" />
-    <Compile Include="Runtime\Process\ProcessRuntimeControl.cs" />
-    <Compile Include="Stores\Process\ProcessDefinitionRepository.cs" />
-    <Compile Include="Stores\Process\ProcessWorkDirectoryTransaction.cs" />
-    <Compile Include="Stores\Devices\StationDefinitionStore.cs" />
-    <Compile Include="Stores\Devices\TrayPointStore.cs" />
-    <Compile Include="Stores\Variables\ValueConfigStore.cs" />
-    <Compile Include="Runtime\Configuration\AppConfigStorage.cs" />
-    <Compile Include="Runtime\Motion\ManualMotionService.cs" />
-    <Compile Include="Runtime\Infrastructure\HighResolutionWaiter.cs" />
-    <Compile Include="Runtime\Diagnostics\ProcessPerformanceAnalyzer.cs" />
-    <Compile Include="Runtime\Diagnostics\RuntimeExceptionLogger.cs" />
-    <Compile Include="Runtime\Diagnostics\StructuredAuditLogger.cs" />
-    <Compile Include="Runtime\Ai\AiAnalysisLogger.cs" />
-    <Compile Include="Runtime\Diagnostics\ProcessTraceAuditSink.cs" />
-    <Compile Include="Runtime\Diagnostics\RuntimeBlackBoxRecorder.cs" />
-    <Compile Include="Runtime\Editing\EditorHistoryService.cs" />
-    <Compile Include="Runtime\Diagnostics\DataBreakpointService.cs" />
-    <Compile Include="Runtime\Infrastructure\ObjectGraphCloner.cs" />
-    <Compile Include="Runtime\Configuration\AutomationConfigSerializationBinder.cs" />
-    <Compile Include="Runtime\Editing\OperationClipboardService.cs" />
-    <Compile Include="Runtime\Editing\PlatformEditorUiAdapter.cs" />
-    <Compile Include="Runtime\Hosting\PlatformPaths.cs" />
-    <Compile Include="Runtime\Lifecycle\PlatformLifecycleServices.cs" />
-    <Compile Include="Runtime\Hosting\PlatformRuntime.cs" />
-    <Compile Include="Runtime\Hosting\PlatformRuntimeComposer.cs" />
-    <Compile Include="Runtime\Lifecycle\PlatformDeviceCoordinator.cs" />
-    <Compile Include="Runtime\Hosting\PlatformRuntimeInitializer.cs" />
-    <Compile Include="Runtime\Diagnostics\RuntimeLogBuffer.cs" />
-    <Compile Include="Runtime\Lifecycle\PlatformSystemStatusService.cs" />
-    <Compile Include="Runtime\Editing\EditorSessionCoordinator.cs" />
-    <Compile Include="Runtime\Hosting\AutomationPlatformHost.cs" />
-    <Compile Include="Runtime\Hosting\AutomationPlatformBootstrap.cs" />
-    <Compile Include="Runtime\Process\PlatformValueStoreFacade.cs" />
-    <Compile Include="Runtime\Process\PlatformProcessStoreFacade.cs" />
-    <Compile Include="Runtime\Ai\AutomationMcpServerManager.cs" />
-    <Compile Include="Runtime\Configuration\HmiDevelopmentSourceLocator.cs" />
-    <Compile Include="Runtime\Hosting\AutomationRuntimeOptions.cs" />
-    <Compile Include="Runtime\Ai\GooseConfigStorage.cs" />
-    <Compile Include="Runtime\Ai\GooseRuntimeEnvironment.cs" />
-    <Compile Include="Runtime\Ai\GooseRuntimeProvisioner.cs" />
-    <Compile Include="Editor\Common\UiBranding.cs" />
-    <Compile Include="Editor\Common\UiPalette.cs" />
-    <Compile Include="Runtime\Ai\AiProviderSecretStorage.cs" />
-    <Compile Include="Runtime\Configuration\ConfigurationVersionService.cs" />
-    <Compile Include="Editor\Common\UiStatusImages.cs" />
-    <Compile Include="Simulation\\SimulationGatewayClient.cs" />
-    <Compile Include="Bridge\\AutomationBridgeHost.cs" />
-    <Compile Include="Bridge\AutomationBridgePreviewClient.cs" />
+    <Compile Include="Application\Program.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.cs" />
+    <Compile Include="Bridge\Service\AutomationBridgeService.AuditDiagnostics.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.ChangeSet.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.DataStructures.cs" />
-    <Compile Include="Bridge\Service\AutomationBridgeService.AuditDiagnostics.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.HardwareResources.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.IoResources.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.Migration.cs" />
+    <Compile Include="Bridge\Service\AutomationBridgeService.OperationProjection.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.PreviewState.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.ProcessCommands.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.ProcessInspection.cs" />
+    <Compile Include="Bridge\Service\AutomationBridgeService.ProcessProjection.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.ProcessQueries.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.Protocol.cs" />
-    <Compile Include="Bridge\Service\AutomationBridgeService.Routing.cs" />
-    <Compile Include="Bridge\Service\AutomationBridgeService.OperationProjection.cs" />
-    <Compile Include="Bridge\Service\AutomationBridgeService.ProcessProjection.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.ProtocolSupport.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.ReferenceDiagnostics.cs" />
+    <Compile Include="Bridge\Service\AutomationBridgeService.Routing.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.RuntimeDiagnostics.cs" />
-    <Compile Include="Bridge\Service\AutomationBridgeService.ValueConversion.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.Stations.cs" />
+    <Compile Include="Bridge\Service\AutomationBridgeService.ValueConversion.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.Variables.cs" />
-    <Compile Include="Editor\Ai\GooseAcpClient.cs" />
-    <Compile Include="Editor\Shell\EditorWorkspace.cs" />
-    <Compile Include="Hmi\CustomFunctions.cs" />
-    <Compile Include="Hmi\\FrmHmiMain.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Hmi\\FrmHmiMain.Designer.cs">
-      <DependentUpon>FrmHmiMain.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Hmi\\HmiHomePage.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Hmi\\HmiHomePage.Designer.cs">
-      <DependentUpon>HmiHomePage.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Hmi\\HmiDebugPage.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Hmi\\HmiDebugPage.Designer.cs">
-      <DependentUpon>HmiDebugPage.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Hmi\\AlarmHistoryPage.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Hmi\\AlarmHistoryPage.Designer.cs">
-      <DependentUpon>AlarmHistoryPage.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Hmi\\HmiCapacityPage.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Hmi\\HmiCapacityPage.Designer.cs">
-      <DependentUpon>HmiCapacityPage.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Hmi\\PressureChart.cs">
-      <SubType>Component</SubType>
-    </Compile>
-    <Compile Include="Editor\Shell\FrmAppConfig.cs">
-      <SubType>Form</SubType>
-    </Compile>
+    <Compile Include="Bridge\AutomationBridgeHost.cs" />
+    <Compile Include="Bridge\AutomationBridgePreviewClient.cs" />
+    <Compile Include="Communication\CommunicationHub.cs" />
+    <Compile Include="Communication\CommunicationModels.cs" />
+    <Compile Include="Editor\Ai\AiPreviewConfirmationCoordinator.cs" />
     <Compile Include="Editor\Ai\FrmAiAssistant.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Editor\Ai\FrmAiAssistant.WebTemplate.cs">
+    <Compile Include="Editor\Ai\FrmAiAssistant.Dialogs.cs">
       <DependentUpon>FrmAiAssistant.cs</DependentUpon>
     </Compile>
     <Compile Include="Editor\Ai\FrmAiAssistant.Rendering.cs">
       <DependentUpon>FrmAiAssistant.cs</DependentUpon>
     </Compile>
-    <Compile Include="Editor\Ai\FrmAiAssistant.Dialogs.cs">
+    <Compile Include="Editor\Ai\FrmAiAssistant.WebTemplate.cs">
       <DependentUpon>FrmAiAssistant.cs</DependentUpon>
     </Compile>
-    <Compile Include="Editor\Diagnostics\FrmDataBreakpoints.cs">
+    <Compile Include="Editor\Ai\GooseAcpClient.cs" />
+    <Compile Include="Editor\Common\EditorUiInfrastructure.cs" />
+    <Compile Include="Editor\Common\FrmMessage.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Editor\Diagnostics\FrmRuntimeDiagnostics.cs">
+    <Compile Include="Editor\Common\FrmMessage.Designer.cs">
+      <DependentUpon>FrmMessage.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Editor\Common\FrmTextInput.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Editor\Diagnostics\FrmPerformanceAnalysis.cs">
+    <Compile Include="Editor\Common\UiBranding.cs" />
+    <Compile Include="Editor\Common\UiHoverAnimator.cs" />
+    <Compile Include="Editor\Common\UiIconFactory.cs" />
+    <Compile Include="Editor\Common\UiPalette.cs" />
+    <Compile Include="Editor\Common\UiStatusImages.cs" />
+    <Compile Include="Editor\Common\WinFormsProcessInteractionCoordinator.cs" />
+    <Compile Include="Editor\Communication\FrmCommunication.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Editor\Shell\FrmVersionManager.cs">
+    <Compile Include="Editor\Communication\FrmCommunication.Designer.cs">
+      <DependentUpon>FrmCommunication.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Editor\Communication\FrmPlc.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Editor\Data\FrmAlarmConfig.cs">
@@ -334,29 +202,17 @@
     <Compile Include="Editor\Data\FrmAlarmConfig.Designer.cs">
       <DependentUpon>FrmAlarmConfig.cs</DependentUpon>
     </Compile>
-    <Compile Include="Editor\Motion\FrmCard.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Motion\FrmCard.Designer.cs">
-      <DependentUpon>FrmCard.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Editor\Communication\FrmComunication.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Communication\FrmComunication.Designer.cs">
-      <DependentUpon>FrmComunication.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Editor\Motion\FrmControl.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Motion\FrmControl.Designer.cs">
-      <DependentUpon>FrmControl.cs</DependentUpon>
-    </Compile>
     <Compile Include="Editor\Data\FrmDataStruct.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Editor\Data\FrmDataStruct.Designer.cs">
       <DependentUpon>FrmDataStruct.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Editor\Data\FrmDataStructFieldEdit.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Diagnostics\FrmDataBreakpoints.cs">
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="Editor\Diagnostics\FrmInfo.cs">
       <SubType>Form</SubType>
@@ -364,20 +220,26 @@
     <Compile Include="Editor\Diagnostics\FrmInfo.Designer.cs">
       <DependentUpon>FrmInfo.cs</DependentUpon>
     </Compile>
+    <Compile Include="Editor\Diagnostics\FrmPerformanceAnalysis.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Diagnostics\FrmProcessFlow.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Diagnostics\FrmRuntimeDiagnostics.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Diagnostics\FrmState.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Diagnostics\FrmState.Designer.cs">
+      <DependentUpon>FrmState.cs</DependentUpon>
+    </Compile>
     <Compile Include="Editor\Io\FrmIO.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Editor\Io\FrmIO.Designer.cs">
       <DependentUpon>FrmIO.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Editor\Process\FrmDataGrid.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Process\InstructionListView.cs">
-      <SubType>Component</SubType>
-    </Compile>
-    <Compile Include="Editor\Process\FrmDataGrid.Designer.cs">
-      <DependentUpon>FrmDataGrid.cs</DependentUpon>
     </Compile>
     <Compile Include="Editor\Io\FrmIODebug.cs">
       <SubType>Form</SubType>
@@ -388,76 +250,19 @@
     <Compile Include="Editor\Io\FrmIODebugConfig.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Editor\Common\EditorUiInfrastructure.cs" />
-    <Compile Include="Editor\Common\WinFormsProcessInteractionCoordinator.cs" />
-    <Compile Include="Editor\Shell\FrmMain.cs">
+    <Compile Include="Editor\Io\IoDebugConfigurationEditorService.cs" />
+    <Compile Include="Editor\Io\IoDebugMonitorService.cs" />
+    <Compile Include="Editor\Motion\FrmCard.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Editor\Shell\FrmMain.Lifecycle.cs">
-      <DependentUpon>FrmMain.cs</DependentUpon>
+    <Compile Include="Editor\Motion\FrmCard.Designer.cs">
+      <DependentUpon>FrmCard.cs</DependentUpon>
     </Compile>
-    <Compile Include="Editor\Shell\FrmMain.Navigation.cs">
-      <DependentUpon>FrmMain.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Editor\Shell\FrmMain.Designer.cs">
-      <DependentUpon>FrmMain.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Editor\Shell\FrmMenu.cs">
+    <Compile Include="Editor\Motion\FrmControl.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Editor\Communication\FrmPlc.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Diagnostics\FrmProcessFlow.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Shell\FrmMenu.Designer.cs">
-      <DependentUpon>FrmMenu.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Editor\Common\FrmMessage.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Common\FrmMessage.Designer.cs">
-      <DependentUpon>FrmMessage.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Editor\Process\FrmProc.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Process\FrmProc.Designer.cs">
-      <DependentUpon>FrmProc.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Editor\Process\FrmInspector.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Process\Inspector\InspectorDefinitions.cs" />
-    <Compile Include="Editor\Process\Inspector\EditorServiceRegistry.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorControls.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorCollectionFieldControls.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorComboBoxControl.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorFieldControls.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorScalarFieldControl.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorToggleControls.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorValueCellControls.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorValueReferenceFieldControl.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorSelectionPickerPanel.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="Editor\Process\Inspector\OperationTypePickerPanel.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="Editor\Process\Inspector\InspectorView.cs" />
-    <Compile Include="Editor\Process\Inspector\InspectorValueConversion.cs" />
-    <Compile Include="Editor\Process\FrmSearch.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Process\FrmSearch.Designer.cs">
-      <DependentUpon>FrmSearch.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Editor\Diagnostics\FrmState.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Diagnostics\FrmState.Designer.cs">
-      <DependentUpon>FrmState.cs</DependentUpon>
+    <Compile Include="Editor\Motion\FrmControl.Designer.cs">
+      <DependentUpon>FrmControl.cs</DependentUpon>
     </Compile>
     <Compile Include="Editor\Motion\FrmStation.cs">
       <SubType>Form</SubType>
@@ -465,15 +270,87 @@
     <Compile Include="Editor\Motion\FrmStation.Designer.cs">
       <DependentUpon>FrmStation.cs</DependentUpon>
     </Compile>
+    <Compile Include="Editor\Process\Inspector\EditorServiceRegistry.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorCollectionFieldControls.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorComboBoxControl.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorControls.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorDefinitions.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorFieldControls.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorScalarFieldControl.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorSelectionPickerPanel.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Editor\Process\Inspector\InspectorToggleControls.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorValueCellControls.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorValueConversion.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorValueReferenceFieldControl.cs" />
+    <Compile Include="Editor\Process\Inspector\InspectorView.cs" />
+    <Compile Include="Editor\Process\Inspector\OperationTypePickerPanel.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Editor\Process\FrmDataGrid.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Process\FrmDataGrid.Designer.cs">
+      <DependentUpon>FrmDataGrid.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Editor\Process\FrmInspector.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Process\FrmProc.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Process\FrmProc.Designer.cs">
+      <DependentUpon>FrmProc.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Editor\Process\FrmSearch.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Process\FrmSearch.Designer.cs">
+      <DependentUpon>FrmSearch.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Editor\Process\InstructionListView.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Editor\Process\ProcessEditorSelectionState.cs" />
+    <Compile Include="Editor\Process\ProcTreeIconFactory.cs" />
+    <Compile Include="Editor\Shell\EditorWorkspace.cs" />
+    <Compile Include="Editor\Shell\FrmAppConfig.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Shell\FrmMain.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Shell\FrmMain.Designer.cs">
+      <DependentUpon>FrmMain.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Editor\Shell\FrmMain.Lifecycle.cs">
+      <DependentUpon>FrmMain.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Editor\Shell\FrmMain.Navigation.cs">
+      <DependentUpon>FrmMain.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Editor\Shell\FrmMenu.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Shell\FrmMenu.Designer.cs">
+      <DependentUpon>FrmMenu.cs</DependentUpon>
+    </Compile>
     <Compile Include="Editor\Shell\FrmToolBar.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Editor\Shell\FrmToolBar.Designer.cs">
       <DependentUpon>FrmToolBar.cs</DependentUpon>
     </Compile>
-    <Compile Include="Editor\Common\UiIconFactory.cs" />
-    <Compile Include="Editor\Common\UiHoverAnimator.cs" />
-    <Compile Include="Editor\Process\ProcTreeIconFactory.cs" />
+    <Compile Include="Editor\Shell\FrmVersionManager.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Variables\FrmSearch4Value.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Variables\FrmSearch4Value.Designer.cs">
+      <DependentUpon>FrmSearch4Value.cs</DependentUpon>
+    </Compile>
     <Compile Include="Editor\Variables\FrmValue.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -486,53 +363,204 @@
     <Compile Include="Editor\Variables\FrmValueDebug.Designer.cs">
       <DependentUpon>FrmValueDebug.cs</DependentUpon>
     </Compile>
-    <Compile Include="MotionControl\Drivers\LeiSei3000.cs" />
-    <Compile Include="MotionControl\Drivers\LTDMC.cs" />
-    <Compile Include="MotionControl\Core\IMotionRuntime.cs" />
-    <Compile Include="MotionControl\Core\AxisStatusCache.cs" />
-    <Compile Include="MotionControl\Core\MotionCtrl.cs" />
+    <Compile Include="Editor\Variables\VariableEditorService.cs" />
+    <Compile Include="Engine\Compilation\AiChangeSetCompiler.cs" />
+    <Compile Include="Engine\Compilation\AiOperationCompilerRegistry.cs" />
+    <Compile Include="Engine\Compilation\StructuredOperationCompiler.cs" />
+    <Compile Include="Engine\Definitions\OperationBehaviorCatalog.cs" />
+    <Compile Include="Engine\Definitions\OperationDefinitionRegistry.cs" />
+    <Compile Include="Engine\Definitions\OperationGotoReferenceCatalog.cs" />
+    <Compile Include="Engine\Definitions\VariableReferenceCatalog.cs" />
+    <Compile Include="Engine\Editing\OperationEditingService.cs" />
+    <Compile Include="Engine\Editing\ProcessAccessServices.cs" />
+    <Compile Include="Engine\Editing\ProcessEditingService.cs" />
+    <Compile Include="Engine\Editing\ProcessFlowGraphService.cs" />
+    <Compile Include="Engine\Editing\ProcessVariableLifecycleService.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Core.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Models.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.Comm.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.Custom.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.DataStruct.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.Io.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.Motion.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.Plc.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.Popup.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.Proc.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.String.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.Value.cs" />
+    <Compile Include="Engine\Execution\ProcessRuntimeBinder.cs" />
+    <Compile Include="Engine\Extensibility\CustomFunc.cs" />
+    <Compile Include="Engine\Models\ProcessModels.cs" />
+    <Compile Include="Engine\Models\ValueRef.cs" />
+    <Compile Include="Engine\Validation\ProcessDefinitionService.cs" />
+    <Compile Include="Engine\Validation\ProcessReadinessService.cs" />
+    <Compile Include="Hmi\AlarmHistoryPage.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Hmi\AlarmHistoryPage.Designer.cs">
+      <DependentUpon>AlarmHistoryPage.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Hmi\CustomFunctions.cs" />
+    <Compile Include="Hmi\FrmHmiMain.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Hmi\FrmHmiMain.Designer.cs">
+      <DependentUpon>FrmHmiMain.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Hmi\HmiCapacityPage.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Hmi\HmiCapacityPage.Designer.cs">
+      <DependentUpon>HmiCapacityPage.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Hmi\HmiDebugPage.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Hmi\HmiDebugPage.Designer.cs">
+      <DependentUpon>HmiDebugPage.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Hmi\HmiHomePage.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Hmi\HmiHomePage.Designer.cs">
+      <DependentUpon>HmiHomePage.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Hmi\PressureChart.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Models\Operations\OperationType.cs" />
     <Compile Include="Models\Operations\OperationTypePartial.cs" />
-    <Compile Include="Editor\Data\FrmDataStructFieldEdit.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Editor\Common\FrmTextInput.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Application\Program.cs" />
+    <Compile Include="MotionControl\Core\AxisStatusCache.cs" />
+    <Compile Include="MotionControl\Core\IMotionRuntime.cs" />
+    <Compile Include="MotionControl\Core\MotionCtrl.cs" />
+    <Compile Include="MotionControl\Drivers\LeiSei3000.cs" />
+    <Compile Include="MotionControl\Drivers\LTDMC.cs" />
+    <Compile Include="PLC\HslModbusAdapter.cs" />
+    <Compile Include="PLC\PlcDirectOperationValidator.cs" />
+    <Compile Include="PLC\PlcModels.cs" />
+    <Compile Include="PLC\PlcRuntimeService.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Editor\Variables\FrmSearch4Value.cs">
-      <SubType>Form</SubType>
+    <Compile Include="Properties\Resources.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Resources.resx</DependentUpon>
+      <DesignTime>True</DesignTime>
     </Compile>
-    <Compile Include="Editor\Variables\FrmSearch4Value.Designer.cs">
-      <DependentUpon>FrmSearch4Value.cs</DependentUpon>
+    <Compile Include="Properties\Settings.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Settings.settings</DependentUpon>
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
-    <EmbeddedResource Include="Hmi\AlarmHistoryPage.resx">
-      <DependentUpon>AlarmHistoryPage.cs</DependentUpon>
+    <Compile Include="Runtime\Ai\AiAnalysisLogger.cs" />
+    <Compile Include="Runtime\Ai\AiConversationCoordinator.cs" />
+    <Compile Include="Runtime\Ai\AiConversationStorage.cs" />
+    <Compile Include="Runtime\Ai\AiProviderSecretStorage.cs" />
+    <Compile Include="Runtime\Ai\AiStandardTestSuite.cs" />
+    <Compile Include="Runtime\Ai\AttachmentTextExtractor.cs" />
+    <Compile Include="Runtime\Ai\AutomationMcpServerManager.cs" />
+    <Compile Include="Runtime\Ai\GooseAcpEventReader.cs" />
+    <Compile Include="Runtime\Ai\GooseConfigStorage.cs" />
+    <Compile Include="Runtime\Ai\GooseRuntimeEnvironment.cs" />
+    <Compile Include="Runtime\Ai\GooseRuntimeProvisioner.cs" />
+    <Compile Include="Runtime\Configuration\AppConfigStorage.cs" />
+    <Compile Include="Runtime\Configuration\AutomationConfigSerializationBinder.cs" />
+    <Compile Include="Runtime\Configuration\ConfigurationVersionService.cs" />
+    <Compile Include="Runtime\Configuration\HmiDevelopmentSourceLocator.cs" />
+    <Compile Include="Runtime\Diagnostics\DataBreakpointService.cs" />
+    <Compile Include="Runtime\Diagnostics\ProcessPerformanceAnalyzer.cs" />
+    <Compile Include="Runtime\Diagnostics\ProcessTraceAuditSink.cs" />
+    <Compile Include="Runtime\Diagnostics\RuntimeBlackBoxRecorder.cs" />
+    <Compile Include="Runtime\Diagnostics\RuntimeExceptionLogger.cs" />
+    <Compile Include="Runtime\Diagnostics\SensitiveDataRedactor.cs" />
+    <Compile Include="Runtime\Diagnostics\StructuredAuditLogger.cs" />
+    <Compile Include="Runtime\Editing\EditorHistoryService.cs" />
+    <Compile Include="Runtime\Editing\EditorSessionCoordinator.cs" />
+    <Compile Include="Runtime\Editing\OperationClipboardService.cs" />
+    <Compile Include="Runtime\Editing\PlatformEditorUiAdapter.cs" />
+    <Compile Include="Runtime\Editing\ProcessVariableConfigurationService.cs" />
+    <Compile Include="Runtime\Hosting\AutomationPlatformBootstrap.cs" />
+    <Compile Include="Runtime\Hosting\AutomationPlatformHost.cs" />
+    <Compile Include="Runtime\Hosting\AutomationRuntimeOptions.cs" />
+    <Compile Include="Runtime\Hosting\PlatformPaths.cs" />
+    <Compile Include="Runtime\Hosting\PlatformRuntime.cs" />
+    <Compile Include="Runtime\Hosting\PlatformRuntimeComposer.cs" />
+    <Compile Include="Runtime\Hosting\PlatformRuntimeInitializer.cs" />
+    <Compile Include="Runtime\Infrastructure\HighResolutionWaiter.cs" />
+    <Compile Include="Runtime\Infrastructure\ObjectGraphCloner.cs" />
+    <Compile Include="Runtime\Lifecycle\PlatformDeviceCoordinator.cs" />
+    <Compile Include="Runtime\Lifecycle\PlatformLifecycleServices.cs" />
+    <Compile Include="Runtime\Lifecycle\PlatformShutdownCoordinator.cs" />
+    <Compile Include="Runtime\Lifecycle\PlatformSystemStatusService.cs" />
+    <Compile Include="Runtime\Motion\ManualMotionService.cs" />
+    <Compile Include="Runtime\Process\PlatformProcessStoreFacade.cs" />
+    <Compile Include="Runtime\Process\PlatformValueStoreFacade.cs" />
+    <Compile Include="Runtime\Process\ProcessRuntimeControl.cs" />
+    <Compile Include="Simulation\SimulationGatewayClient.cs" />
+    <Compile Include="Stores\Data\AlarmInfoStore.cs" />
+    <Compile Include="Stores\Data\DataStructModels.cs" />
+    <Compile Include="Stores\Data\DataStructStore.cs" />
+    <Compile Include="Stores\Devices\CardConfigStore.cs" />
+    <Compile Include="Stores\Devices\CardConfigurationModels.cs" />
+    <Compile Include="Stores\Devices\CommunicationConfigStore.cs" />
+    <Compile Include="Stores\Devices\IoConfigurationStore.cs" />
+    <Compile Include="Stores\Devices\IoDebugConfigurationStore.cs" />
+    <Compile Include="Stores\Devices\IoDebugModels.cs" />
+    <Compile Include="Stores\Devices\PlcConfigStore.cs" />
+    <Compile Include="Stores\Devices\StationDefinitionStore.cs" />
+    <Compile Include="Stores\Devices\TrayPointStore.cs" />
+    <Compile Include="Stores\Infrastructure\AtomicJsonFileStore.cs" />
+    <Compile Include="Stores\Infrastructure\ConfigurationBatchWriter.cs" />
+    <Compile Include="Stores\Process\ProcessDefinitionRepository.cs" />
+    <Compile Include="Stores\Process\ProcessEngineLogger.cs" />
+    <Compile Include="Stores\Process\ProcessVariableConfigurationTransaction.cs" />
+    <Compile Include="Stores\Process\ProcessWorkDirectoryTransaction.cs" />
+    <Compile Include="Stores\Variables\ValueConfigStore.cs" />
+    <Compile Include="Stores\Variables\ValueDebugConfigurationStore.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="$(IntermediateOutputPath)EmbeddedSources\Hmi.CustomFunctions.cs.txt">
+      <LogicalName>Automation.Hmi.CustomFunctions.Source</LogicalName>
+      <WithCulture>false</WithCulture>
+      <Visible>false</Visible>
     </EmbeddedResource>
-    <EmbeddedResource Include="Hmi\HmiDebugPage.resx">
-      <DependentUpon>HmiDebugPage.cs</DependentUpon>
+    <EmbeddedResource Include="Assets\Goose\automation.md">
+      <LogicalName>Automation.Assets.Goose.automation.md</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version">
+      <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.skill-version</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
+      <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\system.md">
+      <LogicalName>Automation.Assets.Goose.system.md</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\PerformanceAnalysis\index.html">
+      <LogicalName>Automation.Assets.PerformanceAnalysis.index.html</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\ProcessFlow\index.html">
+      <LogicalName>Automation.Assets.ProcessFlow.index.html</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\RuntimeDiagnostics\index.html">
+      <LogicalName>Automation.Assets.RuntimeDiagnostics.index.html</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Editor\Common\FrmMessage.resx">
+      <DependentUpon>FrmMessage.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Editor\Communication\FrmCommunication.resx">
+      <DependentUpon>FrmCommunication.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Editor\Data\FrmAlarmConfig.resx">
       <DependentUpon>FrmAlarmConfig.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Editor\Motion\FrmCard.resx">
-      <DependentUpon>FrmCard.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Editor\Communication\FrmComunication.resx">
-      <DependentUpon>FrmComunication.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Editor\Motion\FrmControl.resx">
-      <DependentUpon>FrmControl.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Editor\Process\FrmDataGrid.resx">
-      <DependentUpon>FrmDataGrid.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Editor\Data\FrmDataStruct.resx">
       <DependentUpon>FrmDataStruct.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Editor\Diagnostics\FrmInfo.resx">
       <DependentUpon>FrmInfo.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Editor\Diagnostics\FrmState.resx">
+      <DependentUpon>FrmState.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Editor\Io\FrmIO.resx">
       <DependentUpon>FrmIO.cs</DependentUpon>
@@ -544,14 +572,17 @@
     <EmbeddedResource Include="Editor\Io\FrmIODebugConfig.resx">
       <DependentUpon>FrmIODebugConfig.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="Editor\Shell\FrmMain.resx">
-      <DependentUpon>FrmMain.cs</DependentUpon>
+    <EmbeddedResource Include="Editor\Motion\FrmCard.resx">
+      <DependentUpon>FrmCard.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="Editor\Shell\FrmMenu.resx">
-      <DependentUpon>FrmMenu.cs</DependentUpon>
+    <EmbeddedResource Include="Editor\Motion\FrmControl.resx">
+      <DependentUpon>FrmControl.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="Editor\Common\FrmMessage.resx">
-      <DependentUpon>FrmMessage.cs</DependentUpon>
+    <EmbeddedResource Include="Editor\Motion\FrmStation.resx">
+      <DependentUpon>FrmStation.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Editor\Process\FrmDataGrid.resx">
+      <DependentUpon>FrmDataGrid.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Editor\Process\FrmProc.resx">
       <DependentUpon>FrmProc.cs</DependentUpon>
@@ -559,14 +590,17 @@
     <EmbeddedResource Include="Editor\Process\FrmSearch.resx">
       <DependentUpon>FrmSearch.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="Editor\Diagnostics\FrmState.resx">
-      <DependentUpon>FrmState.cs</DependentUpon>
+    <EmbeddedResource Include="Editor\Shell\FrmMain.resx">
+      <DependentUpon>FrmMain.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="Editor\Motion\FrmStation.resx">
-      <DependentUpon>FrmStation.cs</DependentUpon>
+    <EmbeddedResource Include="Editor\Shell\FrmMenu.resx">
+      <DependentUpon>FrmMenu.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Editor\Shell\FrmToolBar.resx">
       <DependentUpon>FrmToolBar.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Editor\Variables\FrmSearch4Value.resx">
+      <DependentUpon>FrmSearch4Value.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Editor\Variables\FrmValue.resx">
       <DependentUpon>FrmValue.cs</DependentUpon>
@@ -574,58 +608,40 @@
     <EmbeddedResource Include="Editor\Variables\FrmValueDebug.resx">
       <DependentUpon>FrmValueDebug.cs</DependentUpon>
     </EmbeddedResource>
+    <EmbeddedResource Include="Hmi\AlarmHistoryPage.resx">
+      <DependentUpon>AlarmHistoryPage.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Hmi\HmiDebugPage.resx">
+      <DependentUpon>HmiDebugPage.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
       <SubType>Designer</SubType>
       <LogicalName>Automation.Properties.Resources.resources</LogicalName>
     </EmbeddedResource>
-    <Compile Include="Properties\Resources.Designer.cs">
-      <AutoGen>True</AutoGen>
-      <DependentUpon>Resources.resx</DependentUpon>
-      <DesignTime>True</DesignTime>
-    </Compile>
-    <EmbeddedResource Include="Editor\Variables\FrmSearch4Value.resx">
-      <DependentUpon>FrmSearch4Value.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\system.md">
-      <LogicalName>Automation.Assets.Goose.system.md</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\automation.md">
-      <LogicalName>Automation.Assets.Goose.automation.md</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
-      <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version">
-      <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.skill-version</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Assets\ProcessFlow\index.html">
-      <LogicalName>Automation.Assets.ProcessFlow.index.html</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Assets\RuntimeDiagnostics\index.html">
-      <LogicalName>Automation.Assets.RuntimeDiagnostics.index.html</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Assets\PerformanceAnalysis\index.html">
-      <LogicalName>Automation.Assets.PerformanceAnalysis.index.html</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="$(IntermediateOutputPath)EmbeddedSources\Hmi.CustomFunctions.cs.txt">
-      <LogicalName>Automation.Hmi.CustomFunctions.Source</LogicalName>
-      <WithCulture>false</WithCulture>
-      <Visible>false</Visible>
-    </EmbeddedResource>
-    <Content Include="Assets\Goose\system.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+  </ItemGroup>
+  <ItemGroup>
     <Content Include="Assets\Goose\automation.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Goose\system.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\AutomationChick.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\AutomationChick.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
     <None Include="app.config" />
     <None Include="Application\README.md" />
     <None Include="Bridge\README.md" />
@@ -635,8 +651,6 @@
     <None Include="Engine\README.md" />
     <None Include="Models\README.md" />
     <None Include="MotionControl\README.md" />
-    <None Include="Runtime\README.md" />
-    <None Include="Stores\README.md" />
     <None Include="packages.config" />
     <None Include="Properties\DataSources\FrmProc.datasource" />
     <None Include="Properties\DataSources\FrmState.datasource" />
@@ -644,27 +658,10 @@
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
     </None>
-    <Compile Include="Properties\Settings.Designer.cs">
-      <AutoGen>True</AutoGen>
-      <DependentUpon>Settings.settings</DependentUpon>
-      <DesignTimeSharedInput>True</DesignTimeSharedInput>
-    </Compile>
-  </ItemGroup>
-  <ItemGroup>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="Resources\vaild.png" />
-  </ItemGroup>
-  <ItemGroup>
     <None Include="Resources\invalid.png" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="Resources\AutomationChick.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Resources\AutomationChick.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <None Include="Resources\vaild.png" />
+    <None Include="Runtime\README.md" />
+    <None Include="Stores\README.md" />
   </ItemGroup>
   <Target Name="CopySourceDllFiles" AfterTargets="Build">
     <ItemGroup>

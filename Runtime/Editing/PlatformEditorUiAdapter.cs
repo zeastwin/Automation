@@ -183,8 +183,8 @@ namespace Automation
 
         public void RefreshCommunication()
         {
-            owner.frmComunication?.RefreshSocketMap();
-            owner.frmComunication?.RefreshSerialPortInfo();
+            owner.frmCommunication?.RefreshSocketMap();
+            owner.frmCommunication?.RefreshSerialPortInfo();
         }
 
         public void RefreshAlarmConfiguration()

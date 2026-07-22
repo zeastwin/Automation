@@ -46,7 +46,7 @@ namespace Automation
         public FrmStation frmStation = new FrmStation();
         public FrmDataStruct frmdataStruct = new FrmDataStruct();
         public FrmIODebug frmIODebug = new FrmIODebug();
-        public FrmComunication frmComunication = new FrmComunication();
+        public FrmCommunication frmCommunication = new FrmCommunication();
         public FrmState frmState = new FrmState();
         public FrmAlarmConfig frmAlarmConfig = new FrmAlarmConfig();
         public FrmSearch frmSearch = new FrmSearch();
@@ -567,8 +567,8 @@ namespace Automation
             frmCard.RefreshStationTree();
             frmdataStruct.RefreshDataSturctList();
             frmIODebug.RefreshIODebugMapFromStore();
-            frmComunication.RefreshSocketMap();
-            frmComunication.RefreshSerialPortInfo();
+            frmCommunication.RefreshSocketMap();
+            frmCommunication.RefreshSerialPortInfo();
             frmAlarmConfig.RefreshAlarmInfoFromStore();
             frmIODebug.RefleshIODebug();
             if (!string.IsNullOrWhiteSpace(initialization?.Device?.WindowTitle))

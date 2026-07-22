@@ -4,7 +4,6 @@ using System;
 
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using System.Threading;
 using Newtonsoft.Json;
 
@@ -56,10 +55,5 @@ namespace Automation
             return ObjectGraphCloner.Clone(this);
         }
 
-        public int GetMaxIndex()
-        {
-            return new IEnumerable<int>[] { FieldNames.Keys, FieldTypes.Keys, str.Keys, num.Keys }
-                .SelectMany(keys => keys).DefaultIfEmpty(-1).Max();
-        }
     }
 }

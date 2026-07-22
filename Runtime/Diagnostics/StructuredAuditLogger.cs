@@ -6,7 +6,6 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 
 namespace Automation
@@ -35,7 +34,7 @@ namespace Automation
                 safeRecord["schemaVersion"] = safeRecord["schemaVersion"] ?? 1;
                 safeRecord["timeUtc"] = safeRecord["timeUtc"] ?? DateTime.UtcNow.ToString("O");
                 safeRecord["eventId"] = safeRecord["eventId"] ?? Guid.NewGuid().ToString("N");
-                RedactSensitiveValues(safeRecord);
+                SensitiveDataRedactor.Redact(safeRecord);
                 LimitPayload(safeRecord);
 
                 string line = safeRecord.ToString(Formatting.None) + Environment.NewLine;
@@ -102,35 +101,5 @@ namespace Automation
             record["payloadTruncated"] = true;
         }
 
-        private static void RedactSensitiveValues(JToken token)
-        {
-            if (!(token is JContainer container))
-            {
-                return;
-            }
-
-            foreach (JToken child in container.Children().ToList())
-            {
-                if (child is JProperty property)
-                {
-                    string name = property.Name ?? string.Empty;
-                    if (IsSensitiveName(name))
-                    {
-                        property.Value = "***";
-                        continue;
-                    }
-                }
-                RedactSensitiveValues(child);
-            }
-        }
-
-        private static bool IsSensitiveName(string name)
-        {
-            return name.IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("secret", StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("apiKey", StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("authorization", StringComparison.OrdinalIgnoreCase) >= 0
-                || string.Equals(name, "headers", StringComparison.OrdinalIgnoreCase);
-        }
     }
 }

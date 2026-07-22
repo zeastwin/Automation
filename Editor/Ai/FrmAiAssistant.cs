@@ -584,7 +584,7 @@ namespace Automation
             autoApproveMode = config.AutoApproveMode;
             // 保存界面当前实际采用的配置。配置文件首次缺失或损坏时缓存可能为空，
             // 模式/权限切换必须与这份快照比较，不能因此误判为需要重建 Goose 会话。
-            appliedConfig = CloneGooseConfig(config);
+            appliedConfig = GooseConfigStorage.CloneConfig(config);
             PushWebAppState();
         }
 
@@ -901,7 +901,7 @@ namespace Automation
 
         private async void SaveWebConfig(string successMessage = null, bool closeConfigAfterSave = true)
         {
-            GooseConfig oldConfig = CloneGooseConfig(appliedConfig);
+            GooseConfig oldConfig = GooseConfigStorage.CloneConfig(appliedConfig);
             if (oldConfig == null)
             {
                 GooseConfigStorage.TryGetCached(out oldConfig, out _);
@@ -1148,30 +1148,6 @@ namespace Automation
             }
 
             return GooseConfigStorage.TryValidate(config, out error);
-        }
-
-        private static GooseConfig CloneGooseConfig(GooseConfig config)
-        {
-            if (config == null)
-            {
-                return null;
-            }
-            return new GooseConfig
-            {
-                GooseExecutablePath = config.GooseExecutablePath,
-                WorkingDirectory = config.WorkingDirectory,
-                McpUri = config.McpUri,
-                SessionName = config.SessionName,
-                Provider = config.Provider,
-                Model = config.Model,
-                ModelServiceId = config.ModelServiceId,
-                ModelServices = GooseConfigStorage.CloneModelServices(config.ModelServices),
-                Temperature = config.Temperature,
-                MaxTurns = config.MaxTurns,
-                MaxOutputTokens = config.MaxOutputTokens,
-                ToolProfile = config.ToolProfile,
-                AutoApproveMode = config.AutoApproveMode
-            };
         }
 
         private static bool SelectedModelServiceEqual(GooseConfig left, GooseConfig right)
@@ -1723,13 +1699,6 @@ namespace Automation
             ResetConversationViewState();
         }
 
-        private void ResetConversationSessionState()
-        {
-            DisposeGooseClient();
-            ResetConversationViewState();
-            txtSessionName.Text = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
-        }
-
         private void ResetConversationViewState()
         {
             pendingFileAttachments.Clear();
@@ -2268,22 +2237,6 @@ namespace Automation
             {
                 string action = result == DialogResult.Yes ? "确认" : "取消";
                 AppendConversation("错误", action + "预演失败：" + ex.Message, UiPalette.Danger);
-            }
-        }
-
-        private static string FormatJson(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return string.Empty;
-            }
-            try
-            {
-                return JToken.Parse(text).ToString(Formatting.Indented);
-            }
-            catch
-            {
-                return text;
             }
         }
 

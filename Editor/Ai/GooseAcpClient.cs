@@ -2139,11 +2139,7 @@ namespace Automation
                             : $"[文件内容已省略，长度={dataLength}]";
                         continue;
                     }
-                    if (name.IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0
-                        || name.IndexOf("secret", StringComparison.OrdinalIgnoreCase) >= 0
-                        || name.IndexOf("apiKey", StringComparison.OrdinalIgnoreCase) >= 0
-                        || name.IndexOf("authorization", StringComparison.OrdinalIgnoreCase) >= 0
-                        || string.Equals(name, "headers", StringComparison.OrdinalIgnoreCase))
+                    if (SensitiveDataRedactor.IsSensitiveName(name))
                     {
                         property.Value = "***";
                         continue;

@@ -1211,31 +1211,6 @@ namespace Automation
             }
 
         }
-        private void DynamicMenuItem_Click(object sender, EventArgs e)
-        {
-            ToolStripMenuItem menuItem = (ToolStripMenuItem)sender;
-            List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
-            IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == menuItem.Text);
-            if (cacheIO == null)
-            {
-                return;
-            }
-            if (!ioConfigurationEditor.TryAddConnection(
-                IODebugMaps,
-                currentConnectConfigIndex,
-                cacheIO,
-                out IODebugMap committed,
-                out string error))
-            {
-                MessageBox.Show(error, "IO调试", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-            IODebugMaps = committed;
-            RefreshIODebugMapFrm();
-            RefleshConnecdt();
-            RefreshConnectDisplayForCurrentConfig();
-
-        }
         public void RefleshConnecdt()
         {
             listView3.Items.Clear();

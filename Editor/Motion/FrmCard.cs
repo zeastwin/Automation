@@ -35,8 +35,6 @@ namespace Automation
         public int? CardIndex { get; set; }
         public int? AxisIndex { get; set; }
         public int? StationIndex { get; set; }
-        public bool IsNewCard { get; set; }
-        public bool IsNewStation { get; set; }
 
         public static EditKey None => new EditKey { Kind = EditKind.None };
         public static EditKey CardRoot => new EditKey { Kind = EditKind.CardRoot };
@@ -78,8 +76,6 @@ namespace Automation
             contextMenuStrip2.Opening += contextMenuStrip2_Opening;
 
         }
-        public bool IsNewCard => editKey.IsNewCard;
-        public bool IsNewStation => editKey.IsNewStation;
         public bool IsCardRootSelected => editKey.Kind == EditKind.CardRoot;
 
         private static T CloneForEdit<T>(T source)
@@ -127,8 +123,6 @@ namespace Automation
         {
             treeView1.Enabled = true;
             treeView2.Enabled = true;
-            editKey.IsNewCard = false;
-            editKey.IsNewStation = false;
             controlCardTemp = null;
             axisTemp = null;
             dataStationTemp = null;
@@ -181,15 +175,6 @@ namespace Automation
             editKey.StationIndex = null;
         }
 
-        public void EndNewCard()
-        {
-            editKey.IsNewCard = false;
-        }
-
-        public void EndNewStation()
-        {
-            editKey.IsNewStation = false;
-        }
         public void RefreshCardTree()
         {
             treeView1.Nodes.Clear();
@@ -873,21 +858,6 @@ namespace Automation
             Name = name;
         }
     }
-    public class CategoriesSortedByClassDefinitionConverter : ExpandableObjectConverter
-    {
-        [AttributeUsage(AttributeTargets.Class)]
-        public class ElementsSameOrderAttribute : Attribute
-        {
-            public bool IsSameOrder { get; set; } = true;
-            public ElementsSameOrderAttribute(bool isSameOrder = true)
-            {
-                IsSameOrder = isSameOrder;
-            }
-        }
-       
-      
-    }
-    
     public class AxisConfig
     {
       

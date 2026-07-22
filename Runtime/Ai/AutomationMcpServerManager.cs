@@ -26,32 +26,6 @@ namespace Automation
         private bool staleProcessesCleaned;
         private bool disposed;
 
-        public string GetLifecycleReport()
-        {
-            lock (processLock)
-            {
-                var lines = new List<string> { lastMessage };
-                foreach (ManagedMcpInstance instance in instances.Values)
-                {
-                    string state;
-                    try
-                    {
-                        state = instance.Process == null
-                            ? "未创建"
-                            : instance.Process.HasExited
-                                ? $"已退出，ExitCode={instance.Process.ExitCode}"
-                                : $"正在运行，PID={instance.Process.Id}";
-                    }
-                    catch
-                    {
-                        state = "状态不可读";
-                    }
-                    lines.Add($"{instance.Name}：{state}，Profile={instance.Profile}，URI={instance.BaseUri}");
-                }
-                return string.Join("\r\n", lines);
-            }
-        }
-
         public Task<string> EnsureStartedAsync(string baseUri, string toolProfile)
         {
             if (!string.Equals(toolProfile, "Diagnostic", StringComparison.Ordinal)

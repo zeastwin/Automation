@@ -1,11 +1,9 @@
 // 模块：编辑器 / 诊断。
 // 职责范围：运行日志、状态、流程图、断点、性能和事故诊断页面。
 
-using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -583,18 +581,6 @@ namespace Automation
         }
 
 
-        [Browsable(false)]
-        [JsonIgnore]
-        public Level level { get; set; } = 0;
-
-        public Level GetState()
-        {
-            return level;
-        }
-        public void SetState(Level level)
-        {
-            this.level = level;
-        }
         public enum Level
         {
             Error = 0,

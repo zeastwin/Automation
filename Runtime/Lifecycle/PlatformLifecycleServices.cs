@@ -122,12 +122,6 @@ namespace Automation
             StopAllProcesses(reason);
         }
 
-        public void ClearLock()
-        {
-            locked = false;
-            lockReason = string.Empty;
-        }
-
         public void StopAllProcesses(string reason)
         {
             ProcessEngine engine = runtime.ProcessEngine;

@@ -364,11 +364,6 @@ namespace Automation.Bridge
             await stream.FlushAsync().ConfigureAwait(false);
         }
 
-        private static int GetUtf8ByteCount(string text)
-        {
-            return string.IsNullOrEmpty(text) ? 0 : Encoding.UTF8.GetByteCount(text);
-        }
-
         private void ReportInfo(string message)
         {
             try

@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -133,15 +132,6 @@ namespace Automation.Simulation
                     info.Port = mapping.PlatformPort;
                 }
             }
-        }
-
-        public void ArmScenario(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name) || name.Contains("..") || name.Contains("/") || name.Contains("\\") || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            {
-                throw new InvalidOperationException($"仿真场景名称无效:{name}");
-            }
-            EnsureCommandSucceeded(SendCommand("scenario.arm", new JObject { ["name"] = name }));
         }
 
         public void InitCardType() { }
@@ -624,62 +614,4 @@ namespace Automation.Simulation
     public sealed class SimulationTcpMapping { public string Name { get; set; } public string Address { get; set; } public int Port { get; set; } public string PlatformType { get; set; } }
     public sealed class SimulationSerialMapping { public string Name { get; set; } public string PlatformPort { get; set; } }
 
-    public static class SimulationManifestBuilder
-    {
-        public static JObject Build(EngineContext context)
-        {
-            if (context == null) throw new ArgumentNullException(nameof(context));
-            var io = new JArray((context.IoMap ?? new Dictionary<string, IO>()).Values.Where(item => item != null && !string.IsNullOrWhiteSpace(item.Name)).GroupBy(item => item.Name, StringComparer.Ordinal).Select(group =>
-            {
-                IO item = group.First();
-                return new JObject { ["name"] = item.Name, ["ioType"] = item.IOType, ["card"] = item.CardNum, ["index"] = item.IOIndex ?? string.Empty };
-            }));
-            var axes = new JArray();
-            if (context.CardStore != null)
-            {
-                int cards = context.CardStore.GetControlCardCount();
-                for (int card = 0; card < cards; card++)
-                {
-                    int count = context.CardStore.GetAxisCount(card);
-                    for (int axis = 0; axis < count; axis++)
-                    {
-                        if (!context.CardStore.TryGetAxis(card, axis, out Axis item)) throw new InvalidOperationException($"轴配置读取失败:{card}-{axis}");
-                        axes.Add(new JObject { ["card"] = card, ["axis"] = axis, ["name"] = item.AxisName ?? $"Axis_{card}_{axis}" });
-                    }
-                }
-            }
-            IReadOnlyList<PlcDeviceConfig> plcDevices = context.PlcStore?.GetSnapshot().Devices ?? new List<PlcDeviceConfig>();
-            var plc = new JArray(plcDevices.Select(item => new JObject
-            {
-                ["name"] = item.Name,
-                ["protocol"] = "ModbusTcp",
-                ["profile"] = item.Profile.ToString(),
-                ["unitId"] = item.UnitId
-            }));
-            var tcp = new JArray((context.SocketInfos ?? new List<SocketInfo>()).Where(item => item != null).Select(item => new JObject { ["name"] = item.Name, ["type"] = item.Type, ["frameMode"] = item.FrameMode, ["encodingName"] = item.EncodingName }));
-            var serial = new JArray((context.SerialPortInfos ?? new List<SerialPortInfo>()).Where(item => item != null).Select(item => new JObject { ["name"] = item.Name, ["bitRate"] = item.BitRate, ["dataBit"] = item.DataBit, ["checkBit"] = item.CheckBit, ["stopBit"] = item.StopBit }));
-            return new JObject
-            {
-                ["configHash"] = ComputeConfigHash(context.Paths?.ConfigPath), ["io"] = io, ["axes"] = axes, ["plcDevices"] = plc, ["tcpChannels"] = tcp, ["serialChannels"] = serial
-            };
-        }
-
-        private static string ComputeConfigHash(string configPath)
-        {
-            if (string.IsNullOrWhiteSpace(configPath) || !Directory.Exists(configPath)) throw new InvalidOperationException($"配置目录不存在:{configPath}");
-            string[] files = Directory.GetFiles(configPath, "*.json", SearchOption.TopDirectoryOnly).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
-            using (var memory = new MemoryStream())
-            {
-                foreach (string file in files)
-                {
-                    byte[] name = Encoding.UTF8.GetBytes(Path.GetFileName(file));
-                    memory.Write(name, 0, name.Length);
-                    byte[] data = File.ReadAllBytes(file);
-                    memory.Write(data, 0, data.Length);
-                }
-                memory.Position = 0;
-                using (SHA256 hash = SHA256.Create()) return BitConverter.ToString(hash.ComputeHash(memory)).Replace("-", string.Empty);
-            }
-        }
-    }
 }

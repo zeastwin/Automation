@@ -224,21 +224,6 @@ namespace Automation
              EnsureSuccess(LTDMC.dmc_stop(card, axis, stop_mode), "停止轴", card, axis);
         }
 
-        //设置指定轴的当前指令位置值
-        public void SetPosition(ushort card, ushort axis, double dpos)
-        {
-            LTDMC.dmc_set_position_unit(card, axis, dpos); 
-        }
-        // 读取轴当前速度
-        public double GetAxisSpeed(ushort card, ushort axis)
-        {
-            double dcurrent_speed = 0;//速度值
-           
-            LTDMC.dmc_read_current_speed_unit(card, axis, ref dcurrent_speed); // 读取轴当前速度
-
-            return dcurrent_speed;
-        
-        }
         // 读取指定轴运动状态
         public bool GetInPos(ushort card,ushort axis) //检测轴是否到位
         {
@@ -272,11 +257,6 @@ namespace Automation
         {
             ushort temp = isSevon ? (ushort)0 : (ushort)1;
              EnsureSuccess(LTDMC.dmc_write_sevon_pin(card,axis, temp), "设置轴使能", card, axis);
-        }
-        //读取指定轴的脉冲值
-        public int GetAxisPulse(ushort card, ushort axis)
-        {
-          return LTDMC.dmc_get_position(card, axis);
         }
         //读取指定轴的位置
         public double GetAxisPos(ushort card, ushort axis)

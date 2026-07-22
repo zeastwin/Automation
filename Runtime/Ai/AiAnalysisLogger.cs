@@ -80,7 +80,7 @@ namespace Automation
             {
                 try
                 {
-                    RedactSensitiveValues(record);
+                    SensitiveDataRedactor.Redact(record);
                     string line = record.ToString(Formatting.None) + Environment.NewLine;
                     Directory.CreateDirectory(Root);
                     string path = ResolvePath(DateTime.UtcNow.ToString("yyyy-MM-dd"), Utf8NoBom.GetByteCount(line));
@@ -114,7 +114,7 @@ namespace Automation
         public static JObject SummarizePayload(JToken value, int maxBytes)
         {
             JToken safeValue = value?.DeepClone() ?? JValue.CreateNull();
-            RedactSensitiveValues(safeValue);
+            SensitiveDataRedactor.Redact(safeValue);
             RemoveEmptyValues(safeValue);
             string text = safeValue.ToString(Formatting.None);
             int bytes = Utf8NoBom.GetByteCount(text);
@@ -291,31 +291,5 @@ namespace Automation
             }
         }
 
-        private static void RedactSensitiveValues(JToken token)
-        {
-            if (!(token is JContainer container))
-            {
-                return;
-            }
-
-            foreach (JToken child in container.Children().ToList())
-            {
-                if (child is JProperty property && IsSensitiveName(property.Name))
-                {
-                    property.Value = "***";
-                    continue;
-                }
-                RedactSensitiveValues(child);
-            }
-        }
-
-        private static bool IsSensitiveName(string name)
-        {
-            return (name ?? string.Empty).IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0
-                || (name ?? string.Empty).IndexOf("secret", StringComparison.OrdinalIgnoreCase) >= 0
-                || (name ?? string.Empty).IndexOf("apiKey", StringComparison.OrdinalIgnoreCase) >= 0
-                || (name ?? string.Empty).IndexOf("authorization", StringComparison.OrdinalIgnoreCase) >= 0
-                || string.Equals(name, "headers", StringComparison.OrdinalIgnoreCase);
-        }
     }
 }

@@ -145,14 +145,6 @@ namespace Automation
             }
         }
 
-        public static bool RecoverIfNeeded(string workPath, out string message)
-        {
-            lock (transactionLock)
-            {
-                return RecoverIfNeededCore(workPath, out message);
-            }
-        }
-
         private static bool RecoverIfNeededCore(string workPath, out string message)
         {
             message = null;

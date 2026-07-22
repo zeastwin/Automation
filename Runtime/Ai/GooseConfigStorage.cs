@@ -121,7 +121,7 @@ namespace Automation
                     error = $"默认 EW-AI 配置生成失败:{saveError}";
                     return false;
                 }
-                config = Clone(defaultConfig);
+                config = CloneConfig(defaultConfig);
                 SetCache(config);
                 return true;
             }
@@ -209,7 +209,7 @@ namespace Automation
                     error = "EW-AI 配置缓存未初始化";
                     return false;
                 }
-                config = Clone(cachedConfig);
+                config = CloneConfig(cachedConfig);
                 error = null;
                 return true;
             }
@@ -508,11 +508,11 @@ namespace Automation
         {
             lock (cacheLock)
             {
-                cachedConfig = Clone(config);
+                cachedConfig = CloneConfig(config);
             }
         }
 
-        private static GooseConfig Clone(GooseConfig config)
+        internal static GooseConfig CloneConfig(GooseConfig config)
         {
             if (config == null)
             {

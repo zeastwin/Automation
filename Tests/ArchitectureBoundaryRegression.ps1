@@ -97,6 +97,34 @@ foreach ($classifiedModuleRoot in @("Runtime", "Engine", "Stores", "MotionContro
     }
 }
 $projectPath = Join-Path $repoRoot "Automation.csproj"
+foreach ($requiredCommunicationForm in @(
+    "Editor\Communication\FrmCommunication.cs",
+    "Editor\Communication\FrmCommunication.Designer.cs",
+    "Editor\Communication\FrmCommunication.resx"))
+{
+    $communicationFormPath = Join-Path $repoRoot $requiredCommunicationForm
+    if (-not (Test-Path -LiteralPath $communicationFormPath))
+    {
+        $violations.Add("通信配置窗体文件缺失或命名不正确：$communicationFormPath")
+    }
+}
+foreach ($retiredCommunicationForm in @(
+    "Editor\Communication\FrmComunication.cs",
+    "Editor\Communication\FrmComunication.Designer.cs",
+    "Editor\Communication\FrmComunication.resx"))
+{
+    $retiredCommunicationFormPath = Join-Path $repoRoot $retiredCommunicationForm
+    if (Test-Path -LiteralPath $retiredCommunicationFormPath)
+    {
+        $violations.Add("拼写错误的通信配置窗体文件已退役：$retiredCommunicationFormPath")
+    }
+}
+Get-ChildItem -LiteralPath $repoRoot -Recurse -File | Where-Object {
+    $_.Extension -in @(".cs", ".csproj", ".resx") -and
+    $_.FullName -notmatch '\\(bin|obj|packages)\\'
+} | Select-String -Pattern '\b[Ff]rmComunication\b' | ForEach-Object {
+    $violations.Add("通信配置窗体旧拼写仍存在：$($_.Path):$($_.LineNumber): $($_.Line.Trim())")
+}
 Select-String -LiteralPath $projectPath -SimpleMatch 'Compile Include="SF.cs"' | ForEach-Object {
     $violations.Add("$($_.Path):$($_.LineNumber): $($_.Line.Trim())")
 }

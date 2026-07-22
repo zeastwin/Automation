@@ -1,6 +1,6 @@
 ﻿namespace Automation
 {
-    partial class FrmComunication
+    partial class FrmCommunication
     {
         /// <summary>
         /// Required designer variable.
@@ -627,7 +627,7 @@
             this.dataGridViewTextBoxColumn5.Name = "dataGridViewTextBoxColumn5";
             this.dataGridViewTextBoxColumn5.ReadOnly = true;
             // 
-            // FrmComunication
+            // FrmCommunication
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
@@ -635,10 +635,10 @@
             this.Controls.Add(this.groupBox1);
             this.Controls.Add(this.groupBox2);
             this.Controls.Add(this.tabControl1);
-            this.Name = "FrmComunication";
+            this.Name = "FrmCommunication";
             this.Text = "通讯";
-            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.FrmComunication_FormClosing);
-            this.Load += new System.EventHandler(this.FrmComunication_Load);
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.FrmCommunication_FormClosing);
+            this.Load += new System.EventHandler(this.FrmCommunication_Load);
             this.tabControl1.ResumeLayout(false);
             this.tabPage1.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).EndInit();

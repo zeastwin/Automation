@@ -32,11 +32,6 @@ namespace Automation.Protocol
         public const string SystemValueIndexRange = "[1000,1200)";
         public const string ValueIndexRange = "[0,1200)";
 
-        public static bool IsValidIndex(int index)
-        {
-            return index >= 0 && index < ValueCapacity;
-        }
-
         public static bool IsSystemIndex(int index)
         {
             return index >= SystemValueStartIndex && index < ValueCapacity;
