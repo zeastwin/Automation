@@ -110,7 +110,7 @@ namespace Automation
                     LogLevel.Error,
                     messages);
             }
-            if (!AiConfigurationTransaction.RecoverPendingTransactions(
+            if (!ProcessVariableConfigurationTransaction.RecoverPendingTransactions(
                 runtime.Paths.ConfigPath,
                 out string changeSetTransactionError))
             {
@@ -125,7 +125,7 @@ namespace Automation
         private static List<Proc> LoadProcesses(PlatformRuntime runtime, ICollection<string> messages)
         {
             runtime.Readiness.ProcConfigFaulted = false;
-            List<Proc> processes = ProcessConfigStore.Load(
+            List<Proc> processes = ProcessWorkDirectoryTransaction.Load(
                 runtime.Paths.WorkPath,
                 runtime.CreateProcessValidationContext(),
                 out List<string> loadErrors,

@@ -7,7 +7,7 @@ namespace Automation
     /// <summary>
     /// 连续索引流程文件的目录级事务与断电恢复。
     /// </summary>
-    public static class ProcessConfigStore
+    public static class ProcessWorkDirectoryTransaction
     {
         private static readonly object transactionLock = new object();
 

@@ -11,6 +11,9 @@ $isolatedRoot = Join-Path $env:TEMP (
 $automationPath = Join-Path $isolatedRoot "Automation.exe"
 $automationConfigPath = "$automationPath.config"
 $deviceSdkPath = Join-Path $isolatedRoot "Automation.DeviceSdk.dll"
+$runtimeContractsPath = Join-Path $isolatedRoot "Automation.Runtime.Contracts.dll"
+$netstandardFacadePath = Join-Path ${env:ProgramFiles(x86)} `
+    "Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\Facades\netstandard.dll"
 $sourcePath = Join-Path $PSScriptRoot "HeadlessPlatformHostSmoke.cs"
 $smokePath = Join-Path $isolatedRoot "HeadlessPlatformHostSmoke.exe"
 $smokeConfigPath = "$smokePath.config"
@@ -20,6 +23,8 @@ foreach ($requiredPath in @(
     (Join-Path $buildOutputRoot "Automation.exe"),
     (Join-Path $buildOutputRoot "Automation.exe.config"),
     (Join-Path $buildOutputRoot "Automation.DeviceSdk.dll"),
+    (Join-Path $buildOutputRoot "Automation.Runtime.Contracts.dll"),
+    $netstandardFacadePath,
     $sourcePath,
     $compilerPath))
 {
@@ -35,7 +40,8 @@ try
     Get-ChildItem -LiteralPath $buildOutputRoot -File | Copy-Item -Destination $isolatedRoot -Force
 
     & $compilerPath /nologo /target:exe /out:$smokePath `
-        /reference:$automationPath /reference:$deviceSdkPath `
+        /reference:$automationPath /reference:$deviceSdkPath /reference:$runtimeContractsPath `
+        /reference:$netstandardFacadePath `
         /reference:System.dll /reference:System.Windows.Forms.dll `
         $sourcePath
     if ($LASTEXITCODE -ne 0)

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using IoRefreshData = Automation.IoDebugRefreshSnapshot;
 
 namespace Automation
 {
@@ -24,12 +25,10 @@ namespace Automation
         private readonly bool[] connectConfigAutoSizeEnabled = new bool[] { true, true, true };
         private const int ConnectSplitterWidth = 4;
         private bool isConnectConfigAutoSizing = false;
-        private readonly object ioCacheLock = new object();
-        private Dictionary<string, IO> inputIoCache = new Dictionary<string, IO>(StringComparer.Ordinal);
-        private Dictionary<string, IO> outputIoCache = new Dictionary<string, IO>(StringComparer.Ordinal);
-        private HashSet<string> inputIoDup = new HashSet<string>(StringComparer.Ordinal);
-        private HashSet<string> outputIoDup = new HashSet<string>(StringComparer.Ordinal);
-        private int ioCacheHash = 0;
+        private IoDebugMonitorService ioMonitorService;
+        private IoDebugConfigurationEditorService ioConfigurationEditor;
+        private IoDebugMonitorService IoMonitor => ioMonitorService
+            ?? throw new InvalidOperationException("FrmIODebug 尚未挂接平台编辑器工作区。");
 
         private readonly object ioRefreshLock = new object();
         private CancellationTokenSource ioRefreshCts;
@@ -109,6 +108,12 @@ namespace Automation
             ApplyIoDebugStyle();
         }
 
+        private void OnEditorWorkspaceAttached()
+        {
+            ioMonitorService = new IoDebugMonitorService(Workspace.Runtime);
+            ioConfigurationEditor = new IoDebugConfigurationEditorService(Workspace.Runtime);
+        }
+
         private void ApplyIoDebugStyle()
         {
             BackColor = UiPalette.Background;
@@ -172,20 +177,14 @@ namespace Automation
             }
         }
 
-        private bool TrySaveIoDebugMap()
+        private void ShowIoConfigurationError(string error)
         {
-            if (Workspace.Runtime.Stores.IoDebug.TryCommit(
-                    Workspace.Runtime.Paths.ConfigPath, IODebugMaps, out string error))
-            {
-                return true;
-            }
             Workspace.Runtime.ProcessEngine?.Logger?.Log(error, LogLevel.Error);
             if (IsHandleCreated && !IsDisposed && !Disposing)
             {
                 MessageBox.Show(error, "IO调试",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            return false;
         }
         public bool CheckFormIsOpen(Form form)
         {
@@ -746,23 +745,6 @@ namespace Automation
             }
         }
 
-        private void SetConnectList(int pageIndex, List<IOConnect> list)
-        {
-            EnsureConnectConfigReady();
-            switch (pageIndex)
-            {
-                case 1:
-                    IODebugMaps.iOConnects2 = list;
-                    break;
-                case 2:
-                    IODebugMaps.iOConnects3 = list;
-                    break;
-                default:
-                    IODebugMaps.iOConnects = list;
-                    break;
-            }
-        }
-
         private List<IOConnect> GetConnectListForDisplay()
         {
             EnsureConnectConfigReady();
@@ -948,211 +930,19 @@ namespace Automation
             }
         }
 
-        private class IoRefreshData
-        {
-            public int TabIndex;
-            public int InputCount;
-            public int OutputCount;
-            public int ConnectCount;
-            public bool[] InputStates;
-            public bool[] InputValid;
-            public bool[] OutputStates;
-            public bool[] OutputValid;
-            public bool[] ConnectOutStates;
-            public bool[] ConnectOutValid;
-            public bool[] ConnectIn1States;
-            public bool[] ConnectIn1Valid;
-            public bool[] ConnectIn2States;
-            public bool[] ConnectIn2Valid;
-        }
-
-        private IoRefreshData BuildIoRefreshData(int tabIndex)
+        private IoDebugRefreshSnapshot BuildIoRefreshData(int tabIndex)
         {
             try
             {
-                UpdateIoCacheIfNeeded();
-                if (Workspace.Runtime.Motion == null || !Workspace.Runtime.Motion.IsCardInitialized)
-                {
-                    if (tabIndex == 0)
-                    {
-                        IO[] inputs = IODebugMaps.inputs.ToArray();
-                        return new IoRefreshData
-                        {
-                            TabIndex = 0,
-                            InputCount = inputs.Length,
-                            InputStates = new bool[inputs.Length],
-                            InputValid = new bool[inputs.Length]
-                        };
-                    }
-                    if (tabIndex == 1)
-                    {
-                        IO[] outputs = IODebugMaps.outputs.ToArray();
-                        return new IoRefreshData
-                        {
-                            TabIndex = 1,
-                            OutputCount = outputs.Length,
-                            OutputStates = new bool[outputs.Length],
-                            OutputValid = new bool[outputs.Length]
-                        };
-                    }
-                    if (tabIndex == 2)
-                    {
-                        List<IOConnect> connectList = GetConnectListForDisplay();
-                        IOConnect[] connects = connectList.ToArray();
-                        bool[] outValid = new bool[connects.Length];
-                        bool[] in1Valid = new bool[connects.Length];
-                        bool[] in2Valid = new bool[connects.Length];
-                        return new IoRefreshData
-                        {
-                            TabIndex = 2,
-                            ConnectCount = connects.Length,
-                            ConnectOutStates = new bool[connects.Length],
-                            ConnectOutValid = outValid,
-                            ConnectIn1States = new bool[connects.Length],
-                            ConnectIn1Valid = in1Valid,
-                            ConnectIn2States = new bool[connects.Length],
-                            ConnectIn2Valid = in2Valid
-                        };
-                    }
-                }
-                if (tabIndex == 0)
-                {
-                    IO[] inputs = IODebugMaps.inputs.ToArray();
-                    bool[] states = new bool[inputs.Length];
-                    bool[] valid = new bool[inputs.Length];
-                    for (int i = 0; i < inputs.Length; i++)
-                    {
-                        IO ioItem = inputs[i];
-                        if (ioItem == null || ioItem.IsRemark)
-                        {
-                            valid[i] = false;
-                            continue;
-                        }
-                        bool open = false;
-                        if (TryResolveIoByName(ioItem.Name, "通用输入", out IO io, false)
-                            && Workspace.Runtime.Io.GetInIO(io, ref open))
-                        {
-                            states[i] = open;
-                            valid[i] = true;
-                        }
-                        else
-                        {
-                            valid[i] = false;
-                        }
-                    }
-                    return new IoRefreshData
-                    {
-                        TabIndex = 0,
-                        InputCount = inputs.Length,
-                        InputStates = states,
-                        InputValid = valid
-                    };
-                }
-                if (tabIndex == 1)
-                {
-                    IO[] outputs = IODebugMaps.outputs.ToArray();
-                    bool[] states = new bool[outputs.Length];
-                    bool[] valid = new bool[outputs.Length];
-                    for (int i = 0; i < outputs.Length; i++)
-                    {
-                        IO ioItem = outputs[i];
-                        if (ioItem == null || ioItem.IsRemark)
-                        {
-                            valid[i] = false;
-                            continue;
-                        }
-                        bool open = false;
-                        if (TryResolveIoByName(ioItem.Name, "通用输出", out IO io, false)
-                            && Workspace.Runtime.Io.GetOutIO(io, ref open))
-                        {
-                            states[i] = open;
-                            valid[i] = true;
-                        }
-                        else
-                        {
-                            valid[i] = false;
-                        }
-                    }
-                    return new IoRefreshData
-                    {
-                        TabIndex = 1,
-                        OutputCount = outputs.Length,
-                        OutputStates = states,
-                        OutputValid = valid
-                    };
-                }
-                if (tabIndex == 2)
-                {
-                    List<IOConnect> connectList = GetConnectListForDisplay();
-                    IOConnect[] connects = connectList.ToArray();
-                    bool[] outStates = new bool[connects.Length];
-                    bool[] outValid = new bool[connects.Length];
-                    bool[] in1States = new bool[connects.Length];
-                    bool[] in1Valid = new bool[connects.Length];
-                    bool[] in2States = new bool[connects.Length];
-                    bool[] in2Valid = new bool[connects.Length];
-                    for (int i = 0; i < connects.Length; i++)
-                    {
-                        IOConnect connect = connects[i];
-                        if (connect?.Output == null || connect.Output.IsRemark)
-                        {
-                            outValid[i] = false;
-                            in1Valid[i] = false;
-                            in2Valid[i] = false;
-                            continue;
-                        }
-                        bool open = false;
-                        if (TryResolveIoByName(connect.Output.Name, "通用输出", out IO outputIo, false)
-                            && Workspace.Runtime.Io.GetOutIO(outputIo, ref open))
-                        {
-                            outStates[i] = open;
-                            outValid[i] = true;
-                        }
-                        else
-                        {
-                            outValid[i] = false;
-                        }
-                        if (connect.Intput1 != null && !string.IsNullOrWhiteSpace(connect.Intput1.Name)
-                            && TryResolveIoByName(connect.Intput1.Name, "通用输入", out IO input1Io, false)
-                            && Workspace.Runtime.Io.GetInIO(input1Io, ref open))
-                        {
-                            in1States[i] = open;
-                            in1Valid[i] = true;
-                        }
-                        else
-                        {
-                            in1Valid[i] = false;
-                        }
-                        if (connect.Intput2 != null && !string.IsNullOrWhiteSpace(connect.Intput2.Name)
-                            && TryResolveIoByName(connect.Intput2.Name, "通用输入", out IO input2Io, false)
-                            && Workspace.Runtime.Io.GetInIO(input2Io, ref open))
-                        {
-                            in2States[i] = open;
-                            in2Valid[i] = true;
-                        }
-                        else
-                        {
-                            in2Valid[i] = false;
-                        }
-                    }
-                    return new IoRefreshData
-                    {
-                        TabIndex = 2,
-                        ConnectCount = connects.Length,
-                        ConnectOutStates = outStates,
-                        ConnectOutValid = outValid,
-                        ConnectIn1States = in1States,
-                        ConnectIn1Valid = in1Valid,
-                        ConnectIn2States = in2States,
-                        ConnectIn2Valid = in2Valid
-                    };
-                }
+                IReadOnlyList<IOConnect> connections = tabIndex == 2
+                    ? GetConnectListForDisplay().ToArray()
+                    : Array.Empty<IOConnect>();
+                return IoMonitor.BuildSnapshot(tabIndex, IODebugMaps, connections);
             }
             catch
             {
                 return null;
             }
-            return null;
         }
 
         private void ApplyIoRefresh(IoRefreshData data)
@@ -1354,99 +1144,6 @@ namespace Automation
             }
         }
 
-        private void UpdateIoCacheIfNeeded()
-        {
-            List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
-            if (cacheIOs == null)
-            {
-                lock (ioCacheLock)
-                {
-                    inputIoCache.Clear();
-                    outputIoCache.Clear();
-                    inputIoDup.Clear();
-                    outputIoDup.Clear();
-                    ioCacheHash = 0;
-                }
-                return;
-            }
-            IO[] snapshot;
-            try
-            {
-                snapshot = cacheIOs.ToArray();
-            }
-            catch
-            {
-                return;
-            }
-            int hash = 17;
-            StringComparer comparer = StringComparer.Ordinal;
-            for (int i = 0; i < snapshot.Length; i++)
-            {
-                IO io = snapshot[i];
-                if (io == null)
-                {
-                    continue;
-                }
-                hash = hash * 31 + comparer.GetHashCode(io.Name ?? string.Empty);
-                hash = hash * 31 + comparer.GetHashCode(io.IOType ?? string.Empty);
-                hash = hash * 31 + io.CardNum.GetHashCode();
-                hash = hash * 31 + io.Module.GetHashCode();
-                hash = hash * 31 + comparer.GetHashCode(io.IOIndex ?? string.Empty);
-            }
-            lock (ioCacheLock)
-            {
-                if (hash == ioCacheHash)
-                {
-                    return;
-                }
-                Dictionary<string, IO> newInput = new Dictionary<string, IO>(StringComparer.Ordinal);
-                Dictionary<string, IO> newOutput = new Dictionary<string, IO>(StringComparer.Ordinal);
-                HashSet<string> newInputDup = new HashSet<string>(StringComparer.Ordinal);
-                HashSet<string> newOutputDup = new HashSet<string>(StringComparer.Ordinal);
-                for (int i = 0; i < snapshot.Length; i++)
-                {
-                    IO io = snapshot[i];
-                    if (io == null || string.IsNullOrWhiteSpace(io.Name) || string.IsNullOrWhiteSpace(io.IOType))
-                    {
-                        continue;
-                    }
-                    if (io.IOType == "通用输入")
-                    {
-                        if (newInputDup.Contains(io.Name))
-                        {
-                            continue;
-                        }
-                        if (newInput.ContainsKey(io.Name))
-                        {
-                            newInput.Remove(io.Name);
-                            newInputDup.Add(io.Name);
-                            continue;
-                        }
-                        newInput.Add(io.Name, io);
-                    }
-                    else if (io.IOType == "通用输出")
-                    {
-                        if (newOutputDup.Contains(io.Name))
-                        {
-                            continue;
-                        }
-                        if (newOutput.ContainsKey(io.Name))
-                        {
-                            newOutput.Remove(io.Name);
-                            newOutputDup.Add(io.Name);
-                            continue;
-                        }
-                        newOutput.Add(io.Name, io);
-                    }
-                }
-                inputIoCache = newInput;
-                outputIoCache = newOutput;
-                inputIoDup = newInputDup;
-                outputIoDup = newOutputDup;
-                ioCacheHash = hash;
-            }
-        }
-
         public void SetConnectItemm()
         {
             // 初始化右键菜单
@@ -1520,14 +1217,17 @@ namespace Automation
             {
                 return;
             }
-            List<IOConnect> connectList = GetConnectListForConfig();
-            if (connectList.Any(item => item != null && item.Output != null && item.Output.Name == cacheIO.Name))
+            if (!ioConfigurationEditor.TryAddConnection(
+                IODebugMaps,
+                currentConnectConfigIndex,
+                cacheIO,
+                out IODebugMap committed,
+                out string error))
             {
-                MessageBox.Show("调试列表已存在同名输出连接，已沿用现有配置。");
+                MessageBox.Show(error, "IO调试", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            connectList.Add(new IOConnect() { Output = cacheIO.CloneForDebug() });
-            TrySaveIoDebugMap();
+            IODebugMaps = committed;
             RefreshIODebugMapFrm();
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
@@ -1537,7 +1237,7 @@ namespace Automation
         {
             listView3.Items.Clear();
             EnsureListViewSingleColumn(listView3, "通用输出1", 220);
-            UpdateIoCacheIfNeeded();
+            IoMonitor.RefreshCatalog();
             List<IOConnect> IOConnects = GetConnectListForConfig();
             IOConnect iOConnect = null;
             for (int j = 0; j < IOConnects.Count; j++)
@@ -1558,13 +1258,13 @@ namespace Automation
                 }
                 else
                 {
-                    if (!TryResolveIoByName(name, "通用输出", out _, false))
+                    if (!IoMonitor.TryResolveIo(name, "通用输出", out _, false))
                     {
                         item.ForeColor = UiPalette.Danger;
                     }
                     if (iOConnect.Output2 != null
                         && !string.IsNullOrWhiteSpace(iOConnect.Output2.Name)
-                        && !TryResolveIoByName(iOConnect.Output2.Name, "通用输出", out _, false))
+                        && !IoMonitor.TryResolveIo(iOConnect.Output2.Name, "通用输出", out _, false))
                     {
                         item.ForeColor = UiPalette.Danger;
                     }
@@ -2024,59 +1724,29 @@ namespace Automation
             {
                 return;
             }
-            if (Workspace.Runtime.Safety.IsLocked)
-            {
-                MessageBox.Show(Workspace.Runtime.Safety.LockReason, "系统已安全锁定", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-            if (Workspace.Runtime.Io == null || Workspace.Runtime.Motion == null || !Workspace.Runtime.Motion.IsCardInitialized)
-            {
-                MessageBox.Show("运动控制卡未初始化，禁止操作输出。", "IO调试",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
             try
             {
-                bool currentState = false;
-                if (button.Tag is IOConnect ioConnect)
+                IOConnect connection = button.Tag as IOConnect;
+                string primaryName = connection?.Output?.Name ?? button.Text;
+                string inverseName = connection?.Output2?.Name;
+                if (IoMonitor.TryToggleOutput(primaryName, inverseName,
+                    out IoDebugOutputFailure failure, out string error))
                 {
-                    if (!TryResolveIoByName(ioConnect.Output.Name, "通用输出", out IO outputIo))
-                    {
-                        button.BackColor = UiPalette.Danger;
-                        return;
-                    }
-                    if (!Workspace.Runtime.Io.GetOutIO(outputIo, ref currentState))
-                    {
-                        throw new InvalidOperationException($"读取输出状态失败:{outputIo.Name}");
-                    }
-                    bool newState = !currentState;
-                    if (!Workspace.Runtime.Io.SetIO(outputIo, newState))
-                    {
-                        throw new InvalidOperationException($"设置输出失败:{outputIo.Name}");
-                    }
-                    if (ioConnect.Output2 != null
-                        && !string.IsNullOrWhiteSpace(ioConnect.Output2.Name)
-                        && ioConnect.Output2.Name != ioConnect.Output.Name
-                        && TryResolveIoByName(ioConnect.Output2.Name, "通用输出", out IO output2))
-                    {
-                        if (!Workspace.Runtime.Io.SetIO(output2, !newState))
-                        {
-                            throw new InvalidOperationException($"联动输出失败:{output2.Name}");
-                        }
-                    }
                     return;
                 }
-                if (!TryResolveIoByName(button.Text, "通用输出", out IO outputIo2))
+                if (failure == IoDebugOutputFailure.OutputNotFound)
                 {
                     button.BackColor = UiPalette.Danger;
                     return;
                 }
-                if (!Workspace.Runtime.Io.GetOutIO(outputIo2, ref currentState)
-                    || !Workspace.Runtime.Io.SetIO(outputIo2, !currentState))
-                {
-                    throw new InvalidOperationException($"输出操作失败:{outputIo2.Name}");
-                }
+                MessageBoxIcon icon = failure == IoDebugOutputFailure.DeviceUnavailable
+                    ? MessageBoxIcon.Warning
+                    : MessageBoxIcon.Error;
+                string title = failure == IoDebugOutputFailure.SafetyLocked
+                    ? "系统已安全锁定"
+                    : "IO调试失败";
+                Workspace.Runtime.ProcessEngine?.Logger?.Log($"IO调试输出失败:{error}", LogLevel.Error);
+                MessageBox.Show(error, title, MessageBoxButtons.OK, icon);
             }
             catch (Exception ex)
             {
@@ -2203,7 +1873,7 @@ namespace Automation
             listView2.Clear();
             listView1.Columns.Add("通用输入", 220);
             listView2.Columns.Add("通用输出", 220);
-            UpdateIoCacheIfNeeded();
+            IoMonitor.RefreshCatalog();
             //for (int i = 0; i < Workspace.Card.card.controlCards.Count; i++)
             //{
             List<IO> cacheIOs = Workspace.IODebug.IODebugMaps.inputs;
@@ -2227,7 +1897,7 @@ namespace Automation
                         item.Text = name;
                     }
                     item.Font = font;
-                    if (!cacheIO.IsRemark && !TryResolveIoByName(name, "通用输入", out _, false))
+                    if (!cacheIO.IsRemark && !IoMonitor.TryResolveIo(name, "通用输入", out _, false))
                     {
                         item.ForeColor = UiPalette.Danger;
                     }
@@ -2257,7 +1927,7 @@ namespace Automation
                         item.Text = name;
                     }
                     item.Font = font;
-                    if (!cacheIO.IsRemark && !TryResolveIoByName(name, "通用输出", out _, false))
+                    if (!cacheIO.IsRemark && !IoMonitor.TryResolveIo(name, "通用输出", out _, false))
                     {
                         item.ForeColor = UiPalette.Danger;
                     }
@@ -2384,65 +2054,18 @@ namespace Automation
         }
         private void ApplyDebugSelection(string ioType, List<string> selectedNames, List<IO> cacheIOs)
         {
-            Dictionary<string, IO> ioByName = new Dictionary<string, IO>();
-            foreach (IO io in cacheIOs)
+            if (!ioConfigurationEditor.TryApplyIoSelection(
+                IODebugMaps,
+                ioType,
+                selectedNames,
+                cacheIOs,
+                out IODebugMap committed,
+                out string error))
             {
-                if (io == null || io.IOType != ioType || string.IsNullOrWhiteSpace(io.Name))
-                {
-                    continue;
-                }
-                if (!ioByName.ContainsKey(io.Name))
-                {
-                    ioByName.Add(io.Name, io);
-                }
+                ShowIoConfigurationError(error);
+                return;
             }
-            HashSet<string> selectedSet = new HashSet<string>(selectedNames);
-            List<IO> currentList = ioType == "通用输入" ? IODebugMaps.inputs : IODebugMaps.outputs;
-            List<IO> newList = new List<IO>();
-            foreach (IO io in currentList)
-            {
-                if (io == null || string.IsNullOrWhiteSpace(io.Name))
-                {
-                    continue;
-                }
-                if (io.IsRemark)
-                {
-                    newList.Add(io);
-                    continue;
-                }
-                if (!selectedSet.Contains(io.Name))
-                {
-                    continue;
-                }
-                if (ioByName.TryGetValue(io.Name, out IO sourceIo))
-                {
-                    IO cloned = sourceIo.CloneForDebug();
-                    newList.Add(cloned);
-                    selectedSet.Remove(io.Name);
-                }
-            }
-            foreach (string name in selectedNames)
-            {
-                if (!selectedSet.Contains(name))
-                {
-                    continue;
-                }
-                if (ioByName.TryGetValue(name, out IO sourceIo))
-                {
-                    IO cloned = sourceIo.CloneForDebug();
-                    newList.Add(cloned);
-                    selectedSet.Remove(name);
-                }
-            }
-            if (ioType == "通用输入")
-            {
-                IODebugMaps.inputs = newList;
-            }
-            else
-            {
-                IODebugMaps.outputs = newList;
-            }
-            TrySaveIoDebugMap();
+            IODebugMaps = committed;
             RefreshIODebugMapFrm();
         }
         private void OpenConnectConfig()
@@ -2489,59 +2112,18 @@ namespace Automation
         }
         private void ApplyConnectSelection(List<string> selectedNames, List<IO> cacheIOs)
         {
-            Dictionary<string, IO> ioByName = new Dictionary<string, IO>();
-            foreach (IO io in cacheIOs)
+            if (!ioConfigurationEditor.TryApplyConnectionSelection(
+                IODebugMaps,
+                currentConnectConfigIndex,
+                selectedNames,
+                cacheIOs,
+                out IODebugMap committed,
+                out string error))
             {
-                if (io == null || io.IOType != "通用输出" || string.IsNullOrWhiteSpace(io.Name))
-                {
-                    continue;
-                }
-                if (!ioByName.ContainsKey(io.Name))
-                {
-                    ioByName.Add(io.Name, io);
-                }
+                ShowIoConfigurationError(error);
+                return;
             }
-            HashSet<string> selectedSet = new HashSet<string>(selectedNames);
-            List<IOConnect> connectList = GetConnectListForConfig();
-            List<IOConnect> newList = new List<IOConnect>();
-            foreach (IOConnect connect in connectList)
-            {
-                if (connect?.Output == null)
-                {
-                    continue;
-                }
-                if (connect.Output.IsRemark)
-                {
-                    newList.Add(connect);
-                    continue;
-                }
-                if (!selectedSet.Contains(connect.Output.Name))
-                {
-                    continue;
-                }
-                if (ioByName.TryGetValue(connect.Output.Name, out IO outputIo))
-                {
-                    connect.Output = outputIo.CloneForDebug();
-                }
-                newList.Add(connect);
-                selectedSet.Remove(connect.Output.Name);
-            }
-            foreach (string name in selectedNames)
-            {
-                if (!selectedSet.Contains(name))
-                {
-                    continue;
-                }
-                if (ioByName.TryGetValue(name, out IO outputIo))
-                {
-                    IOConnect connect = new IOConnect();
-                    connect.Output = outputIo.CloneForDebug();
-                    newList.Add(connect);
-                    selectedSet.Remove(name);
-                }
-            }
-            SetConnectList(currentConnectConfigIndex, newList);
-            TrySaveIoDebugMap();
+            IODebugMaps = committed;
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
         }
@@ -2552,12 +2134,6 @@ namespace Automation
             {
                 return;
             }
-            IO remark = new IO
-            {
-                Name = remarkText.Trim(),
-                IOType = ioType,
-                IsRemark = true
-            };
             int insertIndex = targetList.Count;
             if (targetView.SelectedItems.Count > 0)
             {
@@ -2567,8 +2143,18 @@ namespace Automation
                     insertIndex = targetList.Count;
                 }
             }
-            targetList.Insert(insertIndex, remark);
-            TrySaveIoDebugMap();
+            if (!ioConfigurationEditor.TryAddIoRemark(
+                IODebugMaps,
+                ioType,
+                remarkText,
+                insertIndex,
+                out IODebugMap committed,
+                out string error))
+            {
+                ShowIoConfigurationError(error);
+                return;
+            }
+            IODebugMaps = committed;
             RefreshIODebugMapFrm();
         }
         private void AddRemarkConnectItem()
@@ -2578,10 +2164,6 @@ namespace Automation
             {
                 return;
             }
-            IOConnect remark = new IOConnect();
-            remark.Output.Name = remarkText.Trim();
-            remark.Output.IOType = "通用输出";
-            remark.Output.IsRemark = true;
             List<IOConnect> connectList = GetConnectListForConfig();
             int insertIndex = connectList.Count;
             if (listView3.SelectedItems.Count > 0)
@@ -2592,8 +2174,18 @@ namespace Automation
                     insertIndex = connectList.Count;
                 }
             }
-            connectList.Insert(insertIndex, remark);
-            TrySaveIoDebugMap();
+            if (!ioConfigurationEditor.TryAddConnectionRemark(
+                IODebugMaps,
+                currentConnectConfigIndex,
+                remarkText,
+                insertIndex,
+                out IODebugMap committed,
+                out string error))
+            {
+                ShowIoConfigurationError(error);
+                return;
+            }
+            IODebugMaps = committed;
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
         }
@@ -2690,38 +2282,6 @@ namespace Automation
                 Array.Resize(ref ConnectIn2Valid, count);
             }
         }
-        private bool TryResolveIoByName(string name, string ioType, out IO io, bool ensureCache = true)
-        {
-            io = null;
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return false;
-            }
-            if (ensureCache)
-            {
-                UpdateIoCacheIfNeeded();
-            }
-            lock (ioCacheLock)
-            {
-                if (ioType == "通用输入")
-                {
-                    if (inputIoDup.Contains(name))
-                    {
-                        return false;
-                    }
-                    return inputIoCache.TryGetValue(name, out io);
-                }
-                if (ioType == "通用输出")
-                {
-                    if (outputIoDup.Contains(name))
-                    {
-                        return false;
-                    }
-                    return outputIoCache.TryGetValue(name, out io);
-                }
-            }
-            return false;
-        }
         private ListViewItem sourceItem;
         private void listView1_ItemDrag(object sender, ItemDragEventArgs e)
         {
@@ -2759,27 +2319,21 @@ namespace Automation
             {
                 targetIndex = listView1.Items.Count;
             }
-            if (sourceIndex != targetIndex && sourceIndex >= 0 && sourceIndex < Workspace.IODebug.IODebugMaps.inputs.Count)
+            if (sourceIndex != targetIndex)
             {
-                List<IO> list = Workspace.IODebug.IODebugMaps.inputs;
-                IO moving = list[sourceIndex];
-                list.RemoveAt(sourceIndex);
-                if (targetIndex > sourceIndex)
+                if (!ioConfigurationEditor.TryReorderIo(
+                    IODebugMaps,
+                    true,
+                    sourceIndex,
+                    targetIndex,
+                    out IODebugMap committed,
+                    out string error))
                 {
-                    targetIndex--;
+                    ShowIoConfigurationError(error);
                 }
-                if (targetIndex < 0)
-                {
-                    targetIndex = 0;
-                }
-                if (targetIndex > list.Count)
-                {
-                    targetIndex = list.Count;
-                }
-                list.Insert(targetIndex, moving);
+                else IODebugMaps = committed;
             }
             listView1.InsertionMark.Index = -1;
-            TrySaveIoDebugMap();
             RefreshIODebugMapFrm();
             RefreshIoDisplayAfterReorder(true);
         }
@@ -2828,27 +2382,21 @@ namespace Automation
             {
                 targetIndex = listView2.Items.Count;
             }
-            if (sourceIndex != targetIndex && sourceIndex >= 0 && sourceIndex < Workspace.IODebug.IODebugMaps.outputs.Count)
+            if (sourceIndex != targetIndex)
             {
-                List<IO> list = Workspace.IODebug.IODebugMaps.outputs;
-                IO moving = list[sourceIndex];
-                list.RemoveAt(sourceIndex);
-                if (targetIndex > sourceIndex)
+                if (!ioConfigurationEditor.TryReorderIo(
+                    IODebugMaps,
+                    false,
+                    sourceIndex,
+                    targetIndex,
+                    out IODebugMap committed,
+                    out string error))
                 {
-                    targetIndex--;
+                    ShowIoConfigurationError(error);
                 }
-                if (targetIndex < 0)
-                {
-                    targetIndex = 0;
-                }
-                if (targetIndex > list.Count)
-                {
-                    targetIndex = list.Count;
-                }
-                list.Insert(targetIndex, moving);
+                else IODebugMaps = committed;
             }
             listView2.InsertionMark.Index = -1;
-            TrySaveIoDebugMap();
             RefreshIODebugMapFrm();
             RefreshIoDisplayAfterReorder(false);
         }
@@ -2980,30 +2528,14 @@ namespace Automation
                     }
 
                     listView4.ItemChecked += listView4_ItemChecked;
-                    List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
-                    IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == e.Item.Text);
-                    IOConnect iOConnect = GetSelectedConnect();
-                    if (cacheIO != null && iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
-                    {
-                        iOConnect.Intput1 = cacheIO.CloneForDebug();
-
-                        TrySaveIoDebugMap();
-                        RefreshConnectDisplayForCurrentConfig();
-                    }
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Input1, true, e.Item.Text);
                 }
             }
             else
             {
                 if (listView3.SelectedItems.Count != 0)
                 {
-                    IOConnect iOConnect = GetSelectedConnect();
-                    if (iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
-                    {
-                        iOConnect.Intput1.Name = "";
-
-                        TrySaveIoDebugMap();
-                        RefreshConnectDisplayForCurrentConfig();
-                    }
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Input1, false, null);
                 }
             }
         }
@@ -3028,16 +2560,7 @@ namespace Automation
                         }
                     }
                     listView5.ItemChecked += listView5_ItemChecked;
-                    List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
-                    IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == e.Item.Text);
-                    IOConnect iOConnect = GetSelectedConnect();
-                    if (cacheIO != null && iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
-                    {
-                        iOConnect.Intput2 = cacheIO.CloneForDebug();
-
-                        TrySaveIoDebugMap();
-                        RefreshConnectDisplayForCurrentConfig();
-                    }
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Input2, true, e.Item.Text);
 
                 }
 
@@ -3046,14 +2569,7 @@ namespace Automation
             {
                 if (listView3.SelectedItems.Count != 0)
                 {
-                    IOConnect iOConnect = GetSelectedConnect();
-                    if (iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
-                    {
-                        iOConnect.Intput2.Name = "";
-
-                        TrySaveIoDebugMap();
-                        RefreshConnectDisplayForCurrentConfig();
-                    }
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Input2, false, null);
 
                 }
             }
@@ -3080,40 +2596,52 @@ namespace Automation
                     }
 
                     listView6.ItemChecked += listView6_ItemChecked;
-                    List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
-                    if (cacheIOs == null)
-                    {
-                        return;
-                    }
-                    IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == e.Item.Text);
-                    IOConnect iOConnect = GetSelectedConnect();
-                    if (cacheIO != null && iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
-                    {
-                        iOConnect.Output2 = cacheIO.CloneForDebug();
-
-                        TrySaveIoDebugMap();
-                        RefreshConnectDisplayForCurrentConfig();
-                    }
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Output2, true, e.Item.Text);
                 }
             }
             else
             {
                 if (listView3.SelectedItems.Count != 0)
                 {
-                    IOConnect iOConnect = GetSelectedConnect();
-                    if (iOConnect != null && iOConnect.Output != null && !iOConnect.Output.IsRemark)
-                    {
-                        if (iOConnect.Output2 == null)
-                        {
-                            iOConnect.Output2 = new IO();
-                        }
-                        iOConnect.Output2.Name = "";
-
-                        TrySaveIoDebugMap();
-                        RefreshConnectDisplayForCurrentConfig();
-                    }
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Output2, false, null);
                 }
             }
+        }
+
+        private void ApplyConnectionEndpoint(
+            IoDebugConnectionEndpoint endpoint,
+            bool enabled,
+            string ioName)
+        {
+            IOConnect selectedConnection = GetSelectedConnect();
+            if (selectedConnection == null) return;
+            int selectedIndex = listView3.SelectedIndices.Count > 0
+                ? listView3.SelectedIndices[0]
+                : -1;
+            IO selectedIo = null;
+            if (enabled)
+            {
+                selectedIo = Workspace.IO.IOMap.FirstOrDefault()?
+                    .FirstOrDefault(io => string.Equals(io?.Name, ioName, StringComparison.Ordinal));
+                if (selectedIo == null) return;
+            }
+            if (!ioConfigurationEditor.TrySetConnectionEndpoint(
+                IODebugMaps,
+                currentConnectConfigIndex,
+                selectedConnection,
+                endpoint,
+                selectedIo,
+                out IODebugMap committed,
+                out string error))
+            {
+                ShowIoConfigurationError(error);
+                return;
+            }
+            IODebugMaps = committed;
+            RefleshConnecdt();
+            if (selectedIndex >= 0 && selectedIndex < listView3.Items.Count)
+                listView3.Items[selectedIndex].Selected = true;
+            RefreshConnectDisplayForCurrentConfig();
         }
         private void listView3_SelectedIndexChanged(object sender, EventArgs e)
         {
@@ -3237,19 +2765,24 @@ namespace Automation
             int sourceIndex = sourceItem3.Index;
             int targetIndex = targetItem.Index;
 
-            // 交换项的位置
-
-            List<IOConnect> connectList = GetConnectListForConfig();
-            IOConnect temp = connectList[sourceIndex];
-            connectList[sourceIndex] = connectList[targetIndex];
-            connectList[targetIndex] = temp;
+            if (!ioConfigurationEditor.TrySwapConnections(
+                IODebugMaps,
+                currentConnectConfigIndex,
+                sourceIndex,
+                targetIndex,
+                out IODebugMap committed,
+                out string error))
+            {
+                ShowIoConfigurationError(error);
+                return;
+            }
+            IODebugMaps = committed;
 
             // 取消目标项的高亮显示
             if (targetItem != null)
             {
                 targetItem.BackColor = UiPalette.SurfaceStrong;
             }
-            TrySaveIoDebugMap();
             RefleshConnecdt();
             RefreshConnectDisplayForCurrentConfig();
         }
@@ -3285,20 +2818,5 @@ namespace Automation
             sourceItem3 = (ListViewItem)e.Item;
             listView3.DoDragDrop(e.Item, DragDropEffects.Move);
         }
-    }
-    public class IODebugMap
-    {
-        public List<IO> inputs = new List<IO>();
-        public List<IO> outputs = new List<IO>();
-        public List<IOConnect> iOConnects = new List<IOConnect>();
-        public List<IOConnect> iOConnects2 = new List<IOConnect>();
-        public List<IOConnect> iOConnects3 = new List<IOConnect>();
-    }
-    public class IOConnect
-    {
-        public IO Output = new IO();
-        public IO Output2 = new IO();
-        public IO Intput1 = new IO();
-        public IO Intput2 = new IO();
     }
 }

@@ -14,7 +14,7 @@ namespace Automation
         internal PlatformStores(PlatformRuntime runtime)
         {
             if (runtime == null) throw new ArgumentNullException(nameof(runtime));
-            Processes = new ProcessDefinitionStore();
+            Processes = new ProcessDefinitionRepository();
             IoConfiguration = new IoConfigurationStore();
             IoDebug = new IoDebugConfigurationStore();
             ValueDebug = new ValueDebugConfigurationStore();
@@ -28,7 +28,7 @@ namespace Automation
             Plc = new PlcConfigStore();
         }
 
-        public ProcessDefinitionStore Processes { get; }
+        public ProcessDefinitionRepository Processes { get; }
         public IoConfigurationStore IoConfiguration { get; }
         public IoDebugConfigurationStore IoDebug { get; }
         public ValueDebugConfigurationStore ValueDebug { get; }
@@ -53,10 +53,13 @@ namespace Automation
             Readiness = new PlatformReadinessState();
             Maintenance = new ConfigurationMaintenanceService();
             Safety = new PlatformSafetyCoordinator(this);
+            ShutdownCoordinator = new PlatformShutdownCoordinator(this);
             Editor = new EditorSessionCoordinator(this);
             Stores = new PlatformStores(this);
             ProcessEditing = new ProcessEditingPolicy(this);
+            OperationEditing = new OperationEditingService(this);
             ProcessPublication = new ProcessPublicationService(this);
+            ProcessVariableConfiguration = new ProcessVariableConfigurationService(this);
             CustomFunctions = new CustomFunc();
             Communication = new CommunicationHub();
             PlcRuntime = new PlcRuntimeService(Stores.Plc, Stores.Values);
@@ -68,12 +71,15 @@ namespace Automation
         public PlatformReadinessState Readiness { get; }
         public ConfigurationMaintenanceService Maintenance { get; }
         public PlatformSafetyCoordinator Safety { get; }
+        internal PlatformShutdownCoordinator ShutdownCoordinator { get; }
         public EditorSessionCoordinator Editor { get; }
         public ProcessEditingPolicy ProcessEditing { get; }
+        public OperationEditingService OperationEditing { get; }
         public ProcessPublicationService ProcessPublication { get; }
+        public ProcessVariableConfigurationService ProcessVariableConfiguration { get; }
 
         public ProcessEngine ProcessEngine { get; internal set; }
-        public IProcessEngineStore ProcessStore { get; internal set; }
+        public IProcessRuntimeControl ProcessControl { get; internal set; }
         public IMotionRuntime Motion { get; internal set; }
         public IIoRuntime Io { get; internal set; }
         public ManualMotionService ManualMotion { get; internal set; }

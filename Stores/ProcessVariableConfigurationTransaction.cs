@@ -7,10 +7,10 @@ using System.Linq;
 namespace Automation
 {
     /// <summary>
-    /// ChangeSet 专用的流程目录与变量文件联合事务。
+    /// 流程目录与变量文件的联合持久化事务。
     /// 提交标记最后落盘；启动时对无提交标记的事务恢复旧版本。
     /// </summary>
-    public static class AiConfigurationTransaction
+    public static class ProcessVariableConfigurationTransaction
     {
         private const string TransactionPrefix = ".change-set-transaction-";
         private const string ManifestFileName = "manifest.json";

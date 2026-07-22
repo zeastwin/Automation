@@ -16,6 +16,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GooseShell", "GooseShell\Go
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Automation.DeviceSdk", "Automation.DeviceSdk\Automation.DeviceSdk.csproj", "{A6A8D87F-DCB2-4D6D-8C98-730E0E527A20}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Automation.Runtime.Contracts", "Automation.Runtime.Contracts\Automation.Runtime.Contracts.csproj", "{E23DE03C-33B2-4A28-A178-528507F8787A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -42,6 +44,10 @@ Global
 		{A6A8D87F-DCB2-4D6D-8C98-730E0E527A20}.Debug|x64.Build.0 = Debug|Any CPU
 		{A6A8D87F-DCB2-4D6D-8C98-730E0E527A20}.Release|x64.ActiveCfg = Release|Any CPU
 		{A6A8D87F-DCB2-4D6D-8C98-730E0E527A20}.Release|x64.Build.0 = Release|Any CPU
+		{E23DE03C-33B2-4A28-A178-528507F8787A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E23DE03C-33B2-4A28-A178-528507F8787A}.Debug|x64.Build.0 = Debug|Any CPU
+		{E23DE03C-33B2-4A28-A178-528507F8787A}.Release|x64.ActiveCfg = Release|Any CPU
+		{E23DE03C-33B2-4A28-A178-528507F8787A}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

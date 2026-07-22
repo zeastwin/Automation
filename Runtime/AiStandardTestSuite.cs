@@ -175,7 +175,7 @@ namespace Automation
                     variables = fixture.Variables;
                 }
 
-                if (!AiConfigurationTransaction.Commit(
+                if (!ProcessVariableConfigurationTransaction.Commit(
                     runtime.Paths.ConfigPath, processes, variables, out string commitError, out bool rollbackFailed))
                 {
                     if (rollbackFailed) runtime.Safety.Lock(commitError);

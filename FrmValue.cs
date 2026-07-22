@@ -14,7 +14,7 @@ namespace Automation
     {  //存放变量对象
         private const string DefaultValueType = "double";
         private const string DefaultValueText = "0";
-        private const string AllVariableScopes = "all";
+        private const string AllVariableScopes = VariableEditorService.AllScopes;
         private const int EmSetCueBanner = 0x1501;
         private const int WmSetRedraw = 0x000B;
         private const int TvmSetExtendedStyle = 0x112C;
@@ -32,24 +32,8 @@ namespace Automation
             }
         }
 
-        private sealed class ValueClipboardItem
-        {
-            public string Name { get; set; }
-            public string Type { get; set; }
-            public string Value { get; set; }
-            public string Note { get; set; }
-        }
-
         private sealed class VariableScopeSelection
         {
-            public string Scope { get; set; }
-            public Guid? OwnerProcId { get; set; }
-        }
-
-        private sealed class VariableScopeOption
-        {
-            public string Key { get; set; }
-            public string Text { get; set; }
             public string Scope { get; set; }
             public Guid? OwnerProcId { get; set; }
         }
@@ -372,7 +356,8 @@ namespace Automation
         }
 
         private readonly HashSet<Guid> monitoredVariableIds = new HashSet<Guid>();
-        private ValueClipboardItem clipboardItem;
+        private VariableClipboardData clipboardItem;
+        private VariableEditorService variableEditorService;
         private bool isValueStoreHooked;
         private ValueConfigStore hookedValueStore;
         private ValueMonitorForm monitorForm;
@@ -414,6 +399,16 @@ namespace Automation
         private bool variableGridRedrawSuspended;
         private const int MaxMonitorHistoryRows = 2000;
         private const int MonitorHistoryTrimRows = 200;
+
+        private VariableEditorService VariableEditor => variableEditorService
+            ?? throw new InvalidOperationException("变量编辑服务尚未初始化。");
+
+        private void OnEditorWorkspaceAttached()
+        {
+            variableEditorService = new VariableEditorService(
+                Workspace.Runtime,
+                () => Workspace.Runtime.Stores.Processes.Items);
+        }
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
@@ -885,7 +880,7 @@ namespace Automation
         //从文件更新变量表
         public void RefreshDic()
         {
-            Workspace.Runtime.Stores.Values.Load(Workspace.Runtime.Paths.ConfigPath, Workspace.Proc?.procsList);
+            Workspace.Runtime.Stores.Values.Load(Workspace.Runtime.Paths.ConfigPath, Workspace.Runtime.Stores.Processes.Items);
             RefreshFromStore();
         }
 
@@ -1215,7 +1210,7 @@ namespace Automation
                     Tag = new VariableScopeSelection { Scope = VariableScopeContract.System }
                 };
                 TreeNode processRoot = new TreeNode($"流程私有变量    {processCount}");
-                IEnumerable<Proc> processes = (Workspace.Proc?.procsList ?? new List<Proc>())
+                IEnumerable<Proc> processes = (Workspace.Runtime.Stores.Processes.Items ?? new List<Proc>())
                     .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
                     .OrderBy(proc => proc.head.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase);
                 foreach (Proc proc in processes)
@@ -1603,24 +1598,13 @@ namespace Automation
         private bool ShouldDisplayVariableRow(
             int index, bool searching, string searchText, bool allScopesSelected)
         {
-            DicValue variable = variableSnapshot[index];
-            if (variable == null)
-            {
-                return !searching
-                    && (allScopesSelected
-                        || string.Equals(selectedScope, VariableScopeContract.System, StringComparison.Ordinal)
-                        && ValueConfigStore.IsSystemValueIndex(index));
-            }
-            if (searching)
-            {
-                return IsVariableSearchMatch(variable, searchText);
-            }
-            return allScopesSelected
-                || string.Equals(selectedScope, VariableScopeContract.System, StringComparison.Ordinal)
-                && ValueConfigStore.IsSystemValueIndex(index)
-                || string.Equals(variable.Scope, selectedScope, StringComparison.Ordinal)
-                && (!string.Equals(selectedScope, VariableScopeContract.Process, StringComparison.Ordinal)
-                    || variable.OwnerProcId == selectedOwnerProcId);
+            return VariableEditor.ShouldDisplay(
+                index,
+                variableSnapshot[index],
+                selectedScope,
+                selectedOwnerProcId,
+                searching ? searchText : string.Empty,
+                processNamesById);
         }
 
         private void ScheduleScopeFilter(bool refreshScopeTree = false)
@@ -1661,33 +1645,9 @@ namespace Automation
 
         private void RefreshVariableScopeOptions()
         {
-            List<Proc> processes = (Workspace.Proc?.procsList ?? new List<Proc>())
-                .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
-                .OrderBy(proc => proc.head.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
-                .ToList();
-            var names = new Dictionary<Guid, string>();
-            foreach (Proc proc in processes)
-            {
-                names[proc.head.Id] = proc.head.Name ?? proc.head.Id.ToString("D");
-            }
-            processNamesById = names;
-
-            var options = new List<VariableScopeOption>
-            {
-                new VariableScopeOption
-                {
-                    Key = VariableScopeContract.Public,
-                    Text = "公共变量",
-                    Scope = VariableScopeContract.Public
-                }
-            };
-            options.AddRange(processes.Select(proc => new VariableScopeOption
-                {
-                    Key = BuildVariableScopeOptionKey(VariableScopeContract.Process, proc.head.Id),
-                    Text = $"流程私有 · {proc.head.Name}",
-                    Scope = VariableScopeContract.Process,
-                    OwnerProcId = proc.head.Id
-                }));
+            VariableScopeCatalog catalog = VariableEditor.BuildScopeCatalog();
+            processNamesById = catalog.ProcessNames.ToDictionary(item => item.Key, item => item.Value);
+            List<VariableScopeOption> options = catalog.Options.ToList();
             bool optionsChanged = options.Count != variableScopeOptions.Count;
             for (int i = 0; !optionsChanged && i < options.Count; i++)
             {
@@ -1709,7 +1669,7 @@ namespace Automation
         {
             if (variable != null && !ValueConfigStore.IsSystemValueIndex(variable.Index))
             {
-                string optionKey = BuildVariableScopeOptionKey(variable.Scope, variable.OwnerProcId);
+                string optionKey = VariableEditorService.BuildScopeOptionKey(variable.Scope, variable.OwnerProcId);
                 if (variableScopeOptions.Any(option => string.Equals(option.Key, optionKey, StringComparison.Ordinal)))
                 {
                     var comboCell = row.Cells[5] as DataGridViewComboBoxCell;
@@ -1742,7 +1702,7 @@ namespace Automation
             }
             string scopeText = variable == null
                 ? ValueConfigStore.IsSystemValueIndex(slotIndex) ? "系统" : "未配置"
-                : FormatVariableScope(variable);
+                : VariableEditor.FormatScope(variable, processNamesById);
             SetCellValueIfChanged(textCell, scopeText);
             if (!textCell.ReadOnly) textCell.ReadOnly = true;
         }
@@ -1758,13 +1718,6 @@ namespace Automation
             return option != null;
         }
 
-        private static string BuildVariableScopeOptionKey(string scope, Guid? ownerProcId)
-        {
-            return string.Equals(scope, VariableScopeContract.Process, StringComparison.Ordinal)
-                ? $"{VariableScopeContract.Process}:{ownerProcId?.ToString("D") ?? string.Empty}"
-                : VariableScopeContract.Public;
-        }
-
         private static void ApplyVariableRowEditingState(DataGridViewRow row, DicValue variable)
         {
             bool protectedSystemVariable = variable != null
@@ -1777,38 +1730,6 @@ namespace Automation
             {
                 row.Cells[2].ReadOnly = protectedSystemVariable;
             }
-        }
-
-        private bool IsVariableSearchMatch(DicValue value, string searchText)
-        {
-            if (value == null || string.IsNullOrEmpty(searchText)) return false;
-            string ownerName = ResolveOwnerProcessName(value.OwnerProcId);
-            return value.Index.ToString().IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0
-                || (value.Name ?? string.Empty).IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0
-                || (value.Type ?? string.Empty).IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0
-                || (value.Note ?? string.Empty).IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0
-                || ownerName.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0
-                || (value.Scope ?? string.Empty).IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
-        private string FormatVariableScope(DicValue value)
-        {
-            if (value == null) return "未配置";
-            if (string.Equals(value.Scope, VariableScopeContract.Process, StringComparison.Ordinal))
-            {
-                string ownerName = ResolveOwnerProcessName(value.OwnerProcId);
-                return string.IsNullOrWhiteSpace(ownerName) ? "流程私有" : $"流程私有 · {ownerName}";
-            }
-            if (string.Equals(value.Scope, VariableScopeContract.System, StringComparison.Ordinal)) return "系统";
-            return "公共";
-        }
-
-        private string ResolveOwnerProcessName(Guid? ownerProcId)
-        {
-            if (!ownerProcId.HasValue) return string.Empty;
-            return processNamesById.TryGetValue(ownerProcId.Value, out string processName)
-                ? processName
-                : string.Empty;
         }
 
         public void LocateProcessVariables(Guid procId)
@@ -2058,32 +1979,6 @@ namespace Automation
             return new List<int>(indexes);
         }
 
-        private bool TryValidateClipboardData(string name, string type, string value, out string error)
-        {
-            error = null;
-            if (string.IsNullOrEmpty(name))
-            {
-                error = "名称为空";
-                return false;
-            }
-            if (type != "double" && type != "string")
-            {
-                error = "类型无效";
-                return false;
-            }
-            if (string.IsNullOrEmpty(value))
-            {
-                error = "值为空";
-                return false;
-            }
-            if (type == "double" && !double.TryParse(value, out _))
-            {
-                error = "值不是有效数字";
-                return false;
-            }
-            return true;
-        }
-
         private void CopySelectedValueRow()
         {
             if (!TryGetSingleSelectedSlotIndex(out int rowIndex))
@@ -2095,18 +1990,19 @@ namespace Automation
                 MessageBox.Show("当前行没有可复制的变量");
                 return;
             }
-            if (!TryValidateClipboardData(value.Name, value.Type, value.Value, out string error))
-            {
-                MessageBox.Show($"复制失败:{error}");
-                return;
-            }
-            clipboardItem = new ValueClipboardItem
+            var copiedData = new VariableClipboardData
             {
                 Name = value.Name,
                 Type = value.Type,
                 Value = value.Value,
                 Note = value.Note
             };
+            if (!VariableEditor.ValidateClipboardData(copiedData, out string error))
+            {
+                MessageBox.Show($"复制失败:{error}");
+                return;
+            }
+            clipboardItem = copiedData;
         }
 
         private void PasteToSelectedValueRow()
@@ -2125,13 +2021,20 @@ namespace Automation
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            string nameToUse = BuildPasteName(clipboardItem.Name);
+            string nameToUse = VariableEditor.BuildAvailableCopyName(clipboardItem.Name);
             if (string.IsNullOrEmpty(nameToUse))
             {
                 MessageBox.Show("粘贴名称无效");
                 return;
             }
-            if (!TryValidateClipboardData(nameToUse, clipboardItem.Type, clipboardItem.Value, out string error))
+            var pastedData = new VariableClipboardData
+            {
+                Name = nameToUse,
+                Type = clipboardItem.Type,
+                Value = clipboardItem.Value,
+                Note = clipboardItem.Note
+            };
+            if (!VariableEditor.ValidateClipboardData(pastedData, out string error))
             {
                 MessageBox.Show($"粘贴失败:{error}");
                 return;
@@ -2145,13 +2048,18 @@ namespace Automation
             Guid? targetOwnerProcId = string.Equals(targetScope, VariableScopeContract.Process, StringComparison.Ordinal)
                 ? targetVariable?.OwnerProcId ?? selectedOwnerProcId
                 : null;
-            if (!TryCommitVariableRow(
-                rowIndex, nameToUse, clipboardItem.Type, clipboardItem.Value, clipboardItem.Note,
-                targetScope,
-                targetOwnerProcId,
-                true,
-                "粘贴变量",
-                out string commitError))
+            if (!VariableEditor.TryCommitRow(new VariableRowUpdate
+            {
+                Index = rowIndex,
+                Name = nameToUse,
+                Type = clipboardItem.Type,
+                CurrentValue = clipboardItem.Value,
+                Note = clipboardItem.Note,
+                Scope = targetScope,
+                OwnerProcId = targetOwnerProcId,
+                SetCurrentValue = true,
+                HistoryDescription = "粘贴变量"
+            }, out string commitError))
             {
                 MessageBox.Show("粘贴失败:" + commitError);
                 return;
@@ -2159,26 +2067,6 @@ namespace Automation
             txtVariableSearch.Clear();
             FreshFrmValue();
             LocateValueIndex(rowIndex);
-        }
-
-        private string BuildPasteName(string baseName)
-        {
-            if (string.IsNullOrWhiteSpace(baseName))
-            {
-                return null;
-            }
-            string name = baseName.Trim();
-            int suffix = 1;
-            while (suffix < 100000)
-            {
-                string candidate = $"{name}{suffix}";
-                if (!Workspace.Runtime.Stores.Values.TryGetValueByName(candidate, out _))
-                {
-                    return candidate;
-                }
-                suffix++;
-            }
-            return null;
         }
 
         private void ClearSelectedValueRows(bool requireConfirm = false)
@@ -2207,7 +2095,7 @@ namespace Automation
             }
             if (requireConfirm)
             {
-                int usageCount = variables.Sum(CountVariableUsages);
+                int usageCount = variables.Sum(VariableEditor.CountUsages);
                 DialogResult result = MessageBox.Show(
                     $"确认删除选中的{variables.Count}个变量？检测到{usageCount}个已知引用；引用文本将保留，受影响流程会变为 incomplete。",
                     "删除变量确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
@@ -2216,16 +2104,7 @@ namespace Automation
                     return;
                 }
             }
-            Dictionary<string, DicValue> draft = Workspace.Runtime.Stores.Values.BuildSaveData();
-            foreach (DicValue variable in variables)
-            {
-                draft.Remove(variable.Name);
-            }
-            if (!Workspace.Runtime.Stores.Values.TryCommitConfiguration(
-                Workspace.Runtime.Paths.ConfigPath,
-                draft,
-                out string error,
-                historyDescription: "删除变量"))
+            if (!VariableEditor.TryDeleteVariables(variables, out string error))
             {
                 MessageBox.Show(error, "删除变量失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -2294,10 +2173,10 @@ namespace Automation
                         && Workspace.Runtime.Stores.Values.TryGetValueByIndex(editedSlotIndex, out DicValue existing))
                     {
                         string editedValue = dataGridView.Rows[e.RowIndex].Cells[3].Value?.ToString() ?? string.Empty;
-                        if (!Workspace.Runtime.Stores.Values.setValueByIndex(existing.Index, editedValue, "变量页设置当前值"))
+                        if (!VariableEditor.TrySetRuntimeValue(existing, editedValue, out string runtimeValueError))
                         {
                             isValueEditValid = false;
-                            MessageBox.Show($"变量[{existing.Name}]当前值无效。", "设置当前值失败",
+                            MessageBox.Show(runtimeValueError, "设置当前值失败",
                                 MessageBoxButtons.OK, MessageBoxIcon.Error);
                             FreshFrmValue();
                             return;
@@ -2325,7 +2204,7 @@ namespace Automation
                         && Workspace.Runtime.Stores.Values.TryGetValueByIndex(num, out DicValue renamedVariable)
                         && !string.Equals(renamedVariable.Name, key, StringComparison.Ordinal))
                     {
-                        int usageCount = CountVariableUsages(renamedVariable);
+                        int usageCount = VariableEditor.CountUsages(renamedVariable);
                         if (usageCount > 0)
                         {
                             bool confirmed = false;
@@ -2377,7 +2256,7 @@ namespace Automation
                             || scopedVariable.OwnerProcId != targetOwnerProcId;
                         if (scopeChanged)
                         {
-                            int usageCount = CountVariableUsages(scopedVariable);
+                            int usageCount = VariableEditor.CountUsages(scopedVariable);
                             if (usageCount > 0)
                             {
                                 bool confirmed = false;
@@ -2398,11 +2277,18 @@ namespace Automation
                             }
                         }
                     }
-                    if (!TryCommitVariableRow(
-                        num, key, type, value, note, targetScope, targetOwnerProcId,
-                        scopedVariable == null,
-                        scopedVariable == null ? "新增变量" : "修改变量",
-                        out string commitError))
+                    if (!VariableEditor.TryCommitRow(new VariableRowUpdate
+                    {
+                        Index = num,
+                        Name = key,
+                        Type = type,
+                        CurrentValue = value,
+                        Note = note,
+                        Scope = targetScope,
+                        OwnerProcId = targetOwnerProcId,
+                        SetCurrentValue = scopedVariable == null,
+                        HistoryDescription = scopedVariable == null ? "新增变量" : "修改变量"
+                    }, out string commitError))
                     {
                         isValueEditValid = false;
                         MessageBox.Show(commitError, "保存变量失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -2579,7 +2465,7 @@ namespace Automation
                         {
                             e.Value = variable == null
                                 ? ValueConfigStore.IsSystemValueIndex(slotIndex) ? "系统" : "未配置"
-                                : FormatVariableScope(variable);
+                                : VariableEditor.FormatScope(variable, processNamesById);
                         }
                         break;
                 }
@@ -2643,70 +2529,6 @@ namespace Automation
         private void RefreshCommonList()
         {
             ApplyScopeFilter();
-        }
-
-        private int CountVariableUsages(DicValue variable)
-        {
-            int count = 0;
-            foreach (Proc proc in Workspace.Proc?.procsList ?? new List<Proc>())
-            {
-                foreach (OperationType operation in (proc?.steps ?? new List<Step>())
-                    .Where(step => step?.Ops != null).SelectMany(step => step.Ops))
-                {
-                    count += VariableReferenceCatalog.Enumerate(operation).Count(reference =>
-                        reference.Kind == VariableReferenceKind.Name
-                            ? string.Equals(reference.Value, variable.Name, StringComparison.Ordinal)
-                            : int.TryParse(reference.Value, out int index) && index == variable.Index);
-                }
-            }
-            return count;
-        }
-
-        private bool TryCommitVariableRow(
-            int index,
-            string name,
-            string type,
-            string currentValue,
-            string note,
-            string scope,
-            Guid? ownerProcId,
-            bool setCurrentValue,
-            string historyDescription,
-            out string error)
-        {
-            error = null;
-            Dictionary<string, DicValue> draft = Workspace.Runtime.Stores.Values.BuildSaveData();
-            DicValue current = draft.Values.FirstOrDefault(value => value?.Index == index);
-            if (draft.TryGetValue(name, out DicValue sameName) && sameName.Index != index)
-            {
-                error = $"变量名已存在：{name}";
-                return false;
-            }
-            if (current != null) draft.Remove(current.Name);
-            DicValue updated = current == null ? new DicValue() : ObjectGraphCloner.Clone(current);
-            if (updated.Id == Guid.Empty) updated.Id = Guid.NewGuid();
-            updated.Index = index;
-            updated.Name = name;
-            updated.Type = type;
-            updated.Scope = ValueConfigStore.IsSystemValueIndex(index)
-                ? VariableScopeContract.System
-                : scope;
-            updated.OwnerProcId = ValueConfigStore.IsSystemValueIndex(index) ? null : ownerProcId;
-            if (current == null || setCurrentValue)
-            {
-                updated.Value = currentValue;
-            }
-            updated.Note = note;
-            draft[name] = updated;
-            return Workspace.Runtime.Stores.Values.TryCommitConfiguration(
-                Workspace.Runtime.Paths.ConfigPath,
-                draft,
-                out error,
-                setCurrentValue
-                    ? new Dictionary<string, string>(StringComparer.Ordinal) { [name] = currentValue }
-                    : null,
-                setCurrentValue ? "变量页保存当前值" : null,
-                historyDescription);
         }
 
         private void EnsureValueStoreHooked()

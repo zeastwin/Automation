@@ -49,6 +49,8 @@ Goose 不直接连接 WinForms，也不直接访问 Named Pipe。它只看到 MC
 
 每轮 prompt 会附加当前编辑器实际选择到的最深层对象。选择只帮助定位，不代表用户授权修改。Provider、Model、平台集成上下文和 UTF-8 PowerShell 环境只覆盖当前 Goose 子进程。
 
+AI 前台内部按当前职责分层：`AiConversationCoordinator` 统一拥有会话、任务运行时、单轮执行、取消和历史收尾，`GooseAcpEventReader` 解析 ACP 工具结果，`AiPreviewConfirmationCoordinator` 归一化预演状态并去重，`AutomationBridgePreviewClient` 是前台确认/拒绝的最小 Named Pipe 客户端。`FrmAiAssistant` 只组合这些对象并负责输入、气泡和 Web 展示；模板、渲染和审核对话框分别位于对应 partial 文件。
+
 ## 工具 Profile
 
 `McpServer/McpToolProfile.cs` 是当前工具集合的权威来源：
@@ -78,7 +80,7 @@ stateDiagram-v2
 
 预演阶段由 `AiChangeSetCompiler` 在流程、变量和资源快照上编译语义或原生指令，计算可保存性和 readiness，并冻结编译结果与基础状态哈希。前台确认只更新预演记录的确认状态。
 
-`apply_change_set` 只接受 `previewId`。Bridge 再检查确认状态、过期时间和基础状态哈希，然后提交冻结结果；它不在 apply 时重新接收或重新编译模型生成的 ChangeSet。提交结果返回稳定对象身份和受影响流程，供下一阶段精确读取。
+`apply_change_set` 只接受 `previewId`。Bridge 再检查确认状态、过期时间和基础状态哈希，然后把冻结的流程与变量快照交给 `ProcessVariableConfigurationService`；它与手工编辑复用同一刷新、失败回滚和底层事务，不在 apply 时重新接收或重新编译模型生成的 ChangeSet。提交结果返回稳定对象身份和受影响流程，供下一阶段精确读取。
 
 ## Bridge 线程边界与传输
 
@@ -101,4 +103,6 @@ stateDiagram-v2
 
 旧 intent、patch、`create_batch` 路由、处理器和模板已经删除，源码只保留 ChangeSet V2 写入状态机。Profile 和运行时仍保留退役工具名作为反向门禁，用于阻止这些工具重新暴露；`ArchitectureBoundaryRegression.ps1` 同时检查 Bridge 不得恢复旧路由。
 
-ChangeSet 状态机、迁移配置、运行诊断和流程详情读取已分别移动到 `AutomationBridgeService.ChangeSet.cs`、`Migration.cs`、`Diagnostics.cs` 和 `ProcessInspection.cs`。Bridge 主文件仍然偏大，资源配置用例和大量参数映射尚未继续拆分，这是当前 AI 链路的主要可读性债务，见 `D-007`。
+`AutomationBridgeService.cs` 现在只保存实例依赖、共享限制和内部预演记录。路由、协议响应、流程查询/控制、变量、工站、数据结构、IO、硬件资源和预演状态位于同名 partial 模块。原聚合的序列化职责继续拆为 `ProcessProjection`、`OperationProjection`、`ProtocolSupport`、`ValueConversion`；诊断拆为 `RuntimeDiagnostics`、`ReferenceDiagnostics`、`AuditDiagnostics`。架构门禁限制主文件不超过 250 行、单个职责文件不超过 1000 行，并阻止旧 `Serialization.cs/Diagnostics.cs` 回流。
+
+这次拆分没有改变 Named Pipe 路由或 JSON 契约。仍待偿还的是 handler 对 `JObject/JArray` 的依赖和更细粒度的契约测试：公共参数应继续向 `Automation.Protocol` 强类型 DTO 收敛，而不是在 partial 文件之间复制参数规则。

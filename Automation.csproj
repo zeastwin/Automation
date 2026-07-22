@@ -24,6 +24,10 @@
     <PlatformRuntimeVersion>1.0.0.0</PlatformRuntimeVersion>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="Automation.Runtime.Contracts\Automation.Runtime.Contracts.csproj">
+      <Project>{E23DE03C-33B2-4A28-A178-528507F8787A}</Project>
+      <Name>Automation.Runtime.Contracts</Name>
+    </ProjectReference>
     <ProjectReference Include="Automation.DeviceSdk\Automation.DeviceSdk.csproj">
       <Project>{A6A8D87F-DCB2-4D6D-8C98-730E0E527A20}</Project>
       <Name>Automation.DeviceSdk</Name>
@@ -69,7 +73,15 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Runtime\AiConversationStorage.cs" />
+    <Compile Include="Runtime\AiConversationCoordinator.cs" />
+    <Compile Include="Runtime\GooseAcpEventReader.cs" />
     <Compile Include="Runtime\AiStandardTestSuite.cs" />
+    <Compile Include="Runtime\PlatformShutdownCoordinator.cs" />
+    <Compile Include="UI\IoDebugMonitorService.cs" />
+    <Compile Include="UI\IoDebugConfigurationEditorService.cs" />
+    <Compile Include="UI\ProcessEditorSelectionState.cs" />
+    <Compile Include="UI\AiPreviewConfirmationCoordinator.cs" />
+    <Compile Include="UI\VariableEditorService.cs" />
     <Compile Include="Runtime\AttachmentTextExtractor.cs" />
     <Reference Include="LibGit2Sharp, Version=0.31.0.0, Culture=neutral, PublicKeyToken=7cbde695407f0333, processorArchitecture=MSIL">
       <HintPath>packages\LibGit2Sharp.0.31.0\lib\net472\LibGit2Sharp.dll</HintPath>
@@ -138,6 +150,7 @@
     <Compile Include="Engine\ProcessVariableLifecycleService.cs" />
     <Compile Include="Engine\ProcessRuntimeBinder.cs" />
     <Compile Include="Engine\ProcessEditingService.cs" />
+    <Compile Include="Engine\OperationEditingService.cs" />
     <Compile Include="Engine\ProcessAccessServices.cs" />
     <Compile Include="Engine\AiChangeSetCompiler.cs" />
     <Compile Include="Engine\AiOperationCompilerRegistry.cs" />
@@ -153,7 +166,8 @@
     <Compile Include="Stores\\AtomicJsonFileStore.cs" />
     <Compile Include="Stores\\CardConfigStore.cs" />
     <Compile Include="Stores\\ConfigurationBatchWriter.cs" />
-    <Compile Include="Stores\\AiConfigurationTransaction.cs" />
+    <Compile Include="Stores\\ProcessVariableConfigurationTransaction.cs" />
+    <Compile Include="Runtime\\ProcessVariableConfigurationService.cs" />
     <Compile Include="Stores\\CommunicationConfigStore.cs" />
     <Compile Include="Engine\CustomFunc.cs" />
     <Compile Include="Engine\\ProcessEngine.Core.cs" />
@@ -179,11 +193,12 @@
     <Compile Include="Stores\\DataStructStore.cs" />
     <Compile Include="Stores\\IoConfigurationStore.cs" />
     <Compile Include="Stores\\IoDebugConfigurationStore.cs" />
+    <Compile Include="Stores\\IoDebugModels.cs" />
     <Compile Include="Stores\\ValueDebugConfigurationStore.cs" />
     <Compile Include="Stores\\ProcessEngineLogger.cs" />
-    <Compile Include="Stores\\ProcessEngineStore.cs" />
-    <Compile Include="Stores\\ProcessDefinitionStore.cs" />
-    <Compile Include="Stores\\ProcessConfigStore.cs" />
+    <Compile Include="Runtime\\ProcessRuntimeControl.cs" />
+    <Compile Include="Stores\\ProcessDefinitionRepository.cs" />
+    <Compile Include="Stores\\ProcessWorkDirectoryTransaction.cs" />
     <Compile Include="Stores\\StationDefinitionStore.cs" />
     <Compile Include="Stores\\TrayPointStore.cs" />
     <Compile Include="Stores\\ValueConfigStore.cs" />
@@ -228,11 +243,28 @@
     <Compile Include="Runtime\\UiStatusImages.cs" />
     <Compile Include="Simulation\\SimulationGatewayClient.cs" />
     <Compile Include="Bridge\\AutomationBridgeHost.cs" />
+    <Compile Include="Bridge\AutomationBridgePreviewClient.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.ChangeSet.cs" />
-    <Compile Include="Bridge\\AutomationBridgeService.Diagnostics.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.DataStructures.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.AuditDiagnostics.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.HardwareResources.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.IoResources.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.Migration.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.PreviewState.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.ProcessCommands.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.ProcessInspection.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.ProcessQueries.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.Protocol.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.Routing.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.OperationProjection.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.ProcessProjection.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.ProtocolSupport.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.ReferenceDiagnostics.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.RuntimeDiagnostics.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.ValueConversion.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.Stations.cs" />
+    <Compile Include="Bridge\\AutomationBridgeService.Variables.cs" />
     <Compile Include="GooseAcpClient.cs" />
     <Compile Include="EditorWorkspace.cs" />
     <Compile Include="Hmi\CustomFunctions.cs" />
@@ -274,6 +306,15 @@
     </Compile>
     <Compile Include="FrmAiAssistant.cs">
       <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmAiAssistant.WebTemplate.cs">
+      <DependentUpon>FrmAiAssistant.cs</DependentUpon>
+    </Compile>
+    <Compile Include="FrmAiAssistant.Rendering.cs">
+      <DependentUpon>FrmAiAssistant.cs</DependentUpon>
+    </Compile>
+    <Compile Include="FrmAiAssistant.Dialogs.cs">
+      <DependentUpon>FrmAiAssistant.cs</DependentUpon>
     </Compile>
     <Compile Include="FrmDataBreakpoints.cs">
       <SubType>Form</SubType>
@@ -352,6 +393,12 @@
     <Compile Include="FrmMain.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="FrmMain.Lifecycle.cs">
+      <DependentUpon>FrmMain.cs</DependentUpon>
+    </Compile>
+    <Compile Include="FrmMain.Navigation.cs">
+      <DependentUpon>FrmMain.cs</DependentUpon>
+    </Compile>
     <Compile Include="FrmMain.Designer.cs">
       <DependentUpon>FrmMain.cs</DependentUpon>
     </Compile>
@@ -384,6 +431,14 @@
     </Compile>
     <Compile Include="Inspector\InspectorDefinitions.cs" />
     <Compile Include="Inspector\EditorServiceRegistry.cs" />
+    <Compile Include="Inspector\InspectorControls.cs" />
+    <Compile Include="Inspector\InspectorCollectionFieldControls.cs" />
+    <Compile Include="Inspector\InspectorComboBoxControl.cs" />
+    <Compile Include="Inspector\InspectorFieldControls.cs" />
+    <Compile Include="Inspector\InspectorScalarFieldControl.cs" />
+    <Compile Include="Inspector\InspectorToggleControls.cs" />
+    <Compile Include="Inspector\InspectorValueCellControls.cs" />
+    <Compile Include="Inspector\InspectorValueReferenceFieldControl.cs" />
     <Compile Include="Inspector\InspectorSelectionPickerPanel.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -391,6 +446,7 @@
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Include="Inspector\InspectorView.cs" />
+    <Compile Include="Inspector\InspectorValueConversion.cs" />
     <Compile Include="FrmSearch.cs">
       <SubType>Form</SubType>
     </Compile>

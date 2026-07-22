@@ -89,7 +89,8 @@
 基于 Windows Forms 的低代码自动化平台，核心模型 `Proc -> Step -> OperationType`。
 
 ## 目录结构
-- `Bridge/` — Automation Bridge，本机 Named Pipe 服务，暴露流程/Schema/意图预演能力。
+- `Automation.Runtime.Contracts/` — `netstandard2.0` 无 UI 契约程序集，承载流程状态、终止原因、报警交互、日志和弹窗端口；不得引用 WinForms、Store、`PlatformRuntime` 或实现项目。
+- `Bridge/` — Automation Bridge，本机 Named Pipe 服务；`AutomationBridgeService.cs` 只保留组合状态，序列化按流程投影/指令投影/协议支持/值转换分域，诊断按运行/引用/审计分域。
 - `Communication/` — TCP/串口通讯枢纽 `CommunicationHub`。
 - `Engine/` — 流程引擎 `ProcessEngine`，按 `ExecuteOperation` 分发指令。
 - `McpServer/` — 独立进程，把 Bridge 透传为 MCP Streamable HTTP 服务。
@@ -98,13 +99,13 @@
 - `../DeviceProject/Hmi/` — 与平台并列的独立设备 HMI 工程源码；`FrmHmiMain` 由 `MachineApp.exe` 启动，只能通过 `AutomationPlatformHost` 的公开 SDK 访问平台能力。
 - `Engine/CustomFunc.cs` — 平台内部的自定义函数注册与执行容器，AI 不得直接修改；平台内置 HMI 与独立设备 HMI 的业务函数分别写入各自的 `Hmi/CustomFunctions.cs`，并统一通过 `IAutomationPlatform.RegisterCustomFunction` 注册。
 - `PLC/` — PLC 通讯（S7/ModbusTcp）。
-- `Runtime/` — `AutomationPlatformHost`、`AppConfigStorage`、`GooseConfigStorage`、`AutomationMcpServerManager`。
+- `Runtime/` — `AutomationPlatformHost`、`AppConfigStorage`、`GooseConfigStorage`、`AutomationMcpServerManager`、共享的幂等关闭链 `PlatformShutdownCoordinator`。
 - `Runtime/PlatformRuntimeComposer.cs` — 无 WinForms 依赖的设备、EngineContext、流程引擎和手动运动服务组合入口。
-- `UI/` — WinForms 流程交互适配器和编辑器通用 UI 基础设施。
+- `UI/` — WinForms 流程交互适配器和编辑器通用 UI 基础设施；`IoDebugMonitorService` / `IoDebugConfigurationEditorService`、`VariableEditorService` 和 `ProcessEditorSelectionState` 分别承担 IO 监视/配置、变量规则/提交和流程编辑共享选择。
 - `Stores/` — 各类配置 Store 与 `LocalFileLogger`。
-- `FrmAiAssistant.cs` — AI 助手前台，承载 Goose ACP 聊天、预演确认、联调。
+- `FrmAiAssistant.cs` — AI 助手前台组合；Web 模板、渲染和对话框分别位于对应 partial，会话与单轮执行由 `AiConversationCoordinator` 统一管理，预演状态由 `AiPreviewConfirmationCoordinator` 管理。
 - `GooseAcpClient.cs` — 隐藏启动 `goose acp`，JSON-RPC over stdio 通信；AI 执行日志统一落 `D:\AutomationLogs\AIExecution\`。
-- `FrmMain.cs` / `FrmProc.cs` / `FrmDataGrid.cs` / `FrmInspector.cs` — 可隐藏的平台编辑器与流程编辑链。
+- `FrmMain.cs` / `FrmMain.Navigation.cs` / `FrmMain.Lifecycle.cs` / `FrmProc.cs` / `FrmDataGrid.cs` / `FrmInspector.cs` — 可隐藏的平台编辑器与流程编辑链；Inspector 具体控件按 `Inspector/` 下职责文件组织。
 
 ## 启动模式
 - `Automation.exe` 无参数时根据 `AppConfig.StartupView` 启动平台编辑器 `FrmMain` 或平台内置 HMI，用于平台开发、配置与调试；其他参数一律拒绝。
@@ -114,9 +115,14 @@
 ## 运行时组合与编辑器协作
 - `AutomationPlatformHost` 拥有单个平台实例的 `PlatformRuntime`；运行引擎、运动与 IO、Store、安全锁、配置维护、就绪状态和编辑会话均由该实例组合并显式传递，不存在进程级全局容器。
 - 平台窗体通过 `EditorWorkspace` 协作；非 UI 模块通过 `IPlatformEditorUiAdapter` 与编辑器交互，禁止保存静态窗体引用。
+- 流程树、指令表和 Inspector 的当前流程/步骤/指令选择以 `EditorWorkspace.ProcessSelection` 为权威状态，显示索引与稳定 ID 同步保存；`FrmDataGrid` 不得从 `FrmProc` 读取流程集合。
+- 指令删除、粘贴、移动、新增/修改、断点与禁用通过 `OperationEditingService` 提交；流程结构与变量配置的联合修改通过 `ProcessVariableConfigurationService` 提交。窗体只保留选择、确认和渲染。
+- AI ChangeSet 与手工流程编辑复用 `ProcessVariableConfigurationService` 的刷新、历史和失败回滚边界；IO 调试配置修改通过 `IoDebugConfigurationEditorService` 提交；Inspector 集合结构修改是对应集合控件的局部逻辑，不再建立单独 Service。
 - 配置路径由 `PlatformRuntime.Paths.ConfigPath/WorkPath` 提供；安全停机、流程发布和结构编辑门禁分别由 `PlatformSafetyCoordinator`、`ProcessPublicationService`、`ProcessEditingPolicy` 负责。
+- 流程配置内存、`Work/` 目录事务和运行控制分别由 `ProcessDefinitionRepository`、`ProcessWorkDirectoryTransaction`、`IProcessRuntimeControl` 负责；运行控制契约只保留当前宿主实际使用的启动、暂停、继续和停止能力，三个概念不得重新合并为近义 `Store`。
 - `../DeviceProject/Hmi/` 只能通过 `IAutomationPlatform` 公开 SDK 访问平台能力，禁止直接引用 `PlatformRuntime`、平台窗体、Store、引擎和原生运动对象。
 - `SF.cs` 已删除；`Tests/ArchitectureBoundaryRegression.ps1` 对旧全局入口、`Application.MessageLoop` 和 `Application.DoEvents` 提供构建门禁。
+- 平台编辑器与设备宿主的运行时释放都进入 `PlatformRuntime.ShutdownCoordinator`；窗体仅先关闭 Goose/MCP/Bridge 和编辑器专属资源，不得复制 PLC、通讯、设备和引擎释放链。
 
 ## 配置文件（Config/ 目录）
 - `Work/*.json` — 流程（从 `0.json` 起连续索引）。

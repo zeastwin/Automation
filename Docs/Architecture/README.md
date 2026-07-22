@@ -1,6 +1,6 @@
 # Automation 架构导航
 
-本文档集记录 2026-07-21 的当前实现，目标是让第一次进入仓库的人能够回答三个问题：程序从哪里启动、数据经过哪些边界、出现问题应该先看哪里。
+本文档集记录 2026-07-22 的当前实现，目标是让第一次进入仓库的人能够回答三个问题：程序从哪里启动、数据经过哪些边界、出现问题应该先看哪里。
 
 文档描述的是“现在的程序”，不是理想化重写方案。已知问题单独记录在[技术债清单](07-技术债清单.md)中，避免把目标架构误当成已经完成的事实。
 
@@ -25,6 +25,7 @@ flowchart TD
     Host --> Initializer["PlatformRuntimeInitializer\n配置与设备初始化"]
     Runtime --> Stores["PlatformStores\n配置内存状态"]
     Runtime --> Engine["ProcessEngine\n流程执行内核"]
+    Runtime --> Contracts["Automation.Runtime.Contracts\n无 UI 运行契约"]
     Runtime --> Devices["Motion / IO / PLC / Communication"]
     Runtime --> Safety["Safety / Readiness / Maintenance"]
     Host --> Editor["FrmMain\n按需创建的平台编辑器"]
@@ -48,6 +49,7 @@ flowchart TD
 | 组合根 | [`Runtime/PlatformRuntime.cs`](../../Runtime/PlatformRuntime.cs) | 持有实例级 Store、服务和设备接口 | 隐式全局定位 |
 | 配置状态 | [`Stores/`](../../Stores) | 加载、校验、内存状态和持久化 | 弹窗和窗体导航 |
 | 流程内核 | [`Engine/`](../../Engine) | 流程定义、就绪分析、执行、状态快照 | 编辑器布局 |
+| 运行契约 | [`Automation.Runtime.Contracts/`](../../Automation.Runtime.Contracts) | 流程状态、终止原因、报警交互、日志和弹窗端口 | Store、WinForms、设备实现 |
 | 设备适配 | [`MotionControl/`](../../MotionControl)、[`PLC/`](../../PLC)、[`Communication/`](../../Communication) | 对接硬件或仿真实现 | 读取平台窗体 |
 | 平台编辑器 | [`FrmMain.cs`](../../FrmMain.cs)、[`EditorWorkspace.cs`](../../EditorWorkspace.cs) | 组合 WinForms 页面、编辑会话和用户交互 | 作为非 UI 模块的服务定位器 |
 | AI 接入 | [`Bridge/`](../../Bridge)、[`McpServer/`](../../McpServer)、[`FrmAiAssistant.cs`](../../FrmAiAssistant.cs) | 精确读取、预演确认、提交和诊断 | 绕过正式配置与运行门禁 |
@@ -60,7 +62,9 @@ flowchart TD
 | 程序为什么能启动或为什么启动失败 | `Program.Main` | `AutomationPlatformBootstrap.TryPrepare`、`AutomationPlatformHost.Initialize` |
 | 配置如何加载 | `PlatformRuntimeInitializer.Initialize` | 对应 `Stores/*Store.cs` |
 | 流程如何启动 | `AutomationPlatformHost.TryStartProcess` | `ProcessReadinessService.Analyze`、`ProcessEngine.StartProcAt` |
-| 一次编辑如何保存 | `EditorSessionCoordinator` | `ProcessEditingService.TryCommitProcDraft` |
+| 一次编辑如何保存 | `EditorSessionCoordinator` | 指令结构看 `OperationEditingService`，流程-变量联合提交看 `ProcessVariableConfigurationService` |
+| IO 调试布局如何保存 | `IoDebugConfigurationEditorService` | `IoDebugConfigurationStore.TryCommit` |
+| AI 一轮任务如何流转 | `AiConversationCoordinator` | `GooseAcpClient.PromptAsync` |
 | 运行中流程修改何时生效 | `ProcessEngine.PublishProc` | `ApplyPendingUpdateAfterStop` |
 | AI 如何修改流程 | `AutomationMcpTools.PreviewChangeSet` | `AutomationBridgeService.HandlePreviewChangeSet/HandleApplyChangeSet` |
 | 运动为什么被拒绝 | `ManualMotionService.TryValidateGate` | `MotionCtrl.ValidateAxesForCommand`、`ProcessEngine.TryValidateMotionResetGate` |
@@ -73,9 +77,13 @@ flowchart TD
 | --- | --- |
 | `PlatformRuntime` | 单个平台实例的组合根，不是静态全局容器。 |
 | `PlatformStores` | 当前实例拥有的配置内存状态集合。 |
-| `ProcessDefinitionStore` | 编辑态流程定义的内存事实源。 |
-| `ProcessConfigStore` | `Work/` 连续编号文件的目录级事务与恢复工具。 |
-| `ProcessEngineStore` | 将流程引擎运行控制投影为窄接口，不存配置文件。 |
+| `ProcessDefinitionRepository` | 编辑态流程定义的内存事实源。 |
+| `ProcessWorkDirectoryTransaction` | `Work/` 连续编号文件的目录级事务与恢复工具。 |
+| `IProcessRuntimeControl` | 将宿主当前使用的启动、暂停、继续和停止投影为窄接口，不存配置文件。 |
+| `OperationEditingService` | 指令结构编辑的草稿、跳转重算和原子提交边界。 |
+| `ProcessVariableConfigurationService` | 流程结构与变量配置联合提交的刷新、历史和回滚边界。 |
+| `IoDebugConfigurationEditorService` | IO 调试选择、备注、排序和关联修改的草稿与提交边界。 |
+| `AiConversationCoordinator` | AI 会话、单轮任务状态、取消、执行结果和历史持久化的统一所有者。 |
 | `EditorWorkspace` | 平台窗体之间的实例级协作对象。 |
 | `IPlatformEditorUiAdapter` | 非 UI 模块请求刷新、选中、日志或确认时使用的 UI 边界。 |
 | `Readiness` | 配置是否具备运行条件；可保存不等于可运行。 |

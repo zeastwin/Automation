@@ -18,8 +18,8 @@ $flags = [Reflection.BindingFlags]::Instance -bor
     [Reflection.BindingFlags]::Public -bor
     [Reflection.BindingFlags]::NonPublic
 $pendingField = $formType.GetField('operationSelectionRefreshPending', $flags)
-$selectedRowField = $formType.GetField('iSelectedRow', $flags)
-if ($null -eq $pendingField -or $null -eq $selectedRowField) {
+$selectedRowProperty = $formType.GetProperty('iSelectedRow', $flags)
+if ($null -eq $pendingField -or $null -eq $selectedRowProperty) {
     throw '指令选择合并刷新契约缺失。'
 }
 
@@ -46,8 +46,8 @@ try {
     if ($pendingField.GetValue($form)) {
         throw '合并刷新完成后仍残留待处理状态。'
     }
-    if ($selectedRowField.GetValue($form) -ne 1) {
-        throw "合并刷新未采用最终选中行：$($selectedRowField.GetValue($form))。"
+    if ($selectedRowProperty.GetValue($form) -ne 1) {
+        throw "合并刷新未采用最终选中行：$($selectedRowProperty.GetValue($form))。"
     }
 
     Write-Host '指令选择合并刷新回归通过。'

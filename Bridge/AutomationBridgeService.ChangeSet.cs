@@ -739,7 +739,6 @@ namespace Automation.Bridge
                 throw new BridgeRequestException(423, "SECURITY_LOCKED", $"系统已安全锁定：{runtime.Safety.LockReason}");
             }
 
-            List<Proc> oldProcesses = runtime.Stores.Processes.Items.Select(ObjectGraphCloner.Clone).ToList();
             Dictionary<string, DicValue> oldVariables = runtime.Stores.Values.BuildSaveData();
             Dictionary<string, DicValue> commitVariables = draft.Variables
                 .ToDictionary(item => item.Key, item => ObjectGraphCloner.Clone(item.Value), StringComparer.Ordinal);
@@ -756,77 +755,39 @@ namespace Automation.Bridge
                     variable.Value = current.Value;
                 }
             }
-            if (!AiConfigurationTransaction.Commit(
-                runtime.Paths.ConfigPath, draft.Processes, commitVariables,
-                out string commitError, out bool rollbackFailed))
+            ProcessVariableConfigurationCommitResult commitResult =
+                runtime.ProcessVariableConfiguration.CommitChangeSet(
+                    draft.Processes,
+                    commitVariables,
+                    draft.VariableValueOverrides);
+            if (!commitResult.Succeeded)
             {
-                if (rollbackFailed) runtime.Safety.Lock(commitError);
+                if (commitResult.PostCommitFailure && !commitResult.RollbackIncomplete)
+                {
+                    throw new BridgeRequestException(
+                        500,
+                        "CHANGE_SET_COMMIT_FAILED",
+                        "语义变更集提交失败，流程与变量配置已恢复。",
+                        commitResult.Detail);
+                }
                 throw new BridgeRequestException(
-                    rollbackFailed ? 500 : 409,
-                    rollbackFailed ? "CHANGE_SET_ROLLBACK_FAILED" : "CHANGE_SET_COMMIT_FAILED",
-                    commitError,
+                    commitResult.RollbackIncomplete ? 500 : 409,
+                    commitResult.RollbackIncomplete
+                        ? "CHANGE_SET_ROLLBACK_FAILED"
+                        : "CHANGE_SET_COMMIT_FAILED",
+                    commitResult.Message,
                     new JObject
                     {
-                        ["reason"] = rollbackFailed
+                        ["reason"] = commitResult.RollbackIncomplete
                             ? "configuration_transaction_rollback_failed"
                             : "configuration_transaction_commit_failed",
-                        ["retryableWhen"] = rollbackFailed
+                        ["retryableWhen"] = commitResult.RollbackIncomplete
                             ? "security_lock_cleared_after_configuration_recovery"
                             : "server_configuration_transaction_fixed",
-                        ["sideEffects"] = rollbackFailed ? "unknown" : "none"
+                        ["sideEffects"] = commitResult.RollbackIncomplete ? "unknown" : "none"
                     }.ToString(Formatting.None));
-            }
-            try
-            {
-                runtime.EditorUi.RefreshProcesses();
-                ValueConfigStore.ValidateProcessOwners(
-                    commitVariables.Values, runtime.Stores.Processes.Items);
-                runtime.Stores.Values.ReplaceConfiguration(commitVariables);
-                foreach (KeyValuePair<Guid, string> valueOverride in
-                    draft.VariableValueOverrides ?? new Dictionary<Guid, string>())
-                {
-                    DicValue target = commitVariables.Values.FirstOrDefault(value =>
-                        value != null && value.Id == valueOverride.Key);
-                    if (target == null
-                        || !runtime.Stores.Values.setValueByName(target.Name, valueOverride.Value, "ChangeSet变量值提交"))
-                    {
-                        throw new InvalidOperationException(
-                            $"变量当前值提交失败：{target?.Name ?? valueOverride.Key.ToString("D")}");
-                    }
-                }
-                runtime.EditorUi?.RefreshVariables();
-                if (!runtime.Editor.History.IsReplaying)
-                {
-                    runtime.Editor.History.Clear();
-                }
-            }
-            catch (Exception ex)
-            {
-                bool diskRestored = AiConfigurationTransaction.Commit(
-                    runtime.Paths.ConfigPath, oldProcesses, oldVariables,
-                    out string restoreError, out bool restoreRollbackFailed);
-                bool memoryRestored = true;
-                try
-                {
-                    runtime.EditorUi.RefreshProcesses();
-                    runtime.Stores.Values.ReplaceConfiguration(oldVariables);
-                    runtime.EditorUi?.RefreshVariables();
-                }
-                catch
-                {
-                    memoryRestored = false;
-                }
-                if (!diskRestored || !memoryRestored || restoreRollbackFailed)
-                {
-                    string reason = $"语义变更集提交后刷新失败且回滚不完整：diskRestored={diskRestored}, memoryRestored={memoryRestored}, error={ex.Message}, restoreError={restoreError}";
-                    runtime.Safety.Lock(reason);
-                    throw new BridgeRequestException(500, "CHANGE_SET_ROLLBACK_FAILED", reason);
-                }
-                throw new BridgeRequestException(500, "CHANGE_SET_COMMIT_FAILED",
-                    "语义变更集提交失败，流程与变量配置已恢复。", ex.Message);
             }
         }
 
     }
 }
-

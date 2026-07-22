@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using Automation.DeviceSdk;
 
@@ -340,7 +339,7 @@ namespace Automation
                 error = "流程配置尚不可运行：" + string.Join("；", readiness.RunBlockers);
                 return false;
             }
-            if (!runtime.ProcessStore.StartProc(procIndex))
+            if (!runtime.ProcessControl.StartProc(procIndex))
             {
                 error = runtime.ProcessEngine.TryValidateProcessStopped(procIndex, out string stoppedError)
                     ? $"流程启动请求未被内核接受:{procIndex}"
@@ -352,17 +351,17 @@ namespace Automation
 
         public bool TryPauseProcess(int procIndex, out string error)
         {
-            return TryExecuteProcessCommand(procIndex, index => runtime.ProcessStore != null && runtime.ProcessStore.Pause(index), "暂停", false, out error);
+            return TryExecuteProcessCommand(procIndex, index => runtime.ProcessControl != null && runtime.ProcessControl.Pause(index), "暂停", false, out error);
         }
 
         public bool TryResumeProcess(int procIndex, out string error)
         {
-            return TryExecuteProcessCommand(procIndex, index => runtime.ProcessStore != null && runtime.ProcessStore.Resume(index), "继续", true, out error);
+            return TryExecuteProcessCommand(procIndex, index => runtime.ProcessControl != null && runtime.ProcessControl.Resume(index), "继续", true, out error);
         }
 
         public bool TryStopProcess(int procIndex, out string error)
         {
-            return TryExecuteProcessCommand(procIndex, index => runtime.ProcessStore != null && runtime.ProcessStore.Stop(index), "停止", false, out error);
+            return TryExecuteProcessCommand(procIndex, index => runtime.ProcessControl != null && runtime.ProcessControl.Stop(index), "停止", false, out error);
         }
 
         public bool TryStopAllProcesses(out string error)
@@ -378,7 +377,7 @@ namespace Automation
             List<string> failures = new List<string>();
             foreach (PlatformProcessInfo process in processes)
             {
-                if (runtime.ProcessStore == null || !runtime.ProcessStore.Stop(process.Index))
+                if (runtime.ProcessControl == null || !runtime.ProcessControl.Stop(process.Index))
                 {
                     success = false;
                     failures.Add(process.Index.ToString(CultureInfo.InvariantCulture));
@@ -572,17 +571,17 @@ namespace Automation
             }
             if (state == PlatformRuntimeState.Created)
             {
-                processInteraction.Dispose();
+                ShutdownRuntimeCore();
                 SetState(PlatformRuntimeState.Stopped, "控制平台已关闭");
                 return;
             }
             SetState(PlatformRuntimeState.ShuttingDown, "正在安全关闭控制平台");
+            DetachRuntimeEvents();
             try
             {
                 if (platformEditor != null && !platformEditor.IsDisposed)
                 {
                     platformEditor.ShutdownPlatform();
-                    runtimeCoreStopped = true;
                     platformEditor.AllowFinalClose();
                     platformEditor.Close();
                     platformEditor.Dispose();
@@ -806,6 +805,17 @@ namespace Automation
 
         private void ShutdownRuntimeCore()
         {
+            DetachRuntimeEvents();
+            if (runtimeCoreStopped)
+            {
+                return;
+            }
+            runtimeCoreStopped = true;
+            runtime.ShutdownCoordinator.Shutdown();
+        }
+
+        private void DetachRuntimeEvents()
+        {
             if (runtime.ProcessEngine != null)
             {
                 runtime.ProcessEngine.SnapshotChanged -= OnProcessSnapshotChanged;
@@ -814,56 +824,6 @@ namespace Automation
             if (runtime.Devices != null)
             {
                 runtime.Devices.Faulted -= OnDeviceFaulted;
-            }
-            if (runtimeCoreStopped)
-            {
-                processInteraction.Dispose();
-                return;
-            }
-            runtimeCoreStopped = true;
-            runtime.Safety.StopAllProcesses("系统关闭，停止所有流程。");
-            runtime.SystemStatus?.Dispose();
-            runtime.SystemStatus = null;
-            runtime.Devices?.Stop();
-            processInteraction.CloseAll();
-            try
-            {
-                runtime.Stores.Values.Save(runtime.Paths.ConfigPath);
-                runtime.Stores.DataStructures.Save(runtime.Paths.ConfigPath);
-                runtime.Stores.Alarms.Save(runtime.Paths.ConfigPath);
-            }
-            catch (Exception ex)
-            {
-                runtime.ProcessEngine?.Logger?.Log($"保存运行配置失败:{ex.Message}", LogLevel.Error);
-            }
-            try
-            {
-                runtime.PlcRuntime.Dispose();
-            }
-            catch (Exception ex)
-            {
-                runtime.ProcessEngine?.Logger?.Log($"关闭PLC运行时失败:{ex.Message}", LogLevel.Error);
-            }
-            try
-            {
-                Task disposeCommunication = Task.Run(() => runtime.Communication.Dispose());
-                if (!disposeCommunication.Wait(3000))
-                {
-                    runtime.ProcessEngine?.Logger?.Log("关闭通讯超时，继续关闭程序。", LogLevel.Error);
-                }
-            }
-            catch (Exception ex)
-            {
-                runtime.ProcessEngine?.Logger?.Log($"关闭通讯失败:{ex.Message}", LogLevel.Error);
-            }
-            try
-            {
-                runtime.Devices?.Dispose();
-                runtime.ProcessEngine?.Dispose();
-            }
-            finally
-            {
-                processInteraction.Dispose();
             }
         }
 

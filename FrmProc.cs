@@ -31,10 +31,19 @@ namespace Automation
             IntPtr wordParameter,
             IntPtr longParameter);
 
-        private readonly ProcessDefinitionStore processDefinitionStore;
-        public List<Proc> procsList => processDefinitionStore.Items;
-        public int SelectedProcNum { get; set; }
-        public int SelectedStepNum { get; set; }
+        private readonly ProcessDefinitionRepository processDefinitionRepository;
+        internal ProcessEditorSelectionState SelectionState { get; } = new ProcessEditorSelectionState();
+        public List<Proc> procsList => processDefinitionRepository.Items;
+        public int SelectedProcNum
+        {
+            get => SelectionState.ProcIndex;
+            set => SelectionState.SelectProcess(value, GetProcId(value));
+        }
+        public int SelectedStepNum
+        {
+            get => SelectionState.StepIndex;
+            set => SelectionState.SelectStep(value, GetStepId(SelectedProcNum, value));
+        }
 
         private readonly object procNodeMapLock = new object();
         private readonly Dictionary<Guid, TreeNode> procNodeMap = new Dictionary<Guid, TreeNode>();
@@ -56,14 +65,14 @@ namespace Automation
         private bool restoringTreeState;
 
         public FrmProc()
-            : this(new ProcessDefinitionStore())
+            : this(new ProcessDefinitionRepository())
         {
         }
 
-        public FrmProc(ProcessDefinitionStore processDefinitionStore)
+        public FrmProc(ProcessDefinitionRepository processDefinitionRepository)
         {
-            this.processDefinitionStore = processDefinitionStore
-                ?? throw new ArgumentNullException(nameof(processDefinitionStore));
+            this.processDefinitionRepository = processDefinitionRepository
+                ?? throw new ArgumentNullException(nameof(processDefinitionRepository));
             InitializeComponent();
             ConfigureProcTreeAppearance();
             ConfigureProcContextMenu();
@@ -463,7 +472,7 @@ namespace Automation
             List<Proc> draftProcesses = procsList.Select(ObjectGraphCloner.Clone).ToList();
             draftProcesses.Insert(insertIndex, proc);
             Dictionary<string, DicValue> draftVariables = Workspace.Runtime.Stores.Values.BuildSaveData();
-            if (!TryCommitProcessVariableConfiguration(
+            if (!Workspace.Runtime.ProcessVariableConfiguration.TryCommit(
                 draftProcesses,
                 draftVariables,
                 "新增流程",
@@ -513,7 +522,7 @@ namespace Automation
         }
         public bool RebuildWorkConfig(int StartIndex = 0)
         {
-            bool success = ProcessConfigStore.Rebuild(Workspace.Runtime.Paths.WorkPath, procsList, StartIndex,
+            bool success = ProcessWorkDirectoryTransaction.Rebuild(Workspace.Runtime.Paths.WorkPath, procsList, StartIndex,
                 out string error, out bool rollbackFailed);
             if (!success)
             {
@@ -587,7 +596,7 @@ namespace Automation
             string recoveryMessage = null;
             if (reloadConfiguration)
             {
-                procsListTemp = ProcessConfigStore.Load(
+                procsListTemp = ProcessWorkDirectoryTransaction.Load(
                     Workspace.Runtime.Paths.WorkPath,
                     Workspace.Runtime.CreateProcessValidationContext(),
                     out loadErrors,
@@ -595,7 +604,7 @@ namespace Automation
             }
             else
             {
-                procsListTemp = processDefinitionStore.Items.ToList();
+                procsListTemp = processDefinitionRepository.Items.ToList();
                 loadErrors = new List<string>();
             }
             if (!string.IsNullOrWhiteSpace(recoveryMessage) && Workspace.Info != null && !Workspace.Info.IsDisposed)
@@ -649,7 +658,7 @@ namespace Automation
             }
             if (reloadConfiguration)
             {
-                processDefinitionStore.ReplaceAll(procsListTemp);
+                processDefinitionRepository.ReplaceAll(procsListTemp);
             }
             RestoreTreeState(selectedProcId, selectedStepId, topProcId, expandedProcIds);
             }
@@ -1153,7 +1162,7 @@ namespace Automation
                 Dictionary<string, DicValue> draftVariables = Workspace.Runtime.Stores.Values.BuildSaveData();
                 ProcessVariableLifecycleService.RemoveOwnedVariables(
                     draftVariables, new[] { deletedProcId });
-                if (!TryCommitProcessVariableConfiguration(
+                if (!Workspace.Runtime.ProcessVariableConfiguration.TryCommit(
                     draftProcesses, draftVariables, "删除流程", out string deleteError))
                 {
                     MessageBox.Show(deleteError, "删除流程失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1668,100 +1677,13 @@ namespace Automation
             }
             List<Proc> draftProcesses = procsList.Select(ObjectGraphCloner.Clone).ToList();
             draftProcesses.Insert(insertIndex, newProc);
-            if (!TryCommitProcessVariableConfiguration(
+            if (!Workspace.Runtime.ProcessVariableConfiguration.TryCommit(
                 draftProcesses, draftVariables, "复制流程", out string copyError))
             {
                 MessageBox.Show(copyError, "复制流程失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             SelectProcNode(insertIndex, -1);
-        }
-
-        private bool TryCommitProcessVariableConfiguration(
-            IList<Proc> processes,
-            IDictionary<string, DicValue> variables,
-            string actionName,
-            out string error,
-            bool recordHistory = true)
-        {
-            error = null;
-            if (!Workspace.Runtime.ProcessEditing.CanEditStructure())
-            {
-                error = "流程结构当前不可编辑。";
-                return false;
-            }
-            List<Proc> oldProcesses = procsList.Select(ObjectGraphCloner.Clone).ToList();
-            Dictionary<string, DicValue> oldVariables = Workspace.Runtime.Stores.Values.BuildSaveData();
-            List<Proc> committedProcesses = processes.Select(ObjectGraphCloner.Clone).ToList();
-            Dictionary<string, DicValue> committedVariables = variables.ToDictionary(
-                item => item.Key,
-                item => ObjectGraphCloner.Clone(item.Value),
-                StringComparer.Ordinal);
-            if (!AiConfigurationTransaction.Commit(
-                Workspace.Runtime.Paths.ConfigPath,
-                committedProcesses,
-                committedVariables,
-                out error,
-                out bool rollbackFailed))
-            {
-                if (rollbackFailed) Workspace.Runtime.Safety.Lock(error);
-                return false;
-            }
-            try
-            {
-                RefreshProcList();
-                ValueConfigStore.ValidateProcessOwners(committedVariables.Values, procsList);
-                Workspace.Runtime.Stores.Values.ReplaceConfiguration(committedVariables);
-                Workspace.Value?.FreshFrmValue();
-                if (recordHistory && !Workspace.Runtime.Editor.History.IsReplaying)
-                {
-                    Workspace.Runtime.Editor.History.Record(
-                        actionName,
-                        delegate(out string historyError)
-                        {
-                            return TryCommitProcessVariableConfiguration(
-                                oldProcesses,
-                                oldVariables,
-                                actionName,
-                                out historyError,
-                                false);
-                        },
-                        delegate(out string historyError)
-                        {
-                            return TryCommitProcessVariableConfiguration(
-                                committedProcesses,
-                                committedVariables,
-                                actionName,
-                                out historyError,
-                                false);
-                        });
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                bool diskRestored = AiConfigurationTransaction.Commit(
-                    Workspace.Runtime.Paths.ConfigPath, oldProcesses, oldVariables,
-                    out string restoreError, out bool restoreRollbackFailed);
-                bool memoryRestored = true;
-                try
-                {
-                    RefreshProcList();
-                    Workspace.Runtime.Stores.Values.ReplaceConfiguration(oldVariables);
-                    Workspace.Value?.FreshFrmValue();
-                }
-                catch
-                {
-                    memoryRestored = false;
-                }
-                error = $"{actionName}提交后刷新失败：{ex.Message}";
-                if (!diskRestored || !memoryRestored || restoreRollbackFailed)
-                {
-                    error += $"；回滚不完整：{restoreError}";
-                    Workspace.Runtime.Safety.Lock(error);
-                }
-                return false;
-            }
         }
 
         private void PasteStep()

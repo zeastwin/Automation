@@ -14,19 +14,16 @@ namespace Automation
         public PlatformRuntimeComposition(
             ProcessEngine processEngine,
             IMotionRuntime motion,
-            IIoRuntime io,
-            SimulationGatewayClient simulationGateway)
+            IIoRuntime io)
         {
             ProcessEngine = processEngine ?? throw new ArgumentNullException(nameof(processEngine));
             Motion = motion ?? throw new ArgumentNullException(nameof(motion));
             Io = io ?? throw new ArgumentNullException(nameof(io));
-            SimulationGateway = simulationGateway;
         }
 
         public ProcessEngine ProcessEngine { get; }
         public IMotionRuntime Motion { get; }
         public IIoRuntime Io { get; }
-        public SimulationGatewayClient SimulationGateway { get; }
     }
 
     /// <summary>
@@ -104,7 +101,7 @@ namespace Automation
             };
 
             runtime.ProcessEngine = processEngine;
-            runtime.ProcessStore = new ProcessEngineStore(processEngine);
+            runtime.ProcessControl = new ProcessRuntimeControl(processEngine);
             runtime.Motion = motion;
             runtime.Io = io;
             runtime.ManualMotion = new ManualMotionService(
@@ -115,7 +112,7 @@ namespace Automation
                 runtime.Safety.Lock);
             runtime.Devices = new PlatformDeviceCoordinator(runtime, simulationGateway);
 
-            return new PlatformRuntimeComposition(processEngine, motion, io, simulationGateway);
+            return new PlatformRuntimeComposition(processEngine, motion, io);
         }
     }
 }

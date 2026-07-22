@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Automation
 {
@@ -36,6 +37,8 @@ namespace Automation
         public FrmPlc Plc { get; private set; }
         public FrmVersionManager VersionManager { get; private set; }
         public PlatformRuntime Runtime { get; }
+        public ProcessEditorSelectionState ProcessSelection { get; }
+        public IReadOnlyList<Proc> ProcessDefinitions => Runtime.Stores.Processes.Items;
         public int CurrentPage { get; set; }
 
         public EditorWorkspace(FrmMain main, PlatformRuntime runtime)
@@ -45,6 +48,7 @@ namespace Automation
             DataGrid = main.frmDataGrid;
             Menu = main.frmMenu;
             Proc = main.frmProc;
+            ProcessSelection = Proc.SelectionState;
             Inspector = main.frmInspector;
             ToolBar = main.frmToolBar;
             Value = main.frmValue;
@@ -166,7 +170,11 @@ namespace Automation
     {
         private EditorWorkspace editorWorkspace;
         internal EditorWorkspace Workspace => EditorWorkspaceGuard.Require(editorWorkspace, nameof(FrmValue));
-        void IEditorWorkspaceParticipant.AttachEditorWorkspace(EditorWorkspace workspace) => editorWorkspace = workspace;
+        void IEditorWorkspaceParticipant.AttachEditorWorkspace(EditorWorkspace workspace)
+        {
+            editorWorkspace = workspace;
+            OnEditorWorkspaceAttached();
+        }
     }
 
     public partial class FrmValueDebug : IEditorWorkspaceParticipant
@@ -226,7 +234,11 @@ namespace Automation
     {
         private EditorWorkspace editorWorkspace;
         internal EditorWorkspace Workspace => EditorWorkspaceGuard.Require(editorWorkspace, nameof(FrmIODebug));
-        void IEditorWorkspaceParticipant.AttachEditorWorkspace(EditorWorkspace workspace) => editorWorkspace = workspace;
+        void IEditorWorkspaceParticipant.AttachEditorWorkspace(EditorWorkspace workspace)
+        {
+            editorWorkspace = workspace;
+            OnEditorWorkspaceAttached();
+        }
     }
 
     public partial class FrmComunication : IEditorWorkspaceParticipant

@@ -8,7 +8,7 @@ namespace Automation
     /// 平台当前可编辑流程定义的内存单一事实源。
     /// 配置编辑在 UI 线程完成；发布到流程引擎时仍使用独立克隆，避免编辑态污染运行态。
     /// </summary>
-    public sealed class ProcessDefinitionStore
+    public sealed class ProcessDefinitionRepository
     {
         private readonly List<Proc> items = new List<Proc>();
 
