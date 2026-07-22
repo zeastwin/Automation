@@ -11,7 +11,7 @@ namespace Automation.McpServer
         // Editor/Diagnostic 共享平台知识与读取能力；RuntimeDiagnostic 使用独立的现场取证最小集合。
         private static readonly HashSet<string> KnowledgeAndReadTools = new HashSet<string>(StringComparer.Ordinal)
         {
-            "get_platform_development_context", "get_process_design_guide", "get_process_design_faq",
+            "get_platform_development_context", "get_process_design_guide",
             "list_procs", "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_flow_graph", "get_step_detail",
             "get_op_detail", "get_op_details",
             "get_operation_references", "get_proc_references", "trace_resource", "find_variable_usages",
@@ -504,12 +504,9 @@ namespace Automation.McpServer
                 VariableScopeContract.Process,
                 VariableScopeContract.System);
             JsonArray required = variableSchema["required"] as JsonArray ?? new JsonArray();
-            foreach (string requiredField in new[] { "name", "scope", "type", "policy" })
+            if (!required.Any(item => string.Equals(item?.GetValue<string>(), "scope", StringComparison.Ordinal)))
             {
-                if (!required.Any(item => string.Equals(item?.GetValue<string>(), requiredField, StringComparison.Ordinal)))
-                {
-                    required.Add(requiredField);
-                }
+                required.Add("scope");
             }
             variableSchema["required"] = required;
             variableSchema["allOf"] = new JsonArray

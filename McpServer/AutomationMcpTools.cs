@@ -35,10 +35,9 @@ namespace Automation.McpServer
             "预演一个可独立保存、原子提交的ChangeSet V2配置阶段。现有对象使用稳定ID，当前阶段的新对象使用局部key；插入和移动使用锚点定位。"
             + "当前流程阶段依赖的新变量通过variables逐项声明，与actions同事务预演；独立变量维护使用单变量工具。"
             + "指令字段遵循所选语义或精确原生Schema。返回configurationSaved、objectState、localKeyScope、variableResolutions、配置就绪事实和合法状态迁移；提交前的新对象仍为preview_only。"
-            + "新预演不继承旧预演的动作或局部key；replacePreviewId只标识被完整修正版替换的活动预演，不能代替完整changeSet参数。"
-            + "预演前务必核对：variables[]每项必须包含name/scope/type/policy；process.create/step.append/operation.append必须包含key和name。")]
+            + "新预演不继承旧预演的动作或局部key；replacePreviewId只标识被完整修正版替换的活动预演，不能代替完整changeSet参数。")]
         public static async Task<string> PreviewChangeSet(
-            [Description("当前原子阶段；actions按依赖顺序执行，variables逐项声明同阶段依赖变量，两者整体预演。variables[]每项必填name/scope/type/policy。")] AtomicChangeSetDefinition changeSet,
+            [Description("当前原子阶段；actions按依赖顺序执行，variables逐项声明同阶段依赖变量，两者整体预演")] AtomicChangeSetDefinition changeSet,
             [Description("可选；显式指定被完整修正版替换的未提交previewId。无论是否省略，新changeSet都必须自包含，不继承旧预演动作或局部key")] string? replacePreviewId = null)
         {
             if (changeSet == null) throw new ArgumentNullException(nameof(changeSet));
@@ -52,53 +51,15 @@ namespace Automation.McpServer
                 Variables = changeSet.Variables
             };
             string validationError = AiChangeSetCatalog.Validate(compiledInput);
-            if (validationError != null)
-            {
-                return JsonSerializer.Serialize(new
-                {
-                    ok = false,
-                    type = "mcp.error",
-                    errorCode = "INVALID_ARGUMENT",
-                    message = validationError,
-                    recovery = BuildChangeSetValidationRecovery(validationError)
-                });
-            }
             return await ExecuteAsync(
                 toolName: nameof(PreviewChangeSet),
                 args: new { changeSet, replacePreviewId },
-                action: client => client.PreviewChangeSetAsync(compiledInput, replacePreviewId)).ConfigureAwait(false);
-        }
-
-        private static object BuildChangeSetValidationRecovery(string validationError)
-        {
-            string reason = "fix_validation_error";
-            string retryableWhen = "change_set_passes_validation";
-            string sideEffects = "none";
-            object? hints = null;
-            if (validationError != null && validationError.IndexOf("variables", StringComparison.OrdinalIgnoreCase) >= 0
-                && validationError.IndexOf("name", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                hints = new
+                action: client =>
                 {
-                    missingField = "name",
-                    example = new { name = "变量名", scope = "public", type = "double", policy = "reuse" },
-                    checklist = new[] { "variables[] 每项必须包含 name/scope/type/policy", "scope=process 时还必须包含 ownerProcess" }
-                };
-            }
-            else if (validationError != null && validationError.IndexOf("operation", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                hints = new
-                {
-                    checklist = new[] { "operation.append 必须包含 key/kind/name", "分支跳转目标使用 operationKey 指向同 ChangeSet 内指令 key" }
-                };
-            }
-            return new
-            {
-                reason,
-                retryableWhen,
-                sideEffects,
-                hints
-            };
+                    if (validationError != null)
+                        throw new ArgumentException(validationError, nameof(changeSet));
+                    return client.PreviewChangeSetAsync(compiledInput, replacePreviewId);
+                }).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "apply_change_set"), Description(
@@ -143,18 +104,6 @@ namespace Automation.McpServer
         {
             string result = ProcessDesignGuideCatalog.Get(topics);
             ToolCallLogger.Log(nameof(GetProcessDesignGuide), new { topics }, result);
-            return result;
-        }
-
-        [McpServerTool(Name = "get_process_design_faq"), Description(
-            "显式读取流程设计 FAQ 的 Q&A 正例。流程设计 FAQ 已默认注入 Editor 模式提示词，通常无需调用本工具；"
-            + "仅在需要向用户展示 FAQ 原文、或当前提示词上下文被截断导致 FAQ 不可见时使用。"
-            + "当前支持 loop=循环流程的 ChangeSet 写法与常见错误。不传 topics 时返回全部 FAQ。")]
-        public static string GetProcessDesignFaq(
-            [Description("FAQ 主题数组，当前支持：loop=循环流程的 ChangeSet 写法与常见错误。省略时返回全部主题。")] string[]? topics = null)
-        {
-            string result = ProcessDesignFaqCatalog.Get(topics);
-            ToolCallLogger.Log(nameof(GetProcessDesignFaq), new { topics }, result);
             return result;
         }
 

@@ -513,9 +513,6 @@
     <EmbeddedResource Include="Assets\Goose\automation.md">
       <LogicalName>Automation.Assets.Goose.automation.md</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\ProcessDesignFaq.md">
-      <LogicalName>Automation.Assets.Goose.ProcessDesignFaq.md</LogicalName>
-    </EmbeddedResource>
     <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
       <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md</LogicalName>
     </EmbeddedResource>
@@ -538,9 +535,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\Goose\automation.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Goose\ProcessDesignFaq.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">

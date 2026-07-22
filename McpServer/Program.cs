@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Drawing;
 using System.Reflection;
 using System.Text;
@@ -272,8 +272,7 @@ namespace Automation.McpServer
                     VariableScopeContract.System
                 }.All(expected => changeSetVariableScopes.Any(item => item?.GetValue<string>() == expected))
                 || variableRequired == null
-                || !new[] { "name", "scope", "type", "policy" }
-                    .All(field => variableRequired.Any(item => item?.GetValue<string>() == field))
+                || !variableRequired.Any(item => item?.GetValue<string>() == "scope")
                 || variableChangeSchema?["allOf"] is not JsonArray
                 || processSelectorSchema?["oneOf"] is not JsonArray selectorBranches
                 || selectorBranches.Count != 3)

@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -29,9 +29,6 @@
   <ItemGroup>
     <EmbeddedResource Include="Guides\ProcessDesignGuide.md">
       <LogicalName>Automation.McpServer.Guides.ProcessDesignGuide.md</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="..\Assets\Goose\ProcessDesignFaq.md">
-      <LogicalName>Automation.McpServer.Guides.ProcessDesignFaq.md</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 

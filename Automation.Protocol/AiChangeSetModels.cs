@@ -162,10 +162,10 @@ namespace Automation.Protocol
 
     public sealed class VariableChange
     {
-        [Description("必填。变量精确名称，不能为空或空白。")]
+        [Description("变量精确名称。")]
         public string Name { get; set; }
 
-        [Description("必填。变量作用域：public、process 或 system。单流程内部状态使用process；跨流程、HMI或设备共享状态使用public。")]
+        [Description("变量作用域：public、process 或 system。单流程内部状态使用process；跨流程、HMI或设备共享状态使用public。")]
         public string Scope { get; set; }
 
         [Description("scope=process时必填的所属流程；可使用现有流程procId/name或同一ChangeSet新流程key。其他作用域不得提供。")]
@@ -174,7 +174,7 @@ namespace Automation.Protocol
         [Description("可选普通变量全局槽位，范围[0,1000)；省略时新变量自动分配，现有变量保持原槽位。")]
         public int? Index { get; set; }
 
-        [Description("必填。变量类型：double 或 string。复用现有变量时需与现有类型一致。")]
+        [Description("变量类型：double 或 string。复用现有变量时需与现有类型一致。")]
         public string Type { get; set; }
 
         [Description("变量当前值，按type解析；创建时省略则使用double的0或string的空字符串，更新时省略则保持当前值。")]
@@ -183,7 +183,7 @@ namespace Automation.Protocol
         [Description("变量说明，可省略。")]
         public string Note { get; set; }
 
-        [Description("必填。策略：reuse/create/update/replace/require。reuse可复用或创建；require只接受已存在变量。"
+        [Description("策略：reuse/create/update/replace/require。reuse可复用或创建；require只接受已存在变量。"
             + "系统变量区配置只读，已存在的系统变量只使用reuse或require，缺失的系统变量不由ChangeSet创建。")]
         public string Policy { get; set; }
     }
